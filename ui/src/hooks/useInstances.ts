@@ -2,12 +2,22 @@ import { useQuery } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 
+// The queryFn ternary returned the service's real result on one branch and a
+// hand-written literal on the other. TypeScript widened that union to `{}`,
+// so every property access on the result failed once the processService
+// facade stopped being typed `any`. Deriving the fallback from the service's
+// own signature keeps both branches the same shape.
+type StatisticsResult = Awaited<ReturnType<typeof processService.getProcessStatistics>>;
+type InstanceResult = Awaited<ReturnType<typeof processService.getInstance>>;
+
 export const useProcessStatistics = () => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
     queryKey: ['stats', currentProjectId],
     queryFn: ({ signal }) =>
-      (currentProjectId && token) ? processService.getProcessStatistics(currentProjectId, signal) : Promise.resolve({ stats: null, err: "" }),
+      (currentProjectId && token)
+        ? processService.getProcessStatistics(currentProjectId, signal)
+        : Promise.resolve({ stats: undefined, err: '' } as unknown as StatisticsResult),
     enabled: !!currentProjectId && !!token,
   });
 };
@@ -16,7 +26,9 @@ export const useInstance = (id: string | null) => {
   return useQuery({
     queryKey: ['instance', id],
     queryFn: ({ signal }) =>
-      id ? processService.getInstance(id, signal) : Promise.resolve({ instance: null, err: "" }),
+      id
+        ? processService.getInstance(id, signal)
+        : Promise.resolve({ instance: undefined, err: '' } as InstanceResult),
     enabled: !!id,
   });
 };

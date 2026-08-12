@@ -3,12 +3,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 
+// The queryFn ternary returned the service's real result on one branch and a
+// hand-written literal on the other. TypeScript widened that union to `{}`,
+// so every property access on the result failed once the processService
+// facade stopped being typed `any`. Deriving the fallback from the service's
+// own signature keeps both branches the same shape.
+type DefinitionsResult = Awaited<ReturnType<typeof processService.listDefinitions>>;
+type DefinitionResult = Awaited<ReturnType<typeof processService.getDefinition>>;
+
 export const useDefinitions = () => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
     queryKey: ['definitions', currentProjectId],
     queryFn: ({ signal }) =>
-      (currentProjectId && token) ? processService.listDefinitions(currentProjectId, signal) : Promise.resolve({ definitions: [], err: "" }),
+      (currentProjectId && token)
+        ? processService.listDefinitions(currentProjectId, signal)
+        : Promise.resolve({ definitions: [], err: '' } as DefinitionsResult),
     enabled: !!currentProjectId && !!token,
   });
 };
@@ -18,7 +28,9 @@ export const useDefinition = (id: string | null) => {
   return useQuery({
     queryKey: ['definition', currentProjectId, id],
     queryFn: ({ signal }) =>
-      (currentProjectId && id && token) ? processService.getDefinition(currentProjectId, id, signal) : Promise.resolve({ definition: null, err: "" }),
+      (currentProjectId && id && token)
+        ? processService.getDefinition(currentProjectId, id, signal)
+        : Promise.resolve({ definition: undefined, err: '' } as DefinitionResult),
     enabled: !!currentProjectId && !!id && !!token,
   });
 };

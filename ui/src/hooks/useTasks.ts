@@ -74,7 +74,7 @@ export const useCompleteTask = () => {
         color: 'green',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to complete task',
@@ -96,7 +96,7 @@ export const useClaimTask = () => {
         color: 'blue',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to claim task',
@@ -118,7 +118,7 @@ export const useUnclaimTask = () => {
         color: 'gray',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to unclaim task',
@@ -140,7 +140,7 @@ export const useDelegateTask = () => {
         color: 'yellow',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to delegate task',
@@ -163,7 +163,7 @@ export const useUpdateTask = () => {
         color: 'green',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to update task',
@@ -185,7 +185,7 @@ export const useAssignTask = () => {
         color: 'blue',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to assign task',

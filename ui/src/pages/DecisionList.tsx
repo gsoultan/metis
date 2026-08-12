@@ -139,7 +139,7 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                decisions.map((def: any) => (
+                decisions.map((def) => (
                   <Table.Tr key={def.id}>
                     <Table.Td>
                       <Group gap="sm">

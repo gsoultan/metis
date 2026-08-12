@@ -64,7 +64,7 @@ export function NotificationCenter() {
               </Stack>
             ) : (
               <Stack gap={0}>
-                {notifications.map((n: any) => (
+                {notifications.map((n) => (
                   <Paper 
                     key={n.id} 
                     p="md" 

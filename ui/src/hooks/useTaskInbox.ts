@@ -22,8 +22,8 @@ export function useTaskInbox() {
   const userGroups = useMemo(() => {
     if (!userGroupsData?.groups) return [];
     return userGroupsData.groups
-      .filter((g: any) => g.organization_id === currentOrganizationId)
-      .map((g: any) => g.name);
+      .filter((g) => g.organization_id === currentOrganizationId)
+      .map((g) => g.name);
   }, [userGroupsData, currentOrganizationId]);
   
   const [activeTab, setActiveTab] = useState<string | null>('assigned');
@@ -39,7 +39,7 @@ export function useTaskInbox() {
   
   const { data: usersData } = useUsers(currentOrganizationId);
   const availableUsers = useMemo(() => 
-    (usersData?.users || []).map((u: any) => ({ value: u.username, label: u.fullName || u.username })),
+    (usersData?.users || []).map((u) => ({ value: u.username, label: u.fullName || u.username })),
     [usersData]
   );
   

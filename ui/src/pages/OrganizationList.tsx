@@ -144,7 +144,7 @@ export function OrganizationList() {
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                organizations.map((org: any) => (
+                organizations.map((org) => (
                   <Table.Tr key={org.id}>
                     <Table.Td>
                       <Group gap="sm">

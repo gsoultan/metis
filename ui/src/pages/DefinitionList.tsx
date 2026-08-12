@@ -50,7 +50,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
 
   const groupedDefinitions = useMemo(() => {
     const groups: Record<string, any[]> = {};
-    definitions.forEach((def: any) => {
+    definitions.forEach((def) => {
       if (!groups[def.key]) groups[def.key] = [];
       groups[def.key].push(def);
     });
@@ -169,7 +169,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                latestDefinitions.map((def: any) => (
+                latestDefinitions.map((def) => (
                   <Table.Tr key={def.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -260,7 +260,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {historyVersions.map((v: any) => (
+              {historyVersions.map((v) => (
                 <Table.Tr key={v.id}>
                   <Table.Td><Badge color={v.version === historyVersions[0].version ? "blue" : "gray"}>v{v.version}</Badge></Table.Td>
                   <Table.Td><Text size="sm">{dayjs(v.created_at).format('YYYY-MM-DD HH:mm')}</Text></Table.Td>
@@ -290,7 +290,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
           </Center>
         ) : !!fullDefData?.definition && (
           <Stack gap="md">
-            <BPMNGraph nodes={fullDefData.definition.nodes} flows={fullDefData.definition.flows} />
+            <BPMNGraph nodes={(fullDefData.definition as unknown as { nodes?: React.ComponentProps<typeof BPMNGraph>['nodes'] })?.nodes} flows={(fullDefData.definition as unknown as { flows?: React.ComponentProps<typeof BPMNGraph>['flows'] })?.flows} />
             <Group justify="flex-end">
               <Button onClick={() => setSelectedDef(null)}>Close</Button>
               <Button 
@@ -298,7 +298,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                 color="green" 
                 leftSection={<Play size={16} />}
                 onClick={() => {
-                  startProcess.mutate({ definitionKey: fullDefData.definition.key });
+                  startProcess.mutate({ definitionKey: fullDefData.definition!.key });
                   setSelectedDef(null);
                 }}
               >

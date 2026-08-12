@@ -54,7 +54,7 @@ export function UserList() {
 
   const allUsers = data?.users || [];
   const users = searchQuery
-    ? allUsers.filter((u: any) =>
+    ? allUsers.filter((u) =>
         u.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -195,7 +195,7 @@ export function UserList() {
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                users.map((u: any) => (
+                users.map((u) => (
                   <Table.Tr key={u.id}>
                     <Table.Td>
                       <Group gap="sm">

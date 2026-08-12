@@ -2,12 +2,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 
+type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
+
+type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
+
 export const useDecisions = () => {
   const { currentProjectId } = useAppStore();
   return useQuery({
     queryKey: ['decisions', currentProjectId],
     queryFn: ({ signal }) =>
-      currentProjectId ? processService.listDecisions(currentProjectId, signal) : Promise.resolve({ decisions: [], err: "" }),
+      currentProjectId
+        ? processService.listDecisions(currentProjectId, signal)
+        : Promise.resolve({ decisions: [], err: undefined } as DecisionsResult),
     enabled: !!currentProjectId,
   });
 };
@@ -16,7 +22,9 @@ export const useDecision = (id: string | null) => {
   return useQuery({
     queryKey: ['decision', id],
     queryFn: ({ signal }) =>
-      id ? processService.getDecision(id, signal) : Promise.resolve({ decision: null, err: "" }),
+      id
+        ? processService.getDecision(id, signal)
+        : Promise.resolve({ decision: undefined, err: undefined } as DecisionResult),
     enabled: !!id,
   });
 };

@@ -393,7 +393,7 @@ export function Connectors() {
                 <Table.Tbody>
                   {instances.map((inst: any) => {
                     const connector = connectors.find((c: any) => c.id === inst.connector_id);
-                    const Icon = IconMap[connector?.icon] || Zap;
+                    const Icon = (connector?.icon ? IconMap[connector.icon] : undefined) ?? Zap;
                     return (
                       <Table.Tr key={inst.id}>
                         <Table.Td>

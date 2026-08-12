@@ -226,16 +226,16 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       setRequiredDecisions((d.required_decisions || []).join(', '));
       setInputs(d.inputs || []);
       setOutputs(d.outputs || []);
-      setRules((d.rules || []).map((r: any) => ({
+      setRules((d.rules || []).map((r) => ({
         id: r.id,
         input_entries: r.inputs || [],
-        output_entries: (r.outputs || []).map((v: any) => String(v)),
+        output_entries: (r.outputs || []).map((v) => String(v)),
         description: r.description || ''
       })));
       
       // Initialize test inputs
       const initialTestInputs: Record<string, string> = {};
-      d.inputs?.forEach((input: any) => {
+      d.inputs?.forEach((input) => {
         initialTestInputs[input.expression] = "";
       });
       setTestInputs(initialTestInputs);

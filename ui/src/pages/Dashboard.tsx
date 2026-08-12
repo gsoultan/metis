@@ -120,21 +120,30 @@ export function Dashboard() {
   // real, idle one — "we don't know yet" rendered as "we know, and it's none".
   // The zeros remain only as a shape for the render below; statsLoading decides
   // whether they are ever shown.
-  const stats = statsData?.stats ?? {
-    active_instances: 0,
-    completed_instances: 0,
-    failed_instances: 0,
-    total_tasks: 0,
-    pending_tasks: 0,
-    node_frequencies: {},
-  };
+  /*
+   * These come from the Connect (protobuf) client, which serialises field
+   * names in camelCase — activeInstances, not active_instances.
+   *
+   * Every read here used snake_case, so each one evaluated to `undefined` and
+   * the `|| 0` fallback rendered a zero. The dashboard showed 0 active
+   * instances, 0 process models and 0% completion no matter what the system
+   * was actually doing, and nothing caught it because the processService
+   * facade was typed `any`.
+   */
+  const stats = statsData?.stats;
+  const activeInstances = stats?.activeInstances ?? 0;
+  const failedInstances = stats?.failedInstances ?? 0;
+  const totalTasks = stats?.totalTasks ?? 0;
+  const pendingTasks = stats?.pendingTasks ?? 0;
+  const completedInstances = stats?.completedInstances ?? 0;
+  const nodeFrequencies = (stats as unknown as { nodeFrequencies?: Record<string, number> })?.nodeFrequencies ?? {};
 
   const lastInstanceId = instancesData?.instances?.[0]?.id;
 
   const totalDefinitions = defs?.definitions?.length || 0;
   const totalProjects = projectsData?.projects?.length || 0;
 
-  const nodeFreqs = stats.node_frequencies || {};
+  const nodeFreqs = nodeFrequencies;
   const topNodes = Object.entries(nodeFreqs)
     .sort(([, a], [, b]) => (b as number) - (a as number))
     .slice(0, 5);
@@ -170,8 +179,8 @@ export function Dashboard() {
     );
   }
 
-  const completionRate = stats.total_tasks > 0 
-    ? Math.round(((stats.total_tasks - stats.pending_tasks) / stats.total_tasks) * 100) 
+  const completionRate = totalTasks > 0 
+    ? Math.round(((totalTasks - pendingTasks) / totalTasks) * 100) 
     : 0;
 
   return (
@@ -195,7 +204,7 @@ export function Dashboard() {
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
             title="Active Instances"
-            value={stats.active_instances}
+            value={activeInstances}
             icon={Activity}
             color="indigo"
             hint="Processes currently running"
@@ -217,17 +226,17 @@ export function Dashboard() {
             icon={CheckCircle}
             color="orange"
             progress={completionRate}
-            progressLabel={`${stats.total_tasks - stats.pending_tasks} of ${stats.total_tasks}`}
+            progressLabel={`${totalTasks - pendingTasks} of ${totalTasks}`}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
             title="Needs Attention"
-            value={stats.failed_instances}
+            value={failedInstances}
             icon={AlertCircle}
-            color={stats.failed_instances > 0 ? 'red' : 'green'}
+            color={failedInstances > 0 ? 'red' : 'green'}
             hint={
-              stats.failed_instances > 0
+              failedInstances > 0
                 ? 'Failed instances waiting on someone'
                 : 'Nothing has failed'
             }
@@ -275,7 +284,7 @@ export function Dashboard() {
                       <Badge variant="light" color="orange">{(count as number)} hits</Badge>
                     </Group>
                     <Progress 
-                      value={Math.min(((count as number) / (stats.completed_instances || 1)) * 100, 100)} 
+                      value={Math.min(((count as number) / (completedInstances || 1)) * 100, 100)} 
                       color="orange" 
                       size="xs" 
                       radius="xl" 
@@ -286,7 +295,7 @@ export function Dashboard() {
               <Divider my="sm" />
               <Stack gap="xs">
                 <Text size="xs" fw={700} c="dimmed" tt="uppercase">Heatmap Overlays</Text>
-                {defs?.definitions?.slice(0, 3).map((def: any) => (
+                {defs?.definitions?.slice(0, 3).map((def) => (
                   <Button 
                     key={def.id}
                     variant="light" 
@@ -319,7 +328,7 @@ export function Dashboard() {
               nodes={selectedHeatmapDef.nodes} 
               flows={selectedHeatmapDef.flows}
               isReadOnly 
-              heatmapData={stats.node_frequencies}
+              heatmapData={nodeFrequencies}
             />
           )}
         </Box>

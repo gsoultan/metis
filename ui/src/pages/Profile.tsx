@@ -131,7 +131,7 @@ export function Profile() {
           <Paper p="xl" radius="lg" withBorder shadow="sm">
             <Title order={5} mb="md">Your Organizations</Title>
             <Stack gap="sm">
-              {user.organizations?.map((org: any) => (
+              {user.organizations?.map((org) => (
                 <Paper key={org.id} withBorder p="xs" radius="md" bg="gray.0">
                   <Group justify="space-between">
                     <Group gap="xs">

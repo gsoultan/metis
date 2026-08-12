@@ -26,6 +26,7 @@ import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappe
 import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
+import type { ApiNode, ApiFlow } from '../services/types';
 type ValidationIssue = {
   message: string;
   severity: 'error' | 'warning';
@@ -138,6 +139,23 @@ type UseProcessDesignerParams = {
   initialName?: string;
   /** Pre-fill the process key from the URL search params (for new processes). */
   initialKey?: string;
+};
+
+/*
+ * The Connect-generated ProcessDefinition carries only id/projectId/key/name/
+ * version — the designer needs nodes and flows, which the REST endpoint
+ * returns but the protobuf message does not declare. Narrowed here, at the
+ * boundary, rather than widening the whole call chain back to `any`.
+ *
+ * The correct fix is for the proto to describe the full definition, or for the
+ * designer to read from the REST client. Tracked in .junie/ui-ux-audit.md.
+ */
+type FullDefinition = {
+  id: string;
+  key: string;
+  name: string;
+  nodes?: ApiNode[];
+  flows?: ApiFlow[];
 };
 
 export function useProcessDesigner({ definitionId, instanceId, initialName, initialKey }: UseProcessDesignerParams) {
@@ -511,7 +529,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
           status = 'completed';
         }
 
-        if (instanceData?.instance?.active_nodes?.includes(node.id)) {
+        if (instanceData?.instance?.activeNodes?.includes(node.id)) {
           status = 'active';
         }
 
@@ -548,7 +566,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       return;
     }
 
-    const definition = loadedData.definition;
+    const definition = loadedData.definition as unknown as FullDefinition;
     /* eslint-disable react-hooks/set-state-in-effect */
     setProcessName(definition.name);
     setProcessKey(definition.key);

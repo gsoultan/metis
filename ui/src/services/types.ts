@@ -152,6 +152,8 @@ export interface CreateDefinitionPayload {
 // ─── Connectors ──────────────────────────────────────────────────────────────
 
 export interface ApiConnector {
+  /** Icon key used by the connector catalogue in the designer. */
+  icon?: string;
   id: string;
   key: string;
   name: string;
