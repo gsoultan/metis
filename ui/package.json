@@ -13,9 +13,9 @@
     "bundle-budget": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^1.10.0",
-    "@connectrpc/connect": "^1.6.1",
-    "@connectrpc/connect-web": "^1.6.1",
+    "@bufbuild/protobuf": "^2",
+    "@connectrpc/connect": "^2",
+    "@connectrpc/connect-web": "^2",
     "@mantine/core": "^9",
     "@mantine/dates": "^9",
     "@mantine/form": "^9",

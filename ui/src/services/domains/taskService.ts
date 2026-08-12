@@ -1,5 +1,6 @@
 import { taskClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
+import type { ProcessVariables } from "../types";
 
 type ListIncidentsResponse = {
   incidents?: unknown[];
@@ -12,7 +13,7 @@ export const taskService = {
     return { tasks: response.tasks ?? [], err: response.error };
   },
 
-  async completeTask(id: string, userId: string, variables: Record<string, unknown> = {}, signal?: AbortSignal) {
+  async completeTask(id: string, userId: string, variables: ProcessVariables = {}, signal?: AbortSignal) {
     const response = await taskClient.completeTask({ id, userId, variables }, { signal });
     return { err: response.error };
   },

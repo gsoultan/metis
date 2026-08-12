@@ -8,6 +8,8 @@
  * Generated proto types are re-exported for convenience so callers only need
  * to import from this module.
  */
+
+import type { JsonObject } from "@bufbuild/protobuf";
 import type { Project } from "../gen/entities/project_pb";
 import type { Task } from "../gen/entities/task_pb";
 
@@ -251,11 +253,15 @@ export interface SetupRequest {
 /**
  * ProcessVariables is the business payload carried by a process instance, task
  * or decision evaluation. The keys and value shapes are defined by whoever
- * modelled the process, so the values are genuinely unknown at compile time —
- * `unknown` rather than `any`, so callers must narrow before use instead of
- * silently propagating an untyped value through the app.
+ * modelled the process, so they are not knowable at compile time.
+ *
+ * Aliased to protobuf's JsonObject rather than Record<string, unknown>: these
+ * cross the wire inside a protobuf Struct, which can only hold JSON, and
+ * protobuf-es v2 enforces that. Saying so here means a value that could not
+ * survive the round trip is rejected where it is built rather than at the
+ * transport boundary.
  */
-export type ProcessVariables = Record<string, unknown>;
+export type ProcessVariables = JsonObject;
 
 /** Mirrors entities.DecisionInput. */
 export interface ApiDecisionInput {

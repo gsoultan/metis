@@ -1,6 +1,6 @@
 import { processClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
-import type { ApiAuditEntry, ApiSubProcess } from "../types";
+import type { ApiAuditEntry, ApiSubProcess, ProcessVariables } from "../types";
 
 type GetAuditLogsResponse = {
   entries?: ApiAuditEntry[];
@@ -13,7 +13,7 @@ type ListSubProcessesResponse = {
 };
 
 export const processRuntimeService = {
-  async startProcess(projectId: string, definitionKey: string, variables: Record<string, unknown> = {}, signal?: AbortSignal) {
+  async startProcess(projectId: string, definitionKey: string, variables: ProcessVariables = {}, signal?: AbortSignal) {
     const response = await processClient.startProcess({ projectId, definitionKey, variables }, { signal });
     return { instance_id: response.instanceId, err: response.error };
   },
