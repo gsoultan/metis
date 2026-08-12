@@ -318,8 +318,6 @@ Two things the script handles that are easy to get wrong by hand:
 - A reference to another record is an object, not an id: `"project": {"id": …}`,
   and `"candidate_groups": [{"name": "finance"}]`.
 
-> The designer can draw these processes but cannot yet save them with their
-> settings intact: the Connect API it saves through has no field for a node's
-> `properties`, so `decision_key`, `http_url` and the `input_`/`output_`
-> mappings are dropped on the way. Until that is fixed, import them with the
-> script and use the designer to read them.
+Once imported, open either one in the designer to see the same process as a
+diagram — it reads and saves everything shown here, including the settings on
+each node.
