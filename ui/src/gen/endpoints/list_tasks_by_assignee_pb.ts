@@ -5,13 +5,15 @@
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_endpoints_list_tasks } from "./list_tasks_pb";
+import type { PageRequest } from "./page_pb";
+import { file_endpoints_page } from "./page_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file endpoints/list_tasks_by_assignee.proto.
  */
 export const file_endpoints_list_tasks_by_assignee: GenFile = /*@__PURE__*/
-  fileDesc("CiZlbmRwb2ludHMvbGlzdF90YXNrc19ieV9hc3NpZ25lZS5wcm90bxIHcHJvY2VzcyIuChpMaXN0VGFza3NCeUFzc2lnbmVlUmVxdWVzdBIQCghhc3NpZ25lZRgBIAEoCUKcAQoLY29tLnByb2Nlc3NCGExpc3RUYXNrc0J5QXNzaWduZWVQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_endpoints_list_tasks]);
+  fileDesc("CiZlbmRwb2ludHMvbGlzdF90YXNrc19ieV9hc3NpZ25lZS5wcm90bxIHcHJvY2VzcyJSChpMaXN0VGFza3NCeUFzc2lnbmVlUmVxdWVzdBIQCghhc3NpZ25lZRgBIAEoCRIiCgRwYWdlGAIgASgLMhQucHJvY2Vzcy5QYWdlUmVxdWVzdEKcAQoLY29tLnByb2Nlc3NCGExpc3RUYXNrc0J5QXNzaWduZWVQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_endpoints_list_tasks, file_endpoints_page]);
 
 /**
  * @generated from message process.ListTasksByAssigneeRequest
@@ -21,6 +23,14 @@ export type ListTasksByAssigneeRequest = Message<"process.ListTasksByAssigneeReq
    * @generated from field: string assignee = 1;
    */
   assignee: string;
+
+  /**
+   * Optional. Omitted means the first page at the server default size, so
+   * clients written before paging existed keep working unchanged.
+   *
+   * @generated from field: process.PageRequest page = 2;
+   */
+  page?: PageRequest | undefined;
 };
 
 /**

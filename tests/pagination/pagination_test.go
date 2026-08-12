@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories"
 	"github.com/gsoultan/gobpm/server/repositories/contracts"
+	"github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/gsoultan/gobpm/tests/testutils"
 )
 
@@ -159,3 +160,48 @@ func TestPagination_EmptyResultIsAnEmptyPageNotNil(t *testing.T) {
 	}
 }
 
+// The paged queries are ordered, and tenantScopeDB joins the projects table —
+// which carries created_at too. A bare "created_at DESC" is therefore ambiguous
+// the moment tenant scoping is active, which it is for every request-driven
+// call.
+//
+// The tests above all run without a TenantContext, so no join is added and the
+// ambiguity never appears. That gap let the bug reach a running server, where
+// it failed every paged request with
+// "SQL logic error: ambiguous column name: created_at".
+func TestPagination_WorksUnderTenantScoping(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	repo := repositories.NewRepository(db)
+	ctx := t.Context()
+
+	orgID := uuid.Must(uuid.NewV7())
+	if err := repo.Organization().Create(ctx, models.OrganizationModel{
+		Base: models.Base{ID: orgID},
+		Name: "Acme",
+	}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+
+	projectID := uuid.Must(uuid.NewV7())
+	if err := repo.Project().Create(ctx, models.ProjectModel{
+		Base:           models.Base{ID: projectID},
+		OrganizationID: orgID,
+		Name:           "Acme Project",
+	}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	seedTasks(t, repo, projectID, "alice", 12)
+
+	scoped := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
+	page, err := repo.Task().ListByAssigneePaged(scoped, "alice", contracts.Pagination{Page: 1, PageSize: 5})
+	if err != nil {
+		t.Fatalf("paged query under tenant scoping: %v", err)
+	}
+	if len(page.Items) != 5 {
+		t.Fatalf("got %d rows, want 5", len(page.Items))
+	}
+	if page.Total != 12 {
+		t.Fatalf("Total = %d, want 12", page.Total)
+	}
+}

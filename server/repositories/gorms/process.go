@@ -100,12 +100,12 @@ func (r *gormProcessRepository) ListByProjectPaged(ctx context.Context, projectI
 	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_instances").
 		Model(&models.ProcessInstanceModel{}).
 		Where(QueryByProjectID, projectID)
-	return countAndPage[models.ProcessInstanceModel](base, p, "created_at DESC")
+	return countAndPage[models.ProcessInstanceModel](base, p, "process_instances.created_at DESC")
 }
 
 // ListPaged returns one page of process instances across the active tenant.
 func (r *gormProcessRepository) ListPaged(ctx context.Context, p contracts.Pagination) (contracts.Page[models.ProcessInstanceModel], error) {
 	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_instances").
 		Model(&models.ProcessInstanceModel{})
-	return countAndPage[models.ProcessInstanceModel](base, p, "created_at DESC")
+	return countAndPage[models.ProcessInstanceModel](base, p, "process_instances.created_at DESC")
 }

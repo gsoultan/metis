@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package process;
+
+option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+
+// PageRequest asks for one window of a larger result set.
+//
+// Every list used to return every row, which is survivable with the hundred
+// tasks a demo has and untenable with the hundred thousand a real deployment
+// accumulates.
+//
+// Both fields are optional: a caller that sends neither gets the first page at
+// the server's default size, so existing clients keep working.
+message PageRequest {
+  // 1-based. Values below 1 are treated as 1.
+  int32 page = 1;
+  // Clamped to the server's maximum. 0 means the server default.
+  int32 page_size = 2;
+}
+
+// PageInfo describes the window that was returned, so a caller can render
+// "51–100 of 1,234" and know whether to offer a next page rather than
+// inferring it from a short result.
+message PageInfo {
+  // Rows in the whole result set, not in this page.
+  int64 total = 1;
+  // The page actually served, after clamping.
+  int32 page = 2;
+  // The size actually used, after clamping.
+  int32 page_size = 3;
+  bool has_more = 4;
+}

@@ -166,6 +166,10 @@ func (r *gormTaskRepository) CountByStatus(ctx context.Context, projectID uuid.U
 // so the total is correct either way, but sharing one *gorm.DB across two
 // terminal calls lets conditions from the first leak into the second — the
 // clone keeps the two independent rather than relying on that.
+// order must qualify its column with the table name. tenantScopeDB joins
+// projects, which carries created_at too, so a bare "created_at DESC" is
+// ambiguous the moment tenant scoping is active — and it is active for every
+// request-driven call.
 func countAndPage[T any](base *gorm.DB, p contracts.Pagination, order string) (contracts.Page[T], error) {
 	var total int64
 	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -188,7 +192,7 @@ func (r *gormTaskRepository) ListByAssigneePaged(ctx context.Context, assignee s
 	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "tasks").
 		Model(&models.TaskModel{}).
 		Where(QueryByAssignee, assignee)
-	return countAndPage[models.TaskModel](base, p, "created_at DESC")
+	return countAndPage[models.TaskModel](base, p, "tasks.created_at DESC")
 }
 
 // ListByProjectPaged returns one page of a project's tasks.
@@ -196,5 +200,5 @@ func (r *gormTaskRepository) ListByProjectPaged(ctx context.Context, projectID u
 	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "tasks").
 		Model(&models.TaskModel{}).
 		Where(QueryByProjectID, projectID)
-	return countAndPage[models.TaskModel](base, p, "created_at DESC")
+	return countAndPage[models.TaskModel](base, p, "tasks.created_at DESC")
 }

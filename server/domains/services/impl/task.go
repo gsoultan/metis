@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 
 	"github.com/google/uuid"
@@ -434,4 +435,22 @@ func (s *taskService) recordAuditEvent(ctx context.Context, task entities.Task, 
 		Node:     task.Node,
 		Data:     map[string]any{"actor": actor},
 	})
+}
+
+// ListTasksByAssigneePaged returns one page of a user's tasks with the total.
+//
+// The mapping from models to entities happens per page rather than per result
+// set, which is the point: the previous unpaged call adapted every row a user
+// had ever been assigned in order to render fifty of them.
+func (s *taskService) ListTasksByAssigneePaged(ctx context.Context, assignee string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error) {
+	result, err := s.repo.Task().ListByAssigneePaged(ctx, assignee, page)
+	if err != nil {
+		return repocontracts.Page[entities.Task]{}, err
+	}
+
+	tasks := make([]entities.Task, len(result.Items))
+	for i, m := range result.Items {
+		tasks[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(tasks, result.Total, page), nil
 }

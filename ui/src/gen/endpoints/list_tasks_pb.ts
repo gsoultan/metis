@@ -6,13 +6,15 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Task } from "../entities/task_pb";
 import { file_entities_task } from "../entities/task_pb";
+import type { PageInfo, PageRequest } from "./page_pb";
+import { file_endpoints_page } from "./page_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file endpoints/list_tasks.proto.
  */
 export const file_endpoints_list_tasks: GenFile = /*@__PURE__*/
-  fileDesc("ChplbmRwb2ludHMvbGlzdF90YXNrcy5wcm90bxIHcHJvY2VzcyImChBMaXN0VGFza3NSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkiQAoRTGlzdFRhc2tzUmVzcG9uc2USHAoFdGFza3MYASADKAsyDS5wcm9jZXNzLlRhc2sSDQoFZXJyb3IYAiABKAlCkgEKC2NvbS5wcm9jZXNzQg5MaXN0VGFza3NQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_entities_task]);
+  fileDesc("ChplbmRwb2ludHMvbGlzdF90YXNrcy5wcm90bxIHcHJvY2VzcyJKChBMaXN0VGFza3NSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSIgoEcGFnZRgCIAEoCzIULnByb2Nlc3MuUGFnZVJlcXVlc3QiYQoRTGlzdFRhc2tzUmVzcG9uc2USHAoFdGFza3MYASADKAsyDS5wcm9jZXNzLlRhc2sSDQoFZXJyb3IYAiABKAkSHwoEcGFnZRgDIAEoCzIRLnByb2Nlc3MuUGFnZUluZm9CkgEKC2NvbS5wcm9jZXNzQg5MaXN0VGFza3NQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_entities_task, file_endpoints_page]);
 
 /**
  * @generated from message process.ListTasksRequest
@@ -22,6 +24,13 @@ export type ListTasksRequest = Message<"process.ListTasksRequest"> & {
    * @generated from field: string project_id = 1;
    */
   projectId: string;
+
+  /**
+   * Optional; see PageRequest.
+   *
+   * @generated from field: process.PageRequest page = 2;
+   */
+  page?: PageRequest | undefined;
 };
 
 /**
@@ -32,6 +41,8 @@ export const ListTasksRequestSchema: GenMessage<ListTasksRequest> = /*@__PURE__*
   messageDesc(file_endpoints_list_tasks, 0);
 
 /**
+ * Shared by ListTasks, ListTasksByAssignee and ListTasksByCandidates.
+ *
  * @generated from message process.ListTasksResponse
  */
 export type ListTasksResponse = Message<"process.ListTasksResponse"> & {
@@ -44,6 +55,14 @@ export type ListTasksResponse = Message<"process.ListTasksResponse"> & {
    * @generated from field: string error = 2;
    */
   error: string;
+
+  /**
+   * Absent when the caller did not page, so an old client sees exactly the
+   * response it saw before.
+   *
+   * @generated from field: process.PageInfo page = 3;
+   */
+  page?: PageInfo | undefined;
 };
 
 /**
