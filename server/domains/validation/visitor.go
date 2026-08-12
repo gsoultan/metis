@@ -18,6 +18,14 @@ func NewVisitor() *Visitor {
 }
 
 func (v *Visitor) VisitDefinition(pd *entities.ProcessDefinition) {
+	// A request whose body omits or misspells "definition" decodes to a nil
+	// pointer, so this is reachable from outside rather than only from a
+	// programming error. Report it as invalid input; dereferencing it here
+	// takes the request down without ever reaching the logging interceptor.
+	if pd == nil {
+		v.errors = append(v.errors, "No process definition was supplied")
+		return
+	}
 	if pd.Key == "" {
 		v.errors = append(v.errors, "Process definition key is missing")
 	}

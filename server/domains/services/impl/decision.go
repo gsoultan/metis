@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -101,6 +102,16 @@ func (s *decisionService) GetDecision(ctx context.Context, id uuid.UUID) (entiti
 }
 
 func (s *decisionService) CreateDecision(ctx context.Context, d entities.DecisionDefinition) (uuid.UUID, error) {
+	// The key is how a process names this decision, so a keyless one is
+	// unreachable by definition. It is also worth rejecting rather than
+	// ignoring: the request type carries the decision by value, so a body that
+	// omits the "decision" envelope arrives here as the zero value, and the
+	// version bump below would look up the empty key, find the last row stored
+	// this way, and file another version of it.
+	if strings.TrimSpace(d.Key) == "" {
+		return uuid.Nil, fmt.Errorf("decision key is required")
+	}
+
 	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		if d.ID == uuid.Nil {
 			d.ID, _ = uuid.NewV7()
