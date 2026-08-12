@@ -1,0 +1,17 @@
+{
+  "key": "supplier-risk",
+  "name": "Supplier risk band",
+  "hit_policy": "FIRST",
+  "inputs": [
+    { "id": "in_score",  "label": "Credit score",   "expression": "creditScore",   "type": "number" },
+    { "id": "in_status", "label": "Company status", "expression": "companyStatus", "type": "string" }
+  ],
+  "outputs": [
+    { "id": "out_band", "label": "Risk band", "name": "riskBand", "type": "string" }
+  ],
+  "rules": [
+    { "id": "r1", "description": "Poor credit is high risk whatever the status", "inputs": ["< 30", "-"],        "outputs": ["high"] },
+    { "id": "r2", "description": "Middling credit, but trading",                 "inputs": ["< 60", "active"],   "outputs": ["medium"] },
+    { "id": "r3", "description": "Everything else",                              "inputs": ["-", "-"],           "outputs": ["low"] }
+  ]
+}

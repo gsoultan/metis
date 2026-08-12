@@ -1,0 +1,17 @@
+{
+  "key": "expense-approval-level",
+  "name": "Expense approval level",
+  "hit_policy": "FIRST",
+  "inputs": [
+    { "id": "in_amount", "label": "Amount", "expression": "amount", "type": "number" }
+  ],
+  "outputs": [
+    { "id": "out_level",    "label": "Approval level", "name": "approvalLevel", "type": "string" },
+    { "id": "out_approver", "label": "Approver",       "name": "approver",      "type": "string" }
+  ],
+  "rules": [
+    { "id": "r1", "description": "Small amounts need no person",  "inputs": ["< 100"],  "outputs": ["auto", "system"] },
+    { "id": "r2", "description": "Up to £1,000: line manager",    "inputs": ["< 1000"], "outputs": ["manager", "line-manager"] },
+    { "id": "r3", "description": "Anything larger: the director", "inputs": ["-"],      "outputs": ["director", "finance-director"] }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "key": "supplier-check",
+  "name": "New supplier check",
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Supplier proposed",
+      "type": "startEvent",
+      "x": 80,
+      "y": 200
+    },
+    {
+      "id": "lookup",
+      "name": "Look up the company",
+      "type": "serviceTask",
+      "x": 250,
+      "y": 190,
+      "documentation": "Sends `companyNumber` out as `registration_id`; keeps `credit_score` as `creditScore` and `status` as `companyStatus`. Anything else in the response is discarded.",
+      "properties": {
+        "http_url": "https://api.example.com/companies/lookup",
+        "http_method": "POST",
+        "input_companyNumber": "registration_id",
+        "output_credit_score": "creditScore",
+        "output_status": "companyStatus"
+      }
+    },
+    {
+      "id": "risk",
+      "name": "Decide the risk band",
+      "type": "businessRuleTask",
+      "x": 460,
+      "y": 190,
+      "documentation": "Reads `creditScore` and `companyStatus`; writes `riskBand`. Both conditions on a row must hold.",
+      "properties": {
+        "decision_key": "supplier-risk"
+      }
+    },
+    {
+      "id": "review",
+      "name": "Compliance review",
+      "type": "userTask",
+      "x": 670,
+      "y": 190,
+      "candidate_groups": [
+        {
+          "name": "compliance"
+        }
+      ],
+      "documentation": "Sees values that arrived from three different places \u2014 the start call, the API, and the decision \u2014 because they are all entries in the same bag. Writes `decision` and `reviewedBy`.",
+      "properties": {
+        "form_definition": "[{\"id\":\"decision\",\"label\":\"Decision\",\"type\":\"select\",\"required\":true,\"options\":[\"approved\",\"rejected\"]},{\"id\":\"reviewedBy\",\"label\":\"Reviewed by\",\"type\":\"text\",\"required\":true}]"
+      }
+    },
+    {
+      "id": "end",
+      "name": "Supplier assessed",
+      "type": "endEvent",
+      "x": 880,
+      "y": 200
+    }
+  ],
+  "flows": [
+    {
+      "id": "f1",
+      "source_ref": "start",
+      "target_ref": "lookup"
+    },
+    {
+      "id": "f2",
+      "source_ref": "lookup",
+      "target_ref": "risk"
+    },
+    {
+      "id": "f3",
+      "source_ref": "risk",
+      "target_ref": "review"
+    },
+    {
+      "id": "f4",
+      "source_ref": "review",
+      "target_ref": "end"
+    }
+  ]
+}
