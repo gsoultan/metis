@@ -454,3 +454,18 @@ func (s *taskService) ListTasksByAssigneePaged(ctx context.Context, assignee str
 	}
 	return repocontracts.NewPage(tasks, result.Total, page), nil
 }
+
+// ListTasksByCandidatesPaged returns one page of the unclaimed tasks a user
+// could take, with the total.
+func (s *taskService) ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error) {
+	result, err := s.repo.Task().ListByCandidatesPaged(ctx, userID, groups, page)
+	if err != nil {
+		return repocontracts.Page[entities.Task]{}, err
+	}
+
+	tasks := make([]entities.Task, len(result.Items))
+	for i, m := range result.Items {
+		tasks[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(tasks, result.Total, page), nil
+}

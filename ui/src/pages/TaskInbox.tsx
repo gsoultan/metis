@@ -480,7 +480,7 @@ export function TaskInbox() {
     // was requested — the two differ when a value is clamped, and reflecting
     // the request would leave the highlighted page lying about what is on
     // screen.
-    assignedPageInfo,
+    activePageInfo,
     currentTasks,
     viewMode,
     setViewMode,
@@ -741,12 +741,12 @@ export function TaskInbox() {
               Rendered only when there is more than one page: controls that can
               never do anything are noise on the screen someone uses all day.
             */}
-            {assignedPageInfo && assignedPageInfo.total > assignedPageInfo.pageSize && (
+            {activePageInfo && activePageInfo.total > activePageInfo.pageSize && (
               <Group justify="space-between" px="md" py="sm" wrap="wrap" gap="sm">
                 <Text size="sm" c="dimmed">
-                  {`${(assignedPageInfo.page - 1) * assignedPageInfo.pageSize + 1}–` +
-                    `${Math.min(assignedPageInfo.page * assignedPageInfo.pageSize, assignedPageInfo.total)}` +
-                    ` of ${assignedPageInfo.total.toLocaleString()}`}
+                  {`${(activePageInfo.page - 1) * activePageInfo.pageSize + 1}–` +
+                    `${Math.min(activePageInfo.page * activePageInfo.pageSize, activePageInfo.total)}` +
+                    ` of ${activePageInfo.total.toLocaleString()}`}
                 </Text>
 
                 <Group gap="sm" wrap="nowrap">
@@ -761,9 +761,9 @@ export function TaskInbox() {
                     comboboxProps={{ withinPortal: true }}
                   />
                   <Pagination
-                    value={assignedPageInfo.page}
+                    value={activePageInfo.page}
                     onChange={setPage}
-                    total={Math.max(1, Math.ceil(assignedPageInfo.total / assignedPageInfo.pageSize))}
+                    total={Math.max(1, Math.ceil(activePageInfo.total / activePageInfo.pageSize))}
                     size="sm"
                     withEdges
                     getControlProps={(control) => ({

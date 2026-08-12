@@ -55,9 +55,29 @@ export const taskService = {
     return { err: data.err };
   },
 
-  async listTasksByCandidates(userId: string, groups: string[] = [], signal?: AbortSignal) {
-    const response = await taskClient.listTasksByCandidates({ userId, groups }, { signal });
-    return { tasks: response.tasks ?? [], err: response.error };
+  /** One page of the unclaimed tasks this user could take. */
+  async listTasksByCandidates(
+    userId: string,
+    groups: string[] = [],
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasksByCandidates(
+      { userId, groups, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
+    return {
+      tasks: response.tasks ?? [],
+      err: response.error,
+      pageInfo: response.page
+        ? {
+            total: Number(response.page.total),
+            page: response.page.page,
+            pageSize: response.page.pageSize,
+            hasMore: response.page.hasMore,
+          }
+        : undefined,
+    };
   },
 
   /**

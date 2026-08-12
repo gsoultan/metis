@@ -76,8 +76,23 @@ func MakeListTasksByAssigneeEndpoint(s services.ServiceFacade) endpoint.Endpoint
 func MakeListTasksByCandidatesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(ListTasksByCandidatesRequest)
-		tasks, err := s.ListTasksByCandidates(ctx, req.UserID, req.Groups)
-		return ListTasksResponse{Tasks: tasks, Err: err}, nil
+
+		page, err := s.ListTasksByCandidatesPaged(ctx, req.UserID, req.Groups, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return ListTasksResponse{
+			Tasks: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

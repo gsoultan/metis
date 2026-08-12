@@ -31,12 +31,17 @@ export const useTasksByAssignee = (assignee: string, page = 1, pageSize = 25) =>
   });
 };
 
-export const useTasksByCandidates = (userId: string, groups: string[] = []) => {
+type CandidateTasksResult = Awaited<ReturnType<typeof processService.listTasksByCandidates>>;
+
+export const useTasksByCandidates = (userId: string, groups: string[] = [], page = 1, pageSize = 25) => {
   return useQuery({
-    queryKey: ['tasks', 'candidates', userId, ...groups],
+    queryKey: ['tasks', 'candidates', userId, groups.join(','), page, pageSize],
     queryFn: ({ signal }) =>
-      userId ? processService.listTasksByCandidates(userId, groups, signal) : Promise.resolve({ tasks: [], err: "" }),
+      userId
+        ? processService.listTasksByCandidates(userId, groups, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as CandidateTasksResult),
     enabled: !!userId,
+    placeholderData: (previous) => previous,
   });
 };
 

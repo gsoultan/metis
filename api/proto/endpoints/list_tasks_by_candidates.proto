@@ -3,7 +3,13 @@ syntax = "proto3";
 package process;
 
 import "endpoints/list_tasks.proto";
+import "endpoints/page.proto";
 
 option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
 
-message ListTasksByCandidatesRequest { string user_id = 1; repeated string groups = 2; }
+message ListTasksByCandidatesRequest {
+  string user_id = 1;
+  repeated string groups = 2;
+  // Optional; omitted means the first page at the server default.
+  PageRequest page = 3;
+}

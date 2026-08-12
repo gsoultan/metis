@@ -47,6 +47,9 @@ type ListTasksByAssigneeRequest struct {
 }
 
 type ListTasksByCandidatesRequest struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+
 	UserID string   `json:"user_id"`
 	Groups []string `json:"groups"`
 }

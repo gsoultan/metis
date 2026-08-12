@@ -19,6 +19,7 @@ type TaskService interface {
 	// row and are not driven by a request.
 	ListTasksByAssigneePaged(ctx context.Context, assignee string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ListTasksByCandidates(ctx context.Context, userID string, groups []string) ([]entities.Task, error)
+	ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ClaimTask(ctx context.Context, id uuid.UUID, userID string) error
 	UnclaimTask(ctx context.Context, id uuid.UUID) error
 	DelegateTask(ctx context.Context, id uuid.UUID, userID string) error

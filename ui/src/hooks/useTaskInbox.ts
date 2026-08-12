@@ -79,8 +79,8 @@ export function useTaskInbox() {
   // empty page reads as "no results" rather than "you are past the end".
   useEffect(() => {
     setPage(1);
-  }, [currentUser, pageSize]);
-  const { data: candidateData, isLoading: candidateLoading } = useTasksByCandidates(currentUser, userGroups);
+  }, [currentUser, pageSize, activeTab]);
+  const { data: candidateData, isLoading: candidateLoading } = useTasksByCandidates(currentUser, userGroups, page, pageSize);
   const { data: allTasksData, isLoading: allTasksLoading } = useTasks();
   
   const completeTaskMutation = useCompleteTask();
@@ -96,8 +96,9 @@ export function useTaskInbox() {
   // with paging those are different numbers, and the tab badge should say how
   // much work there is, not how much is currently rendered.
   const assignedPageInfo = assignedData?.pageInfo;
+  const candidatePageInfo = candidateData?.pageInfo;
   const assignedCount = assignedPageInfo?.total ?? assignedTasks.length;
-  const candidateCount = candidateTasks.length;
+  const candidateCount = candidatePageInfo?.total ?? candidateTasks.length;
 
   const handleClaim = useCallback((id: string) => {
     claimTaskMutation.mutate({ id, userId: currentUser });
@@ -208,6 +209,9 @@ export function useTaskInbox() {
     pageSize,
     setPageSize,
     assignedPageInfo,
+    candidatePageInfo,
+    // The page controls follow whichever tab is showing.
+    activePageInfo: activeTab === 'assigned' ? assignedPageInfo : candidatePageInfo,
     candidateCount,
     currentTasks,
     viewMode,

@@ -5,13 +5,15 @@
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_endpoints_list_tasks } from "./list_tasks_pb";
+import type { PageRequest } from "./page_pb";
+import { file_endpoints_page } from "./page_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file endpoints/list_tasks_by_candidates.proto.
  */
 export const file_endpoints_list_tasks_by_candidates: GenFile = /*@__PURE__*/
-  fileDesc("CihlbmRwb2ludHMvbGlzdF90YXNrc19ieV9jYW5kaWRhdGVzLnByb3RvEgdwcm9jZXNzIj8KHExpc3RUYXNrc0J5Q2FuZGlkYXRlc1JlcXVlc3QSDwoHdXNlcl9pZBgBIAEoCRIOCgZncm91cHMYAiADKAlCngEKC2NvbS5wcm9jZXNzQhpMaXN0VGFza3NCeUNhbmRpZGF0ZXNQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_endpoints_list_tasks]);
+  fileDesc("CihlbmRwb2ludHMvbGlzdF90YXNrc19ieV9jYW5kaWRhdGVzLnByb3RvEgdwcm9jZXNzImMKHExpc3RUYXNrc0J5Q2FuZGlkYXRlc1JlcXVlc3QSDwoHdXNlcl9pZBgBIAEoCRIOCgZncm91cHMYAiADKAkSIgoEcGFnZRgDIAEoCzIULnByb2Nlc3MuUGFnZVJlcXVlc3RCngEKC2NvbS5wcm9jZXNzQhpMaXN0VGFza3NCeUNhbmRpZGF0ZXNQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_endpoints_list_tasks, file_endpoints_page]);
 
 /**
  * @generated from message process.ListTasksByCandidatesRequest
@@ -26,6 +28,13 @@ export type ListTasksByCandidatesRequest = Message<"process.ListTasksByCandidate
    * @generated from field: repeated string groups = 2;
    */
   groups: string[];
+
+  /**
+   * Optional; omitted means the first page at the server default.
+   *
+   * @generated from field: process.PageRequest page = 3;
+   */
+  page?: PageRequest | undefined;
 };
 
 /**
