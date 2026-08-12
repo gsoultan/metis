@@ -6,15 +6,27 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Project } from "./project_pb";
 import { file_entities_project } from "./project_pb";
+import type { Node } from "./node_pb";
+import { file_entities_node } from "./node_pb";
+import type { Flow } from "./flow_pb";
+import { file_entities_flow } from "./flow_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file entities/definition.proto.
  */
 export const file_entities_definition: GenFile = /*@__PURE__*/
-  fileDesc("ChllbnRpdGllcy9kZWZpbml0aW9uLnByb3RvEgdwcm9jZXNzIm4KEVByb2Nlc3NEZWZpbml0aW9uEgoKAmlkGAEgASgJEiEKB3Byb2plY3QYAiABKAsyEC5wcm9jZXNzLlByb2plY3QSCwoDa2V5GAMgASgJEgwKBG5hbWUYBCABKAkSDwoHdmVyc2lvbhgFIAEoBUKRAQoLY29tLnByb2Nlc3NCD0RlZmluaXRpb25Qcm90b1ABWjVnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbnRpdGllcztlbnRpdGllc6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_project]);
+  fileDesc("ChllbnRpdGllcy9kZWZpbml0aW9uLnByb3RvEgdwcm9jZXNzIsEBChFQcm9jZXNzRGVmaW5pdGlvbhIKCgJpZBgBIAEoCRIhCgdwcm9qZWN0GAIgASgLMhAucHJvY2Vzcy5Qcm9qZWN0EgsKA2tleRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAUSFQoNZG9jdW1lbnRhdGlvbhgGIAEoCRIcCgVub2RlcxgHIAMoCzINLnByb2Nlc3MuTm9kZRIcCgVmbG93cxgIIAMoCzINLnByb2Nlc3MuRmxvd0KRAQoLY29tLnByb2Nlc3NCD0RlZmluaXRpb25Qcm90b1ABWjVnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbnRpdGllcztlbnRpdGllc6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_project, file_entities_node, file_entities_flow]);
 
 /**
+ * ProcessDefinition is a process as modelled: its nodes and the flows between
+ * them.
+ *
+ * The nodes and flows had no field here at all, so reading a definition back
+ * returned its name and version and nothing else. The designer saved a process
+ * and then reopened it to an empty canvas, because there was nothing in the
+ * response to draw.
+ *
  * @generated from message process.ProcessDefinition
  */
 export type ProcessDefinition = Message<"process.ProcessDefinition"> & {
@@ -42,6 +54,21 @@ export type ProcessDefinition = Message<"process.ProcessDefinition"> & {
    * @generated from field: int32 version = 5;
    */
   version: number;
+
+  /**
+   * @generated from field: string documentation = 6;
+   */
+  documentation: string;
+
+  /**
+   * @generated from field: repeated process.Node nodes = 7;
+   */
+  nodes: Node[];
+
+  /**
+   * @generated from field: repeated process.Flow flows = 8;
+   */
+  flows: Flow[];
 };
 
 /**

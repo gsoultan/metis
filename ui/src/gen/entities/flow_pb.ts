@@ -4,17 +4,23 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Node } from "./node_pb";
-import { file_entities_node } from "./node_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file entities/flow.proto.
  */
 export const file_entities_flow: GenFile = /*@__PURE__*/
-  fileDesc("ChNlbnRpdGllcy9mbG93LnByb3RvEgdwcm9jZXNzImMKBEZsb3cSCgoCaWQYASABKAkSHQoGc291cmNlGAIgASgLMg0ucHJvY2Vzcy5Ob2RlEh0KBnRhcmdldBgDIAEoCzINLnByb2Nlc3MuTm9kZRIRCgljb25kaXRpb24YBCABKAlCiwEKC2NvbS5wcm9jZXNzQglGbG93UHJvdG9QAVo1Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW50aXRpZXM7ZW50aXRpZXOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_entities_node]);
+  fileDesc("ChNlbnRpdGllcy9mbG93LnByb3RvEgdwcm9jZXNzImQKBEZsb3cSCgoCaWQYASABKAkSEgoKc291cmNlX3JlZhgCIAEoCRISCgp0YXJnZXRfcmVmGAMgASgJEhEKCWNvbmRpdGlvbhgEIAEoCRIVCg1kb2N1bWVudGF0aW9uGAUgASgJQosBCgtjb20ucHJvY2Vzc0IJRmxvd1Byb3RvUAFaNWdpdGh1Yi5jb20vZ3NvdWx0YW4vZ29icG0vYXBpL3Byb3RvL2VudGl0aWVzO2VudGl0aWVzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z");
 
 /**
+ * Flow is one sequence flow: an arrow from one node to another, optionally
+ * guarded by a condition.
+ *
+ * The endpoints refer to nodes by id rather than embedding them. Embedding a
+ * whole Node here said the arrow owned a copy of the thing it points at, which
+ * is not what a flow is, and it made this file import node.proto — so a node
+ * could not in turn hold the flows of its sub-process without a cycle.
+ *
  * @generated from message process.Flow
  */
 export type Flow = Message<"process.Flow"> & {
@@ -24,19 +30,24 @@ export type Flow = Message<"process.Flow"> & {
   id: string;
 
   /**
-   * @generated from field: process.Node source = 2;
+   * @generated from field: string source_ref = 2;
    */
-  source?: Node | undefined;
+  sourceRef: string;
 
   /**
-   * @generated from field: process.Node target = 3;
+   * @generated from field: string target_ref = 3;
    */
-  target?: Node | undefined;
+  targetRef: string;
 
   /**
    * @generated from field: string condition = 4;
    */
   condition: string;
+
+  /**
+   * @generated from field: string documentation = 5;
+   */
+  documentation: string;
 };
 
 /**

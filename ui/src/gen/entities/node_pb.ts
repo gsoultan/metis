@@ -4,19 +4,32 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import { file_google_protobuf_struct } from "@bufbuild/protobuf/wkt";
 import type { User } from "./user_pb";
 import { file_entities_user } from "./user_pb";
 import type { Group } from "./group_pb";
 import { file_entities_group } from "./group_pb";
-import type { Message } from "@bufbuild/protobuf";
+import type { Flow } from "./flow_pb";
+import { file_entities_flow } from "./flow_pb";
+import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file entities/node.proto.
  */
 export const file_entities_node: GenFile = /*@__PURE__*/
-  fileDesc("ChNlbnRpdGllcy9ub2RlLnByb3RvEgdwcm9jZXNzIsUBCgROb2RlEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEdHlwZRgDIAEoCRIfCghhc3NpZ25lZRgEIAEoCzINLnByb2Nlc3MuVXNlchIQCghpbmNvbWluZxgFIAMoCRIQCghvdXRnb2luZxgGIAMoCRImCg9jYW5kaWRhdGVfdXNlcnMYByADKAsyDS5wcm9jZXNzLlVzZXISKAoQY2FuZGlkYXRlX2dyb3VwcxgIIAMoCzIOLnByb2Nlc3MuR3JvdXBCiwEKC2NvbS5wcm9jZXNzQglOb2RlUHJvdG9QAVo1Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW50aXRpZXM7ZW50aXRpZXOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_entities_user, file_entities_group]);
+  fileDesc("ChNlbnRpdGllcy9ub2RlLnByb3RvEgdwcm9jZXNzIoYGCgROb2RlEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEdHlwZRgDIAEoCRIfCghhc3NpZ25lZRgEIAEoCzINLnByb2Nlc3MuVXNlchIQCghpbmNvbWluZxgFIAMoCRIQCghvdXRnb2luZxgGIAMoCRImCg9jYW5kaWRhdGVfdXNlcnMYByADKAsyDS5wcm9jZXNzLlVzZXISKAoQY2FuZGlkYXRlX2dyb3VwcxgIIAMoCzIOLnByb2Nlc3MuR3JvdXASKwoKcHJvcGVydGllcxgJIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSFQoNZG9jdW1lbnRhdGlvbhgKIAEoCRIQCghmb3JtX2tleRgLIAEoCRIUCgxkZWZhdWx0X2Zsb3cYDCABKAkSDgoGc2NyaXB0GA0gASgJEhUKDXNjcmlwdF9mb3JtYXQYDiABKAkSFgoOZXh0ZXJuYWxfdG9waWMYDyABKAkSEAoIcHJpb3JpdHkYECABKAUSEAoIZHVlX2RhdGUYESABKAkSEQoJY29uZGl0aW9uGBIgASgJEhcKD2F0dGFjaGVkX3RvX3JlZhgTIAEoCRIRCglwYXJlbnRfaWQYFCABKAkSFwoPY2FuY2VsX2FjdGl2aXR5GBUgASgIEhIKCmVycm9yX2NvZGUYFiABKAkSEQoJaXNfYWRfaG9jGBcgASgIEhwKFGlzX2V2ZW50X3N1Yl9wcm9jZXNzGBggASgIEhsKE211bHRpX2luc3RhbmNlX3R5cGUYGSABKAkSGAoQbG9vcF9jYXJkaW5hbGl0eRgaIAEoBRISCgpjb2xsZWN0aW9uGBsgASgJEhgKEGVsZW1lbnRfdmFyaWFibGUYHCABKAkSHAoUY29tcGxldGlvbl9jb25kaXRpb24YHSABKAkSCQoBeBgeIAEoBRIJCgF5GB8gASgFEhwKBW5vZGVzGCAgAygLMg0ucHJvY2Vzcy5Ob2RlEhwKBWZsb3dzGCEgAygLMg0ucHJvY2Vzcy5GbG93QosBCgtjb20ucHJvY2Vzc0IJTm9kZVByb3RvUAFaNWdpdGh1Yi5jb20vZ3NvdWx0YW4vZ29icG0vYXBpL3Byb3RvL2VudGl0aWVzO2VudGl0aWVzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_google_protobuf_struct, file_entities_user, file_entities_group, file_entities_flow]);
 
 /**
+ * Node is one element of a process: an event, a task, a gateway or a
+ * sub-process.
+ *
+ * This carries the whole domain node rather than a summary of it. It used to
+ * stop at candidate_groups, which meant the settings that make a node do
+ * anything — the decision it applies, the endpoint it calls, how its inputs and
+ * outputs are named — had no field to travel in and were dropped in transit.
+ * The definition still saved, so the loss showed up later as a process that ran
+ * but did nothing.
+ *
  * @generated from message process.Node
  */
 export type Node = Message<"process.Node"> & {
@@ -59,6 +72,145 @@ export type Node = Message<"process.Node"> & {
    * @generated from field: repeated process.Group candidate_groups = 8;
    */
   candidateGroups: Group[];
+
+  /**
+   * properties holds per-type settings: decision_key on a business rule task,
+   * http_url and the input_/output_ mappings on a service task, form_definition
+   * on a user task. Struct rather than map<string, string> because a value may
+   * be a number or a boolean, and rewriting those as text would not survive the
+   * round trip.
+   *
+   * @generated from field: google.protobuf.Struct properties = 9;
+   */
+  properties?: JsonObject | undefined;
+
+  /**
+   * @generated from field: string documentation = 10;
+   */
+  documentation: string;
+
+  /**
+   * @generated from field: string form_key = 11;
+   */
+  formKey: string;
+
+  /**
+   * @generated from field: string default_flow = 12;
+   */
+  defaultFlow: string;
+
+  /**
+   * @generated from field: string script = 13;
+   */
+  script: string;
+
+  /**
+   * @generated from field: string script_format = 14;
+   */
+  scriptFormat: string;
+
+  /**
+   * @generated from field: string external_topic = 15;
+   */
+  externalTopic: string;
+
+  /**
+   * @generated from field: int32 priority = 16;
+   */
+  priority: number;
+
+  /**
+   * @generated from field: string due_date = 17;
+   */
+  dueDate: string;
+
+  /**
+   * @generated from field: string condition = 18;
+   */
+  condition: string;
+
+  /**
+   * Boundary events and sub-process membership.
+   *
+   * @generated from field: string attached_to_ref = 19;
+   */
+  attachedToRef: string;
+
+  /**
+   * @generated from field: string parent_id = 20;
+   */
+  parentId: string;
+
+  /**
+   * @generated from field: bool cancel_activity = 21;
+   */
+  cancelActivity: boolean;
+
+  /**
+   * @generated from field: string error_code = 22;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: bool is_ad_hoc = 23;
+   */
+  isAdHoc: boolean;
+
+  /**
+   * @generated from field: bool is_event_sub_process = 24;
+   */
+  isEventSubProcess: boolean;
+
+  /**
+   * Multi-instance ("do this once per item in a collection").
+   *
+   * @generated from field: string multi_instance_type = 25;
+   */
+  multiInstanceType: string;
+
+  /**
+   * @generated from field: int32 loop_cardinality = 26;
+   */
+  loopCardinality: number;
+
+  /**
+   * @generated from field: string collection = 27;
+   */
+  collection: string;
+
+  /**
+   * @generated from field: string element_variable = 28;
+   */
+  elementVariable: string;
+
+  /**
+   * @generated from field: string completion_condition = 29;
+   */
+  completionCondition: string;
+
+  /**
+   * Diagram position, so a saved process reopens looking the way it was drawn.
+   *
+   * @generated from field: int32 x = 30;
+   */
+  x: number;
+
+  /**
+   * @generated from field: int32 y = 31;
+   */
+  y: number;
+
+  /**
+   * A sub-process holds its own nodes and flows.
+   *
+   * @generated from field: repeated process.Node nodes = 32;
+   */
+  nodes: Node[];
+
+  /**
+   * @generated from field: repeated process.Flow flows = 33;
+   */
+  flows: Flow[];
 };
 
 /**

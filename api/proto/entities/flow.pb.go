@@ -21,12 +21,20 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Flow is one sequence flow: an arrow from one node to another, optionally
+// guarded by a condition.
+//
+// The endpoints refer to nodes by id rather than embedding them. Embedding a
+// whole Node here said the arrow owned a copy of the thing it points at, which
+// is not what a flow is, and it made this file import node.proto — so a node
+// could not in turn hold the flows of its sub-process without a cycle.
 type Flow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Source        *Node                  `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
-	Target        *Node                  `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
+	SourceRef     string                 `protobuf:"bytes,2,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`
+	TargetRef     string                 `protobuf:"bytes,3,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
 	Condition     string                 `protobuf:"bytes,4,opt,name=condition,proto3" json:"condition,omitempty"`
+	Documentation string                 `protobuf:"bytes,5,opt,name=documentation,proto3" json:"documentation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -68,18 +76,18 @@ func (x *Flow) GetId() string {
 	return ""
 }
 
-func (x *Flow) GetSource() *Node {
+func (x *Flow) GetSourceRef() string {
 	if x != nil {
-		return x.Source
+		return x.SourceRef
 	}
-	return nil
+	return ""
 }
 
-func (x *Flow) GetTarget() *Node {
+func (x *Flow) GetTargetRef() string {
 	if x != nil {
-		return x.Target
+		return x.TargetRef
 	}
-	return nil
+	return ""
 }
 
 func (x *Flow) GetCondition() string {
@@ -89,16 +97,26 @@ func (x *Flow) GetCondition() string {
 	return ""
 }
 
+func (x *Flow) GetDocumentation() string {
+	if x != nil {
+		return x.Documentation
+	}
+	return ""
+}
+
 var File_entities_flow_proto protoreflect.FileDescriptor
 
 const file_entities_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/flow.proto\x12\aprocess\x1a\x13entities/node.proto\"\x82\x01\n" +
+	"\x13entities/flow.proto\x12\aprocess\"\x98\x01\n" +
 	"\x04Flow\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
-	"\x06source\x18\x02 \x01(\v2\r.process.NodeR\x06source\x12%\n" +
-	"\x06target\x18\x03 \x01(\v2\r.process.NodeR\x06target\x12\x1c\n" +
-	"\tcondition\x18\x04 \x01(\tR\tconditionB\x8b\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"source_ref\x18\x02 \x01(\tR\tsourceRef\x12\x1d\n" +
+	"\n" +
+	"target_ref\x18\x03 \x01(\tR\ttargetRef\x12\x1c\n" +
+	"\tcondition\x18\x04 \x01(\tR\tcondition\x12$\n" +
+	"\rdocumentation\x18\x05 \x01(\tR\rdocumentationB\x8b\x01\n" +
 	"\vcom.processB\tFlowProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -116,16 +134,13 @@ func file_entities_flow_proto_rawDescGZIP() []byte {
 var file_entities_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_flow_proto_goTypes = []any{
 	(*Flow)(nil), // 0: process.Flow
-	(*Node)(nil), // 1: process.Node
 }
 var file_entities_flow_proto_depIdxs = []int32{
-	1, // 0: process.Flow.source:type_name -> process.Node
-	1, // 1: process.Flow.target:type_name -> process.Node
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_entities_flow_proto_init() }
@@ -133,7 +148,6 @@ func file_entities_flow_proto_init() {
 	if File_entities_flow_proto != nil {
 		return
 	}
-	file_entities_node_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

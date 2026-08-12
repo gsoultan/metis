@@ -82,26 +82,8 @@ func (s *Server) DeleteDefinition(ctx context.Context, req *endpoints.DeleteDefi
 
 func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, error) {
 	req := grpcReq.(*endpoints.CreateDefinitionRequest)
-	nodes := make([]*entities2.Node, len(req.Nodes))
-	for i, n := range req.Nodes {
-		nodes[i] = &entities2.Node{
-			ID:       n.Id,
-			Name:     n.Name,
-			Type:     entities2.NodeType(n.Type),
-			Assignee: n.GetAssignee().GetUsername(),
-			Incoming: n.Incoming,
-			Outgoing: n.Outgoing,
-		}
-	}
-	flows := make([]*entities2.SequenceFlow, len(req.Flows))
-	for i, f := range req.Flows {
-		flows[i] = &entities2.SequenceFlow{
-			ID:        f.Id,
-			SourceRef: f.GetSource().GetId(),
-			TargetRef: f.GetTarget().GetId(),
-			Condition: f.Condition,
-		}
-	}
+	nodes := adapters.NodesFromProto(req.Nodes)
+	flows := adapters.FlowsFromProto(req.Flows)
 	projectID, _ := uuid.Parse(req.ProjectId)
 	return definition.CreateDefinitionRequest{
 		Definition: &entities2.ProcessDefinition{
@@ -130,7 +112,7 @@ func encodeGRPCListDefinitionsResponse(_ context.Context, response any) (any, er
 	if len(resp.Definitions) > 0 {
 		defs = make([]*entities.ProcessDefinition, 0, len(resp.Definitions))
 		for _, d := range resp.Definitions {
-			defs = append(defs, adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProto())
+			defs = append(defs, adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProtoSummary())
 		}
 	}
 	return &endpoints.ListDefinitionsResponse{Definitions: defs, Error: common.ErrString(resp.Err)}, nil

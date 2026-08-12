@@ -22,26 +22,8 @@ func NewHandler(eps definition.Endpoints) *DefinitionHandler {
 }
 
 func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.Request[pbendpoints.CreateDefinitionRequest]) (*connect.Response[pbendpoints.CreateDefinitionResponse], error) {
-	nodes := make([]*entities.Node, len(req.Msg.Nodes))
-	for i, n := range req.Msg.Nodes {
-		nodes[i] = &entities.Node{
-			ID:       n.Id,
-			Name:     n.Name,
-			Type:     entities.NodeType(n.Type),
-			Assignee: n.GetAssignee().GetUsername(),
-			Incoming: n.Incoming,
-			Outgoing: n.Outgoing,
-		}
-	}
-	flows := make([]*entities.SequenceFlow, len(req.Msg.Flows))
-	for i, f := range req.Msg.Flows {
-		flows[i] = &entities.SequenceFlow{
-			ID:        f.Id,
-			SourceRef: f.GetSource().GetId(),
-			TargetRef: f.GetTarget().GetId(),
-			Condition: f.Condition,
-		}
-	}
+	nodes := adapters.NodesFromProto(req.Msg.Nodes)
+	flows := adapters.FlowsFromProto(req.Msg.Flows)
 	projectID, _ := uuid.Parse(req.Msg.ProjectId)
 	response, err := h.eps.CreateDefinition(ctx, definition.CreateDefinitionRequest{
 		Definition: &entities.ProcessDefinition{
@@ -72,7 +54,7 @@ func (h *DefinitionHandler) ListDefinitions(ctx context.Context, req *connect.Re
 	resp := response.(definition.ListDefinitionsResponse)
 	pbDefs := make([]*pbentities.ProcessDefinition, len(resp.Definitions))
 	for i, d := range resp.Definitions {
-		pbDefs[i] = adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProto()
+		pbDefs[i] = adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProtoSummary()
 	}
 	return connect.NewResponse(&pbendpoints.ListDefinitionsResponse{
 		Definitions: pbDefs,
