@@ -60,9 +60,36 @@ export const taskService = {
     return { tasks: response.tasks ?? [], err: response.error };
   },
 
-  async listTasksByAssignee(assignee: string, signal?: AbortSignal) {
-    const response = await taskClient.listTasksByAssignee({ assignee }, { signal });
-    return { tasks: response.tasks ?? [], err: response.error };
+  /**
+   * One page of the tasks assigned to a user.
+   *
+   * `page` is optional on the wire, so omitting it asks the server for its
+   * default window rather than for everything — the unbounded read is no
+   * longer reachable from here.
+   */
+  async listTasksByAssignee(
+    assignee: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasksByAssignee(
+      { assignee, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
+    return {
+      tasks: response.tasks ?? [],
+      err: response.error,
+      // The server reports the window it actually served, after clamping, so
+      // the controls reflect reality rather than what was asked for.
+      pageInfo: response.page
+        ? {
+            total: Number(response.page.total),
+            page: response.page.page,
+            pageSize: response.page.pageSize,
+            hasMore: response.page.hasMore,
+          }
+        : undefined,
+    };
   },
 
   async listIncidents(instanceId: string, signal?: AbortSignal) {

@@ -13,12 +13,21 @@ export const useTasks = () => {
   });
 };
 
-export const useTasksByAssignee = (assignee: string) => {
+type AssigneeTasksResult = Awaited<ReturnType<typeof processService.listTasksByAssignee>>;
+
+export const useTasksByAssignee = (assignee: string, page = 1, pageSize = 25) => {
   return useQuery({
-    queryKey: ['tasks', 'assignee', assignee],
+    // The page is part of the key, so moving between pages is a cache hit on
+    // the way back rather than a refetch.
+    queryKey: ['tasks', 'assignee', assignee, page, pageSize],
     queryFn: ({ signal }) =>
-      assignee ? processService.listTasksByAssignee(assignee, signal) : Promise.resolve({ tasks: [], err: "" }),
+      assignee
+        ? processService.listTasksByAssignee(assignee, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as AssigneeTasksResult),
     enabled: !!assignee,
+    // Keeps the previous page on screen while the next one loads, so the table
+    // does not collapse to a skeleton on every page change.
+    placeholderData: (previous) => previous,
   });
 };
 

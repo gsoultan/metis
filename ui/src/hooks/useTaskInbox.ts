@@ -67,7 +67,19 @@ export function useTaskInbox() {
     return () => eventSource.close();
   }, [queryClient]);
   
-  const { data: assignedData, isLoading: assignedLoading } = useTasksByAssignee(currentUser);
+  // Paging state lives here rather than in the page component, so the query
+  // key and the controls cannot disagree about which page is showing.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  const { data: assignedData, isLoading: assignedLoading } = useTasksByAssignee(currentUser, page, pageSize);
+
+  // Any change to what is being filtered invalidates the current offset: page 4
+  // of an unfiltered list is not page 4 of a filtered one, and landing on an
+  // empty page reads as "no results" rather than "you are past the end".
+  useEffect(() => {
+    setPage(1);
+  }, [currentUser, pageSize]);
   const { data: candidateData, isLoading: candidateLoading } = useTasksByCandidates(currentUser, userGroups);
   const { data: allTasksData, isLoading: allTasksLoading } = useTasks();
   
@@ -80,7 +92,11 @@ export function useTaskInbox() {
   const assignedTasks = assignedData?.tasks || [];
   const candidateTasks = candidateData?.tasks || [];
   const allTasks = allTasksData?.tasks || [];
-  const assignedCount = assignedTasks.length;
+  // The count comes from the server's total, not from the rows on screen —
+  // with paging those are different numbers, and the tab badge should say how
+  // much work there is, not how much is currently rendered.
+  const assignedPageInfo = assignedData?.pageInfo;
+  const assignedCount = assignedPageInfo?.total ?? assignedTasks.length;
   const candidateCount = candidateTasks.length;
 
   const handleClaim = useCallback((id: string) => {
@@ -187,6 +203,11 @@ export function useTaskInbox() {
     assignedLoading,
     candidateLoading,
     assignedCount,
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    assignedPageInfo,
     candidateCount,
     currentTasks,
     viewMode,

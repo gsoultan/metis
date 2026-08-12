@@ -25,6 +25,7 @@ import {
   Paper,
   Center,
   Box,
+  Pagination,
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import dayjs from 'dayjs';
@@ -472,6 +473,14 @@ export function TaskInbox() {
     candidateLoading,
     assignedCount,
     candidateCount,
+    setPage,
+    pageSize,
+    setPageSize,
+    // The control shows the page the SERVER reports serving, not the one that
+    // was requested — the two differ when a value is clamped, and reflecting
+    // the request would leave the highlighted page lying about what is on
+    // screen.
+    assignedPageInfo,
     currentTasks,
     viewMode,
     setViewMode,
@@ -720,6 +729,55 @@ export function TaskInbox() {
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
+
+            {/*
+              Paging controls.
+              
+              The range is stated in words rather than left to a bare page
+              number, because "51–75 of 1,240" answers both questions someone
+              has — where am I, and how much is there — while "page 3" answers
+              neither.
+
+              Rendered only when there is more than one page: controls that can
+              never do anything are noise on the screen someone uses all day.
+            */}
+            {assignedPageInfo && assignedPageInfo.total > assignedPageInfo.pageSize && (
+              <Group justify="space-between" px="md" py="sm" wrap="wrap" gap="sm">
+                <Text size="sm" c="dimmed">
+                  {`${(assignedPageInfo.page - 1) * assignedPageInfo.pageSize + 1}–` +
+                    `${Math.min(assignedPageInfo.page * assignedPageInfo.pageSize, assignedPageInfo.total)}` +
+                    ` of ${assignedPageInfo.total.toLocaleString()}`}
+                </Text>
+
+                <Group gap="sm" wrap="nowrap">
+                  <Select
+                    aria-label="Tasks per page"
+                    data={['25', '50', '100']}
+                    value={String(pageSize)}
+                    onChange={(value) => value && setPageSize(Number(value))}
+                    size="xs"
+                    w={92}
+                    allowDeselect={false}
+                    comboboxProps={{ withinPortal: true }}
+                  />
+                  <Pagination
+                    value={assignedPageInfo.page}
+                    onChange={setPage}
+                    total={Math.max(1, Math.ceil(assignedPageInfo.total / assignedPageInfo.pageSize))}
+                    size="sm"
+                    withEdges
+                    getControlProps={(control) => ({
+                      'aria-label': {
+                        first: 'First page',
+                        last: 'Last page',
+                        next: 'Next page',
+                        previous: 'Previous page',
+                      }[control] ?? undefined,
+                    })}
+                  />
+                </Group>
+              </Group>
+            )}
           </Card>
         ) : (
           allTasksLoading ? (
