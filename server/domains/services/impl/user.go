@@ -71,10 +71,27 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 	return s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash))
 }
 
+// dummyHash is compared against when no user matches, so that a login attempt
+// costs the same whether or not the account exists.
+//
+// bcrypt of "" at the default cost; the value is irrelevant, only the work is.
+var dummyHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy")
+
 func (s *userService) Login(ctx context.Context, username, password string) (entities.User, string, error) {
+	// A failed login must not reveal whether the account exists.
+	//
+	// This previously returned the repository's error verbatim, so a missing
+	// account answered "could not get user: record not found" while a wrong
+	// password answered "invalid credentials" — enough to enumerate every
+	// username on the system by reading the error text.
+	//
+	// The comparison still runs when no user is found, against a fixed hash, so
+	// the two paths also cost roughly the same amount of time. Returning early
+	// would leave a timing signal saying the same thing more quietly.
 	mu, hash, err := s.repo.User().GetWithPasswordByUsername(ctx, username)
 	if err != nil {
-		return entities.User{}, "", fmt.Errorf("%w: %w", auth.ErrAuthenticationFailed, err)
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	u := adapters.UserEntityAdapter{Model: mu}.ToEntity()
 
