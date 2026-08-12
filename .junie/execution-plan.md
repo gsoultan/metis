@@ -1,4 +1,4 @@
-# Hermod BPM — Execution Plan
+# Metis BPM — Execution Plan
 
 Companion to [`roadmap.md`](roadmap.md) (themes) and [`../AGENTS.md`](../AGENTS.md) (who
 reviews what). This document is the **sequenced plan**: what we build, in what order, and why
@@ -167,7 +167,7 @@ Script tasks keep goja — that is their point — but sandboxed per 1.6.
 | 2.3.4 | Add `OUTPUT ORDER` and `RULE ORDER` | Completes the DMN hit-policy set. |
 | 2.3.5 | Fix decision versioning race | `GetByKey` then `version+1` is a lost-update. Unique constraint on `(key, version)` + retry. |
 
-**Exit criterion:** a DMN table exported from Camunda evaluates identically in Hermod for the
+**Exit criterion:** a DMN table exported from Camunda evaluates identically in Metis for the
 supported subset, proven by a conformance test corpus.
 
 ---
@@ -179,7 +179,7 @@ supported subset, proven by a conformance test corpus.
 ### 3.1 The product thesis
 
 Every orchestrator can call an HTTP endpoint. That is not a differentiator — it is table
-stakes, and Hermod already has it.
+stakes, and Metis already has it.
 
 The differentiator is this: **a process is the only place in a company where the integration,
 the business rule, the human decision, the audit trail and the compensation logic all live in
@@ -188,7 +188,7 @@ long-running business commitment, a human approval queue, or compensation. BPM e
 (Camunda, Flowable) have those but treat integration as a developer task requiring a
 redeploy.
 
-**Hermod's position: the integration is authored by the same person who authored the process,
+**Metis's position: the integration is authored by the same person who authored the process,
 in the same tool, without a redeploy.**
 
 That single sentence dictates the architecture below.
@@ -264,8 +264,8 @@ What this unlocks, in order of business value:
    schema-driven forms; point it at connector schemas.
 2. **A connector catalog / marketplace.** Manifests are data, so they can be listed, versioned,
    signed, shared and installed at runtime.
-3. **OpenAPI import.** Point Hermod at a `swagger.json`, generate a manifest per operation.
-   This is the single highest-leverage feature in the whole plan — it turns "does Hermod
+3. **OpenAPI import.** Point Metis at a `swagger.json`, generate a manifest per operation.
+   This is the single highest-leverage feature in the whole plan — it turns "does Metis
    integrate with X?" from a roadmap question into a 30-second import.
 4. **Errors map to BPMN.** `errors[]` turns HTTP failures into BPMN error codes that boundary
    events can catch — the integration failure becomes a modelled business path, not a stack

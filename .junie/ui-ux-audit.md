@@ -1,4 +1,4 @@
-# Hermod BPM — UI/UX Audit
+# Metis BPM — UI/UX Audit
 
 Evidence-based audit of `ui/` as it stands. Every claim below was measured, not
 estimated; the command that produced each number is given so you can re-run it.

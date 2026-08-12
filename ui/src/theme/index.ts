@@ -1,7 +1,7 @@
 import { createTheme, rem, Card, Button, Table, Paper, ActionIcon, Badge, TextInput } from '@mantine/core';
 
 /**
- * Design tokens for Hermod BPM.
+ * Design tokens for Metis BPM.
  *
  * These lived inside `routes/__root.tsx`. A route file is not importable as a
  * source of truth, so components hardcoded values instead of referencing it —

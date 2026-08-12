@@ -274,7 +274,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                   <Workflow size={28} />
                 </ThemeIcon>
                 <div>
-                  <Title order={2} fw={900} lts={-0.5}>Hermod</Title>
+                  <Title order={2} fw={900} lts={-0.5}>Metis</Title>
                   <Text size="xs" c="dimmed" fw={700} tt="uppercase">System Setup Wizard</Text>
                 </div>
               </Group>
@@ -609,7 +609,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                   </ThemeIcon>
                   <Title order={2}>Setup Complete!</Title>
                   <Text ta="center" c="dimmed">
-                    Hermod BPM has been successfully initialized.<br />
+                    Metis BPM has been successfully initialized.<br />
                     Your configuration has been saved to <strong>config.yaml</strong> with encrypted credentials.<br />
                     You can now log in with your administrator account.
                   </Text>

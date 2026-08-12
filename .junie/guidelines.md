@@ -1,4 +1,4 @@
-### Hermod Project Guidelines
+### Metis Project Guidelines
 
 #### 1. General Principles (KISS & Clean Code)
 - **Keep it Simple (KISS)**: MUST favor clear, readable code over clever/complex solutions. No over-engineering.

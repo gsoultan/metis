@@ -130,11 +130,11 @@ export function Sidebar() {
       className={`${classes.navbar} ${collapsed ? classes.collapsed : ''}`}
       aria-label="Main navigation"
     >
-      <Link to="/" className={classes.brand} aria-label="Hermod BPM home">
+      <Link to="/" className={classes.brand} aria-label="Metis BPM home">
         <span className={classes.brandMark} aria-hidden>
           <Network size={17} strokeWidth={2} />
         </span>
-        {!collapsed && <span className={classes.brandName}>Hermod BPM</span>}
+        {!collapsed && <span className={classes.brandName}>Metis BPM</span>}
       </Link>
 
       <div className={classes.scroll}>

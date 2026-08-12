@@ -4,7 +4,7 @@ import (
 	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 )
 
-// ServiceFacade is the main interface for the Hermod system, aggregating all sub-services.
+// ServiceFacade is the main interface for the Metis system, aggregating all sub-services.
 type ServiceFacade interface {
 	serviceContracts.OrganizationService
 	serviceContracts.ProjectService

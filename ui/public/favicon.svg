@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Hermod BPM">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Metis BPM">
   <rect width="32" height="32" rx="7" fill="#1c7ed6"/>
   <!-- Three nodes joined by flows: a process, reduced to its essentials. -->
   <circle cx="9" cy="9" r="3.2" fill="#fff"/>

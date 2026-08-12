@@ -152,7 +152,7 @@ export function Dashboard() {
     return (
       <Stack gap="xl">
         <PageHeader 
-          title="Welcome to Hermod BPM" 
+          title="Welcome to Metis BPM" 
           description="Get started by selecting or creating a project."
         />
         

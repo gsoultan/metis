@@ -1,4 +1,4 @@
-# Hermod BPM — Claude Code project instructions
+# Metis BPM — Claude Code project instructions
 
 **Read [`AGENTS.md`](AGENTS.md) first, on every task, before opening any file.**
 

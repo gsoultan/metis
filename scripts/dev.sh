@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Start Hermod BPM for local development: the Go backend and the Vite dev
+# Start Metis BPM for local development: the Go backend and the Vite dev
 # server, together, with one Ctrl-C stopping both.
 #
 #   ./scripts/dev.sh              backend + UI (default)

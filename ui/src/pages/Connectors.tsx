@@ -94,7 +94,7 @@ export function Connectors() {
   const [selectedConnector, setSelectedConnector] = useState<any>(null);
   const [editingInstance, setEditingInstance] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
-  const [testPayload, setTestPayload] = useState('{\n  "text": "Hello from Hermod!"\n}');
+  const [testPayload, setTestPayload] = useState('{\n  "text": "Hello from Metis!"\n}');
   const [testResult, setTestResult] = useState<any>(null);
   const [activeStep, setActiveStep] = useState(0);
 

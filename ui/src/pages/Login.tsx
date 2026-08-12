@@ -100,7 +100,7 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
             </ThemeIcon>
             <div>
               <Title order={1} fw={900} size={44} c="white" style={{ letterSpacing: '-0.04em' }}>
-                Hermod
+                Metis
               </Title>
               <Text size="sm" c="rgba(255,255,255,0.6)" fw={500} mt={-4}>
                 Business Process Management
@@ -173,7 +173,7 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
         </Stack>
 
         <Text size="xs" c="rgba(255,255,255,0.3)" className="login-brand-footer">
-          © 2026 Hermod BPM · Enterprise Edition
+          © 2026 Metis BPM · Enterprise Edition
         </Text>
       </Box>
 
@@ -194,7 +194,7 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
                 >
                   <Workflow size={32} />
                 </ThemeIcon>
-                <Title order={2} fw={900}>Hermod</Title>
+                <Title order={2} fw={900}>Metis</Title>
               </Box>
 
               {/* Welcome Text */}

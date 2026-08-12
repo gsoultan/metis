@@ -1,4 +1,4 @@
-# Hermod BPM — Agent Operating Manual
+# Metis BPM — Agent Operating Manual
 
 This file is the **always-on** contract for any agent (or human) working in this repo.
 It is loaded on **every task**, before any file is opened.
@@ -17,7 +17,7 @@ write code*; this file wins on *what must be proven before it ships*.
 
 ## 0. What this system is (read before touching anything)
 
-Hermod BPM is a **BPMN 2.0 orchestrator with a DMN decision engine**, written in Go with a
+Metis BPM is a **BPMN 2.0 orchestrator with a DMN decision engine**, written in Go with a
 React designer. Two properties dominate every design decision:
 
 1. **It executes other people's money and obligations.** A process instance is a durable
@@ -51,7 +51,7 @@ violation, not a shortcut.
 | **graphify** | *Where is this? What breaks if I change it?* | `rtk graphify query "<term>"` · `graphify explain "<node>"` · `graphify affected "<sym>"` · `graphify path "A" "B"` |
 | **`.junie/roadmap.md`** | *Is this already planned, and at what priority?* | read before proposing new work |
 | **Serena** (`.serena/memories/`) | *What did we already decide?* | read `core.md`, then only referenced memories |
-| **Obsidian** | *What happened before?* | `~/Documents/ObsidianVault/Hermod` |
+| **Obsidian** | *What happened before?* | `~/Documents/ObsidianVault/Metis` |
 
 `graphify-out/graph.json` exists. **Treat any question about this codebase as a graphify query
 first.** Do not re-derive structure by reading files. Rebuild with `rtk graphify update .`.
@@ -339,7 +339,7 @@ bun run build
 Persist:
 ```bash
 rtk graphify update .
-rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Hermod
+rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 ```
 
 **Gate status** (Phase 0 + Phase 1 landed):
