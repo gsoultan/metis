@@ -58,9 +58,30 @@ import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { notifications } from '@mantine/notifications';
 import { useForm } from '@mantine/form';
+import type { LucideIcon } from 'lucide-react';
 import { CardGridLoadingState, ErrorState } from '../components/state';
+import type {
+  ApiConnector,
+  ApiConnectorInstance,
+  ApiConnectorProperty,
+} from '../services/types';
 
-const IconMap: Record<string, any> = {
+/** What the instance modal is editing: a name and the connector's config values. */
+interface InstanceFormState {
+  name: string;
+  config: Record<string, unknown>;
+}
+
+type TestResult =
+  | { success: true; data: unknown }
+  | { success: false; error: string };
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+const IconMap: Record<string, LucideIcon> = {
   Globe: Globe,
   MessageSquare: MessageSquare,
   Mail: Mail,
@@ -91,11 +112,11 @@ export function Connectors() {
   const [testModalOpened, { open: openTestModal, close: closeTestModal }] = useDisclosure(false);
   const [customModalOpened, { open: openCustomModal, close: closeCustomModal }] = useDisclosure(false);
   
-  const [selectedConnector, setSelectedConnector] = useState<any>(null);
-  const [editingInstance, setEditingInstance] = useState<any>(null);
-  const [formData, setFormData] = useState<any>({});
+  const [selectedConnector, setSelectedConnector] = useState<ApiConnector | null>(null);
+  const [editingInstance, setEditingInstance] = useState<ApiConnectorInstance | null>(null);
+  const [formData, setFormData] = useState<InstanceFormState>({ name: '', config: {} });
   const [testPayload, setTestPayload] = useState('{\n  "text": "Hello from Metis!"\n}');
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [activeStep, setActiveStep] = useState(0);
 
   const customConnectorForm = useForm({
@@ -105,7 +126,7 @@ export function Connectors() {
       description: '',
       icon: 'Zap',
       type: 'utility',
-      schema: [] as any[]
+      schema: [] as ApiConnectorProperty[]
     },
     validate: {
       name: (value) => (value.length < 2 ? 'Name is too short' : null),
@@ -118,12 +139,12 @@ export function Connectors() {
 
   const healthyCount = instances.length; // Simplified for now
 
-  const handleCreateInstance = (connector: any) => {
+  const handleCreateInstance = (connector: ApiConnector) => {
     setSelectedConnector(connector);
     setEditingInstance(null);
     setActiveStep(0);
-    const initialConfig: any = {};
-    connector.schema?.forEach((prop: any) => {
+    const initialConfig: Record<string, unknown> = {};
+    connector.schema?.forEach((prop) => {
       initialConfig[prop.key] = prop.default_value || '';
     });
     setFormData({
@@ -133,9 +154,12 @@ export function Connectors() {
     openModal();
   };
 
-  const handleEditInstance = (instance: any) => {
-    const connector = connectors.find((c: any) => c.id === instance.connector_id);
-    setSelectedConnector(connector);
+  const handleEditInstance = (instance: ApiConnectorInstance) => {
+    // The instance nests the connector it configures. This read `connector_id`,
+    // a field the API has never sent, so the lookup never matched and editing
+    // an instance opened a form with no schema to fill in.
+    const connector = connectors.find((c) => c.id === instance.connector?.id);
+    setSelectedConnector(connector ?? null);
     setEditingInstance(instance);
     setActiveStep(1); // Skip introduction step
     setFormData({
@@ -146,30 +170,30 @@ export function Connectors() {
   };
 
   const handleSave = async () => {
-    if (!currentProjectId) return;
+    if (!currentProjectId || !selectedConnector) return;
 
     try {
       if (editingInstance) {
         await updateInstance.mutateAsync({
           id: editingInstance.id,
-          project_id: currentProjectId,
-          connector_id: selectedConnector.id,
+          project: { id: currentProjectId },
+          connector: { id: selectedConnector.id },
           name: formData.name,
           config: formData.config
         });
         notifications.show({ title: 'Success', message: 'Connector instance updated', color: 'green' });
       } else {
         await createInstance.mutateAsync({
-          project_id: currentProjectId,
-          connector_id: selectedConnector.id,
+          project: { id: currentProjectId },
+          connector: { id: selectedConnector.id },
           name: formData.name,
           config: formData.config
         });
         notifications.show({ title: 'Success', message: 'Connector instance created', color: 'green' });
       }
       closeModal();
-    } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.message || 'Failed to save connector instance', color: 'red' });
+    } catch (err: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(err, 'Failed to save connector instance'), color: 'red' });
     }
   };
 
@@ -178,13 +202,14 @@ export function Connectors() {
       try {
         await deleteInstance.mutateAsync(id);
         notifications.show({ title: 'Deleted', message: 'Connector instance removed', color: 'blue' });
-      } catch (err: any) {
-        notifications.show({ title: 'Error', message: err.message || 'Failed to delete instance', color: 'red' });
+      } catch (err: unknown) {
+        notifications.show({ title: 'Error', message: errorMessage(err, 'Failed to delete instance'), color: 'red' });
       }
     }
   };
 
   const handleTest = async () => {
+    if (!selectedConnector) return;
     setTestResult(null);
     try {
       const payload = JSON.parse(testPayload);
@@ -194,8 +219,8 @@ export function Connectors() {
         payload: payload
       });
       setTestResult({ success: true, data: result });
-    } catch (err: any) {
-      setTestResult({ success: false, error: err.message });
+    } catch (err: unknown) {
+      setTestResult({ success: false, error: errorMessage(err, 'Test failed') });
     }
   };
 
@@ -205,8 +230,8 @@ export function Connectors() {
       notifications.show({ title: 'Success', message: 'Custom connector created', color: 'green' });
       closeCustomModal();
       customConnectorForm.reset();
-    } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.message || 'Failed to create connector', color: 'red' });
+    } catch (err: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(err, 'Failed to create connector'), color: 'red' });
     }
   };
 
@@ -214,9 +239,12 @@ export function Connectors() {
     customConnectorForm.insertListItem('schema', { key: '', label: '', type: 'string', required: false });
   };
 
-  const renderField = (prop: any) => {
-    const value = formData.config?.[prop.key];
-    const onChange = (val: any) => setFormData({
+  const renderField = (prop: ApiConnectorProperty) => {
+    // Config values are free-form on the wire and every input below renders
+    // text, so they are narrowed once here rather than cast at each use.
+    const raw = formData.config?.[prop.key];
+    const value = raw == null ? '' : String(raw);
+    const onChange = (val: unknown) => setFormData({
       ...formData,
       config: { ...(formData.config || {}), [prop.key]: val }
     });
@@ -251,7 +279,7 @@ export function Connectors() {
             label={prop.label}
             description={prop.description}
             required={prop.required}
-            data={prop.options || []}
+            data={(prop.options ?? []).map((o) => String(o))}
             value={value || ''}
             onChange={onChange}
           />
@@ -325,8 +353,8 @@ export function Connectors() {
             <ErrorState error={connectorsError} action="load your connectors" onRetry={() => refetchConnectors()} />
           ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg">
-            {connectors.map((connector: any) => {
-              const Icon = IconMap[connector.icon] || Zap;
+            {connectors.map((connector) => {
+              const Icon = (connector.icon ? IconMap[connector.icon] : undefined) ?? Zap;
               return (
                 <Card key={connector.id} withBorder padding="lg" radius="md" shadow="xs" className="connector-card">
                   <Group justify="space-between" mb="sm">
@@ -391,8 +419,8 @@ export function Connectors() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {instances.map((inst: any) => {
-                    const connector = connectors.find((c: any) => c.id === inst.connector_id);
+                  {instances.map((inst) => {
+                    const connector = connectors.find((c) => c.id === inst.connector?.id);
                     const Icon = (connector?.icon ? IconMap[connector.icon] : undefined) ?? Zap;
                     return (
                       <Table.Tr key={inst.id}>
@@ -426,7 +454,7 @@ export function Connectors() {
                         <Table.Td>
                           <Group gap="xs" justify="flex-end">
                             <Tooltip label="Test Connection">
-                              <ActionIcon aria-label="Run connector" variant="light" color="orange" onClick={() => { setSelectedConnector(connector); setFormData(inst); openTestModal(); }}>
+                              <ActionIcon aria-label="Run connector" variant="light" color="orange" onClick={() => { setSelectedConnector(connector ?? null); setFormData({ name: inst.name, config: { ...(inst.config ?? {}) } }); openTestModal(); }}>
                                 <Play size={16} />
                               </ActionIcon>
                             </Tooltip>
@@ -460,7 +488,7 @@ export function Connectors() {
           <Group gap="sm">
             <ThemeIcon size="md" variant="light">
               {(() => {
-                const Icon = selectedConnector ? (IconMap[selectedConnector.icon] || Zap) : Zap;
+                const Icon = (selectedConnector?.icon ? IconMap[selectedConnector.icon] : undefined) ?? Zap;
                 return <Icon size={18} />;
               })()}
             </ThemeIcon>
@@ -500,7 +528,7 @@ export function Connectors() {
                   onChange={(e) => setFormData({ ...formData, name: e.currentTarget.value })}
                 />
                 <Divider label="Provider Settings" labelPosition="center" />
-                {selectedConnector?.schema?.map((prop: any) => renderField(prop))}
+                {selectedConnector?.schema?.map((prop) => renderField(prop))}
                 
                 <Group justify="space-between" mt="xl">
                   <Button variant="default" onClick={() => setActiveStep(0)}>Back</Button>

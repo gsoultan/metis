@@ -50,8 +50,12 @@ func NewConnectorService(
 	// MS Teams Connector
 	s.executors["ms-teams-message"] = &MSTeamsMessageExecutor{}
 
-	// Bootstrap default connectors in DB if they don't exist (simplified for this task)
-	s.bootstrapDefaultConnectors()
+	// Seed the catalogue for an already-configured installation. A first run
+	// writes into the bootstrap database instead, so setup calls this again
+	// once it has swapped to the real one.
+	if err := s.EnsureDefaultConnectors(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to bootstrap default connectors")
+	}
 
 	return s
 }
@@ -125,6 +129,17 @@ func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context
 }
 
 func (s *connectorService) CreateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) (entities.ConnectorInstance, error) {
+	// An instance belongs to a project and configures a connector, and an
+	// instance missing either is unreachable rather than merely incomplete: the
+	// only listing is scoped to a project, and execution needs a connector to
+	// run. Storing one anyway returns an id for a row nothing can ever find.
+	if instance.Project == nil || instance.Project.ID == uuid.Nil {
+		return entities.ConnectorInstance{}, fmt.Errorf("connector instance requires a project")
+	}
+	if instance.Connector == nil || instance.Connector.ID == uuid.Nil {
+		return entities.ConnectorInstance{}, fmt.Errorf("connector instance requires a connector")
+	}
+
 	if instance.ID == uuid.Nil {
 		instance.ID, _ = uuid.NewV7()
 	}
@@ -158,8 +173,14 @@ func (s *connectorService) RegisterExecutor(key string, executor servicecontract
 	s.executors[key] = executor
 }
 
-func (s *connectorService) bootstrapDefaultConnectors() {
-	ctx := context.Background()
+// EnsureDefaultConnectors creates the built-in catalogue in whichever database
+// is current, skipping any connector that is already there.
+//
+// This runs at construction and again after setup swaps to the target
+// database. Without the second call the catalogue only ever existed in the
+// bootstrap database that setup replaces, so a configured installation offered
+// no connectors at all and every service task had nothing to call.
+func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 	log.Info().Msg("Bootstrapping default connectors...")
 
 	connectors := []entities.Connector{
@@ -258,18 +279,20 @@ func (s *connectorService) bootstrapDefaultConnectors() {
 		},
 	}
 
+	var failed error
 	for _, c := range connectors {
-		if _, err := s.repo.Connector().GetByKey(ctx, c.Key); err != nil {
-			log.Info().Str("key", c.Key).Msg("Creating default connector")
-			c.CreatedAt = time.Now()
-			_, err := s.repo.Connector().Create(ctx, adapters.ConnectorModelAdapter{Connector: c}.ToModel())
-			if err != nil {
-				log.Error().Err(err).Str("key", c.Key).Msg("Failed to create default connector")
-			}
-		} else {
+		if _, err := s.repo.Connector().GetByKey(ctx, c.Key); err == nil {
 			log.Debug().Str("key", c.Key).Msg("Default connector already exists")
+			continue
+		}
+		log.Info().Str("key", c.Key).Msg("Creating default connector")
+		c.CreatedAt = time.Now()
+		if _, err := s.repo.Connector().Create(ctx, adapters.ConnectorModelAdapter{Connector: c}.ToModel()); err != nil {
+			log.Error().Err(err).Str("key", c.Key).Msg("Failed to create default connector")
+			failed = err
 		}
 	}
+	return failed
 }
 
 // Built-in Executors

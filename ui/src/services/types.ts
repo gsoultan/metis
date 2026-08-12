@@ -153,29 +153,69 @@ export interface CreateDefinitionPayload {
 
 // ─── Connectors ──────────────────────────────────────────────────────────────
 
+/**
+ * One field a connector needs configuring: a webhook URL, an API key, a host.
+ * The catalogue ships these so the UI can build a form without knowing what
+ * any particular connector is.
+ */
+export interface ApiConnectorProperty {
+  key: string;
+  label: string;
+  /** string | password | boolean | number | select */
+  type: string;
+  description?: string;
+  default_value?: string;
+  required?: boolean;
+  /** Choices, when type is select. */
+  options?: unknown[];
+}
+
+/**
+ * A connector in the built-in catalogue.
+ *
+ * These names are the server's. They previously said `category` and
+ * `config_schema`, which the API has never sent — it sends `type` and
+ * `schema` — so every read of them was undefined and every page that touched
+ * a connector had to fall back to `any` to compile.
+ */
 export interface ApiConnector {
-  /** Icon key used by the connector catalogue in the designer. */
-  icon?: string;
   id: string;
   key: string;
   name: string;
   description?: string;
-  category?: string;
-  config_schema?: Record<string, unknown>;
+  /** Lucide icon name, used by the catalogue and the designer. */
+  icon?: string;
+  /** e.g. communication, utility */
+  type?: string;
+  schema?: ApiConnectorProperty[];
+  created_at?: string;
 }
 
+/**
+ * A connector configured for one project — a specific Slack workspace rather
+ * than "Slack".
+ *
+ * The project and the connector are nested objects, not ids. Describing them
+ * as `project_id` and `connector_key` is what let the connector page send ids
+ * the API ignored, so every instance it created was stored belonging to no
+ * project and configuring no connector.
+ */
 export interface ApiConnectorInstance {
   id: string;
-  connector_key: string;
   name: string;
-  project_id: string;
+  project?: { id: string; name?: string };
+  connector?: { id: string; key?: string; name?: string; type?: string };
   config?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
 }
 
+/** What createConnectorInstance sends. Same shape, minus the server's fields. */
 export interface CreateConnectorInstancePayload {
-  connector_key: string;
+  id?: string;
   name: string;
-  project_id: string;
+  project: { id: string };
+  connector: { id: string };
   config?: Record<string, unknown>;
 }
 

@@ -310,6 +310,15 @@ func (a *App) setupService(ctx context.Context) error {
 	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, func(targetDB *gorm.DB) {
 		log.Info().Msg("Setup complete: hot-swapping database connection to target database")
 		gorms.SetDBOverride(targetDB)
+
+		// The built-in connectors were created during startup, which means they
+		// went into the bootstrap database this call has just replaced. Without
+		// seeding again, a freshly configured installation opens the connector
+		// catalogue and finds it empty — no Slack, no email, no HTTP — with
+		// nothing to indicate why.
+		if err := a.svc.EnsureDefaultConnectors(ctx); err != nil {
+			log.Error().Err(err).Msg("Failed to seed default connectors into the target database")
+		}
 	})
 
 	dispatcher.Register(impl.NewNotificationObserver(a.svc))
