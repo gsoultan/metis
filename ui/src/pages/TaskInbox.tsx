@@ -405,7 +405,7 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
   });
 
   return (
-    <Grid gutter="md">
+    <Grid gap="md">
       {columns.map(col => (
         <Grid.Col span={{ base: 12, md: 4 }} key={col.id}>
           <Paper p="md" radius="lg" bg="gray.0" withBorder h="100%" style={{ minHeight: 500 }}>

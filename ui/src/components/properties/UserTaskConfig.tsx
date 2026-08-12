@@ -74,7 +74,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
             clearable
           />
         ) : (
-          <Grid gutter="md">
+          <Grid gap="md">
             <Grid.Col span={{ base: 12, sm: 6 }}>
               <MultiSelect
                 label="Candidate Users"
@@ -113,7 +113,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <Text fw={700} size="md">Execution Details</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12, sm: 4 }}>
             <NumberInput
               label="Priority"

@@ -56,7 +56,7 @@ export function CallActivityConfig({
           <Text fw={700} size="md">Sub-Process Configuration</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12, sm: 8 }}>
             <Select
               label="Called Process Definition"

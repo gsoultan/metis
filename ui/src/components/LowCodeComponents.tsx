@@ -126,7 +126,7 @@ export function VisualConditionBuilder({
           />
         </Group>
         
-        <Grid gutter="xs" align="flex-end">
+        <Grid gap="xs" align="flex-end">
           <Grid.Col span={5}>
             <VariablePicker 
               label="Variable" 

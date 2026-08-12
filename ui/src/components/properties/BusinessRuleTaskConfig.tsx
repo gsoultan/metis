@@ -27,7 +27,7 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <Text fw={700} size="md">DMN Configuration</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12, sm: 8 }}>
             <Select
               label="Decision Key"

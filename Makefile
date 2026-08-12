@@ -40,10 +40,9 @@ ui-build: ## Build the UI (required before any Go build — ui/embed.go embeds u
 
 .PHONY: ui-typecheck
 ui-typecheck: ## Typecheck the UI
-	# `tsc --noEmit` checks NOTHING here: the root tsconfig.json declares
-	# "files": [] and only project references. -b builds the referenced
-	# projects, which is what `bun run build` does.
-	cd ui && bunx tsc -b --force
+	# Uses tsgo, the TypeScript 7 native compiler (~16x faster than tsc here).
+	# See ui/TYPESCRIPT.md for why typescript@5.9 is also installed.
+	cd ui && bun run typecheck
 
 .PHONY: ui-lint
 ui-lint: ## Lint the UI

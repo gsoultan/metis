@@ -140,7 +140,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
 
   return (
     <form onSubmit={handleSubmit}>
-      <Grid gutter="md">
+      <Grid gap="md">
         {visibleFields.map((field) => {
           const disabled = isDisabled(field);
           const span = field.gridSpan || 1;

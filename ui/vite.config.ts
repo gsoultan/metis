@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { TanStackRouterVite } from '@tanstack/router-vite-plugin'
+import tailwindcss from '@tailwindcss/vite'
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
 
 // https://vite.dev/config/
 // The backend the dev server proxies to. Override with GOBPM_BACKEND when the
@@ -19,11 +20,16 @@ export default defineConfig({
     },
   },
   plugins: [
-    react(),
-    TanStackRouterVite({
+    // The router plugin must run before the JSX transform: it rewrites route
+    // files, and plugin-react would otherwise compile them first.
+    tanstackRouter({
+      target: 'react',
       routesDirectory: './src/routes',
       generatedRouteTree: './src/routeTree.gen.ts',
+      autoCodeSplitting: true,
     }),
+    react(),
+    tailwindcss(),
   ],
   build: {
     chunkSizeWarningLimit: 1000,
@@ -31,7 +37,7 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
-            if (id.includes('@mantine') || id.includes('@emotion')) return 'vendor-mantine';
+            if (id.includes('@mantine')) return 'vendor-mantine';
             if (id.includes('@tanstack')) return 'vendor-tanstack';
             if (id.includes('@xyflow')) return 'vendor-flow';
             if (id.includes('lucide-react')) return 'vendor-icons';

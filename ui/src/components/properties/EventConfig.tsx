@@ -49,7 +49,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
       <Divider variant="dashed" />
 
       {eventType === 'timer' && (
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <Select
               label="Timer Type"

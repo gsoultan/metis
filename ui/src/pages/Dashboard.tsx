@@ -166,7 +166,7 @@ export function Dashboard() {
         }
       />
 
-      <Grid gutter="xl">
+      <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard 
             title="Active Instances" 
@@ -208,7 +208,7 @@ export function Dashboard() {
         </Grid.Col>
       </Grid>
 
-      <Grid gutter="xl">
+      <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 8 }}>
           <Card shadow="sm" radius="lg" withBorder h="100%">
             <Group justify="space-between" mb="xl">
@@ -309,7 +309,7 @@ export function Dashboard() {
           <Text size="xs" c="dimmed">Quick start by picking a template</Text>
         </Group>
         
-        <Grid gutter="md">
+        <Grid gap="md">
           {[
             { 
               title: "Simple Approval", 

@@ -27,10 +27,10 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: ui
 
-      # tsc --noEmit checks nothing against the root tsconfig (files: [] plus
-      # project references); -b builds the referenced projects.
+      # tsgo is the TypeScript 7 native compiler. typescript@5.9 is also
+      # installed purely so typescript-eslint can run — see ui/TYPESCRIPT.md.
       - name: Typecheck
-        run: bunx tsc -b --force
+        run: bun run typecheck
         working-directory: ui
 
       - name: Lint

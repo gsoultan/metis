@@ -15,7 +15,7 @@ export function ManualTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <Text fw={700} size="md">Manual Instructions</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12 }}>
             <TextInput
               label="Assigned Actor"

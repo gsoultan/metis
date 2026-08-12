@@ -40,7 +40,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <Text fw={700} size="md">Service Protocol</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12 }}>
             <Select
               label={

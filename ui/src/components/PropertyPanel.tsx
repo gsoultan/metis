@@ -170,12 +170,12 @@ export function PropertyPanel({
     >
       <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
         <Container fluid px="xl" py="xl">
-          <Grid gutter="xl">
+          <Grid gap="xl">
             {/* Column 1: Configuration & General */}
             <Grid.Col span={{ base: 12, md: 8 }}>
               <Stack gap="lg">
                 <Card withBorder radius="md" p="xl" shadow="sm">
-                  <Grid gutter="xl">
+                  <Grid gap="xl">
                     <Grid.Col span={{ base: 12, md: 5 }}>
                       <Stack gap="md">
                         <Group gap="xs" mb="xs">

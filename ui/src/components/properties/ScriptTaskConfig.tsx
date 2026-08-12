@@ -30,7 +30,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <Text fw={700} size="md">Script Runtime</Text>
         </Group>
 
-        <Grid gutter="md">
+        <Grid gap="md">
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <Select
               label="Execution Language"
