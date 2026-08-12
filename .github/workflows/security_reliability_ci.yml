@@ -128,6 +128,44 @@ jobs:
           version: latest
           only-new-issues: true
 
+  proto-generated:
+    name: Generated code matches protos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      # The .proto files are the contract for the Connect API the UI speaks.
+      # They had silently diverged from the checked-in generated code: the
+      # protos modelled relationships as nested messages while the generated Go
+      # still had flat *_id strings, so anyone running `buf generate` — a normal
+      # thing to do — broke the build, and no client generated from these protos
+      # by a third party would have matched the server.
+      #
+      # Regenerating in CI and failing on any diff makes the protos the source
+      # of truth in fact and not just in intent.
+      - name: Regenerate
+        run: buf generate
+
+      - name: Fail if the tree changed
+        run: |
+          if ! git diff --quiet -- api/proto ui/src/gen; then
+            echo "::error::Generated code is out of date. Run 'buf generate' and commit the result."
+            git --no-pager diff --stat -- api/proto ui/src/gen
+            exit 1
+          fi
+          echo "Generated code matches the protos."
+
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest

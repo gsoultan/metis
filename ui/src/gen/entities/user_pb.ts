@@ -5,6 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { Organization } from "./organization_pb.js";
 
 /**
  * @generated from message process.UserOrganization
@@ -127,9 +128,9 @@ export class User extends Message<User> {
   displayName = "";
 
   /**
-   * @generated from field: string organization = 10;
+   * @generated from field: process.Organization organization = 10;
    */
-  organization = "";
+  organization?: Organization;
 
   /**
    * @generated from field: string email = 5;
@@ -160,7 +161,7 @@ export class User extends Message<User> {
     { no: 3, name: "username", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "full_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "display_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "organization", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "organization", kind: "message", T: Organization },
     { no: 5, name: "email", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "roles", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 7, name: "created_at", kind: "message", T: Timestamp },

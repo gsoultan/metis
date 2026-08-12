@@ -25,15 +25,15 @@ const (
 type Notification struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	User          *User                  `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
 	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
 	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
 	Message       string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
 	IsRead        bool                   `protobuf:"varint,6,opt,name=is_read,json=isRead,proto3" json:"is_read,omitempty"`
 	Link          string                 `protobuf:"bytes,7,opt,name=link,proto3" json:"link,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,9,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	InstanceId    string                 `protobuf:"bytes,10,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Project       *Project               `protobuf:"bytes,9,opt,name=project,proto3" json:"project,omitempty"`
+	Instance      *ProcessInstance       `protobuf:"bytes,10,opt,name=instance,proto3" json:"instance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,11 +75,11 @@ func (x *Notification) GetId() string {
 	return ""
 }
 
-func (x *Notification) GetUserId() string {
+func (x *Notification) GetUser() *User {
 	if x != nil {
-		return x.UserId
+		return x.User
 	}
-	return ""
+	return nil
 }
 
 func (x *Notification) GetType() string {
@@ -124,40 +124,38 @@ func (x *Notification) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Notification) GetProjectId() string {
+func (x *Notification) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
-func (x *Notification) GetInstanceId() string {
+func (x *Notification) GetInstance() *ProcessInstance {
 	if x != nil {
-		return x.InstanceId
+		return x.Instance
 	}
-	return ""
+	return nil
 }
 
 var File_entities_notification_proto protoreflect.FileDescriptor
 
 const file_entities_notification_proto_rawDesc = "" +
 	"\n" +
-	"\x1bentities/notification.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa3\x02\n" +
+	"\x1bentities/notification.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x13entities/user.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xcf\x02\n" +
 	"\fNotification\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
+	"\x04user\x18\x02 \x01(\v2\r.process.UserR\x04user\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x18\n" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12\x17\n" +
 	"\ais_read\x18\x06 \x01(\bR\x06isRead\x12\x12\n" +
 	"\x04link\x18\a \x01(\tR\x04link\x129\n" +
 	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\t \x01(\tR\tprojectId\x12\x1f\n" +
-	"\vinstance_id\x18\n" +
-	" \x01(\tR\n" +
-	"instanceIdB\x93\x01\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12*\n" +
+	"\aproject\x18\t \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
+	"\binstance\x18\n" +
+	" \x01(\v2\x18.process.ProcessInstanceR\binstanceB\x93\x01\n" +
 	"\vcom.processB\x11NotificationProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -175,15 +173,21 @@ func file_entities_notification_proto_rawDescGZIP() []byte {
 var file_entities_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_notification_proto_goTypes = []any{
 	(*Notification)(nil),          // 0: process.Notification
-	(*timestamppb.Timestamp)(nil), // 1: google.protobuf.Timestamp
+	(*User)(nil),                  // 1: process.User
+	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
+	(*Project)(nil),               // 3: process.Project
+	(*ProcessInstance)(nil),       // 4: process.ProcessInstance
 }
 var file_entities_notification_proto_depIdxs = []int32{
-	1, // 0: process.Notification.created_at:type_name -> google.protobuf.Timestamp
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 0: process.Notification.user:type_name -> process.User
+	2, // 1: process.Notification.created_at:type_name -> google.protobuf.Timestamp
+	3, // 2: process.Notification.project:type_name -> process.Project
+	4, // 3: process.Notification.instance:type_name -> process.ProcessInstance
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_entities_notification_proto_init() }
@@ -191,6 +195,9 @@ func file_entities_notification_proto_init() {
 	if File_entities_notification_proto != nil {
 		return
 	}
+	file_entities_user_proto_init()
+	file_entities_project_proto_init()
+	file_entities_process_instance_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -15,10 +15,10 @@ func (a ProcessDefinitionPBAdapter) ToProto() *pbentities.ProcessDefinition {
 		projectID = a.Definition.Project.ID.String()
 	}
 	return &pbentities.ProcessDefinition{
-		Id:        a.Definition.ID.String(),
-		ProjectId: projectID,
-		Key:       a.Definition.Key,
-		Name:      a.Definition.Name,
-		Version:   int32(a.Definition.Version),
+		Id:      a.Definition.ID.String(),
+		Project: projectRef(projectID),
+		Key:     a.Definition.Key,
+		Name:    a.Definition.Name,
+		Version: int32(a.Definition.Version),
 	}
 }

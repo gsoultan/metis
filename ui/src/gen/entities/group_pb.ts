@@ -5,6 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { Organization } from "./organization_pb.js";
 
 /**
  * @generated from message process.Group
@@ -16,9 +17,9 @@ export class Group extends Message<Group> {
   id = "";
 
   /**
-   * @generated from field: string organization_id = 2;
+   * @generated from field: process.Organization organization = 2;
    */
-  organizationId = "";
+  organization?: Organization;
 
   /**
    * @generated from field: string name = 3;
@@ -49,7 +50,7 @@ export class Group extends Message<Group> {
   static readonly typeName = "process.Group";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "organization_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "organization", kind: "message", T: Organization },
     { no: 3, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "description", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "roles", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },

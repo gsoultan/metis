@@ -5,6 +5,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3 } from "@bufbuild/protobuf";
+import { Node } from "./node_pb.js";
 
 /**
  * @generated from message process.Flow
@@ -16,14 +17,14 @@ export class Flow extends Message<Flow> {
   id = "";
 
   /**
-   * @generated from field: string source_ref = 2;
+   * @generated from field: process.Node source = 2;
    */
-  sourceRef = "";
+  source?: Node;
 
   /**
-   * @generated from field: string target_ref = 3;
+   * @generated from field: process.Node target = 3;
    */
-  targetRef = "";
+  target?: Node;
 
   /**
    * @generated from field: string condition = 4;
@@ -39,8 +40,8 @@ export class Flow extends Message<Flow> {
   static readonly typeName = "process.Flow";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "source_ref", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "target_ref", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "source", kind: "message", T: Node },
+    { no: 3, name: "target", kind: "message", T: Node },
     { no: 4, name: "condition", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 

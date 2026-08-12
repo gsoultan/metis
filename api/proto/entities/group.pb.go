@@ -23,15 +23,15 @@ const (
 )
 
 type Group struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Description    string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	Roles          []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Organization  *Organization          `protobuf:"bytes,2,opt,name=organization,proto3" json:"organization,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	Roles         []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Group) Reset() {
@@ -71,11 +71,11 @@ func (x *Group) GetId() string {
 	return ""
 }
 
-func (x *Group) GetOrganizationId() string {
+func (x *Group) GetOrganization() *Organization {
 	if x != nil {
-		return x.OrganizationId
+		return x.Organization
 	}
-	return ""
+	return nil
 }
 
 func (x *Group) GetName() string {
@@ -110,10 +110,10 @@ var File_entities_group_proto protoreflect.FileDescriptor
 
 const file_entities_group_proto_rawDesc = "" +
 	"\n" +
-	"\x14entities/group.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc7\x01\n" +
+	"\x14entities/group.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bentities/organization.proto\"\xd9\x01\n" +
 	"\x05Group\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
-	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x12\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
+	"\forganization\x18\x02 \x01(\v2\x15.process.OrganizationR\forganization\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x14\n" +
 	"\x05roles\x18\x06 \x03(\tR\x05roles\x129\n" +
@@ -137,15 +137,17 @@ func file_entities_group_proto_rawDescGZIP() []byte {
 var file_entities_group_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_group_proto_goTypes = []any{
 	(*Group)(nil),                 // 0: process.Group
-	(*timestamppb.Timestamp)(nil), // 1: google.protobuf.Timestamp
+	(*Organization)(nil),          // 1: process.Organization
+	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
 var file_entities_group_proto_depIdxs = []int32{
-	1, // 0: process.Group.created_at:type_name -> google.protobuf.Timestamp
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 0: process.Group.organization:type_name -> process.Organization
+	2, // 1: process.Group.created_at:type_name -> google.protobuf.Timestamp
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_entities_group_proto_init() }
@@ -153,6 +155,7 @@ func file_entities_group_proto_init() {
 	if File_entities_group_proto != nil {
 		return
 	}
+	file_entities_organization_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

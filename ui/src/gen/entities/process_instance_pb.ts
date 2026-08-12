@@ -5,6 +5,9 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Struct } from "@bufbuild/protobuf";
+import { Project } from "./project_pb.js";
+import { ProcessDefinition } from "./definition_pb.js";
+import { Node } from "./node_pb.js";
 
 /**
  * @generated from message process.ProcessInstance
@@ -16,14 +19,14 @@ export class ProcessInstance extends Message<ProcessInstance> {
   id = "";
 
   /**
-   * @generated from field: string project_id = 2;
+   * @generated from field: process.Project project = 2;
    */
-  projectId = "";
+  project?: Project;
 
   /**
-   * @generated from field: string definition_id = 3;
+   * @generated from field: process.ProcessDefinition definition = 3;
    */
-  definitionId = "";
+  definition?: ProcessDefinition;
 
   /**
    * @generated from field: string status = 4;
@@ -36,9 +39,9 @@ export class ProcessInstance extends Message<ProcessInstance> {
   variables?: Struct;
 
   /**
-   * @generated from field: repeated string active_nodes = 6;
+   * @generated from field: repeated process.Node active_nodes = 6;
    */
-  activeNodes: string[] = [];
+  activeNodes: Node[] = [];
 
   constructor(data?: PartialMessage<ProcessInstance>) {
     super();
@@ -49,11 +52,11 @@ export class ProcessInstance extends Message<ProcessInstance> {
   static readonly typeName = "process.ProcessInstance";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "project_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "definition_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "project", kind: "message", T: Project },
+    { no: 3, name: "definition", kind: "message", T: ProcessDefinition },
     { no: 4, name: "status", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "variables", kind: "message", T: Struct },
-    { no: 6, name: "active_nodes", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 6, name: "active_nodes", kind: "message", T: Node, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ProcessInstance {

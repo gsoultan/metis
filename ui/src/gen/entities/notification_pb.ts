@@ -5,6 +5,9 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Timestamp } from "@bufbuild/protobuf";
+import { User } from "./user_pb.js";
+import { Project } from "./project_pb.js";
+import { ProcessInstance } from "./process_instance_pb.js";
 
 /**
  * @generated from message process.Notification
@@ -16,9 +19,9 @@ export class Notification extends Message<Notification> {
   id = "";
 
   /**
-   * @generated from field: string user_id = 2;
+   * @generated from field: process.User user = 2;
    */
-  userId = "";
+  user?: User;
 
   /**
    * @generated from field: string type = 3;
@@ -51,14 +54,14 @@ export class Notification extends Message<Notification> {
   createdAt?: Timestamp;
 
   /**
-   * @generated from field: string project_id = 9;
+   * @generated from field: process.Project project = 9;
    */
-  projectId = "";
+  project?: Project;
 
   /**
-   * @generated from field: string instance_id = 10;
+   * @generated from field: process.ProcessInstance instance = 10;
    */
-  instanceId = "";
+  instance?: ProcessInstance;
 
   constructor(data?: PartialMessage<Notification>) {
     super();
@@ -69,15 +72,15 @@ export class Notification extends Message<Notification> {
   static readonly typeName = "process.Notification";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "user_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "user", kind: "message", T: User },
     { no: 3, name: "type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "title", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "is_read", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 7, name: "link", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "created_at", kind: "message", T: Timestamp },
-    { no: 9, name: "project_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "instance_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "project", kind: "message", T: Project },
+    { no: 10, name: "instance", kind: "message", T: ProcessInstance },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Notification {

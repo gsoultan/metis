@@ -15,9 +15,9 @@ func (a ProjectPBAdapter) ToProto() *pbentities.Project {
 		orgID = a.Project.Organization.ID.String()
 	}
 	return &pbentities.Project{
-		Id:             a.Project.ID.String(),
-		OrganizationId: orgID,
-		Name:           a.Project.Name,
-		Description:    a.Project.Description,
+		Id:           a.Project.ID.String(),
+		Organization: organizationRef(orgID),
+		Name:         a.Project.Name,
+		Description:  a.Project.Description,
 	}
 }

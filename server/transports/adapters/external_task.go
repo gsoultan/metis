@@ -21,12 +21,12 @@ func (a ExternalTaskPBAdapter) ToProto() *pbentities.ExternalTask {
 		instanceID = a.Task.ProcessInstance.ID.String()
 	}
 	return &pbentities.ExternalTask{
-		Id:         a.Task.ID.String(),
-		ProjectId:  projectID,
-		InstanceId: instanceID,
-		Node:       NodeToProto(a.Task.Node),
-		Topic:      a.Task.Topic,
-		Variables:  variables,
-		Retries:    int32(a.Task.Retries),
+		Id:        a.Task.ID.String(),
+		Project:   projectRef(projectID),
+		Instance:  instanceRef(instanceID),
+		Node:      NodeToProto(a.Task.Node),
+		Topic:     a.Task.Topic,
+		Variables: variables,
+		Retries:   int32(a.Task.Retries),
 	}
 }

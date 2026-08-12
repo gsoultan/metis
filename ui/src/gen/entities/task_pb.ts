@@ -5,6 +5,8 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Struct } from "@bufbuild/protobuf";
+import { Project } from "./project_pb.js";
+import { ProcessInstance } from "./process_instance_pb.js";
 import { Node } from "./node_pb.js";
 import { User } from "./user_pb.js";
 import { Group } from "./group_pb.js";
@@ -19,14 +21,14 @@ export class Task extends Message<Task> {
   id = "";
 
   /**
-   * @generated from field: string project_id = 2;
+   * @generated from field: process.Project project = 2;
    */
-  projectId = "";
+  project?: Project;
 
   /**
-   * @generated from field: string instance_id = 3;
+   * @generated from field: process.ProcessInstance instance = 3;
    */
-  instanceId = "";
+  instance?: ProcessInstance;
 
   /**
    * @generated from field: process.Node node = 4;
@@ -44,9 +46,9 @@ export class Task extends Message<Task> {
   status = "";
 
   /**
-   * @generated from field: string assignee = 7;
+   * @generated from field: process.User assignee = 7;
    */
-  assignee = "";
+  assignee?: User;
 
   /**
    * @generated from field: repeated process.User candidate_users = 8;
@@ -97,12 +99,12 @@ export class Task extends Message<Task> {
   static readonly typeName = "process.Task";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "project_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "instance_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "project", kind: "message", T: Project },
+    { no: 3, name: "instance", kind: "message", T: ProcessInstance },
     { no: 4, name: "node", kind: "message", T: Node },
     { no: 5, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "status", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 7, name: "assignee", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "assignee", kind: "message", T: User },
     { no: 8, name: "candidate_users", kind: "message", T: User, repeated: true },
     { no: 9, name: "candidate_groups", kind: "message", T: Group, repeated: true },
     { no: 10, name: "priority", kind: "scalar", T: 5 /* ScalarType.INT32 */ },

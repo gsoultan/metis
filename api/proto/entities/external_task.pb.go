@@ -25,8 +25,8 @@ const (
 type ExternalTask struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	InstanceId    string                 `protobuf:"bytes,3,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Project       *Project               `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Instance      *ProcessInstance       `protobuf:"bytes,3,opt,name=instance,proto3" json:"instance,omitempty"`
 	Node          *Node                  `protobuf:"bytes,4,opt,name=node,proto3" json:"node,omitempty"`
 	Topic         string                 `protobuf:"bytes,5,opt,name=topic,proto3" json:"topic,omitempty"`
 	Variables     *structpb.Struct       `protobuf:"bytes,6,opt,name=variables,proto3" json:"variables,omitempty"`
@@ -72,18 +72,18 @@ func (x *ExternalTask) GetId() string {
 	return ""
 }
 
-func (x *ExternalTask) GetProjectId() string {
+func (x *ExternalTask) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
-func (x *ExternalTask) GetInstanceId() string {
+func (x *ExternalTask) GetInstance() *ProcessInstance {
 	if x != nil {
-		return x.InstanceId
+		return x.Instance
 	}
-	return ""
+	return nil
 }
 
 func (x *ExternalTask) GetNode() *Node {
@@ -118,13 +118,11 @@ var File_entities_external_task_proto protoreflect.FileDescriptor
 
 const file_entities_external_task_proto_rawDesc = "" +
 	"\n" +
-	"\x1centities/external_task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\"\xe8\x01\n" +
+	"\x1centities/external_task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\x8a\x02\n" +
 	"\fExternalTask\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\x12\x1f\n" +
-	"\vinstance_id\x18\x03 \x01(\tR\n" +
-	"instanceId\x12!\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
+	"\binstance\x18\x03 \x01(\v2\x18.process.ProcessInstanceR\binstance\x12!\n" +
 	"\x04node\x18\x04 \x01(\v2\r.process.NodeR\x04node\x12\x14\n" +
 	"\x05topic\x18\x05 \x01(\tR\x05topic\x125\n" +
 	"\tvariables\x18\x06 \x01(\v2\x17.google.protobuf.StructR\tvariables\x12\x18\n" +
@@ -146,17 +144,21 @@ func file_entities_external_task_proto_rawDescGZIP() []byte {
 var file_entities_external_task_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_external_task_proto_goTypes = []any{
 	(*ExternalTask)(nil),    // 0: process.ExternalTask
-	(*Node)(nil),            // 1: process.Node
-	(*structpb.Struct)(nil), // 2: google.protobuf.Struct
+	(*Project)(nil),         // 1: process.Project
+	(*ProcessInstance)(nil), // 2: process.ProcessInstance
+	(*Node)(nil),            // 3: process.Node
+	(*structpb.Struct)(nil), // 4: google.protobuf.Struct
 }
 var file_entities_external_task_proto_depIdxs = []int32{
-	1, // 0: process.ExternalTask.node:type_name -> process.Node
-	2, // 1: process.ExternalTask.variables:type_name -> google.protobuf.Struct
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: process.ExternalTask.project:type_name -> process.Project
+	2, // 1: process.ExternalTask.instance:type_name -> process.ProcessInstance
+	3, // 2: process.ExternalTask.node:type_name -> process.Node
+	4, // 3: process.ExternalTask.variables:type_name -> google.protobuf.Struct
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_entities_external_task_proto_init() }
@@ -165,6 +167,8 @@ func file_entities_external_task_proto_init() {
 		return
 	}
 	file_entities_node_proto_init()
+	file_entities_project_proto_init()
+	file_entities_process_instance_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

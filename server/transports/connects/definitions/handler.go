@@ -28,7 +28,7 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 			ID:       n.Id,
 			Name:     n.Name,
 			Type:     entities.NodeType(n.Type),
-			Assignee: n.Assignee,
+			Assignee: n.GetAssignee().GetUsername(),
 			Incoming: n.Incoming,
 			Outgoing: n.Outgoing,
 		}
@@ -37,8 +37,8 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 	for i, f := range req.Msg.Flows {
 		flows[i] = &entities.SequenceFlow{
 			ID:        f.Id,
-			SourceRef: f.SourceRef,
-			TargetRef: f.TargetRef,
+			SourceRef: f.GetSource().GetId(),
+			TargetRef: f.GetTarget().GetId(),
 			Condition: f.Condition,
 		}
 	}

@@ -5,6 +5,8 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto3, Struct } from "@bufbuild/protobuf";
+import { Project } from "./project_pb.js";
+import { ProcessInstance } from "./process_instance_pb.js";
 import { Node } from "./node_pb.js";
 
 /**
@@ -17,14 +19,14 @@ export class ExternalTask extends Message<ExternalTask> {
   id = "";
 
   /**
-   * @generated from field: string project_id = 2;
+   * @generated from field: process.Project project = 2;
    */
-  projectId = "";
+  project?: Project;
 
   /**
-   * @generated from field: string instance_id = 3;
+   * @generated from field: process.ProcessInstance instance = 3;
    */
-  instanceId = "";
+  instance?: ProcessInstance;
 
   /**
    * @generated from field: process.Node node = 4;
@@ -55,8 +57,8 @@ export class ExternalTask extends Message<ExternalTask> {
   static readonly typeName = "process.ExternalTask";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "project_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "instance_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "project", kind: "message", T: Project },
+    { no: 3, name: "instance", kind: "message", T: ProcessInstance },
     { no: 4, name: "node", kind: "message", T: Node },
     { no: 5, name: "topic", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "variables", kind: "message", T: Struct },

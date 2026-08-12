@@ -26,7 +26,7 @@ type Node struct {
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Type            string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
-	Assignee        string                 `protobuf:"bytes,4,opt,name=assignee,proto3" json:"assignee,omitempty"`
+	Assignee        *User                  `protobuf:"bytes,4,opt,name=assignee,proto3" json:"assignee,omitempty"`
 	Incoming        []string               `protobuf:"bytes,5,rep,name=incoming,proto3" json:"incoming,omitempty"`
 	Outgoing        []string               `protobuf:"bytes,6,rep,name=outgoing,proto3" json:"outgoing,omitempty"`
 	CandidateUsers  []*User                `protobuf:"bytes,7,rep,name=candidate_users,json=candidateUsers,proto3" json:"candidate_users,omitempty"`
@@ -86,11 +86,11 @@ func (x *Node) GetType() string {
 	return ""
 }
 
-func (x *Node) GetAssignee() string {
+func (x *Node) GetAssignee() *User {
 	if x != nil {
 		return x.Assignee
 	}
-	return ""
+	return nil
 }
 
 func (x *Node) GetIncoming() []string {
@@ -125,12 +125,12 @@ var File_entities_node_proto protoreflect.FileDescriptor
 
 const file_entities_node_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/node.proto\x12\aprocess\x1a\x13entities/user.proto\x1a\x14entities/group.proto\"\x85\x02\n" +
+	"\x13entities/node.proto\x12\aprocess\x1a\x13entities/user.proto\x1a\x14entities/group.proto\"\x94\x02\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x03 \x01(\tR\x04type\x12\x1a\n" +
-	"\bassignee\x18\x04 \x01(\tR\bassignee\x12\x1a\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12)\n" +
+	"\bassignee\x18\x04 \x01(\v2\r.process.UserR\bassignee\x12\x1a\n" +
 	"\bincoming\x18\x05 \x03(\tR\bincoming\x12\x1a\n" +
 	"\boutgoing\x18\x06 \x03(\tR\boutgoing\x126\n" +
 	"\x0fcandidate_users\x18\a \x03(\v2\r.process.UserR\x0ecandidateUsers\x129\n" +
@@ -156,13 +156,14 @@ var file_entities_node_proto_goTypes = []any{
 	(*Group)(nil), // 2: process.Group
 }
 var file_entities_node_proto_depIdxs = []int32{
-	1, // 0: process.Node.candidate_users:type_name -> process.User
-	2, // 1: process.Node.candidate_groups:type_name -> process.Group
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: process.Node.assignee:type_name -> process.User
+	1, // 1: process.Node.candidate_users:type_name -> process.User
+	2, // 2: process.Node.candidate_groups:type_name -> process.Group
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_entities_node_proto_init() }

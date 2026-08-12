@@ -28,9 +28,9 @@ export class Node extends Message<Node> {
   type = "";
 
   /**
-   * @generated from field: string assignee = 4;
+   * @generated from field: process.User assignee = 4;
    */
-  assignee = "";
+  assignee?: User;
 
   /**
    * @generated from field: repeated string incoming = 5;
@@ -63,7 +63,7 @@ export class Node extends Message<Node> {
     { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "assignee", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "assignee", kind: "message", T: User },
     { no: 5, name: "incoming", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 6, name: "outgoing", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 7, name: "candidate_users", kind: "message", T: User, repeated: true },

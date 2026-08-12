@@ -24,8 +24,8 @@ const (
 type Flow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	SourceRef     string                 `protobuf:"bytes,2,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`
-	TargetRef     string                 `protobuf:"bytes,3,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
+	Source        *Node                  `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
+	Target        *Node                  `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`
 	Condition     string                 `protobuf:"bytes,4,opt,name=condition,proto3" json:"condition,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -68,18 +68,18 @@ func (x *Flow) GetId() string {
 	return ""
 }
 
-func (x *Flow) GetSourceRef() string {
+func (x *Flow) GetSource() *Node {
 	if x != nil {
-		return x.SourceRef
+		return x.Source
 	}
-	return ""
+	return nil
 }
 
-func (x *Flow) GetTargetRef() string {
+func (x *Flow) GetTarget() *Node {
 	if x != nil {
-		return x.TargetRef
+		return x.Target
 	}
-	return ""
+	return nil
 }
 
 func (x *Flow) GetCondition() string {
@@ -93,13 +93,11 @@ var File_entities_flow_proto protoreflect.FileDescriptor
 
 const file_entities_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/flow.proto\x12\aprocess\"r\n" +
+	"\x13entities/flow.proto\x12\aprocess\x1a\x13entities/node.proto\"\x82\x01\n" +
 	"\x04Flow\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
-	"\n" +
-	"source_ref\x18\x02 \x01(\tR\tsourceRef\x12\x1d\n" +
-	"\n" +
-	"target_ref\x18\x03 \x01(\tR\ttargetRef\x12\x1c\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12%\n" +
+	"\x06source\x18\x02 \x01(\v2\r.process.NodeR\x06source\x12%\n" +
+	"\x06target\x18\x03 \x01(\v2\r.process.NodeR\x06target\x12\x1c\n" +
 	"\tcondition\x18\x04 \x01(\tR\tconditionB\x8b\x01\n" +
 	"\vcom.processB\tFlowProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
@@ -118,13 +116,16 @@ func file_entities_flow_proto_rawDescGZIP() []byte {
 var file_entities_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_flow_proto_goTypes = []any{
 	(*Flow)(nil), // 0: process.Flow
+	(*Node)(nil), // 1: process.Node
 }
 var file_entities_flow_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: process.Flow.source:type_name -> process.Node
+	1, // 1: process.Flow.target:type_name -> process.Node
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_entities_flow_proto_init() }
@@ -132,6 +133,7 @@ func file_entities_flow_proto_init() {
 	if File_entities_flow_proto != nil {
 		return
 	}
+	file_entities_node_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

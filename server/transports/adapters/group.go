@@ -15,9 +15,9 @@ func (a GroupPBAdapter) ToProto() *pbentities.Group {
 		orgID = a.Group.Organization.ID.String()
 	}
 	return &pbentities.Group{
-		Id:             a.Group.ID.String(),
-		OrganizationId: orgID,
-		Name:           a.Group.Name,
-		Description:    a.Group.Description,
+		Id:           a.Group.ID.String(),
+		Organization: organizationRef(orgID),
+		Name:         a.Group.Name,
+		Description:  a.Group.Description,
 	}
 }

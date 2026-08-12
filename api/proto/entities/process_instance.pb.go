@@ -25,11 +25,11 @@ const (
 type ProcessInstance struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	DefinitionId  string                 `protobuf:"bytes,3,opt,name=definition_id,json=definitionId,proto3" json:"definition_id,omitempty"`
+	Project       *Project               `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Definition    *ProcessDefinition     `protobuf:"bytes,3,opt,name=definition,proto3" json:"definition,omitempty"`
 	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
 	Variables     *structpb.Struct       `protobuf:"bytes,5,opt,name=variables,proto3" json:"variables,omitempty"`
-	ActiveNodes   []string               `protobuf:"bytes,6,rep,name=active_nodes,json=activeNodes,proto3" json:"active_nodes,omitempty"`
+	ActiveNodes   []*Node                `protobuf:"bytes,6,rep,name=active_nodes,json=activeNodes,proto3" json:"active_nodes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -71,18 +71,18 @@ func (x *ProcessInstance) GetId() string {
 	return ""
 }
 
-func (x *ProcessInstance) GetProjectId() string {
+func (x *ProcessInstance) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
-func (x *ProcessInstance) GetDefinitionId() string {
+func (x *ProcessInstance) GetDefinition() *ProcessDefinition {
 	if x != nil {
-		return x.DefinitionId
+		return x.Definition
 	}
-	return ""
+	return nil
 }
 
 func (x *ProcessInstance) GetStatus() string {
@@ -99,7 +99,7 @@ func (x *ProcessInstance) GetVariables() *structpb.Struct {
 	return nil
 }
 
-func (x *ProcessInstance) GetActiveNodes() []string {
+func (x *ProcessInstance) GetActiveNodes() []*Node {
 	if x != nil {
 		return x.ActiveNodes
 	}
@@ -110,15 +110,16 @@ var File_entities_process_instance_proto protoreflect.FileDescriptor
 
 const file_entities_process_instance_proto_rawDesc = "" +
 	"\n" +
-	"\x1fentities/process_instance.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\"\xd7\x01\n" +
+	"\x1fentities/process_instance.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x16entities/project.proto\x1a\x19entities/definition.proto\x1a\x13entities/node.proto\"\x8a\x02\n" +
 	"\x0fProcessInstance\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x12:\n" +
 	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\x12#\n" +
-	"\rdefinition_id\x18\x03 \x01(\tR\fdefinitionId\x12\x16\n" +
+	"definition\x18\x03 \x01(\v2\x1a.process.ProcessDefinitionR\n" +
+	"definition\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x125\n" +
-	"\tvariables\x18\x05 \x01(\v2\x17.google.protobuf.StructR\tvariables\x12!\n" +
-	"\factive_nodes\x18\x06 \x03(\tR\vactiveNodesB\x96\x01\n" +
+	"\tvariables\x18\x05 \x01(\v2\x17.google.protobuf.StructR\tvariables\x120\n" +
+	"\factive_nodes\x18\x06 \x03(\v2\r.process.NodeR\vactiveNodesB\x96\x01\n" +
 	"\vcom.processB\x14ProcessInstanceProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -135,16 +136,22 @@ func file_entities_process_instance_proto_rawDescGZIP() []byte {
 
 var file_entities_process_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_process_instance_proto_goTypes = []any{
-	(*ProcessInstance)(nil), // 0: process.ProcessInstance
-	(*structpb.Struct)(nil), // 1: google.protobuf.Struct
+	(*ProcessInstance)(nil),   // 0: process.ProcessInstance
+	(*Project)(nil),           // 1: process.Project
+	(*ProcessDefinition)(nil), // 2: process.ProcessDefinition
+	(*structpb.Struct)(nil),   // 3: google.protobuf.Struct
+	(*Node)(nil),              // 4: process.Node
 }
 var file_entities_process_instance_proto_depIdxs = []int32{
-	1, // 0: process.ProcessInstance.variables:type_name -> google.protobuf.Struct
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 0: process.ProcessInstance.project:type_name -> process.Project
+	2, // 1: process.ProcessInstance.definition:type_name -> process.ProcessDefinition
+	3, // 2: process.ProcessInstance.variables:type_name -> google.protobuf.Struct
+	4, // 3: process.ProcessInstance.active_nodes:type_name -> process.Node
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_entities_process_instance_proto_init() }
@@ -152,6 +159,9 @@ func file_entities_process_instance_proto_init() {
 	if File_entities_process_instance_proto != nil {
 		return
 	}
+	file_entities_project_proto_init()
+	file_entities_definition_proto_init()
+	file_entities_node_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

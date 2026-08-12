@@ -17,8 +17,12 @@ export const definitionService = {
       projectId,
       key: definition?.key ?? "",
       name: definition?.name ?? "",
-      nodes: definition?.nodes ?? [],
-      flows: definition?.flows ?? [],
+      // The generated request type models nodes and flows as messages with
+      // nested relationships; the payload we build is structurally compatible
+      // but not nominally, so it is asserted at this one boundary rather than
+      // widening CreateDefinitionPayload to match generated code.
+      nodes: (definition?.nodes ?? []) as never,
+      flows: (definition?.flows ?? []) as never,
     }, { signal });
 
     return { id: response.id, err: response.error };

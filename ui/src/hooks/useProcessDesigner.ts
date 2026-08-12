@@ -529,7 +529,10 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
           status = 'completed';
         }
 
-        if (instanceData?.instance?.activeNodes?.includes(node.id)) {
+        // activeNodes carries Node messages now, not bare ids — the proto models a
+        // relationship as an object. Comparing against the id keeps the check
+        // working whichever shape a given server sends.
+        if (instanceData?.instance?.activeNodes?.some((n) => (typeof n === 'string' ? n : n?.id) === node.id)) {
           status = 'active';
         }
 

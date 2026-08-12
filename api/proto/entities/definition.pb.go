@@ -24,7 +24,7 @@ const (
 type ProcessDefinition struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Project       *Project               `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
 	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
 	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
 	Version       int32                  `protobuf:"varint,5,opt,name=version,proto3" json:"version,omitempty"`
@@ -69,11 +69,11 @@ func (x *ProcessDefinition) GetId() string {
 	return ""
 }
 
-func (x *ProcessDefinition) GetProjectId() string {
+func (x *ProcessDefinition) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
 func (x *ProcessDefinition) GetKey() string {
@@ -101,11 +101,10 @@ var File_entities_definition_proto protoreflect.FileDescriptor
 
 const file_entities_definition_proto_rawDesc = "" +
 	"\n" +
-	"\x19entities/definition.proto\x12\aprocess\"\x82\x01\n" +
+	"\x19entities/definition.proto\x12\aprocess\x1a\x16entities/project.proto\"\x8f\x01\n" +
 	"\x11ProcessDefinition\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\x12\x10\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x12\x10\n" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\x05R\aversionB\x91\x01\n" +
@@ -126,13 +125,15 @@ func file_entities_definition_proto_rawDescGZIP() []byte {
 var file_entities_definition_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_definition_proto_goTypes = []any{
 	(*ProcessDefinition)(nil), // 0: process.ProcessDefinition
+	(*Project)(nil),           // 1: process.Project
 }
 var file_entities_definition_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: process.ProcessDefinition.project:type_name -> process.Project
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_entities_definition_proto_init() }
@@ -140,6 +141,7 @@ func file_entities_definition_proto_init() {
 	if File_entities_definition_proto != nil {
 		return
 	}
+	file_entities_project_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

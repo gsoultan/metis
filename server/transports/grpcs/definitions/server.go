@@ -88,7 +88,7 @@ func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, err
 			ID:       n.Id,
 			Name:     n.Name,
 			Type:     entities2.NodeType(n.Type),
-			Assignee: n.Assignee,
+			Assignee: n.GetAssignee().GetUsername(),
 			Incoming: n.Incoming,
 			Outgoing: n.Outgoing,
 		}
@@ -97,8 +97,8 @@ func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, err
 	for i, f := range req.Flows {
 		flows[i] = &entities2.SequenceFlow{
 			ID:        f.Id,
-			SourceRef: f.SourceRef,
-			TargetRef: f.TargetRef,
+			SourceRef: f.GetSource().GetId(),
+			TargetRef: f.GetTarget().GetId(),
 			Condition: f.Condition,
 		}
 	}

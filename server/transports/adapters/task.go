@@ -50,12 +50,12 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 	}
 	return &pbentities.Task{
 		Id:              a.Task.ID.String(),
-		ProjectId:       projectID,
-		InstanceId:      instanceID,
+		Project:         projectRef(projectID),
+		Instance:        instanceRef(instanceID),
 		Node:            NodeToProto(a.Task.Node),
 		Name:            a.Task.Name,
 		Status:          string(a.Task.Status),
-		Assignee:        assignee,
+		Assignee:        userRef(assignee),
 		CandidateUsers:  candidateUsers,
 		CandidateGroups: candidateGroups,
 		Priority:        int32(a.Task.Priority),

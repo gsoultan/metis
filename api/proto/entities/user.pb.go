@@ -134,7 +134,7 @@ type User struct {
 	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
 	FullName      string                 `protobuf:"bytes,4,opt,name=full_name,json=fullName,proto3" json:"full_name,omitempty"`
 	DisplayName   string                 `protobuf:"bytes,9,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Organization  string                 `protobuf:"bytes,10,opt,name=organization,proto3" json:"organization,omitempty"`
+	Organization  *Organization          `protobuf:"bytes,10,opt,name=organization,proto3" json:"organization,omitempty"`
 	Email         string                 `protobuf:"bytes,5,opt,name=email,proto3" json:"email,omitempty"`
 	Roles         []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
@@ -214,11 +214,11 @@ func (x *User) GetDisplayName() string {
 	return ""
 }
 
-func (x *User) GetOrganization() string {
+func (x *User) GetOrganization() *Organization {
 	if x != nil {
 		return x.Organization
 	}
-	return ""
+	return nil
 }
 
 func (x *User) GetEmail() string {
@@ -246,22 +246,22 @@ var File_entities_user_proto protoreflect.FileDescriptor
 
 const file_entities_user_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/user.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\"6\n" +
+	"\x13entities/user.proto\x12\aprocess\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bentities/organization.proto\"6\n" +
 	"\x10UserOrganization\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"1\n" +
 	"\vUserProject\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\xf0\x02\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x87\x03\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12?\n" +
 	"\rorganizations\x18\x02 \x03(\v2\x19.process.UserOrganizationR\rorganizations\x120\n" +
 	"\bprojects\x18\b \x03(\v2\x14.process.UserProjectR\bprojects\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x1b\n" +
 	"\tfull_name\x18\x04 \x01(\tR\bfullName\x12!\n" +
-	"\fdisplay_name\x18\t \x01(\tR\vdisplayName\x12\"\n" +
+	"\fdisplay_name\x18\t \x01(\tR\vdisplayName\x129\n" +
 	"\forganization\x18\n" +
-	" \x01(\tR\forganization\x12\x14\n" +
+	" \x01(\v2\x15.process.OrganizationR\forganization\x12\x14\n" +
 	"\x05email\x18\x05 \x01(\tR\x05email\x12\x14\n" +
 	"\x05roles\x18\x06 \x03(\tR\x05roles\x129\n" +
 	"\n" +
@@ -285,17 +285,19 @@ var file_entities_user_proto_goTypes = []any{
 	(*UserOrganization)(nil),      // 0: process.UserOrganization
 	(*UserProject)(nil),           // 1: process.UserProject
 	(*User)(nil),                  // 2: process.User
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*Organization)(nil),          // 3: process.Organization
+	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_entities_user_proto_depIdxs = []int32{
 	0, // 0: process.User.organizations:type_name -> process.UserOrganization
 	1, // 1: process.User.projects:type_name -> process.UserProject
-	3, // 2: process.User.created_at:type_name -> google.protobuf.Timestamp
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 2: process.User.organization:type_name -> process.Organization
+	4, // 3: process.User.created_at:type_name -> google.protobuf.Timestamp
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_entities_user_proto_init() }
@@ -303,6 +305,7 @@ func file_entities_user_proto_init() {
 	if File_entities_user_proto != nil {
 		return
 	}
+	file_entities_organization_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

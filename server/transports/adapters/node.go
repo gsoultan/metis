@@ -33,7 +33,7 @@ func NodeToProto(n *entities.Node) *pbentities.Node {
 		Id:              n.ID,
 		Name:            n.Name,
 		Type:            string(n.Type),
-		Assignee:        n.Assignee,
+		Assignee:        userRef(n.Assignee),
 		Incoming:        append([]string(nil), n.Incoming...),
 		Outgoing:        append([]string(nil), n.Outgoing...),
 		CandidateUsers:  users,
