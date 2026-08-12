@@ -10,6 +10,24 @@ help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
+# --- Development ----------------------------------------------------------
+
+.PHONY: dev
+dev: ## Run backend + UI together with hot reload (Ctrl-C stops both)
+	./scripts/dev.sh
+
+.PHONY: dev-backend
+dev-backend: ## Run only the Go backend
+	./scripts/dev.sh backend
+
+.PHONY: dev-ui
+dev-ui: ## Run only the Vite dev server
+	./scripts/dev.sh ui
+
+.PHONY: dev-reset
+dev-reset: ## Wipe the local database and config, then run everything
+	./scripts/dev.sh --reset
+
 # --- UI -------------------------------------------------------------------
 
 .PHONY: ui-deps

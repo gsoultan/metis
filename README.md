@@ -68,43 +68,63 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 ### Prerequisites
 
 - **Go**: 1.26.5 or higher
-- **Node.js**: With Bun (recommended) or npm
+- **Bun**: https://bun.sh
 - **PostgreSQL**: (Optional) For production-grade persistence
 
-### Running the Backend
+### Development
 
-1. **Clone the repository**
-2. **Setup environment variables**:
-   ```bash
-   export ENCRYPTION_KEY="a-strong-secret"      # required: encrypts process/task variables at rest
-   export JWT_SECRET="another-strong-secret"    # required once configured
-   export DATABASE_URL="postgres://user:pass@localhost:5432/gobpm"  # optional; defaults to SQLite
-   ```
-3. **Build the UI** (Required once before running or after UI changes):
-   ```bash
-   go run ./cmd/gobpm --build-ui
-   ```
-4. **Run the server**:
-   ```bash
-   go run ./cmd/gobpm
-   ```
-   *The server will listen on `:8080` (HTTP) and `:8081` (gRPC).*
+One command runs the backend and the UI together:
 
-### Running the Frontend
+```bash
+./scripts/dev.sh          # or: make dev
+```
 
-1. **Navigate to the UI directory**:
-   ```bash
-   cd ui
-   ```
-2. **Install dependencies**:
-   ```bash
-   bun install
-   ```
-3. **Start the development server**:
-   ```bash
-   bun run dev
-   ```
-   *Access the designer at `http://localhost:5173`.*
+- UI on **http://localhost:5173**, API on **:8080**, gRPC on **:8081**
+- The Vite dev server proxies `/api` to the backend, so development is
+  same-origin — the app talks to the server exactly as it does in production
+- Development secrets are generated once into `.env.development` (gitignored)
+- `Ctrl-C` stops both
+
+```bash
+./scripts/dev.sh backend    # backend only
+./scripts/dev.sh ui         # UI only
+./scripts/dev.sh --reset    # wipe the local database and re-run setup
+UI_PORT=3000 API_PORT=9000 ./scripts/dev.sh    # different ports
+```
+
+Install [air](https://github.com/air-verse/air) for backend hot reload; the
+script uses it automatically when present:
+
+```bash
+go install github.com/air-verse/air@latest
+```
+
+Open the UI and the first run walks through the setup wizard.
+
+### Configuration
+
+| Variable | Purpose |
+| :-- | :-- |
+| `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured. Rotating it makes existing variables unreadable. |
+| `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. |
+| `DATABASE_URL` | PostgreSQL DSN. Defaults to a local SQLite file. |
+| `GOBPM_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
+| `GOBPM_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
+| `GOBPM_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
+| `GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
+| `GOBPM_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
+| `GOBPM_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
+| `GOBPM_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
+| `GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
+| `GOBPM_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
+
+### Production build
+
+```bash
+make ui-build              # required: ui/embed.go embeds ui/dist
+go build ./cmd/gobpm
+ENCRYPTION_KEY=... JWT_SECRET=... ./gobpm
+```
 
 ## 🧪 Testing
 

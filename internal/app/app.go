@@ -69,7 +69,22 @@ const (
 	defaultPprofAddress                  = "127.0.0.1:6060"
 	envPprofEnabled                      = "GOBPM_PPROF_ENABLED"
 	envPprofAddress                      = "GOBPM_PPROF_ADDRESS"
+
+	defaultHTTPAddress = ":8080"
+	defaultGRPCAddress = ":8081"
+	envHTTPAddress     = "GOBPM_HTTP_ADDRESS"
+	envGRPCAddress     = "GOBPM_GRPC_ADDRESS"
 )
+
+// resolveAddress returns the listen address from env, falling back to a
+// default. Both were previously hardcoded, so two instances could not run side
+// by side and a container could not be told which port to publish.
+func resolveAddress(envVar, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(envVar)); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func profilingEnabled() bool {
 	enabledValue, exists := os.LookupEnv(envPprofEnabled)
@@ -356,9 +371,10 @@ func (a *App) runServers(ctx context.Context) error {
 	}
 
 	// HTTP Server
+	httpAddress := resolveAddress(envHTTPAddress, defaultHTTPAddress)
 	g.Go(func() error {
-		log.Info().Msg("HTTP server listening on :8080")
-		server := newHTTPServer(":8080", httpHandler)
+		log.Info().Str("addr", httpAddress).Msg("HTTP server listening")
+		server := newHTTPServer(httpAddress, httpHandler)
 		go func() {
 			<-ctx.Done()
 			shutdownCtx, cancel := context.WithTimeoutCause(
@@ -376,15 +392,16 @@ func (a *App) runServers(ctx context.Context) error {
 	})
 
 	// gRPC Server
+	grpcAddress := resolveAddress(envGRPCAddress, defaultGRPCAddress)
 	g.Go(func() error {
-		lis, err := net.Listen("tcp", ":8081")
+		lis, err := net.Listen("tcp", grpcAddress)
 		if err != nil {
 			return err
 		}
 		baseServer := grpc.NewServer()
 		a.registerGRPCServices(baseServer, grpcServer)
 
-		log.Info().Msg("gRPC server listening on :8081")
+		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
 
 		go func() {
 			<-ctx.Done()
