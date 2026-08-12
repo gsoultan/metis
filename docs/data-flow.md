@@ -162,10 +162,19 @@ Start with `amount: 40` and only step 2 differs:
 
 - `< 100`? **Yes** → `approvalLevel: "auto"`, `approver: "system"`
 
-No path matches `"auto"`, so the process raises an incident telling you the
-table produced a value the diagram has no route for. **This is a modelling
-mistake the engine surfaces rather than hides** — you would add a third path
-for `approvalLevel == "auto"` going straight to Finish.
+The gateway's third path (`approvalLevel = auto`) matches, and the expense is
+approved without anyone being asked. **No task is created** — the process runs
+from start to finish in a single call.
+
+> The first version of this example had only the manager and director paths, so
+> a £40 expense reached the gateway with nowhere to go. The engine stopped and
+> raised an incident naming the gateway rather than quietly taking the first
+> path — which is the behaviour you want, because a silent fallback here is how
+> an expense gets approved that nobody agreed to.
+>
+> The lesson generalises: **when you add a result to a decision table, check the
+> diagram has a route for it.** The table and the paths leaving the gateway have
+> to cover the same set of values, and nothing checks that for you.
 
 ---
 
@@ -291,6 +300,26 @@ Almost always one of:
 
 ## Try it
 
-Both processes are in `docs/examples/`. Import a definition in the designer,
-then start it with the variables shown above and watch the instance's variable
-history — it shows the bag after each step, which is this page in live form.
+Both processes are in `docs/examples/`, and both are runnable rather than
+illustrative — every value quoted on this page was produced by the engine.
+
+```
+./docs/examples/import.sh          # add -P <project-id> to choose the project
+```
+
+Then start one with the variables from step 1 and watch the instance's variable
+history: it shows the bag after each step, which is this page in live form.
+
+Two things the script handles that are easy to get wrong by hand:
+
+- The API takes `{"decision": {…}}` and `{"definition": {…}}`. Posting a bare
+  object returns **200 and an id having stored nothing you sent**, because the
+  request types hold those by value and a missing key decodes to an empty one.
+- A reference to another record is an object, not an id: `"project": {"id": …}`,
+  and `"candidate_groups": [{"name": "finance"}]`.
+
+> The designer can draw these processes but cannot yet save them with their
+> settings intact: the Connect API it saves through has no field for a node's
+> `properties`, so `decision_key`, `http_url` and the `input_`/`output_`
+> mappings are dropped on the way. Until that is fixed, import them with the
+> script and use the designer to read them.
