@@ -45,6 +45,7 @@ import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
 import { EventConfig } from './properties/EventConfig';
 import { GatewayConfig } from './properties/GatewayConfig';
 import { ApiExample } from './properties/CommonProperties';
+import { vocabularyFor } from '../domain/bpmnVocabulary';
 
 /**
  * FE-ARCH-10: Typed node configuration registry.
@@ -116,9 +117,18 @@ export function PropertyPanel({
   const { expertMode, setExpertMode } = useAppStore();
   if (!selectedNode && !selectedEdge) return null;
 
-  const title = selectedNode 
-    ? `Node Properties: ${selectedNode.data.label || selectedNode.id}` 
-    : `Connection Properties: ${selectedEdge?.label || selectedEdge?.id}`;
+  // The heading names the thing the user is editing, not the notation. It
+  // read "Node Properties: Approve" — "Node Properties" is a category from the
+  // spec, and the person editing it just wants to know what this step does.
+  const nodeVocab = selectedNode ? vocabularyFor(String(selectedNode.type)) : undefined;
+  const title = selectedNode
+    ? String(selectedNode.data.label || selectedNode.id)
+    : String(selectedEdge?.label || selectedEdge?.id || 'Connection');
+  const subtitle = selectedNode
+    ? nodeVocab
+      ? `${expertMode ? nodeVocab.bpmnName : nodeVocab.plainName} — ${nodeVocab.whatItDoes}`
+      : String(selectedNode.type)
+    : 'The path between two steps. Add a condition to control when it is taken.';
 
   return (
     <Modal
@@ -130,11 +140,13 @@ export function PropertyPanel({
             <Settings size={24} />
           </ThemeIcon>
           <Box style={{ flex: 1 }}>
-            <Title order={3}>{title}</Title>
-            <Text size="xs" c="dimmed" fw={500}>Configure parameters, execution logic, and view API details</Text>
+            <Title order={4}>{title}</Title>
+            <Text size="xs" c="dimmed">{subtitle}</Text>
           </Box>
           <Group gap="xs" mr="xl">
-             <Text size="xs" fw={700} c={expertMode ? "indigo" : "dimmed"}>Expert Mode</Text>
+             {/* Expert mode swaps plain names for BPMN terms everywhere, so
+                 someone can learn the notation without being blocked by it. */}
+             <Text size="xs" c={expertMode ? "indigo" : "dimmed"}>BPMN names</Text>
              <Checkbox 
                 checked={expertMode} 
                 onChange={(e) => setExpertMode(e.currentTarget.checked)}
@@ -434,7 +446,7 @@ function NodeConfigSection({
             <Text size="xs" c="dimmed">Use the general info section to change the label of this container.</Text>
           </>
        ) : (
-          <Text size="sm" c="dimmed">No specific configuration for this node type</Text>
+          <Text size="sm" c="dimmed">This step has nothing to configure — it does its job as soon as the process reaches it.</Text>
        )}
     </Box>
   );

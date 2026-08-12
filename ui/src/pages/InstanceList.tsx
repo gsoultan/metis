@@ -22,6 +22,24 @@ import { useInstances } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
 
+/**
+ * Turns a node identifier into something readable.
+ *
+ * Node IDs are authored in the designer and usually carry the step's name in
+ * them — "Activity_ApproveExpense", "approve-expense", "Task_1". Splitting the
+ * generated prefix and the separators recovers a usable label without needing
+ * the whole definition loaded just to render a row.
+ */
+function humanizeNodeId(nodeId: string): string {
+  const withoutPrefix = nodeId.replace(/^(Activity|Task|Event|Gateway|Flow|Node)[_-]/i, '');
+  const spaced = withoutPrefix
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim();
+  if (!spaced || /^\d+$/.test(spaced)) return nodeId;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: string, definitionId: string) => void }) {
   const { data, isLoading, error, refetch } = useInstances();
 
@@ -111,16 +129,35 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
               instances.map((inst: any) => (
                 <tr key={inst.id}>
                   <td>
-                    <Text size="sm" ff="monospace" fw={700}>{inst.id}</Text>
+                    {/* The full UUID was the first column, in bold monospace,
+                        as though it were the thing a person identifies an
+                        instance by. It is not — the process is. */}
+                    <Text size="sm" fw={500}>{inst.definition_key || 'Process'}</Text>
+                    <Text size="xs" c="dimmed" ff="monospace">{String(inst.id).slice(0, 8)}</Text>
                   </td>
                   <td>{getStatusBadge(inst.status)}</td>
                   <td>
+                    {/*
+                      This printed the raw node ID — "Activity_1x2y3z" — as the
+                      answer to "where is this process right now", which is the
+                      single most-asked question about a running instance and
+                      the one a machine identifier cannot answer.
+
+                      It also read `active_nodes`; the field arrives from the
+                      Connect client as `activeNodes`, so it was always empty
+                      and every running instance claimed to have no active
+                      steps.
+                    */}
                     <Group gap={4}>
-                      {(inst.active_nodes || []).map((nodeId: string) => (
-                        <Badge key={nodeId} size="xs" variant="outline" color="blue">{nodeId}</Badge>
+                      {(inst.activeNodes ?? inst.active_nodes ?? []).map((nodeId: string) => (
+                        <Badge key={nodeId} size="sm" variant="light" color="blue">
+                          {humanizeNodeId(nodeId)}
+                        </Badge>
                       ))}
-                      {(!inst.active_nodes || inst.active_nodes.length === 0) && inst.status === 'active' && (
-                        <Text size="xs" c="dimmed">No active tokens</Text>
+                      {(inst.activeNodes ?? inst.active_nodes ?? []).length === 0 && (
+                        <Text size="xs" c="dimmed">
+                          {inst.status === 'active' ? 'Starting…' : 'Nothing in progress'}
+                        </Text>
                       )}
                     </Group>
                   </td>

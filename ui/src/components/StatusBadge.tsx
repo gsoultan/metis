@@ -4,9 +4,37 @@ interface StatusBadgeProps {
   status: string;
 }
 
+/**
+ * Status, in words rather than enum values.
+ *
+ * This rendered `status.toUpperCase()` — "ACTIVE", "FAILED", "UNCLAIMED" —
+ * which is the database value shouted at the user. The wording below says what
+ * the state means for the person reading it: an instance is not "ACTIVE", it is
+ * "Running"; a task is not "UNCLAIMED", it is "Available".
+ */
+const PLAIN_STATUS: Record<string, string> = {
+  active: 'Running',
+  running: 'Running',
+  in_progress: 'In progress',
+  completed: 'Completed',
+  done: 'Completed',
+  finished: 'Completed',
+  failed: 'Needs attention',
+  error: 'Needs attention',
+  pending: 'Not started',
+  todo: 'Not started',
+  waiting: 'Waiting',
+  unclaimed: 'Available',
+  claimed: 'Claimed',
+  delegated: 'Delegated',
+  suspended: 'Paused',
+  terminated: 'Stopped',
+};
+
 export function StatusBadge({ status }: StatusBadgeProps) {
   let color: MantineColor = 'gray';
-  const label = status.toUpperCase();
+  const key = status.toLowerCase();
+  const label = PLAIN_STATUS[key] ?? status;
 
   switch (status.toLowerCase()) {
     case 'running':
@@ -34,15 +62,14 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <Badge 
-      variant="filled" 
+      variant="light" 
       color={color} 
       radius="sm" 
-      style={{ 
-        height: 32, 
-        minWidth: 100,
-        fontWeight: 600,
-        textTransform: 'capitalize',
-        fontSize: 'var(--mantine-font-size-xs)'
+      style={{
+        height: 26,
+        minWidth: 92,
+        fontWeight: 500,
+        fontSize: 'var(--mantine-font-size-xs)',
       }}
     >
       {label}
