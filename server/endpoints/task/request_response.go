@@ -18,6 +18,10 @@ type GetTaskResponse struct {
 func (r GetTaskResponse) Failed() error { return r.Err }
 
 type ListTasksRequest struct {
+	// Zero means "no paging requested" — the first page at the server default.
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+
 	ProjectID string `json:"project_id,omitzero"`
 }
 

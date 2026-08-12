@@ -143,8 +143,22 @@ func MakeListTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 				return ListTasksResponse{Err: err}, nil
 			}
 		}
-		tasks, err := s.ListTasks(ctx, projectID)
-		return ListTasksResponse{Tasks: tasks, Err: err}, nil
+		page, err := s.ListTasksPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return ListTasksResponse{
+			Tasks: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

@@ -212,3 +212,9 @@ func (r *gormTaskRepository) ListByProjectPaged(ctx context.Context, projectID u
 		Where(QueryByProjectID, projectID)
 	return countAndPage[models.TaskModel](base, p, "tasks.created_at DESC")
 }
+
+// ListPaged returns one page of tasks across the active tenant.
+func (r *gormTaskRepository) ListPaged(ctx context.Context, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "tasks").Model(&models.TaskModel{})
+	return countAndPage[models.TaskModel](base, p, "tasks.created_at DESC")
+}

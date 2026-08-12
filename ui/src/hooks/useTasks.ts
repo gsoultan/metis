@@ -3,12 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 
-export const useTasks = () => {
+type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
+
+export const useTasks = (page = 1, pageSize = 50) => {
   const { currentProjectId } = useAppStore();
   return useQuery({
-    queryKey: ['tasks', currentProjectId],
+    queryKey: ['tasks', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
-      currentProjectId ? processService.listTasks(currentProjectId, signal) : Promise.resolve({ tasks: [], err: "" }),
+      currentProjectId
+        ? processService.listTasks(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as AllTasksResult),
     enabled: !!currentProjectId,
   });
 };

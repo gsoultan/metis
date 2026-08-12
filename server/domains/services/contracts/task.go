@@ -11,6 +11,7 @@ import (
 type TaskService interface {
 	GetTask(ctx context.Context, id uuid.UUID) (entities.Task, error)
 	ListTasks(ctx context.Context, projectID uuid.UUID) ([]entities.Task, error)
+	ListTasksPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ListTasksByAssignee(ctx context.Context, assignee string) ([]entities.Task, error)
 
 	// ListTasksByAssigneePaged returns one window of a user's tasks plus the

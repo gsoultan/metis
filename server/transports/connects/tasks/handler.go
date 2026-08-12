@@ -36,6 +36,8 @@ func (h *TaskHandler) GetTask(ctx context.Context, req *connect.Request[pbendpoi
 func (h *TaskHandler) ListTasks(ctx context.Context, req *connect.Request[pbendpoints.ListTasksRequest]) (*connect.Response[pbendpoints.ListTasksResponse], error) {
 	response, err := h.eps.ListTasks(ctx, task.ListTasksRequest{
 		ProjectID: req.Msg.ProjectId,
+		Page:      int(req.Msg.GetPage().GetPage()),
+		PageSize:  int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err

@@ -8,8 +8,16 @@ type ListIncidentsResponse = {
 };
 
 export const taskService = {
-  async listTasks(projectId: string, signal?: AbortSignal) {
-    const response = await taskClient.listTasks({ projectId }, { signal });
+  /** One page of a project's tasks. */
+  async listTasks(
+    projectId: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasks(
+      { projectId, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
     return { tasks: response.tasks ?? [], err: response.error };
   },
 

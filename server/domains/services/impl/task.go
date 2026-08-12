@@ -469,3 +469,24 @@ func (s *taskService) ListTasksByCandidatesPaged(ctx context.Context, userID str
 	}
 	return repocontracts.NewPage(tasks, result.Total, page), nil
 }
+
+// ListTasksPaged returns one page of a project's tasks, or of the tenant's
+// tasks when no project is selected.
+func (s *taskService) ListTasksPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error) {
+	var result repocontracts.Page[models.TaskModel]
+	var err error
+	if projectID != uuid.Nil {
+		result, err = s.repo.Task().ListByProjectPaged(ctx, projectID, page)
+	} else {
+		result, err = s.repo.Task().ListPaged(ctx, page)
+	}
+	if err != nil {
+		return repocontracts.Page[entities.Task]{}, err
+	}
+
+	tasks := make([]entities.Task, len(result.Items))
+	for i, m := range result.Items {
+		tasks[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(tasks, result.Total, page), nil
+}
