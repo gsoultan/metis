@@ -30,7 +30,7 @@ export function HelpTooltip({ label, link }: { label: string, link?: string }) {
       w={220} 
       withArrow
     >
-      <ActionIcon 
+      <ActionIcon aria-label="Help mapping" 
         variant="subtle" 
         size="xs" 
         color="gray"
@@ -245,7 +245,7 @@ export function VisualDataMapper({
                   onChange={(v) => updateMapping(i, 'target', v)}
                   size="xs"
                 />
-                <ActionIcon color="red" variant="subtle" onClick={() => removeMapping(i)} mb={4}>
+                <ActionIcon aria-label="Delete mapping" color="red" variant="subtle" onClick={() => removeMapping(i)} mb={4}>
                   <Trash2 size={14} />
                 </ActionIcon>
               </Group>

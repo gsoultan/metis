@@ -80,7 +80,7 @@ export function MappingTable({
                 />
               </Table.Td>
               <Table.Td>
-                <ActionIcon variant="subtle" color="red" size="sm" onClick={() => remove(k)}>
+                <ActionIcon aria-label="Delete" variant="subtle" color="red" size="sm" onClick={() => remove(k)}>
                   <Trash2 size={14} />
                 </ActionIcon>
               </Table.Td>
@@ -104,7 +104,7 @@ export function MappingTable({
               />
             </Table.Td>
             <Table.Td>
-              <ActionIcon variant="light" size="sm" onClick={add}>
+              <ActionIcon aria-label="Add" variant="light" size="sm" onClick={add}>
                 <Plus size={14} />
               </ActionIcon>
             </Table.Td>
@@ -535,7 +535,7 @@ export function KeyValueEditor({
             <Text size="xs" fw={700}>{title}</Text>
             {description && <Text size="10px" c="dimmed">{description}</Text>}
         </Box>
-        <ActionIcon size="xs" variant="light" onClick={addRow}>
+        <ActionIcon aria-label="Add" size="xs" variant="light" onClick={addRow}>
           <Plus size={12} />
         </ActionIcon>
       </Group>
@@ -556,7 +556,7 @@ export function KeyValueEditor({
             value={v}
             onChange={(e) => updateValue(k, e.target.value)}
           />
-          <ActionIcon color="red" variant="subtle" size="xs" mt={4} onClick={() => removeRow(k)}>
+          <ActionIcon aria-label="Delete" color="red" variant="subtle" size="xs" mt={4} onClick={() => removeRow(k)}>
             <Trash2 size={12} />
           </ActionIcon>
         </Group>

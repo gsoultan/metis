@@ -163,7 +163,7 @@ export function OrganizationList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Edit Organization">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Edit organization" 
                             variant="light" 
                             color="indigo" 
                             onClick={() => handleOpenModal(org)}
@@ -172,7 +172,7 @@ export function OrganizationList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete Organization">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Delete organization" 
                             variant="light" 
                             color="red"
                             onClick={() => handleDelete(org.id)}

@@ -63,12 +63,12 @@ const ContextPad = ({ selected }: { selected?: boolean }) => {
       <Paper shadow="md" withBorder radius="xl" p={4} bg="var(--mantine-color-body)">
         <Group gap={4}>
           <Tooltip label="Next Step">
-            <ActionIcon variant="light" color="blue" radius="xl" size="sm">
+            <ActionIcon aria-label="Continue" variant="light" color="blue" radius="xl" size="sm">
               <ArrowRight size={12} />
             </ActionIcon>
           </Tooltip>
           <Tooltip label="Delete Element">
-            <ActionIcon variant="light" color="red" radius="xl" size="sm">
+            <ActionIcon aria-label="Delete" variant="light" color="red" radius="xl" size="sm">
               <Trash2 size={12} />
             </ActionIcon>
           </Tooltip>

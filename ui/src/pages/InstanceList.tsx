@@ -20,9 +20,10 @@ import {
 } from 'lucide-react';
 import { useInstances } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
+import { ErrorState } from '../components/state';
 
 export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: string, definitionId: string) => void }) {
-  const { data, isLoading, refetch } = useInstances();
+  const { data, isLoading, error, refetch } = useInstances();
 
   if (isLoading) {
     return (
@@ -52,6 +53,12 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
         </Card>
       </Stack>
     );
+  }
+
+  // A rejected request previously fell through to the empty state, so an
+  // outage was reported to the user as "you have nothing".
+  if (error) {
+    return <ErrorState error={error} action="load your process instances" onRetry={() => refetch()} />;
   }
 
   const instances = data?.instances || [];
@@ -119,7 +126,7 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                   </td>
                   <td>
                     <Tooltip label="View Execution Path">
-                      <ActionIcon 
+                      <ActionIcon aria-label="View instance" 
                         variant="light" 
                         color="blue" 
                         onClick={() => onViewInstance(inst.id, inst.definition_id)}

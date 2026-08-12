@@ -75,7 +75,7 @@ export function TaskList() {
               />
               <Button variant="light" leftSection={<Filter size={16} />} radius="md">Filter</Button>
             </Group>
-            <ActionIcon variant="subtle" color="gray">
+            <ActionIcon aria-label="More actions" variant="subtle" color="gray">
               <MoreHorizontal size={20} />
             </ActionIcon>
           </Group>
@@ -182,7 +182,7 @@ export function TaskList() {
                         >
                           Complete
                         </Button>
-                        <ActionIcon variant="subtle" color="gray">
+                        <ActionIcon aria-label="Open task" variant="subtle" color="gray">
                           <ExternalLink size={16} />
                         </ActionIcon>
                       </Group>

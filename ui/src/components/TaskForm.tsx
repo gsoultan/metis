@@ -155,7 +155,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
                       <Text fw={700} size="sm">{field.label}</Text>
                       {field.description && (
                         <Tooltip label={field.description}>
-                          <ActionIcon variant="transparent" color="gray" size="xs">
+                          <ActionIcon aria-label="Details" variant="transparent" color="gray" size="xs">
                             <Info size={14} />
                           </ActionIcon>
                         </Tooltip>

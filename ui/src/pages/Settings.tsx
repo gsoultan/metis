@@ -44,7 +44,7 @@ export function Settings() {
                   <Text size="xs" c="dimmed">Choose between light and dark mode</Text>
                 </Box>
                 <Group gap={0}>
-                  <ActionIcon 
+                  <ActionIcon aria-label="Use light theme" 
                     variant={theme === 'light' ? 'filled' : 'light'} 
                     onClick={() => theme === 'dark' && toggleTheme()}
                     size="lg"
@@ -52,7 +52,7 @@ export function Settings() {
                   >
                     <Sun size={18} />
                   </ActionIcon>
-                  <ActionIcon 
+                  <ActionIcon aria-label="Use dark theme" 
                     variant={theme === 'dark' ? 'filled' : 'light'} 
                     onClick={() => theme === 'light' && toggleTheme()}
                     size="lg"

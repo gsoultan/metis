@@ -254,7 +254,7 @@ export function GroupList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Manage Members">
-                          <ActionIcon
+                          <ActionIcon aria-label="Add member to group"
                             variant="light"
                             color="teal"
                             onClick={() => handleOpenMembers(g)}
@@ -263,7 +263,7 @@ export function GroupList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit Group">
-                          <ActionIcon
+                          <ActionIcon aria-label="Edit group"
                             variant="light"
                             color="indigo"
                             onClick={() => handleOpenModal(g)}
@@ -272,7 +272,7 @@ export function GroupList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete Group">
-                          <ActionIcon
+                          <ActionIcon aria-label="Delete group"
                             variant="light"
                             color="red"
                             onClick={() => handleDelete(g.id)}
@@ -388,7 +388,7 @@ export function GroupList() {
                     <Table.Td>
                       <Group justify="flex-end">
                         <Tooltip label="Remove Member">
-                          <ActionIcon
+                          <ActionIcon aria-label="Remove member from group"
                             variant="light"
                             color="red"
                             onClick={() => handleRemoveMember(m.id)}

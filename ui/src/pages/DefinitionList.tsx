@@ -34,10 +34,11 @@ import { CreationWizard } from '../components/CreationWizard';
 import { useState, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import dayjs from 'dayjs';
+import { ErrorState } from '../components/state';
 
 export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id: string) => void, hideHeader?: boolean }) {
   const navigate = useNavigate();
-  const { data, isLoading } = useDefinitions();
+  const { data, isLoading, error, refetch } = useDefinitions();
   const startProcess = useStartProcess();
   const [selectedDef, setSelectedDef] = useState<any>(null);
   const [historyKey, setHistoryKey] = useState<string | null>(null);
@@ -95,6 +96,12 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
         </Card>
       </Stack>
     );
+  }
+
+  // A rejected request previously fell through to the empty state, so an
+  // outage was reported to the user as "you have nothing".
+  if (error) {
+    return <ErrorState error={error} action="load your process models" onRetry={() => refetch()} />;
   }
 
   const historyVersions = historyKey ? groupedDefinitions[historyKey] || [] : [];
@@ -199,7 +206,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           Run
                         </Button>
                         <Tooltip label="Version History">
-                          <ActionIcon 
+                          <ActionIcon aria-label="History process model" 
                             variant="light" 
                             color="orange" 
                             onClick={() => setHistoryKey(def.key)}
@@ -208,7 +215,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit Flow">
-                          <ActionIcon 
+                          <ActionIcon aria-label="View process versions" 
                             variant="light" 
                             color="blue" 
                             onClick={() => onEditModel?.(def.id)}
@@ -217,7 +224,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="View Graph">
-                          <ActionIcon 
+                          <ActionIcon aria-label="View process model" 
                             variant="light" 
                             color="indigo" 
                             onClick={() => setSelectedDef(def)}

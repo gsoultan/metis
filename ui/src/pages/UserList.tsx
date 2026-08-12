@@ -223,7 +223,7 @@ export function UserList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Edit User">
-                          <ActionIcon
+                          <ActionIcon aria-label="Edit user"
                             variant="light"
                             color="indigo"
                             onClick={() => handleOpenModal(u)}
@@ -232,7 +232,7 @@ export function UserList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete User">
-                          <ActionIcon
+                          <ActionIcon aria-label="Delete user"
                             variant="light"
                             color="red"
                             onClick={() => handleDelete(u.id)}

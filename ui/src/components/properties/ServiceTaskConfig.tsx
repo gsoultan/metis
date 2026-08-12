@@ -90,7 +90,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                       <Box style={{ flex: 1 }}>
                         <Group justify="space-between">
                           <Text size="md" fw={700}>{selectedConnector.name}</Text>
-                          <ActionIcon 
+                          <ActionIcon aria-label="Delete" 
                             size="sm" 
                             variant="subtle" 
                             color="red" 

@@ -208,7 +208,7 @@ export function ProjectList() {
                           Select
                         </Button>
                         <Tooltip label="Edit Project">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Edit project" 
                             variant="light" 
                             color="indigo" 
                             onClick={() => handleOpenModal(project)}
@@ -217,7 +217,7 @@ export function ProjectList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete Project">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Delete project" 
                             variant="light" 
                             color="red"
                             onClick={() => handleDelete(project.id)}

@@ -164,7 +164,7 @@ function RuleCell({
       {!isOutput && templates.length > 0 && (
         <Menu position="bottom-end" shadow="md" width={200}>
           <Menu.Target>
-            <ActionIcon size="xs" variant="subtle" color="gray" mr={4}>
+            <ActionIcon aria-label="Expand rule" size="xs" variant="subtle" color="gray" mr={4}>
               <ChevronDown size={12} />
             </ActionIcon>
           </Menu.Target>
@@ -459,7 +459,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                                   <Info size={10} color="var(--mantine-color-blue-6)" />
                                 </MantineTooltip>
                               </Group>
-                              <ActionIcon size="xs" variant="subtle" color="red" onClick={() => setInputs(inputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
+                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setInputs(inputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
                             </Group>
                             <TextInput 
                               size="xs" 
@@ -505,7 +505,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                                   <Info size={10} color="var(--mantine-color-teal-6)" />
                                 </MantineTooltip>
                               </Group>
-                              <ActionIcon size="xs" variant="subtle" color="red" onClick={() => setOutputs(outputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
+                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setOutputs(outputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
                             </Group>
                             <TextInput 
                               size="xs" 
@@ -592,7 +592,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                             />
                           </Table.Td>
                           <Table.Td>
-                            <ActionIcon variant="subtle" color="red" size="sm" onClick={() => removeRule(ruleIdx)}>
+                            <ActionIcon aria-label="Delete rule" variant="subtle" color="red" size="sm" onClick={() => removeRule(ruleIdx)}>
                               <Trash2 size={14} />
                             </ActionIcon>
                           </Table.Td>

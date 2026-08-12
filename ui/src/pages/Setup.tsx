@@ -405,7 +405,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                         {...form.getInputProps('encryption_key')}
                       />
                       <Tooltip label="Generate secure key">
-                        <ActionIcon
+                        <ActionIcon aria-label="Refresh"
                           variant="light"
                           color="blue"
                           size="lg"
@@ -418,7 +418,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                       <CopyButton value={form.values.encryption_key} timeout={2000}>
                         {({ copied, copy }) => (
                           <Tooltip label={copied ? 'Copied' : 'Copy to clipboard'}>
-                            <ActionIcon
+                            <ActionIcon aria-label="Confirm"
                               variant="light"
                               color={copied ? 'green' : 'gray'}
                               size="lg"
@@ -443,7 +443,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                         {...form.getInputProps('jwt_secret')}
                       />
                       <Tooltip label="Generate secure secret">
-                        <ActionIcon
+                        <ActionIcon aria-label="Refresh"
                           variant="light"
                           color="blue"
                           size="lg"
@@ -456,7 +456,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                       <CopyButton value={form.values.jwt_secret} timeout={2000}>
                         {({ copied, copy }) => (
                           <Tooltip label={copied ? 'Copied' : 'Copy to clipboard'}>
-                            <ActionIcon
+                            <ActionIcon aria-label="Confirm"
                               variant="light"
                               color={copied ? 'green' : 'gray'}
                               size="lg"
@@ -522,7 +522,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                         {...form.getInputProps('admin_password')}
                       />
                       <Tooltip label="Generate secure password">
-                        <ActionIcon
+                        <ActionIcon aria-label="Refresh"
                           variant="light"
                           color="blue"
                           size="lg"
@@ -535,7 +535,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                       <CopyButton value={form.values.admin_password} timeout={2000}>
                         {({ copied, copy }) => (
                           <Tooltip label={copied ? 'Copied' : 'Copy to clipboard'}>
-                            <ActionIcon
+                            <ActionIcon aria-label="Confirm"
                               variant="light"
                               color={copied ? 'green' : 'gray'}
                               size="lg"

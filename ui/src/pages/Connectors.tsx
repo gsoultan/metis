@@ -426,17 +426,17 @@ export function Connectors() {
                         <Table.Td>
                           <Group gap="xs" justify="flex-end">
                             <Tooltip label="Test Connection">
-                              <ActionIcon variant="light" color="orange" onClick={() => { setSelectedConnector(connector); setFormData(inst); openTestModal(); }}>
+                              <ActionIcon aria-label="Run connector" variant="light" color="orange" onClick={() => { setSelectedConnector(connector); setFormData(inst); openTestModal(); }}>
                                 <Play size={16} />
                               </ActionIcon>
                             </Tooltip>
                             <Tooltip label="Configure">
-                              <ActionIcon variant="light" color="blue" onClick={() => handleEditInstance(inst)}>
+                              <ActionIcon aria-label="Settings" variant="light" color="blue" onClick={() => handleEditInstance(inst)}>
                                 <Settings size={16} />
                               </ActionIcon>
                             </Tooltip>
                             <Tooltip label="Remove">
-                              <ActionIcon variant="light" color="red" onClick={() => handleDelete(inst.id)}>
+                              <ActionIcon aria-label="Delete connector" variant="light" color="red" onClick={() => handleDelete(inst.id)}>
                                 <Trash2 size={16} />
                               </ActionIcon>
                             </Tooltip>
@@ -652,7 +652,7 @@ export function Connectors() {
                       data={['string', 'password', 'number', 'select', 'textarea', 'boolean']} 
                       {...customConnectorForm.getInputProps(`schema.${index}.type`)} 
                     />
-                    <ActionIcon color="red" variant="light" onClick={() => customConnectorForm.removeListItem('schema', index)}>
+                    <ActionIcon aria-label="Delete connector" color="red" variant="light" onClick={() => customConnectorForm.removeListItem('schema', index)}>
                       <Trash2 size={14} />
                     </ActionIcon>
                   </Group>

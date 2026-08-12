@@ -53,6 +53,7 @@ import { TaskForm } from '../components/TaskForm';
 import { BusinessTimeline } from '../components/BusinessTimeline';
 import { useTaskInbox } from '../hooks/useTaskInbox';
 import { useNavigate } from '@tanstack/react-router';
+import { TableLoadingState, EmptyState } from '../components/state';
 
 function TaskContextTable({ variables }: { variables: Record<string, any> | undefined }) {
   if (!variables) return null;
@@ -123,7 +124,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
             <Text fw={700} size="sm">{task.name}</Text>
             <Group gap={4}>
               <Tooltip label="View Process Instance Path">
-                <ActionIcon 
+                <ActionIcon aria-label="Open task" 
                   variant="subtle" 
                   size="xs" 
                   color="blue"
@@ -181,7 +182,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
           <Group gap={4}>
             <Text size="sm" fw={600}>{task.instance_id.substring(0, 8)}</Text>
             <Tooltip label="View Process Instance Path">
-              <ActionIcon 
+              <ActionIcon aria-label="Open task" 
                 variant="subtle" 
                 size="xs"
                 onClick={() => navigate({
@@ -237,7 +238,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
           ) : (
             <>
               <Tooltip label="Release back to group">
-                <ActionIcon 
+                <ActionIcon aria-label="Show candidate groups" 
                   variant="light" 
                   color="gray"
                   onClick={() => onUnclaim(task.id)}
@@ -258,7 +259,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
           )}
           <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <ActionIcon variant="subtle" color="gray">
+              <ActionIcon aria-label="More actions" variant="subtle" color="gray">
                 <MoreVertical size={16} />
               </ActionIcon>
             </Menu.Target>
@@ -319,7 +320,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
         </Group>
         <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <ActionIcon variant="subtle" color="gray" size="sm">
+              <ActionIcon aria-label="More actions" variant="subtle" color="gray" size="sm">
                 <MoreVertical size={14} />
               </ActionIcon>
             </Menu.Target>
@@ -671,24 +672,33 @@ export function TaskInbox() {
                 <Table.Tbody>
                   {assignedLoading || candidateLoading ? (
                     <Table.Tr>
-                      <Table.Td colSpan={6}>
-                        <Group justify="center" py="xl">
-                          <Text c="dimmed">Loading tasks...</Text>
-                        </Group>
+                      <Table.Td colSpan={6} p={0}>
+                        {/* Was the string "Loading tasks…", which gave no sense
+                            of how much was coming and let the table collapse
+                            then jump when rows arrived. */}
+                        <TableLoadingState rows={6} columns={6} />
                       </Table.Td>
                     </Table.Tr>
                   ) : currentTasks.length === 0 ? (
                     <Table.Tr>
                       <Table.Td colSpan={6}>
-                        <Stack align="center" py={60} gap="sm">
-                          <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                            <ClipboardList size={32} />
-                          </ThemeIcon>
-                          <Text fw={700} size="lg">No tasks found</Text>
-                          <Text ta="center" c="dimmed" maw={400}>
-                            {searchQuery ? "No tasks match your search criteria." : "Everything is done! You have no pending tasks in this view."}
-                          </Text>
-                        </Stack>
+                        {/* An empty inbox is good news, not a failure — and a
+                            search that matched nothing is a different message
+                            from having nothing to do. */}
+                        {searchQuery ? (
+                          <EmptyState
+                            icon={ClipboardList}
+                            title="No tasks match your search"
+                            description="Try a different term, or clear the search to see everything in this view."
+                            variant="filtered"
+                          />
+                        ) : (
+                          <EmptyState
+                            icon={CheckCircle}
+                            title="You're all caught up"
+                            description="Nothing needs your attention right now. New tasks appear here as soon as a process reaches a step assigned to you."
+                          />
+                        )}
                       </Table.Td>
                     </Table.Tr>
                   ) : (

@@ -110,7 +110,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
         onChange={(e) => setSearch(e.currentTarget.value)}
         rightSection={
           search && (
-            <ActionIcon size="xs" variant="transparent" onClick={() => setSearch('')}>
+            <ActionIcon aria-label="Remove" size="xs" variant="transparent" onClick={() => setSearch('')}>
               <X size={12} />
             </ActionIcon>
           )

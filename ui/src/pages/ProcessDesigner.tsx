@@ -234,7 +234,7 @@ export function ProcessDesigner({
             <Paper p="4" withBorder radius="xl" bg="var(--mantine-color-body)" shadow="md" mb="md">
               <Group gap="xs">
                 <Tooltip label="Selection Mode">
-                  <ActionIcon variant="light" size="lg">
+                  <ActionIcon aria-label="Select tool" variant="light" size="lg">
                     <MousePointer2 size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -242,7 +242,7 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label={`Undo (${historyIndex > 0 ? historyIndex : 0} steps)`}>
-                  <ActionIcon 
+                  <ActionIcon aria-label="Undo" 
                     variant="subtle" 
                     size="lg" 
                     disabled={historyIndex <= 0}
@@ -253,7 +253,7 @@ export function ProcessDesigner({
                 </Tooltip>
 
                 <Tooltip label="Redo">
-                  <ActionIcon 
+                  <ActionIcon aria-label="Redo" 
                     variant="subtle" 
                     size="lg" 
                     disabled={historyIndex >= history.length - 1}
@@ -266,23 +266,23 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label="Zoom In">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomIn()}>
+                  <ActionIcon aria-label="Zoom in" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomIn()}>
                     <ZoomIn size={18} />
                   </ActionIcon>
                 </Tooltip>
                 <Tooltip label="Zoom Out">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomOut()}>
+                  <ActionIcon aria-label="Zoom out" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomOut()}>
                     <ZoomOut size={18} />
                   </ActionIcon>
                 </Tooltip>
                 <Tooltip label="Fit View">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.fitView()}>
+                  <ActionIcon aria-label="Fit diagram to view" variant="subtle" size="lg" onClick={() => reactFlowInstance?.fitView()}>
                     <Maximize size={18} />
                   </ActionIcon>
                 </Tooltip>
 
                 <Tooltip label="Auto-Layout">
-                  <ActionIcon variant="subtle" color="indigo" size="lg" onClick={onAutoLayout}>
+                  <ActionIcon aria-label="Apply automatic layout" variant="subtle" color="indigo" size="lg" onClick={onAutoLayout}>
                     <LayoutGrid size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -290,7 +290,7 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label="Clear Canvas">
-                  <ActionIcon variant="subtle" color="red" size="lg" onClick={clearCanvas}>
+                  <ActionIcon aria-label="Delete" variant="subtle" color="red" size="lg" onClick={clearCanvas}>
                     <Trash size={18} />
                   </ActionIcon>
                 </Tooltip>

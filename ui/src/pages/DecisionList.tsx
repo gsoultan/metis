@@ -27,10 +27,11 @@ import { CreationWizard } from '../components/CreationWizard';
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import dayjs from 'dayjs';
+import { ErrorState } from '../components/state';
 
 export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => void, hideHeader?: boolean }) {
   const navigate = useNavigate();
-  const { data, isLoading } = useDecisions();
+  const { data, isLoading, error, refetch } = useDecisions();
   const [wizardOpened, setWizardOpened] = useState(false);
 
   if (isLoading) {
@@ -65,6 +66,12 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
         </Card>
       </Stack>
     );
+  }
+
+  // A rejected request previously fell through to the empty state, so an
+  // outage was reported to the user as "you have nothing".
+  if (error) {
+    return <ErrorState error={error} action="load your decision tables" onRetry={() => refetch()} />;
   }
 
   const decisions = data?.decisions || [];
@@ -154,7 +161,7 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Edit Decision">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Edit decision table" 
                             variant="light" 
                             color="blue" 
                             onClick={() => onEdit(def.id)}
@@ -163,7 +170,7 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete">
-                          <ActionIcon variant="light" color="red">
+                          <ActionIcon aria-label="Delete decision table" variant="light" color="red">
                             <Trash2 size={16} />
                           </ActionIcon>
                         </Tooltip>
