@@ -1,0 +1,181 @@
+/*
+ * Navigation rail.
+ *
+ * Every colour here resolves through light-dark(), so there is one definition
+ * per surface instead of a `theme === 'dark' ? … : …` ternary at each call
+ * site. That pattern was spread across the shell and guaranteed to drift the
+ * moment someone added a surface and forgot the dark branch.
+ */
+
+.navbar {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  border-right: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  overflow: hidden;
+}
+
+/* --- brand ---------------------------------------------------------------- */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  height: 60px;
+  padding-inline: 18px;
+  flex-shrink: 0;
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  color: var(--mantine-color-text);
+  text-decoration: none;
+}
+
+.brandMark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background-color: var(--mantine-color-blue-6);
+  color: var(--mantine-color-white);
+}
+
+.brandName {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* --- sections ------------------------------------------------------------- */
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--mantine-spacing-sm) 10px;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+  padding: 14px 10px 6px;
+  white-space: nowrap;
+}
+
+/* When collapsed the label would be unreadable, so a hairline separates the
+   group instead — the grouping survives, the noise does not. */
+.sectionRule {
+  height: 1px;
+  margin: 12px 8px 8px;
+  background-color: light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}
+
+/* --- links ---------------------------------------------------------------- */
+
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding-inline: 10px;
+  border-radius: var(--mantine-radius-md);
+  /* Inactive items were `dimmed`, the token for de-emphasised text, which
+     sits near the AA contrast floor on these backgrounds. Navigation is a
+     primary control: inactive items read clearly, and the ACTIVE item is what
+     stands out. */
+  color: light-dark(var(--mantine-color-gray-7), var(--mantine-color-dark-1));
+  text-decoration: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.link:hover {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+  color: var(--mantine-color-text);
+}
+
+.link[data-active] {
+  background-color: light-dark(var(--mantine-color-blue-0), rgba(34, 139, 230, 0.12));
+  color: light-dark(var(--mantine-color-blue-7), var(--mantine-color-blue-3));
+  font-weight: 500;
+}
+
+/* A rail on the active item, so the current location is legible at a glance
+   in both expanded and collapsed states. */
+.link[data-active]::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background-color: var(--mantine-color-blue-6);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+
+.linkIcon {
+  flex-shrink: 0;
+}
+
+.linkLabel {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collapsed .link {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+/* --- footer --------------------------------------------------------------- */
+
+.footer {
+  flex-shrink: 0;
+  padding: 10px;
+  border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}
+
+.collapseToggle {
+  width: 100%;
+  height: 34px;
+  border-radius: var(--mantine-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--mantine-color-dimmed);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.collapseToggle:hover {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+  color: var(--mantine-color-text);
+}
+
+.collapseToggle:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link,
+  .collapseToggle {
+    transition: none;
+  }
+}

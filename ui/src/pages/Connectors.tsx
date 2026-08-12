@@ -58,6 +58,7 @@ import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { notifications } from '@mantine/notifications';
 import { useForm } from '@mantine/form';
+import { CardGridLoadingState, ErrorState } from '../components/state';
 
 const IconMap: Record<string, any> = {
   Globe: Globe,
@@ -70,8 +71,14 @@ const IconMap: Record<string, any> = {
 
 export function Connectors() {
   const { currentProjectId, expertMode } = useAppStore();
-  const { data: connectorsData } = useConnectors();
-  const { data: instancesData } = useConnectorInstances();
+  const {
+    data: connectorsData,
+    isLoading: connectorsLoading,
+    error: connectorsError,
+    refetch: refetchConnectors,
+  } = useConnectors();
+  const { data: instancesData, isLoading: instancesLoading } = useConnectorInstances();
+  const isLoading = connectorsLoading || instancesLoading;
   const queryClient = useQueryClient();
   const createInstance = useCreateConnectorInstance();
   const updateInstance = useUpdateConnectorInstance();
@@ -312,6 +319,11 @@ export function Connectors() {
             />
           </Group>
           <Divider />
+          {isLoading ? (
+            <CardGridLoadingState count={8} cols={4} />
+          ) : connectorsError ? (
+            <ErrorState error={connectorsError} action="load your connectors" onRetry={() => refetchConnectors()} />
+          ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg">
             {connectors.map((connector: any) => {
               const Icon = IconMap[connector.icon] || Zap;
@@ -341,6 +353,7 @@ export function Connectors() {
               );
             })}
           </SimpleGrid>
+          )}
         </Stack>
       </Paper>
 

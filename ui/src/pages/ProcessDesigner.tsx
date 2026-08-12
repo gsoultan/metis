@@ -41,7 +41,6 @@ import {
 import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
 import { nodeTypes } from '../components/BPMNNodes';
-import { useAppStore } from '../store/useAppStore';
 import { useSearch } from '@tanstack/react-router';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -56,7 +55,6 @@ export function ProcessDesigner({
   onViewInstance?: (id: string, defId: string) => void;
 }) {
   const search = useSearch({ from: '/_authenticated/designer' }) as any;
-  const { theme } = useAppStore();
 
   const designer = useProcessDesigner({
     definitionId,
@@ -96,7 +94,13 @@ export function ProcessDesigner({
 
   return (
     <Box h="calc(100vh - 60px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Box p="md" bg={theme === 'dark' ? 'dark.7' : 'white'} style={{ borderBottom: `1px solid ${theme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-2)'}` }}>
+      <Box
+        p="md"
+        style={{
+          backgroundColor: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-7))',
+          borderBottom: '1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))',
+        }}
+      >
         <Group justify="space-between" align="center">
           <Stack gap={0}>
             <Title order={3} fw={800}>{processName || 'Process Designer'}</Title>

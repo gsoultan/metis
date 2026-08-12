@@ -1,8 +1,8 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { MainLayout } from '../containers/MainLayout'
 import { ErrorBoundary } from '../components/ErrorBoundary'
-import { useAppStore } from '../store/useAppStore'
 import { processService } from '../services/api'
+import { useAppStore } from '../store/useAppStore'
 
 export const Route = createFileRoute('/_authenticated')({
   component: AuthenticatedLayout,
@@ -33,10 +33,10 @@ export const Route = createFileRoute('/_authenticated')({
 })
 
 function AuthenticatedLayout() {
-  const { activeTab, setActiveTab } = useAppStore()
-
+  // activeTab/onTabChange were passed here and never read by MainLayout —
+  // navigation state lives in the router, not the store.
   return (
-    <MainLayout activeTab={activeTab} onTabChange={setActiveTab}>
+    <MainLayout>
       <ErrorBoundary>
         <Outlet />
       </ErrorBoundary>
