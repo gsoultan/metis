@@ -6,13 +6,15 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ProcessInstance } from "../entities/process_instance_pb";
 import { file_entities_process_instance } from "../entities/process_instance_pb";
+import type { PageInfo, PageRequest } from "./page_pb";
+import { file_endpoints_page } from "./page_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file endpoints/list_instances.proto.
  */
 export const file_endpoints_list_instances: GenFile = /*@__PURE__*/
-  fileDesc("Ch5lbmRwb2ludHMvbGlzdF9pbnN0YW5jZXMucHJvdG8SB3Byb2Nlc3MiKgoUTGlzdEluc3RhbmNlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCSJTChVMaXN0SW5zdGFuY2VzUmVzcG9uc2USKwoJaW5zdGFuY2VzGAEgAygLMhgucHJvY2Vzcy5Qcm9jZXNzSW5zdGFuY2USDQoFZXJyb3IYAiABKAlClgEKC2NvbS5wcm9jZXNzQhJMaXN0SW5zdGFuY2VzUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_process_instance]);
+  fileDesc("Ch5lbmRwb2ludHMvbGlzdF9pbnN0YW5jZXMucHJvdG8SB3Byb2Nlc3MiTgoUTGlzdEluc3RhbmNlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIiCgRwYWdlGAIgASgLMhQucHJvY2Vzcy5QYWdlUmVxdWVzdCJ0ChVMaXN0SW5zdGFuY2VzUmVzcG9uc2USKwoJaW5zdGFuY2VzGAEgAygLMhgucHJvY2Vzcy5Qcm9jZXNzSW5zdGFuY2USDQoFZXJyb3IYAiABKAkSHwoEcGFnZRgDIAEoCzIRLnByb2Nlc3MuUGFnZUluZm9ClgEKC2NvbS5wcm9jZXNzQhJMaXN0SW5zdGFuY2VzUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_process_instance, file_endpoints_page]);
 
 /**
  * @generated from message process.ListInstancesRequest
@@ -22,6 +24,13 @@ export type ListInstancesRequest = Message<"process.ListInstancesRequest"> & {
    * @generated from field: string project_id = 1;
    */
   projectId: string;
+
+  /**
+   * Optional; omitted means the first page at the server default.
+   *
+   * @generated from field: process.PageRequest page = 2;
+   */
+  page?: PageRequest | undefined;
 };
 
 /**
@@ -44,6 +53,13 @@ export type ListInstancesResponse = Message<"process.ListInstancesResponse"> & {
    * @generated from field: string error = 2;
    */
   error: string;
+
+  /**
+   * Absent when the caller did not page.
+   *
+   * @generated from field: process.PageInfo page = 3;
+   */
+  page?: PageInfo | undefined;
 };
 
 /**

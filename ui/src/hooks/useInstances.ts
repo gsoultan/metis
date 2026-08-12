@@ -60,12 +60,21 @@ export const useSubProcesses = (parentInstanceId: string | null) => {
   });
 };
 
-export const useInstances = () => {
+type InstancesResult = Awaited<ReturnType<typeof processService.listInstances>>;
+
+export const useInstances = (page = 1, pageSize = 25) => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
-    queryKey: ['instances', currentProjectId],
+    // The page is part of the key, so stepping back to a page already seen is
+    // a cache hit rather than a refetch.
+    queryKey: ['instances', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
-      (currentProjectId && token) ? processService.listInstances(currentProjectId, signal) : Promise.resolve({ instances: [], err: "" }),
+      currentProjectId && token
+        ? processService.listInstances(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ instances: [], err: '', pageInfo: undefined } as InstancesResult),
     enabled: !!currentProjectId && !!token,
+    // Hold the current rows while the next page loads, so the table does not
+    // collapse into a skeleton on every click.
+    placeholderData: (previous) => previous,
   });
 };

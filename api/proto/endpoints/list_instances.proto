@@ -3,7 +3,19 @@ syntax = "proto3";
 package process;
 
 import "entities/process_instance.proto";
+import "endpoints/page.proto";
 
 option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
 
-message ListInstancesRequest { string project_id = 1; } message ListInstancesResponse { repeated ProcessInstance instances = 1; string error = 2; }
+message ListInstancesRequest {
+  string project_id = 1;
+  // Optional; omitted means the first page at the server default.
+  PageRequest page = 2;
+}
+
+message ListInstancesResponse {
+  repeated ProcessInstance instances = 1;
+  string error = 2;
+  // Absent when the caller did not page.
+  PageInfo page = 3;
+}

@@ -20,6 +20,7 @@ import (
 	observerContracts "github.com/gsoultan/gobpm/server/domains/observers/contracts"
 	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/rs/zerolog/log"
 )
@@ -896,4 +897,27 @@ func (e *Engine) ExecuteScript(ctx context.Context, script string, scriptFormat 
 	}
 
 	return updatedVars, nil
+}
+
+// ListInstancesPaged returns one page of process instances with the total.
+//
+// projectID of uuid.Nil lists across the active tenant; the repository applies
+// tenant scoping either way, so an unscoped read is not reachable from here.
+func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error) {
+	var result repocontracts.Page[models.ProcessInstanceModel]
+	var err error
+	if projectID != uuid.Nil {
+		result, err = e.repo.Process().ListByProjectPaged(ctx, projectID, page)
+	} else {
+		result, err = e.repo.Process().ListPaged(ctx, page)
+	}
+	if err != nil {
+		return repocontracts.Page[entities.ProcessInstance]{}, err
+	}
+
+	instances := make([]entities.ProcessInstance, len(result.Items))
+	for i, m := range result.Items {
+		instances[i] = adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(instances, result.Total, page), nil
 }

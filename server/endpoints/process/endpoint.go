@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -51,16 +52,24 @@ func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(ListInstancesRequest)
-		var projectID uuid.UUID
-		var err error
-		if req.ProjectID != "" {
-			projectID, err = uuid.Parse(req.ProjectID)
-			if err != nil {
-				return ListInstancesResponse{Err: err}, nil
-			}
+		projectID, _ := uuid.Parse(req.ProjectID)
+
+		page, err := s.ListInstancesPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListInstancesResponse{Err: err}, nil
 		}
-		instances, err := s.ListInstances(ctx, projectID)
-		return ListInstancesResponse{Instances: instances, Err: err}, nil
+		return ListInstancesResponse{
+			Instances: page.Items,
+			Page: &InstancePageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

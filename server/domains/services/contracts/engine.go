@@ -6,6 +6,7 @@ package contracts
 
 import (
 	"context"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -28,6 +29,11 @@ type EngineReader interface {
 	GetInstanceForUpdate(ctx context.Context, id uuid.UUID) (entities.ProcessInstance, error)
 	GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error)
 	ListInstances(ctx context.Context, projectID uuid.UUID) ([]entities.ProcessInstance, error)
+
+	// ListInstancesPaged returns one window plus the total. A busy engine
+	// produces instances continuously, so this is the list most likely to grow
+	// past what a browser can hold.
+	ListInstancesPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error)
 	ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUID) ([]entities.ProcessInstance, error)
 	// GetRootInstance walks the parent chain and returns the top-level ancestor.
 	GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error)

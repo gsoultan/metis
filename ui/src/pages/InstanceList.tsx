@@ -9,7 +9,9 @@ import {
   ActionIcon,
   Tooltip,
   Skeleton,
-  Center
+  Center,
+  Pagination,
+  Select,
 } from '@mantine/core';
 import { 
   Play, 
@@ -21,6 +23,7 @@ import {
 import { useInstances } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
+import { useEffect, useState } from 'react';
 
 /**
  * Turns a node identifier into something readable.
@@ -41,7 +44,15 @@ function humanizeNodeId(nodeId: string): string {
 }
 
 export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: string, definitionId: string) => void }) {
-  const { data, isLoading, error, refetch } = useInstances();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const { data, isLoading, error, refetch } = useInstances(page, pageSize);
+  const pageInfo = data?.pageInfo;
+
+  // Changing the window size invalidates the current offset.
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   if (isLoading) {
     return (
@@ -177,6 +188,52 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
             )}
           </tbody>
         </Table>
+
+        {/*
+          Shown only when there is more than one page: controls that can never
+          do anything are noise. The range is stated in words because "51–75 of
+          1,240" answers both questions someone has about a long list, where a
+          bare page number answers neither.
+        */}
+        {pageInfo && pageInfo.total > pageInfo.pageSize && (
+          <Group justify="space-between" px="md" py="sm" wrap="wrap" gap="sm">
+            <Text size="sm" c="dimmed">
+              {`${(pageInfo.page - 1) * pageInfo.pageSize + 1}–` +
+                `${Math.min(pageInfo.page * pageInfo.pageSize, pageInfo.total)}` +
+                ` of ${pageInfo.total.toLocaleString()}`}
+            </Text>
+            <Group gap="sm" wrap="nowrap">
+              <Select
+                aria-label="Instances per page"
+                data={['25', '50', '100']}
+                value={String(pageSize)}
+                onChange={(value) => value && setPageSize(Number(value))}
+                size="xs"
+                w={92}
+                allowDeselect={false}
+                comboboxProps={{ withinPortal: true }}
+              />
+              <Pagination
+                // The server reports the page it served, after clamping; using
+                // the requested value would let the highlight disagree with
+                // what is on screen.
+                value={pageInfo.page}
+                onChange={setPage}
+                total={Math.max(1, Math.ceil(pageInfo.total / pageInfo.pageSize))}
+                size="sm"
+                withEdges
+                getControlProps={(control) => ({
+                  'aria-label': {
+                    first: 'First page',
+                    last: 'Last page',
+                    next: 'Next page',
+                    previous: 'Previous page',
+                  }[control] ?? undefined,
+                })}
+              />
+            </Group>
+          </Group>
+        )}
       </Card>
     </Stack>
   );

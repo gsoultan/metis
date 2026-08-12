@@ -23,8 +23,10 @@ const (
 )
 
 type ListInstancesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ProjectId string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	// Optional; omitted means the first page at the server default.
+	Page          *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,10 +68,19 @@ func (x *ListInstancesRequest) GetProjectId() string {
 	return ""
 }
 
+func (x *ListInstancesRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListInstancesResponse struct {
-	state         protoimpl.MessageState      `protogen:"open.v1"`
-	Instances     []*entities.ProcessInstance `protobuf:"bytes,1,rep,name=instances,proto3" json:"instances,omitempty"`
-	Error         string                      `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	state     protoimpl.MessageState      `protogen:"open.v1"`
+	Instances []*entities.ProcessInstance `protobuf:"bytes,1,rep,name=instances,proto3" json:"instances,omitempty"`
+	Error     string                      `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Absent when the caller did not page.
+	Page          *PageInfo `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,17 +129,26 @@ func (x *ListInstancesResponse) GetError() string {
 	return ""
 }
 
+func (x *ListInstancesResponse) GetPage() *PageInfo {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 var File_endpoints_list_instances_proto protoreflect.FileDescriptor
 
 const file_endpoints_list_instances_proto_rawDesc = "" +
 	"\n" +
-	"\x1eendpoints/list_instances.proto\x12\aprocess\x1a\x1fentities/process_instance.proto\"5\n" +
+	"\x1eendpoints/list_instances.proto\x12\aprocess\x1a\x1fentities/process_instance.proto\x1a\x14endpoints/page.proto\"_\n" +
 	"\x14ListInstancesRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x01 \x01(\tR\tprojectId\"e\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\x12(\n" +
+	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04page\"\x8c\x01\n" +
 	"\x15ListInstancesResponse\x126\n" +
 	"\tinstances\x18\x01 \x03(\v2\x18.process.ProcessInstanceR\tinstances\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05errorB\x96\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12%\n" +
+	"\x04page\x18\x03 \x01(\v2\x11.process.PageInfoR\x04pageB\x96\x01\n" +
 	"\vcom.processB\x12ListInstancesProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -147,15 +167,19 @@ var file_endpoints_list_instances_proto_msgTypes = make([]protoimpl.MessageInfo,
 var file_endpoints_list_instances_proto_goTypes = []any{
 	(*ListInstancesRequest)(nil),     // 0: process.ListInstancesRequest
 	(*ListInstancesResponse)(nil),    // 1: process.ListInstancesResponse
-	(*entities.ProcessInstance)(nil), // 2: process.ProcessInstance
+	(*PageRequest)(nil),              // 2: process.PageRequest
+	(*entities.ProcessInstance)(nil), // 3: process.ProcessInstance
+	(*PageInfo)(nil),                 // 4: process.PageInfo
 }
 var file_endpoints_list_instances_proto_depIdxs = []int32{
-	2, // 0: process.ListInstancesResponse.instances:type_name -> process.ProcessInstance
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: process.ListInstancesRequest.page:type_name -> process.PageRequest
+	3, // 1: process.ListInstancesResponse.instances:type_name -> process.ProcessInstance
+	4, // 2: process.ListInstancesResponse.page:type_name -> process.PageInfo
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_endpoints_list_instances_proto_init() }
@@ -163,6 +187,7 @@ func file_endpoints_list_instances_proto_init() {
 	if File_endpoints_list_instances_proto != nil {
 		return
 	}
+	file_endpoints_page_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

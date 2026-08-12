@@ -56,6 +56,8 @@ func (h *ProcessHandler) GetInstance(ctx context.Context, req *connect.Request[p
 func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request[pbendpoints.ListInstancesRequest]) (*connect.Response[pbendpoints.ListInstancesResponse], error) {
 	response, err := h.eps.ListInstances(ctx, process.ListInstancesRequest{
 		ProjectID: req.Msg.ProjectId,
+		Page:      int(req.Msg.GetPage().GetPage()),
+		PageSize:  int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err
@@ -65,10 +67,19 @@ func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request
 	for i, inst := range resp.Instances {
 		pbInstances[i] = adapters.ProcessInstancePBAdapter{Instance: inst}.ToProto()
 	}
-	return connect.NewResponse(&pbendpoints.ListInstancesResponse{
+	out := &pbendpoints.ListInstancesResponse{
 		Instances: pbInstances,
 		Error:     common.ErrString(resp.Err),
-	}), nil
+	}
+	if resp.Page != nil {
+		out.Page = &pbendpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 func (h *ProcessHandler) GetExecutionPath(ctx context.Context, req *connect.Request[pbendpoints.GetExecutionPathRequest]) (*connect.Response[pbendpoints.GetExecutionPathResponse], error) {
