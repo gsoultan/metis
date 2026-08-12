@@ -31,6 +31,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { Select } from '@mantine/core';
+import { failureMessage } from '../services/shared/errors';
 
 export function ProjectList() {
   const { currentProjectId, setCurrentProjectId, setCurrentOrganizationId, currentOrganizationId } = useAppStore();
@@ -81,7 +82,9 @@ export function ProjectList() {
       }
       setIsModalOpen(false);
     } catch (error) {
-      notifications.show({ title: 'Error', message: 'Failed to save project', color: 'red' });
+      // Surface the actual reason rather than a generic string — the user
+      // cannot tell a validation problem from an outage otherwise.
+      notifications.show({ title: 'Error', message: failureMessage('Failed to save project', error), color: 'red' });
     }
   };
 
@@ -93,7 +96,7 @@ export function ProjectList() {
         if (currentProjectId === id) {
           setCurrentProjectId(null);
         }
-      } catch (error) {
+      } catch {
         notifications.show({ title: 'Error', message: 'Failed to delete project', color: 'red' });
       }
     }

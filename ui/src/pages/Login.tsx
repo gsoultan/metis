@@ -28,6 +28,7 @@ import {
   GitBranch,
   BarChart3,
 } from 'lucide-react';
+import { toStoreUser } from '../mappers/userMapper';
 
 const BRAND_FEATURES = [
   { icon: ShieldCheck, title: 'Enterprise Security', desc: 'Role-based access control & full audit trail' },
@@ -57,7 +58,7 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
       if (err) {
         setError(err.message || 'Login failed');
       } else if (user && token) {
-        setAuth(user, token);
+        setAuth(toStoreUser(user), token);
         await navigate({ to: redirectTo || '/' });
       } else {
         setError('Invalid response from server');

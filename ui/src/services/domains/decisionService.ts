@@ -1,12 +1,18 @@
 import { requestJSON } from "../shared/rest";
+import type {
+  ApiDecision,
+  CreateDecisionPayload,
+  DecisionResult,
+  ProcessVariables,
+} from "../types";
 
 type DecisionListResponse = {
-  decisions?: any[];
+  decisions?: ApiDecision[];
   err?: string;
 };
 
 type DecisionResponse = {
-  decision?: any;
+  decision?: ApiDecision;
   err?: string;
 };
 
@@ -15,8 +21,12 @@ type CreateDecisionResponse = {
   err?: string;
 };
 
+type MutationResponse = {
+  err?: string;
+};
+
 type EvaluateDecisionResponse = {
-  result?: any;
+  result?: DecisionResult;
   err?: string;
 };
 
@@ -31,7 +41,7 @@ export const decisionService = {
     return { decision: data.decision, err: data.err };
   },
 
-  async createDecision(params: any) {
+  async createDecision(params: CreateDecisionPayload) {
     const data = await requestJSON<CreateDecisionResponse>("/decisions", {
       method: "POST",
       body: { decision: params },
@@ -39,8 +49,8 @@ export const decisionService = {
     return { id: data.id, err: data.err };
   },
 
-  async updateDecision(id: string, params: any) {
-    const data = await requestJSON<any>(`/decisions/${id}`, {
+  async updateDecision(id: string, params: CreateDecisionPayload) {
+    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
       method: "PUT",
       body: { decision: params },
     });
@@ -48,13 +58,18 @@ export const decisionService = {
   },
 
   async deleteDecision(id: string) {
-    const data = await requestJSON<any>(`/decisions/${id}`, {
+    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
       method: "DELETE",
     });
     return { err: data.err };
   },
 
-  async evaluateDecision(key: string, variables: any = {}, version: number = 0, signal?: AbortSignal) {
+  async evaluateDecision(
+    key: string,
+    variables: ProcessVariables = {},
+    version: number = 0,
+    signal?: AbortSignal,
+  ) {
     const data = await requestJSON<EvaluateDecisionResponse>("/decisions/evaluate", {
       method: "POST",
       body: { key, variables, version },

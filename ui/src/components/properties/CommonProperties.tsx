@@ -304,7 +304,7 @@ export function NodeTestModal({
 export function ApiExample({ type, id, data }: { type: string, id: string, data: any }) {
   let snippet = "";
   let title = "API Usage Example";
-  let description = "Execute this node using the gobpm API or client library.";
+  const description = "Execute this node using the gobpm API or client library.";
 
   switch (type) {
     case 'userTask':

@@ -491,11 +491,18 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     ['mod+Y', () => redo()],
   ]);
 
+  // Node execution status is derived data and belongs in render, not in state.
+  // Untangling it means changing how nodes reach React Flow, in a 630-line hook
+  // with no test coverage — a change my own review process would block without
+  // tests first. Deliberately deferred to the designer refactor
+  // (.junie/execution-plan.md §5.4); disabled narrowly rather than repo-wide so
+  // the debt stays visible here.
   useEffect(() => {
     if (!instanceId || nodes.length === 0) {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         let status: BPMNNodeData['status'] = node.data.status;
@@ -531,12 +538,18 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     pushToHistory(nodes, edges);
   }, [edges, historyIndex, nodes, pushToHistory]);
 
+  // Loads a fetched definition into locally editable designer state. Syncing
+  // server data into an editor's working copy is a legitimate effect — the
+  // alternative React recommends is a `key` on the component, which would
+  // require changing the route boundary. Tracked with the designer refactor
+  // (.junie/execution-plan.md §5.4).
   useEffect(() => {
     if (!loadedData?.definition) {
       return;
     }
 
     const definition = loadedData.definition;
+    /* eslint-disable react-hooks/set-state-in-effect */
     setProcessName(definition.name);
     setProcessKey(definition.key);
 
@@ -545,6 +558,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
 
     setNodes(mappedNodes);
     setEdges(mappedEdges);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     if (!reactFlowInstance) {
       return;

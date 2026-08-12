@@ -828,7 +828,8 @@ export function TaskInbox() {
                 fields={(() => {
                   try {
                     return JSON.parse(selectedTask.form_definition || '[]');
-                  } catch (e) {
+                  } catch (error) {
+                    console.warn('Task form definition is not valid JSON; rendering an empty form', error);
                     return [];
                   }
                 })()} 

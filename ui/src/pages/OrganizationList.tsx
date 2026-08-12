@@ -25,6 +25,7 @@ import { useOrganizations, useCreateOrganization, useUpdateOrganization, useDele
 import { PageHeader } from '../components/PageHeader';
 import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
+import { failureMessage } from '../services/shared/errors';
 
 export function OrganizationList() {
   const { data, isLoading } = useOrganizations();
@@ -65,7 +66,9 @@ export function OrganizationList() {
       }
       setIsModalOpen(false);
     } catch (error) {
-      notifications.show({ title: 'Error', message: 'Failed to save organization', color: 'red' });
+      // Surface the actual reason rather than a generic string — the user
+      // cannot tell a validation problem from an outage otherwise.
+      notifications.show({ title: 'Error', message: failureMessage('Failed to save organization', error), color: 'red' });
     }
   };
 
@@ -74,7 +77,7 @@ export function OrganizationList() {
       try {
         await deleteOrg.mutateAsync(id);
         notifications.show({ title: 'Success', message: 'Organization deleted successfully', color: 'green' });
-      } catch (error) {
+      } catch {
         notifications.show({ title: 'Error', message: 'Failed to delete organization', color: 'red' });
       }
     }

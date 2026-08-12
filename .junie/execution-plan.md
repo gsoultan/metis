@@ -42,7 +42,19 @@ Phases 2–5 can overlap once 0 and 1 are done. 0 and 1 cannot overlap with anyt
 
 Outstanding:
 
-1. **0.6 Clear 231 UI lint errors** (`bun run lint` is the only red gate).
+1. **0.6 UI lint: 231 → 202.** Every non-`any` violation is fixed, including four
+   genuine runtime bugs. The remaining 194 `no-explicit-any` are blocked behind one
+   change: `processService` in `src/services/api.ts` is annotated `any`, which erases
+   the types its domain services already define and leaves callers nothing to infer
+   from. Removing it surfaces 19 cascading type errors across 10 files that need real
+   fixes, not a sweep — and it immediately exposed four defects (all now fixed):
+   `SetupStatus` declared as a string union no endpoint returns, `role` sent as an
+   array but declared a string, `displayName`/`organization` required by the store but
+   never sent by login, and `processService.listDeployments` called but defined
+   nowhere. Finish that one change and most of the 194 fall out with it.
+
+   Note: `bunx tsc --noEmit` against the root tsconfig checks **nothing** (`"files": []`
+   plus project references). The Makefile and CI now run `tsc -b --force`.
 2. **golangci-lint backlog** — 760 pre-existing findings, baselined; CI blocks new ones.
    Burn-down order is in `.golangci.yml`; the engine's slice is done.
 3. **Tenant scoping coverage** — `tenantScopeDB` now covers `tasks`, `process_instances`,

@@ -62,7 +62,7 @@ export function Profile() {
         message: 'Your profile has been successfully updated.',
         color: 'green',
       });
-    } catch (error) {
+    } catch {
       notifications.show({
         title: 'Error',
         message: 'Failed to update profile.',

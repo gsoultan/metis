@@ -40,7 +40,10 @@ ui-build: ## Build the UI (required before any Go build — ui/embed.go embeds u
 
 .PHONY: ui-typecheck
 ui-typecheck: ## Typecheck the UI
-	cd ui && bunx tsc --noEmit
+	# `tsc --noEmit` checks NOTHING here: the root tsconfig.json declares
+	# "files": [] and only project references. -b builds the referenced
+	# projects, which is what `bun run build` does.
+	cd ui && bunx tsc -b --force
 
 .PHONY: ui-lint
 ui-lint: ## Lint the UI

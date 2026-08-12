@@ -9,6 +9,9 @@ import { FolderGit2, AlertCircle, LogOut, User, Settings, ShieldCheck, ShieldOff
 import { Link, useLocation } from '@tanstack/react-router';
 import { NotificationCenter } from '../components/NotificationCenter';
 
+/** An organization or project as listed in the switcher. */
+type NamedRef = { id: string; name: string };
+
 interface MainLayoutProps {
   children: React.ReactNode;
   activeTab?: string;
@@ -30,7 +33,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       return;
     }
 
-    const hasCurrentOrganization = organizations.some((organization: any) => organization.id === currentOrganizationId);
+    const hasCurrentOrganization = organizations.some((organization: NamedRef) => organization.id === currentOrganizationId);
     if (!hasCurrentOrganization) {
       setCurrentOrganizationId(organizations[0].id);
       setCurrentProjectId(null);
@@ -42,7 +45,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const isDashboard = location.pathname === '/';
 
   const projects = projectsData?.projects || [];
-  const currentProject = projects.find((p: any) => p.id === currentProjectId);
+  const currentProject = projects.find((p: NamedRef) => p.id === currentProjectId);
 
   return (
     <AppShell
@@ -67,7 +70,7 @@ export function MainLayout({ children }: MainLayoutProps) {
               {organizations.length > 0 && (
                 <Select
                   placeholder="Select Organization"
-                  data={organizations.map((organization: any) => ({ value: organization.id, label: organization.name }))}
+                  data={organizations.map((organization: NamedRef) => ({ value: organization.id, label: organization.name }))}
                   value={currentOrganizationId}
                   onChange={(val) => {
                     setCurrentOrganizationId(val);
@@ -81,7 +84,7 @@ export function MainLayout({ children }: MainLayoutProps) {
               {projects.length > 0 ? (
                 <Select
                   placeholder="Select Project"
-                  data={projects.map((p: any) => ({ value: p.id, label: p.name }))}
+                  data={projects.map((p: NamedRef) => ({ value: p.id, label: p.name }))}
                   value={currentProjectId}
                   onChange={setCurrentProjectId}
                   leftSection={<FolderGit2 size={16} />}

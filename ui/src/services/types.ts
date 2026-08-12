@@ -20,7 +20,12 @@ export interface ApiUser {
   id: string;
   name: string;
   username: string;
-  role: string;
+  /**
+   * The server populates this from entities.User.Roles, so it arrives as an
+   * array despite the singular name. Declared as both because older responses
+   * and some list endpoints send a bare string.
+   */
+  role: string | string[];
   organizations?: Array<{ id: string; name: string }>;
   projects?: Array<{ id: string; name: string }>;
 }
@@ -240,3 +245,65 @@ export interface SetupRequest {
   project_name: string;
 }
 
+
+/**
+ * ProcessVariables is the business payload carried by a process instance, task
+ * or decision evaluation. The keys and value shapes are defined by whoever
+ * modelled the process, so the values are genuinely unknown at compile time —
+ * `unknown` rather than `any`, so callers must narrow before use instead of
+ * silently propagating an untyped value through the app.
+ */
+export type ProcessVariables = Record<string, unknown>;
+
+/** Mirrors entities.DecisionInput. */
+export interface ApiDecisionInput {
+  id: string;
+  label: string;
+  expression: string;
+  /** "string" | "number" | "boolean" */
+  type: string;
+}
+
+/** Mirrors entities.DecisionOutput. */
+export interface ApiDecisionOutput {
+  id: string;
+  label: string;
+  name: string;
+  type: string;
+}
+
+/**
+ * Mirrors entities.DecisionRule. Rule outputs are authored per decision table,
+ * so their types vary by column.
+ */
+export interface ApiDecisionRule {
+  id: string;
+  inputs?: string[];
+  outputs?: unknown[];
+  description?: string;
+}
+
+/** Mirrors entities.DecisionDefinition. */
+export interface ApiDecision {
+  id: string;
+  project?: { id: string };
+  key: string;
+  name: string;
+  version: number;
+  hit_policy: string;
+  aggregation?: string;
+  required_decisions?: string[];
+  inputs?: ApiDecisionInput[];
+  outputs?: ApiDecisionOutput[];
+  rules?: ApiDecisionRule[];
+  created_at?: string;
+}
+
+/** Payload accepted when creating or updating a decision. */
+export type CreateDecisionPayload = Omit<ApiDecision, 'id' | 'version' | 'created_at'> &
+  Partial<Pick<ApiDecision, 'id' | 'version'>>;
+
+/** Mirrors entities.DecisionResult. */
+export interface DecisionResult {
+  values: ProcessVariables;
+}

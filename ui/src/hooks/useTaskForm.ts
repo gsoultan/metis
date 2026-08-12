@@ -77,11 +77,21 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [externalData, setExternalData] = useState<ExternalOptions>({});
 
-  useEffect(() => {
+  // Reset the form during render rather than in an effect.
+  //
+  // As an effect keyed on [fields, variables] this ran after every render in
+  // which either identity changed — and callers routinely pass a fresh array
+  // (`definition.fields || []`), so it re-ran constantly and wiped whatever the
+  // user had typed. React's documented "adjusting state when a prop changes"
+  // pattern compares against the previous inputs instead, so the reset happens
+  // exactly once per genuine change and before anything is painted.
+  const [previousInputs, setPreviousInputs] = useState({ fields, variables });
+  if (previousInputs.fields !== fields || previousInputs.variables !== variables) {
+    setPreviousInputs({ fields, variables });
     setValues(buildInitialValues(fields, variables));
     setErrors({});
     setTouched({});
-  }, [fields, variables]);
+  }
 
   useEffect(() => {
     const endpointFields = fields.filter(

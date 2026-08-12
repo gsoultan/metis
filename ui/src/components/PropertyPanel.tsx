@@ -53,7 +53,7 @@ import { ApiExample } from './properties/CommonProperties';
  * Components that need extra context (e.g. GatewayConfig needs edges, CallActivityConfig
  * needs nodeId) extend this interface with optional fields.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export interface NodeConfigProps {
   data: any;
   onUpdate: (data: any) => void;
@@ -341,7 +341,7 @@ export function PropertyPanel({
                             } else if (selectedEdge) {
                               updateEdgeData(selectedEdge.id, selectedEdge.label as string, parsed);
                             }
-                          } catch (err) {
+                          } catch {
                             // Silently ignore parse errors while typing
                           }
                         }}

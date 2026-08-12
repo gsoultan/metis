@@ -6,7 +6,7 @@ interface StatusBadgeProps {
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   let color: MantineColor = 'gray';
-  let label = status.toUpperCase();
+  const label = status.toUpperCase();
 
   switch (status.toLowerCase()) {
     case 'running':

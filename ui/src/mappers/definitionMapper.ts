@@ -34,8 +34,8 @@ export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
       nodeType: node.type as BPMNNodeData['nodeType'],
       label: node.name,
       assignee: node.assignee,
-      candidateUsers: (node.candidate_users ?? []).map(u => (u as any).username ?? ''),
-      candidateGroups: (node.candidate_groups ?? []).map(g => (g as any).name ?? ''),
+      candidateUsers: (node.candidate_users ?? []).map((u) => (u as { username?: string }).username ?? ''),
+      candidateGroups: (node.candidate_groups ?? []).map((g) => (g as { name?: string }).name ?? ''),
       priority: node.priority,
       dueDate: node.due_date,
       formKey: node.form_key,
@@ -44,7 +44,9 @@ export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
       scriptFormat: node.script_format,
       externalTopic: node.external_topic,
       documentation: node.documentation,
-      attachedToRef: (node as any).attached_to_ref ?? (node as any).attachedToRef,
+      // The API has carried both spellings; accept either without widening the node type.
+      attachedToRef: (node as { attached_to_ref?: string; attachedToRef?: string }).attached_to_ref
+        ?? (node as { attachedToRef?: string }).attachedToRef,
       parentId: node.parent_id,
       cancelActivity: node.cancel_activity,
       multiInstanceType: node.multi_instance_type,

@@ -35,7 +35,7 @@ export function useCollaboration(projectId: string | undefined) {
             setRemoteEvents(prev => [...prev, data]);
           }
         }
-      } catch (err) {
+      } catch {
         // Not a collaboration event or parse error
       }
     };
