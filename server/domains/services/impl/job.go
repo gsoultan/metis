@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -331,9 +332,13 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 }
 
 // resolveAndExecuteConnector finds a connector instance for the node and executes
-// it if one is configured.  Returns nil, nil when no connector applies.
+// it if one is configured.  Returns nil, nil when the node configures no
+// connector, so the caller can try the HTTP runner instead.
 func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entities.ProcessDefinition, node entities.Node, payload map[string]any) (map[string]any, error) {
-	ci, found := s.findConnectorInstance(ctx, def, node)
+	ci, found, err := s.findConnectorInstance(ctx, def, node)
+	if err != nil {
+		return nil, err
+	}
 	if !found {
 		return nil, nil
 	}
@@ -351,26 +356,72 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 // findConnectorInstance resolves the connector instance for a node.
 // It first tries the explicit connector_instance_id property, then falls back
 // to resolving by connector_id within the project.
-func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.ProcessDefinition, node entities.Node) (entities.ConnectorInstance, bool) {
-	if idStr := node.GetStringProperty("connector_instance_id"); idStr != "" {
-		id, err := uuid.Parse(idStr)
-		if err == nil {
+//
+// found is false only when the node names no connector at all. That case is a
+// service task which configures nothing, which is a legitimate way to model a
+// step that has not been built yet, and the caller falls through to the HTTP
+// runner for it.
+//
+// A node that does name a connector and cannot reach it is an error rather than
+// another way of returning false. Falling through there reached the HTTP
+// runner, which treats a node with no http_url as a no-op — and a node
+// configured to post to Slack has no http_url. Deleting its connector instance
+// therefore turned "Send the notification" into a step that notified nobody,
+// after which the engine proceeded and the instance finished as completed with
+// no incident raised. A process that reports success for work it did not do is
+// worse than one that fails, because nothing prompts anyone to look.
+func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.ProcessDefinition, node entities.Node) (entities.ConnectorInstance, bool, error) {
+	instanceID := node.GetStringProperty("connector_instance_id")
+	connectorID := node.GetStringProperty("connector_id")
+	if instanceID == "" && connectorID == "" {
+		return entities.ConnectorInstance{}, false, nil
+	}
+
+	if def == nil || def.Project == nil {
+		return entities.ConnectorInstance{}, false, fmt.Errorf(
+			"node %q names a connector but its definition has no project to resolve it in", node.ID)
+	}
+
+	// Why each candidate was rejected, so the incident says which of the two
+	// ways of naming a connector was tried and what went wrong.
+	var reasons []string
+
+	if instanceID != "" {
+		id, err := uuid.Parse(instanceID)
+		switch {
+		case err != nil:
+			reasons = append(reasons, fmt.Sprintf("connector_instance_id %q is not a valid id", instanceID))
+		default:
 			ci, err := s.connectorSvc.GetConnectorInstance(ctx, id)
-			if err == nil && ci.Project != nil && ci.Project.ID == def.Project.ID {
-				return ci, true
+			switch {
+			case err != nil:
+				reasons = append(reasons, fmt.Sprintf("connector instance %s does not exist", id))
+			case ci.Project == nil || ci.Project.ID != def.Project.ID:
+				reasons = append(reasons, fmt.Sprintf("connector instance %s belongs to another project", id))
+			default:
+				return ci, true, nil
 			}
 		}
 	}
-	if idStr := node.GetStringProperty("connector_id"); idStr != "" {
-		id, err := uuid.Parse(idStr)
-		if err == nil {
+
+	if connectorID != "" {
+		id, err := uuid.Parse(connectorID)
+		switch {
+		case err != nil:
+			reasons = append(reasons, fmt.Sprintf("connector_id %q is not a valid id", connectorID))
+		default:
 			ci, err := s.connectorSvc.GetConnectorInstanceByProjectAndConnector(ctx, def.Project.ID, id)
-			if err == nil {
-				return ci, true
+			if err != nil {
+				reasons = append(reasons, fmt.Sprintf("connector %s is not configured for this project", id))
+			} else {
+				return ci, true, nil
 			}
 		}
 	}
-	return entities.ConnectorInstance{}, false
+
+	return entities.ConnectorInstance{}, false, fmt.Errorf(
+		"node %q could not reach the connector it is configured with: %s",
+		node.ID, strings.Join(reasons, "; "))
 }
 
 func (s *jobService) EnqueueBoundaryTimer(ctx context.Context, instance entities.ProcessInstance, boundaryNode entities.Node, duration string) error {
