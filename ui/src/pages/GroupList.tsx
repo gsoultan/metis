@@ -24,7 +24,7 @@ import {
   Trash2,
   Filter,
   UserPlus,
-  UserMinus,
+  UserMinus, Users
 } from 'lucide-react';
 import {
   useGroups,
@@ -40,11 +40,12 @@ import { PageHeader } from '../components/PageHeader';
 import { useState, useTransition } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
 
 const AVAILABLE_ROLES = ['admin', 'user', 'manager', 'developer', 'viewer'];
 
 export function GroupList() {
-  const { data, isLoading } = useGroups();
+  const { data, isLoading, error, refetch } = useGroups();
   const { data: usersData } = useUsers();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
@@ -66,7 +67,6 @@ export function GroupList() {
 
   const { data: membersData, isLoading: membersLoading } = useGroupMembers(selectedGroup?.id || '');
 
-  if (isLoading) return <Text>Loading groups...</Text>;
 
   const allGroups = data?.groups || [];
   const groups = searchQuery
@@ -196,6 +196,17 @@ export function GroupList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your groups" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -209,16 +220,8 @@ export function GroupList() {
             <Table.Tbody>
               {groups.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={3}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <ShieldCheck size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No groups found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first group to organize users.
-                      </Text>
-                    </Stack>
+                  <Table.Td colSpan={4}>
+                    <EmptyState icon={Users} title="No groups yet" description="Groups let you route work to a team rather than to one named person." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
@@ -285,6 +288,7 @@ export function GroupList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       {/* Create/Edit Group Modal */}

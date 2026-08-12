@@ -37,6 +37,7 @@ import { BPMNGraph } from '../components/BPMNGraph';
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ComingSoonButton } from '../components/state/ComingSoon';
+import { StatsLoadingState, ErrorState } from '../components/state';
 
 /**
  * A single headline number.
@@ -107,7 +108,7 @@ function StatCard({
 
 export function Dashboard() {
   const { currentProjectId, setActiveTab, currentOrganizationId } = useAppStore();
-  const { data: statsData } = useProcessStatistics();
+  const { data: statsData, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useProcessStatistics();
   const { data: defs } = useDefinitions();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const { data: instancesData } = useInstances();
@@ -115,13 +116,17 @@ export function Dashboard() {
   const [heatmapOpened, { open: openHeatmap, close: closeHeatmap }] = useDisclosure(false);
   const [selectedHeatmapDef, setSelectedHeatmapDef] = useState<any>(null);
 
-  const stats = statsData?.stats || {
+  // Falling back to zeros made an unloaded dashboard indistinguishable from a
+  // real, idle one — "we don't know yet" rendered as "we know, and it's none".
+  // The zeros remain only as a shape for the render below; statsLoading decides
+  // whether they are ever shown.
+  const stats = statsData?.stats ?? {
     active_instances: 0,
     completed_instances: 0,
     failed_instances: 0,
     total_tasks: 0,
     pending_tasks: 0,
-    node_frequencies: {}
+    node_frequencies: {},
   };
 
   const lastInstanceId = instancesData?.instances?.[0]?.id;
@@ -181,6 +186,11 @@ export function Dashboard() {
         }
       />
 
+      {statsLoading ? (
+        <StatsLoadingState count={4} />
+      ) : statsError ? (
+        <ErrorState error={statsError} action="load your statistics" onRetry={() => refetchStats()} />
+      ) : (
       <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
@@ -224,6 +234,7 @@ export function Dashboard() {
           />
         </Grid.Col>
       </Grid>
+      )}
 
       <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 8 }}>

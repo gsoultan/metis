@@ -32,10 +32,11 @@ import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { Select } from '@mantine/core';
 import { failureMessage } from '../services/shared/errors';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
 
 export function ProjectList() {
   const { currentProjectId, setCurrentProjectId, setCurrentOrganizationId, currentOrganizationId } = useAppStore();
-  const { data, isLoading } = useProjects(currentOrganizationId);
+  const { data, isLoading, error, refetch } = useProjects(currentOrganizationId);
   const { data: orgData } = useOrganizations();
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
@@ -47,7 +48,6 @@ export function ProjectList() {
   const [description, setDescription] = useState('');
   const [organizationId, setOrganizationId] = useState<string | null>(null);
 
-  if (isLoading) return <Text>Loading projects...</Text>;
 
   const projects = data?.projects || [];
   const organizations = orgData?.organizations || [];
@@ -135,9 +135,21 @@ export function ProjectList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page, not instead of it. The
+          previous `if (isLoading) return <Text>Loading projects...</Text>`
+          replaced the entire page — title, search, actions — with one line, so
+          the layout jumped when data arrived, and a failed request was
+          indistinguishable from an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your projects" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
-            <Table.Thead bg="gray.0">
+            <Table.Thead>
               <Table.Tr>
                 <Table.Th>Project Name</Table.Th>
                 <Table.Th>Description</Table.Th>
@@ -149,15 +161,12 @@ export function ProjectList() {
               {projects.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={4}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <FolderGit2 size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No projects found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first project to organize your workflows.
-                      </Text>
-                    </Stack>
+                    <EmptyState
+                      icon={FolderGit2}
+                      title="No projects yet"
+                      description="Projects group related process models, decisions and tasks. Create one to get started."
+                      action={<Button onClick={() => handleOpenModal()} leftSection={<Plus size={16} />}>Create a project</Button>}
+                    />
                   </Table.Td>
                 </Table.Tr>
               ) : (
@@ -224,6 +233,7 @@ export function ProjectList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       <Modal 

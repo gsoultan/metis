@@ -21,18 +21,19 @@ import {
   UserCircle,
   Edit2,
   Trash2,
-  Filter,
+  Filter, User
 } from 'lucide-react';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../hooks/useUser';
 import { PageHeader } from '../components/PageHeader';
 import { useState, useTransition } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
 
 const AVAILABLE_ROLES = ['admin', 'user', 'manager', 'developer'];
 
 export function UserList() {
-  const { data, isLoading } = useUsers();
+  const { data, isLoading, error, refetch } = useUsers();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
@@ -50,7 +51,6 @@ export function UserList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [, startTransition] = useTransition();
 
-  if (isLoading) return <Text>Loading users...</Text>;
 
   const allUsers = data?.users || [];
   const users = searchQuery
@@ -166,6 +166,17 @@ export function UserList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your users" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -180,15 +191,7 @@ export function UserList() {
               {users.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={4}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <UserCircle size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No users found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first user to manage access.
-                      </Text>
-                    </Stack>
+                    <EmptyState icon={User} title="No people yet" description="Invite people so they can be assigned tasks and manage processes." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
@@ -245,6 +248,7 @@ export function UserList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       <Modal
