@@ -212,27 +212,54 @@ func (a *App) handleBuildUI() error {
 // Pre-setup (no config.yaml) is allowed to start without a key: no process data
 // exists yet, and the setup flow collects the key before anything is written.
 func (a *App) setupEncryption() error {
-	if k := os.Getenv("ENCRYPTION_KEY"); k != "" {
-		if err := crypto.Configure(k); err != nil {
+	envKey := os.Getenv("ENCRYPTION_KEY")
+
+	// A configured system's key is whatever its data was actually encrypted
+	// with, so config.yaml wins over the environment.
+	//
+	// The usual precedence is the other way round, but here it produced a
+	// confusing failure: a stale or unrelated ENCRYPTION_KEY silently replaced
+	// the real one and the server died at startup with "cipher: message
+	// authentication failed", which names the symptom and not the cause. The
+	// environment variable is for deployments that keep no key in the file at
+	// all; once one is in the file, disagreeing with it is a misconfiguration
+	// rather than an override.
+	if config.Exists(config.DefaultConfigPath) {
+		cfg, err := config.Load(config.DefaultConfigPath)
+		if err == nil && cfg.EncryptionKey != "" {
+			if envKey != "" && envKey != cfg.EncryptionKey {
+				log.Warn().Msg(
+					"ENCRYPTION_KEY differs from the key in config.yaml; using the key from config.yaml, " +
+						"because that is what the existing data was encrypted with. " +
+						"To rotate the key, re-encrypt the data first.")
+			}
+			if err := crypto.Configure(cfg.EncryptionKey); err != nil {
+				return fmt.Errorf("invalid encryption_key in config.yaml: %w", err)
+			}
+			log.Info().Msg("At-rest encryption key loaded from config.yaml")
+			return nil
+		}
+
+		if envKey != "" {
+			if err := crypto.Configure(envKey); err != nil {
+				return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
+			}
+			log.Info().Msg("At-rest encryption key loaded from ENCRYPTION_KEY")
+			return nil
+		}
+
+		return errors.New(
+			"config.yaml is present but carries no encryption_key, and ENCRYPTION_KEY is not set; " +
+				"process and task variables are encrypted at rest and cannot be read or written without it",
+		)
+	}
+
+	if envKey != "" {
+		if err := crypto.Configure(envKey); err != nil {
 			return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
 		}
 		log.Info().Msg("At-rest encryption key loaded from ENCRYPTION_KEY")
 		return nil
-	}
-
-	if config.Exists(config.DefaultConfigPath) {
-		cfg, err := config.Load(config.DefaultConfigPath)
-		if err == nil && cfg.EncryptionKey != "" {
-			if err := crypto.Configure(cfg.EncryptionKey); err != nil {
-				return fmt.Errorf("invalid encryption_key in config: %w", err)
-			}
-			log.Info().Msg("At-rest encryption key loaded from config")
-			return nil
-		}
-		return errors.New(
-			"ENCRYPTION_KEY environment variable or config encryption_key is required when config.yaml is present; " +
-				"process and task variables are encrypted at rest and cannot be read or written without it",
-		)
 	}
 
 	log.Warn().Msg("No ENCRYPTION_KEY set and no config.yaml found; running in pre-setup mode (no encrypted data can be written yet)")
@@ -484,10 +511,19 @@ func (a *App) resolveDialector() (gorm.Dialector, error) {
 }
 
 func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
-	encKey := os.Getenv("ENCRYPTION_KEY")
+	// Same precedence as setupEncryption: the key stored alongside the data
+	// wins, because it is the one the data was encrypted with.
+	encKey := cfg.EncryptionKey
+	if encKey == "" {
+		encKey = os.Getenv("ENCRYPTION_KEY")
+	}
+
 	dsn, err := cfg.DecryptConnectionString(encKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt database connection string: %w", err)
+		return nil, fmt.Errorf(
+			"could not decrypt the database connection string in %s — this almost always means the "+
+				"encryption key does not match the one used when the system was set up: %w",
+			config.DefaultConfigPath, err)
 	}
 
 	switch cfg.Database.Driver {

@@ -115,6 +115,16 @@ load_dev_env() {
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+
+  # Once the setup wizard has run, config.yaml holds the key the data was
+  # actually encrypted with. Exporting the generated one on top of it caused
+  # the server to start with the wrong key and fail to decrypt its own
+  # connection string — which looked, from the browser, like the system had
+  # never been set up.
+  if [[ -f "$ROOT/config.yaml" ]]; then
+    unset ENCRYPTION_KEY
+    unset JWT_SECRET
+  fi
 }
 
 # --- processes -------------------------------------------------------------

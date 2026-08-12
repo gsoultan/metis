@@ -1,23 +1,13 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { MainLayout } from '../containers/MainLayout'
 import { ErrorBoundary } from '../components/ErrorBoundary'
-import { processService } from '../services/api'
 import { useAppStore } from '../store/useAppStore'
+import { requireConfigured } from './guards'
 
 export const Route = createFileRoute('/_authenticated')({
   component: AuthenticatedLayout,
   beforeLoad: async ({ location }) => {
-    // If system is not configured, redirect to setup
-    try {
-      const { status } = await processService.getSetupStatus()
-      if (!status?.is_initialized) {
-        throw redirect({ to: '/setup' })
-      }
-    } catch (e) {
-      if (e instanceof Error && 'to' in e) throw e
-      // On network error, assume not configured and redirect to setup
-      throw redirect({ to: '/setup' })
-    }
+    await requireConfigured()
 
     // If not authenticated, redirect to login
     const { user, token } = useAppStore.getState()
