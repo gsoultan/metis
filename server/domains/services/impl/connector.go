@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
 	"sync"
 	"time"
 
@@ -298,7 +300,7 @@ func (e *HttpJsonExecutor) Execute(ctx context.Context, config map[string]any, p
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +342,7 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +396,7 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +430,7 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +466,7 @@ func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]an
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}

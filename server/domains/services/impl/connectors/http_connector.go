@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
 )
 
 const HTTPConnectorKey = "http-json"
@@ -28,7 +30,7 @@ func (c *HTTPConnector) httpClient() *http.Client {
 	if c.client != nil {
 		return c.client
 	}
-	return http.DefaultClient
+	return httpclient.Shared()
 }
 
 func (c *HTTPConnector) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {

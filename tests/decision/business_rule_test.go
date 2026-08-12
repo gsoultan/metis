@@ -25,7 +25,7 @@ func TestBusinessRuleTaskMapping(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -85,7 +85,7 @@ func TestBusinessRuleTaskMapping(t *testing.T) {
 	}
 
 	// 2. Setup Process with Business Rule Task and Mapping
-	nodes := []entities.FlowNode{
+	nodes := []*entities.Node{
 		{ID: "start", Type: entities.StartEvent, Outgoing: []string{"f1"}},
 		{
 			ID:       "rule1",
@@ -110,12 +110,12 @@ func TestBusinessRuleTaskMapping(t *testing.T) {
 		Key:     "ruleProcess",
 		Name:    "Rule Process",
 		Nodes:   nodes,
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "rule1"},
 			{ID: "f2", SourceRef: "rule1", TargetRef: "end"},
 		},
 	}
-	_, err = svc.CreateDefinition(ctx, def)
+	_, err = svc.CreateDefinition(ctx, &def)
 	if err != nil {
 		t.Fatalf("failed to create definition: %v", err)
 	}

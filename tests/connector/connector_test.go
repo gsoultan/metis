@@ -16,6 +16,18 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+// allowLoopbackEgress opts this test into contacting private addresses.
+//
+// Outbound HTTP is guarded by an SSRF egress policy that blocks loopback,
+// link-local and RFC1918 destinations by default, because connector URLs come
+// from user-authored process definitions. httptest servers bind to 127.0.0.1,
+// so tests must opt in explicitly — exactly as an operator running the engine
+// alongside internal services would.
+func allowLoopbackEgress(t *testing.T) {
+	t.Helper()
+	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+}
+
 // MockConnectorRepository is a mock for contracts.ConnectorRepository
 type MockConnectorRepository struct {
 	mock.Mock
@@ -39,6 +51,16 @@ func (m *MockConnectorRepository) GetByKey(ctx context.Context, key string) (mod
 func (m *MockConnectorRepository) Create(ctx context.Context, connector models.Connector) (models.Connector, error) {
 	args := m.Called(ctx, connector)
 	return args.Get(0).(models.Connector), args.Error(1)
+}
+
+func (m *MockConnectorRepository) Update(ctx context.Context, connector models.Connector) error {
+	args := m.Called(ctx, connector)
+	return args.Error(0)
+}
+
+func (m *MockConnectorRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }
 
 // MockConnectorInstanceRepository is a mock for contracts.ConnectorInstanceRepository
@@ -111,6 +133,7 @@ func (m *MockRepository) VariableSnapshot() contracts.VariableSnapshotRepository
 func (m *MockRepository) UnitOfWork() contracts.UnitOfWork                       { return nil }
 
 func TestHttpJsonExecutor(t *testing.T) {
+	allowLoopbackEgress(t)
 	// CreateAuditEntry a test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
@@ -138,6 +161,7 @@ func TestHttpJsonExecutor(t *testing.T) {
 }
 
 func TestSlackMessageExecutor(t *testing.T) {
+	allowLoopbackEgress(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		w.WriteHeader(http.StatusOK)
@@ -160,6 +184,7 @@ func TestSlackMessageExecutor(t *testing.T) {
 }
 
 func TestConnectorService(t *testing.T) {
+	allowLoopbackEgress(t)
 	mockConnectorRepo := new(MockConnectorRepository)
 	mockInstanceRepo := new(MockConnectorInstanceRepository)
 	mockRepo := &MockRepository{

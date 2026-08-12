@@ -7,7 +7,7 @@ import (
 )
 
 type DefinitionModelAdapter struct {
-	Definition entities.ProcessDefinition
+	Definition *entities.ProcessDefinition
 }
 
 func (a DefinitionModelAdapter) ToModel() models.ProcessDefinitionModel {
@@ -128,7 +128,7 @@ type DefinitionEntityAdapter struct {
 	Model models.ProcessDefinitionModel
 }
 
-func (a DefinitionEntityAdapter) ToEntity() entities.ProcessDefinition {
+func (a DefinitionEntityAdapter) ToEntity() *entities.ProcessDefinition {
 	nodes := make([]*entities.Node, len(a.Model.Nodes))
 	for i, n := range a.Model.Nodes {
 		nodes[i] = a.nodeToEntity(n)
@@ -144,7 +144,7 @@ func (a DefinitionEntityAdapter) ToEntity() entities.ProcessDefinition {
 		}
 		flows[i] = cf
 	}
-	return entities.ProcessDefinition{
+	return &entities.ProcessDefinition{
 		ID:         a.Model.ID,
 		Project:    &entities.Project{ID: a.Model.ProjectID},
 		Key:        a.Model.Key,

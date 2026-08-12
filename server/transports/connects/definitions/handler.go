@@ -44,7 +44,7 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 	}
 	projectID, _ := uuid.Parse(req.Msg.ProjectId)
 	response, err := h.eps.CreateDefinition(ctx, definition.CreateDefinitionRequest{
-		Definition: entities.ProcessDefinition{
+		Definition: &entities.ProcessDefinition{
 			Project: &entities.Project{ID: projectID},
 			Key:     req.Msg.Key,
 			Name:    req.Msg.Name,

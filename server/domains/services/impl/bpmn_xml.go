@@ -77,9 +77,36 @@ type bpmnNode struct {
 	ScriptFormat             string               `xml:"scriptFormat,attr"`
 }
 
+// bpmnProcessNode is a <subProcess>: simultaneously a flow node and a container
+// of other flow nodes.
+//
+// It previously embedded both bpmnNode and bpmnProcess, which each declare
+// `id,attr` and `name,attr`. encoding/xml drops fields that are ambiguous at
+// equal depth, so every sub-process imported from BPMN XML parsed with an empty
+// ID and Name — leaving its child nodes unreachable.
 type bpmnProcessNode struct {
-	bpmnNode
+	ID       string   `xml:"id,attr"`
+	Name     string   `xml:"name,attr"`
+	Incoming []string `xml:"incoming"`
+	Outgoing []string `xml:"outgoing"`
+
+	// Only bpmnProcess is embedded, for the child-element collections. bpmnNode
+	// is deliberately NOT embedded: it declares `id,attr` and `name,attr` too,
+	// and two sources for the same attribute make the field ambiguous —
+	// encoding/xml silently drops ambiguous fields, and go vet reports the
+	// duplicate tag. The flow-node attributes a <subProcess> actually carries
+	// are declared explicitly above instead.
 	bpmnProcess
+}
+
+// flowNode adapts the sub-process to the plain flow-node shape mapNode expects.
+func (n bpmnProcessNode) flowNode() bpmnNode {
+	return bpmnNode{
+		ID:       n.ID,
+		Name:     n.Name,
+		Incoming: n.Incoming,
+		Outgoing: n.Outgoing,
+	}
 }
 
 type bpmnErrorEventDef struct {
@@ -106,21 +133,21 @@ type bpmnSequenceFlow struct {
 	ConditionExpression string `xml:"conditionExpression"`
 }
 
-func (p *BPMNXMLParser) Parse(reader io.Reader) (entities.ProcessDefinition, error) {
+func (p *BPMNXMLParser) Parse(reader io.Reader) (*entities.ProcessDefinition, error) {
 	var defs bpmnDefinitions
 	if err := xml.NewDecoder(reader).Decode(&defs); err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 
 	if len(defs.Processes) == 0 {
-		return entities.ProcessDefinition{}, nil
+		return nil, nil
 	}
 
 	// For now, we take the first process.
 	bp := defs.Processes[0]
 	id, err := uuid.NewV7()
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	def := entities.ProcessDefinition{
 		ID:   id,
@@ -145,7 +172,7 @@ func (p *BPMNXMLParser) Parse(reader io.Reader) (entities.ProcessDefinition, err
 		}
 	}
 
-	return def, nil
+	return &def, nil
 }
 
 func (p *BPMNXMLParser) mapNodes(bp bpmnProcess) []*entities.Node {
@@ -186,7 +213,7 @@ func (p *BPMNXMLParser) mapNodes(bp bpmnProcess) []*entities.Node {
 
 	// Subprocesses
 	for _, bsp := range bp.SubProcesses {
-		node := p.mapNode(bsp.bpmnNode, entities.SubProcess)
+		node := p.mapNode(bsp.flowNode(), entities.SubProcess)
 		node.Nodes = p.mapNodes(bsp.bpmnProcess)
 		node.Flows = p.mapFlows(bsp.SequenceFlows)
 		nodes = append(nodes, node)
@@ -256,7 +283,7 @@ func (p *BPMNXMLParser) mapFlows(bpFlows []bpmnSequenceFlow) []*entities.Sequenc
 // Export serialises a ProcessDefinition back to a BPMN 2.0 XML document.
 // It converts the internal entity model to the bpmnDefinitions wire format so
 // that the output is a valid BPMN file rather than a raw JSON-tagged struct dump.
-func (p *BPMNXMLParser) Export(def entities.ProcessDefinition) ([]byte, error) {
+func (p *BPMNXMLParser) Export(def *entities.ProcessDefinition) ([]byte, error) {
 	bpmnDefs := p.toBPMNDefinitions(def)
 	data, err := xml.MarshalIndent(bpmnDefs, "", "  ")
 	if err != nil {
@@ -265,7 +292,7 @@ func (p *BPMNXMLParser) Export(def entities.ProcessDefinition) ([]byte, error) {
 	return append([]byte(xml.Header), data...), nil
 }
 
-func (p *BPMNXMLParser) toBPMNDefinitions(def entities.ProcessDefinition) bpmnDefinitions {
+func (p *BPMNXMLParser) toBPMNDefinitions(def *entities.ProcessDefinition) bpmnDefinitions {
 	bp := bpmnProcess{
 		ID:            def.Key,
 		Name:          def.Name,

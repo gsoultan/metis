@@ -13,7 +13,7 @@ type BusinessRuleTaskHandler struct {
 	decisionService contracts.DecisionService
 }
 
-func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	decisionKey := node.GetStringProperty("decision_key")
 	if decisionKey == "" {
 		// If no decision key, treat as pass-through

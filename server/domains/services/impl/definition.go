@@ -26,7 +26,7 @@ func NewDefinitionService(repo repositories.Repository) servicecontracts.Definit
 	}
 }
 
-func (s *definitionService) CreateDefinition(ctx context.Context, def entities.ProcessDefinition) (uuid.UUID, error) {
+func (s *definitionService) CreateDefinition(ctx context.Context, def *entities.ProcessDefinition) (uuid.UUID, error) {
 	// Use Visitor Pattern to validate definition
 	validator := validation.NewVisitor()
 	def.Accept(validator)
@@ -60,7 +60,7 @@ func (s *definitionService) DeleteDefinition(ctx context.Context, id uuid.UUID) 
 	return s.repo.Definition().Delete(ctx, id)
 }
 
-func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.UUID) ([]entities.ProcessDefinition, error) {
+func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.UUID) ([]*entities.ProcessDefinition, error) {
 	var ms []models.ProcessDefinitionModel
 	var err error
 	if projectID != uuid.Nil {
@@ -71,25 +71,25 @@ func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.
 	if err != nil {
 		return nil, err
 	}
-	res := make([]entities.ProcessDefinition, len(ms))
+	res := make([]*entities.ProcessDefinition, len(ms))
 	for i, m := range ms {
 		res[i] = adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
 	}
 	return res, nil
 }
 
-func (s *definitionService) GetDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error) {
+func (s *definitionService) GetDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error) {
 	m, err := s.repo.Definition().Get(ctx, id)
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }
 
-func (s *definitionService) GetDefinitionByKey(ctx context.Context, key string) (entities.ProcessDefinition, error) {
+func (s *definitionService) GetDefinitionByKey(ctx context.Context, key string) (*entities.ProcessDefinition, error) {
 	m, err := s.repo.Definition().GetByKey(ctx, key)
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }

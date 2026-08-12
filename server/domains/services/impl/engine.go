@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
 	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/rs/zerolog/log"
 )
 
 // Engine is the concrete BPMN execution engine.  It is exported so that the
@@ -112,7 +114,10 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 		return uuid.Nil, fmt.Errorf("definition %s has no start event", definitionKey)
 	}
 
-	idObj, _ := uuid.NewV7()
+	idObj, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("generate instance id: %w", err)
+	}
 
 	instance := entities.ProcessInstance{
 		ID:         idObj,
@@ -137,12 +142,16 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 
 		// Activate Event Sub-processes start events for the process level
 		for _, node := range def.Nodes {
-			if node.IsEventSubProcess && node.ParentID == "" {
-				// Find start event in this event sub-process
-				for _, sn := range def.Nodes {
-					if sn.ParentID == node.ID && sn.Type == entities.StartEvent {
-						e.activateEventNode(txCtx, &instance, def, sn)
-					}
+			if !node.IsEventSubProcess || node.ParentID != "" {
+				continue
+			}
+			// Find start event in this event sub-process
+			for _, sn := range def.Nodes {
+				if sn.ParentID != node.ID || sn.Type != entities.StartEvent {
+					continue
+				}
+				if err := e.activateEventNode(txCtx, &instance, sn); err != nil {
+					return fmt.Errorf("activate event sub-process start %s: %w", sn.ID, err)
 				}
 			}
 		}
@@ -177,10 +186,10 @@ func (e *Engine) GetInstanceForUpdate(ctx context.Context, id uuid.UUID) (entiti
 	return adapters.InstanceEntityAdapter{Model: m}.ToEntity(), nil
 }
 
-func (e *Engine) GetProcessDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error) {
+func (e *Engine) GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error) {
 	m, err := e.repo.Definition().Get(ctx, id)
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }
@@ -275,18 +284,18 @@ func (e *Engine) GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]enti
 	return res, nil
 }
 
-func (e *Engine) ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) error {
+func (e *Engine) ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
 	return e.ExecuteNodeIteration(ctx, instance, def, nodeID, "")
 }
 
-func (e *Engine) ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error {
+func (e *Engine) ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error {
 	return e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		cmd := NewExecuteNodeCommand(e, instance, def, nodeID, iterationID)
 		return cmd.Execute(txCtx)
 	})
 }
 
-func (e *Engine) executeNodeInternal(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error {
+func (e *Engine) executeNodeInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error {
 	node := def.FindNode(nodeID)
 	if node == nil {
 		return fmt.Errorf("node %s not found", nodeID)
@@ -306,22 +315,15 @@ func (e *Engine) executeNodeInternal(ctx context.Context, instance *entities.Pro
 		return err
 	}
 
-	// Boundary Events: activation
+	// Boundary Events: activation.
+	//
+	// A failure here must abort the node. If a subscription or timer is not
+	// persisted, the boundary event can never fire and the instance waits
+	// forever with no incident raised — the failure would be invisible.
 	events := def.GetBoundaryEvents(node.ID)
 	for _, event := range events {
-		if signalName := event.GetStringProperty("signal_name"); signalName != "" {
-			_ = e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: entities.NewSignalSubscription(instance.Project, instance, event, signalName)}.ToModel())
-		}
-		if messageName := event.GetStringProperty("message_name"); messageName != "" {
-			correlationKey := event.GetStringProperty("correlation_key")
-			_ = e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: entities.NewMessageSubscription(instance.Project, instance, event, messageName, correlationKey)}.ToModel())
-		}
-		if duration := event.GetStringProperty("timer_duration"); duration != "" {
-			if e.jobSvc != nil {
-				if err := e.jobSvc.EnqueueTimer(ctx, *instance, *event, duration); err != nil {
-					return fmt.Errorf("failed to enqueue timer boundary: %w", err)
-				}
-			}
+		if err := e.activateEventNode(ctx, instance, event); err != nil {
+			return fmt.Errorf("activate boundary event %s on node %s: %w", event.ID, node.ID, err)
 		}
 	}
 
@@ -351,11 +353,11 @@ func (e *Engine) executeNodeInternal(ctx context.Context, instance *entities.Pro
 	return nil
 }
 
-func (e *Engine) Proceed(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) error {
+func (e *Engine) Proceed(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
 	return e.ProceedIteration(ctx, instance, def, nodeID, "")
 }
 
-func (e *Engine) ProceedIteration(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error {
+func (e *Engine) ProceedIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error {
 	return e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		cmd := NewProceedCommand(e, instance, def, nodeID, iterationID)
 		return cmd.Execute(txCtx)
@@ -364,11 +366,13 @@ func (e *Engine) ProceedIteration(ctx context.Context, instance *entities.Proces
 
 // proceedInternal advances a process instance past nodeID at the end of the
 // current transaction.  It is called by ProceedIteration via UnitOfWork.Do.
-func (e *Engine) proceedInternal(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error {
+func (e *Engine) proceedInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error {
 	node := def.FindNode(nodeID)
 
 	// Step 1: handle interrupting boundary events.
-	e.handleBoundaryInterrupt(ctx, instance, def, node)
+	if err := e.handleBoundaryInterrupt(ctx, instance, def, node); err != nil {
+		return err
+	}
 
 	// Step 2: remove the token (simple case) or check multi-instance completion.
 	done, err := e.removeOrCheckMultiInstance(ctx, instance, def, node, nodeID, iterationID)
@@ -377,8 +381,12 @@ func (e *Engine) proceedInternal(ctx context.Context, instance *entities.Process
 	}
 
 	// Step 3: clean up sibling tokens and subscriptions.
-	e.cleanupEventBasedGatewaySiblings(ctx, instance, def, nodeID)
-	e.cleanupSubscriptions(ctx, instance, nodeID, def)
+	if err := e.cleanupEventBasedGatewaySiblings(ctx, instance, def, nodeID); err != nil {
+		return err
+	}
+	if err := e.cleanupSubscriptions(ctx, instance, nodeID, def); err != nil {
+		return err
+	}
 
 	// Step 4: mark node completed and follow outgoing flows.
 	instance.MarkCompleted(node)
@@ -387,22 +395,29 @@ func (e *Engine) proceedInternal(ctx context.Context, instance *entities.Process
 
 // handleBoundaryInterrupt removes the host activity token when an interrupting
 // boundary event fires and cleans up related subscriptions.
-func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node *entities.Node) {
+//
+// Deletion errors are returned, not ignored: a subscription that outlives its
+// node can re-trigger an already-completed activity when a later signal or
+// message arrives, producing duplicate execution.
+func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) error {
 	if node == nil || node.Type != entities.BoundaryEvent || node.AttachedToRef == "" {
-		return
+		return nil
 	}
 	hostNode := def.FindNode(node.AttachedToRef)
 	if hostNode != nil {
 		instance.RemoveTokenByNode(hostNode)
 	}
 	for _, ev := range def.GetBoundaryEvents(node.AttachedToRef) {
-		_ = e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID)
+		if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID); err != nil {
+			return fmt.Errorf("delete subscription for boundary event %s: %w", ev.ID, err)
+		}
 	}
+	return nil
 }
 
 // removeOrCheckMultiInstance handles token removal for both simple and multi-instance
 // nodes.  Returns (true, nil) when execution should continue past the node.
-func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
+func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
 	if node == nil || node.MultiInstanceType == "" || node.MultiInstanceType == "none" {
 		instance.RemoveTokenByNode(node)
 		return true, nil
@@ -440,35 +455,43 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 
 // cleanupEventBasedGatewaySiblings cancels competing tokens when one branch of
 // an event-based gateway is taken.
-func (e *Engine) cleanupEventBasedGatewaySiblings(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) {
+func (e *Engine) cleanupEventBasedGatewaySiblings(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
 	for _, inFlow := range def.GetIncomingFlows(nodeID) {
 		src := def.FindNode(inFlow.SourceRef)
 		if src == nil || src.Type != entities.EventBasedGateway {
 			continue
 		}
 		for _, siblingFlow := range def.GetOutgoingFlows(src.ID) {
-			if siblingFlow.TargetRef != nodeID {
-				targetNode := def.FindNode(siblingFlow.TargetRef)
-				if targetNode != nil {
-					instance.RemoveTokenByNode(targetNode)
-				}
-				_ = e.repo.Subscription().DeleteByNode(ctx, instance.ID, siblingFlow.TargetRef)
+			if siblingFlow.TargetRef == nodeID {
+				continue
+			}
+			if targetNode := def.FindNode(siblingFlow.TargetRef); targetNode != nil {
+				instance.RemoveTokenByNode(targetNode)
+			}
+			if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, siblingFlow.TargetRef); err != nil {
+				return fmt.Errorf("cancel event-gateway sibling %s: %w", siblingFlow.TargetRef, err)
 			}
 		}
 	}
+	return nil
 }
 
 // cleanupSubscriptions removes subscriptions for boundary events attached to
 // nodeID and the catch-event subscription for nodeID itself.
-func (e *Engine) cleanupSubscriptions(ctx context.Context, instance *entities.ProcessInstance, nodeID string, def entities.ProcessDefinition) {
+func (e *Engine) cleanupSubscriptions(ctx context.Context, instance *entities.ProcessInstance, nodeID string, def *entities.ProcessDefinition) error {
 	for _, ev := range def.GetBoundaryEvents(nodeID) {
-		_ = e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID)
+		if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID); err != nil {
+			return fmt.Errorf("delete subscription for boundary event %s: %w", ev.ID, err)
+		}
 	}
-	_ = e.repo.Subscription().DeleteByNode(ctx, instance.ID, nodeID)
+	if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, nodeID); err != nil {
+		return fmt.Errorf("delete subscription for node %s: %w", nodeID, err)
+	}
+	return nil
 }
 
 // followOutgoingFlows adds tokens to every target node and executes them.
-func (e *Engine) followOutgoingFlows(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) error {
+func (e *Engine) followOutgoingFlows(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
 	flows := def.GetOutgoingFlows(nodeID)
 	if len(flows) == 0 {
 		return e.UpdateInstance(ctx, *instance)
@@ -504,19 +527,32 @@ func extractInt(vars map[string]any, key string) int {
 	}
 }
 
-func (e *Engine) activateEventNode(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node *entities.Node) {
+// activateEventNode registers the signal/message subscriptions and timer job
+// that let a catching event node fire later.
+//
+// Every failure is returned rather than logged-and-ignored: an event node whose
+// subscription was not persisted is a token that can never advance, and the
+// process would hang with no incident to investigate.
+func (e *Engine) activateEventNode(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
 	if signalName := node.GetStringProperty("signal_name"); signalName != "" {
-		_ = e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: entities.NewSignalSubscription(instance.Project, instance, node, signalName)}.ToModel())
+		sub := entities.NewSignalSubscription(instance.Project, instance, node, signalName)
+		if err := e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: sub}.ToModel()); err != nil {
+			return fmt.Errorf("create signal subscription %q for node %s: %w", signalName, node.ID, err)
+		}
 	}
 	if messageName := node.GetStringProperty("message_name"); messageName != "" {
 		correlationKey := node.GetStringProperty("correlation_key")
-		_ = e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: entities.NewMessageSubscription(instance.Project, instance, node, messageName, correlationKey)}.ToModel())
-	}
-	if duration := node.GetStringProperty("timer_duration"); duration != "" {
-		if e.jobSvc != nil {
-			_ = e.jobSvc.EnqueueTimer(ctx, *instance, *node, duration)
+		sub := entities.NewMessageSubscription(instance.Project, instance, node, messageName, correlationKey)
+		if err := e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: sub}.ToModel()); err != nil {
+			return fmt.Errorf("create message subscription %q for node %s: %w", messageName, node.ID, err)
 		}
 	}
+	if duration := node.GetStringProperty("timer_duration"); duration != "" && e.jobSvc != nil {
+		if err := e.jobSvc.EnqueueTimer(ctx, *instance, *node, duration); err != nil {
+			return fmt.Errorf("enqueue timer %q for node %s: %w", duration, node.ID, err)
+		}
+	}
+	return nil
 }
 
 func (e *Engine) UpdateInstance(ctx context.Context, instance entities.ProcessInstance) error {
@@ -527,9 +563,13 @@ func (e *Engine) UpdateInstance(ctx context.Context, instance entities.ProcessIn
 	return nil
 }
 
-// captureVariableSnapshot asynchronously writes a variable snapshot when a
-// VariableHistoryWriter is configured. Errors are silently logged to avoid
-// disrupting the main execution flow.
+// captureVariableSnapshot writes a variable snapshot when a
+// VariableHistoryWriter is configured.
+//
+// Snapshots are observability, not execution state, so a failure is logged
+// rather than propagated — losing a history row must not fail a business
+// transaction. It is logged, though: the previous version discarded the error
+// while its comment claimed otherwise, so failures were invisible.
 func (e *Engine) captureVariableSnapshot(ctx context.Context, instance entities.ProcessInstance) {
 	if e.varHistory == nil {
 		return
@@ -539,7 +579,11 @@ func (e *Engine) captureVariableSnapshot(ctx context.Context, instance entities.
 		Variables:  maps.Clone(instance.Variables),
 		CapturedAt: time.Now(),
 	}
-	_ = e.varHistory.CaptureSnapshot(ctx, snap)
+	if err := e.varHistory.CaptureSnapshot(ctx, snap); err != nil {
+		log.Warn().Err(err).
+			Str("instanceId", instance.ID.String()).
+			Msg("failed to capture variable snapshot")
+	}
 }
 
 func (e *Engine) DispatchEvent(ctx context.Context, event entities.ProcessEvent) {
@@ -553,7 +597,10 @@ func (e *Engine) BroadcastSignal(ctx context.Context, projectID uuid.UUID, signa
 	}
 
 	for _, m := range ms {
-		e.triggerSubscription(ctx, adapters.SubscriptionEntityAdapter{Model: m}.ToEntity(), vars)
+		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
+		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
+			return fmt.Errorf("trigger signal subscription %s: %w", sub.ID, err)
+		}
 	}
 
 	// Handle Signal Start Events
@@ -567,7 +614,10 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 	}
 
 	for _, m := range ms {
-		e.triggerSubscription(ctx, adapters.SubscriptionEntityAdapter{Model: m}.ToEntity(), vars)
+		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
+		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
+			return fmt.Errorf("trigger message subscription %s: %w", sub.ID, err)
+		}
 	}
 
 	// Handle Message Start Events
@@ -578,54 +628,74 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 	return nil
 }
 
-func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubscription, vars map[string]any) {
-	if sub.Instance == nil {
-		return
-	}
-	m, err := e.repo.Process().GetForUpdate(ctx, sub.Instance.ID)
-	if err != nil {
-		return
-	}
-	instance := adapters.InstanceEntityAdapter{Model: m}.ToEntity()
-
-	if instance.Definition == nil {
-		return
-	}
-	md, err := e.repo.Definition().Get(ctx, instance.Definition.ID)
-	if err != nil {
-		return
-	}
-	def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
-
-	// Update variables
-	for k, v := range vars {
-		instance.SetVariable(k, v)
+// triggerSubscription advances the instance waiting on sub, merging vars into
+// its variables.
+//
+// The whole read-modify-write runs inside one UnitOfWork. GetForUpdate takes a
+// SELECT ... FOR UPDATE row lock, and outside a transaction that lock is
+// released the instant the statement returns — so the previous version, which
+// loaded the instance before opening the transaction, provided no protection at
+// all. Two messages correlating to the same instance could each read the same
+// state and the second write would silently discard the first one's variables.
+func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubscription, vars map[string]any) error {
+	if sub.Instance == nil || sub.Node == nil {
+		return fmt.Errorf("subscription %s has no instance or node reference", sub.ID)
 	}
 
-	_ = e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		_ = e.repo.Subscription().Delete(txCtx, sub.ID)
+	return e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		m, err := e.repo.Process().GetForUpdate(txCtx, sub.Instance.ID)
+		if err != nil {
+			return fmt.Errorf("lock instance %s: %w", sub.Instance.ID, err)
+		}
+		instance := adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+		if instance.Definition == nil {
+			return fmt.Errorf("instance %s has no definition reference", instance.ID)
+		}
+
+		md, err := e.repo.Definition().Get(txCtx, instance.Definition.ID)
+		if err != nil {
+			return fmt.Errorf("load definition %s: %w", instance.Definition.ID, err)
+		}
+		def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
+
+		for k, v := range vars {
+			instance.SetVariable(k, v)
+		}
+
+		if err := e.repo.Subscription().Delete(txCtx, sub.ID); err != nil {
+			return fmt.Errorf("delete subscription %s: %w", sub.ID, err)
+		}
 		return e.Proceed(txCtx, &instance, def, sub.Node.ID)
 	})
 }
 
+// triggerStartEvents starts an instance of every definition in the project whose
+// start event declares propName == propValue (a signal or message start event).
+//
+// A failure to start any one definition is returned. Previously both the list
+// error and every StartProcess error were discarded, so a signal that should
+// have started five processes could start none and report success.
 func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) error {
 	ms, err := e.repo.Definition().ListByProject(ctx, projectID)
 	if err != nil {
-		return nil // Ignore error or handle accordingly
+		return fmt.Errorf("list definitions for project %s: %w", projectID, err)
 	}
 
 	for _, m := range ms {
 		def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
 		for _, node := range def.Nodes {
-			if node.Type == entities.StartEvent && node.GetStringProperty(propName) == propValue {
-				_, _ = e.StartProcess(ctx, projectID, def.Key, vars)
+			if node.Type != entities.StartEvent || node.GetStringProperty(propName) != propValue {
+				continue
+			}
+			if _, err := e.StartProcess(ctx, projectID, def.Key, vars); err != nil {
+				return fmt.Errorf("start process %s from %s %q: %w", def.Key, propName, propValue, err)
 			}
 		}
 	}
 	return nil
 }
 
-func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, escalationCode string) error {
+func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error {
 	currNodeID := node.ID
 	if node.ParentID != "" {
 		currNodeID = node.ParentID
@@ -650,7 +720,7 @@ func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.Proce
 	return nil
 }
 
-func (e *Engine) checkBoundaryEscalation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID, escalationCode string) error {
+func (e *Engine) checkBoundaryEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) error {
 	boundaryEvents := def.GetBoundaryEvents(nodeID)
 	for _, be := range boundaryEvents {
 		if be.GetStringProperty("escalation_code") == escalationCode || be.GetStringProperty("escalation_code") == "" {
@@ -660,7 +730,7 @@ func (e *Engine) checkBoundaryEscalation(ctx context.Context, instance *entities
 	return fmt.Errorf("no boundary escalation found")
 }
 
-func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID, escalationCode string) error {
+func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) error {
 	var siblings []*entities.Node
 	parent := def.FindNode(nodeID)
 	if parent != nil {
@@ -683,24 +753,38 @@ func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *e
 	return fmt.Errorf("no event sub-process escalation found")
 }
 
-func (e *Engine) TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, activityRef string) error {
+// TriggerCompensation compensates either a single referenced activity or, when
+// activityRef is empty, every completed activity in reverse order.
+//
+// A compensation that fails is a business rollback that did not happen, so the
+// error is surfaced rather than discarded. Remaining activities are still
+// attempted first — abandoning the loop on the first failure would leave the
+// instance even less consistent — and the failures are then reported together.
+func (e *Engine) TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, activityRef string) error {
 	if activityRef != "" {
-		refNode := def.FindNode(activityRef)
-		if refNode != nil {
-			_ = e.compensateActivity(ctx, instance, def, refNode)
+		if refNode := def.FindNode(activityRef); refNode != nil {
+			if err := e.compensateActivity(ctx, instance, def, refNode); err != nil {
+				return fmt.Errorf("compensate activity %s: %w", activityRef, err)
+			}
 		}
 		return e.Proceed(ctx, instance, def, node.ID)
 	}
 
-	// Compensate all in reverse order
+	// Compensate all in reverse order.
+	var errs []error
 	for i := len(instance.CompletedNodes) - 1; i >= 0; i-- {
 		n := instance.CompletedNodes[i]
-		_ = e.compensateActivity(ctx, instance, def, n)
+		if err := e.compensateActivity(ctx, instance, def, n); err != nil {
+			errs = append(errs, fmt.Errorf("compensate activity %s: %w", n.ID, err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return e.Proceed(ctx, instance, def, node.ID)
 }
 
-func (e *Engine) compensateActivity(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node *entities.Node) error {
+func (e *Engine) compensateActivity(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) error {
 	if node == nil {
 		return nil
 	}
@@ -723,25 +807,31 @@ func (e *Engine) ExecuteScript(ctx context.Context, script string, scriptFormat 
 		return nil, fmt.Errorf("unsupported script format: %s", scriptFormat)
 	}
 
-	vm := goja.New()
+	vm := logic.NewSandboxedRuntime()
 	for k, v := range variables {
-		vm.Set(k, v)
+		if err := vm.Set(k, v); err != nil {
+			return nil, fmt.Errorf("bind variable %q into script scope: %w", k, err)
+		}
 	}
 
 	// Helper to set variables back
 	updatedVars := maps.Clone(variables)
 
-	vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
+	if err := vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) >= 2 {
 			name := call.Arguments[0].String()
 			val := call.Arguments[1].Export()
 			updatedVars[name] = val
 		}
 		return goja.Undefined()
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("bind setVar helper into script scope: %w", err)
+	}
 
-	_, err := vm.RunString(script)
-	if err != nil {
+	// ExecuteScript runs user-authored script on the server; bound it.
+	if _, err := logic.RunSandboxed(ctx, vm, logic.ScriptTimeout(), func() (goja.Value, error) {
+		return vm.RunString(script)
+	}); err != nil {
 		return nil, fmt.Errorf("script execution failed: %w", err)
 	}
 

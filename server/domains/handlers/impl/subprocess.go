@@ -15,7 +15,7 @@ type SubProcessHandler struct {
 	adHocHandler *AdHocSubProcessHandler
 }
 
-func (h *SubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *SubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	if node.IsAdHoc && h.adHocHandler != nil {
 		return h.adHocHandler.DoExecute(ctx, instance, def, node, iterationID)
 	}

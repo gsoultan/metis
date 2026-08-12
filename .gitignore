@@ -39,8 +39,12 @@ Thumbs.db
 
 # ─── Node.js / Frontend ───────────────────────────────────────────────────────
 ui/node_modules/
-ui/dist/
+ui/dist/*
+!ui/dist/.gitkeep
 
 # ─── Go tool cache ────────────────────────────────────────────────────────────
 vendor/
 
+
+# graphify knowledge graph — regenerate with `make graph`
+graphify-out/

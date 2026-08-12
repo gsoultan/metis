@@ -6,7 +6,7 @@ import (
 )
 
 type ProcessDefinitionPBAdapter struct {
-	Definition entities.ProcessDefinition
+	Definition *entities.ProcessDefinition
 }
 
 func (a ProcessDefinitionPBAdapter) ToProto() *pbentities.ProcessDefinition {

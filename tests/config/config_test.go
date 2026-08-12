@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewConfig_EncryptsConnectionString(t *testing.T) {
-	cfg, err := config.NewConfig(config.DriverPostgres, "host=localhost dbname=test", "my-secret-key-1234")
+	cfg, err := config.NewConfig(config.DriverPostgres, "host=localhost dbname=test", "my-secret-key-1234", "test-jwt-secret")
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestNewConfig_DecryptConnectionString(t *testing.T) {
 	original := "host=localhost port=5432 user=gobpm password=secret dbname=gobpm"
 	encKey := "my-encryption-key-16ch"
 
-	cfg, err := config.NewConfig(config.DriverPostgres, original, encKey)
+	cfg, err := config.NewConfig(config.DriverPostgres, original, encKey, "test-jwt-secret")
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 	original := "host=db.example.com dbname=production"
 	encKey := "save-load-test-key-16"
 
-	cfg, err := config.NewConfig(config.DriverPostgres, original, encKey)
+	cfg, err := config.NewConfig(config.DriverPostgres, original, encKey, "test-jwt-secret")
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestNewConfig_AllDrivers(t *testing.T) {
 
 	for _, driver := range drivers {
 		t.Run(driver, func(t *testing.T) {
-			cfg, err := config.NewConfig(driver, "test-connection", "encryption-key-16ch")
+			cfg, err := config.NewConfig(driver, "test-connection", "encryption-key-16ch", "test-jwt-secret")
 			if err != nil {
 				t.Fatalf("NewConfig failed for driver %s: %v", driver, err)
 			}

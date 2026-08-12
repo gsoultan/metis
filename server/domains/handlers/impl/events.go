@@ -31,7 +31,7 @@ type endEventEngine interface {
 	contracts2.EngineRunner
 	contracts2.EngineEventBus
 	GetInstance(ctx context.Context, id uuid.UUID) (entities.ProcessInstance, error)
-	GetProcessDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error)
+	GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error)
 }
 
 // terminateEventEngine is the surface needed by TerminateEndEventHandler:
@@ -46,7 +46,7 @@ type StartEventHandler struct {
 	engine contracts2.EngineRunner
 }
 
-func (h *StartEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *StartEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
 
@@ -55,7 +55,7 @@ type EndEventHandler struct {
 	engine endEventEngine
 }
 
-func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	instance.RemoveTokenByNode(&node)
 
 	// If node belongs to a sub-process, check if there are other tokens in the same sub-process.
@@ -133,7 +133,7 @@ type TerminateEndEventHandler struct {
 	engine terminateEventEngine
 }
 
-func (h *TerminateEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *TerminateEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	instance.Tokens = nil // Remove all tokens
 	instance.Status = entities.ProcessCompleted
 	h.engine.DispatchEvent(ctx, entities.ProcessEvent{
@@ -153,7 +153,7 @@ type IntermediateCatchEventHandler struct {
 	subRepo    contracts.SubscriptionRepository
 }
 
-func (h *IntermediateCatchEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *IntermediateCatchEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	if signalName := node.GetStringProperty("signal_name"); signalName != "" {
 		return h.subRepo.Create(ctx, h.subToModel(entities.NewSignalSubscription(instance.Project, instance, &node, signalName)))
 	}
@@ -207,7 +207,7 @@ type SignalThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *SignalThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *SignalThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	signalName := node.GetStringProperty("signal_name")
 	if signalName != "" {
 		h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables)
@@ -220,7 +220,7 @@ type IntermediateThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *IntermediateThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *IntermediateThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	if signalName := node.GetStringProperty("signal_name"); signalName != "" {
 		h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables)
 	}
@@ -236,7 +236,7 @@ type MessageThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	messageName := node.GetStringProperty("message_name")
 	correlationKey := node.GetStringProperty("correlation_key")
 	if messageName != "" {
@@ -249,7 +249,7 @@ func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *enti
 // boundary-event matching.  The engine field has been removed to satisfy ISP.
 type ErrorEndEventHandler struct{}
 
-func (h *ErrorEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ErrorEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	errorCode := node.GetStringProperty("error_code")
 	if errorCode == "" {
 		errorCode = "unspecified"
@@ -265,7 +265,7 @@ type EscalationThrowEventHandler struct {
 	engine contracts2.EngineEventBus
 }
 
-func (h *EscalationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, escalationCode string) error {
+func (h *EscalationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error {
 	escalationCodeValue := node.GetStringProperty("escalation_code")
 	return h.engine.TriggerEscalation(ctx, instance, def, node, escalationCodeValue)
 }
@@ -275,7 +275,7 @@ type CompensationThrowEventHandler struct {
 	engine contracts2.EngineEventBus
 }
 
-func (h *CompensationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *CompensationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	activityRef := node.GetStringProperty("activity_ref")
 	return h.engine.TriggerCompensation(ctx, instance, def, node, activityRef)
 }

@@ -26,3 +26,23 @@ type Task struct {
 	Variables       map[string]any   `json:"variables,omitzero"`
 	CreatedAt       time.Time        `json:"created_at,omitzero"`
 }
+
+// NodeID returns the BPMN node ID this task was created for, or "" when the
+// task carries no node reference. Callers routinely need the ID rather than the
+// whole node, and the relation is a pointer, so this keeps the nil check in one
+// place instead of at every call site.
+func (t Task) NodeID() string {
+	if t.Node == nil {
+		return ""
+	}
+	return t.Node.ID
+}
+
+// AssigneeUsername returns the username of the task assignee, or "" when the
+// task is unassigned.
+func (t Task) AssigneeUsername() string {
+	if t.Assignee == nil {
+		return ""
+	}
+	return t.Assignee.Username
+}

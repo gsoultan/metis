@@ -9,6 +9,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
+	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
@@ -176,6 +177,13 @@ func saveConfiguration(req contracts.SetupRequest) error {
 
 	if err := cfg.Save(config.DefaultConfigPath); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	// Install the key in the running process. Without this the server would
+	// have persisted a config it cannot use until the next restart, and every
+	// write to an encrypted column would fail with ErrKeyNotConfigured.
+	if err := crypto.Configure(req.EncryptionKey); err != nil {
+		return fmt.Errorf("failed to install encryption key: %w", err)
 	}
 
 	return nil

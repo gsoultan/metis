@@ -19,7 +19,7 @@ Hermod BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrato
   - **Auto-Layout**: Integrated view centering for complex diagrams.
 - **Asynchronous Execution**: A robust job worker system for Service Tasks and Timers with:
   - **Reliability**: Persistent job storage and execution.
-  - **Error Handling**: Automatic retries with exponential backoff.
+  - **Error Handling**: Automatic retries with backoff (currently linear; exponential + jitter is planned — see `.junie/execution-plan.md` §3.4).
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
 - **Scripting Engine**: Integrated **Goja** (JavaScript engine) for:
   - **Script Tasks**: Complex data transformations within workflows.
@@ -27,7 +27,7 @@ Hermod BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrato
 - **Task Inbox**: A dedicated view for users to manage, claim, and complete their assigned tasks.
 - **Enterprise Persistence**:
   - **Audit Logging**: Comprehensive, persistent audit trail for every state change and node transition.
-  - **Security**: **AES-GCM encryption** for sensitive process variables at rest.
+  - **Security**: **AES-256-GCM encryption** for process and task variables at rest. Requires `ENCRYPTION_KEY`; the server refuses to start without it once configured.
   - **Dual DB Support**: Supports **SQLite** for development and **PostgreSQL** for high-availability production.
 
 ## 🏗️ Architecture & Design Patterns
@@ -40,7 +40,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ## 🛠️ Technology Stack
 
-- **Backend**: Go (1.26+), Go Kit, GORM, Connect RPC (gRPC-compatible).
+- **Backend**: Go (1.26.5+), Go Kit, GORM, Connect RPC (gRPC-compatible).
 - **Frontend**: React (19+), Vite, Mantine UI, React Flow, Zustand, TanStack Query, TanStack Router.
 - **Integrations**: Goja (JS Runtime), Protobuf, AES-GCM Encryption.
 
@@ -50,7 +50,6 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 ├── api/              # Protocol Buffer definitions and generated code
 ├── cmd/gobpm/        # Main entry point (Server)
 ├── internal/pkg/     # Shared internal packages (Crypto, Logger)
-├── migrations/       # Database migration scripts (SQL)
 ├── server/           # Backend Implementation
 │   ├── domains/      # Core entities and business logic
 │   ├── endpoints/    # Go Kit endpoint definitions
@@ -68,16 +67,18 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ### Prerequisites
 
-- **Go**: 1.26 or higher
+- **Go**: 1.26.5 or higher
 - **Node.js**: With Bun (recommended) or npm
 - **PostgreSQL**: (Optional) For production-grade persistence
 
 ### Running the Backend
 
 1. **Clone the repository**
-2. **Setup environment variables** (Optional):
+2. **Setup environment variables**:
    ```bash
-   export DATABASE_URL="postgres://user:pass@localhost:5432/gobpm"
+   export ENCRYPTION_KEY="a-strong-secret"      # required: encrypts process/task variables at rest
+   export JWT_SECRET="another-strong-secret"    # required once configured
+   export DATABASE_URL="postgres://user:pass@localhost:5432/gobpm"  # optional; defaults to SQLite
    ```
 3. **Build the UI** (Required once before running or after UI changes):
    ```bash
@@ -107,9 +108,16 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ## 🧪 Testing
 
-Run the backend test suite:
+Run the full verification gate (build, vet, tests, race, UI typecheck/lint/build):
 ```bash
-go test ./server/...
+make gate
+```
+
+Individual steps:
+```bash
+make test    # full Go suite — note ./server/... alone SKIPS the tests/ tree
+make race    # race detector
+make vet     # go vet, module-wide
 ```
 
 ## 📜 License

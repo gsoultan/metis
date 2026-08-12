@@ -10,7 +10,7 @@ type ListDefinitionsRequest struct {
 }
 
 type ListDefinitionsResponse struct {
-	Definitions []entities.ProcessDefinition `json:"definitions,omitzero"`
+	Definitions []*entities.ProcessDefinition `json:"definitions,omitzero"`
 	Err         error                        `json:"err,omitzero"`
 }
 
@@ -21,14 +21,14 @@ type GetDefinitionRequest struct {
 }
 
 type GetDefinitionResponse struct {
-	Definition entities.ProcessDefinition `json:"definition,omitzero"`
+	Definition *entities.ProcessDefinition `json:"definition,omitzero"`
 	Err        error                      `json:"err,omitzero"`
 }
 
 func (r GetDefinitionResponse) Failed() error { return r.Err }
 
 type CreateDefinitionRequest struct {
-	Definition entities.ProcessDefinition `json:"definition,omitzero"`
+	Definition *entities.ProcessDefinition `json:"definition,omitzero"`
 }
 
 type CreateDefinitionResponse struct {

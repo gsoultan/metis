@@ -12,7 +12,7 @@ type BoundaryEventHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *BoundaryEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *BoundaryEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// If it's interrupting, remove token from the attached node.
 	if node.CancelActivity {
 		attachedNode := def.FindNode(node.AttachedToRef)

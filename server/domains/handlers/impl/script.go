@@ -6,6 +6,7 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/gobpm/server/domains/logic"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 )
 
@@ -13,7 +14,7 @@ type ScriptTaskHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	script := node.Script
 	if script == "" {
 		script = node.Condition
@@ -26,25 +27,32 @@ func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.Pr
 		return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 	}
 
-	vm := goja.New()
+	vm := logic.NewSandboxedRuntime()
 
 	// Expose variables to JS
 	for k, v := range instance.Variables {
-		vm.Set(k, v)
+		if err := vm.Set(k, v); err != nil {
+			return fmt.Errorf("bind variable %q into script scope: %w", k, err)
+		}
 	}
 
 	// Helper to set variables back
-	vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
+	if err := vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) >= 2 {
 			name := call.Arguments[0].String()
 			val := call.Arguments[1].Export()
 			instance.SetVariable(name, val)
 		}
 		return goja.Undefined()
-	})
+	}); err != nil {
+		return fmt.Errorf("bind setVar helper into script scope: %w", err)
+	}
 
-	_, err := vm.RunString(script)
-	if err != nil {
+	// Script tasks are user-authored. RunSandboxed bounds them so a runaway
+	// script cannot hold this goroutine and its transaction indefinitely.
+	if _, err := logic.RunSandboxed(ctx, vm, logic.ScriptTimeout(), func() (goja.Value, error) {
+		return vm.RunString(script)
+	}); err != nil {
 		return fmt.Errorf("script execution failed: %w", err)
 	}
 

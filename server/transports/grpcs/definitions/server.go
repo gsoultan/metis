@@ -104,7 +104,7 @@ func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, err
 	}
 	projectID, _ := uuid.Parse(req.ProjectId)
 	return definition.CreateDefinitionRequest{
-		Definition: entities2.ProcessDefinition{
+		Definition: &entities2.ProcessDefinition{
 			Project: &entities2.Project{ID: projectID},
 			Key:     req.Key,
 			Name:    req.Name,

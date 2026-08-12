@@ -20,7 +20,7 @@ func NewNodeHandlerTemplate(engine servicecontracts.EngineRunner, internal handl
 	return &NodeHandlerTemplate{engine: engine, internal: internal}
 }
 
-func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	log.Debug().
 		Str("instance_id", instance.ID.String()).
 		Str("node_id", node.ID).
@@ -51,7 +51,7 @@ func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.Pr
 	return nil
 }
 
-func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node) error {
+func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node) error {
 	activeKey := fmt.Sprintf("_mi_%s_active", node.ID)
 	if _, ok := instance.Variables[activeKey]; ok {
 		return nil

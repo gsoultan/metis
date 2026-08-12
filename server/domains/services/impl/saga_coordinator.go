@@ -84,7 +84,7 @@ func (s *sagaCoordinator) Compensate(ctx context.Context, instanceID uuid.UUID) 
 }
 
 // compensateActivity executes a single compensation node and marks the activity as compensated.
-func (s *sagaCoordinator) compensateActivity(ctx context.Context, m models.CompensatableActivityModel, instance *entities.ProcessInstance, def entities.ProcessDefinition) error {
+func (s *sagaCoordinator) compensateActivity(ctx context.Context, m models.CompensatableActivityModel, instance *entities.ProcessInstance, def *entities.ProcessDefinition) error {
 	activity := adapters.CompensatableActivityEntityAdapter{Model: m}.ToEntity()
 	if activity.CompensationNode == nil || activity.CompensationNode.ID == "" {
 		return s.repo.MarkCompensated(ctx, activity.ID)

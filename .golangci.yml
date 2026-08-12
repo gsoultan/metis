@@ -1,0 +1,84 @@
+version: "2"
+
+# ---------------------------------------------------------------------------
+# Adoption note (Phase 0)
+#
+# This config was introduced against an existing codebase with 799 findings.
+# They are NOT suppressed — CI runs golangci-lint-action with
+# `only-new-issues: true`, so the linter blocks every *new* violation from day
+# one while the existing backlog is burned down by area.
+#
+# Do not "fix" the errcheck backlog by inserting `_ =`. Those 348 findings are
+# the actual defect class: in a BPMN engine a discarded error is a process
+# instance that hangs forever with no incident raised. Each one needs a real
+# decision — propagate, log with context, or raise an incident.
+#
+# Burn-down order (highest business risk first):
+#   1. server/domains/services/impl/engine.go        (token/subscription loss)
+#   2. server/domains/handlers/impl/                 (node execution)
+#   3. server/domains/services/impl/job.go           (job/incident handling)
+#   4. server/domains/services/impl/connector*.go    (external side effects)
+#   5. everything else
+# ---------------------------------------------------------------------------
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    # Catches the defect class that hid the most bugs in this codebase:
+    # discarded errors on the execution path. A swallowed error in a BPMN
+    # engine is a silently hung process instance.
+    - errcheck
+    - bodyclose      # leaked HTTP response bodies in connectors
+    - noctx          # HTTP requests without a context (and therefore no timeout)
+    - contextcheck   # context not propagated through a call chain
+    - rowserrcheck
+    - sqlclosecheck
+    - nilerr         # `return nil` after checking `err != nil`
+    - errorlint      # %v instead of %w, type asserts instead of errors.As
+    - copyloopvar
+    - intrange
+    - usestdlibvars
+    - unconvert
+    - wastedassign
+    - makezero
+    - durationcheck
+    - gocritic
+    - revive
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+
+  exclusions:
+    generated: lax
+    paths:
+      - ui/node_modules
+      - api/proto        # generated protobuf
+    rules:
+      # Tests may ignore errors on setup helpers where a failure would surface
+      # as an assertion failure anyway.
+      - path: (_test\.go|^tests/)
+        linters:
+          - errcheck
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - ui/node_modules
+      - api/proto

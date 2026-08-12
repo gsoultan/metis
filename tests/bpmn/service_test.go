@@ -25,7 +25,7 @@ func TestBPMNFlow(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -67,18 +67,18 @@ func TestBPMNFlow(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "test-process",
 		Name:    "Test Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Name: "Start"},
 			{ID: "task1", Type: entities.UserTask, Name: "User Task", Assignee: "user1"},
 			{ID: "end", Type: entities.EndEvent, Name: "End"},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "task1"},
 			{ID: "f2", SourceRef: "task1", TargetRef: "end"},
 		},
 	}
 
-	_, err := svc.CreateDefinition(ctx, def)
+	_, err := svc.CreateDefinition(ctx, &def)
 	if err != nil {
 		t.Fatalf("failed to create definition: %v", err)
 	}
@@ -107,8 +107,8 @@ func TestBPMNFlow(t *testing.T) {
 
 	if len(tasks) != 1 {
 		t.Errorf("expected 1 task, got %d", len(tasks))
-	} else if tasks[0].NodeID != "task1" {
-		t.Errorf("expected task for node task1, got %s", tasks[0].NodeID)
+	} else if tasks[0].NodeID() != "task1" {
+		t.Errorf("expected task for node task1, got %s", tasks[0].NodeID())
 	}
 
 	// Complete task1
@@ -140,7 +140,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -182,14 +182,14 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "exclusive-process",
 		Name:    "Exclusive Gateway Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Name: "Start"},
 			{ID: "gateway", Type: entities.ExclusiveGateway, Name: "Approval Gateway"},
 			{ID: "taskA", Type: entities.UserTask, Name: "Task Approved"},
 			{ID: "taskB", Type: entities.UserTask, Name: "Task Rejected"},
 			{ID: "end", Type: entities.EndEvent, Name: "End"},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "gateway"},
 			{ID: "fA", SourceRef: "gateway", TargetRef: "taskA", Condition: "approved"},
 			{ID: "fB", SourceRef: "gateway", TargetRef: "taskB", Condition: "rejected"},
@@ -198,7 +198,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 		},
 	}
 
-	_, err := svc.CreateDefinition(ctx, def)
+	_, err := svc.CreateDefinition(ctx, &def)
 	if err != nil {
 		t.Fatalf("failed to create definition: %v", err)
 	}
@@ -210,14 +210,14 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	}
 
 	tasks, _ := svc.ListTasks(ctx, proj.ID)
-	if len(tasks) != 1 || tasks[0].NodeID != "taskA" {
+	if len(tasks) != 1 || tasks[0].NodeID() != "taskA" {
 		t.Errorf("expected taskA to be created, got %v", tasks)
 	}
 
 	// Case 2: Rejected (I'll use another project to isolate)
 	proj2, _ := svc.CreateProject(ctx, org.ID, "Exclusive Project 2", "")
 	def.Project = &entities.Project{ID: proj2.ID}
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 
 	_, err = svc.StartProcess(ctx, proj2.ID, "exclusive-process", map[string]any{"rejected": true})
 	if err != nil {
@@ -225,7 +225,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	}
 
 	tasks, _ = svc.ListTasks(ctx, proj2.ID)
-	if len(tasks) != 1 || tasks[0].NodeID != "taskB" {
+	if len(tasks) != 1 || tasks[0].NodeID() != "taskB" {
 		t.Errorf("expected taskB to be created, got %v", tasks)
 	}
 }
@@ -242,7 +242,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -284,7 +284,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "parallel-join",
 		Name:    "Parallel Join Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "fork", Type: entities.ParallelGateway},
 			{ID: "taskA", Type: entities.UserTask, Name: "Task A"},
@@ -292,7 +292,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 			{ID: "join", Type: entities.ParallelGateway},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "fork"},
 			{ID: "fA", SourceRef: "fork", TargetRef: "taskA"},
 			{ID: "fB", SourceRef: "fork", TargetRef: "taskB"},
@@ -302,7 +302,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 	instanceID, _ := svc.StartProcess(ctx, proj.ID, "parallel-join", nil)
 
 	tasks, _ := svc.ListTasks(ctx, proj.ID)
@@ -313,7 +313,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	// Complete Task A
 	var taskA entities.Task
 	for _, t := range tasks {
-		if t.NodeID == "taskA" {
+		if t.NodeID() == "taskA" {
 			taskA = t
 		}
 	}
@@ -329,7 +329,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	var taskB entities.Task
 	tasks, _ = svc.ListTasks(ctx, proj.ID)
 	for _, t := range tasks {
-		if t.NodeID == "taskB" && (t.Status == entities.TaskUnclaimed || t.Status == entities.TaskClaimed) {
+		if t.NodeID() == "taskB" && (t.Status == entities.TaskUnclaimed || t.Status == entities.TaskClaimed) {
 			taskB = t
 		}
 	}
@@ -354,7 +354,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -396,14 +396,14 @@ func TestParallelGatewayFlow(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "parallel-process",
 		Name:    "Parallel Gateway Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Name: "Start"},
 			{ID: "parallel", Type: entities.ParallelGateway, Name: "Fork"},
 			{ID: "taskA", Type: entities.UserTask, Name: "Task A"},
 			{ID: "taskB", Type: entities.UserTask, Name: "Task B"},
 			{ID: "end", Type: entities.EndEvent, Name: "End"},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "parallel"},
 			{ID: "fA", SourceRef: "parallel", TargetRef: "taskA"},
 			{ID: "fB", SourceRef: "parallel", TargetRef: "taskB"},
@@ -412,7 +412,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 	_, _ = svc.StartProcess(ctx, proj.ID, "parallel-process", nil)
 
 	tasks, _ := svc.ListTasks(ctx, proj.ID)
@@ -433,7 +433,7 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -475,18 +475,18 @@ func TestTaskServiceEnhancements(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "test-process",
 		Name:    "Test Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Name: "Start"},
 			{ID: "task1", Type: entities.UserTask, Name: "User Task", Documentation: "Complete this task carefully."},
 			{ID: "end", Type: entities.EndEvent, Name: "End"},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "task1"},
 			{ID: "f2", SourceRef: "task1", TargetRef: "end"},
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 	_, _ = svc.StartProcess(ctx, proj.ID, "test-process", nil)
 
 	tasks, _ := svc.ListTasks(ctx, proj.ID)
@@ -541,7 +541,7 @@ func TestExecutionEnhancements(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))

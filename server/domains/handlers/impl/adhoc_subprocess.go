@@ -26,7 +26,7 @@ func NewAdHocSubProcessHandler(engine servicecontracts.ExecutionEngine, exprEval
 // immediately checking the completion condition. If the condition is already
 // satisfied (e.g., empty/wildcard), it proceeds; otherwise it waits for
 // explicit task activations from the knowledge worker.
-func (h *AdHocSubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *AdHocSubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	instance.AddTokenWithIteration(&node, iterationID)
 
 	complete, err := h.isCompletionConditionMet(ctx, node, instance)

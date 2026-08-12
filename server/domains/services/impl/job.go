@@ -45,7 +45,7 @@ func NewJobService(
 		locker:       locker,
 		errorMatcher: errorMatcher,
 		workerID:     workerID.String(),
-		httpRunner:   NewHTTPServiceTaskRunner(nil), // uses http.DefaultClient
+		httpRunner:   NewHTTPServiceTaskRunner(nil), // uses the shared guarded client
 		sem:          semaphore.NewWeighted(maxConcurrentJobs),
 	}
 }
@@ -332,7 +332,7 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 
 // resolveAndExecuteConnector finds a connector instance for the node and executes
 // it if one is configured.  Returns nil, nil when no connector applies.
-func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def entities.ProcessDefinition, node entities.Node, payload map[string]any) (map[string]any, error) {
+func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entities.ProcessDefinition, node entities.Node, payload map[string]any) (map[string]any, error) {
 	ci, found := s.findConnectorInstance(ctx, def, node)
 	if !found {
 		return nil, nil
@@ -351,7 +351,7 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def entitie
 // findConnectorInstance resolves the connector instance for a node.
 // It first tries the explicit connector_instance_id property, then falls back
 // to resolving by connector_id within the project.
-func (s *jobService) findConnectorInstance(ctx context.Context, def entities.ProcessDefinition, node entities.Node) (entities.ConnectorInstance, bool) {
+func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.ProcessDefinition, node entities.Node) (entities.ConnectorInstance, bool) {
 	if idStr := node.GetStringProperty("connector_instance_id"); idStr != "" {
 		id, err := uuid.Parse(idStr)
 		if err == nil {

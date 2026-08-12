@@ -4,11 +4,25 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
+	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	models2 "github.com/gsoultan/gobpm/server/repositories/models"
 	"gorm.io/gorm"
 )
 
+// testEncryptionPassphrase is the at-rest key used by every test database.
+//
+// crypto has no default key by design — process/task variables cannot be
+// written until one is configured — so tests must install one explicitly, just
+// as the application does at startup.
+const testEncryptionPassphrase = "test-only-encryption-passphrase"
+
 func SetupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	if err := crypto.Configure(testEncryptionPassphrase); err != nil {
+		t.Fatalf("failed to configure test encryption key: %v", err)
+	}
+
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)

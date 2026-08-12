@@ -8,10 +8,10 @@ import (
 
 // NodeHandler defines the interface for handling BPMN node execution.
 type NodeHandler interface {
-	Execute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error
+	Execute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error
 }
 
 // InternalNodeHandler is an interface for specific node execution logic.
 type InternalNodeHandler interface {
-	DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error
+	DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error
 }

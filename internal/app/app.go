@@ -21,6 +21,7 @@ import (
 	pbservices "github.com/gsoultan/gobpm/api/proto/services"
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
+	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/logger"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
@@ -145,20 +146,26 @@ func (a *App) Run() error {
 
 	a.initDBOnce()
 
-	// 1. Initialize DB with GORM
+	// 1. Install the at-rest encryption key before any repository can read or
+	//    write an encrypted column.
+	if err := a.setupEncryption(); err != nil {
+		return err
+	}
+
+	// 2. Initialize DB with GORM
 	if err := a.setupDatabase(); err != nil {
 		return err
 	}
 
-	// 2. Initialize Domain
+	// 3. Initialize Domain
 	if err := a.setupService(ctx); err != nil {
 		return err
 	}
 
-	// 3. Setup Transports
+	// 4. Setup Transports
 	a.setupAuth(ctx)
 
-	// 4. Start Servers using errgroup
+	// 5. Start Servers using errgroup
 	return a.runServers(ctx)
 }
 
@@ -175,6 +182,44 @@ func (a *App) handleBuildUI() error {
 		return fmt.Errorf("error building UI: %w", err)
 	}
 	fmt.Println("UI build successful!")
+	return nil
+}
+
+// setupEncryption installs the AES key used for process/task variables at rest.
+//
+// Resolution mirrors resolveJWTSecret: ENCRYPTION_KEY wins, then config.yaml.
+// When the system is configured (config.yaml present) and neither supplies a
+// key, startup fails rather than falling back to a default — the package
+// previously shipped a hardcoded literal key, which meant unconfigured
+// deployments encrypted business data with a value published in the repository.
+//
+// Pre-setup (no config.yaml) is allowed to start without a key: no process data
+// exists yet, and the setup flow collects the key before anything is written.
+func (a *App) setupEncryption() error {
+	if k := os.Getenv("ENCRYPTION_KEY"); k != "" {
+		if err := crypto.Configure(k); err != nil {
+			return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
+		}
+		log.Info().Msg("At-rest encryption key loaded from ENCRYPTION_KEY")
+		return nil
+	}
+
+	if config.Exists(config.DefaultConfigPath) {
+		cfg, err := config.Load(config.DefaultConfigPath)
+		if err == nil && cfg.EncryptionKey != "" {
+			if err := crypto.Configure(cfg.EncryptionKey); err != nil {
+				return fmt.Errorf("invalid encryption_key in config: %w", err)
+			}
+			log.Info().Msg("At-rest encryption key loaded from config")
+			return nil
+		}
+		return errors.New(
+			"ENCRYPTION_KEY environment variable or config encryption_key is required when config.yaml is present; " +
+				"process and task variables are encrypted at rest and cannot be read or written without it",
+		)
+	}
+
+	log.Warn().Msg("No ENCRYPTION_KEY set and no config.yaml found; running in pre-setup mode (no encrypted data can be written yet)")
 	return nil
 }
 

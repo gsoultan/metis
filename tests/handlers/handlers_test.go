@@ -25,7 +25,7 @@ func TestInclusiveGateway(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := testutils.NewSynchronousJobService(engine, repo)
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -67,14 +67,14 @@ func TestInclusiveGateway(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "inclusive-process",
 		Name:    "Inclusive Gateway Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "inclusive", Type: entities.InclusiveGateway},
 			{ID: "taskA", Type: entities.UserTask, Name: "Task A"},
 			{ID: "taskB", Type: entities.UserTask, Name: "Task B"},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "inclusive"},
 			{ID: "fA", SourceRef: "inclusive", TargetRef: "taskA", Condition: "condA"},
 			{ID: "fB", SourceRef: "inclusive", TargetRef: "taskB", Condition: "condB"},
@@ -83,7 +83,7 @@ func TestInclusiveGateway(t *testing.T) {
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 
 	// Case 1: Both true
 	instanceID, _ := svc.StartProcess(ctx, proj.ID, "inclusive-process", map[string]any{"condA": true, "condB": true})
@@ -103,7 +103,7 @@ func TestInclusiveGateway(t *testing.T) {
 	// Case 2: Only A true
 	proj2, _ := svc.CreateProject(ctx, org.ID, "Inclusive Project 2", "")
 	def.Project = &entities.Project{ID: proj2.ID}
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 	instanceID2, _ := svc.StartProcess(ctx, proj2.ID, "inclusive-process", map[string]any{"condA": true, "condB": false})
 	tasks2, _ := svc.ListTasks(ctx, proj2.ID)
 
@@ -130,7 +130,7 @@ func TestTimerEvent(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := testutils.NewSynchronousJobService(engine, repo)
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -172,18 +172,18 @@ func TestTimerEvent(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "timer-process",
 		Name:    "Timer Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "timer", Type: entities.IntermediateCatchEvent, Condition: "100ms"},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "timer"},
 			{ID: "f2", SourceRef: "timer", TargetRef: "end"},
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 
 	start := time.Now()
 	instanceID, _ := svc.StartProcess(ctx, proj.ID, "timer-process", nil)
@@ -211,7 +211,7 @@ func TestServiceTask(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := testutils.NewSynchronousJobService(engine, repo)
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -253,18 +253,18 @@ func TestServiceTask(t *testing.T) {
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "service-process",
 		Name:    "Service Process",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "service", Type: entities.ServiceTask, Name: "My Service"},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{
+		Flows: []*entities.SequenceFlow{
 			{ID: "f1", SourceRef: "start", TargetRef: "service"},
 			{ID: "f2", SourceRef: "service", TargetRef: "end"},
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, def)
+	_, _ = svc.CreateDefinition(ctx, &def)
 
 	instanceID, _ := svc.StartProcess(ctx, proj.ID, "service-process", nil)
 
@@ -286,7 +286,7 @@ func TestAdvancedTasks(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := testutils.NewSynchronousJobService(engine, repo)
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -328,24 +328,24 @@ func TestAdvancedTasks(t *testing.T) {
 			Project: &entities.Project{ID: proj.ID},
 			Key:     "manual-process",
 			Name:    "Manual Process",
-			Nodes: []entities.FlowNode{
+			Nodes: []*entities.Node{
 				{ID: "start", Type: entities.StartEvent},
 				{ID: "manual", Type: entities.ManualTask, Properties: map[string]any{"name": "My Manual Action"}},
 				{ID: "end", Type: entities.EndEvent},
 			},
-			Flows: []entities.SequenceFlow{
+			Flows: []*entities.SequenceFlow{
 				{ID: "f1", SourceRef: "start", TargetRef: "manual"},
 				{ID: "f2", SourceRef: "manual", TargetRef: "end"},
 			},
 		}
-		_, _ = svc.CreateDefinition(ctx, def)
+		_, _ = svc.CreateDefinition(ctx, &def)
 
 		instanceID, _ := svc.StartProcess(ctx, proj.ID, "manual-process", nil)
 
 		tasks, _ := svc.ListTasks(ctx, proj.ID)
 		var manualTask *entities.Task
 		for _, tk := range tasks {
-			if tk.Instance != nil && tk.Instance.ID == instanceID && tk.NodeID == "manual" {
+			if tk.Instance != nil && tk.Instance.ID == instanceID && tk.NodeID() == "manual" {
 				manualTask = &tk
 				break
 			}
@@ -383,7 +383,7 @@ func TestAdvancedTasks(t *testing.T) {
 			Project: &entities.Project{ID: proj.ID},
 			Key:     "rule-process",
 			Name:    "Rule Process",
-			Nodes: []entities.FlowNode{
+			Nodes: []*entities.Node{
 				{ID: "start", Type: entities.StartEvent},
 				{
 					ID:   "rule",
@@ -396,12 +396,12 @@ func TestAdvancedTasks(t *testing.T) {
 				},
 				{ID: "end", Type: entities.EndEvent},
 			},
-			Flows: []entities.SequenceFlow{
+			Flows: []*entities.SequenceFlow{
 				{ID: "f1", SourceRef: "start", TargetRef: "rule"},
 				{ID: "f2", SourceRef: "rule", TargetRef: "end"},
 			},
 		}
-		_, _ = svc.CreateDefinition(ctx, def)
+		_, _ = svc.CreateDefinition(ctx, &def)
 
 		instanceID, _ := svc.StartProcess(ctx, proj.ID, "rule-process", map[string]any{"total": 150})
 		instance, _ := svc.GetInstance(ctx, instanceID)

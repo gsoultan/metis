@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -93,16 +94,8 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 			return fmt.Errorf("task %s is not unclaimed (current status: %s)", id, task.Status)
 		}
 
-		// Validation: check if user is a candidate
-		isCandidate := len(task.CandidateUsers) == 0
-		for _, u := range task.CandidateUsers {
-			if u.Username == userID {
-				isCandidate = true
-				break
-			}
-		}
-		if !isCandidate {
-			return fmt.Errorf("user %s is not a candidate for task %s", userID, id)
+		if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
+			return err
 		}
 
 		task.Status = entities.TaskClaimed
@@ -123,6 +116,71 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 		s.recordAuditEvent(txCtx, task, EventTaskClaimed, userID)
 		return nil
 	})
+}
+
+// ErrTaskForbidden is returned when a caller is not permitted to act on a task.
+var ErrTaskForbidden = errors.New("task: caller is not permitted to act on this task")
+
+// authorizeCandidate reports whether userID may claim or complete an
+// unassigned task.
+//
+// The rule is "absent constraint means deny", with one deliberate exception:
+//
+//   - No candidate users AND no candidate groups → the task is genuinely open
+//     (valid BPMN: an unassigned task with no restriction). Anyone may take it.
+//   - Otherwise the caller must appear in CandidateUsers, or belong to one of
+//     CandidateGroups.
+//
+// Two bugs are closed here. Previously the check seeded `isCandidate` with
+// `len(task.CandidateUsers) == 0`, so a task restricted purely by group — the
+// normal enterprise routing pattern — had an empty user list and was claimable
+// by anyone. And CandidateGroups was never consulted at all, so a group
+// restriction was presentational only.
+//
+// Group membership is resolved from the database rather than taken from the
+// request, so a caller cannot grant themselves a group by asserting it.
+func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task, userID string) error {
+	if len(task.CandidateUsers) == 0 && len(task.CandidateGroups) == 0 {
+		return nil
+	}
+
+	for _, u := range task.CandidateUsers {
+		if u != nil && u.Username == userID {
+			return nil
+		}
+	}
+
+	if len(task.CandidateGroups) == 0 {
+		return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
+	}
+
+	userModel, err := s.repo.User().GetByUsername(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("%w: cannot resolve caller %s: %w", ErrTaskForbidden, userID, err)
+	}
+	groups, err := s.repo.Group().ListUserGroups(ctx, userModel.ID)
+	if err != nil {
+		return fmt.Errorf("resolve group membership for %s: %w", userID, err)
+	}
+
+	memberOf := make(map[string]struct{}, len(groups))
+	for _, g := range groups {
+		memberOf[g.Name] = struct{}{}
+		memberOf[g.ID.String()] = struct{}{}
+	}
+	for _, cg := range task.CandidateGroups {
+		if cg == nil {
+			continue
+		}
+		if _, ok := memberOf[cg.Name]; ok {
+			return nil
+		}
+		if _, ok := memberOf[cg.ID.String()]; ok {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
 }
 
 func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
@@ -194,8 +252,20 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			return fmt.Errorf("task %s is already completed", id)
 		}
 
-		if task.Assignee != nil && task.Assignee.Username != userID {
-			return fmt.Errorf("task %s is assigned to %s, but user %s tried to complete it", id, task.Assignee.Username, userID)
+		// An assigned task may only be completed by its assignee. An unassigned
+		// task falls back to the same candidate check as claiming.
+		//
+		// The previous guard was `task.Assignee != nil && ...`, so a nil
+		// assignee skipped authorization entirely — and CreateTaskForNode
+		// leaves Assignee nil for every task routed by candidate user or group.
+		// Any authenticated user could therefore complete any unclaimed task in
+		// any project and inject arbitrary variables into the instance.
+		if task.Assignee != nil {
+			if task.Assignee.Username != userID {
+				return fmt.Errorf("%w: task %s is assigned to %s, not %s", ErrTaskForbidden, id, task.Assignee.Username, userID)
+			}
+		} else if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
+			return err
 		}
 
 		if err := s.repo.Task().UpdateStatus(txCtx, id, models.TaskStatus(entities.TaskCompleted)); err != nil {
@@ -226,15 +296,12 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 
 		s.recordAuditEvent(txCtx, task, EventTaskCompleted, userID)
 
-		// Better way to get def:
-		fullDef, _ := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
+		fullDef, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
+		if err != nil {
+			return fmt.Errorf("failed to load definition %s: %w", instance.Definition.ID, err)
+		}
 
-		return s.engine.Proceed(txCtx, &instance, fullDef, func() string {
-			if task.Node != nil {
-				return task.Node.ID
-			}
-			return ""
-		}())
+		return s.engine.Proceed(txCtx, &instance, fullDef, task.NodeID())
 	})
 }
 

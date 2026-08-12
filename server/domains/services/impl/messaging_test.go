@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,11 +34,11 @@ func (s *engineEventBusStub) SendMessage(ctx context.Context, projectID uuid.UUI
 	return s.sendMessage(ctx, projectID, messageName, correlationKey, vars)
 }
 
-func (s *engineEventBusStub) TriggerEscalation(_ context.Context, _ *entities.ProcessInstance, _ entities.ProcessDefinition, _ entities.Node, _ string) error {
+func (s *engineEventBusStub) TriggerEscalation(_ context.Context, _ *entities.ProcessInstance, _ *entities.ProcessDefinition, _ entities.Node, _ string) error {
 	return nil
 }
 
-func (s *engineEventBusStub) TriggerCompensation(_ context.Context, _ *entities.ProcessInstance, _ entities.ProcessDefinition, _ entities.Node, _ string) error {
+func (s *engineEventBusStub) TriggerCompensation(_ context.Context, _ *entities.ProcessInstance, _ *entities.ProcessDefinition, _ entities.Node, _ string) error {
 	return nil
 }
 
@@ -226,11 +227,14 @@ func TestMessagingServiceDispatchInboundMessageHonorsDispatchTimeout(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			sendAttempts := 0
+			// atomic: the stub is invoked on the partition-executor goroutine
+			// while the test body reads the counter after dispatchInboundMessage
+			// returns on timeout, so a plain int is a data race.
+			var sendAttempts atomic.Int64
 			svc := &messagingService{
 				engine: &engineEventBusStub{
 					sendMessage: func(ctx context.Context, _ uuid.UUID, _ string, _ string, _ map[string]any) error {
-						sendAttempts++
+						sendAttempts.Add(1)
 						<-ctx.Done()
 						return ctx.Err()
 					},
@@ -260,8 +264,8 @@ func TestMessagingServiceDispatchInboundMessageHonorsDispatchTimeout(t *testing.
 				t.Fatalf("expected deadline exceeded, got %v", err)
 			}
 
-			if sendAttempts != 1 {
-				t.Fatalf("expected 1 send attempt, got %d", sendAttempts)
+			if got := sendAttempts.Load(); got != 1 {
+				t.Fatalf("expected 1 send attempt, got %d", got)
 			}
 		})
 	}
@@ -415,7 +419,7 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 
-			sendAttempts := 0
+			var sendAttempts atomic.Int64
 			publishCalls := make([]struct {
 				queueName string
 				message   amqp.Publishing
@@ -424,12 +428,12 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 			svc := &messagingService{
 				engine: &engineEventBusStub{
 					sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
-						sendAttempts++
+						sendAttempts.Add(1)
 						if tc.sendMessage == nil {
 							return nil
 						}
 
-						return tc.sendMessage(sendAttempts)
+						return tc.sendMessage(int(sendAttempts.Load()))
 					},
 				},
 				sleep: func(context.Context, time.Duration) error {
@@ -470,8 +474,8 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 				t.Fatalf("expected error text to include %q, got %v", tc.expectedErrText, err)
 			}
 
-			if sendAttempts != tc.expectedAttempts {
-				t.Fatalf("expected %d send attempts, got %d", tc.expectedAttempts, sendAttempts)
+			if got := int(sendAttempts.Load()); got != tc.expectedAttempts {
+				t.Fatalf("expected %d send attempts, got %d", tc.expectedAttempts, got)
 			}
 
 			if len(publishCalls) != tc.expectedPublishCalls {

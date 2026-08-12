@@ -12,7 +12,7 @@ type CallActivityHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *CallActivityHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *CallActivityHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	calledElement := node.GetStringProperty("called_element")
 	if calledElement == "" {
 		return fmt.Errorf("call activity %s has no called_element property", node.ID)

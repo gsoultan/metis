@@ -1,6 +1,7 @@
 package crypto_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
@@ -92,6 +93,13 @@ func TestDecryptWithKey_InvalidInput(t *testing.T) {
 }
 
 func TestEncryptDecrypt_GlobalKey(t *testing.T) {
+	// crypto ships no default key: Encrypt/Decrypt fail closed until Configure
+	// is called. This is deliberate — a working default would mean production
+	// deployments encrypting with a key published in the repository.
+	if err := crypto.Configure("global-key-test-passphrase"); err != nil {
+		t.Fatalf("Configure failed: %v", err)
+	}
+
 	plaintext := "test with global key"
 
 	encrypted, err := crypto.Encrypt(plaintext)
@@ -126,5 +134,36 @@ func TestEncryptWithKey_ProducesDifferentCiphertexts(t *testing.T) {
 	// AES-GCM uses random nonces, so same plaintext should produce different ciphertexts
 	if encrypted1 == encrypted2 {
 		t.Fatal("two encryptions of the same plaintext should produce different ciphertexts")
+	}
+}
+
+func TestEncrypt_FailsClosedWithoutConfiguredKey(t *testing.T) {
+	crypto.ResetForTest()
+
+	if _, err := crypto.Encrypt("some data"); !errors.Is(err, crypto.ErrKeyNotConfigured) {
+		t.Fatalf("Encrypt without a configured key: got %v, want ErrKeyNotConfigured", err)
+	}
+	if _, err := crypto.Decrypt("gcm1:whatever"); !errors.Is(err, crypto.ErrKeyNotConfigured) {
+		t.Fatalf("Decrypt without a configured key: got %v, want ErrKeyNotConfigured", err)
+	}
+}
+
+func TestEncrypt_OutputIsTaggedAndRecognisable(t *testing.T) {
+	if err := crypto.Configure("tagging-test-passphrase"); err != nil {
+		t.Fatalf("Configure failed: %v", err)
+	}
+
+	enc, err := crypto.Encrypt("payload")
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+	if !crypto.IsCiphertext(enc) {
+		t.Fatalf("Encrypt output %q is not recognised as ciphertext", enc)
+	}
+	// Legacy rows written before the scheme prefix existed must be
+	// distinguishable so callers can apply an explicit migration policy rather
+	// than silently treating ciphertext as cleartext.
+	if crypto.IsCiphertext(`{"plain":"json"}`) {
+		t.Fatal("cleartext JSON was misidentified as ciphertext")
 	}
 }
