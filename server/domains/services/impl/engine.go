@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -284,11 +286,61 @@ func (e *Engine) GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]enti
 	return res, nil
 }
 
+// maxExecutionDepth bounds how many nodes a single synchronous execution may
+// traverse before the engine refuses to continue.
+//
+// ExecuteNode → handler → Proceed → followOutgoingFlows → ExecuteNode is
+// mutually recursive with no natural base case: a definition that loops back to
+// an earlier task — a retry loop, an entirely ordinary modelling pattern —
+// recurses once per iteration inside a single transaction, and enough
+// iterations overflow the stack and take down the whole server, since this runs
+// on the HTTP handler goroutine.
+//
+// Raising an incident at a bound is not a fix for the recursion; it converts an
+// unrecoverable crash into a diagnosable BPMN error naming the node that
+// looped. The real fix is an async continuation model, which is tracked in the
+// execution plan.
+const maxExecutionDepth = 200
+
+// envMaxExecutionDepth overrides maxExecutionDepth for deployments with
+// legitimately deep synchronous processes.
+const envMaxExecutionDepth = "GOBPM_MAX_EXECUTION_DEPTH"
+
+type executionDepthKey struct{}
+
+// executionDepthLimit returns the configured traversal bound.
+func executionDepthLimit() int {
+	if raw := os.Getenv(envMaxExecutionDepth); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return maxExecutionDepth
+}
+
+// enterNode increments the traversal depth for this execution, returning an
+// error once the bound is exceeded.
+func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
+	depth, _ := ctx.Value(executionDepthKey{}).(int)
+	depth++
+	if limit := executionDepthLimit(); depth > limit {
+		return nil, fmt.Errorf(
+			"BPMN_ERROR:execution exceeded %d nodes at %q; the definition most likely contains an "+
+				"unbounded loop. Break the cycle, or raise %s if the process is legitimately this deep",
+			limit, nodeID, envMaxExecutionDepth)
+	}
+	return context.WithValue(ctx, executionDepthKey{}, depth), nil
+}
+
 func (e *Engine) ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
 	return e.ExecuteNodeIteration(ctx, instance, def, nodeID, "")
 }
 
 func (e *Engine) ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error {
+	ctx, err := enterNode(ctx, nodeID)
+	if err != nil {
+		return err
+	}
 	return e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		cmd := NewExecuteNodeCommand(e, instance, def, nodeID, iterationID)
 		return cmd.Execute(txCtx)

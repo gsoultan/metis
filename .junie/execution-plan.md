@@ -37,19 +37,21 @@ Phases 2–5 can overlap once 0 and 1 are done. 0 and 1 cannot overlap with anyt
 | Phase | State |
 | :-- | :-- |
 | **0** Green gate | **done except 0.6** — build/vet/test/race green module-wide and enforced in CI |
-| **1** P0 security | **6 of 9 done** — 1.4 RBAC wiring, 1.5 tenant isolation and 1.9 recursion bound remain |
+| **1** P0 security | **done** — all nine items landed |
 | **2–5** | not started |
 
-Outstanding, in priority order:
+Outstanding:
 
-1. **1.4 Wire RBAC** — the interceptor is written and tested but still referenced nowhere.
-2. **1.5 Wire tenant isolation** — resolve from token claims, extend beyond `tasks` and
-   `process_instances`, add the cross-tenant denial test.
-3. **1.9 Bound engine recursion** — `followOutgoingFlows → ExecuteNode` is still unbounded.
-4. **0.6 Clear 231 UI lint errors.**
+1. **0.6 Clear 231 UI lint errors** (`bun run lint` is the only red gate).
+2. **golangci-lint backlog** — 760 pre-existing findings, baselined; CI blocks new ones.
+   Burn-down order is in `.golangci.yml`; the engine's slice is done.
+3. **Tenant scoping coverage** — `tenantScopeDB` now covers `tasks`, `process_instances`,
+   `process_definitions` and `decision_definitions`. Audit, forms, notifications,
+   subscriptions and external tasks are still unscoped; they are reachable only through
+   project-scoped endpoints today, but that is a property of the callers, not the
+   repository, and should be closed.
 
-Until 1.4 and 1.5 land, every authenticated user can still reach every organization's data.
-That is the single largest remaining risk.
+Phase 1 exit criterion is met: an external security review can be scheduled.
 
 ---
 

@@ -1,6 +1,8 @@
 package endpoints
 
 import (
+	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/services"
 	"github.com/gsoultan/gobpm/server/endpoints/collaboration"
 	"github.com/gsoultan/gobpm/server/endpoints/connector"
@@ -43,7 +45,26 @@ type Failer interface {
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	f := interceptors.NewInterceptorFactory(s)
+	// protected proves only that the caller is signed in. The three chains
+	// below additionally prove *who* they are.
+	//
+	// Everything not listed here stays on `protected` deliberately: task
+	// inbox actions, reading instances and starting a process are the daily
+	// work of an ordinary participant, and requiring a role for them would
+	// break the primary flow rather than secure it. The role gates sit on the
+	// endpoints where a compromised ordinary account would otherwise be able
+	// to escalate — managing identities and tenancy, authoring code the engine
+	// executes, and changing the fate of running work.
 	protected := f.ProtectedChain
+	adminOnly := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+		return f.ProtectedChainWithRoles(method, entities.RoleAdmin)
+	}
+	designer := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleDesigner)
+	}
+	operator := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleOperator)
+	}
 	public := f.PublicChain
 
 	collaborationEndpoints := collaboration.MakeEndpoints(s)
@@ -52,25 +73,25 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectorEndpoints := connector.MakeEndpoints(s)
 	connectorEndpoints.ListConnectors = protected("ListConnectors")(connectorEndpoints.ListConnectors)
 	connectorEndpoints.ListConnectorInstances = protected("ListConnectorInstances")(connectorEndpoints.ListConnectorInstances)
-	connectorEndpoints.CreateConnectorInstance = protected("CreateConnectorInstance")(connectorEndpoints.CreateConnectorInstance)
-	connectorEndpoints.UpdateConnectorInstance = protected("UpdateConnectorInstance")(connectorEndpoints.UpdateConnectorInstance)
-	connectorEndpoints.DeleteConnectorInstance = protected("DeleteConnectorInstance")(connectorEndpoints.DeleteConnectorInstance)
+	connectorEndpoints.CreateConnectorInstance = adminOnly("CreateConnectorInstance")(connectorEndpoints.CreateConnectorInstance)
+	connectorEndpoints.UpdateConnectorInstance = adminOnly("UpdateConnectorInstance")(connectorEndpoints.UpdateConnectorInstance)
+	connectorEndpoints.DeleteConnectorInstance = adminOnly("DeleteConnectorInstance")(connectorEndpoints.DeleteConnectorInstance)
 	connectorEndpoints.ExecuteConnector = protected("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
 
 	decisionEndpoints := decision.MakeEndpoints(s)
 	decisionEndpoints.ListDecisions = protected("ListDecisions")(decisionEndpoints.ListDecisions)
 	decisionEndpoints.GetDecision = protected("GetDecision")(decisionEndpoints.GetDecision)
-	decisionEndpoints.CreateDecision = protected("CreateDecision")(decisionEndpoints.CreateDecision)
-	decisionEndpoints.DeleteDecision = protected("DeleteDecision")(decisionEndpoints.DeleteDecision)
+	decisionEndpoints.CreateDecision = designer("CreateDecision")(decisionEndpoints.CreateDecision)
+	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
 
 	definitionEndpoints := definition.MakeEndpoints(s)
 	definitionEndpoints.ListDefinitions = protected("ListDefinitions")(definitionEndpoints.ListDefinitions)
-	definitionEndpoints.CreateDefinition = protected("CreateDefinition")(definitionEndpoints.CreateDefinition)
+	definitionEndpoints.CreateDefinition = designer("CreateDefinition")(definitionEndpoints.CreateDefinition)
 	definitionEndpoints.GetDefinition = protected("GetDefinition")(definitionEndpoints.GetDefinition)
-	definitionEndpoints.DeleteDefinition = protected("DeleteDefinition")(definitionEndpoints.DeleteDefinition)
+	definitionEndpoints.DeleteDefinition = designer("DeleteDefinition")(definitionEndpoints.DeleteDefinition)
 	definitionEndpoints.ExportDefinition = protected("ExportDefinition")(definitionEndpoints.ExportDefinition)
-	definitionEndpoints.ImportDefinition = protected("ImportDefinition")(definitionEndpoints.ImportDefinition)
+	definitionEndpoints.ImportDefinition = designer("ImportDefinition")(definitionEndpoints.ImportDefinition)
 
 	externalTaskEndpoints := external_task.MakeEndpoints(s)
 	externalTaskEndpoints.FetchAndLockExternal = protected("FetchAndLockExternal")(externalTaskEndpoints.FetchAndLockExternal)
@@ -79,14 +100,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 	incidentEndpoints := incident.MakeEndpoints(s)
 	incidentEndpoints.ListIncidents = protected("ListIncidents")(incidentEndpoints.ListIncidents)
-	incidentEndpoints.ResolveIncident = protected("ResolveIncident")(incidentEndpoints.ResolveIncident)
+	incidentEndpoints.ResolveIncident = operator("ResolveIncident")(incidentEndpoints.ResolveIncident)
 
 	organizationEndpoints := organization.MakeEndpoints(s)
 	organizationEndpoints.CreateOrganization = public("CreateOrganization")(organizationEndpoints.CreateOrganization)
 	organizationEndpoints.GetOrganization = protected("GetOrganization")(organizationEndpoints.GetOrganization)
 	organizationEndpoints.ListOrganizations = protected("ListOrganizations")(organizationEndpoints.ListOrganizations)
-	organizationEndpoints.UpdateOrganization = protected("UpdateOrganization")(organizationEndpoints.UpdateOrganization)
-	organizationEndpoints.DeleteOrganization = protected("DeleteOrganization")(organizationEndpoints.DeleteOrganization)
+	organizationEndpoints.UpdateOrganization = adminOnly("UpdateOrganization")(organizationEndpoints.UpdateOrganization)
+	organizationEndpoints.DeleteOrganization = adminOnly("DeleteOrganization")(organizationEndpoints.DeleteOrganization)
 
 	processEndpoints := process.MakeEndpoints(s)
 	processEndpoints.StartProcess = protected("StartProcess")(processEndpoints.StartProcess)
@@ -95,17 +116,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	processEndpoints.GetExecutionPath = protected("GetExecutionPath")(processEndpoints.GetExecutionPath)
 	processEndpoints.GetAuditLogs = protected("GetAuditLogs")(processEndpoints.GetAuditLogs)
 	processEndpoints.GetProcessStatistics = protected("GetProcessStatistics")(processEndpoints.GetProcessStatistics)
-	processEndpoints.BroadcastSignal = protected("BroadcastSignal")(processEndpoints.BroadcastSignal)
+	processEndpoints.BroadcastSignal = operator("BroadcastSignal")(processEndpoints.BroadcastSignal)
 	processEndpoints.SendMessage = protected("SendMessage")(processEndpoints.SendMessage)
-	processEndpoints.ExecuteScript = protected("ExecuteScript")(processEndpoints.ExecuteScript)
+	processEndpoints.ExecuteScript = designer("ExecuteScript")(processEndpoints.ExecuteScript)
 	processEndpoints.ListSubProcesses = protected("ListSubProcesses")(processEndpoints.ListSubProcesses)
 
 	projectEndpoints := project.MakeEndpoints(s)
-	projectEndpoints.CreateProject = protected("CreateProject")(projectEndpoints.CreateProject)
+	projectEndpoints.CreateProject = adminOnly("CreateProject")(projectEndpoints.CreateProject)
 	projectEndpoints.GetProject = protected("GetProject")(projectEndpoints.GetProject)
 	projectEndpoints.ListProjects = protected("ListProjects")(projectEndpoints.ListProjects)
-	projectEndpoints.UpdateProject = protected("UpdateProject")(projectEndpoints.UpdateProject)
-	projectEndpoints.DeleteProject = protected("DeleteProject")(projectEndpoints.DeleteProject)
+	projectEndpoints.UpdateProject = adminOnly("UpdateProject")(projectEndpoints.UpdateProject)
+	projectEndpoints.DeleteProject = adminOnly("DeleteProject")(projectEndpoints.DeleteProject)
 
 	setupEndpoints := setup.MakeEndpoints(s)
 	setupEndpoints.GetSetupStatusEndpoint = public("GetSetupStatus")(setupEndpoints.GetSetupStatusEndpoint)
@@ -127,20 +148,20 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	userEndpoints := user.MakeEndpoints(s)
 	userEndpoints.GetUser = protected("GetUser")(userEndpoints.GetUser)
 	userEndpoints.CreateUser = public("CreateUser")(userEndpoints.CreateUser)
-	userEndpoints.UpdateUser = protected("UpdateUser")(userEndpoints.UpdateUser)
-	userEndpoints.DeleteUser = protected("DeleteUser")(userEndpoints.DeleteUser)
+	userEndpoints.UpdateUser = adminOnly("UpdateUser")(userEndpoints.UpdateUser)
+	userEndpoints.DeleteUser = adminOnly("DeleteUser")(userEndpoints.DeleteUser)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 
 	groupEndpoints := group.MakeEndpoints(s)
 	groupEndpoints.ListGroups = protected("ListGroups")(groupEndpoints.ListGroups)
-	groupEndpoints.CreateGroup = protected("CreateGroup")(groupEndpoints.CreateGroup)
+	groupEndpoints.CreateGroup = adminOnly("CreateGroup")(groupEndpoints.CreateGroup)
 	groupEndpoints.GetGroup = protected("GetGroup")(groupEndpoints.GetGroup)
-	groupEndpoints.UpdateGroup = protected("UpdateGroup")(groupEndpoints.UpdateGroup)
-	groupEndpoints.DeleteGroup = protected("DeleteGroup")(groupEndpoints.DeleteGroup)
+	groupEndpoints.UpdateGroup = adminOnly("UpdateGroup")(groupEndpoints.UpdateGroup)
+	groupEndpoints.DeleteGroup = adminOnly("DeleteGroup")(groupEndpoints.DeleteGroup)
 	groupEndpoints.ListGroupMembers = protected("ListGroupMembers")(groupEndpoints.ListGroupMembers)
-	groupEndpoints.AddMembership = protected("AddMembership")(groupEndpoints.AddMembership)
-	groupEndpoints.RemoveMembership = protected("RemoveMembership")(groupEndpoints.RemoveMembership)
+	groupEndpoints.AddMembership = adminOnly("AddMembership")(groupEndpoints.AddMembership)
+	groupEndpoints.RemoveMembership = adminOnly("RemoveMembership")(groupEndpoints.RemoveMembership)
 	groupEndpoints.ListUserGroups = protected("ListUserGroups")(groupEndpoints.ListUserGroups)
 
 	notificationEndpoints := notification.MakeEndpoints(s)

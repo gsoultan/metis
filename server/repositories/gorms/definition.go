@@ -45,7 +45,8 @@ func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key s
 
 func (r *gormDefinitionRepository) List(ctx context.Context) ([]models.ProcessDefinitionModel, error) {
 	var modelsList []models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).Select("id", "project_id", "key", "name", "version", "created_at").Find(&modelsList).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions")
+	if err := db.Select("process_definitions.id", "process_definitions.project_id", "process_definitions.key", "process_definitions.name", "process_definitions.version", "process_definitions.created_at").Find(&modelsList).Error; err != nil {
 		return nil, fmt.Errorf("could not list definitions: %w", err)
 	}
 	return modelsList, nil

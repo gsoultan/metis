@@ -29,6 +29,7 @@ import (
 	"github.com/gsoultan/gobpm/server/endpoints"
 	"github.com/gsoultan/gobpm/server/interceptors"
 	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
+	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 	"github.com/gsoultan/gobpm/server/repositories"
 	gorms "github.com/gsoultan/gobpm/server/repositories/gorms"
 	models "github.com/gsoultan/gobpm/server/repositories/models"
@@ -311,7 +312,13 @@ func (a *App) runServers(ctx context.Context) error {
 		f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute).Wrap(
 			f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
 				f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
-					f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+					// Carries X-Organization-ID into the context. It only lets a
+					// caller *choose* among the organizations they belong to;
+					// the endpoint tenant resolver validates it against their
+					// actual memberships.
+					tenant.NewHTTPOrganizationSelector().Wrap(
+						f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+					),
 				),
 			),
 		),

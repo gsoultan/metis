@@ -45,7 +45,8 @@ func (r *gormDecisionRepository) GetByKeyAndVersion(ctx context.Context, key str
 
 func (r *gormDecisionRepository) List(ctx context.Context) ([]models.DecisionDefinitionModel, error) {
 	var modelsList []models.DecisionDefinitionModel
-	if err := GetTx(ctx, r.db).Find(&modelsList).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "decision_definitions")
+	if err := db.Find(&modelsList).Error; err != nil {
 		return nil, fmt.Errorf("could not list decisions: %w", err)
 	}
 	return modelsList, nil
