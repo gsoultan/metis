@@ -7,7 +7,12 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // src/gen is protoc-gen-es output. Linting generated code reports problems
+  // nobody can fix by editing it — protoc-gen-es v2 emits its own
+  // `eslint-disable` header, which then trips reportUnusedDisableDirectives
+  // sixty times over. The proto files are the thing to review; the output of
+  // regenerating them is not.
+  globalIgnores(['dist', 'src/gen']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
