@@ -14,6 +14,10 @@ type ProcessRepository interface {
 	Update(ctx context.Context, instance models.ProcessInstanceModel) error
 	List(ctx context.Context) ([]models.ProcessInstanceModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.ProcessInstanceModel, error)
+
+	// Paged variants for the instance list a user browses.
+	ListPaged(ctx context.Context, p Pagination) (Page[models.ProcessInstanceModel], error)
+	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.ProcessInstanceModel], error)
 	ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]models.ProcessInstanceModel, error)
 	ListByParent(ctx context.Context, parentInstanceID uuid.UUID) ([]models.ProcessInstanceModel, error)
 	CountByStatus(ctx context.Context, projectID uuid.UUID, status models.ProcessStatus) (int64, error)

@@ -156,3 +156,45 @@ func (r *gormTaskRepository) CountByStatus(ctx context.Context, projectID uuid.U
 	}
 	return count, nil
 }
+
+// countAndPage runs the same query twice: once for the total, once for the
+// requested window. Two round trips is the cost of being able to say
+// "1–50 of 1,234"; without the count a caller can only guess whether another
+// page exists.
+//
+// Each runs on its own cloned session. GORM's Count ignores LIMIT and OFFSET,
+// so the total is correct either way, but sharing one *gorm.DB across two
+// terminal calls lets conditions from the first leak into the second — the
+// clone keeps the two independent rather than relying on that.
+func countAndPage[T any](base *gorm.DB, p contracts.Pagination, order string) (contracts.Page[T], error) {
+	var total int64
+	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return contracts.Page[T]{}, fmt.Errorf("count: %w", err)
+	}
+
+	var rows []T
+	q := base.Session(&gorm.Session{})
+	if order != "" {
+		q = q.Order(order)
+	}
+	if err := p.Apply(q).Find(&rows).Error; err != nil {
+		return contracts.Page[T]{}, fmt.Errorf("page: %w", err)
+	}
+	return contracts.NewPage(rows, total, p), nil
+}
+
+// ListByAssigneePaged returns one page of the tasks assigned to a user.
+func (r *gormTaskRepository) ListByAssigneePaged(ctx context.Context, assignee string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "tasks").
+		Model(&models.TaskModel{}).
+		Where(QueryByAssignee, assignee)
+	return countAndPage[models.TaskModel](base, p, "created_at DESC")
+}
+
+// ListByProjectPaged returns one page of a project's tasks.
+func (r *gormTaskRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "tasks").
+		Model(&models.TaskModel{}).
+		Where(QueryByProjectID, projectID)
+	return countAndPage[models.TaskModel](base, p, "created_at DESC")
+}

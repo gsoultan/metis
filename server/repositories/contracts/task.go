@@ -22,6 +22,12 @@ type TaskRepository interface {
 	ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error)
 	ListByCandidates(ctx context.Context, userID string, groups []string) ([]models.TaskModel, error)
 	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.TaskModel, error)
+
+	// Paged variants for the lists a user browses. The unpaged ones above stay
+	// for internal callers — the engine and job worker genuinely need every
+	// row and are not driven by a request.
+	ListByAssigneePaged(ctx context.Context, assignee string, p Pagination) (Page[models.TaskModel], error)
+	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	Update(ctx context.Context, task models.TaskModel) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.TaskStatus) error
 	Create(ctx context.Context, task models.TaskModel) error
