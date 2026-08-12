@@ -94,12 +94,49 @@ const FEEL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
   ]
 };
 
+/**
+ * Hit policies, in terms of the question they answer.
+ *
+ * These were labelled with the DMN letter codes — "First (F)", "Unique (U)",
+ * "Collect (C)" — and described in terms of "rules" and "outputs". Someone
+ * building a pricing table does not think in rules and outputs; they think
+ * "what if two lines both apply?". That is the question a hit policy settles,
+ * so it is the question these now answer.
+ *
+ * The DMN name stays alongside, because it is what appears in any table
+ * exported to or imported from another engine.
+ */
 const HIT_POLICIES = [
-  { value: 'FIRST', label: 'First (F)', description: 'Returns result of the first matching rule.' },
-  { value: 'UNIQUE', label: 'Unique (U)', description: 'Only one rule is allowed to match.' },
-  { value: 'COLLECT', label: 'Collect (C)', description: 'Returns all matching results in a list.' },
-  { value: 'ANY', label: 'Any (A)', description: 'Multiple matching rules must have the same output.' },
-  { value: 'PRIORITY', label: 'Priority (P)', description: 'Returns the output with the highest priority.' },
+  {
+    value: 'FIRST',
+    label: 'Use the first line that matches',
+    description: 'Rows are checked top to bottom and the first match wins. Order the table from most specific to most general.',
+    dmn: 'FIRST (F)',
+  },
+  {
+    value: 'UNIQUE',
+    label: 'Only one line may match',
+    description: 'Reports an error if two lines match at once. Use it when overlapping rules would be a mistake worth catching.',
+    dmn: 'UNIQUE (U)',
+  },
+  {
+    value: 'COLLECT',
+    label: 'Collect every match',
+    description: 'Returns a list containing the result of every line that matched, rather than a single answer.',
+    dmn: 'COLLECT (C)',
+  },
+  {
+    value: 'ANY',
+    label: 'Any match — they must agree',
+    description: 'Several lines may match, but they must all give the same result. Reports an error if they disagree.',
+    dmn: 'ANY (A)',
+  },
+  {
+    value: 'PRIORITY',
+    label: 'Highest priority wins',
+    description: 'When several lines match, the one with the highest-priority result is used.',
+    dmn: 'PRIORITY (P)',
+  },
 ];
 
 function RuleCell({ 
@@ -115,7 +152,9 @@ function RuleCell({
   isOutput?: boolean,
   placeholder?: string
 }) {
-  const cellPlaceholder = placeholder || (isOutput ? "Result" : "Condition (e.g. > 10)");
+  // An empty condition cell means "this column does not matter for this line",
+// which is the single most confusing thing about reading a decision table.
+const cellPlaceholder = placeholder || (isOutput ? 'Result' : 'Any value');
 
   if (type === 'boolean') {
     return (
@@ -245,13 +284,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const addInput = () => {
     const newId = uuidv4();
     const newExpression = `input${inputs.length + 1}`;
-    setInputs([...inputs, { id: newId, label: `Input ${inputs.length + 1}`, expression: newExpression, type: 'string' }]);
+    setInputs([...inputs, { id: newId, label: `Condition ${inputs.length + 1}`, expression: newExpression, type: 'string' }]);
     setRules(rules.map(r => ({ ...r, input_entries: [...r.input_entries, '""'] })));
     setTestInputs({ ...testInputs, [newExpression]: "" });
   };
   
   const addOutput = () => {
-    setOutputs([...outputs, { id: uuidv4(), label: `Output ${outputs.length + 1}`, name: '', type: 'string' }]);
+    setOutputs([...outputs, { id: uuidv4(), label: `Result ${outputs.length + 1}`, name: '', type: 'string' }]);
     setRules(rules.map(r => ({ ...r, output_entries: [...r.output_entries, '""'] })));
   };
   const addRule = () => setRules([...rules, { 
@@ -398,7 +437,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 <TextInput label="Decision Key" placeholder="e.g. loan_approval" value={key} onChange={(e) => setKey(e.currentTarget.value)} required />
                 {expertMode && (
                   <Select 
-                    label="Hit Policy" 
+                    label="When several lines match" 
                     value={hitPolicy} 
                     onChange={(val) => setHitPolicy(val || 'FIRST')}
                     data={HIT_POLICIES}
@@ -438,14 +477,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 )}
               </Group>
 
-              <Divider label="Rules Grid" labelPosition="center" />
+              <Divider label="Rules — read left to right: if all the conditions hold, the result on the right applies" labelPosition="center" />
               
               <ScrollArea scrollbars="x" type="auto">
                 <Table withTableBorder withColumnBorders verticalSpacing="sm">
                   <Table.Thead bg="gray.0">
                     <Table.Tr>
                       <Table.Th w={40} ta="center">
-                        <MantineTooltip label={`Hit Policy: ${hitPolicy}`}>
+                        <MantineTooltip label={`When several lines match: ${HIT_POLICIES.find((p) => p.value === hitPolicy)?.label ?? hitPolicy}`}>
                           <Badge size="xs" variant="filled" color="dark">{hitPolicy.charAt(0)}</Badge>
                         </MantineTooltip>
                       </Table.Th>

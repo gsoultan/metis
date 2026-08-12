@@ -23,6 +23,8 @@ import {
   Trash2,
   ArrowRight
 } from 'lucide-react';
+import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { useAppStore } from '../store/useAppStore';
 
 const getStatusStyles = (status?: string, heatmapValue?: number) => {
   const styles: any = {};
@@ -77,6 +79,51 @@ const ContextPad = ({ selected }: { selected?: boolean }) => {
     </NodeToolbar>
   );
 };
+
+/**
+ * The caption under a node's name.
+ *
+ * Every node used to print its BPMN type in uppercase — "SERVICE TASK",
+ * "EXCLUSIVE GATEWAY". A diagram is read far more often than it is edited, and
+ * mostly by people who did not draw it: the manager approving the process, the
+ * operator working out where an instance is stuck. Naming the notation tells
+ * them nothing.
+ *
+ * Expert mode switches back to the specification terms.
+ */
+function useNodeCaption(nodeType: string): string {
+  const { expertMode } = useAppStore();
+  const vocab = vocabularyFor(nodeType);
+  if (!vocab) return nodeType;
+  return expertMode ? vocab.bpmnName : vocab.plainName;
+}
+
+/** Explains a node on hover: what it does, plus its other name. */
+function NodeHelp({ nodeType, children }: { nodeType: string; children: React.ReactElement }) {
+  const { expertMode } = useAppStore();
+  const vocab = vocabularyFor(nodeType);
+  if (!vocab) return children;
+  return (
+    <Tooltip
+      multiline
+      w={250}
+      openDelay={400}
+      position="top"
+      withArrow
+      label={
+        <Box>
+          <Text size="xs" fw={600}>{expertMode ? vocab.bpmnName : vocab.plainName}</Text>
+          <Text size="xs" mt={2}>{vocab.whatItDoes}</Text>
+          <Text size="xs" mt={4} opacity={0.75}>
+            {expertMode ? vocab.plainName : `BPMN: ${vocab.bpmnName}`}
+          </Text>
+        </Box>
+      }
+    >
+      {children}
+    </Tooltip>
+  );
+}
 
 export const StartNode = ({ data, selected }: NodeProps) => (
   <Stack align="center" gap={4} style={{ position: 'relative', ...getStatusStyles(data.status as string, data.heatmapValue as number) }}>
@@ -189,29 +236,29 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
   
   let Icon = Settings;
   let accentColor = 'teal';
-  let typeLabel = 'Service Task';
 
   if (isUserTask) {
     Icon = User;
     accentColor = 'blue';
-    typeLabel = 'User Task';
   } else if (isScriptTask) {
     Icon = FileCode;
     accentColor = 'violet';
-    typeLabel = 'Script Task';
   } else if (isManualTask) {
     Icon = Hand;
     accentColor = 'orange';
-    typeLabel = 'Manual Task';
   } else if (isBusinessRuleTask) {
     Icon = Briefcase;
     accentColor = 'indigo';
-    typeLabel = 'Business Rule';
   } else if (isCallActivity) {
     Icon = ExternalLink;
     accentColor = 'cyan';
-    typeLabel = 'Call Activity';
   }
+
+  // The caption said "SERVICE TASK", "CALL ACTIVITY" — the notation, shouted.
+  // Someone reading the diagram to understand the process needs to know what
+  // the step does, so it now reads "Calls another system" unless expert mode
+  // is on. Both names appear on hover, so the notation stays learnable.
+  const typeLabel = useNodeCaption(String(data.type ?? 'serviceTask'));
 
   return (
     <Paper 
@@ -233,8 +280,10 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
       <Stack gap={4}>
         <Group gap={6} align="center" justify="space-between">
           <Group gap={4}>
-            <Icon size={14} color={`var(--mantine-color-${accentColor}-6)`} />
-            <Text size="10px" fw={800} c="dimmed" tt="uppercase" lts={1}>
+            <NodeHelp nodeType={String(data.type ?? 'serviceTask')}>
+              <Icon size={14} color={`var(--mantine-color-${accentColor}-6)`} />
+            </NodeHelp>
+            <Text size="10px" c="dimmed">
               {typeLabel}
             </Text>
           </Group>
@@ -290,6 +339,7 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
 };
 
 export const GatewayNode = ({ data, selected }: NodeProps) => {
+  const gatewayCaption = useNodeCaption(String(data.type ?? 'exclusiveGateway'));
   const isExclusive = data.type === 'exclusiveGateway';
   const isParallel = data.type === 'parallelGateway';
   const isInclusive = data.type === 'inclusiveGateway';
@@ -358,17 +408,24 @@ export const GatewayNode = ({ data, selected }: NodeProps) => {
             transition: 'all 0.2s ease'
           }}
         />
-        <Box style={{ zIndex: 1, position: 'relative' }}>
-          {iconElement}
-        </Box>
+        <NodeHelp nodeType={String(data.type ?? 'exclusiveGateway')}>
+          <Box style={{ zIndex: 1, position: 'relative' }}>
+            {iconElement}
+          </Box>
+        </NodeHelp>
         <Handle type="target" position={Position.Left} style={{ left: -10, top: 25 }} />
         <Handle type="source" position={Position.Right} style={{ right: -10, top: 25 }} />
         <Handle type="target" position={Position.Top} style={{ top: -10, left: 25 }} />
         <Handle type="source" position={Position.Bottom} style={{ bottom: -10, left: 25 }} />
       </Box>
       <Stack gap={0} align="center" style={{ position: 'absolute', top: 52 }}>
-        <Text size="xs" fw={700} style={{ whiteSpace: 'nowrap' }}>
+        <Text size="xs" fw={600} style={{ whiteSpace: 'nowrap' }}>
           {data.label as string}
+        </Text>
+        {/* A diamond on a canvas is unreadable without saying what kind it is,
+            and "EXCLUSIVE GATEWAY" only helps someone who knows BPMN. */}
+        <Text size="10px" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+          {gatewayCaption}
         </Text>
         {!!data.defaultFlow && (
           <Badge size="xs" color="orange" variant="outline" p={2} style={{ fontSize: '8px', height: '14px' }}>

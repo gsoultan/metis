@@ -1,5 +1,12 @@
 import { isRedirect, redirect } from '@tanstack/react-router';
-import { processService } from '../services/api';
+// Imported directly rather than through the processService facade.
+//
+// The facade re-exports all fourteen domain services, seven of which pull in
+// the Connect/protobuf runtime. Because every route guard imports it, that
+// runtime landed in the initial payload — a signed-out user downloaded the
+// entire RPC stack in order to make one plain REST call asking whether the
+// system had been set up.
+import { setupService } from '../services/domains/setupService';
 
 /**
  * Shared route-guard helpers.
@@ -56,7 +63,7 @@ const RETRY_DELAY_MS = 400;
 export async function readSetupState(): Promise<SetupState> {
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     try {
-      const { status } = await processService.getSetupStatus();
+      const { status } = await setupService.getSetupStatus();
       return { initialized: Boolean(status?.is_initialized), unreachable: false };
     } catch (error) {
       // A redirect thrown by something further in must not be retried.

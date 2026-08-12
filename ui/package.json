@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsgo --build && vite build",
+    "build": "tsgo --build && vite build && node scripts/check-bundle-budget.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsgo --build --force",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "bundle-budget": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^1.10.0",

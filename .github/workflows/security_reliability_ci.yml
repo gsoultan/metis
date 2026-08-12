@@ -41,7 +41,10 @@ jobs:
         run: bun test
         working-directory: ui
 
-      - name: Build
+      # `bun run build` runs the bundle budget as its final step, so a change
+      # that pushes the first-paint payload past its ceiling fails here rather
+      # than being noticed months later.
+      - name: Build (includes bundle budget)
         run: bun run build
         working-directory: ui
 
