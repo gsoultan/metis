@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
+import { ComingSoonButton } from '../components/state/ComingSoon';
 
 export function Settings() {
   const { theme, toggleTheme, expertMode, setExpertMode } = useAppStore();
@@ -113,7 +114,7 @@ export function Settings() {
                   <Text fw={600} size="sm">Two-Factor Authentication</Text>
                   <Text size="xs" c="dimmed">Add an extra layer of security to your account</Text>
                 </Box>
-                <Button variant="light" color="blue" size="xs">Enable</Button>
+                <ComingSoonButton variant="light" color="blue" size="xs" label="Two-factor authentication is not implemented yet">Enable</ComingSoonButton>
               </Group>
               <Divider />
               <Group justify="space-between">
@@ -134,7 +135,7 @@ export function Settings() {
                   <Text fw={600} size="sm">Clear Cache</Text>
                   <Text size="xs" c="dimmed">Reset local storage and application data</Text>
                 </Box>
-                <Button variant="light" color="red" size="xs">Clear</Button>
+                <ComingSoonButton variant="light" color="red" size="xs" label="Clearing local application data is not implemented yet">Clear</ComingSoonButton>
               </Group>
               <Divider />
               <Group justify="space-between">
@@ -149,9 +150,17 @@ export function Settings() {
         </Stack>
       </SimpleGrid>
       
+      {/*
+        Neither of these buttons was ever wired up, so the entire page was
+        decorative: a user could change a setting, press Save, and get no
+        feedback of any kind. Settings that DO persist (theme, expert mode)
+        already save themselves through the store on change, which is why the
+        page needs no save button once the unwired ones are removed.
+      */}
       <Group justify="flex-end" mt="xl">
-        <Button variant="default">Reset to Defaults</Button>
-        <Button color="indigo">Save All Settings</Button>
+        <ComingSoonButton variant="default" label="Restoring defaults is not implemented yet">
+          Reset to Defaults
+        </ComingSoonButton>
       </Group>
     </Stack>
   );

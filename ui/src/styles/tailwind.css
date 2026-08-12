@@ -43,3 +43,34 @@
   --breakpoint-lg: 75em;
   --breakpoint-xl: 88em;
 }
+
+/*
+ * Cards opt in to interactivity with data-interactive, so hover elevation
+ * only appears on surfaces that actually respond to a click.
+ *
+ * prefers-reduced-motion is honoured: users who ask the OS to reduce motion
+ * get the shadow change without the movement.
+ */
+.app-card[data-interactive] {
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.app-card[data-interactive]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.app-card[data-interactive]:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-card[data-interactive] {
+    transition: box-shadow 150ms ease;
+  }
+  .app-card[data-interactive]:hover {
+    transform: none;
+  }
+}

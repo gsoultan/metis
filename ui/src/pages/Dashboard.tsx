@@ -15,13 +15,13 @@ import {
   Modal,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import type { LucideIcon } from 'lucide-react';
 import { 
   GitBranch, 
+  TrendingUp, 
   Activity, 
   CheckCircle, 
-  TrendingUp, 
   AlertCircle,
-  Clock,
   LayoutGrid,
 } from 'lucide-react';
 import { 
@@ -35,21 +35,36 @@ import { PageHeader } from '../components/PageHeader';
 import { BusinessTimeline } from '../components/BusinessTimeline';
 import { BPMNGraph } from '../components/BPMNGraph';
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import { ComingSoonButton } from '../components/state/ComingSoon';
 
-function StatCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  color, 
-  trend, 
-  progress 
-}: { 
-  title: string, 
-  value: any, 
-  icon: any, 
-  color: string, 
-  trend?: string,
-  progress?: number 
+/**
+ * A single headline number.
+ *
+ * There is deliberately no `trend` prop. It used to accept a string, and every
+ * call site passed a hardcoded one ("+12%", "+5%", "+2%") rendered beside a
+ * green upward arrow and the words "vs last month" — while no endpoint in the
+ * product computes a trend of any kind. Removing the prop means the fabrication
+ * cannot come back without someone first building the data.
+ *
+ * `progress` is only for values that genuinely are a percentage of a whole.
+ */
+function StatCard({
+  title,
+  value,
+  icon: Icon,
+  color,
+  progress,
+  progressLabel,
+  hint,
+}: {
+  title: string;
+  value: React.ReactNode;
+  icon: LucideIcon;
+  color: string;
+  progress?: number;
+  progressLabel?: string;
+  hint?: string;
 }) {
   return (
     <Card shadow="md" radius="lg">
@@ -70,21 +85,21 @@ function StatCard({
       {progress !== undefined && (
         <Stack gap={4} mt="md">
           <Group justify="space-between" align="flex-end">
-            <Text size="xs" c="dimmed" fw={600}>Target completion</Text>
+            <Text size="xs" c="dimmed" fw={600}>{progressLabel ?? 'Complete'}</Text>
             <Text size="xs" fw={700} c={color}>{progress}%</Text>
           </Group>
-          <Progress value={progress} color={color} size="sm" radius="xl" />
+          <Progress
+            value={progress}
+            color={color}
+            size="sm"
+            radius="xl"
+            aria-label={`${progressLabel ?? 'Complete'}: ${progress}%`}
+          />
         </Stack>
       )}
 
-      {trend && (
-        <Group gap="xs" mt="md">
-          <ThemeIcon size="xs" radius="xl" variant="transparent" color="green">
-            <TrendingUp size={rem(14)} />
-          </ThemeIcon>
-          <Text size="xs" c="green" fw={700}>{trend}</Text>
-          <Text size="xs" c="dimmed">vs last month</Text>
-        </Group>
+      {hint && (
+        <Text size="xs" c="dimmed" mt="md">{hint}</Text>
       )}
     </Card>
   );
@@ -160,50 +175,52 @@ export function Dashboard() {
         title="Dashboard" 
         description="Overview of your business processes and tasks."
         actions={
-          <Button variant="light" leftSection={<Activity size={16} />}>
+          <ComingSoonButton variant="light" leftSection={<Activity size={16} />} label="Report export is not implemented yet">
             Generate Report
-          </Button>
+          </ComingSoonButton>
         }
       />
 
       <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Active Instances" 
-            value={stats.active_instances} 
-            icon={Activity} 
-            color="indigo" 
-            trend="+12%"
-            progress={75}
+          <StatCard
+            title="Active Instances"
+            value={stats.active_instances}
+            icon={Activity}
+            color="indigo"
+            hint="Processes currently running"
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Process Models" 
-            value={totalDefinitions} 
-            icon={GitBranch} 
-            color="teal" 
-            progress={100}
+          <StatCard
+            title="Process Models"
+            value={totalDefinitions}
+            icon={GitBranch}
+            color="teal"
+            hint="Deployed definitions in this project"
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Task Completion" 
-            value={`${completionRate}%`} 
-            icon={CheckCircle} 
-            color="orange" 
-            trend="+5%"
+          <StatCard
+            title="Tasks Completed"
+            value={`${completionRate}%`}
+            icon={CheckCircle}
+            color="orange"
             progress={completionRate}
+            progressLabel={`${stats.total_tasks - stats.pending_tasks} of ${stats.total_tasks}`}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="SLA Compliance" 
-            value="94%" 
-            icon={Clock} 
-            color="green" 
-            trend="+2%"
-            progress={94}
+          <StatCard
+            title="Needs Attention"
+            value={stats.failed_instances}
+            icon={AlertCircle}
+            color={stats.failed_instances > 0 ? 'red' : 'green'}
+            hint={
+              stats.failed_instances > 0
+                ? 'Failed instances waiting on someone'
+                : 'Nothing has failed'
+            }
           />
         </Grid.Col>
       </Grid>
@@ -216,7 +233,7 @@ export function Dashboard() {
                 <Title order={4}>Business Timeline</Title>
                 <Badge variant="light" color="indigo" radius="sm">Recent Activity</Badge>
               </Group>
-              <Button variant="subtle" size="xs">View All Logs</Button>
+              <Button component={Link} to="/instances" variant="subtle" size="xs">View all instances</Button>
             </Group>
             
             {lastInstanceId ? (
@@ -335,12 +352,7 @@ export function Dashboard() {
                 withBorder 
                 padding="md" 
                 radius="md" 
-                style={{ 
-                  cursor: 'pointer', 
-                  height: '100%', 
-                  transition: 'transform 0.2s',
-                  '&:hover': { transform: 'translateY(-5px)' }
-                }}
+                style={{ height: '100%' }}
               >
                  <Stack align="center" ta="center" gap="sm">
                    <ThemeIcon variant="light" color={t.color} size={50} radius="xl">
@@ -350,9 +362,12 @@ export function Dashboard() {
                       <Text size="md" fw={700}>{t.title}</Text>
                       <Text size="xs" c="dimmed" mt={4}>{t.desc}</Text>
                    </Box>
-                   <Button variant="light" color={t.color} size="xs" fullWidth mt="xs">
+                   {/* Templates are not implemented; the card was a preview
+                       with a button that did nothing when pressed. */}
+                   <ComingSoonButton variant="light" color={t.color} size="xs" fullWidth mt="xs"
+                                     label="Process templates are not available yet">
                       Use Template
-                   </Button>
+                   </ComingSoonButton>
                  </Stack>
               </Card>
             </Grid.Col>

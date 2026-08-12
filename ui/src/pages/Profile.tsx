@@ -14,7 +14,7 @@ import {
   ThemeIcon,
   Box
 } from '@mantine/core';
-import { Mail, Building2, Calendar, MapPin } from 'lucide-react';
+import { Mail, Building2,} from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { z } from 'zod';
@@ -109,7 +109,6 @@ export function Profile() {
             
             <Group justify="center" gap="xs" mt="md">
               <Badge variant="dot" color="green">Active</Badge>
-              <Badge variant="outline" color="blue">Professional</Badge>
             </Group>
 
             <Divider my="lg" />
@@ -119,20 +118,13 @@ export function Profile() {
                 <ThemeIcon variant="light" color="gray" size="sm">
                   <Mail size={14} />
                 </ThemeIcon>
-                <Text size="xs" truncate>{user.username || 'no-email@example.com'}</Text>
+                <Text size="xs" truncate>{user.username || 'No email on file'}</Text>
               </Group>
-              <Group gap="sm" wrap="nowrap">
-                <ThemeIcon variant="light" color="gray" size="sm">
-                  <Calendar size={14} />
-                </ThemeIcon>
-                <Text size="xs">Joined March 2024</Text>
-              </Group>
-              <Group gap="sm" wrap="nowrap">
-                <ThemeIcon variant="light" color="gray" size="sm">
-                  <MapPin size={14} />
-                </ThemeIcon>
-                <Text size="xs">Berlin, Germany</Text>
-              </Group>
+              {/*
+                A join date and a location were hardcoded here ("Joined March
+                2024", "Berlin, Germany"). Neither is stored on the user, so
+                every account displayed the same fictional biography.
+              */}
             </Stack>
           </Paper>
 
@@ -146,7 +138,6 @@ export function Profile() {
                       <Building2 size={16} color="var(--mantine-color-blue-6)" />
                       <Text size="sm" fw={600}>{org.name}</Text>
                     </Group>
-                    <Badge size="xs" variant="light">Owner</Badge>
                   </Group>
                 </Paper>
               ))}

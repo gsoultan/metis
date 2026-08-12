@@ -16,6 +16,7 @@ import { Bell, CheckCheck, Trash2, Info, AlertTriangle, ClipboardList } from 'lu
 import { useNotifications } from '../hooks/useNotification';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { ComingSoonButton } from './state/ComingSoon';
 
 dayjs.extend(relativeTime);
 
@@ -114,9 +115,9 @@ export function NotificationCenter() {
           <Divider />
           
           <Box p="xs">
-            <Button variant="subtle" fullWidth size="xs" color="gray">
+            <ComingSoonButton variant="subtle" fullWidth size="xs" color="gray" label="A full notification history view is not built yet">
               View all notification history
-            </Button>
+            </ComingSoonButton>
           </Box>
         </Stack>
       </Popover.Dropdown>

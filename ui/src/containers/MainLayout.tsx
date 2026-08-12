@@ -1,11 +1,11 @@
-import { AppShell, Burger, Box, Select, Group, Text, Paper, Badge, ThemeIcon, Stack, Button, Menu, Avatar, UnstyledButton, Switch, Drawer, Timeline, Title, ActionIcon, Divider } from '@mantine/core';
+import { AppShell, Burger, Box, Select, Group, Text, Paper, ThemeIcon, Stack, Button, Menu, Avatar, UnstyledButton, Switch, Drawer, Timeline, Title, ActionIcon, Divider } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Sidebar } from '../components/Sidebar';
 import React from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useProjects } from '../hooks/useProcess';
 import { useOrganizations } from '../hooks/useOrganization';
-import { FolderGit2, AlertCircle, LogOut, User, Settings, ShieldCheck, ShieldOff, HelpCircle, BookOpen, Lightbulb } from 'lucide-react';
+import { FolderGit2, AlertCircle, LogOut, User, Settings, ShieldCheck, ShieldOff, HelpCircle, BookOpen, Lightbulb, ExternalLink } from 'lucide-react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { NotificationCenter } from '../components/NotificationCenter';
 
@@ -93,7 +93,15 @@ export function MainLayout({ children }: MainLayoutProps) {
                   radius="md"
                 />
               ) : (
-                <Badge color="red" variant="light" leftSection={<AlertCircle size={14} />}>No Projects Found</Badge>
+                <Button
+                  component={Link}
+                  to="/projects"
+                  variant="light"
+                  size="xs"
+                  leftSection={<FolderGit2 size={14} />}
+                >
+                  Create your first project
+                </Button>
               )}
               
               {currentProject && (
@@ -199,7 +207,10 @@ export function MainLayout({ children }: MainLayoutProps) {
               <ThemeIcon variant="light" color="blue"><Lightbulb size={16} /></ThemeIcon>
               <Box>
                 <Text fw={700} size="sm">Quick Tip</Text>
-                <Text size="xs">Use <b>Cmd + K</b> (or Ctrl + K) anywhere to search for nodes, tasks, and documentation.</Text>
+                {/* This claimed Cmd+K worked "anywhere". It is wired only in
+                    the process designer, so the tip was wrong everywhere else
+                    the drawer can be opened. */}
+                <Text size="xs">In the process designer, press <b>Cmd + K</b> (or Ctrl + K) to search nodes and actions.</Text>
               </Box>
             </Group>
           </Paper>
@@ -224,17 +235,39 @@ export function MainLayout({ children }: MainLayoutProps) {
 
           <Divider label="Documentation" labelPosition="center" />
           
+          {/*
+            These four buttons navigated nowhere, and the support hours
+            ("Mon-Fri, 9am-5pm") described a team that does not exist. Help is
+            the last place a product can afford to be wrong: someone opens it
+            because they are already stuck, so failing them here turns
+            confusion into distrust. Real links, or nothing.
+          */}
           <Stack gap="xs">
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">BPMN 2.0 Reference</Button>
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">JavaScript Scripting</Button>
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">API Guide</Button>
+            <Button
+              variant="light"
+              component="a"
+              href="https://www.omg.org/spec/BPMN/2.0/"
+              target="_blank"
+              rel="noreferrer noopener"
+              leftSection={<BookOpen size={16} />}
+              rightSection={<ExternalLink size={14} />}
+              justify="flex-start"
+            >
+              BPMN 2.0 specification
+            </Button>
+            <Button
+              variant="light"
+              component="a"
+              href="https://github.com/gsoultan/gobpm"
+              target="_blank"
+              rel="noreferrer noopener"
+              leftSection={<BookOpen size={16} />}
+              rightSection={<ExternalLink size={14} />}
+              justify="flex-start"
+            >
+              Project repository
+            </Button>
           </Stack>
-
-          <Paper withBorder p="md" radius="md">
-            <Text fw={700} size="sm" mb="xs">Need more help?</Text>
-            <Text size="xs" c="dimmed" mb="md">Our support team is available Mon-Fri, 9am-5pm.</Text>
-            <Button fullWidth variant="outline" size="xs">Contact Support</Button>
-          </Paper>
         </Stack>
       </Drawer>
     </AppShell>
