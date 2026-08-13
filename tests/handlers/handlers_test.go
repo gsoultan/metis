@@ -1,6 +1,9 @@
 package handlers_test
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -8,6 +11,7 @@ import (
 	handlersimpl "github.com/gsoultan/gobpm/server/domains/handlers/impl"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
+	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	service_impl2 "github.com/gsoultan/gobpm/server/domains/services/impl"
 	"github.com/gsoultan/gobpm/server/repositories"
 	"github.com/gsoultan/gobpm/tests/testutils"
@@ -15,49 +19,7 @@ import (
 
 func TestInclusiveGateway(t *testing.T) {
 	ctx := t.Context()
-	db := testutils.SetupTestDB(t)
-
-	repo := repositories.NewRepository(db)
-	dispatcher := impl.NewEventDispatcher()
-
-	orgSvc := service_impl2.NewOrganizationService(repo)
-	projectSvc := service_impl2.NewProjectService(repo)
-	defSvc := service_impl2.NewDefinitionService(repo)
-	connectorSvc := service_impl2.NewConnectorService(repo)
-	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
-	jobSvc := testutils.NewSynchronousJobService(engine, repo)
-	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
-	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
-	sse := impl.NewSSEObserver()
-	collaborationSvc := service_impl2.NewCollaborationService(sse)
-
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
-	engine.Apply(
-		service_impl2.WithHandlerFactory(handlerFactory),
-		service_impl2.WithJobService(jobSvc),
-	)
-
-	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
-	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
-	svc := services.NewService(services.ServiceParams{
-		OrganizationService:  orgSvc,
-		ProjectService:       projectSvc,
-		DefinitionService:    defSvc,
-		TaskService:          taskSvc,
-		ExecutionEngine:      engine,
-		JobService:           jobSvc,
-		ExternalTaskService:  externalTaskSvc,
-		DecisionService:      decisionSvc,
-		MigrationService:     migrationSvc,
-		ConnectorService:     connectorSvc,
-		CollaborationService: collaborationSvc,
-		MessagingService:     messagingSvc,
-		UserService:          userSvc,
-		SetupService:         setupSvc,
-	})
+	svc, _ := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
 	proj, _ := svc.CreateProject(ctx, org.ID, "Inclusive Project", "")
@@ -120,49 +82,7 @@ func TestInclusiveGateway(t *testing.T) {
 
 func TestTimerEvent(t *testing.T) {
 	ctx := t.Context()
-	db := testutils.SetupTestDB(t)
-
-	repo := repositories.NewRepository(db)
-	dispatcher := impl.NewEventDispatcher()
-
-	orgSvc := service_impl2.NewOrganizationService(repo)
-	projectSvc := service_impl2.NewProjectService(repo)
-	defSvc := service_impl2.NewDefinitionService(repo)
-	connectorSvc := service_impl2.NewConnectorService(repo)
-	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
-	jobSvc := testutils.NewSynchronousJobService(engine, repo)
-	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
-	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
-	sse := impl.NewSSEObserver()
-	collaborationSvc := service_impl2.NewCollaborationService(sse)
-
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
-	engine.Apply(
-		service_impl2.WithHandlerFactory(handlerFactory),
-		service_impl2.WithJobService(jobSvc),
-	)
-
-	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
-	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
-	svc := services.NewService(services.ServiceParams{
-		OrganizationService:  orgSvc,
-		ProjectService:       projectSvc,
-		DefinitionService:    defSvc,
-		TaskService:          taskSvc,
-		ExecutionEngine:      engine,
-		JobService:           jobSvc,
-		ExternalTaskService:  externalTaskSvc,
-		DecisionService:      decisionSvc,
-		MigrationService:     migrationSvc,
-		ConnectorService:     connectorSvc,
-		CollaborationService: collaborationSvc,
-		MessagingService:     messagingSvc,
-		UserService:          userSvc,
-		SetupService:         setupSvc,
-	})
+	svc, jobSvc := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
 	proj, _ := svc.CreateProject(ctx, org.ID, "Timer Project", "")
@@ -183,79 +103,88 @@ func TestTimerEvent(t *testing.T) {
 		},
 	}
 
-	_, _ = svc.CreateDefinition(ctx, &def)
-
-	start := time.Now()
-	instanceID, _ := svc.StartProcess(ctx, proj.ID, "timer-process", nil)
-	elapsed := time.Since(start)
-
-	if elapsed < 100*time.Millisecond {
-		t.Errorf("expected timer to wait at least 100ms, took %v", elapsed)
+	if _, err := svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
 	}
 
-	instance, _ := svc.GetInstance(ctx, instanceID)
+	// A timer defers; it does not block whoever started the process. This used
+	// to assert the opposite — that StartProcess took at least the timer's
+	// duration — because the job service was replaced by a double that slept in
+	// the caller. A three-day timer would have held an HTTP request open for
+	// three days.
+	start := time.Now()
+	instanceID, err := svc.StartProcess(ctx, proj.ID, "timer-process", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("starting the process waited %v for a 100ms timer; it should return at once", elapsed)
+	}
+
+	instance, err := svc.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("get instance: %v", err)
+	}
+	if instance.Status == "completed" {
+		t.Fatal("the process finished before the timer was due")
+	}
+
+	// Once it is due, the worker picks it up and the process carries on.
+	time.Sleep(150 * time.Millisecond)
+	if err := jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	instance, err = svc.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
 	if instance.Status != "completed" {
-		t.Errorf("expected instance to be completed, got %s", instance.Status)
+		t.Errorf("after the timer fired the instance is %q, want completed", instance.Status)
 	}
 }
 
+// A service task calls something, and the process carries on with what came
+// back.
+//
+// This used to assert that the instance gained a "service_completed" variable —
+// which no part of the engine writes. It came from the test double, which
+// marked a node done by inventing that variable, so a test named for service
+// tasks proved only that the double had run.
 func TestServiceTask(t *testing.T) {
+	// The task URL comes from a definition, which is user-authored, so the HTTP
+	// client refuses loopback unless told otherwise. The stub below is on
+	// 127.0.0.1, so this test opts in for itself.
+	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+
+	var called bool
+	var received map[string]any
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"reference": "REF-4417"})
+	}))
+	defer api.Close()
+
 	ctx := t.Context()
-	db := testutils.SetupTestDB(t)
-
-	repo := repositories.NewRepository(db)
-	dispatcher := impl.NewEventDispatcher()
-
-	orgSvc := service_impl2.NewOrganizationService(repo)
-	projectSvc := service_impl2.NewProjectService(repo)
-	defSvc := service_impl2.NewDefinitionService(repo)
-	connectorSvc := service_impl2.NewConnectorService(repo)
-	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
-	jobSvc := testutils.NewSynchronousJobService(engine, repo)
-	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
-	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
-	sse := impl.NewSSEObserver()
-	collaborationSvc := service_impl2.NewCollaborationService(sse)
-
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
-	engine.Apply(
-		service_impl2.WithHandlerFactory(handlerFactory),
-		service_impl2.WithJobService(jobSvc),
-	)
-
-	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
-	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
-	svc := services.NewService(services.ServiceParams{
-		OrganizationService:  orgSvc,
-		ProjectService:       projectSvc,
-		DefinitionService:    defSvc,
-		TaskService:          taskSvc,
-		ExecutionEngine:      engine,
-		JobService:           jobSvc,
-		ExternalTaskService:  externalTaskSvc,
-		DecisionService:      decisionSvc,
-		MigrationService:     migrationSvc,
-		ConnectorService:     connectorSvc,
-		CollaborationService: collaborationSvc,
-		MessagingService:     messagingSvc,
-		UserService:          userSvc,
-		SetupService:         setupSvc,
-	})
+	svc, jobSvc := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
 	proj, _ := svc.CreateProject(ctx, org.ID, "Service Project", "")
 
-	// Start -> ServiceTask -> End
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: proj.ID},
 		Key:     "service-process",
 		Name:    "Service Process",
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
-			{ID: "service", Type: entities.ServiceTask, Name: "My Service"},
+			{ID: "service", Type: entities.ServiceTask, Name: "My Service", Properties: map[string]any{
+				"http_url":         api.URL,
+				"http_method":      "POST",
+				"input_orderId":    "order_id",
+				"output_reference": "bookingReference",
+			}},
 			{ID: "end", Type: entities.EndEvent},
 		},
 		Flows: []*entities.SequenceFlow{
@@ -263,62 +192,45 @@ func TestServiceTask(t *testing.T) {
 			{ID: "f2", SourceRef: "service", TargetRef: "end"},
 		},
 	}
+	if _, err := svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
 
-	_, _ = svc.CreateDefinition(ctx, &def)
+	instanceID, err := svc.StartProcess(ctx, proj.ID, "service-process", map[string]any{"orderId": "A-1"})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
 
-	instanceID, _ := svc.StartProcess(ctx, proj.ID, "service-process", nil)
+	// The work is queued, so nothing has been called yet.
+	if called {
+		t.Error("the endpoint was called before the job ran")
+	}
+	if err := jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
 
-	instance, _ := svc.GetInstance(ctx, instanceID)
-	if instance.Variables["service_completed"] != true {
-		t.Errorf("expected service_completed variable to be true, got %v", instance.Variables["service_completed"])
+	if !called {
+		t.Fatal("the service task did not call anything")
+	}
+	if received["order_id"] != "A-1" {
+		t.Errorf("the endpoint received order_id=%v, want \"A-1\" — the input mapping did not rename it", received["order_id"])
+	}
+
+	instance, err := svc.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("get instance: %v", err)
+	}
+	if instance.Variables["bookingReference"] != "REF-4417" {
+		t.Errorf("bookingReference = %v, want REF-4417 — the response did not come back", instance.Variables["bookingReference"])
+	}
+	if instance.Status != "completed" {
+		t.Errorf("instance is %q, want completed once the call returned", instance.Status)
 	}
 }
 
 func TestAdvancedTasks(t *testing.T) {
 	ctx := t.Context()
-	db := testutils.SetupTestDB(t)
-
-	repo := repositories.NewRepository(db)
-	dispatcher := impl.NewEventDispatcher()
-
-	orgSvc := service_impl2.NewOrganizationService(repo)
-	projectSvc := service_impl2.NewProjectService(repo)
-	defSvc := service_impl2.NewDefinitionService(repo)
-	connectorSvc := service_impl2.NewConnectorService(repo)
-	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
-	jobSvc := testutils.NewSynchronousJobService(engine, repo)
-	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
-	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
-	sse := impl.NewSSEObserver()
-	collaborationSvc := service_impl2.NewCollaborationService(sse)
-
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
-	engine.Apply(
-		service_impl2.WithHandlerFactory(handlerFactory),
-		service_impl2.WithJobService(jobSvc),
-	)
-
-	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
-	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
-	svc := services.NewService(services.ServiceParams{
-		OrganizationService:  orgSvc,
-		ProjectService:       projectSvc,
-		DefinitionService:    defSvc,
-		TaskService:          taskSvc,
-		ExecutionEngine:      engine,
-		JobService:           jobSvc,
-		ExternalTaskService:  externalTaskSvc,
-		DecisionService:      decisionSvc,
-		MigrationService:     migrationSvc,
-		ConnectorService:     connectorSvc,
-		CollaborationService: collaborationSvc,
-		MessagingService:     messagingSvc,
-		UserService:          userSvc,
-		SetupService:         setupSvc,
-	})
+	svc, _ := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
 	proj, _ := svc.CreateProject(ctx, org.ID, "Advanced Project", "")
@@ -410,4 +322,53 @@ func TestAdvancedTasks(t *testing.T) {
 			t.Errorf("Expected final_discount 0.1, got %v", instance.Variables["final_discount"])
 		}
 	})
+}
+
+// newHandlerHarness wires the service facade the way the server does, with the
+// real job service.
+//
+// These tests used testutils.SynchronousJobService, which runs a service task
+// by writing "<node>_completed" into the variables and moving on, and runs a
+// timer by sleeping in the caller. Neither is what the engine does, so the
+// tests asserted the double's behaviour rather than the product's — and that is
+// how three connector bugs shipped with this suite green.
+func newHandlerHarness(t *testing.T) (services.ServiceFacade, servicecontracts.JobService) {
+	t.Helper()
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	dispatcher := impl.NewEventDispatcher()
+
+	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
+	connectorSvc := service_impl2.NewConnectorService(repo)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
+	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
+	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
+	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc,
+		service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
+	sse := impl.NewSSEObserver()
+
+	engine.Apply(
+		service_impl2.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc,
+			service_impl2.NewFEELEvaluator(), repo.Subscription(),
+		)),
+		service_impl2.WithJobService(jobSvc),
+	)
+
+	svc := services.NewService(services.ServiceParams{
+		OrganizationService:  service_impl2.NewOrganizationService(repo),
+		ProjectService:       service_impl2.NewProjectService(repo),
+		DefinitionService:    service_impl2.NewDefinitionService(repo),
+		TaskService:          taskSvc,
+		ExecutionEngine:      engine,
+		JobService:           jobSvc,
+		ExternalTaskService:  externalTaskSvc,
+		DecisionService:      decisionSvc,
+		MigrationService:     service_impl2.NewMigrationService(repo),
+		ConnectorService:     connectorSvc,
+		CollaborationService: service_impl2.NewCollaborationService(sse),
+		MessagingService:     service_impl2.NewMessagingService(engine, externalTaskSvc),
+		UserService:          service_impl2.NewUserService(repo, "test-jwt-secret"),
+		SetupService:         service_impl2.NewSetupService(nil),
+	})
+	return svc, jobSvc
 }

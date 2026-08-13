@@ -109,7 +109,40 @@ func (s *connectorService) ListConnectorInstances(ctx context.Context, projectID
 	for i, m := range ms {
 		res[i] = adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()
 	}
+	s.nameConnectors(ctx, res)
 	return res, nil
+}
+
+// nameConnectors fills in the connector each instance configures.
+//
+// A row stores a connector id, so an instance otherwise arrives naming nothing:
+// no key, which is what a service task refers to, and no name to show in a
+// list. The catalogue is read once for the whole slice rather than per row —
+// it is a handful of built-ins, and a query each would be a lot of round trips
+// to answer "which Slack is this".
+func (s *connectorService) nameConnectors(ctx context.Context, instances []entities.ConnectorInstance) {
+	if len(instances) == 0 {
+		return
+	}
+	catalogue, err := s.repo.Connector().List(ctx)
+	if err != nil {
+		// The instances are still worth returning; they just stay unnamed.
+		log.Warn().Err(err).Msg("could not load the connector catalogue to name instances")
+		return
+	}
+	byID := make(map[uuid.UUID]entities.Connector, len(catalogue))
+	for _, m := range catalogue {
+		c := adapters.ConnectorEntityAdapter{Model: m}.ToEntity()
+		byID[c.ID] = c
+	}
+	for i := range instances {
+		if instances[i].Connector == nil {
+			continue
+		}
+		if c, ok := byID[instances[i].Connector.ID]; ok {
+			instances[i].Connector = &c
+		}
+	}
 }
 
 func (s *connectorService) GetConnectorInstance(ctx context.Context, id uuid.UUID) (entities.ConnectorInstance, error) {
@@ -117,7 +150,9 @@ func (s *connectorService) GetConnectorInstance(ctx context.Context, id uuid.UUI
 	if err != nil {
 		return entities.ConnectorInstance{}, err
 	}
-	return adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity(), nil
+	one := []entities.ConnectorInstance{adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()}
+	s.nameConnectors(ctx, one)
+	return one[0], nil
 }
 
 func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context.Context, projectID, connectorID uuid.UUID) (entities.ConnectorInstance, error) {
@@ -125,7 +160,9 @@ func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context
 	if err != nil {
 		return entities.ConnectorInstance{}, err
 	}
-	return adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity(), nil
+	one := []entities.ConnectorInstance{adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()}
+	s.nameConnectors(ctx, one)
+	return one[0], nil
 }
 
 func (s *connectorService) CreateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) (entities.ConnectorInstance, error) {

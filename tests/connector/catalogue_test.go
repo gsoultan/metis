@@ -177,3 +177,70 @@ func hasConnector(list []entities.Connector, key string) bool {
 	}
 	return false
 }
+
+// A listed instance should say which connector it configures.
+//
+// The row stores a connector id, and the adapter turned that into a Connector
+// with nothing but the id set — so every instance came back with an empty key
+// and name. The connectors page copes because it matches on the id against the
+// catalogue it already has, but anything else reading the API sees an instance
+// that names nothing, and the key is what a service task refers to.
+func TestListConnectorInstances_NamesTheConnectorEachOneConfigures(t *testing.T) {
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	svc := serviceimpl.NewConnectorService(repo)
+	ctx := t.Context()
+
+	if err := svc.EnsureDefaultConnectors(ctx); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	catalogue, _ := svc.ListConnectors(ctx)
+	var slack entities.Connector
+	for _, c := range catalogue {
+		if c.Key == "slack-message" {
+			slack = c
+		}
+	}
+	if slack.ID == uuid.Nil {
+		t.Fatal("the catalogue has no slack connector to attach to")
+	}
+
+	projectID := uuid.Must(uuid.NewV7())
+	if _, err := svc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
+		Name:      "Ops channel",
+		Project:   &entities.Project{ID: projectID},
+		Connector: &entities.Connector{ID: slack.ID},
+	}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	listed, err := svc.ListConnectorInstances(ctx, projectID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("got %d instances, want 1", len(listed))
+	}
+	got := listed[0]
+	if got.Connector == nil || got.Connector.Key != "slack-message" {
+		t.Errorf("connector key = %q, want \"slack-message\"", connectorKey(got.Connector))
+	}
+	if got.Connector.Name == "" {
+		t.Error("connector name is empty, so a list cannot show what an instance is")
+	}
+
+	// And one fetched on its own, which is what an editor opens.
+	one, err := svc.GetConnectorInstance(ctx, got.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if one.Connector == nil || one.Connector.Key != "slack-message" {
+		t.Errorf("fetched instance names connector %q", connectorKey(one.Connector))
+	}
+}
+
+func connectorKey(c *entities.Connector) string {
+	if c == nil {
+		return ""
+	}
+	return c.Key
+}
