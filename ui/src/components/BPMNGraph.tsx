@@ -9,7 +9,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Box } from '@mantine/core';
-import { nodeTypes } from './BPMNNodes';
+import { nodeTypes } from './bpmnNodeTypes';
 
 interface BPMNNode {
   id: string;

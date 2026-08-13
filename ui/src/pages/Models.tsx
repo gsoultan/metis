@@ -14,7 +14,7 @@ export function Models() {
   const [wizardOpened, setWizardOpened] = useState(false);
 
   const setActiveTab = (val: string | null) => {
-    navigate({ search: { tab: (val as any) || 'processes' } });
+    navigate({ search: { tab: val === 'decisions' ? 'decisions' : 'processes' } });
   };
 
   const handleEditProcess = (id: string) => {

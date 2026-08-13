@@ -2,6 +2,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { ProcessVariables } from '../services/types';
 
 type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
 
@@ -72,7 +73,7 @@ export const useStartProcess = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: ({ definitionKey, variables }: { definitionKey: string; variables?: any }) =>
+    mutationFn: ({ definitionKey, variables }: { definitionKey: string; variables?: ProcessVariables }) =>
       currentProjectId ? processService.startProcess(currentProjectId, definitionKey, variables) : Promise.reject('No project selected'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', currentProjectId] });
@@ -83,7 +84,7 @@ export const useStartProcess = () => {
 export const useCompleteTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, userId, variables }: { id: string; userId: string; variables?: any }) => processService.completeTask(id, userId, variables),
+    mutationFn: ({ id, userId, variables }: { id: string; userId: string; variables?: ProcessVariables }) => processService.completeTask(id, userId, variables),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({

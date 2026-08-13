@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file entities/definition.proto.
  */
 export const file_entities_definition: GenFile = /*@__PURE__*/
-  fileDesc("ChllbnRpdGllcy9kZWZpbml0aW9uLnByb3RvEgdwcm9jZXNzIsEBChFQcm9jZXNzRGVmaW5pdGlvbhIKCgJpZBgBIAEoCRIhCgdwcm9qZWN0GAIgASgLMhAucHJvY2Vzcy5Qcm9qZWN0EgsKA2tleRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAUSFQoNZG9jdW1lbnRhdGlvbhgGIAEoCRIcCgVub2RlcxgHIAMoCzINLnByb2Nlc3MuTm9kZRIcCgVmbG93cxgIIAMoCzINLnByb2Nlc3MuRmxvd0KRAQoLY29tLnByb2Nlc3NCD0RlZmluaXRpb25Qcm90b1ABWjVnaXRodWIuY29tL2dzb3VsdGFuL2dvYnBtL2FwaS9wcm90by9lbnRpdGllcztlbnRpdGllc6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_project, file_entities_node, file_entities_flow]);
+  fileDesc("ChllbnRpdGllcy9kZWZpbml0aW9uLnByb3RvEgdwcm9jZXNzItUBChFQcm9jZXNzRGVmaW5pdGlvbhIKCgJpZBgBIAEoCRIhCgdwcm9qZWN0GAIgASgLMhAucHJvY2Vzcy5Qcm9qZWN0EgsKA2tleRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAUSFQoNZG9jdW1lbnRhdGlvbhgGIAEoCRIcCgVub2RlcxgHIAMoCzINLnByb2Nlc3MuTm9kZRIcCgVmbG93cxgIIAMoCzINLnByb2Nlc3MuRmxvdxISCgpjcmVhdGVkX2F0GAkgASgJQpEBCgtjb20ucHJvY2Vzc0IPRGVmaW5pdGlvblByb3RvUAFaNWdpdGh1Yi5jb20vZ3NvdWx0YW4vZ29icG0vYXBpL3Byb3RvL2VudGl0aWVzO2VudGl0aWVzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_entities_project, file_entities_node, file_entities_flow]);
 
 /**
  * ProcessDefinition is a process as modelled: its nodes and the flows between
@@ -69,6 +69,11 @@ export type ProcessDefinition = Message<"process.ProcessDefinition"> & {
    * @generated from field: repeated process.Flow flows = 8;
    */
   flows: Flow[];
+
+  /**
+   * @generated from field: string created_at = 9;
+   */
+  createdAt: string;
 };
 
 /**

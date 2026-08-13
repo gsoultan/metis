@@ -75,6 +75,12 @@ export const decisionService = {
       body: { key, variables, version },
       signal,
     });
-    return { result: data.result, err: data.err };
+    return {
+      result: data.result,
+      // Which lines of the table produced the answer, so the editor can show
+      // the reasoning rather than only the outcome.
+      matchedRules: data.result?.matched_rules ?? [],
+      err: data.err,
+    };
   },
 };

@@ -24,4 +24,5 @@ message ProcessDefinition {
   string documentation = 6;
   repeated Node nodes = 7;
   repeated Flow flows = 8;
+  string created_at = 9;
 }

@@ -198,7 +198,16 @@ export function CreationWizard({ opened, onClose, onCreateProcess, onCreateDecis
   );
 }
 
-function TypeButton({ icon, title, description, color, onClick, active }: any) {
+interface TypeButtonProps {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  color: string;
+  onClick: () => void;
+  active: boolean;
+}
+
+function TypeButton({ icon, title, description, color, onClick, active }: TypeButtonProps) {
   return (
     <UnstyledButton 
       onClick={onClick}

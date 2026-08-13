@@ -224,20 +224,43 @@ export interface CreateConnectorInstancePayload {
 
 // ─── Process Runtime ─────────────────────────────────────────────────────────
 
+/**
+ * One line of an instance's history, as /instances/{id}/audit returns it.
+ *
+ * These names are the server's. The type previously described an `action` and
+ * `details` with flat ids, none of which are sent — the timeline reads type,
+ * message, narrative, node and data, and was right to.
+ */
 export interface ApiAuditEntry {
   id: string;
-  instance_id: string;
-  node_id?: string;
-  action: string;
+  /** e.g. process_started, node_reached, variable_updated */
+  type: string;
+  message: string;
+  /** A sentence written for a person rather than an operator. */
+  narrative?: string;
   timestamp: string;
-  details?: Record<string, unknown>;
+  node?: { id: string; name?: string; type?: string };
+  instance?: { id: string };
+  project?: { id: string };
+  data?: Record<string, unknown>;
 }
 
+/**
+ * A sub-process instance, as /instances/{id}/subprocesses returns one.
+ *
+ * The parent instance and the call activity that started it are nested
+ * objects. Describing them as `parent_instance_id` meant the call activity
+ * panel matched on a field that is never sent, so it never found the running
+ * sub-process and never offered to open it.
+ */
 export interface ApiSubProcess {
   id: string;
-  parent_instance_id: string;
   status: string;
-  active_nodes?: string[];
+  parent_instance?: { id: string };
+  parent_node?: { id: string };
+  definition?: { id: string; key?: string; name?: string };
+  variables?: Record<string, unknown>;
+  created_at?: string;
 }
 
 // ─── Identity ────────────────────────────────────────────────────────────────
@@ -374,5 +397,11 @@ export type CreateDecisionPayload = Omit<ApiDecision, 'id' | 'version' | 'create
 
 /** Mirrors entities.DecisionResult. */
 export interface DecisionResult {
+  /**
+   * Positions in the table of the lines that produced this result, in table
+   * order — one under FIRST, every match under COLLECT. The editor highlights
+   * them, so an evaluation shows its reasoning and not only its answer.
+   */
+  matched_rules?: number[];
   values: ProcessVariables;
 }

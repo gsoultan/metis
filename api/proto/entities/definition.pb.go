@@ -38,6 +38,7 @@ type ProcessDefinition struct {
 	Documentation string                 `protobuf:"bytes,6,opt,name=documentation,proto3" json:"documentation,omitempty"`
 	Nodes         []*Node                `protobuf:"bytes,7,rep,name=nodes,proto3" json:"nodes,omitempty"`
 	Flows         []*Flow                `protobuf:"bytes,8,rep,name=flows,proto3" json:"flows,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -128,11 +129,18 @@ func (x *ProcessDefinition) GetFlows() []*Flow {
 	return nil
 }
 
+func (x *ProcessDefinition) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
 var File_entities_definition_proto protoreflect.FileDescriptor
 
 const file_entities_definition_proto_rawDesc = "" +
 	"\n" +
-	"\x19entities/definition.proto\x12\aprocess\x1a\x16entities/project.proto\x1a\x13entities/node.proto\x1a\x13entities/flow.proto\"\xff\x01\n" +
+	"\x19entities/definition.proto\x12\aprocess\x1a\x16entities/project.proto\x1a\x13entities/node.proto\x1a\x13entities/flow.proto\"\x9e\x02\n" +
 	"\x11ProcessDefinition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
 	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x12\x10\n" +
@@ -141,7 +149,9 @@ const file_entities_definition_proto_rawDesc = "" +
 	"\aversion\x18\x05 \x01(\x05R\aversion\x12$\n" +
 	"\rdocumentation\x18\x06 \x01(\tR\rdocumentation\x12#\n" +
 	"\x05nodes\x18\a \x03(\v2\r.process.NodeR\x05nodes\x12#\n" +
-	"\x05flows\x18\b \x03(\v2\r.process.FlowR\x05flowsB\x91\x01\n" +
+	"\x05flows\x18\b \x03(\v2\r.process.FlowR\x05flows\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\t \x01(\tR\tcreatedAtB\x91\x01\n" +
 	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (

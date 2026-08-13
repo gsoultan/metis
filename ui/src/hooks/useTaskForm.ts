@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { type FormField } from '../components/FormBuilder';
 
-type FormValues = Record<string, any>;
+type FormValues = Record<string, unknown>;
 type FormErrors = Record<string, string | null>;
-type ExternalOptions = Record<string, any[]>;
+type ExternalOptions = Record<string, Array<{ value: string; label: string }>>;
 
 function evaluateExpression(expression: string, values: FormValues, variables: FormValues): boolean {
   if (!expression) {
@@ -19,7 +19,7 @@ function evaluateExpression(expression: string, values: FormValues, variables: F
   }
 }
 
-function resolveDefaultValue(field: FormField, variables: FormValues): any {
+function resolveDefaultValue(field: FormField, variables: FormValues): unknown {
   let value = variables[field.id];
 
   if (
@@ -63,7 +63,7 @@ function buildInitialValues(fields: FormField[], variables: FormValues): FormVal
   }, {} as FormValues);
 }
 
-function normalizeOptions(data: unknown): any[] {
+function normalizeOptions(data: unknown): Array<{ value: string; label: string }> {
   if (!Array.isArray(data)) {
     return [];
   }
@@ -142,7 +142,7 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
         return 'This field is required';
       }
 
-      if (field.validation?.pattern && value && !new RegExp(field.validation.pattern).test(value)) {
+      if (field.validation?.pattern && value && !new RegExp(field.validation.pattern).test(String(value))) {
         return field.validation.message || 'Invalid format';
       }
 
@@ -186,7 +186,7 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
   );
 
   const handleChange = useCallback(
-    (id: string, value: any) => {
+    (id: string, value: unknown) => {
       const nextValues = { ...values, [id]: value };
       setValues(nextValues);
 
@@ -226,7 +226,7 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
   const getSelectOptions = useCallback(
     (field: FormField) => {
       if (field.dataSource?.type === 'variable') {
-        return variables[field.dataSource.variableKey || ''] || [];
+        return normalizeOptions(variables[field.dataSource.variableKey || '']);
       }
 
       if (field.dataSource?.type === 'endpoint') {

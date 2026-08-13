@@ -23,7 +23,8 @@ import {
 import { useInstances } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
-import { useEffect, useState } from 'react';
+import {useState} from 'react';
+import { useDefinitions } from '../hooks/useDefinitions';
 
 /**
  * Turns a node identifier into something readable.
@@ -33,6 +34,17 @@ import { useEffect, useState } from 'react';
  * generated prefix and the separators recovers a usable label without needing
  * the whole definition loaded just to render a row.
  */
+/** The name of the process an instance belongs to, resolved through its id. */
+function definitionName(
+  instance: { definition?: { id?: string; key?: string; name?: string } },
+  definitions: Array<{ id: string; key?: string; name?: string }>,
+): string {
+  const fromInstance = instance.definition?.name || instance.definition?.key;
+  if (fromInstance) return fromInstance;
+  const match = definitions.find((d) => d.id === instance.definition?.id);
+  return match?.name || match?.key || 'Process';
+}
+
 function humanizeNodeId(nodeId: string): string {
   const withoutPrefix = nodeId.replace(/^(Activity|Task|Event|Gateway|Flow|Node)[_-]/i, '');
   const spaced = withoutPrefix
@@ -47,12 +59,21 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const { data, isLoading, error, refetch } = useInstances(page, pageSize);
+  // A listed instance carries only its definition's id, so every row read
+  // "Process". The definitions are already a cached query; joining them here
+  // costs one more request and gives each row the name of the process it is.
+  const { data: definitionsData } = useDefinitions();
+  const definitions = definitionsData?.definitions ?? [];
   const pageInfo = data?.pageInfo;
 
-  // Changing the window size invalidates the current offset.
-  useEffect(() => {
+  // Changing the window size invalidates the current offset. Adjusted during
+  // render rather than in an effect, which would render once with the old page
+  // against the new size and then again to correct it.
+  const [appliedPageSize, setAppliedPageSize] = useState(pageSize);
+  if (pageSize !== appliedPageSize) {
+    setAppliedPageSize(pageSize);
     setPage(1);
-  }, [pageSize]);
+  }
 
   if (isLoading) {
     return (
@@ -137,13 +158,13 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                 </td>
               </tr>
             ) : (
-              instances.map((inst: any) => (
+              instances.map((inst) => (
                 <tr key={inst.id}>
                   <td>
                     {/* The full UUID was the first column, in bold monospace,
                         as though it were the thing a person identifies an
                         instance by. It is not — the process is. */}
-                    <Text size="sm" fw={500}>{inst.definition_key || 'Process'}</Text>
+                    <Text size="sm" fw={500}>{definitionName(inst, definitions)}</Text>
                     <Text size="xs" c="dimmed" ff="monospace">{String(inst.id).slice(0, 8)}</Text>
                   </td>
                   <td>{getStatusBadge(inst.status)}</td>
@@ -160,12 +181,12 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                       steps.
                     */}
                     <Group gap={4}>
-                      {(inst.activeNodes ?? inst.active_nodes ?? []).map((nodeId: string) => (
-                        <Badge key={nodeId} size="sm" variant="light" color="blue">
-                          {humanizeNodeId(nodeId)}
+                      {(inst.activeNodes ?? []).map((node) => (
+                        <Badge key={node.id} size="sm" variant="light" color="blue">
+                          {humanizeNodeId(node.id)}
                         </Badge>
                       ))}
-                      {(inst.activeNodes ?? inst.active_nodes ?? []).length === 0 && (
+                      {(inst.activeNodes ?? []).length === 0 && (
                         <Text size="xs" c="dimmed">
                           {inst.status === 'active' ? 'Starting…' : 'Nothing in progress'}
                         </Text>
@@ -177,7 +198,7 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                       <ActionIcon aria-label="View instance" 
                         variant="light" 
                         color="blue" 
-                        onClick={() => onViewInstance(inst.id, inst.definition_id)}
+                        onClick={() => onViewInstance(inst.id, inst.definition?.id ?? '')}
                       >
                         <Eye size={16} />
                       </ActionIcon>

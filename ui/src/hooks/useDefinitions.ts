@@ -2,6 +2,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { CreateDefinitionPayload } from '../services/types';
 
 // The queryFn ternary returned the service's real result on one branch and a
 // hand-written literal on the other. TypeScript widened that union to `{}`,
@@ -39,7 +40,7 @@ export const useCreateDefinition = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: (definition: any) =>
+    mutationFn: (definition: CreateDefinitionPayload) =>
       currentProjectId ? processService.createDefinition(currentProjectId, definition) : Promise.reject('No project selected'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['definitions', currentProjectId] });
@@ -77,10 +78,10 @@ export const useImportDefinition = () => {
         color: 'teal',
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       notifications.show({
         title: 'Import Error',
-        message: error.message || 'Failed to import BPMN model.',
+        message: (error instanceof Error ? error.message : 'Failed to import BPMN model.'),
         color: 'red',
       });
     }

@@ -14,6 +14,7 @@ import {
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
 import type { Task } from '../services/types';
+import type { ProcessVariables } from '../services/types';
 
 /**
  * The value a column sorts on.
@@ -68,8 +69,8 @@ export function useTaskInbox() {
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTask, setSelectedTask] = useState<any | null>(null);
-  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [sortBy, setSortBy] = useState<string | null>('createdAt');
   const [reverseSortDirection, setReverseSortDirection] = useState(true);
   
@@ -82,7 +83,7 @@ export function useTaskInbox() {
   );
   
   const [reassignModalOpened, setReassignModalOpened] = useState(false);
-  const [taskToReassign, setTaskToReassign] = useState<any>(null);
+  const [taskToReassign, setTaskToReassign] = useState<Task | null>(null);
   const [newAssignee, setNewAssignee] = useState<string | null>(null);
 
   useEffect(() => {
@@ -115,9 +116,15 @@ export function useTaskInbox() {
   // Any change to what is being filtered invalidates the current offset: page 4
   // of an unfiltered list is not page 4 of a filtered one, and landing on an
   // empty page reads as "no results" rather than "you are past the end".
-  useEffect(() => {
+  // Adjusted during render rather than in an effect: an effect would let one
+  // render go out with the old page against the new filter, and setting state
+  // from an effect re-renders a second time to correct it.
+  const filterKey = `${currentUser}|${pageSize}|${activeTab}`;
+  const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey);
+  if (filterKey !== appliedFilterKey) {
+    setAppliedFilterKey(filterKey);
     setPage(1);
-  }, [currentUser, pageSize, activeTab]);
+  }
   const { data: candidateData, isLoading: candidateLoading } = useTasksByCandidates(currentUser, userGroups, page, pageSize);
   const { data: allTasksData, isLoading: allTasksLoading } = useTasks();
   
@@ -127,8 +134,9 @@ export function useTaskInbox() {
   const updateTaskMutation = useUpdateTask();
   const assignTaskMutation = useAssignTask();
 
-  const assignedTasks = assignedData?.tasks || [];
-  const candidateTasks = candidateData?.tasks || [];
+  // Memoised so the lists below do not see a new array identity every render.
+  const assignedTasks = useMemo(() => assignedData?.tasks ?? [], [assignedData]);
+  const candidateTasks = useMemo(() => candidateData?.tasks ?? [], [candidateData]);
   const allTasks = allTasksData?.tasks || [];
   // The count comes from the server's total, not from the rows on screen —
   // with paging those are different numbers, and the tab badge should say how
@@ -146,7 +154,7 @@ export function useTaskInbox() {
     unclaimTaskMutation.mutate(id);
   }, [unclaimTaskMutation]);
 
-  const handleComplete = useCallback((id: string, variables: any) => {
+  const handleComplete = useCallback((id: string, variables: ProcessVariables) => {
     completeTaskMutation.mutate({ id, userId: currentUser, variables }, {
       onSuccess: () => setSelectedTask(null)
     });
@@ -171,7 +179,7 @@ export function useTaskInbox() {
     }
   }, [sortBy, reverseSortDirection]);
 
-  const filterAndSortTasks = useCallback((tasks: any[]) => {
+  const filterAndSortTasks = useCallback((tasks: Task[]) => {
     let filtered = [...tasks];
     if (searchQuery) {
       const query = searchQuery.toLowerCase();

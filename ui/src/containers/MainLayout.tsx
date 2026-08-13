@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Text, ThemeIcon, Timeline, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, useLocation } from '@tanstack/react-router';
@@ -42,7 +43,11 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { data: projectsData } = useProjects(currentOrganizationId);
   const location = useLocation();
 
-  const organizations = organizationsData?.organizations ?? user?.organizations ?? [];
+  // A fresh [] each render would restart the effect below on every render.
+  const organizations = useMemo(
+    () => organizationsData?.organizations ?? user?.organizations ?? [],
+    [organizationsData, user],
+  );
   const projects = projectsData?.projects ?? [];
 
   // Fall back to the first organization the caller belongs to when the stored

@@ -27,7 +27,7 @@ import { vocabularyFor } from '../domain/bpmnVocabulary';
 import { useAppStore } from '../store/useAppStore';
 
 const getStatusStyles = (status?: string, heatmapValue?: number) => {
-  const styles: any = {};
+  const styles: React.CSSProperties = {};
   
   if (heatmapValue !== undefined) {
     // Heatmap: scale from light orange to dark red
@@ -558,27 +558,3 @@ export const BoundaryNode = ({ data, selected }: NodeProps) => {
   );
 };
 
-export const nodeTypes = {
-  startEvent: StartNode,
-  endEvent: EndNode,
-  terminateEndEvent: EndNode,
-  errorEndEvent: EndNode,
-  intermediateCatchEvent: IntermediateNode,
-  intermediateThrowEvent: IntermediateNode,
-  timerEvent: IntermediateNode,
-  boundaryEvent: BoundaryNode,
-  compensationEvent: BoundaryNode,
-  userTask: TaskNode,
-  serviceTask: TaskNode,
-  scriptTask: TaskNode,
-  manualTask: TaskNode,
-  businessRuleTask: TaskNode,
-  callActivity: TaskNode,
-  subProcess: SubProcessNode,
-  exclusiveGateway: GatewayNode,
-  parallelGateway: GatewayNode,
-  inclusiveGateway: GatewayNode,
-  eventBasedGateway: GatewayNode,
-  pool: PoolNode,
-  lane: LaneNode,
-};

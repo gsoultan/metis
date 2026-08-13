@@ -28,8 +28,8 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const { expertMode } = useAppStore();
   const [testModalOpened, setTestModalOpened] = useState(false);
   
-  const connectors = (connectorsData as any)?.connectors || [];
-  const selectedConnector = connectors.find((c: any) => c.id === data.connector_id);
+  const connectors = connectorsData?.connectors ?? [];
+  const selectedConnector = connectors.find((c) => c.id === asText(data.connector_id));
 
   return (
     <Stack gap="xl">

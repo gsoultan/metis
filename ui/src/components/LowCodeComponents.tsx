@@ -17,6 +17,12 @@ import {
 } from '@mantine/core';
 import { Variable, HelpCircle, Zap, Plus, Trash2 } from 'lucide-react';
 
+/** One row of a mapping table: this variable goes out as that field. */
+export interface DataMapping {
+  source: string;
+  target: string;
+}
+
 export function HelpTooltip({ label, link }: { label: string, link?: string }) {
   return (
     <Tooltip 
@@ -186,8 +192,8 @@ export function VisualDataMapper({
   sourceLabel = "Process Variable",
   targetLabel = "Target Field"
 }: {
-  mappings: any[],
-  onUpdate: (m: any[]) => void,
+  mappings: DataMapping[],
+  onUpdate: (m: DataMapping[]) => void,
   sourceOptions?: string[],
   targetOptions?: string[],
   title?: string,

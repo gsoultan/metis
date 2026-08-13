@@ -115,7 +115,7 @@ export function TaskList() {
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                tasks.map((task: any) => (
+                tasks.map((task) => (
                   <Table.Tr key={task.id}>
                     <Table.Td>
                       <TextInput type="checkbox" size="xs" />
@@ -175,7 +175,7 @@ export function TaskList() {
                           size="xs" 
                           variant="light"
                           color="indigo"
-                          onClick={() => completeTask.mutate(task.id)}
+                          onClick={() => completeTask.mutate({ id: task.id, userId: task.assignee?.username ?? '' })}
                           loading={completeTask.isPending}
                           disabled={task.status === 'completed'}
                           leftSection={<CheckCircle size={14} />}

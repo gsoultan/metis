@@ -3,6 +3,7 @@ import { Check, Clock, User, AlertCircle, Play, Square, FastForward } from 'luci
 import { useAuditLogs } from '../hooks/useProcess';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { asText } from '../types/bpmn';
 
 dayjs.extend(relativeTime);
 
@@ -64,7 +65,7 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
     <ScrollArea h={500} offsetScrollbars>
       <Box p="md">
         <Timeline active={entries.length} bulletSize={24} lineWidth={2}>
-          {entries.map((entry: any, index: number) => (
+          {entries.map((entry, index) => (
             <Timeline.Item
               key={entry.id || index}
               bullet={
@@ -93,9 +94,9 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
                     Step: {entry.node.name}
                   </Text>
                 )}
-                {entry.type === 'TaskClaimed' && entry.data?.assignee && (
+                {entry.type === 'TaskClaimed' && Boolean(entry.data?.assignee) && (
                   <Badge size="xs" variant="light" color="indigo">
-                    Assignee: {entry.data.assignee}
+                    Assignee: {asText(entry.data?.assignee)}
                   </Badge>
                 )}
               </Stack>

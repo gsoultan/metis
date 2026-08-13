@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
-import { nodeTypes } from '../components/BPMNNodes';
+import { nodeTypes } from '../components/bpmnNodeTypes';
 import { useSearch } from '@tanstack/react-router';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -54,7 +54,7 @@ export function ProcessDesigner({
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
 }) {
-  const search = useSearch({ from: '/_authenticated/designer' }) as any;
+  const search = useSearch({ from: '/_authenticated/designer' });
 
   const designer = useProcessDesigner({
     definitionId,

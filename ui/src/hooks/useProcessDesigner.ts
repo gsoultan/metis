@@ -27,10 +27,12 @@ import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 import type { ApiNode, ApiFlow } from '../services/types';
-type ValidationIssue = {
+export type ValidationIssue = {
   message: string;
   severity: 'error' | 'warning';
   id?: string;
+  /** What to do about it, when the check knows. */
+  suggestion?: string;
 };
 
 // mapLoadedNodes, mapLoadedEdges, and buildDefinitionPayload have been moved to

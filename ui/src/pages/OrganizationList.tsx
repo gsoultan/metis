@@ -27,6 +27,7 @@ import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
 import { failureMessage } from '../services/shared/errors';
 import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { Organization } from '../gen/entities/organization_pb';
 
 export function OrganizationList() {
   const { data, isLoading, error, refetch } = useOrganizations();
@@ -35,14 +36,14 @@ export function OrganizationList() {
   const deleteOrg = useDeleteOrganization();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingOrg, setEditingOrg] = useState<any>(null);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
 
   const organizations = data?.organizations || [];
 
-  const handleOpenModal = (org?: any) => {
+  const handleOpenModal = (org?: Organization) => {
     if (org) {
       setEditingOrg(org);
       setName(org.name);

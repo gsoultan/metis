@@ -33,6 +33,7 @@ import { notifications } from '@mantine/notifications';
 import { Select } from '@mantine/core';
 import { failureMessage } from '../services/shared/errors';
 import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { Project } from '../services/types';
 
 export function ProjectList() {
   const { currentProjectId, setCurrentProjectId, setCurrentOrganizationId, currentOrganizationId } = useAppStore();
@@ -43,7 +44,7 @@ export function ProjectList() {
   const deleteProject = useDeleteProject();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<any>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [organizationId, setOrganizationId] = useState<string | null>(null);
@@ -52,12 +53,15 @@ export function ProjectList() {
   const projects = data?.projects || [];
   const organizations = orgData?.organizations || [];
 
-  const handleOpenModal = (project?: any) => {
+  const handleOpenModal = (project?: Project) => {
     if (project) {
       setEditingProject(project);
       setName(project.name);
       setDescription(project.description);
-      setOrganizationId(project.organization_id);
+      // The project nests its organization; there is no organization_id. Reading
+      // one left the picker empty on an edit, and saving that would have moved
+      // the project out of its organization.
+      setOrganizationId(project.organization?.id ?? null);
     } else {
       setEditingProject(null);
       setName('');
@@ -170,7 +174,7 @@ export function ProjectList() {
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                projects.map((project: any) => (
+                projects.map((project) => (
                   <Table.Tr key={project.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -202,7 +206,11 @@ export function ProjectList() {
                           leftSection={<ExternalLink size={14} />}
                           onClick={() => {
                             setCurrentProjectId(project.id);
-                            setCurrentOrganizationId(project.organization_id);
+                            // Selecting a project set the current organization to
+                            // undefined, after which every organization-scoped
+                            // query — users, groups, connectors — had nothing to
+                            // scope to.
+                            setCurrentOrganizationId(project.organization?.id ?? null);
                           }}
                         >
                           Select
@@ -247,7 +255,7 @@ export function ProjectList() {
             label="Organization"
             placeholder="Select organization"
             required
-            data={organizations.map((org: any) => ({ value: org.id, label: org.name }))}
+            data={organizations.map((org) => ({ value: org.id, label: org.name }))}
             value={organizationId}
             onChange={setOrganizationId}
           />

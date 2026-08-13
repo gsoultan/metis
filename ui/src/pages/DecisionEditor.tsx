@@ -42,6 +42,12 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useCreateDecision, useUpdateDecision, useDecision, useEvaluateDecision } from '../hooks/useDecisions';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import type { ProcessVariables } from '../services/types';
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 interface DecisionInput {
   id: string;
@@ -226,7 +232,7 @@ const cellPlaceholder = placeholder || (isOutput ? 'Result' : 'Any value');
 
 export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/_authenticated/decision-editor' }) as any;
+  const search = useSearch({ from: '/_authenticated/decision-editor' });
   const { expertMode, setExpertMode } = useAppStore();
   const { data: existingDef } = useDecision(definitionId || null);
   const createDecision = useCreateDecision();
@@ -250,7 +256,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
   // Test Harness State
   const [testInputs, setTestInputs] = useState<Record<string, string>>({});
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
   const [matchedRules, setMatchedRules] = useState<number[]>([]);
   const [isTesting, setIsTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
@@ -344,8 +350,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
         notifications.show({ title: 'Success', message: 'Decision table created', color: 'green' });
       }
       navigate({ to: '/models', search: { tab: 'decisions' } });
-    } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' });
+    } catch (err: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(err, 'Could not save the decision'), color: 'red' });
     }
   };
 
@@ -355,7 +361,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setTestResult(null);
     setMatchedRules([]);
 
-    const variables: Record<string, any> = {};
+    const variables: ProcessVariables = {};
     Object.entries(testInputs).forEach(([k, v]) => {
       try {
         if (v === 'true') variables[k] = true;
@@ -368,17 +374,16 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     });
 
     try {
-      const res = await evaluateDecision.mutateAsync({ key, variables }) as any;
+      const res = await evaluateDecision.mutateAsync({ key, variables });
       if (res.err) {
         setTestError(typeof res.err === 'string' ? res.err : JSON.stringify(res.err));
       } else {
-        setTestResult(res.result);
-        if (res.matchedRuleIndexes) {
-          setMatchedRules(res.matchedRuleIndexes);
-        }
+        setTestResult(res.result?.values ?? {});
+        // Which lines produced the answer, so the table can show its reasoning.
+        setMatchedRules(res.matchedRules ?? []);
       }
-    } catch (e: any) {
-      setTestError(e.message || "Failed to evaluate decision");
+    } catch (e: unknown) {
+      setTestError(errorMessage(e, 'Failed to evaluate decision'));
     } finally {
       setIsTesting(false);
     }

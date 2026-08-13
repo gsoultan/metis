@@ -16,7 +16,7 @@ import { asText, asNumber, asTextMap } from '../../types/bpmn';
 
 export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const { data: decisionsData } = useDecisions();
-  const decisions = (decisionsData as any)?.decisions || [];
+  const decisions = decisionsData?.decisions ?? [];
 
   return (
     <Stack gap="xl">
@@ -34,7 +34,7 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
               label="Decision Key"
               description="Key of the DMN decision to execute"
               placeholder="Select a decision"
-              data={decisions.map((d: any) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
+              data={decisions.map((d) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
               value={asText(data.decision_key)}
               onChange={(val) => onUpdate({ decision_key: val })}
               searchable

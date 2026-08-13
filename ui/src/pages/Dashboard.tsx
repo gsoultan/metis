@@ -38,6 +38,7 @@ import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
+import type { ProcessDefinition } from '../gen/entities/definition_pb';
 
 /**
  * A single headline number.
@@ -114,7 +115,7 @@ export function Dashboard() {
   const { data: instancesData } = useInstances();
   
   const [heatmapOpened, { open: openHeatmap, close: closeHeatmap }] = useDisclosure(false);
-  const [selectedHeatmapDef, setSelectedHeatmapDef] = useState<any>(null);
+  const [selectedHeatmapDef, setSelectedHeatmapDef] = useState<ProcessDefinition | null>(null);
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a
   // real, idle one — "we don't know yet" rendered as "we know, and it's none".
@@ -325,8 +326,24 @@ export function Dashboard() {
         <Box h={600} style={{ position: 'relative' }}>
           {selectedHeatmapDef && (
             <BPMNGraph 
-              nodes={selectedHeatmapDef.nodes} 
-              flows={selectedHeatmapDef.flows}
+              // The graph draws the REST shape: an assignee is a name and a
+              // flow names its ends source_ref/target_ref. A definition read
+              // over Connect uses nested objects and camelCase, so it is
+              // translated here rather than drawn as blanks.
+              nodes={selectedHeatmapDef.nodes.map((n) => ({
+                id: n.id,
+                name: n.name,
+                type: n.type,
+                assignee: n.assignee?.username,
+                x: n.x,
+                y: n.y,
+              }))}
+              flows={selectedHeatmapDef.flows.map((f) => ({
+                id: f.id,
+                source_ref: f.sourceRef,
+                target_ref: f.targetRef,
+                condition: f.condition,
+              }))}
               isReadOnly 
               heatmapData={nodeFrequencies}
             />

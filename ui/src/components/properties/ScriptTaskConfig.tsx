@@ -14,7 +14,8 @@ import {
 import { Code, Terminal, Play } from 'lucide-react';
 import { useState } from 'react';
 import { VariablePicker } from '../LowCodeComponents';
-import { MultiInstanceConfig, ScriptTestModal, SCRIPT_TEMPLATES } from './CommonProperties';
+import { MultiInstanceConfig, ScriptTestModal } from './CommonProperties';
+import { SCRIPT_TEMPLATES } from './scriptTemplates';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { asText } from '../../types/bpmn';
 

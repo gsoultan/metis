@@ -56,8 +56,9 @@ import { useTaskInbox } from '../hooks/useTaskInbox';
 import { useNavigate } from '@tanstack/react-router';
 import { TableLoadingState, EmptyState } from '../components/state';
 import type { Task } from '../services/types';
+import type { JsonObject } from '@bufbuild/protobuf';
 
-function TaskContextTable({ variables }: { variables: Record<string, any> | undefined }) {
+function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
   if (!variables) return null;
   const entries = Object.entries(variables);
   if (entries.length === 0) {
@@ -520,7 +521,7 @@ export function TaskInbox() {
 
   const onFormSubmit = (values: Record<string, unknown>) => {
     if (selectedTask) {
-      handleComplete(selectedTask.id, values);
+      handleComplete(selectedTask.id, values as JsonObject);
     }
   };
 
@@ -952,7 +953,7 @@ export function TaskInbox() {
             <NumberInput 
               label="Priority" 
               value={editingTask.priority} 
-              onChange={(val) => setEditingTask({...editingTask, priority: val})}
+              onChange={(val) => setEditingTask({...editingTask, priority: Number(val) || 0})}
             />
             <DateInput 
               label="Due Date" 

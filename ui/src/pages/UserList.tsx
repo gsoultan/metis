@@ -46,7 +46,7 @@ export function UserList() {
   const { currentOrganizationId } = useAppStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editingUser, setEditingUser] = useState<ApiOrganizationUser | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');

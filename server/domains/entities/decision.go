@@ -61,4 +61,13 @@ type DecisionRule struct {
 // DecisionResult is the result of evaluating a decision.
 type DecisionResult struct {
 	Values map[string]any `json:"values"`
+
+	// MatchedRules are the positions in the table of the lines that produced
+	// this result, in table order. "Why did it decide that?" is the question a
+	// decision table exists to answer, and without these the answer arrives
+	// with no reasoning attached — the editor highlights the line that applied,
+	// and had nothing to highlight.
+	//
+	// Under FIRST this holds one entry; under COLLECT, every line that matched.
+	MatchedRules []int `json:"matched_rules,omitzero"`
 }

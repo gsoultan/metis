@@ -8,19 +8,22 @@ type StorageState = {
   }
 }
 
+/** Only the part of the global object these tests stand in for. */
+type GlobalWithStorage = typeof globalThis & { localStorage: Pick<Storage, 'getItem'> };
+
 describe('processService identity endpoints', () => {
   const originalFetch = globalThis.fetch
-  const originalLocalStorage = (globalThis as any).localStorage
+  const originalLocalStorage = (globalThis as GlobalWithStorage).localStorage
 
   beforeEach(() => {
-    ;(globalThis as any).localStorage = {
+    ;(globalThis as GlobalWithStorage).localStorage = {
       getItem: () => JSON.stringify({ state: { token: 'token-123' } } satisfies StorageState),
     }
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    ;(globalThis as any).localStorage = originalLocalStorage
+    ;(globalThis as GlobalWithStorage).localStorage = originalLocalStorage
   })
 
   it('throws when organization users endpoint responds unauthorized', async () => {

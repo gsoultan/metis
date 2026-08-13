@@ -15,11 +15,12 @@ import {
 } from '@mantine/core';
 import { AlertCircle, Save, Search, FileUp, Download, LayoutGrid, Undo2, Trash } from 'lucide-react';
 import { DesignerSidebar } from './DesignerSidebar';
+import type { ValidationIssue } from '../hooks/useProcessDesigner';
 
 interface DesignerModalsProps {
   checklistOpened: boolean;
   closeChecklist: () => void;
-  issues: any[];
+  issues: ValidationIssue[];
   proceedWithSave: () => void;
   spotlightOpened: boolean;
   closeSpotlight: () => void;

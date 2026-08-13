@@ -1,6 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { Alert, Button, Center, Stack, Text } from '@mantine/core';
-import { AlertCircle } from 'lucide-react';
+import { DefaultErrorFallback } from './DefaultErrorFallback';
 
 interface Props {
   /** Content to protect from unhandled render errors. */
@@ -54,41 +53,3 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
-
-interface DefaultErrorFallbackProps {
-  error?: Error;
-  onReset?: () => void;
-}
-
-function DefaultErrorFallback({ error, onReset }: DefaultErrorFallbackProps) {
-  return (
-    <Center h="100%">
-      <Stack align="center" gap="md" maw={480}>
-        <Alert
-          icon={<AlertCircle size={20} />}
-          title="Something went wrong"
-          color="red"
-          radius="md"
-          w="100%"
-        >
-          <Stack gap="xs">
-            <Text size="sm">
-              An unexpected error occurred while rendering this section. You can try reloading,
-              or navigate back and retry.
-            </Text>
-            {error?.message && (
-              <Text size="xs" c="dimmed" ff="monospace">
-                {error.message}
-              </Text>
-            )}
-          </Stack>
-        </Alert>
-
-        <Button variant="light" color="red" onClick={onReset}>
-          Try again
-        </Button>
-      </Stack>
-    </Center>
-  );
-}
-

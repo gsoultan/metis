@@ -63,8 +63,8 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
       } else {
         setError('Invalid response from server');
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to login');
+    } catch (err: unknown) {
+      setError(err instanceof Error && err.message ? err.message : 'Failed to login');
     } finally {
       setLoading(false);
     }

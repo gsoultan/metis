@@ -26,10 +26,11 @@ export function CallActivityConfig({
   const { data: defsData } = useDefinitions();
   const { data: subProcessesData } = useSubProcesses(instanceId || null);
 
-  const definitions = (defsData as any)?.definitions || [];
-  const subProcesses = (subProcessesData as any)?.instances || [];
+  const definitions = defsData?.definitions ?? [];
+  const subProcesses = subProcessesData?.instances ?? [];
 
-  const activeSubProcess = subProcesses.find((s: any) => s.parent_node_id === (nodeId ?? ''));
+  // The call activity that started it is a nested object, not an id.
+  const activeSubProcess = subProcesses.find((s) => s.parent_node?.id === (nodeId ?? ''));
 
   return (
     <Stack gap="xl">
@@ -41,7 +42,7 @@ export function CallActivityConfig({
               size="compact-xs" 
               variant="light" 
               color="teal" 
-              onClick={() => onViewInstance(activeSubProcess.id, activeSubProcess.definition_id)}
+              onClick={() => onViewInstance(activeSubProcess.id, activeSubProcess.definition?.id ?? '')}
             >
               Drill Down
             </Button>
@@ -63,7 +64,7 @@ export function CallActivityConfig({
               label="Called Process Definition"
               description="The process to start when this node is reached"
               placeholder="Select a process"
-              data={definitions.map((d: any) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
+              data={definitions.map((d) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
               value={asText(data.called_process_key)}
               onChange={(val) => onUpdate({ called_process_key: val })}
               searchable

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
 
 type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
 
@@ -33,8 +34,11 @@ export const useCreateDecision = () => {
   const { currentProjectId } = useAppStore();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: any) => 
-      processService.createDecision({ ...params, project_id: currentProjectId }),
+    mutationFn: (params: CreateDecisionPayload) =>
+      // The API reads a nested project, not a project_id. Sending the id meant
+      // the decision was stored belonging to no project, so it never appeared
+      // in the project's list again.
+      processService.createDecision({ ...params, project: currentProjectId ? { id: currentProjectId } : undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
     },
@@ -44,7 +48,7 @@ export const useCreateDecision = () => {
 export const useUpdateDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...params }: any) => 
+    mutationFn: ({ id, ...params }: CreateDecisionPayload & { id: string }) =>
       processService.updateDecision(id, params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
@@ -65,7 +69,7 @@ export const useDeleteDecision = () => {
 
 export const useEvaluateDecision = () => {
   return useMutation({
-    mutationFn: ({ key, variables, version }: { key: string, variables: any, version?: number }) => 
+    mutationFn: ({ key, variables, version }: { key: string; variables: ProcessVariables; version?: number }) => 
       processService.evaluateDecision(key, variables, version),
   });
 };

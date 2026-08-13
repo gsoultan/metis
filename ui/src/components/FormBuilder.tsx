@@ -25,7 +25,7 @@ export interface FormField {
   type: 'text' | 'number' | 'date' | 'select' | 'boolean' | 'textarea' | 'section';
   placeholder?: string;
   description?: string;
-  defaultValue?: any;
+  defaultValue?: unknown;
   required?: boolean;
   gridSpan?: number; // 1 or 2
   options?: { value: string; label: string }[];
@@ -269,7 +269,7 @@ function FieldEditor({
                     { value: 'section', label: 'Section/Group' },
                   ]}
                   value={field.type}
-                  onChange={(val) => onUpdate({ type: val as any })}
+                  onChange={(val) => onUpdate({ type: val as FormField['type'] })}
                 />
               </Group>
 
@@ -421,7 +421,7 @@ function FieldEditor({
                   { value: 'endpoint', label: 'External Endpoint' },
                 ]}
                 value={field.dataSource?.type || 'static'}
-                onChange={(val) => onUpdate({ dataSource: { ...field.dataSource, type: val as any } })}
+                onChange={(val) => onUpdate({ dataSource: { ...field.dataSource, type: val as NonNullable<FormField['dataSource']>['type'] } })}
               />
               {field.dataSource?.type === 'variable' && (
                 <TextInput 

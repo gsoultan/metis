@@ -1,9 +1,20 @@
 package adapters
 
 import (
+	"time"
+
 	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 )
+
+// formatTime renders a timestamp for the wire, and an unset one as empty
+// rather than as year 1, which a client would render as a real date.
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
+}
 
 type ProcessDefinitionPBAdapter struct {
 	Definition *entities.ProcessDefinition
@@ -45,5 +56,6 @@ func (a ProcessDefinitionPBAdapter) ToProtoSummary() *pbentities.ProcessDefiniti
 		Name:          a.Definition.Name,
 		Version:       int32(a.Definition.Version),
 		Documentation: a.Definition.Documentation,
+		CreatedAt:     formatTime(a.Definition.CreatedAt),
 	}
 }
