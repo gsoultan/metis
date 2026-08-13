@@ -7,11 +7,25 @@ import (
 
 type ListDecisionsRequest struct {
 	ProjectID string `json:"project_id,omitzero"`
+
+	// Zero means "no paging requested" — the first page at the server default.
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
 }
 
 type ListDecisionsResponse struct {
+	// Page describes the window returned, so a caller can say "1–50 of 340".
+	Page      *PageInfo                     `json:"page,omitempty"`
 	Decisions []entities.DecisionDefinition `json:"decisions,omitzero"`
 	Err       error                         `json:"err,omitzero"`
+}
+
+// PageInfo describes the window returned.
+type PageInfo struct {
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+	HasMore  bool  `json:"has_more"`
 }
 
 func (r ListDecisionsResponse) Failed() error { return r.Err }

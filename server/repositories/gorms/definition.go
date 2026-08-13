@@ -52,6 +52,18 @@ func (r *gormDefinitionRepository) List(ctx context.Context) ([]models.ProcessDe
 	return modelsList, nil
 }
 
+// ListByProjectPaged returns one page of a project's definitions, newest first.
+//
+// The order is table-qualified: tenant scoping joins the projects table, which
+// carries a created_at of its own, and a bare column name is ambiguous the
+// moment that join is present — which is every request-driven call.
+func (r *gormDefinitionRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.ProcessDefinitionModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions").
+		Model(&models.ProcessDefinitionModel{}).
+		Where("process_definitions.project_id = ?", projectID)
+	return countAndPage[models.ProcessDefinitionModel](base, p, "process_definitions.created_at DESC")
+}
+
 func (r *gormDefinitionRepository) Create(ctx context.Context, m models.ProcessDefinitionModel) error {
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return fmt.Errorf("could not create definition: %w", err)

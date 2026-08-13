@@ -8,6 +8,7 @@ import type {
 
 type DecisionListResponse = {
   decisions?: ApiDecision[];
+  page?: { total: number; page: number; page_size: number; has_more: boolean };
   err?: string;
 };
 
@@ -31,9 +32,29 @@ type EvaluateDecisionResponse = {
 };
 
 export const decisionService = {
-  async listDecisions(projectId: string, signal?: AbortSignal) {
-    const data = await requestJSON<DecisionListResponse>(`/decisions?project_id=${projectId}`, { signal });
-    return { decisions: data.decisions ?? [], err: data.err };
+  async listDecisions(
+    projectId: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const query = new URLSearchParams({ project_id: projectId });
+    if (page) {
+      query.set("page", String(page.page));
+      query.set("page_size", String(page.pageSize));
+    }
+    const data = await requestJSON<DecisionListResponse>(`/decisions?${query}`, { signal });
+    return {
+      decisions: data.decisions ?? [],
+      err: data.err,
+      pageInfo: data.page
+        ? {
+            total: data.page.total,
+            page: data.page.page,
+            pageSize: data.page.page_size,
+            hasMore: data.page.has_more,
+          }
+        : undefined,
+    };
   },
 
   async getDecision(id: string, signal?: AbortSignal) {

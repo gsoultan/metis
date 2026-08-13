@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
 
@@ -73,6 +74,20 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, decisionKey str
 
 	// 2. Evaluate rules and apply hit policy via the injected Strategy
 	return s.tableEvaluator.EvaluateTable(ctx, decision, variables)
+}
+
+// ListDecisionsPaged returns one page of a project's decisions, for the same
+// reason definitions have one.
+func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error) {
+	result, err := s.repo.Decision().ListByProjectPaged(ctx, projectID, page)
+	if err != nil {
+		return repocontracts.Page[entities.DecisionDefinition]{}, err
+	}
+	decisions := make([]entities.DecisionDefinition, len(result.Items))
+	for i, m := range result.Items {
+		decisions[i] = adapters.DecisionEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(decisions, result.Total, page), nil
 }
 
 func (s *decisionService) ListDecisions(ctx context.Context, projectID uuid.UUID) ([]entities.DecisionDefinition, error) {

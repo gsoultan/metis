@@ -7,15 +7,16 @@ type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
 
 type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
 
-export const useDecisions = () => {
+export const useDecisions = (page = 1, pageSize = 25) => {
   const { currentProjectId } = useAppStore();
   return useQuery({
-    queryKey: ['decisions', currentProjectId],
+    queryKey: ['decisions', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
       currentProjectId
-        ? processService.listDecisions(currentProjectId, signal)
-        : Promise.resolve({ decisions: [], err: undefined } as DecisionsResult),
+        ? processService.listDecisions(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ decisions: [], err: undefined, pageInfo: undefined } as DecisionsResult),
     enabled: !!currentProjectId,
+    placeholderData: (previous) => previous,
   });
 };
 

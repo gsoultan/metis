@@ -23,8 +23,10 @@ const (
 )
 
 type ListDefinitionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ProjectId string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	// Optional; see PageRequest.
+	Page          *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,10 +68,20 @@ func (x *ListDefinitionsRequest) GetProjectId() string {
 	return ""
 }
 
+func (x *ListDefinitionsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 type ListDefinitionsResponse struct {
-	state         protoimpl.MessageState        `protogen:"open.v1"`
-	Definitions   []*entities.ProcessDefinition `protobuf:"bytes,1,rep,name=definitions,proto3" json:"definitions,omitempty"`
-	Error         string                        `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	state       protoimpl.MessageState        `protogen:"open.v1"`
+	Definitions []*entities.ProcessDefinition `protobuf:"bytes,1,rep,name=definitions,proto3" json:"definitions,omitempty"`
+	Error       string                        `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Absent when the caller did not page, so an old client sees exactly the
+	// response it saw before.
+	Page          *PageInfo `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,17 +130,26 @@ func (x *ListDefinitionsResponse) GetError() string {
 	return ""
 }
 
+func (x *ListDefinitionsResponse) GetPage() *PageInfo {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 var File_endpoints_list_definitions_proto protoreflect.FileDescriptor
 
 const file_endpoints_list_definitions_proto_rawDesc = "" +
 	"\n" +
-	" endpoints/list_definitions.proto\x12\aprocess\x1a\x19entities/definition.proto\"7\n" +
+	" endpoints/list_definitions.proto\x12\aprocess\x1a\x19entities/definition.proto\x1a\x14endpoints/page.proto\"a\n" +
 	"\x16ListDefinitionsRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x01 \x01(\tR\tprojectId\"m\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\x12(\n" +
+	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04page\"\x94\x01\n" +
 	"\x17ListDefinitionsResponse\x12<\n" +
 	"\vdefinitions\x18\x01 \x03(\v2\x1a.process.ProcessDefinitionR\vdefinitions\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05errorB\x98\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12%\n" +
+	"\x04page\x18\x03 \x01(\v2\x11.process.PageInfoR\x04pageB\x98\x01\n" +
 	"\vcom.processB\x14ListDefinitionsProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -147,15 +168,19 @@ var file_endpoints_list_definitions_proto_msgTypes = make([]protoimpl.MessageInf
 var file_endpoints_list_definitions_proto_goTypes = []any{
 	(*ListDefinitionsRequest)(nil),     // 0: process.ListDefinitionsRequest
 	(*ListDefinitionsResponse)(nil),    // 1: process.ListDefinitionsResponse
-	(*entities.ProcessDefinition)(nil), // 2: process.ProcessDefinition
+	(*PageRequest)(nil),                // 2: process.PageRequest
+	(*entities.ProcessDefinition)(nil), // 3: process.ProcessDefinition
+	(*PageInfo)(nil),                   // 4: process.PageInfo
 }
 var file_endpoints_list_definitions_proto_depIdxs = []int32{
-	2, // 0: process.ListDefinitionsResponse.definitions:type_name -> process.ProcessDefinition
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: process.ListDefinitionsRequest.page:type_name -> process.PageRequest
+	3, // 1: process.ListDefinitionsResponse.definitions:type_name -> process.ProcessDefinition
+	4, // 2: process.ListDefinitionsResponse.page:type_name -> process.PageInfo
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_endpoints_list_definitions_proto_init() }
@@ -163,6 +188,7 @@ func file_endpoints_list_definitions_proto_init() {
 	if File_endpoints_list_definitions_proto != nil {
 		return
 	}
+	file_endpoints_page_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

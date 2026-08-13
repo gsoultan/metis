@@ -50,7 +50,12 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 }
 
 func decodeListDecisionsRequest(_ context.Context, r *http.Request) (any, error) {
-	return decision.ListDecisionsRequest{ProjectID: r.URL.Query().Get("project_id")}, nil
+	page, pageSize := common.PageParams(r)
+	return decision.ListDecisionsRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		Page:      page,
+		PageSize:  pageSize,
+	}, nil
 }
 
 func decodeCreateDecisionRequest(_ context.Context, r *http.Request) (any, error) {

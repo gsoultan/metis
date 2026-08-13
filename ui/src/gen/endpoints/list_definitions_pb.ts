@@ -6,13 +6,15 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ProcessDefinition } from "../entities/definition_pb";
 import { file_entities_definition } from "../entities/definition_pb";
+import type { PageInfo, PageRequest } from "./page_pb";
+import { file_endpoints_page } from "./page_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file endpoints/list_definitions.proto.
  */
 export const file_endpoints_list_definitions: GenFile = /*@__PURE__*/
-  fileDesc("CiBlbmRwb2ludHMvbGlzdF9kZWZpbml0aW9ucy5wcm90bxIHcHJvY2VzcyIsChZMaXN0RGVmaW5pdGlvbnNSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkiWQoXTGlzdERlZmluaXRpb25zUmVzcG9uc2USLwoLZGVmaW5pdGlvbnMYASADKAsyGi5wcm9jZXNzLlByb2Nlc3NEZWZpbml0aW9uEg0KBWVycm9yGAIgASgJQpgBCgtjb20ucHJvY2Vzc0IUTGlzdERlZmluaXRpb25zUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_definition]);
+  fileDesc("CiBlbmRwb2ludHMvbGlzdF9kZWZpbml0aW9ucy5wcm90bxIHcHJvY2VzcyJQChZMaXN0RGVmaW5pdGlvbnNSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSIgoEcGFnZRgCIAEoCzIULnByb2Nlc3MuUGFnZVJlcXVlc3QiegoXTGlzdERlZmluaXRpb25zUmVzcG9uc2USLwoLZGVmaW5pdGlvbnMYASADKAsyGi5wcm9jZXNzLlByb2Nlc3NEZWZpbml0aW9uEg0KBWVycm9yGAIgASgJEh8KBHBhZ2UYAyABKAsyES5wcm9jZXNzLlBhZ2VJbmZvQpgBCgtjb20ucHJvY2Vzc0IUTGlzdERlZmluaXRpb25zUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_definition, file_endpoints_page]);
 
 /**
  * @generated from message process.ListDefinitionsRequest
@@ -22,6 +24,13 @@ export type ListDefinitionsRequest = Message<"process.ListDefinitionsRequest"> &
    * @generated from field: string project_id = 1;
    */
   projectId: string;
+
+  /**
+   * Optional; see PageRequest.
+   *
+   * @generated from field: process.PageRequest page = 2;
+   */
+  page?: PageRequest | undefined;
 };
 
 /**
@@ -44,6 +53,14 @@ export type ListDefinitionsResponse = Message<"process.ListDefinitionsResponse">
    * @generated from field: string error = 2;
    */
   error: string;
+
+  /**
+   * Absent when the caller did not page, so an old client sees exactly the
+   * response it saw before.
+   *
+   * @generated from field: process.PageInfo page = 3;
+   */
+  page?: PageInfo | undefined;
 };
 
 /**

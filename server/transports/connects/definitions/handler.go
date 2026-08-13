@@ -47,6 +47,8 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 func (h *DefinitionHandler) ListDefinitions(ctx context.Context, req *connect.Request[pbendpoints.ListDefinitionsRequest]) (*connect.Response[pbendpoints.ListDefinitionsResponse], error) {
 	response, err := h.eps.ListDefinitions(ctx, definition.ListDefinitionsRequest{
 		ProjectID: req.Msg.ProjectId,
+		Page:      int(req.Msg.GetPage().GetPage()),
+		PageSize:  int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err
@@ -56,10 +58,19 @@ func (h *DefinitionHandler) ListDefinitions(ctx context.Context, req *connect.Re
 	for i, d := range resp.Definitions {
 		pbDefs[i] = adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProtoSummary()
 	}
-	return connect.NewResponse(&pbendpoints.ListDefinitionsResponse{
+	out := &pbendpoints.ListDefinitionsResponse{
 		Definitions: pbDefs,
 		Error:       common.ErrString(resp.Err),
-	}), nil
+	}
+	if resp.Page != nil {
+		out.Page = &pbendpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 func (h *DefinitionHandler) GetDefinition(ctx context.Context, req *connect.Request[pbendpoints.GetDefinitionRequest]) (*connect.Response[pbendpoints.GetDefinitionResponse], error) {

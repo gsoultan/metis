@@ -12,15 +12,20 @@ import type { CreateDefinitionPayload } from '../services/types';
 type DefinitionsResult = Awaited<ReturnType<typeof processService.listDefinitions>>;
 type DefinitionResult = Awaited<ReturnType<typeof processService.getDefinition>>;
 
-export const useDefinitions = () => {
+export const useDefinitions = (page = 1, pageSize = 25) => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
-    queryKey: ['definitions', currentProjectId],
+    // The page is part of the key, so stepping back to a page already seen is
+    // a cache hit rather than a refetch.
+    queryKey: ['definitions', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
       (currentProjectId && token)
-        ? processService.listDefinitions(currentProjectId, signal)
-        : Promise.resolve({ definitions: [], err: '' } as DefinitionsResult),
+        ? processService.listDefinitions(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ definitions: [], err: '', pageInfo: undefined } as DefinitionsResult),
     enabled: !!currentProjectId && !!token,
+    // Hold the current rows while the next page loads, so the list does not
+    // collapse into a skeleton on every click.
+    placeholderData: (previous) => previous,
   });
 };
 

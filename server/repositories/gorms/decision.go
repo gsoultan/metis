@@ -74,6 +74,15 @@ func (r *gormDecisionRepository) Delete(ctx context.Context, id uuid.UUID) error
 	return nil
 }
 
+// ListByProjectPaged returns one page of a project's decisions, newest first.
+// The order is table-qualified for the same reason definitions' is.
+func (r *gormDecisionRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.DecisionDefinitionModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "decision_definitions").
+		Model(&models.DecisionDefinitionModel{}).
+		Where("decision_definitions.project_id = ?", projectID)
+	return countAndPage[models.DecisionDefinitionModel](base, p, "decision_definitions.created_at DESC")
+}
+
 func (r *gormDecisionRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.DecisionDefinitionModel, error) {
 	var modelsList []models.DecisionDefinitionModel
 	if err := GetTx(ctx, r.db).Where(QueryByProjectID, projectID).Find(&modelsList).Error; err != nil {

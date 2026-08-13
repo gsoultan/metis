@@ -131,9 +131,29 @@ function fromDefinitionMessage(d: ProcessDefinition | undefined): ApiDefinition 
 }
 
 export const definitionService = {
-  async listDefinitions(projectId: string, signal?: AbortSignal) {
-    const response = await definitionClient.listDefinitions({ projectId }, { signal });
-    return { definitions: response.definitions ?? [], err: response.error };
+  async listDefinitions(
+    projectId: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await definitionClient.listDefinitions(
+      { projectId, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
+    return {
+      definitions: response.definitions ?? [],
+      err: response.error,
+      // The window the server actually served, after clamping, so the controls
+      // reflect what came back rather than what was asked for.
+      pageInfo: response.page
+        ? {
+            total: Number(response.page.total),
+            page: response.page.page,
+            pageSize: response.page.pageSize,
+            hasMore: response.page.hasMore,
+          }
+        : undefined,
+    };
   },
 
   async createDefinition(projectId: string, definition: CreateDefinitionPayload, signal?: AbortSignal) {

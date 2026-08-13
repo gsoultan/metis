@@ -6,6 +6,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/services"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 )
 
 type Endpoints struct {
@@ -39,8 +40,25 @@ func MakeListDefinitionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 				return ListDefinitionsResponse{Err: err}, nil
 			}
 		}
-		defs, err := s.ListDefinitions(ctx, projectID)
-		return ListDefinitionsResponse{Definitions: defs, Err: err}, nil
+		// A project keeps every version of every process it has ever had, so
+		// this is paged. A caller that asks for nothing gets the first page at
+		// the server default rather than all of them.
+		page, err := s.ListDefinitionsPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListDefinitionsResponse{Err: err}, nil
+		}
+		return ListDefinitionsResponse{
+			Definitions: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

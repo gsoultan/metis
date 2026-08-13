@@ -12,6 +12,7 @@ import (
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/domains/validation"
 	"github.com/gsoultan/gobpm/server/repositories"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
 
@@ -58,6 +59,23 @@ func (s *definitionService) CreateDefinition(ctx context.Context, def *entities.
 
 func (s *definitionService) DeleteDefinition(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Definition().Delete(ctx, id)
+}
+
+// ListDefinitionsPaged returns one page of a project's definitions.
+//
+// The unpaged call returns every version of every process the project has ever
+// had. That list only grows, and it exists to pick one process from.
+func (s *definitionService) ListDefinitionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[*entities.ProcessDefinition], error) {
+	result, err := s.repo.Definition().ListByProjectPaged(ctx, projectID, page)
+	if err != nil {
+		return repocontracts.Page[*entities.ProcessDefinition]{}, err
+	}
+	defs := make([]*entities.ProcessDefinition, len(result.Items))
+	for i, m := range result.Items {
+		def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
+		defs[i] = def
+	}
+	return repocontracts.NewPage(defs, result.Total, page), nil
 }
 
 func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.UUID) ([]*entities.ProcessDefinition, error) {
