@@ -338,6 +338,7 @@ export function ProcessDesigner({
           onDelete={deleteSelected}
           updateNodeData={updateNodeData}
           updateEdgeData={updateEdgeData}
+          nodes={nodes}
           edges={edges}
           instanceId={instanceId}
           onViewInstance={onViewInstance}

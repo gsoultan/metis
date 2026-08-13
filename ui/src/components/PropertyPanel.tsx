@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Stack,
   Group,
@@ -43,6 +44,10 @@ import { CallActivityConfig } from './properties/CallActivityConfig';
 import { ServiceTaskConfig } from './properties/ServiceTaskConfig';
 import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
 import { EventConfig } from './properties/EventConfig';
+import { StartEventConfig } from './properties/StartEventConfig';
+import { DataFlowPanel } from './properties/DataFlowPanel';
+import { PropertySection } from './properties/PropertySection';
+import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
 import { GatewayConfig } from './properties/GatewayConfig';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
@@ -85,7 +90,7 @@ const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
   signalEvent: EventConfig,
   messageEvent: EventConfig,
   timerEvent: EventConfig,
-  startEvent: EventConfig,
+  startEvent: StartEventConfig,
   exclusiveGateway: GatewayConfig,
   inclusiveGateway: GatewayConfig,
   eventBasedGateway: GatewayConfig,
@@ -99,6 +104,8 @@ interface PropertyPanelProps {
   updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
   updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void;
   edges?: Edge[];
+  /** The whole diagram, so the panel can trace what data reaches this step. */
+  nodes?: Node<BPMNNodeData>[];
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
 }
@@ -112,10 +119,19 @@ export function PropertyPanel({
   updateNodeData,
   updateEdgeData,
   edges = [],
+  nodes = [],
   instanceId = null,
   onViewInstance,
 }: PropertyPanelProps) {
   const { expertMode, setExpertMode } = useAppStore();
+
+  // Recomputed as the diagram changes: what reaches each step depends on every
+  // step before it, so editing one changes the answer for the rest.
+  const dataFlow = useMemo(
+    () => computeDataFlow(nodes, edges as Edge<BPMNEdgeData>[]),
+    [nodes, edges],
+  );
+  const hasSample = useMemo(() => Object.keys(sampleDataOf(nodes)).length > 0, [nodes]);
   if (!selectedNode && !selectedEdge) return null;
 
   // The heading names the thing the user is editing, not the notation. It
@@ -198,37 +214,51 @@ export function PropertyPanel({
                           <Text fw={700} size="lg">General Info</Text>
                         </Group>
                         
-                        <Box>
-                           <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={8}>Element Metadata</Text>
-                           <Group gap="xs">
-                             <Badge variant="filled" color="indigo" size="lg" radius="sm">
-                                {selectedNode?.type || 'sequenceFlow'}
-                             </Badge>
-                             <MantineCode style={{ padding: '4px 8px' }}>{selectedNode?.id || selectedEdge?.id}</MantineCode>
-                           </Group>
-                        </Box>
-
-                        <Divider variant="dashed" />
 
                         {selectedNode && (
                           <Stack gap="md">
                             <TextInput
-                              label="Name / Label"
-                              placeholder="Enter node name"
-                              description="The human-readable name of this node"
+                              label="Name"
+                              placeholder="e.g. Approve the expense"
+                              description="What this step is called, wherever it appears — on the diagram, in someone's task list, in the history."
                               size="md"
                               value={selectedNode.data.label as string || ''}
                               onChange={(e) => updateNodeData(selectedNode.id, { label: e.target.value })}
                             />
                             <Textarea
-                              label="Documentation"
-                              placeholder="Describe what this node does..."
-                              description="Additional details or implementation notes"
+                              label="Notes"
+                              placeholder="Anything the next person needs to know about this step"
+                              description="Shown to whoever opens this step later. Optional."
                               size="md"
-                              minRows={4}
+                              minRows={3}
                               value={selectedNode.data.documentation as string || ''}
                               onChange={(e) => updateNodeData(selectedNode.id, { documentation: e.target.value })}
                             />
+
+                            {/* The id identifies the step to the engine and to
+                                anything integrating over the API. It is not
+                                something to fill in, so it sits at the end
+                                rather than being the first thing read. */}
+                            <Group gap={6} align="baseline">
+                              <Text size="xs" c="dimmed">Reference</Text>
+                              <MantineCode>{selectedNode.id}</MantineCode>
+                              <Badge size="xs" variant="light" color="gray" radius="sm">
+                                {selectedNode.type}
+                              </Badge>
+                            </Group>
+
+                            <Divider variant="dashed" />
+
+                            <PropertySection
+                              title="Data"
+                              hint="What this step receives, and what it leaves for the steps after it."
+                            >
+                              <DataFlowPanel
+                                flow={dataFlow.get(selectedNode.id)}
+                                hasSample={hasSample}
+                                readsOnly={String(selectedNode.type).toLowerCase().includes('gateway')}
+                              />
+                            </PropertySection>
                           </Stack>
                         )}
 
@@ -243,10 +273,14 @@ export function PropertyPanel({
                               onChange={(e) => updateEdgeData(selectedEdge.id, e.target.value)}
                             />
                             <TextInput
-                              label="Condition Expression"
-                              placeholder="e.g. status == 'approved'"
+                              label="Take this path when"
+                              placeholder="e.g. approvalLevel = director"
                               size="md"
-                              description="JS expression that returns a boolean"
+                              description={
+                                'One "=" and no quotes: approvalLevel = director. ' +
+                                'Writing == looks more like code and never matches, ' +
+                                'so the path is silently never taken. Leave empty to always take it.'
+                              }
                               value={selectedEdge.data?.condition as string || ''}
                               onChange={(e) => updateEdgeData(selectedEdge.id, selectedEdge.label as string, { ...selectedEdge.data, condition: e.target.value })}
                             />
