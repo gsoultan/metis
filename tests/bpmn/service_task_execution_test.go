@@ -141,7 +141,24 @@ type serviceTaskHarness struct {
 	engine    contracts.ExecutionEngine
 	jobSvc    contracts.JobService
 	defSvc    contracts.DefinitionService
+	taskSvc   contracts.TaskService
 	projectID uuid.UUID
+}
+
+// tasksFor returns the tasks an instance is waiting on.
+func (h *serviceTaskHarness) tasksFor(t *testing.T, instanceID uuid.UUID) []entities.Task {
+	t.Helper()
+	all, err := h.taskSvc.ListTasks(t.Context(), h.projectID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	var mine []entities.Task
+	for _, task := range all {
+		if task.Instance != nil && task.Instance.ID == instanceID {
+			mine = append(mine, task)
+		}
+	}
+	return mine
 }
 
 // newServiceTaskHarness wires the real job service rather than the synchronous
@@ -191,6 +208,7 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 		engine:    engine,
 		jobSvc:    jobSvc,
 		defSvc:    serviceimpl.NewDefinitionService(repo),
+		taskSvc:   taskSvc,
 		projectID: project.ID,
 	}
 }
@@ -199,7 +217,6 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 // job queue so the service task has actually been attempted before returning.
 func (h *serviceTaskHarness) run(t *testing.T, node entities.Node, variables map[string]any) entities.ProcessInstance {
 	t.Helper()
-	ctx := t.Context()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projectID},
@@ -215,7 +232,19 @@ func (h *serviceTaskHarness) run(t *testing.T, node entities.Node, variables map
 			{ID: "f2", SourceRef: node.ID, TargetRef: "end"},
 		},
 	}
-	if _, err := h.defSvc.CreateDefinition(ctx, &def); err != nil {
+	return h.runDefinition(t, &def, variables)
+}
+
+// runDefinition starts a process of whatever shape the test needs and drains
+// the job queue.
+func (h *serviceTaskHarness) runDefinition(t *testing.T, def *entities.ProcessDefinition, variables map[string]any) entities.ProcessInstance {
+	t.Helper()
+	ctx := t.Context()
+
+	if def.Project == nil {
+		def.Project = &entities.Project{ID: h.projectID}
+	}
+	if _, err := h.defSvc.CreateDefinition(ctx, def); err != nil {
 		t.Fatalf("create definition: %v", err)
 	}
 
