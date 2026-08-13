@@ -19,7 +19,7 @@ func NewSynchronousJobService(engine contracts.ExecutionEngine, repo repositorie
 	return &SynchronousJobService{engine: engine, repo: repo}
 }
 
-func (s *SynchronousJobService) EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error {
+func (s *SynchronousJobService) EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node, _ string) error {
 	// Simulate what the job worker would do
 	if instance.Variables == nil {
 		instance.Variables = make(map[string]any)

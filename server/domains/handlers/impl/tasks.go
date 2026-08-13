@@ -38,7 +38,7 @@ func (h *ServiceTaskHandler) DoExecute(ctx context.Context, instance *entities.P
 
 	// 2. Enqueue an asynchronous job.  The job worker resolves any configured
 	//    connector or HTTP endpoint, stores results, and calls engine.Proceed.
-	return h.jobService.EnqueueServiceTask(ctx, *instance, node)
+	return h.jobService.EnqueueServiceTask(ctx, *instance, node, iterationID)
 }
 
 // UserTaskHandler handles tasks that require human intervention.

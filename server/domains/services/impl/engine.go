@@ -475,12 +475,12 @@ func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entit
 		instance.RemoveTokenByNode(node)
 		return true, nil
 	}
-	return e.checkMultiInstanceCompletion(ctx, instance, node, nodeID, iterationID)
+	return e.checkMultiInstanceCompletion(ctx, instance, def, node, nodeID, iterationID)
 }
 
 // checkMultiInstanceCompletion increments the completion counter and returns
 // (true, nil) when all iterations are done (or the completion condition is met).
-func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node, nodeID, iterationID string) (bool, error) {
+func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
 	completedKey := fmt.Sprintf("_mi_%s_completed", nodeID)
 	totalKey := fmt.Sprintf("_mi_%s_total", nodeID)
 
@@ -496,7 +496,17 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 	}
 
 	if !conditionMet {
-		return false, e.UpdateInstance(ctx, *instance)
+		if err := e.UpdateInstance(ctx, *instance); err != nil {
+			return false, err
+		}
+		// Sequential means one at a time: the next iteration is started when
+		// this one finishes, and nothing was starting it. A task set to run
+		// once per supplier ran for the first supplier and the process then sat
+		// there, with no error and no task, looking like it was still working.
+		if node.MultiInstanceType == "sequential" && completed < total {
+			return false, e.startNextSequentialIteration(ctx, instance, def, node, completed)
+		}
+		return false, nil
 	}
 
 	// All iterations complete — clean up MI tracking variables.
@@ -504,6 +514,26 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 	delete(instance.Variables, totalKey)
 	delete(instance.Variables, fmt.Sprintf("_mi_%s_active", nodeID))
 	return true, nil
+}
+
+// startNextSequentialIteration runs iteration `index` of a sequential
+// multi-instance node.
+//
+// Each iteration is started from within the one before it, so a collection of
+// n runs n deep. The engine's execution-depth bound applies, which is the same
+// protection an accidental loop gets: a very long collection is reported as
+// exceeding it rather than exhausting the stack.
+func (e *Engine) startNextSequentialIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, index int) error {
+	iterationID := fmt.Sprintf("%d", index)
+	instance.AddTokenWithIteration(node, iterationID)
+
+	collection, _ := entities.MultiInstanceCollection(instance, *node)
+	entities.BindMultiInstanceElement(instance, *node, collection, index)
+
+	if err := e.UpdateInstance(ctx, *instance); err != nil {
+		return err
+	}
+	return e.ExecuteNodeIteration(ctx, instance, def, node.ID, iterationID)
 }
 
 // cleanupEventBasedGatewaySiblings cancels competing tokens when one branch of

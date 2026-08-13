@@ -79,35 +79,35 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 
 	if node.MultiInstanceType == "parallel" {
 		for i := 0; i < total; i++ {
-			iterationID := fmt.Sprintf("%d", i)
-			instance.AddTokenWithIteration(&node, iterationID)
-
-			// Setup local variable for this iteration if needed
-			if node.ElementVariable != "" && i < len(collection) {
-				instance.SetVariable(fmt.Sprintf("_mi_var_%s_%s", node.ID, iterationID), collection[i])
-			}
+			instance.AddTokenWithIteration(&node, fmt.Sprintf("%d", i))
 		}
 
 		if err := t.engine.UpdateInstance(ctx, *instance); err != nil {
 			return err
 		}
 
+		// Bound immediately before each iteration runs. These execute one after
+		// another on this goroutine, and a task takes its own copy of the
+		// variables as it starts — a service task snapshots them into its job —
+		// so each one leaves with its own item.
 		for i := 0; i < total; i++ {
-			iterationID := fmt.Sprintf("%d", i)
-			if err := t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, iterationID); err != nil {
+			entities.BindMultiInstanceElement(instance, node, collection, i)
+			if err := t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, fmt.Sprintf("%d", i)); err != nil {
 				return err
 			}
 		}
-	} else if node.MultiInstanceType == "sequential" {
-		iterationID := "0"
-		instance.AddTokenWithIteration(&node, iterationID)
-		if node.ElementVariable != "" && len(collection) > 0 {
-			instance.SetVariable(fmt.Sprintf("_mi_var_%s_%s", node.ID, iterationID), collection[0])
-		}
+		return nil
+	}
+
+	if node.MultiInstanceType == "sequential" {
+		instance.AddTokenWithIteration(&node, "0")
+		entities.BindMultiInstanceElement(instance, node, collection, 0)
 		if err := t.engine.UpdateInstance(ctx, *instance); err != nil {
 			return err
 		}
-		return t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, iterationID)
+		// The rest follow one at a time, each started when its predecessor
+		// finishes; see the engine's multi-instance completion check.
+		return t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, "0")
 	}
 
 	return nil

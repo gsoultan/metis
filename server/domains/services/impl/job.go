@@ -52,8 +52,9 @@ func NewJobService(
 	}
 }
 
-func (s *jobService) EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error {
+func (s *jobService) EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error {
 	job := entities.Job{
+		IterationID: iterationID,
 		Instance:   &instance,
 		Definition: &entities.ProcessDefinition{ID: instance.Definition.ID},
 		Node:       &node,
@@ -351,7 +352,10 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 				return err
 			}
 		}
-		return s.engine.Proceed(txCtx, &instance, def, job.Node.ID)
+		// For a node that runs once per item this has to say which iteration
+		// finished, or the engine cannot tell which of the node's tokens to
+		// retire and the process never moves past it.
+		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
 	})
 }
 
@@ -495,6 +499,9 @@ func (s *jobService) executeTimer(ctx context.Context, job entities.Job) error {
 		}
 		def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
 
-		return s.engine.Proceed(txCtx, &instance, def, job.Node.ID)
+		// For a node that runs once per item this has to say which iteration
+		// finished, or the engine cannot tell which of the node's tokens to
+		// retire and the process never moves past it.
+		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
 	})
 }

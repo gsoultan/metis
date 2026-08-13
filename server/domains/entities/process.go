@@ -76,3 +76,35 @@ func (pi *ProcessInstance) SetVariable(key string, value any) {
 	}
 	pi.Variables[key] = value
 }
+
+// BindMultiInstanceElement makes the current item visible to the iteration
+// about to run, under the name the author chose.
+//
+// The item used to be stored as "_mi_var_<node>_<n>", which nothing ever read,
+// so a task told to run once per supplier ran the right number of times and
+// could not tell one supplier from another — and those keys were then left in
+// the instance's variables for good.
+//
+// The value is set on the shared variables rather than passed alongside them
+// because that is what a step reads. Iterations are started one at a time, and
+// a task takes its own copy of the variables as it starts, so each one leaves
+// with the item it was given.
+func BindMultiInstanceElement(instance *ProcessInstance, node Node, collection []any, index int) {
+	if instance == nil || node.ElementVariable == "" {
+		return
+	}
+	if index < 0 || index >= len(collection) {
+		return
+	}
+	instance.SetVariable(node.ElementVariable, collection[index])
+}
+
+// MultiInstanceCollection returns the list a node iterates over, and whether it
+// has one — a node may instead be given a plain count.
+func MultiInstanceCollection(instance *ProcessInstance, node Node) ([]any, bool) {
+	if instance == nil || node.Collection == "" {
+		return nil, false
+	}
+	items, ok := instance.Variables[node.Collection].([]any)
+	return items, ok
+}

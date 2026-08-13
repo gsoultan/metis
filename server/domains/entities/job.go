@@ -27,6 +27,15 @@ type Job struct {
 	Instance   *ProcessInstance   `json:"instance,omitzero"`
 	Definition *ProcessDefinition `json:"definition,omitzero"`
 	Node       *Node              `json:"node,omitzero"`
+
+	// IterationID names the iteration this job is for, on a node that runs once
+	// per item. Empty for an ordinary node.
+	//
+	// Without it, finishing the job could not say which of the node's tokens to
+	// retire: a service task told to run once per supplier ran for every one and
+	// then left every token in place, so the process sat there looking busy with
+	// nothing left to do.
+	IterationID string `json:"iteration_id,omitzero"`
 	Type       JobType            `json:"type"`
 	Status     JobStatus          `json:"status"`
 	Payload    map[string]any     `json:"payload"`

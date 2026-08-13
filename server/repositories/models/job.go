@@ -27,6 +27,7 @@ type JobModel struct {
 	InstanceID   uuid.UUID      `gorm:"type:uuid;index" json:"instance_id,omitzero"`
 	DefinitionID uuid.UUID      `gorm:"type:uuid" json:"definition_id,omitzero"`
 	NodeID       string         `json:"node_id"`
+	IterationID  string         `json:"iteration_id,omitzero"`
 	Type         JobType        `json:"type"`
 	Status       JobStatus      `gorm:"index" json:"status"`
 	LockedBy     string         `json:"locked_by,omitzero"`

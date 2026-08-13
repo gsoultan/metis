@@ -226,8 +226,20 @@ func (h *serviceTaskHarness) run(t *testing.T, node entities.Node, variables map
 
 	// The service task is queued rather than run inline, so nothing has been
 	// called yet at this point.
-	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
-		t.Fatalf("process pending jobs: %v", err)
+	//
+	// Drained repeatedly because running a job can queue the next one — a
+	// sequential multi-instance node starts each iteration when the one before
+	// it finishes. The real worker gets there on its next tick; a test should
+	// not have to sleep for one. The loop ends when a round does no work, so a
+	// node that genuinely stalls still shows up as a stalled instance.
+	for range 20 {
+		before := h.pendingJobs(t)
+		if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+			t.Fatalf("process pending jobs: %v", err)
+		}
+		if before == 0 {
+			break
+		}
 	}
 
 	updated, err := h.engine.GetInstance(ctx, instanceID)
@@ -235,6 +247,16 @@ func (h *serviceTaskHarness) run(t *testing.T, node entities.Node, variables map
 		t.Fatalf("reload instance: %v", err)
 	}
 	return updated
+}
+
+// pendingJobs counts the work waiting to be picked up.
+func (h *serviceTaskHarness) pendingJobs(t *testing.T) int {
+	t.Helper()
+	jobs, err := h.repo.Job().GetPending(t.Context(), 50)
+	if err != nil {
+		t.Fatalf("count pending jobs: %v", err)
+	}
+	return len(jobs)
 }
 
 // lastJob returns the instance's most recent job, for the error it recorded.

@@ -32,8 +32,9 @@ func (a JobModelAdapter) ToModel() models.JobModel {
 			}
 			return ""
 		}(),
-		Type:       models.JobType(a.Job.Type),
-		Status:     models.JobStatus(a.Job.Status),
+		IterationID: a.Job.IterationID,
+		Type:        models.JobType(a.Job.Type),
+		Status:      models.JobStatus(a.Job.Status),
 		Payload:    a.Job.Payload,
 		Retries:    a.Job.Retries,
 		MaxRetries: a.Job.MaxRetries,
@@ -51,8 +52,9 @@ func (a JobEntityAdapter) ToEntity() entities.Job {
 		ID:         a.Model.ID,
 		Instance:   &entities.ProcessInstance{ID: a.Model.InstanceID},
 		Definition: &entities.ProcessDefinition{ID: a.Model.DefinitionID},
-		Node:       &entities.Node{ID: a.Model.NodeID},
-		Type:       entities.JobType(a.Model.Type),
+		Node:        &entities.Node{ID: a.Model.NodeID},
+		IterationID: a.Model.IterationID,
+		Type:        entities.JobType(a.Model.Type),
 		Status:     entities.JobStatus(a.Model.Status),
 		Payload:    a.Model.Payload,
 		Retries:    a.Model.Retries,

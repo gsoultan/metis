@@ -8,7 +8,11 @@ import (
 
 // JobEnqueuer handles enqueueing different job types.
 type JobEnqueuer interface {
-	EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error
+	// EnqueueServiceTask queues the work for one service task. iterationID
+	// names the iteration on a node that runs once per item, and is empty
+	// otherwise — the job needs it to know which token it retires when it
+	// finishes.
+	EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error
 	EnqueueTimer(ctx context.Context, instance entities.ProcessInstance, node entities.Node, duration string) error
 	// EnqueueBoundaryTimer enqueues a non-interrupting or interrupting timer boundary event
 	// that fires after the given duration and triggers the boundary event on the attached task.

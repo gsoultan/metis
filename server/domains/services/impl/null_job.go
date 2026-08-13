@@ -10,7 +10,7 @@ import (
 
 type NullJobService struct{}
 
-func (s *NullJobService) EnqueueServiceTask(_ context.Context, _ entities.ProcessInstance, _ entities.Node) error {
+func (s *NullJobService) EnqueueServiceTask(_ context.Context, _ entities.ProcessInstance, _ entities.Node, _ string) error {
 	return nil
 }
 
