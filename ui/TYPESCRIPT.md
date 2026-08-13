@@ -1,64 +1,67 @@
 # TypeScript setup
 
-This project typechecks with **TypeScript 7** and lints with **TypeScript 6**,
-on purpose.
+This project compiles with **TypeScript 7.0.2** and lints with **TypeScript
+6.0.3**, side by side. That is the arrangement Microsoft describes for TS 7, not
+a workaround for this codebase.
 
 ## Why two
 
-TypeScript 7 is the native (Go) port of the compiler. On this codebase:
+TypeScript 7 is the native (Go) compiler. Its package ships `tsc` and a new
+`typescript/unstable/*` surface — and **not** the classic JS API:
 
-| | |
-| :-- | :-- |
-| `tsgo --build` (TS 7, native) | **~0.4s** |
-| `tsc -b` (TS 5.9, JS) | **~6.5s** |
-
-Measured when the split was introduced. The JS compiler is no longer installed
-to typecheck with, so the number is kept as the reason rather than as a claim
-about today.
-
-That is a 16× difference on every typecheck, in the editor and in CI.
-
-`typescript-eslint` cannot use it yet. Its peer range is
-`typescript >=4.8.4 <6.1.0`, and with TS 7 installed as `typescript` it does not
-degrade gracefully — `@typescript-eslint/typescript-estree` throws at require
-time, taking the whole lint run with it:
-
-```
-TypeError: Cannot read properties of undefined (reading 'Cjs')
-  at .../typescript-estree/dist/create-program/shared.js
+```json
+"exports": {
+  ".": "./lib/version.cjs",
+  "./unstable/sync": "./dist/api/sync/api.js",
+  "./unstable/ast": "./dist/ast/index.js"
+}
 ```
 
-Retested against the released `typescript@7.0.2` with `typescript-eslint@8.67.0`,
-the newest of both: unchanged. An alias does not help either — typescript-estree
-does `require('typescript')`, so whatever is installed under that name is what it
-gets.
+`import ts from 'typescript'` no longer gets you a compiler. Every tool built on
+that API — typescript-eslint, and `ts-api-utils` underneath it — therefore needs
+TypeScript 6 present. typescript-eslint says so itself rather than failing
+obscurely:
+
+```
+typescript-eslint does not support TS 7.0.
+Please see …/announcing-typescript-7-0/#running-side-by-side-with-typescript-6.0
+```
+
+Its peer range is `>=4.8.4 <6.1.0`, and support for TS 7 is tracked in
+typescript-eslint#10940.
 
 ## How it is wired
 
-- `@typescript/native-preview` provides `tsgo`, used by `bun run typecheck` and
-  `bun run build`. This is the real typecheck gate.
-- `typescript@6.0` stays installed so `typescript-eslint` resolves a compiler it
-  supports. Nothing else uses it, and it is kept as close to 7 as the peer range
-  allows so the rules see something near the semantics the gate checks against.
+- **`typescript@7.0.2`** provides `tsc`. `bun run typecheck` and `bun run build`
+  use it, so the gate checks the code against the compiler that will compile it.
+  The whole project typechecks in about half a second.
+- **`typescript-for-eslint`** is `npm:typescript@6.0.3` under another name, so it
+  does not claim `typescript` and confuse the compiler above.
+- **`scripts/link-lint-typescript.mjs`** runs on `postinstall` and links that
+  copy into the `node_modules` of every package in the lint chain that needs the
+  JS API.
 
-`typescript@7.0.2` is released and its `tsc` is the native compiler, so the
-preview package will not be needed forever — but installing it as `typescript`
-is what breaks lint, which is the whole reason for the split. The preview
-package exists precisely so the native compiler can be run without claiming the
-`typescript` name.
+The link is needed because those packages do `require('typescript')`, which
+cannot be pointed at an alias — a nested copy is the only thing they will pick
+up. Package-scoped `overrides` express the same intent and bun does not apply
+them here, which is why it is a script.
+
+The script **discovers** its targets: anything under `node_modules` declaring a
+`typescript` dependency or peer dependency. A hand-written list went stale
+within one attempt — `ts-api-utils` is not a `@typescript-eslint/*` package and
+needs the compiler just the same.
 
 ## When to collapse this
 
-When `typescript-eslint` publishes a release whose peer range admits TS 7:
+When typescript-eslint admits TS 7 (watch issue #10940, or check directly):
 
 ```bash
 npm view typescript-eslint@latest peerDependencies.typescript
 ```
 
-Then drop `typescript@6` and `@typescript/native-preview`, install `typescript@7`
-alone, and change the `typecheck` and `build` scripts from `tsgo` to `tsc` —
-`tsc --build --force` from typescript@7 typechecks this project in about the
-same time as `tsgo`, both being the same compiler.
+Then delete `typescript-for-eslint`, `scripts/link-lint-typescript.mjs` and the
+`postinstall` script. Nothing else changes: the `typecheck` and `build` scripts
+already run the real `tsc`.
 
 ## Note
 
