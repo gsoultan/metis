@@ -126,6 +126,31 @@ go build ./cmd/gobpm
 ENCRYPTION_KEY=... JWT_SECRET=... ./gobpm
 ```
 
+### Signing in, and getting back in
+
+There is no default account. The administrator username and password are the
+ones typed into the setup wizard on first run — `admin/admin` works only if that
+is what you chose.
+
+If nobody can sign in, reset a password from the machine running the server:
+
+```bash
+./gobpm --reset-password admin
+# Password updated for "admin".
+# New password: M6vY8yCdp879cTsmmWxp
+```
+
+It generates one and prints it. To choose your own without leaving it in the
+shell history, pass it in the environment instead — nothing is printed then:
+
+```bash
+GOBPM_NEW_PASSWORD='...' ./gobpm --reset-password admin
+```
+
+This runs against the configured database and exits without starting a server,
+so it works on an installation nobody can log into. It needs access to the
+machine and the database, which is the same access a backup restore would.
+
 ## 🧪 Testing
 
 Run the full verification gate (build, vet, tests, race, UI typecheck/lint/build):

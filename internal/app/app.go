@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -74,6 +76,10 @@ const (
 	defaultGRPCAddress = ":8081"
 	envHTTPAddress     = "GOBPM_HTTP_ADDRESS"
 	envGRPCAddress     = "GOBPM_GRPC_ADDRESS"
+
+	// envResetPassword supplies the new password for --reset-password, so that
+	// a chosen one need not be typed where it will be recorded.
+	envResetPassword = "GOBPM_NEW_PASSWORD"
 )
 
 // resolveAddress returns the listen address from env, falling back to a
@@ -151,6 +157,7 @@ func (a *App) Run() error {
 
 	// 0. Flag Parsing
 	buildUI := flag.Bool("build-ui", false, "Build the UI using bun")
+	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
 	flag.Parse()
 
 	if *buildUI {
@@ -178,11 +185,67 @@ func (a *App) Run() error {
 		return err
 	}
 
+	// A password reset is a maintenance task, not a server. It runs against the
+	// configured database and then exits, without opening a port — an operator
+	// doing this has usually been locked out, and starting a server they cannot
+	// log into would not help.
+	if *resetPassword != "" {
+		return a.handleResetPassword(ctx, *resetPassword)
+	}
+
 	// 4. Setup Transports
 	a.setupAuth(ctx)
 
 	// 5. Start Servers using errgroup
 	return a.runServers(ctx)
+}
+
+// handleResetPassword sets a new password for one account and prints it.
+//
+// There was no way to change a password at all, so a forgotten one had no
+// answer: there is no default account by design, and an installation with a
+// single administrator was simply unreachable. Reading it from the environment
+// keeps a chosen password out of the shell history; without one, a strong
+// password is generated, which is the better default for a recovery step.
+func (a *App) handleResetPassword(ctx context.Context, username string) error {
+	password, generated := os.Getenv(envResetPassword), false
+	if password == "" {
+		var err error
+		if password, err = generatePassword(); err != nil {
+			return fmt.Errorf("could not generate a password: %w", err)
+		}
+		generated = true
+	}
+
+	if err := a.svc.SetPassword(ctx, username, password); err != nil {
+		return err
+	}
+
+	fmt.Printf("Password updated for %q.\n", username)
+	if generated {
+		fmt.Printf("New password: %s\n", password)
+		fmt.Println("Sign in with it and change it; it is on screen and in this terminal's scrollback.")
+	}
+	return nil
+}
+
+// generatePassword returns a password from the crypto/rand source.
+//
+// The alphabet omits characters that are read wrongly when a password is copied
+// off a screen — no O/0, l/1/I — because this one is going to be.
+func generatePassword() (string, error) {
+	const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	const length = 20
+
+	out := make([]byte, length)
+	for i := range out {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		out[i] = alphabet[n.Int64()]
+	}
+	return string(out), nil
 }
 
 func (a *App) handleBuildUI() error {

@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -188,6 +189,39 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 	}
 
 	return s.repo.User().Update(ctx, stored)
+}
+
+// MinPasswordLength is the shortest password SetPassword will store.
+//
+// Short enough not to be an obstacle, long enough that a reset does not hand
+// back something worse than what it replaced.
+const MinPasswordLength = 8
+
+// SetPassword replaces an account's password.
+//
+// There was no way to change one at all: the only path that wrote a hash was
+// Create. A forgotten password therefore had no answer for the person who
+// forgot it or for an administrator, and since there is no default account by
+// design, an installation with one administrator became unreachable for good.
+func (s *userService) SetPassword(ctx context.Context, username, newPassword string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("a username is required")
+	}
+	if len(strings.TrimSpace(newPassword)) < MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", MinPasswordLength)
+	}
+
+	user, err := s.repo.User().GetByUsername(ctx, username)
+	if err != nil {
+		return fmt.Errorf("no such user %q", username)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("could not hash the new password: %w", err)
+	}
+	return s.repo.User().SetPasswordHash(ctx, user.ID, string(hash))
 }
 
 func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {

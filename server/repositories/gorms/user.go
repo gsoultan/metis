@@ -72,6 +72,20 @@ func (r *gormUserRepository) Update(ctx context.Context, u models.UserModel) err
 	return nil
 }
 
+// SetPasswordHash updates just the one column.
+func (r *gormUserRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	result := GetTx(ctx, r.db).Model(&models.UserModel{}).
+		Where(QueryByID, id).
+		Update("password_hash", passwordHash)
+	if result.Error != nil {
+		return fmt.Errorf("could not set password: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("could not set password: no such user")
+	}
+	return nil
+}
+
 func (r *gormUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := GetTx(ctx, r.db).Delete(&models.UserModel{}, QueryByID, id).Error; err != nil {
 		return fmt.Errorf("could not delete user: %w", err)
