@@ -246,7 +246,13 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     }
 
     exportMutation.mutate(definitionId, {
-      onSuccess: (data: any) => {
+      onSuccess: (data) => {
+        // An export with no XML is a failed export; decoding undefined throws
+        // and the download silently never starts.
+        if (!data?.xml) {
+          notifications.show({ title: 'Export failed', message: 'The server returned no BPMN XML', color: 'red' });
+          return;
+        }
         const xml = atob(data.xml);
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
@@ -344,7 +350,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       };
 
       setEdges((currentEdges) => {
-        const nextEdges = addEdge(nextEdge, currentEdges as any) as Edge[];
+        const nextEdges = addEdge<Edge<BPMNEdgeData>>(nextEdge, currentEdges);
         pushToHistory(nodes, nextEdges);
         return nextEdges;
       });
@@ -525,7 +531,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       currentNodes.map((node) => {
         let status: BPMNNodeData['status'] = node.data.status;
 
-        if (Array.isArray((pathData as any)?.nodes) && (pathData as any).nodes.some((n: any) => n?.id === node.id)) {
+        if (pathData?.nodes?.some((n) => n?.id === node.id)) {
           status = 'completed';
         }
 
@@ -536,7 +542,9 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
           status = 'active';
         }
 
-        const heatmapValue = ((pathData as any)?.node_frequencies?.[node.id]) ?? ((pathData as any)?.nodeFrequencies?.[node.id]) ?? 0;
+        // The service normalises the protobuf nodeFrequencies to this name, so
+        // there is one spelling to read rather than a guess at two.
+        const heatmapValue = pathData?.node_frequencies?.[node.id] ?? 0;
 
         return {
           ...node,

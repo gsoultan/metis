@@ -93,7 +93,7 @@ const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
 
 interface PropertyPanelProps {
   selectedNode: Node<BPMNNodeData> | null;
-  selectedEdge: Edge | null;
+  selectedEdge: Edge<BPMNEdgeData> | null;
   onClose: () => void;
   onDelete: () => void;
   updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
@@ -304,8 +304,8 @@ export function PropertyPanel({
             <Grid.Col span={{ base: 12, md: 4 }}>
               <Stack gap="lg">
                 <SmartTroubleshooter 
-                  node={selectedNode} 
-                  edge={selectedEdge} 
+                  node={selectedNode ?? undefined} 
+                  edge={selectedEdge ?? undefined} 
                   updateNodeData={updateNodeData}
                   updateEdgeData={updateEdgeData}
                 />

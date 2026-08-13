@@ -210,6 +210,9 @@ export interface ApiConnectorInstance {
   updated_at?: string;
 }
 
+/** What createConnector sends: the server assigns the id. */
+export type CreateConnectorPayload = Omit<ApiConnector, 'id' | 'created_at'>;
+
 /** What createConnectorInstance sends. Same shape, minus the server's fields. */
 export interface CreateConnectorInstancePayload {
   id?: string;

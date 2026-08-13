@@ -1,5 +1,7 @@
 import { Stack, Group, Text, Paper, ThemeIcon, Button, Badge, Alert } from '@mantine/core';
 import { AlertCircle, CheckCircle2, Lightbulb, Zap, ArrowRight } from 'lucide-react';
+import type { Edge, Node } from '@xyflow/react';
+import { asTextList, type BPMNEdgeData, type BPMNNodeData } from '../types/bpmn';
 
 interface DiagnosticResult {
   severity: 'error' | 'warning' | 'info';
@@ -8,7 +10,7 @@ interface DiagnosticResult {
   quickFix?: () => void;
 }
 
-export function validateProcess(nodes: any[], edges: any[]): DiagnosticResult[] {
+export function validateProcess(nodes: Node<BPMNNodeData>[], edges: Edge<BPMNEdgeData>[]): DiagnosticResult[] {
   const diagnostics: DiagnosticResult[] = [];
   const startEvents = nodes.filter(n => n.type === 'startEvent');
   const endEvents = nodes.filter(n => n.type === 'endEvent');
@@ -92,10 +94,10 @@ export function validateProcess(nodes: any[], edges: any[]): DiagnosticResult[] 
 }
 
 interface SmartTroubleshooterProps {
-  node?: any;
-  edge?: any;
-  updateNodeData?: (id: string, data: any) => void;
-  updateEdgeData?: (id: string, label: string, data: any) => void;
+  node?: Node<BPMNNodeData>;
+  edge?: Edge<BPMNEdgeData>;
+  updateNodeData?: (id: string, data: Partial<BPMNNodeData>) => void;
+  updateEdgeData?: (id: string, label: string, data: Partial<BPMNEdgeData>) => void;
 }
 
 export function SmartTroubleshooter({ node, edge, updateNodeData, updateEdgeData }: SmartTroubleshooterProps) {
@@ -118,7 +120,7 @@ export function SmartTroubleshooter({ node, edge, updateNodeData, updateEdgeData
 
     // User Task Diagnostics
     if (node.type === 'userTask') {
-      if (!data.assignee && (!data.candidateUsers || data.candidateUsers.length === 0)) {
+      if (!data.assignee && asTextList(data.candidateUsers).length === 0) {
         diagnostics.push({
           severity: 'warning',
           message: 'No assignee or candidate users.',

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { ApiConnector, ApiConnectorInstance, CreateConnectorInstancePayload, CreateConnectorPayload } from '../services/types';
 
 export const useConnectors = () => {
   return useQuery({
@@ -12,7 +13,7 @@ export const useConnectors = () => {
 export const useCreateConnector = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (connector: any) => processService.createConnector(connector),
+    mutationFn: (connector: CreateConnectorPayload) => processService.createConnector(connector),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connectors'] });
     },
@@ -22,7 +23,7 @@ export const useCreateConnector = () => {
 export const useUpdateConnector = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (connector: any) => processService.updateConnector(connector),
+    mutationFn: (connector: ApiConnector) => processService.updateConnector(connector),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connectors'] });
     },
@@ -53,7 +54,7 @@ export const useCreateConnectorInstance = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: (instance: any) => processService.createConnectorInstance(instance),
+    mutationFn: (instance: CreateConnectorInstancePayload) => processService.createConnectorInstance(instance),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connector-instances', currentProjectId] });
     },
@@ -64,7 +65,7 @@ export const useUpdateConnectorInstance = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: (instance: any) => processService.updateConnectorInstance(instance),
+    mutationFn: (instance: ApiConnectorInstance) => processService.updateConnectorInstance(instance),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connector-instances', currentProjectId] });
     },
@@ -84,14 +85,14 @@ export const useDeleteConnectorInstance = () => {
 
 export const useExecuteConnector = () => {
   return useMutation({
-    mutationFn: ({ connectorKey, config, payload }: { connectorKey: string; config: any; payload: any }) =>
+    mutationFn: ({ connectorKey, config, payload }: { connectorKey: string; config: Record<string, unknown>; payload: Record<string, unknown> }) =>
       processService.executeConnector(connectorKey, config, payload),
   });
 };
 
 export const useExecuteScript = () => {
   return useMutation({
-    mutationFn: ({ script, scriptFormat, variables }: { script: string; scriptFormat: string; variables: any }) =>
+    mutationFn: ({ script, scriptFormat, variables }: { script: string; scriptFormat: string; variables: Record<string, unknown> }) =>
       processService.executeScript(script, scriptFormat, variables),
   });
 };

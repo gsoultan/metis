@@ -3,6 +3,7 @@ import type {
   ApiConnector,
   ApiConnectorInstance,
   CreateConnectorInstancePayload,
+  CreateConnectorPayload,
 } from "../types";
 
 type ConnectorListResponse = {
@@ -32,7 +33,7 @@ export const connectorService = {
     return { connectors: data.connectors ?? [], err: data.err };
   },
 
-  async createConnector(connector: ApiConnector, signal?: AbortSignal) {
+  async createConnector(connector: CreateConnectorPayload, signal?: AbortSignal) {
     const data = await requestJSON<{ connector?: ApiConnector; err?: string }>("/connectors", {
       method: "POST",
       body: { connector },

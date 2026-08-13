@@ -24,6 +24,26 @@ import { useConnectors } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 import { NODE_VOCABULARY, type NodeKind } from '../domain/bpmnVocabulary';
 import type { LucideIcon } from 'lucide-react';
+import type { BPMNNodeData } from '../types/bpmn';
+
+/** One draggable entry in the palette, after the vocabulary has named it. */
+interface PaletteEntry {
+  type: string;
+  label: string;
+  description?: string;
+  icon: React.ComponentType<{ size?: number | string }>;
+  color?: string;
+  data?: Partial<BPMNNodeData>;
+  /** Filled in from the vocabulary: a worked example and the BPMN term. */
+  example?: string;
+  alsoKnownAs?: string;
+}
+
+type DragStartHandler = (
+  event: React.DragEvent,
+  nodeType: string,
+  initialData?: Partial<BPMNNodeData>,
+) => void;
 
 /**
  * The palette, grouped and labelled by what each thing DOES.
@@ -92,15 +112,15 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   const { expertMode } = useAppStore();
   const { data: connectorsData, isLoading: connectorsLoading } = useConnectors();
   
-  const onDragStart = (event: React.DragEvent, nodeType: string, initialData: any = {}) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string, initialData: Partial<BPMNNodeData> = {}) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.setData('application/initialData', JSON.stringify(initialData));
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const connectors = (connectorsData as any)?.connectors || [];
+  const connectors = connectorsData?.connectors ?? [];
   
-  const connectorItems = connectors.map((c: any) => ({
+  const connectorItems = connectors.map((c) => ({
     type: 'serviceTask',
     label: c.name,
     description: c.description,
@@ -214,7 +234,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
                 </Accordion.Control>
                 <Accordion.Panel>
                   <Stack gap="xs">
-                    {group.items.map((item: any) => (
+                    {group.items.map((item) => (
                       <DesignerItem key={item.label} item={item} onDragStart={onDragStart} />
                     ))}
                   </Stack>
@@ -248,7 +268,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   );
 }
 
-function DesignerItem({ item, onDragStart }: { item: any, onDragStart: any }) {
+function DesignerItem({ item, onDragStart }: { item: PaletteEntry; onDragStart: DragStartHandler }) {
   return (
     <Tooltip
       multiline
