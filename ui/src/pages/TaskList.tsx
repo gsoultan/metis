@@ -122,10 +122,14 @@ export function TaskList() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap="sm">
-                        <ThemeIcon 
-                          color={task.status === 'completed' ? 'green' : (task.type === 'userTask' ? 'blue' : 'teal')} 
-                          variant="light" 
-                          radius="md" 
+                        {/* The icon says what kind of work this is; the badge
+                            beside it says how it is going. Colouring the icon by
+                            status as well said the same thing twice, in a
+                            different palette. */}
+                        <ThemeIcon
+                          color={task.type === 'userTask' ? 'blue' : 'teal'}
+                          variant="light"
+                          radius="md"
                           size="md"
                         >
                           {React.createElement(getTaskIcon(task.type), { size: 16 })}

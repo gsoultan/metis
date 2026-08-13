@@ -57,6 +57,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { TableLoadingState, EmptyState } from '../components/state';
 import type { Task } from '../services/types';
 import type { JsonObject } from '@bufbuild/protobuf';
+import { StatusBadge } from '../components/StatusBadge';
+import { statusLabel } from '../components/statusVocabulary';
 
 function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
   if (!variables) return null;
@@ -234,17 +236,10 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
         </Group>
       </Table.Td>
       <Table.Td>
-        <Badge 
-          color={
-            task.status === 'unclaimed' ? 'orange' : 
-            task.status === 'claimed' ? 'blue' : 
-            task.status === 'escalated' ? 'red' : 'green'
-          } 
-          variant="light"
-          radius="sm"
-        >
-          {task.status}
-        </Badge>
+        {/* This printed the stored value — "unclaimed" — in a palette of its
+            own, so the inbox and the task list disagreed about both the word
+            and the colour for the same task. */}
+        <StatusBadge status={task.status} withIcon />
       </Table.Td>
       <Table.Td ta="right">
         <Group gap="xs" justify="flex-end">
@@ -332,13 +327,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
             onChange={() => onToggleSelection(task.id)} 
             size="xs"
           />
-          <Badge size="xs" color={
-              task.status === 'unclaimed' ? 'orange' : 
-              task.status === 'claimed' ? 'blue' : 
-              task.status === 'escalated' ? 'red' : 'green'
-            }>
-            {task.status}
-          </Badge>
+          <StatusBadge status={task.status} size="xs" />
         </Group>
         <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
@@ -415,10 +404,13 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
 }
 
 function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: KanbanViewProps) {
+  // The column headings are the status names, so they come from the same place
+  // the badges do — "Unclaimed" here and "Available" on the card was the board
+  // disagreeing with the cards on it.
   const columns = [
-    { id: 'unclaimed', title: 'Unclaimed', status: 'unclaimed', color: 'orange' },
-    { id: 'claimed', title: 'In Progress', status: 'claimed', color: 'blue' },
-    { id: 'completed', title: 'Completed', status: 'completed', color: 'green' },
+    { id: 'unclaimed', title: statusLabel('unclaimed'), status: 'unclaimed', color: 'grape' },
+    { id: 'claimed', title: statusLabel('claimed'), status: 'claimed', color: 'indigo' },
+    { id: 'completed', title: statusLabel('completed'), status: 'completed', color: 'green' },
   ];
 
   const filteredTasks = tasks.filter((t) => {

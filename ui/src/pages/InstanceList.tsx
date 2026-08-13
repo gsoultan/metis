@@ -13,10 +13,7 @@ import {
   Pagination,
   Select,
 } from '@mantine/core';
-import { 
-  Play, 
-  CheckCircle, 
-  AlertCircle, 
+import {    
   Eye, 
   RefreshCw,
 } from 'lucide-react';
@@ -25,6 +22,7 @@ import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
 import {useState} from 'react';
 import { useDefinitions } from '../hooks/useDefinitions';
+import { StatusBadge } from '../components/StatusBadge';
 
 /**
  * Turns a node identifier into something readable.
@@ -113,18 +111,7 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
 
   const instances = data?.instances || [];
 
-  const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return <Badge color="blue" variant="light" leftSection={<Play size={10} />}>Active</Badge>;
-      case 'completed':
-        return <Badge color="green" variant="light" leftSection={<CheckCircle size={10} />}>Completed</Badge>;
-      case 'failed':
-        return <Badge color="red" variant="light" leftSection={<AlertCircle size={10} />}>Failed</Badge>;
-      default:
-        return <Badge color="gray" variant="light">{status}</Badge>;
-    }
-  };
+
 
   return (
     <Stack gap="xl">
@@ -167,7 +154,7 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                     <Text size="sm" fw={500}>{definitionName(inst, definitions)}</Text>
                     <Text size="xs" c="dimmed" ff="monospace">{String(inst.id).slice(0, 8)}</Text>
                   </td>
-                  <td>{getStatusBadge(inst.status)}</td>
+                  <td><StatusBadge status={inst.status} withIcon /></td>
                   <td>
                     {/*
                       This printed the raw node ID — "Activity_1x2y3z" — as the
