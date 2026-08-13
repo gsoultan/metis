@@ -64,6 +64,11 @@ func (s *SynchronousJobService) EnqueueBoundaryTimer(ctx context.Context, instan
 
 func (s *SynchronousJobService) StartWorkers(_ context.Context) {}
 
+// ProcessPendingJobs has nothing to process: this double runs each task inline
+// at enqueue time rather than persisting a job. Use the real job service when
+// what a service task actually does is the thing under test.
+func (s *SynchronousJobService) ProcessPendingJobs(_ context.Context) error { return nil }
+
 func (s *SynchronousJobService) ListIncidents(ctx context.Context, instanceID uuid.UUID) ([]entities.Incident, error) {
 	return nil, nil
 }

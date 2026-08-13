@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,26 +105,49 @@ func (s *jobService) StartWorkers(ctx context.Context) {
 // goroutine.  A semaphore prevents unbounded goroutine growth when jobs arrive
 // faster than they complete.
 func (s *jobService) processPendingJobs(ctx context.Context) {
+	_ = s.dispatchPendingJobs(ctx, false)
+}
+
+// ProcessPendingJobs runs one round of pending jobs and waits for it to finish.
+//
+// The ticker deliberately does not wait, so that a slow job cannot hold up the
+// next round. A caller that needs the work actually done before looking at the
+// result — a test, or a one-shot drain — has no way to express that other than
+// sleeping and hoping, which is how service task execution ended up with no
+// coverage at all: the tests substituted a stub for this service rather than
+// wait on it.
+func (s *jobService) ProcessPendingJobs(ctx context.Context) error {
+	return s.dispatchPendingJobs(ctx, true)
+}
+
+func (s *jobService) dispatchPendingJobs(ctx context.Context, wait bool) error {
 	ms, err := s.repo.Job().GetPending(ctx, maxConcurrentJobs)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get pending jobs")
-		return
+		return err
 	}
 
+	var running sync.WaitGroup
 	for _, m := range ms {
 		if !s.tryAcquireJobLock(ctx, m.ID) {
 			continue
 		}
 		// Acquire a slot before spawning; the slot is released when the job finishes.
 		if err := s.sem.Acquire(ctx, 1); err != nil {
-			return // context cancelled
+			break // context cancelled
 		}
 		job := adapters.JobEntityAdapter{Model: m}.ToEntity()
+		running.Add(1)
 		go func(j entities.Job) {
+			defer running.Done()
 			defer s.sem.Release(1)
 			s.runJob(ctx, j)
 		}(job)
 	}
+	if wait {
+		running.Wait()
+	}
+	return nil
 }
 
 // tryAcquireJobLock acquires both the DB row-lock and the distributed advisory lock

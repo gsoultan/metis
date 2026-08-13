@@ -18,6 +18,11 @@ type JobEnqueuer interface {
 // JobWorker manages the job execution lifecycle.
 type JobWorker interface {
 	StartWorkers(ctx context.Context)
+
+	// ProcessPendingJobs runs one round of pending jobs and waits for it to
+	// finish, for a caller that needs the work done before it looks at the
+	// result rather than eventually.
+	ProcessPendingJobs(ctx context.Context) error
 }
 
 // IncidentManager handles job incidents.

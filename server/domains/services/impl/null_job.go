@@ -24,6 +24,9 @@ func (s *NullJobService) EnqueueBoundaryTimer(_ context.Context, _ entities.Proc
 
 func (s *NullJobService) StartWorkers(_ context.Context) {}
 
+// ProcessPendingJobs has nothing to process: this service never enqueues.
+func (s *NullJobService) ProcessPendingJobs(_ context.Context) error { return nil }
+
 func (s *NullJobService) ListIncidents(_ context.Context, _ uuid.UUID) ([]entities.Incident, error) {
 	return nil, nil
 }
