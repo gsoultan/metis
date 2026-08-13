@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsgo --build --force",
     "lint:fix": "eslint . --fix",
-    "bundle-budget": "node scripts/check-bundle-budget.mjs"
+    "bundle-budget": "node scripts/check-bundle-budget.mjs",
+    "test": "bun test"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2",

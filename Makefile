@@ -49,7 +49,10 @@ ui-lint: ## Lint the UI
 	cd ui && bun run lint
 
 .PHONY: ui-test
-ui-test: ## Run UI tests
+ui-test: ## Run the UI tests
+	# This target existed and the gate did not call it, so the tests under it
+	# had not run in a long time. Logic in the browser is as easy to get wrong
+	# as logic on the server.
 	cd ui && bun test
 
 # --- Go -------------------------------------------------------------------
@@ -81,7 +84,7 @@ vuln: ## Scan for known vulnerabilities
 # --- Gate -----------------------------------------------------------------
 
 .PHONY: gate
-gate: ui-build build vet test race ui-typecheck ui-lint ## The full verification gate (AGENTS.md §4)
+gate: ui-build build vet test race ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
 	@echo "✅ gate green"
 
 .PHONY: graph
