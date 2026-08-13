@@ -239,22 +239,40 @@ export interface ApiSubProcess {
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
+/**
+ * A user as the REST API sends one.
+ *
+ * The name field is `full_name`. It was declared `fullName` here, which the API
+ * has never sent, so every read of it was undefined: names showed as usernames
+ * in the member and assignee lists, searching by name matched nothing, and —
+ * the expensive one — the edit form opened with an empty Full Name and saving
+ * submitted that empty value back.
+ */
 export interface ApiOrganizationUser {
   id: string;
   username: string;
-  fullName?: string;
+  full_name?: string;
   display_name?: string;
-  organization?: string;
+  /** The API sends the organization as an object, not a name. */
+  organization?: { id: string; name?: string };
   email?: string;
   roles?: string[];
-  organization_id?: string;
+  organizations?: Array<{ id: string; name?: string }>;
 }
 
+/**
+ * A group of users, which a user task can assign work to by name.
+ *
+ * `roles` is read by the group editor and was missing here, and the API sends
+ * the owning organization as an object rather than an `organization_id`.
+ */
 export interface ApiGroup {
   id: string;
   name: string;
   description?: string;
-  organization_id?: string;
+  roles?: string[];
+  organization?: { id: string; name?: string };
+  created_at?: string;
 }
 
 export interface CreateUserPayload {

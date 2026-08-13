@@ -29,6 +29,12 @@ import { useState, useTransition } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
 import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { ApiOrganizationUser } from '../services/types';
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 const AVAILABLE_ROLES = ['admin', 'user', 'manager', 'developer'];
 
@@ -56,18 +62,18 @@ export function UserList() {
   const users = searchQuery
     ? allUsers.filter((u) =>
         u.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : allUsers;
 
-  const handleOpenModal = (user?: any) => {
+  const handleOpenModal = (user?: ApiOrganizationUser) => {
     if (user) {
       setEditingUser(user);
       setUsername(user.username || '');
-      setFullName(user.fullName || '');
+      setFullName(user.full_name || '');
       setDisplayName(user.display_name || '');
-      setOrganization(user.organization || '');
+      setOrganization(user.organization?.name || '');
       setEmail(user.email || '');
       setRoles(user.roles || []);
       setPassword('');
@@ -110,8 +116,8 @@ export function UserList() {
         notifications.show({ title: 'Success', message: 'User created successfully', color: 'green' });
       }
       setIsModalOpen(false);
-    } catch (error: any) {
-      notifications.show({ title: 'Error', message: error.message || 'Failed to save user', color: 'red' });
+    } catch (error: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to save user'), color: 'red' });
     }
   };
 
@@ -120,8 +126,8 @@ export function UserList() {
       try {
         await deleteUser.mutateAsync(id);
         notifications.show({ title: 'Success', message: 'User deleted successfully', color: 'green' });
-      } catch (error: any) {
-        notifications.show({ title: 'Error', message: error.message || 'Failed to delete user', color: 'red' });
+      } catch (error: unknown) {
+        notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to delete user'), color: 'red' });
       }
     }
   };
@@ -203,7 +209,7 @@ export function UserList() {
                           <UserCircle size={16} />
                         </ThemeIcon>
                         <Stack gap={0}>
-                          <Text fw={700} size="sm">{u.fullName || u.username}</Text>
+                          <Text fw={700} size="sm">{u.full_name || u.username}</Text>
                           <Text size="xs" c="dimmed">@{u.username}</Text>
                         </Stack>
                       </Group>

@@ -26,7 +26,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const { data: usersData } = useUsers(currentOrganizationId);
   const { data: groupsData } = useGroups(currentOrganizationId);
 
-  const availableUsers = (usersData?.users || []).map((u) => ({ value: u.username, label: u.fullName || u.username }));
+  const availableUsers = (usersData?.users || []).map((u) => ({ value: u.username, label: u.full_name || u.username }));
   const availableGroups = (groupsData?.groups || []).map((g) => ({ value: g.name, label: g.name }));
 
   const hasDirectAssignment = !!data.assignee;

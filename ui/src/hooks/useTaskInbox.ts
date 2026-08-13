@@ -22,7 +22,11 @@ export function useTaskInbox() {
   const userGroups = useMemo(() => {
     if (!userGroupsData?.groups) return [];
     return userGroupsData.groups
-      .filter((g) => g.organization_id === currentOrganizationId)
+      // The API sends the owning organization as an object. Comparing against
+      // a non-existent `organization_id` was always false, so this list came
+      // back empty and the inbox never showed a task offered to your groups —
+      // only ones naming you personally.
+      .filter((g) => g.organization?.id === currentOrganizationId)
       .map((g) => g.name);
   }, [userGroupsData, currentOrganizationId]);
   
@@ -39,7 +43,7 @@ export function useTaskInbox() {
   
   const { data: usersData } = useUsers(currentOrganizationId);
   const availableUsers = useMemo(() => 
-    (usersData?.users || []).map((u) => ({ value: u.username, label: u.fullName || u.username })),
+    (usersData?.users || []).map((u) => ({ value: u.username, label: u.full_name || u.username })),
     [usersData]
   );
   

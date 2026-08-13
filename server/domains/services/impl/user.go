@@ -145,8 +145,49 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (en
 	return entities.User{}, fmt.Errorf("invalid token")
 }
 
+// UpdateUser applies an edit to an existing user without disturbing what the
+// edit did not mention.
+//
+// The request carries a whole entities.User and the repository writes it with
+// GORM's Save, which sets every column. Applying that directly meant a profile
+// edit — which sends no username, because it is not editable, and no password,
+// because that has its own screen — blanked both, along with anything else the
+// caller left out. The account was then unreachable: no username to log in
+// with and no password hash to check, and if it was the only administrator the
+// installation was locked out for good.
+//
+// So the incoming user is merged onto the stored one. A field that carries a
+// value replaces the stored one, including an empty string where clearing is a
+// legitimate edit — a name can be removed. The exceptions are the two that
+// cannot be recovered from: an empty username is read as "not supplied" rather
+// than as a request to remove the login identity, and the password hash is not
+// reachable from here at all. Roles distinguish absent from empty, since JSON
+// decodes a missing list to nil and an explicit [] to an empty one, so a client
+// that knows nothing about roles cannot strip them.
 func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
-	return s.repo.User().Update(ctx, adapters.UserModelAdapter{User: u}.ToModel())
+	if u.ID == uuid.Nil {
+		return fmt.Errorf("user id is required")
+	}
+
+	stored, err := s.repo.User().Get(ctx, u.ID)
+	if err != nil {
+		return fmt.Errorf("could not load the user being updated: %w", err)
+	}
+
+	stored.FullName = u.FullName
+	stored.DisplayName = u.DisplayName
+	stored.Email = u.Email
+	if u.Username != "" {
+		stored.Username = u.Username
+	}
+	if u.Roles != nil {
+		stored.Roles = u.Roles
+	}
+	if u.Organization != nil {
+		stored.Organization = u.Organization.Name
+	}
+
+	return s.repo.User().Update(ctx, stored)
 }
 
 func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
