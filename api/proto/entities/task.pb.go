@@ -39,8 +39,13 @@ type Task struct {
 	Variables       *structpb.Struct       `protobuf:"bytes,13,opt,name=variables,proto3" json:"variables,omitempty"`
 	FormKey         string                 `protobuf:"bytes,14,opt,name=form_key,json=formKey,proto3" json:"form_key,omitempty"`
 	FormDefinition  string                 `protobuf:"bytes,15,opt,name=form_definition,json=formDefinition,proto3" json:"form_definition,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The BPMN node type this task came from. The UI branches on it: a manual
+	// task is completed with "Mark as Done" and has no form to fill in, a user
+	// task does. Without it every task looked like a user task.
+	Type          string `protobuf:"bytes,16,opt,name=type,proto3" json:"type,omitempty"`
+	Description   string `protobuf:"bytes,17,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -178,11 +183,25 @@ func (x *Task) GetFormDefinition() string {
 	return ""
 }
 
+func (x *Task) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *Task) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 var File_entities_task_proto protoreflect.FileDescriptor
 
 const file_entities_task_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xb6\x04\n" +
+	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xec\x04\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
 	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
@@ -200,7 +219,9 @@ const file_entities_task_proto_rawDesc = "" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x125\n" +
 	"\tvariables\x18\r \x01(\v2\x17.google.protobuf.StructR\tvariables\x12\x19\n" +
 	"\bform_key\x18\x0e \x01(\tR\aformKey\x12'\n" +
-	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinitionB\x8b\x01\n" +
+	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinition\x12\x12\n" +
+	"\x04type\x18\x10 \x01(\tR\x04type\x12 \n" +
+	"\vdescription\x18\x11 \x01(\tR\vdescriptionB\x8b\x01\n" +
 	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (

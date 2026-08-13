@@ -13,6 +13,40 @@ import {
   useUserGroups,
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
+import type { Task } from '../services/types';
+
+/**
+ * The value a column sorts on.
+ *
+ * Sorting indexed the task directly, with keys like `created_at` and
+ * `instance_id`. The wire format is protobuf: those names are camelCased and a
+ * reference to another record is a nested object, so every lookup returned
+ * undefined and the comparator treated every pair as equal — clicking a column
+ * header did nothing at all.
+ */
+function sortValue(task: Task, field: string): string | number | undefined {
+  switch (field) {
+    case 'instanceId':
+    case 'instance_id':
+      return task.instance?.id;
+    case 'assignee':
+      return task.assignee?.username;
+    case 'dueDate':
+    case 'due_date':
+      return task.dueDate;
+    case 'createdAt':
+    case 'created_at':
+      return task.createdAt;
+    case 'name':
+      return task.name;
+    case 'status':
+      return task.status;
+    case 'priority':
+      return task.priority;
+    default:
+      return undefined;
+  }
+}
 
 export function useTaskInbox() {
   const { currentOrganizationId, user } = useAppStore();
@@ -36,7 +70,7 @@ export function useTaskInbox() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<any | null>(null);
   const [editingTask, setEditingTask] = useState<any | null>(null);
-  const [sortBy, setSortBy] = useState<string | null>('created_at');
+  const [sortBy, setSortBy] = useState<string | null>('createdAt');
   const [reverseSortDirection, setReverseSortDirection] = useState(true);
   
   const queryClient = useQueryClient();
@@ -145,14 +179,14 @@ export function useTaskInbox() {
         t.name?.toLowerCase().includes(query) || 
         t.description?.toLowerCase().includes(query) ||
         t.id?.toLowerCase().includes(query) ||
-        t.instance_id?.toLowerCase().includes(query)
+        t.instance?.id?.toLowerCase().includes(query)
       );
     }
 
     if (sortBy) {
       filtered.sort((a, b) => {
-        const aVal = a[sortBy];
-        const bVal = b[sortBy];
+        const aVal = sortValue(a, sortBy);
+        const bVal = sortValue(b, sortBy);
         
         if (aVal === bVal) return 0;
         if (aVal === null || aVal === undefined) return 1;

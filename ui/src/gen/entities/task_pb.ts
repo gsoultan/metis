@@ -21,7 +21,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file entities/task.proto.
  */
 export const file_entities_task: GenFile = /*@__PURE__*/
-  fileDesc("ChNlbnRpdGllcy90YXNrLnByb3RvEgdwcm9jZXNzIp4DCgRUYXNrEgoKAmlkGAEgASgJEiEKB3Byb2plY3QYAiABKAsyEC5wcm9jZXNzLlByb2plY3QSKgoIaW5zdGFuY2UYAyABKAsyGC5wcm9jZXNzLlByb2Nlc3NJbnN0YW5jZRIbCgRub2RlGAQgASgLMg0ucHJvY2Vzcy5Ob2RlEgwKBG5hbWUYBSABKAkSDgoGc3RhdHVzGAYgASgJEh8KCGFzc2lnbmVlGAcgASgLMg0ucHJvY2Vzcy5Vc2VyEiYKD2NhbmRpZGF0ZV91c2VycxgIIAMoCzINLnByb2Nlc3MuVXNlchIoChBjYW5kaWRhdGVfZ3JvdXBzGAkgAygLMg4ucHJvY2Vzcy5Hcm91cBIQCghwcmlvcml0eRgKIAEoBRIQCghkdWVfZGF0ZRgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJEioKCXZhcmlhYmxlcxgNIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSEAoIZm9ybV9rZXkYDiABKAkSFwoPZm9ybV9kZWZpbml0aW9uGA8gASgJQosBCgtjb20ucHJvY2Vzc0IJVGFza1Byb3RvUAFaNWdpdGh1Yi5jb20vZ3NvdWx0YW4vZ29icG0vYXBpL3Byb3RvL2VudGl0aWVzO2VudGl0aWVzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_google_protobuf_struct, file_entities_node, file_entities_user, file_entities_group, file_entities_project, file_entities_process_instance]);
+  fileDesc("ChNlbnRpdGllcy90YXNrLnByb3RvEgdwcm9jZXNzIsEDCgRUYXNrEgoKAmlkGAEgASgJEiEKB3Byb2plY3QYAiABKAsyEC5wcm9jZXNzLlByb2plY3QSKgoIaW5zdGFuY2UYAyABKAsyGC5wcm9jZXNzLlByb2Nlc3NJbnN0YW5jZRIbCgRub2RlGAQgASgLMg0ucHJvY2Vzcy5Ob2RlEgwKBG5hbWUYBSABKAkSDgoGc3RhdHVzGAYgASgJEh8KCGFzc2lnbmVlGAcgASgLMg0ucHJvY2Vzcy5Vc2VyEiYKD2NhbmRpZGF0ZV91c2VycxgIIAMoCzINLnByb2Nlc3MuVXNlchIoChBjYW5kaWRhdGVfZ3JvdXBzGAkgAygLMg4ucHJvY2Vzcy5Hcm91cBIQCghwcmlvcml0eRgKIAEoBRIQCghkdWVfZGF0ZRgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJEioKCXZhcmlhYmxlcxgNIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSEAoIZm9ybV9rZXkYDiABKAkSFwoPZm9ybV9kZWZpbml0aW9uGA8gASgJEgwKBHR5cGUYECABKAkSEwoLZGVzY3JpcHRpb24YESABKAlCiwEKC2NvbS5wcm9jZXNzQglUYXNrUHJvdG9QAVo1Z2l0aHViLmNvbS9nc291bHRhbi9nb2JwbS9hcGkvcHJvdG8vZW50aXRpZXM7ZW50aXRpZXOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_google_protobuf_struct, file_entities_node, file_entities_user, file_entities_group, file_entities_project, file_entities_process_instance]);
 
 /**
  * @generated from message process.Task
@@ -101,6 +101,20 @@ export type Task = Message<"process.Task"> & {
    * @generated from field: string form_definition = 15;
    */
   formDefinition: string;
+
+  /**
+   * The BPMN node type this task came from. The UI branches on it: a manual
+   * task is completed with "Mark as Done" and has no form to fill in, a user
+   * task does. Without it every task looked like a user task.
+   *
+   * @generated from field: string type = 16;
+   */
+  type: string;
+
+  /**
+   * @generated from field: string description = 17;
+   */
+  description: string;
 };
 
 /**

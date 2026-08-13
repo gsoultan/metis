@@ -27,4 +27,11 @@ message Task {
   google.protobuf.Struct variables = 13;
   string form_key = 14;
   string form_definition = 15;
+
+  // The BPMN node type this task came from. The UI branches on it: a manual
+  // task is completed with "Mark as Done" and has no form to fill in, a user
+  // task does. Without it every task looked like a user task.
+  string type = 16;
+
+  string description = 17;
 }
