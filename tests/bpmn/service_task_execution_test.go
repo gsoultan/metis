@@ -145,6 +145,16 @@ type serviceTaskHarness struct {
 	projectID uuid.UUID
 }
 
+// subProcessesOf returns the instances started by this one.
+func (h *serviceTaskHarness) subProcessesOf(t *testing.T, parentID uuid.UUID) []entities.ProcessInstance {
+	t.Helper()
+	children, err := h.engine.ListSubProcesses(t.Context(), parentID)
+	if err != nil {
+		t.Fatalf("list sub-processes: %v", err)
+	}
+	return children
+}
+
 // tasksFor returns the tasks an instance is waiting on.
 func (h *serviceTaskHarness) tasksFor(t *testing.T, instanceID uuid.UUID) []entities.Task {
 	t.Helper()
