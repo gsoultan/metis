@@ -14,6 +14,7 @@ import { Zap } from 'lucide-react';
 import { useDefinitions, useSubProcesses } from '../../hooks/useProcess';
 import { MappingTable } from './CommonProperties';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText, asNumber, asTextMap } from '../../types/bpmn';
 
 export function CallActivityConfig({
   data,
@@ -63,7 +64,7 @@ export function CallActivityConfig({
               description="The process to start when this node is reached"
               placeholder="Select a process"
               data={definitions.map((d: any) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
-              value={data.called_process_key || ''}
+              value={asText(data.called_process_key)}
               onChange={(val) => onUpdate({ called_process_key: val })}
               searchable
               clearable
@@ -73,7 +74,7 @@ export function CallActivityConfig({
             <NumberInput
               label="Version"
               description="0 = Latest"
-              value={data.called_process_version || 0}
+              value={asNumber(data.called_process_version)}
               onChange={(val) => onUpdate({ called_process_version: Number(val) || 0 })}
             />
           </Grid.Col>
@@ -85,13 +86,13 @@ export function CallActivityConfig({
       <Stack gap="md">
         <MappingTable 
           title="In Mapping (Parent → Child)" 
-          mapping={data.in_mapping || {}} 
+          mapping={asTextMap(data.in_mapping)} 
           onUpdate={(m) => onUpdate({ in_mapping: m })} 
         />
 
         <MappingTable 
           title="Out Mapping (Child → Parent)" 
-          mapping={data.out_mapping || {}} 
+          mapping={asTextMap(data.out_mapping)} 
           onUpdate={(m) => onUpdate({ out_mapping: m })} 
         />
       </Stack>

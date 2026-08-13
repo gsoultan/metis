@@ -13,9 +13,10 @@ import {
 } from '@mantine/core';
 import { Zap, Globe } from 'lucide-react';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText } from '../../types/bpmn';
 
 export function EventConfig({ data, onUpdate }: NodeConfigProps) {
-  const eventType = data.eventType || (data.duration ? 'timer' : data.signalName ? 'signal' : data.messageName ? 'message' : 'timer');
+  const eventType = asText(data.eventType) || (data.duration ? 'timer' : data.signalName ? 'signal' : data.messageName ? 'message' : 'timer');
 
   return (
     <Stack gap="xl">
@@ -60,7 +61,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
                 { value: 'date', label: 'Date (Wait until)' },
                 { value: 'cycle', label: 'Cycle (Repeatedly)' },
               ]}
-              value={data.timerType || 'duration'}
+              value={asText(data.timerType, 'duration')}
               onChange={(val) => onUpdate({ timerType: val })}
             />
           </Grid.Col>
@@ -70,7 +71,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
               size="md"
               placeholder={data.timerType === 'date' ? '2026-01-01T12:00:00Z' : 'PT1H'}
               description={data.timerType === 'duration' ? 'ISO 8601 Duration (e.g. PT10M, P1D)' : 'ISO 8601 Date/Time or Expression'}
-              value={data.duration || ''}
+              value={asText(data.duration)}
               onChange={(e) => onUpdate({ duration: e.target.value })}
             />
           </Grid.Col>
@@ -83,7 +84,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
           size="md"
           placeholder="Global Signal Name"
           description="A unique name for the signal broadcast"
-          value={data.signalName || ''}
+          value={asText(data.signalName)}
           onChange={(e) => onUpdate({ signalName: e.target.value })}
           leftSection={<Zap size={14} />}
         />
@@ -96,7 +97,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
             size="md"
             placeholder="OrderReceived"
             description="The name of the message to catch"
-            value={data.messageName || ''}
+            value={asText(data.messageName)}
             onChange={(e) => onUpdate({ messageName: e.target.value })}
             leftSection={<Globe size={14} />}
           />
@@ -105,7 +106,7 @@ export function EventConfig({ data, onUpdate }: NodeConfigProps) {
             size="md"
             placeholder="${orderId}"
             description="Expression to match specific process instance"
-            value={data.correlationKey || ''}
+            value={asText(data.correlationKey)}
             onChange={(e) => onUpdate({ correlationKey: e.target.value })}
             leftSection={<MantineCode>KEY</MantineCode>}
           />

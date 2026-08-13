@@ -1,6 +1,7 @@
 import { Stack, Group, Text, ThemeIcon, Grid, TextInput, Alert } from '@mantine/core';
 import { User, Info } from 'lucide-react';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText } from '../../types/bpmn';
 
 export function ManualTaskConfig({ data, onUpdate }: NodeConfigProps) {
   // Users data available if needed for assignment UI
@@ -21,7 +22,7 @@ export function ManualTaskConfig({ data, onUpdate }: NodeConfigProps) {
               label="Assigned Actor"
               placeholder="e.g. Warehouse Manager"
               description="The human role or person who performs this action"
-              value={data.actor || ''}
+              value={asText(data.actor)}
               onChange={(e) => onUpdate({ actor: e.target.value })}
             />
           </Grid.Col>

@@ -12,6 +12,7 @@ import { LayoutGrid, RefreshCw } from 'lucide-react';
 import { useDecisions } from '../../hooks/useProcess';
 import { MappingTable } from './CommonProperties';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText, asNumber, asTextMap } from '../../types/bpmn';
 
 export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const { data: decisionsData } = useDecisions();
@@ -34,7 +35,7 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
               description="Key of the DMN decision to execute"
               placeholder="Select a decision"
               data={decisions.map((d: any) => ({ value: d.key, label: `${d.name} (${d.key})` }))}
-              value={data.decision_key || ''}
+              value={asText(data.decision_key)}
               onChange={(val) => onUpdate({ decision_key: val })}
               searchable
               clearable
@@ -44,7 +45,7 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
             <NumberInput
               label="Version"
               description="0 = Latest"
-              value={data.decision_version || 0}
+              value={asNumber(data.decision_version)}
               onChange={(val) => onUpdate({ decision_version: Number(val) || 0 })}
             />
           </Grid.Col>
@@ -63,13 +64,13 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
         <MappingTable 
           title="Input Mapping (Process Variable → Decision Input)" 
-          mapping={data.input_mapping || {}} 
+          mapping={asTextMap(data.input_mapping)} 
           onUpdate={(m) => onUpdate({ input_mapping: m })} 
         />
 
         <MappingTable 
           title="Output Mapping (Decision Output → Process Variable)" 
-          mapping={data.output_mapping || {}} 
+          mapping={asTextMap(data.output_mapping)} 
           onUpdate={(m) => onUpdate({ output_mapping: m })} 
         />
       </Stack>

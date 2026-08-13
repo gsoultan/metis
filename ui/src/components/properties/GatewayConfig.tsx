@@ -8,6 +8,7 @@ import {
 } from '@mantine/core';
 import { Zap, AlertCircle } from 'lucide-react';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText } from '../../types/bpmn';
 
 export function GatewayConfig({
   data,
@@ -38,7 +39,7 @@ export function GatewayConfig({
           description="The flow to use if no other conditions evaluate to true"
           size="md"
           data={edgeOptions}
-          value={data.defaultFlow || ''}
+          value={asText(data.defaultFlow)}
           onChange={(val) => onUpdate({ defaultFlow: val })}
           clearable
           searchable

@@ -20,9 +20,10 @@ import { useAppStore } from '../../store/useAppStore';
 import { MappingTable, MultiInstanceConfig, NodeTestModal, ConnectorCatalog } from './CommonProperties';
 import { HelpTooltip } from '../LowCodeComponents';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText, asTextMap } from '../../types/bpmn';
 
 export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const implementation = data.implementation || 'push';
+  const implementation = asText(data.implementation, 'push');
   const { data: connectorsData } = useConnectors();
   const { expertMode } = useAppStore();
   const [testModalOpened, setTestModalOpened] = useState(false);
@@ -117,13 +118,13 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
                 <MappingTable 
                   title="Input Variables (Parent → Connector)" 
-                  mapping={data.inputs || {}} 
+                  mapping={asTextMap(data.inputs)} 
                   onUpdate={(m) => onUpdate({ inputs: m })} 
                 />
 
                 <MappingTable 
                   title="Output Mapping (Connector → Parent)" 
-                  mapping={data.outputs || {}} 
+                  mapping={asTextMap(data.outputs)} 
                   onUpdate={(m) => onUpdate({ outputs: m })} 
                 />
              </Stack>
@@ -138,7 +139,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
             placeholder="https://api.example.com/webhook"
             description="The URL that will receive a POST request when this task starts"
             size="md"
-            value={data.url || ''}
+            value={asText(data.url)}
             onChange={(e) => onUpdate({ url: e.target.value })}
           />
           <TextInput 
@@ -147,7 +148,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
             description="Sent in Authorization header"
             size="md"
             type="password"
-            value={data.auth_token || ''}
+            value={asText(data.auth_token)}
             onChange={(e) => onUpdate({ auth_token: e.target.value })}
           />
         </Stack>
@@ -160,7 +161,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
             placeholder="e.g. process-invoice"
             description="External workers will subscribe to this topic"
             size="md"
-            value={data.topic || ''}
+            value={asText(data.topic)}
             onChange={(e) => onUpdate({ topic: e.target.value })}
           />
         </Stack>
@@ -179,7 +180,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
               placeholder="// context contains 'vars' and 'data'..." 
               minRows={10}
               styles={{ input: { fontFamily: 'monospace', fontSize: '12px' } }}
-              value={data.script || ''}
+              value={asText(data.script)}
               onChange={(e) => onUpdate({ script: e.target.value })}
            />
            <Button 

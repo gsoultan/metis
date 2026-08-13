@@ -46,6 +46,7 @@ import { EventConfig } from './properties/EventConfig';
 import { GatewayConfig } from './properties/GatewayConfig';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
+import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 /**
  * FE-ARCH-10: Typed node configuration registry.
@@ -56,8 +57,8 @@ import { vocabularyFor } from '../domain/bpmnVocabulary';
  */
  
 export interface NodeConfigProps {
-  data: any;
-  onUpdate: (data: any) => void;
+  data: BPMNNodeData;
+  onUpdate: (data: Partial<BPMNNodeData>) => void;
   /** Provided to GatewayConfig for outgoing-flow condition editing. */
   selectedNode?: Node;
   /** Provided to GatewayConfig for outgoing-flow condition editing. */
@@ -91,12 +92,12 @@ const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
 };
 
 interface PropertyPanelProps {
-  selectedNode: Node | null;
+  selectedNode: Node<BPMNNodeData> | null;
   selectedEdge: Edge | null;
   onClose: () => void;
   onDelete: () => void;
-  updateNodeData: (id: string, data: any) => void;
-  updateEdgeData: (id: string, label: string, data?: any) => void;
+  updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
+  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void;
   edges?: Edge[];
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
@@ -414,8 +415,8 @@ function NodeConfigSection({
   instanceId,
   onViewInstance,
 }: { 
-  selectedNode: Node, 
-  updateNodeData: (id: string, data: any) => void, 
+  selectedNode: Node<BPMNNodeData>, 
+  updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void, 
   edges: Edge[],
   instanceId?: string | null,
   onViewInstance?: (id: string, defId: string) => void,
@@ -426,7 +427,7 @@ function NodeConfigSection({
   const configContent = ConfigComponent ? (
     <ConfigComponent 
       data={selectedNode.data} 
-      onUpdate={(d: any) => updateNodeData(selectedNode.id, d)}
+      onUpdate={(d) => updateNodeData(selectedNode.id, d)}
       selectedNode={selectedNode}
       edges={edges}
       instanceId={instanceId}
@@ -476,7 +477,7 @@ function EdgeConfigSection({
   updateEdgeData 
 }: { 
   selectedEdge: Edge, 
-  updateEdgeData: (id: string, label: string, data?: any) => void 
+  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void 
 }) {
   const data = selectedEdge.data || {};
   const label = selectedEdge.label as string || '';

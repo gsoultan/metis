@@ -29,6 +29,11 @@ export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
     // server-side keys are preserved in the properties bag without polluting
     // the typed surface.
     data: {
+      // Every stored setting, under the name the server uses. The property
+      // editors read several of them directly — decision_key, input_mapping,
+      // connector_id — and without this they opened blank for a node that was
+      // configured, which reads as "not set" and invites setting it again.
+      ...(node.properties ?? {}),
       // Needed by the discriminated union but we use a cast because the server
       // sends a plain string and the union covers all known values.
       nodeType: node.type as BPMNNodeData['nodeType'],
@@ -126,26 +131,65 @@ function mapNodeToPayload(node: Node<BPMNNodeData>): CreateNodePayload {
     completion_condition: (d['completionCondition'] as string) || '',
     is_event_sub_process: (d['isEventSubProcess'] as boolean) || false,
     condition: (d['condition'] as string) || (d['duration'] as string) || (d['script'] as string) || '',
-    properties: {
-      ...(d['properties'] as Record<string, unknown>),
-      implementation: d['implementation'],
-      connector_instance_id: d['connector_instance_id'],
-      lock_duration: d['lockDuration'],
-      http_url: d['httpUrl'],
-      http_method: d['httpMethod'],
-      headers: d['headers'],
-      input_mapping: d['inputMapping'],
-      output_mapping: d['outputMapping'],
-      result_variable: d['resultVariable'],
-      event_type: d['eventType'],
-      timer_type: d['timerType'],
-      timer_duration: d['duration'],
-      signal_name: d['signalName'],
-      message_name: d['messageName'],
-      correlation_key: d['correlationKey'],
-      form_definition: d['formDefinition'],
-    },
+    properties: nodeProperties(d),
   };
+}
+
+/**
+ * Everything on a node that is configuration rather than canvas state.
+ *
+ * This used to be a hand-written list of the settings the mapper knew about,
+ * and the property editors had drifted away from it: they wrote decision_key,
+ * decision_version, input_mapping, output_mapping, connector_id,
+ * called_process_key, topic, url and auth_token, none of which the list
+ * mentioned. Those settings were dropped on save, silently — the panel showed
+ * them, the process ran without them. Choosing the decision for a business rule
+ * task did nothing at all, which is most of the point of having one.
+ *
+ * So the rule is inverted. Anything the editors put on a node is configuration
+ * unless it is either the designer's own business or has a column of its own on
+ * the payload, and the aliases below only exist to give a camelCase editor field
+ * the name the server stores it under.
+ */
+const CANVAS_ONLY_KEYS = new Set([
+  'label', 'nodeType', 'documentation', 'status', 'heatmapValue', 'properties',
+  // These have their own field on CreateNodePayload, set above.
+  'assignee', 'candidateUsers', 'candidateGroups', 'priority', 'dueDate',
+  'formKey', 'defaultFlow', 'script', 'scriptFormat', 'externalTopic',
+  'attachedToRef', 'parentId', 'cancelActivity', 'multiInstanceType',
+  'loopCardinality', 'collection', 'elementVariable', 'completionCondition',
+  'isEventSubProcess', 'condition',
+]);
+
+/** Editor field name → the name the server stores the setting under. */
+const PROPERTY_ALIASES: Record<string, string> = {
+  connectorInstanceId: 'connector_instance_id',
+  lockDuration: 'lock_duration',
+  httpUrl: 'http_url',
+  httpMethod: 'http_method',
+  inputMapping: 'input_mapping',
+  outputMapping: 'output_mapping',
+  resultVariable: 'result_variable',
+  eventType: 'event_type',
+  timerType: 'timer_type',
+  duration: 'timer_duration',
+  signalName: 'signal_name',
+  messageName: 'message_name',
+  correlationKey: 'correlation_key',
+  formDefinition: 'form_definition',
+  decisionKey: 'decision_key',
+  decisionVersion: 'decision_version',
+  calledProcessKey: 'called_process_key',
+  calledProcessVersion: 'called_process_version',
+};
+
+function nodeProperties(d: BPMNNodeData): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(d['properties'] as Record<string, unknown> ?? {}) };
+  for (const [key, value] of Object.entries(d)) {
+    if (value === undefined || CANVAS_ONLY_KEYS.has(key)) continue;
+    out[PROPERTY_ALIASES[key] ?? key] = value;
+  }
+  return out;
 }
 
 /** Map a single React Flow edge to the server-side CreateFlowPayload. */

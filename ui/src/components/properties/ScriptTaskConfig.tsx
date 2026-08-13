@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { VariablePicker } from '../LowCodeComponents';
 import { MultiInstanceConfig, ScriptTestModal, SCRIPT_TEMPLATES } from './CommonProperties';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText } from '../../types/bpmn';
 
 export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const [testModalOpened, setTestModalOpened] = useState(false);
@@ -41,7 +42,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
                 { value: 'python', label: 'Python (3.x)' },
                 { value: 'groovy', label: 'Groovy' },
               ]}
-              value={data.scriptFormat || 'javascript'}
+              value={asText(data.scriptFormat, 'javascript')}
               onChange={(val) => onUpdate({ scriptFormat: val })}
             />
           </Grid.Col>
@@ -50,7 +51,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
               label="Result Destination Variable"
               placeholder="e.g. calculationResult"
               description="Map the return value to this process variable"
-              value={data.resultVariable || ''}
+              value={asText(data.resultVariable)}
               onChange={(val) => onUpdate({ resultVariable: val })}
             />
           </Grid.Col>
@@ -113,15 +114,15 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
               color: 'var(--mantine-color-gray-3)'
             } 
           }}
-          value={data.script || ''}
+          value={asText(data.script)}
           onChange={(e) => onUpdate({ script: e.target.value })}
         />
 
         <ScriptTestModal 
           opened={testModalOpened} 
           onClose={() => setTestModalOpened(false)} 
-          script={data.script || ''} 
-          format={data.scriptFormat || 'javascript'} 
+          script={asText(data.script)} 
+          format={asText(data.scriptFormat, 'javascript')} 
         />
       </Stack>
 

@@ -18,8 +18,28 @@ import { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useUsers, useGroups } from '../../hooks/useProcess';
 import { MultiInstanceConfig } from './CommonProperties';
+import type { FormField } from '../FormBuilder';
 import { FormBuilder } from '../FormBuilder';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { asText, asNumber, asTextList } from '../../types/bpmn';
+
+/**
+ * The saved form, which is stored as free-form JSON and may be a string when it
+ * came back from the server as one. Anything unrecognisable becomes an empty
+ * form rather than reaching the builder as something it cannot render.
+ */
+function asFormFields(value: unknown): FormField[] {
+  const parsed = typeof value === 'string' ? safeParse(value) : value;
+  return Array.isArray(parsed) ? (parsed as FormField[]) : [];
+}
+
+function safeParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
 export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const { currentOrganizationId, expertMode } = useAppStore();
@@ -30,8 +50,8 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const availableGroups = (groupsData?.groups || []).map((g) => ({ value: g.name, label: g.name }));
 
   const hasDirectAssignment = !!data.assignee;
-  const hasCandidates = (data.candidateUsers?.length > 0) || (data.candidateGroups?.length > 0);
-  const initialMode = hasDirectAssignment ? 'direct' : hasCandidates ? 'pool' : (data.assignmentMode || 'direct');
+  const hasCandidates = asTextList(data.candidateUsers).length > 0 || asTextList(data.candidateGroups).length > 0;
+  const initialMode = hasDirectAssignment ? 'direct' : hasCandidates ? 'pool' : asText(data.assignmentMode, 'direct');
   const [assignmentMode, setAssignmentMode] = useState(initialMode);
 
   return (
@@ -68,7 +88,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
             placeholder="Select user"
             description="The specific user responsible for this task"
             data={availableUsers}
-            value={data.assignee || ''}
+            value={asText(data.assignee)}
             onChange={(val) => onUpdate({ assignee: val || '' })}
             searchable
             clearable
@@ -81,7 +101,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
                 placeholder="Select users"
                 description="Users who can claim this task"
                 data={availableUsers}
-                value={data.candidateUsers || []}
+                value={asTextList(data.candidateUsers)}
                 onChange={(val) => onUpdate({ candidateUsers: val })}
                 searchable
                 clearable
@@ -93,7 +113,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
                 placeholder="Select groups"
                 description="Groups whose members can claim this task"
                 data={availableGroups}
-                value={data.candidateGroups || []}
+                value={asTextList(data.candidateGroups)}
                 onChange={(val) => onUpdate({ candidateGroups: val })}
                 searchable
                 clearable
@@ -118,7 +138,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
             <NumberInput
               label="Priority"
               description="Priority level (e.g. 0-100)"
-              value={data.priority || 0}
+              value={asNumber(data.priority)}
               onChange={(val) => onUpdate({ priority: Number(val) || 0 })}
             />
           </Grid.Col>
@@ -127,7 +147,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
               label="Due Date"
               placeholder="PT24H or Date"
               description="ISO 8601 or date"
-              value={data.dueDate || ''}
+              value={asText(data.dueDate)}
               onChange={(e) => onUpdate({ dueDate: e.target.value })}
             />
           </Grid.Col>
@@ -137,7 +157,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
                 label="Form Key"
                 placeholder="form_id"
                 description="Reference to an external or internal form"
-                value={data.formKey || ''}
+                value={asText(data.formKey)}
                 onChange={(e) => onUpdate({ formKey: e.target.value })}
               />
             </Grid.Col>
@@ -160,8 +180,8 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
             <Badge variant="dot" color="blue">Dynamic</Badge>
          </Group>
          <FormBuilder 
-            fields={data.formDefinition || []} 
-            onChange={(formDefinition: any[]) => onUpdate({ formDefinition })}
+            fields={asFormFields(data.formDefinition)}
+            onChange={(formDefinition) => onUpdate({ formDefinition })}
          />
       </Box>
     </Stack>
