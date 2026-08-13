@@ -19,6 +19,9 @@ cd "$ROOT"
 
 readonly UI_PORT="${UI_PORT:-5173}"
 readonly API_PORT="${API_PORT:-8080}"
+
+# Ports this run actually bound, so shutdown only reports its own.
+STARTED_PORTS=()
 readonly GRPC_PORT="${GRPC_PORT:-8081}"
 readonly ENV_FILE="$ROOT/.env.development"
 readonly DB_FILE="$ROOT/gobpm.db"
@@ -58,13 +61,32 @@ port_in_use() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
 }
 
+# port_holder describes what is listening, as "command (pid 1234)".
+#
+# "Port in use" on its own sends you to look it up; the script already has to
+# ask the same question to know, so it may as well say.
+port_holder() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fcp 2>/dev/null |
+    awk '/^p/{pid=substr($0,2)} /^c/{print substr($0,2) " (pid " pid ")"; exit}'
+}
+
+# check_ports reports every conflict, not just the first.
+#
+# Backend and UI ports are usually taken by the same stale run, and being told
+# about one, freeing it and being told about the next is a poor way to find
+# that out.
 check_ports() {
-  local port
+  local port held=()
   for port in "$@"; do
     if port_in_use "$port"; then
-      die "port $port is already in use. Stop the process using it, or set UI_PORT/API_PORT."
+      held+=("  port $port is used by $(port_holder "$port")")
     fi
   done
+
+  (( ${#held[@]} == 0 )) && return 0
+
+  printf '%s\n' "${held[@]}" >&2
+  die "stop the process using it, or set API_PORT/UI_PORT to something free"
 }
 
 # --- secrets ---------------------------------------------------------------
@@ -167,9 +189,18 @@ shutdown() {
 
 # Warn loudly rather than leaving a silently bound port for the next run to
 # trip over.
+#
+# Only ports this run bound are checked. The trap used to be installed before
+# the preflight, so failing to start — because something else already held the
+# port — printed "shutting down" and then blamed itself for a port it had never
+# taken, which reads as a broken shutdown and sends you after the wrong thing.
 report_orphans() {
   local port held=0
-  for port in "$API_PORT" "$GRPC_PORT" "$UI_PORT"; do
+  # bash 3.2, which is what macOS ships, treats "${arr[@]}" on an empty array
+  # as unset under `set -u`. Nothing was started if it is empty, so there is
+  # nothing to report either way.
+  (( ${#STARTED_PORTS[@]} == 0 )) && return 0
+  for port in "${STARTED_PORTS[@]}"; do
     if port_in_use "$port"; then
       warn "port $port is still bound after shutdown"
       held=1
@@ -251,12 +282,20 @@ main() {
     ok "reset — the setup wizard will run again"
   fi
 
+  # Checked before the trap is installed: nothing has been started yet, so a
+  # conflict here should say so and stop, not print a shutdown.
+  case "$target" in
+    backend) check_ports "$API_PORT" "$GRPC_PORT" ;;
+    ui)      check_ports "$UI_PORT" ;;
+    all)     check_ports "$API_PORT" "$GRPC_PORT" "$UI_PORT" ;;
+  esac
+
   trap shutdown INT TERM HUP EXIT
 
   case "$target" in
-    backend) check_ports "$API_PORT" "$GRPC_PORT"; start_backend ;;
-    ui)      check_ports "$UI_PORT";               start_ui ;;
-    all)     check_ports "$API_PORT" "$GRPC_PORT" "$UI_PORT"
+    backend) STARTED_PORTS=("$API_PORT" "$GRPC_PORT"); start_backend ;;
+    ui)      STARTED_PORTS=("$UI_PORT");               start_ui ;;
+    all)     STARTED_PORTS=("$API_PORT" "$GRPC_PORT" "$UI_PORT")
              start_backend
              start_ui
              printf '\n'
