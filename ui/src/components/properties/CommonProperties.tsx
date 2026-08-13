@@ -39,14 +39,27 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-export function MappingTable({ 
-  title, 
-  mapping, 
-  onUpdate 
-}: { 
-  title: string, 
-  mapping: Record<string, string>, 
-  onUpdate: (m: Record<string, string>) => void 
+/**
+ * Pairs of names: what a value is called here, and what it is called there.
+ *
+ * The columns were headed "Target Key" and "Source (JS Expression)". Neither is
+ * what goes in them — the second is a variable name, not an expression — and
+ * neither says which side is yours. Each caller now names its own two sides,
+ * because "the table's input" and "the endpoint's field" are different things
+ * that were both called Target.
+ */
+export function MappingTable({
+  title,
+  mapping,
+  onUpdate,
+  sourceLabel = 'Name here',
+  targetLabel = 'Name there',
+}: {
+  title: string,
+  mapping: Record<string, string>,
+  onUpdate: (m: Record<string, string>) => void,
+  sourceLabel?: string,
+  targetLabel?: string,
 }) {
   const [newKey, setNewKey] = useState('');
   const [newVal, setNewVal] = useState('');
@@ -67,12 +80,12 @@ export function MappingTable({
 
   return (
     <Stack gap="xs">
-      <Text fw={700} size="sm">{title}</Text>
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed">{title}</Text>
       <Table withTableBorder withColumnBorders>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Target Key</Table.Th>
-            <Table.Th>Source (JS Expression)</Table.Th>
+            <Table.Th>{sourceLabel}</Table.Th>
+            <Table.Th>{targetLabel}</Table.Th>
             <Table.Th w={50}></Table.Th>
           </Table.Tr>
         </Table.Thead>
@@ -383,7 +396,7 @@ GET /v1/instances/{instanceId}/nodes/${id}
               <Terminal size={18} />
             </ThemeIcon>
             <Box>
-              <Text fw={700} size="sm">{title}</Text>
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed">{title}</Text>
               <Text size="xs" c="dimmed">{description}</Text>
             </Box>
           </Group>
