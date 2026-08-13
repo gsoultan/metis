@@ -126,6 +126,30 @@ go build ./cmd/gobpm
 ENCRYPTION_KEY=... JWT_SECRET=... ./gobpm
 ```
 
+### Something to look at
+
+A new installation is empty, which shows that it works but not what it does.
+To start it already carrying the examples from `docs/data-flow.md`:
+
+```bash
+./scripts/dev.sh --sample          # or --reset --sample to start over
+```
+
+That runs the setup wizard for you, imports an expense approval and a new
+supplier check with the decision tables they consult, and starts four
+approvals — so the process list, the decision list, the instance list and the
+task inbox all have something in them. Sign in as `admin` / `admin`.
+
+The amount decides who approves: under 100 needs nobody, under 1000 a manager,
+anything more a director. `docs/data-flow.md` follows one through, value by
+value.
+
+To seed an installation that is already set up, give it the password you chose:
+
+```bash
+SAMPLE_ADMIN_PASS='...' ./scripts/seed-sample.sh
+```
+
 ### Signing in, and getting back in
 
 There is no default account. The administrator username and password are the

@@ -7,6 +7,7 @@
 #   ./scripts/dev.sh backend      backend only
 #   ./scripts/dev.sh ui           UI only
 #   ./scripts/dev.sh --reset      wipe the local SQLite database first
+#   ./scripts/dev.sh --sample     set up and fill it with worked examples
 #
 # The UI runs on :5173 and proxies /api to the backend on :8080, so
 # development is same-origin — the app talks to the server exactly as it does
@@ -241,6 +242,15 @@ start_backend() {
   fi
 }
 
+# Fill a fresh installation with something to look at.
+#
+# Runs alongside the servers rather than before them: it waits for the backend
+# to answer, and until it does there is nothing to seed. Its output is prefixed
+# like theirs so it is clear which lines came from where.
+start_sample() {
+  run_prefixed "seed" "$C_YELLOW" "$ROOT/scripts/seed-sample.sh"
+}
+
 start_ui() {
   # Tells the Vite proxy where the backend actually is, so a non-default
   # API_PORT still works end to end.
@@ -255,13 +265,14 @@ start_ui() {
 # --- main ------------------------------------------------------------------
 
 main() {
-  local target="all" reset=0 arg
+  local target="all" reset=0 sample=0 arg
   for arg in "$@"; do
     case "$arg" in
       backend|api) target="backend" ;;
       ui|front|frontend) target="ui" ;;
       all) target="all" ;;
       --reset) reset=1 ;;
+      --sample|--samples|--seed) sample=1 ;;
       -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) die "unknown argument: $arg (try --help)" ;;
     esac
@@ -270,6 +281,17 @@ main() {
   check_prerequisites
   ensure_dev_env
   load_dev_env
+
+
+  # Checked before the trap is installed, and before anything destructive:
+  # nothing has been started yet, so a conflict here should say so and stop
+  # rather than print a shutdown. --reset used to run first, so a port conflict
+  # left you with the database deleted and no server to show for it.
+  case "$target" in
+    backend) check_ports "$API_PORT" "$GRPC_PORT" ;;
+    ui)      check_ports "$UI_PORT" ;;
+    all)     check_ports "$API_PORT" "$GRPC_PORT" "$UI_PORT" ;;
+  esac
 
   if (( reset )); then
     if [[ -f "$DB_FILE" ]]; then
@@ -282,21 +304,17 @@ main() {
     ok "reset — the setup wizard will run again"
   fi
 
-  # Checked before the trap is installed: nothing has been started yet, so a
-  # conflict here should say so and stop, not print a shutdown.
-  case "$target" in
-    backend) check_ports "$API_PORT" "$GRPC_PORT" ;;
-    ui)      check_ports "$UI_PORT" ;;
-    all)     check_ports "$API_PORT" "$GRPC_PORT" "$UI_PORT" ;;
-  esac
-
   trap shutdown INT TERM HUP EXIT
 
   case "$target" in
-    backend) STARTED_PORTS=("$API_PORT" "$GRPC_PORT"); start_backend ;;
+    backend) STARTED_PORTS=("$API_PORT" "$GRPC_PORT")
+             start_backend
+             (( sample )) && start_sample
+             ;;
     ui)      STARTED_PORTS=("$UI_PORT");               start_ui ;;
     all)     STARTED_PORTS=("$API_PORT" "$GRPC_PORT" "$UI_PORT")
              start_backend
+             (( sample )) && start_sample
              start_ui
              printf '\n'
              ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — first run shows the setup wizard"
