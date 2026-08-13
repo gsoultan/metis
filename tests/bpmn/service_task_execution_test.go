@@ -137,12 +137,13 @@ func TestServiceTask_TreatsAnErrorResponseAsAFailure(t *testing.T) {
 // ─── harness ─────────────────────────────────────────────────────────────────
 
 type serviceTaskHarness struct {
-	repo      repositories.Repository
-	engine    contracts.ExecutionEngine
-	jobSvc    contracts.JobService
-	defSvc    contracts.DefinitionService
-	taskSvc   contracts.TaskService
-	projectID uuid.UUID
+	repo        repositories.Repository
+	engine      contracts.ExecutionEngine
+	jobSvc      contracts.JobService
+	defSvc      contracts.DefinitionService
+	taskSvc     contracts.TaskService
+	decisionSvc contracts.DecisionService
+	projectID   uuid.UUID
 }
 
 // subProcessesOf returns the instances started by this one.
@@ -214,12 +215,13 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 	}
 
 	return &serviceTaskHarness{
-		repo:      repo,
-		engine:    engine,
-		jobSvc:    jobSvc,
-		defSvc:    serviceimpl.NewDefinitionService(repo),
-		taskSvc:   taskSvc,
-		projectID: project.ID,
+		repo:        repo,
+		engine:      engine,
+		jobSvc:      jobSvc,
+		defSvc:      serviceimpl.NewDefinitionService(repo),
+		taskSvc:     taskSvc,
+		decisionSvc: decisionSvc,
+		projectID:   project.ID,
 	}
 }
 
