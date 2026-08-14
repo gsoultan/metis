@@ -18,8 +18,99 @@ var iso8601Duration = regexp.MustCompile(
 	`(?i)^P(?:(\d+(?:[.,]\d+)?)Y)?(?:(\d+(?:[.,]\d+)?)M)?(?:(\d+(?:[.,]\d+)?)W)?(?:(\d+(?:[.,]\d+)?)D)?` +
 		`(?:T(?:(\d+(?:[.,]\d+)?)H)?(?:(\d+(?:[.,]\d+)?)M)?(?:(\d+(?:[.,]\d+)?)S)?)?$`)
 
+// TimerSchedule is when a timer fires and, for a repeating one, how often it
+// fires again.
+type TimerSchedule struct {
+	// FireAt is the next occurrence.
+	FireAt time.Time
+	// Every is the gap between occurrences; zero when the timer fires once.
+	Every time.Duration
+	// Repeats is how many occurrences are still to come after this one.
+	// Zero means this is the last, and RepeatsForever means unbounded.
+	Repeats int
+}
+
+// RepeatsForever marks a cycle written without a repeat count ("R/PT10M").
+const RepeatsForever = -1
+
+// IsRepeating reports whether another occurrence follows this one.
+func (s TimerSchedule) IsRepeating() bool {
+	return s.Every > 0 && (s.Repeats > 0 || s.Repeats == RepeatsForever)
+}
+
+// Next returns the schedule for the occurrence after this one.
+func (s TimerSchedule) Next(now time.Time) TimerSchedule {
+	next := TimerSchedule{FireAt: now.Add(s.Every), Every: s.Every, Repeats: s.Repeats}
+	if s.Repeats > 0 {
+		next.Repeats = s.Repeats - 1
+	}
+	return next
+}
+
+// ParseTimerSchedule resolves any BPMN timer expression, including a repeating
+// cycle, relative to now.
+//
+// BPMN 2.0 §10.3.5 defines three forms: timeDuration ("PT1H"), timeDate
+// ("2026-01-01T12:00:00Z") and timeCycle ("R3/PT10M", "R/PT10M"). A cycle is
+// what a non-interrupting boundary timer uses to nag every so often while an
+// activity runs.
+func ParseTimerSchedule(expr string, now time.Time) (TimerSchedule, error) {
+	trimmed := strings.TrimSpace(expr)
+	if repeats, every, ok := parseRepeatingCycle(trimmed); ok {
+		if every <= 0 {
+			return TimerSchedule{}, fmt.Errorf("timer %q repeats on an empty interval", expr)
+		}
+		// The count in "R3/PT10M" is the number of occurrences, so the first one
+		// leaves that many minus one still to come.
+		remaining := repeats
+		if repeats > 0 {
+			remaining = repeats - 1
+		}
+		return TimerSchedule{FireAt: now.Add(every), Every: every, Repeats: remaining}, nil
+	}
+
+	fireAt, err := ParseTimerExpression(trimmed, now)
+	if err != nil {
+		return TimerSchedule{}, err
+	}
+	return TimerSchedule{FireAt: fireAt}, nil
+}
+
+// parseRepeatingCycle splits "R<n>/<duration>" into its count and interval.
+// A missing count means unbounded.
+func parseRepeatingCycle(expr string) (repeats int, every time.Duration, ok bool) {
+	if !isRepeatingCycle(expr) {
+		return 0, 0, false
+	}
+	rest := expr[1:]
+	slash := strings.IndexByte(rest, '/')
+	countPart, durationPart := rest[:slash], rest[slash+1:]
+
+	repeats = RepeatsForever
+	if countPart != "" {
+		n, err := strconv.Atoi(countPart)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		repeats = n
+	}
+
+	// An interval may itself carry a start instant ("R3/2026-01-01T00:00:00Z/PT10M");
+	// the trailing element is the duration either way.
+	if idx := strings.LastIndexByte(durationPart, '/'); idx >= 0 {
+		durationPart = durationPart[idx+1:]
+	}
+	d, isDuration := parseISO8601Duration(strings.TrimSpace(durationPart))
+	if !isDuration {
+		return 0, 0, false
+	}
+	base := time.Time{}
+	return repeats, d.addTo(base).Sub(base), true
+}
+
 // ParseTimerExpression resolves a BPMN timer expression to the instant it should
-// fire, relative to now.
+// fire, relative to now. A repeating cycle is rejected here — use
+// ParseTimerSchedule, which carries the repeat information a cycle needs.
 //
 // BPMN 2.0 timers are ISO-8601 (§10.3.5): a duration (timeDuration, "PT1H"), an
 // instant (timeDate, "2026-01-01T12:00:00Z") or a repeating cycle (timeCycle,
@@ -39,12 +130,10 @@ func ParseTimerExpression(expr string, now time.Time) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("timer expression is empty")
 	}
 
-	// A repeating cycle needs the job to be re-enqueued after each firing, which
-	// the engine has no mechanism for. Reading "R3/PT10M" as a one-shot timer
-	// would fire once and look like it worked, so it is refused by name.
+	// A cycle carries a repeat count that a single instant cannot express.
 	if isRepeatingCycle(trimmed) {
 		return time.Time{}, fmt.Errorf(
-			"timer %q is a repeating cycle (timeCycle); repeat is not implemented, so use a single duration such as PT10M", expr)
+			"timer %q is a repeating cycle; resolve it with ParseTimerSchedule", expr)
 	}
 
 	if d, ok := parseISO8601Duration(trimmed); ok {

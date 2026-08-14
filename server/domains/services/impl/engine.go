@@ -454,6 +454,13 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 	if node == nil || node.Type != entities.BoundaryEvent || node.AttachedToRef == "" {
 		return nil
 	}
+	// A non-interrupting boundary event notifies and leaves the work running:
+	// its activity keeps its token and its other boundary events stay armed.
+	// That is what lets a repeating timer nag while an approval is still open.
+	if node.IsNonInterrupting() {
+		return nil
+	}
+
 	hostNode := def.FindNode(node.AttachedToRef)
 	if hostNode != nil {
 		instance.RemoveTokenByNode(hostNode)

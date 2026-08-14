@@ -246,3 +246,177 @@ func TestIntermediateTimerStillAdvancesTheProcess(t *testing.T) {
 		t.Error("the cooling-off period elapsed but the process did not carry on")
 	}
 }
+
+// A non-interrupting boundary event notifies without stopping the work.
+//
+// The engine used to remove the attached activity's token whenever any boundary
+// event fired, so every boundary event was interrupting whatever the model said.
+// It cannot be driven from the CancelActivity field: that is a plain bool the
+// designer writes as false unconditionally, and BPMN's default is interrupting,
+// so honouring it would stop an error boundary cancelling the activity that
+// failed. It is an explicit opt-in property instead.
+func TestNonInterruptingBoundaryEventLeavesTheActivityRunning(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Non Interrupting Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-non-interrupting",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			{ID: "nudge", Type: entities.BoundaryEvent, AttachedToRef: "approve", Properties: map[string]any{
+				"timer_duration":   "PT2H",
+				"non_interrupting": true,
+			}},
+			{ID: "send-nudge", Type: entities.UserTask, Name: "Send a nudge"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "nudge", TargetRef: "send-nudge"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-non-interrupting", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	h.dueNow(ctx, t, instanceID)
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	if !h.waitingAt(ctx, t, instanceID, "send-nudge") {
+		t.Error("the boundary event did not fire")
+	}
+	if !h.waitingAt(ctx, t, instanceID, "approve") {
+		t.Error("a non-interrupting boundary event cancelled the activity it was watching")
+	}
+}
+
+// The default stays interrupting, which is BPMN's default and what every stored
+// definition already relies on.
+func TestBoundaryEventInterruptsByDefault(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Interrupting Default Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-interrupting",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "approve", Properties: map[string]any{
+				"timer_duration": "PT2H",
+			}},
+			{ID: "escalate", Type: entities.UserTask, Name: "Escalate"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "deadline", TargetRef: "escalate"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-interrupting", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	h.dueNow(ctx, t, instanceID)
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	if !h.waitingAt(ctx, t, instanceID, "escalate") {
+		t.Error("the deadline did not fire")
+	}
+
+	// The activity's token is what says whether it is still live. Its task row
+	// is a separate question — see TestInterruptedActivityLeavesItsTaskOpen.
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	if len(instance.GetTokensByNode(&entities.Node{ID: "approve"})) != 0 {
+		t.Error("an interrupting boundary event left the activity running")
+	}
+}
+
+// An interrupting boundary event cancels the activity, but the user task it
+// created stays open in the inbox.
+//
+// The token is removed, so the engine treats the activity as cancelled and will
+// not advance through it again — but nothing closes the task row, so it is still
+// offered to whoever it was assigned to and completing it acts on an activity
+// the process has already abandoned.
+//
+// Recorded rather than fixed: cancelling a task on interrupt touches the task
+// lifecycle and its audit trail, which is its own piece of work.
+func TestInterruptedActivityLeavesItsTaskOpen(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Interrupted Task Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-orphan-task",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "approve", Properties: map[string]any{
+				"timer_duration": "PT2H",
+			}},
+			{ID: "escalate", Type: entities.UserTask, Name: "Escalate"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "deadline", TargetRef: "escalate"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-orphan-task", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	h.dueNow(ctx, t, instanceID)
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	cancelled := len(instance.GetTokensByNode(&entities.Node{ID: "approve"})) == 0
+	stillInInbox := h.waitingAt(ctx, t, instanceID, "approve")
+
+	if !cancelled {
+		t.Fatal("the activity was not cancelled at all")
+	}
+	if !stillInInbox {
+		t.Skip("interrupted activities now close their task; this record can be retired")
+	}
+	t.Log("an interrupted activity leaves its task open in the inbox — the token is gone but the work is still offered")
+}

@@ -69,19 +69,20 @@ func (s *jobService) EnqueueServiceTask(ctx context.Context, instance entities.P
 }
 
 func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.ProcessInstance, node entities.Node, duration string) error {
-	fireAt, err := entities.ParseTimerExpression(duration, time.Now())
+	schedule, err := entities.ParseTimerSchedule(duration, time.Now())
 	if err != nil {
 		return fmt.Errorf("timer on node %s: %w", node.ID, err)
 	}
 
 	job := entities.Job{
-		Instance:   &instance,
-		Definition: &entities.ProcessDefinition{ID: instance.Definition.ID},
-		Node:       &node,
-		Type:       entities.JobTimer,
-		Status:     entities.JobPending,
-		Payload:    instance.Variables,
-		NextRunAt:  fireAt,
+		Instance:         &instance,
+		Definition:       &entities.ProcessDefinition{ID: instance.Definition.ID},
+		Node:             &node,
+		Type:             entities.JobTimer,
+		Status:           entities.JobPending,
+		Payload:          instance.Variables,
+		NextRunAt:        schedule.FireAt,
+		RepeatsRemaining: schedule.Repeats,
 	}
 	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
@@ -193,6 +194,9 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		}
 	} else {
 		job.Status = entities.JobCompleted
+		if job.Type == entities.JobTimer || job.Type == entities.JobTimerBoundary {
+			s.rescheduleRepeatingTimer(ctx, &job)
+		}
 	}
 
 	job.UpdatedAt = time.Now()
@@ -462,18 +466,19 @@ func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.Pr
 }
 
 func (s *jobService) EnqueueBoundaryTimer(ctx context.Context, instance entities.ProcessInstance, boundaryNode entities.Node, duration string) error {
-	fireAt, err := entities.ParseTimerExpression(duration, time.Now())
+	schedule, err := entities.ParseTimerSchedule(duration, time.Now())
 	if err != nil {
 		return fmt.Errorf("boundary timer on node %s: %w", boundaryNode.ID, err)
 	}
 	job := entities.Job{
-		Instance:   &instance,
-		Definition: &entities.ProcessDefinition{ID: instance.Definition.ID},
-		Node:       &boundaryNode,
-		Type:       entities.JobTimerBoundary,
-		Status:     entities.JobPending,
-		Payload:    instance.Variables,
-		NextRunAt:  fireAt,
+		Instance:         &instance,
+		Definition:       &entities.ProcessDefinition{ID: instance.Definition.ID},
+		Node:             &boundaryNode,
+		Type:             entities.JobTimerBoundary,
+		Status:           entities.JobPending,
+		Payload:          instance.Variables,
+		NextRunAt:        schedule.FireAt,
+		RepeatsRemaining: schedule.Repeats,
 	}
 	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
@@ -524,6 +529,53 @@ func timerStillApplies(instance *entities.ProcessInstance, def *entities.Process
 		}
 	}
 	return false
+}
+
+// rescheduleRepeatingTimer queues the next occurrence of a repeating timer.
+//
+// BPMN's timeCycle ("R3/PT10M") is what a non-interrupting boundary timer uses
+// to nag while an activity runs. Each occurrence is its own job, so firing one
+// has to queue the next — and the relevance check in timerStillApplies stops the
+// chain naturally once the activity it belongs to has moved on, which is why an
+// interrupting timer needs no special case here.
+func (s *jobService) rescheduleRepeatingTimer(ctx context.Context, job *entities.Job) {
+	if job.RepeatsRemaining == 0 || job.Node == nil {
+		return
+	}
+
+	md, err := s.repo.Definition().Get(ctx, job.Definition.ID)
+	if err != nil {
+		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Cannot reschedule repeating timer: definition unavailable")
+		return
+	}
+	def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
+	node := def.FindNode(job.Node.ID)
+	if node == nil {
+		return
+	}
+
+	expr := node.GetStringProperty("timer_duration")
+	if expr == "" {
+		expr = node.Condition
+	}
+	schedule, err := entities.ParseTimerSchedule(expr, time.Now())
+	if err != nil || schedule.Every <= 0 {
+		return
+	}
+
+	next := *job
+	next.ID = uuid.Nil
+	next.Status = entities.JobPending
+	next.NextRunAt = time.Now().Add(schedule.Every)
+	next.LastError = ""
+	next.Retries = 0
+	if job.RepeatsRemaining > 0 {
+		next.RepeatsRemaining = job.RepeatsRemaining - 1
+	}
+
+	if _, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: next}.ToModel()); err != nil {
+		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Cannot reschedule repeating timer")
+	}
 }
 
 // executeTimerBoundary fires the boundary event node directly on the instance.

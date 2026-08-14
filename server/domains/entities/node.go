@@ -51,6 +51,36 @@ func (n *Node) GetStringProperty(key string) string {
 	return ""
 }
 
+// GetBoolProperty reads a boolean node property, accepting both a real bool and
+// the string form a JSON round-trip or an XML import may leave behind.
+func (n *Node) GetBoolProperty(key string) bool {
+	if n.Properties == nil {
+		return false
+	}
+	switch v := n.Properties[key].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true"
+	default:
+		return false
+	}
+}
+
+// IsNonInterrupting reports whether a boundary event notifies without cancelling
+// the activity it is attached to.
+//
+// This is an explicit opt-in property rather than the CancelActivity field.
+// BPMN's default is interrupting, but CancelActivity is a plain bool whose zero
+// value is false and which the designer writes as false unconditionally — so
+// honouring it would turn every existing boundary event non-interrupting, and an
+// error boundary would stop cancelling the activity that failed. An absent
+// property means interrupting, which is both the BPMN default and what every
+// stored definition already does.
+func (n *Node) IsNonInterrupting() bool {
+	return n.GetBoolProperty("non_interrupting")
+}
+
 func (n *Node) traverseFlows(callback func(*SequenceFlow)) {
 	for i := range n.Flows {
 		callback(n.Flows[i])

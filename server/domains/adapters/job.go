@@ -32,14 +32,15 @@ func (a JobModelAdapter) ToModel() models.JobModel {
 			}
 			return ""
 		}(),
-		IterationID: a.Job.IterationID,
-		Type:        models.JobType(a.Job.Type),
-		Status:      models.JobStatus(a.Job.Status),
-		Payload:     a.Job.Payload,
-		Retries:     a.Job.Retries,
-		MaxRetries:  a.Job.MaxRetries,
-		NextRunAt:   a.Job.NextRunAt,
-		LastError:   a.Job.LastError,
+		IterationID:      a.Job.IterationID,
+		Type:             models.JobType(a.Job.Type),
+		Status:           models.JobStatus(a.Job.Status),
+		Payload:          a.Job.Payload,
+		Retries:          a.Job.Retries,
+		MaxRetries:       a.Job.MaxRetries,
+		RepeatsRemaining: a.Job.RepeatsRemaining,
+		NextRunAt:        a.Job.NextRunAt,
+		LastError:        a.Job.LastError,
 	}
 }
 
@@ -49,19 +50,20 @@ type JobEntityAdapter struct {
 
 func (a JobEntityAdapter) ToEntity() entities.Job {
 	return entities.Job{
-		ID:          uuid.UUID(a.Model.ID),
-		Instance:    &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
-		Definition:  &entities.ProcessDefinition{ID: uuid.UUID(a.Model.DefinitionID)},
-		Node:        &entities.Node{ID: a.Model.NodeID},
-		IterationID: a.Model.IterationID,
-		Type:        entities.JobType(a.Model.Type),
-		Status:      entities.JobStatus(a.Model.Status),
-		Payload:     a.Model.Payload,
-		Retries:     a.Model.Retries,
-		MaxRetries:  a.Model.MaxRetries,
-		NextRunAt:   a.Model.NextRunAt,
-		CreatedAt:   a.Model.CreatedAt,
-		UpdatedAt:   a.Model.UpdatedAt,
-		LastError:   a.Model.LastError,
+		ID:               uuid.UUID(a.Model.ID),
+		Instance:         &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
+		Definition:       &entities.ProcessDefinition{ID: uuid.UUID(a.Model.DefinitionID)},
+		Node:             &entities.Node{ID: a.Model.NodeID},
+		IterationID:      a.Model.IterationID,
+		Type:             entities.JobType(a.Model.Type),
+		Status:           entities.JobStatus(a.Model.Status),
+		Payload:          a.Model.Payload,
+		Retries:          a.Model.Retries,
+		MaxRetries:       a.Model.MaxRetries,
+		RepeatsRemaining: a.Model.RepeatsRemaining,
+		NextRunAt:        a.Model.NextRunAt,
+		CreatedAt:        a.Model.CreatedAt,
+		UpdatedAt:        a.Model.UpdatedAt,
+		LastError:        a.Model.LastError,
 	}
 }

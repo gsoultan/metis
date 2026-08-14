@@ -14,7 +14,7 @@ type BoundaryEventHandler struct {
 
 func (h *BoundaryEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// If it's interrupting, remove token from the attached node.
-	if node.CancelActivity {
+	if node.CancelActivity && !node.IsNonInterrupting() {
 		attachedNode := def.FindNode(node.AttachedToRef)
 		if attachedNode != nil {
 			instance.RemoveTokenByNode(attachedNode)

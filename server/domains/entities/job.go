@@ -35,14 +35,19 @@ type Job struct {
 	// retire: a service task told to run once per supplier ran for every one and
 	// then left every token in place, so the process sat there looking busy with
 	// nothing left to do.
-	IterationID string `json:"iteration_id,omitzero"`
-	Type       JobType            `json:"type"`
-	Status     JobStatus          `json:"status"`
-	Payload    map[string]any     `json:"payload"`
-	Retries    int                `json:"retries"`
-	MaxRetries int                `json:"maxRetries"`
-	NextRunAt  time.Time          `json:"next_run_at"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-	LastError  string             `json:"last_error,omitzero"`
+	IterationID string         `json:"iteration_id,omitzero"`
+	Type        JobType        `json:"type"`
+	Status      JobStatus      `json:"status"`
+	Payload     map[string]any `json:"payload"`
+	Retries     int            `json:"retries"`
+	MaxRetries  int            `json:"maxRetries"`
+	NextRunAt   time.Time      `json:"next_run_at"`
+
+	// RepeatsRemaining is how many further occurrences a repeating timer
+	// (BPMN timeCycle, "R3/PT10M") still owes after this one. Zero means this is
+	// the last, RepeatsForever means unbounded. Only timer jobs use it.
+	RepeatsRemaining int       `json:"repeats_remaining,omitzero"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	LastError        string    `json:"last_error,omitzero"`
 }

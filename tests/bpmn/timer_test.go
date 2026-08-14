@@ -93,25 +93,126 @@ func TestTimerSchedulesTheJobAtTheRightTime(t *testing.T) {
 	}
 }
 
-// A repeating timer needs the job to be re-enqueued after each firing, and the
-// engine has no mechanism for that. Reading R3/PT10M as a one-shot timer would
-// fire once and look like it worked.
-func TestRepeatingTimerIsRefusedRatherThanFiringOnce(t *testing.T) {
+// A repeating timer nags while the activity it watches is still open.
+//
+// "R3/PT10M" on a non-interrupting boundary event means: remind three times,
+// ten minutes apart, without cancelling the work. Each occurrence is its own
+// job, so firing one has to queue the next.
+func TestRepeatingBoundaryTimerFiresItsFullCount(t *testing.T) {
 	ctx := t.Context()
 	h := newEngineHarness(t, "Timer Cycle Project")
 
-	def := timerDefinition("cooling-off-cycle", "R3/PT10M")
-	def.Project = &entities.Project{ID: h.projID}
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-with-reminders",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			// Non-interrupting: the approver keeps working while being reminded.
+			{ID: "remind", Type: entities.BoundaryEvent, AttachedToRef: "approve",
+				Properties: map[string]any{"timer_duration": "R3/PT10M", "non_interrupting": true}},
+			{ID: "send-reminder", Type: entities.UserTask, Name: "Send a reminder"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "remind", TargetRef: "send-reminder"},
+		},
+	}
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
 		t.Fatalf("create definition: %v", err)
 	}
 
-	_, err := h.svc.StartProcess(ctx, h.projID, "cooling-off-cycle", nil)
-	if err == nil {
-		t.Fatal("a repeating timer was accepted; it would have fired once and looked correct")
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-with-reminders", nil)
+	if err != nil {
+		t.Fatalf("a repeating timer was rejected: %v", err)
 	}
-	if !strings.Contains(err.Error(), "repeat") && !strings.Contains(err.Error(), "cycle") {
-		t.Errorf("the error does not explain that repeating timers are unsupported: %v", err)
+
+	// Nobody approves. Let each reminder come due in turn.
+	for range 5 {
+		if h.dueNow(ctx, t, instanceID) == 0 {
+			break
+		}
+		if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+			t.Fatalf("process pending jobs: %v", err)
+		}
+	}
+
+	if got := h.countTasksAt(ctx, t, instanceID, "send-reminder"); got != 3 {
+		t.Errorf("expected 3 reminders from R3/PT10M, got %d", got)
+	}
+	// The work itself was never cancelled.
+	if !h.waitingAt(ctx, t, instanceID, "approve") {
+		t.Error("a non-interrupting reminder cancelled the activity it was watching")
+	}
+}
+
+// A repeating timer stops once the activity it watches is done.
+func TestRepeatingBoundaryTimerStopsWhenTheActivityCompletes(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Timer Cycle Stop Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-reminders-stop",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			{ID: "remind", Type: entities.BoundaryEvent, AttachedToRef: "approve",
+				Properties: map[string]any{"timer_duration": "R/PT10M", "non_interrupting": true}},
+			{ID: "send-reminder", Type: entities.UserTask, Name: "Send a reminder"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "remind", TargetRef: "send-reminder"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-reminders-stop", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	// One reminder goes out, then the approver responds.
+	h.dueNow(ctx, t, instanceID)
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+	tasks, err := h.svc.ListTasks(ctx, h.projID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	for _, task := range tasks {
+		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "approve" {
+			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+				t.Fatalf("approve: %v", err)
+			}
+		}
+	}
+	before := h.countTasksAt(ctx, t, instanceID, "send-reminder")
+
+	// An unbounded cycle would nag forever; the activity is finished, so it must not.
+	for range 3 {
+		if h.dueNow(ctx, t, instanceID) == 0 {
+			break
+		}
+		if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+			t.Fatalf("process pending jobs: %v", err)
+		}
+	}
+
+	if after := h.countTasksAt(ctx, t, instanceID, "send-reminder"); after != before {
+		t.Errorf("reminders kept going after the approval was done: %d then %d", before, after)
 	}
 }
 
