@@ -40,7 +40,7 @@ func seedUserInGroup(t *testing.T, repo repositories.Repository, username, group
 
 	userID := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: userID},
+		Base:     models.Base{ID: models.UUID(userID)},
 		Username: username,
 		FullName: username,
 	}, "hash"); err != nil {
@@ -50,7 +50,7 @@ func seedUserInGroup(t *testing.T, repo repositories.Repository, username, group
 	groupID := uuid.Must(uuid.NewV7())
 	if groupName != "" {
 		if err := repo.Group().Create(ctx, models.GroupModel{
-			Base: models.Base{ID: groupID},
+			Base: models.Base{ID: models.UUID(groupID)},
 			Name: groupName,
 		}); err != nil {
 			t.Fatalf("seed group %s: %v", groupName, err)

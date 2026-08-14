@@ -28,6 +28,7 @@ import (
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
+	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
 	"github.com/gsoultan/gobpm/server/endpoints"
 	"github.com/gsoultan/gobpm/server/interceptors"
 	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
@@ -346,6 +347,24 @@ func (a *App) setupDatabase() error {
 func (a *App) migrate() error {
 	if err := a.db.AutoMigrate(models.MigrationModels()...); err != nil {
 		return fmt.Errorf("failed to migrate db: %w", err)
+	}
+
+	// Schema alone is not enough here: message subscriptions written before
+	// correlation keys were resolved per instance still hold the raw ${...}
+	// template, which no inbound correlation value can match. Repair them before
+	// serving traffic, or every instance already waiting on a message event
+	// hangs.
+	repo := repositories.NewRepository(a.db)
+	if _, err := serviceimpl.BackfillMessageCorrelationKeys(context.Background(), repo); err != nil {
+		return fmt.Errorf("failed to backfill message correlation keys: %w", err)
+	}
+
+	// Multi-instance bookkeeping moved out of the business variable namespace
+	// into its own column. An instance already part-way through a node that runs
+	// once per item would otherwise come back with no progress recorded and
+	// restart its iterations from zero.
+	if _, err := serviceimpl.BackfillMultiInstanceState(context.Background(), repo); err != nil {
+		return fmt.Errorf("failed to backfill multi-instance state: %w", err)
 	}
 	return nil
 }

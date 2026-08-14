@@ -20,11 +20,11 @@ func (a AuditModelAdapter) ToModel() models.AuditModel {
 	}
 	return models.AuditModel{
 		Base: models.Base{
-			ID:        a.Entry.ID,
+			ID:        models.UUID(a.Entry.ID),
 			CreatedAt: a.Entry.Timestamp,
 		},
-		ProjectID:  projectID,
-		InstanceID: instanceID,
+		ProjectID:  models.UUID(projectID),
+		InstanceID: models.UUID(instanceID),
 		Type:       a.Entry.Type,
 		NodeID: func() string {
 			if a.Entry.Node != nil {
@@ -50,9 +50,9 @@ type AuditEntityAdapter struct {
 
 func (a AuditEntityAdapter) ToEntity() entities.AuditEntry {
 	return entities.AuditEntry{
-		ID:        a.Model.ID,
-		Project:   &entities.Project{ID: a.Model.ProjectID},
-		Instance:  &entities.ProcessInstance{ID: a.Model.InstanceID},
+		ID:        uuid.UUID(a.Model.ID),
+		Project:   &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
+		Instance:  &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
 		Type:      a.Model.Type,
 		Node:      &entities.Node{ID: a.Model.NodeID, Name: a.Model.NodeName},
 		Message:   a.Model.Message,

@@ -233,7 +233,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 
 		org := models.OrganizationModel{
 			Base: models.Base{
-				ID:        orgID,
+				ID:        models.UUID(orgID),
 				CreatedAt: now,
 			},
 			Name: req.OrganizationName,
@@ -248,10 +248,10 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 		}
 		project := models.ProjectModel{
 			Base: models.Base{
-				ID:        uuid.Must(uuid.NewV7()),
+				ID:        models.UUID(uuid.Must(uuid.NewV7())),
 				CreatedAt: now,
 			},
-			OrganizationID: orgID,
+			OrganizationID: models.UUID(orgID),
 			Name:           projectName,
 		}
 		if err := tx.Create(&project).Error; err != nil {
@@ -265,7 +265,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 
 		admin := models.UserModel{
 			Base: models.Base{
-				ID:        uuid.Must(uuid.NewV7()),
+				ID:        models.UUID(uuid.Must(uuid.NewV7())),
 				CreatedAt: now,
 			},
 			Username:      req.AdminUsername,

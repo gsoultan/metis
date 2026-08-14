@@ -36,11 +36,11 @@ func (a TaskModelAdapter) ToModel() models.TaskModel {
 	}
 	return models.TaskModel{
 		Base: models.Base{
-			ID:        a.Task.ID,
+			ID:        models.UUID(a.Task.ID),
 			CreatedAt: a.Task.CreatedAt,
 		},
-		ProjectID:  projectID,
-		InstanceID: instanceID,
+		ProjectID:  models.UUID(projectID),
+		InstanceID: models.UUID(instanceID),
 		NodeID: func() string {
 			if a.Task.Node != nil {
 				return a.Task.Node.ID
@@ -81,9 +81,9 @@ func (a TaskEntityAdapter) ToEntity() entities.Task {
 	}
 
 	return entities.Task{
-		ID:              a.Model.ID,
-		Project:         &entities.Project{ID: a.Model.ProjectID},
-		Instance:        &entities.ProcessInstance{ID: a.Model.InstanceID},
+		ID:              uuid.UUID(a.Model.ID),
+		Project:         &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
+		Instance:        &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
 		Node:            &entities.Node{ID: a.Model.NodeID},
 		Name:            a.Model.Name,
 		Description:     a.Model.Description,

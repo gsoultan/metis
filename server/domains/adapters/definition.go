@@ -40,16 +40,16 @@ func (a DefinitionModelAdapter) ToModel() models.ProcessDefinitionModel {
 	}
 	return models.ProcessDefinitionModel{
 		Base: models.Base{
-			ID:        a.Definition.ID,
+			ID:        models.UUID(a.Definition.ID),
 			CreatedAt: a.Definition.CreatedAt,
 		},
-		ProjectID:    projectID,
+		ProjectID:    models.UUID(projectID),
 		Key:          a.Definition.Key,
 		Name:         a.Definition.Name,
 		Version:      a.Definition.Version,
 		Nodes:        nodes,
 		Flows:        flows,
-		DeploymentID: deploymentID,
+		DeploymentID: models.UUID(deploymentID),
 	}
 }
 
@@ -147,14 +147,14 @@ func (a DefinitionEntityAdapter) ToEntity() *entities.ProcessDefinition {
 		flows[i] = cf
 	}
 	return &entities.ProcessDefinition{
-		ID:         a.Model.ID,
-		Project:    &entities.Project{ID: a.Model.ProjectID},
+		ID:         uuid.UUID(a.Model.ID),
+		Project:    &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
 		Key:        a.Model.Key,
 		Name:       a.Model.Name,
 		Version:    a.Model.Version,
 		Nodes:      nodes,
 		Flows:      flows,
-		Deployment: &entities.Deployment{ID: a.Model.DeploymentID},
+		Deployment: &entities.Deployment{ID: uuid.UUID(a.Model.DeploymentID)},
 		CreatedAt:  a.Model.CreatedAt,
 	}
 }

@@ -30,14 +30,14 @@ func (r *gormDefinitionRepository) Get(ctx context.Context, id uuid.UUID) (model
 func (r *gormDefinitionRepository) GetByKey(ctx context.Context, key string) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
 	// GetConnector latest version
-	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).First(&m, SelectLatestDefinition, key).Error; err != nil {
+	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key: %w", err)
 	}
 	return m, nil
 }
 func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key string, version int) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).Where("key = ? AND version = ?", key, version).First(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key and version: %w", err)
 	}
 	return m, nil

@@ -17,10 +17,10 @@ func (a FormModelAdapter) ToModel() models.FormModel {
 	}
 	return models.FormModel{
 		Base: models.Base{
-			ID:        a.Form.ID,
+			ID:        models.UUID(a.Form.ID),
 			CreatedAt: a.Form.CreatedAt,
 		},
-		ProjectID: projectID,
+		ProjectID: models.UUID(projectID),
 		Key:       a.Form.Key,
 		Name:      a.Form.Name,
 		Schema:    a.Form.Schema,
@@ -33,8 +33,8 @@ type FormEntityAdapter struct {
 
 func (a FormEntityAdapter) ToEntity() entities.Form {
 	return entities.Form{
-		ID:        a.Model.ID,
-		Project:   &entities.Project{ID: a.Model.ProjectID},
+		ID:        uuid.UUID(a.Model.ID),
+		Project:   &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
 		Key:       a.Model.Key,
 		Name:      a.Model.Name,
 		Schema:    a.Model.Schema,

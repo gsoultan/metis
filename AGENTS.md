@@ -352,7 +352,7 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `make race` | green — one real data race fixed |
 | `bunx tsc --noEmit` | green |
 | `bun run build` | green |
-| `bun run lint` | **RED** — 231 errors (Phase 0.6, outstanding) |
+| `bun run lint` | green — was 231 errors (Phase 0.6, cleared) |
 | `golangci-lint` | **baselined** — 799 pre-existing findings; CI blocks new ones via `only-new-issues`. Burn-down order is in `.golangci.yml`; the engine's slice is done. |
 
 `make gate` runs everything. Do not narrow it — narrow the code instead.

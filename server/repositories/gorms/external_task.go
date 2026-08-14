@@ -60,7 +60,7 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic string,
 		expiration := now.Add(time.Duration(lockDuration) * time.Millisecond)
 		ids := make([]uuid.UUID, len(modelsList))
 		for i := range modelsList {
-			ids[i] = modelsList[i].ID
+			ids[i] = uuid.UUID(modelsList[i].ID)
 			modelsList[i].WorkerID = workerID
 			modelsList[i].LockExpiration = &expiration
 		}

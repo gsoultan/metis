@@ -2,11 +2,13 @@ package gorms
 
 import (
 	"context"
+	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"gorm.io/gorm"
-	"time"
 )
 
 type jobRepository struct {
@@ -18,11 +20,15 @@ func NewJobRepository(db *gorm.DB) contracts.JobRepository {
 }
 
 func (r *jobRepository) Create(ctx context.Context, job models.JobModel) (uuid.UUID, error) {
-	if job.ID == uuid.Nil {
-		job.ID, _ = uuid.NewV7()
+	if job.ID == models.NilUUID {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("generate job id: %w", err)
+		}
+		job.ID = models.UUID(id)
 	}
 	err := GetTx(ctx, r.db).Create(&job).Error
-	return job.ID, err
+	return uuid.UUID(job.ID), err
 }
 
 func (r *jobRepository) Get(ctx context.Context, id uuid.UUID) (models.JobModel, error) {

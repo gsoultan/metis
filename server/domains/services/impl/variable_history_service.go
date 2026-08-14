@@ -36,7 +36,7 @@ func (s *variableHistoryService) CaptureSnapshot(ctx context.Context, snapshot e
 		instanceID = snapshot.Instance.ID
 	}
 	m := models.VariableSnapshotModel{
-		InstanceID: instanceID,
+		InstanceID: models.UUID(instanceID),
 		NodeID: func() string {
 			if snapshot.Node != nil {
 				return snapshot.Node.ID
@@ -46,7 +46,7 @@ func (s *variableHistoryService) CaptureSnapshot(ctx context.Context, snapshot e
 		Variables:  snapshot.Variables,
 		CapturedAt: snapshot.CapturedAt,
 	}
-	m.ID = snapshot.ID
+	m.ID = models.UUID(snapshot.ID)
 	_, err := s.repo.Create(ctx, m)
 	return err
 }
@@ -80,8 +80,8 @@ func toSnapshotEntities(ms []models.VariableSnapshotModel) []entities.VariableSn
 	result := make([]entities.VariableSnapshot, len(ms))
 	for i, m := range ms {
 		result[i] = entities.VariableSnapshot{
-			ID:         m.ID,
-			Instance:   &entities.ProcessInstance{ID: m.InstanceID},
+			ID:         uuid.UUID(m.ID),
+			Instance:   &entities.ProcessInstance{ID: uuid.UUID(m.InstanceID)},
 			Node:       &entities.Node{ID: m.NodeID},
 			Variables:  m.Variables,
 			CapturedAt: m.CapturedAt,

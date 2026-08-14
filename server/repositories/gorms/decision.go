@@ -30,14 +30,14 @@ func (r *gormDecisionRepository) Get(ctx context.Context, id uuid.UUID) (models.
 func (r *gormDecisionRepository) GetByKey(ctx context.Context, key string) (models.DecisionDefinitionModel, error) {
 	var m models.DecisionDefinitionModel
 	// GetConnector latest version
-	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).First(&m, SelectLatestDefinition, key).Error; err != nil {
+	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key: %w", err)
 	}
 	return m, nil
 }
 func (r *gormDecisionRepository) GetByKeyAndVersion(ctx context.Context, key string, version int) (models.DecisionDefinitionModel, error) {
 	var m models.DecisionDefinitionModel
-	if err := GetTx(ctx, r.db).Where("key = ? AND version = ?", key, version).First(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
 		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key and version: %w", err)
 	}
 	return m, nil
@@ -60,7 +60,7 @@ func (r *gormDecisionRepository) Create(ctx context.Context, m models.DecisionDe
 }
 
 func (r *gormDecisionRepository) Update(ctx context.Context, id uuid.UUID, m models.DecisionDefinitionModel) error {
-	m.ID = id
+	m.ID = models.UUID(id)
 	if err := GetTx(ctx, r.db).Save(&m).Error; err != nil {
 		return fmt.Errorf("could not update decision: %w", err)
 	}

@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
@@ -13,13 +14,13 @@ func (a UserModelAdapter) ToModel() models.UserModel {
 	var orgs []models.OrganizationModel
 	for _, o := range a.User.Organizations {
 		if o != nil {
-			orgs = append(orgs, models.OrganizationModel{Base: models.Base{ID: o.ID}})
+			orgs = append(orgs, models.OrganizationModel{Base: models.Base{ID: models.UUID(o.ID)}})
 		}
 	}
 	var projects []models.ProjectModel
 	for _, p := range a.User.Projects {
 		if p != nil {
-			projects = append(projects, models.ProjectModel{Base: models.Base{ID: p.ID}})
+			projects = append(projects, models.ProjectModel{Base: models.Base{ID: models.UUID(p.ID)}})
 		}
 	}
 	var org string
@@ -28,7 +29,7 @@ func (a UserModelAdapter) ToModel() models.UserModel {
 	}
 	return models.UserModel{
 		Base: models.Base{
-			ID:        a.User.ID,
+			ID:        models.UUID(a.User.ID),
 			CreatedAt: a.User.CreatedAt,
 		},
 		Username:      a.User.Username,
@@ -50,7 +51,7 @@ func (a UserEntityAdapter) ToEntity() entities.User {
 	var orgs []*entities.Organization
 	for _, o := range a.Model.Organizations {
 		orgs = append(orgs, &entities.Organization{
-			ID:          o.ID,
+			ID:          uuid.UUID(o.ID),
 			Name:        o.Name,
 			Description: o.Description,
 			CreatedAt:   o.CreatedAt,
@@ -60,8 +61,8 @@ func (a UserEntityAdapter) ToEntity() entities.User {
 	var projects []*entities.Project
 	for _, p := range a.Model.Projects {
 		projects = append(projects, &entities.Project{
-			ID:           p.ID,
-			Organization: &entities.Organization{ID: p.OrganizationID},
+			ID:           uuid.UUID(p.ID),
+			Organization: &entities.Organization{ID: uuid.UUID(p.OrganizationID)},
 			Name:         p.Name,
 			Description:  p.Description,
 			CreatedAt:    p.CreatedAt,
@@ -73,7 +74,7 @@ func (a UserEntityAdapter) ToEntity() entities.User {
 		org = &entities.Organization{Name: a.Model.Organization}
 	}
 	return entities.User{
-		ID:            a.Model.ID,
+		ID:            uuid.UUID(a.Model.ID),
 		Organizations: orgs,
 		Projects:      projects,
 		Username:      a.Model.Username,

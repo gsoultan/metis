@@ -17,10 +17,10 @@ func (a GroupModelAdapter) ToModel() models.GroupModel {
 	}
 	return models.GroupModel{
 		Base: models.Base{
-			ID:        a.Group.ID,
+			ID:        models.UUID(a.Group.ID),
 			CreatedAt: a.Group.CreatedAt,
 		},
-		OrganizationID: orgID,
+		OrganizationID: models.UUID(orgID),
 		Name:           a.Group.Name,
 		Description:    a.Group.Description,
 		Roles:          a.Group.Roles,
@@ -33,11 +33,11 @@ type GroupEntityAdapter struct {
 
 func (a GroupEntityAdapter) ToEntity() entities.Group {
 	var org *entities.Organization
-	if a.Model.OrganizationID != uuid.Nil {
-		org = &entities.Organization{ID: a.Model.OrganizationID}
+	if a.Model.OrganizationID != models.NilUUID {
+		org = &entities.Organization{ID: uuid.UUID(a.Model.OrganizationID)}
 	}
 	return entities.Group{
-		ID:           a.Model.ID,
+		ID:           uuid.UUID(a.Model.ID),
 		Organization: org,
 		Name:         a.Model.Name,
 		Description:  a.Model.Description,

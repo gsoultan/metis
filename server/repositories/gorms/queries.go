@@ -1,7 +1,20 @@
 package gorms
 
-// SelectLatestDefinition is used to fetch the most recent version of a process definition.
-const SelectLatestDefinition = "key = ?"
+// ByKey builds a condition on the `key` column.
+//
+// It has to be a map rather than a raw "key = ?" string: `key` is a reserved
+// word in MySQL, and a raw condition is passed through verbatim, so MySQL
+// rejected the statement outright. GORM quotes map keys per dialect — backticks
+// on MySQL, double quotes on PostgreSQL — which is the only form all three
+// engines accept.
+func ByKey(key string) map[string]any {
+	return map[string]any{"key": key}
+}
+
+// ByKeyAndVersion is ByKey with an explicit version.
+func ByKeyAndVersion(key string, version int) map[string]any {
+	return map[string]any{"key": key, "version": version}
+}
 
 // OrderLatestDefinition defines the sorting for versions.
 const OrderLatestDefinition = "version desc"

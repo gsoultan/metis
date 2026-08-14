@@ -109,7 +109,7 @@ func NewServiceFacade(
 	// Resolve circular collaborators via functional options so the wiring is
 	// grouped in one explicit call instead of scattered Set* method calls.
 	jobSvc := serviceimpl.NewJobService(repo, engine, connectorSvc, serviceimpl.NewNoOpLocker(), impl.NewErrorBoundaryMatcher())
-	handlerFactory := impl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, feelEval, repo.Subscription())
+	handlerFactory := impl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription())
 	engine.Apply(
 		serviceimpl.WithVariableHistoryService(varHistorySvc),
 		serviceimpl.WithJobService(jobSvc),

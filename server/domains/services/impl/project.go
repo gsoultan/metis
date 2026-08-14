@@ -79,7 +79,7 @@ func (s *projectService) UpdateProject(ctx context.Context, id uuid.UUID, organi
 			return err
 		}
 		if organizationID != uuid.Nil {
-			m.OrganizationID = organizationID
+			m.OrganizationID = models.UUID(organizationID)
 		}
 		if name != "" {
 			m.Name = name

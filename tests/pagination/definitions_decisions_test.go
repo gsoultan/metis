@@ -23,8 +23,8 @@ func seedDefinitions(t *testing.T, repo repositories.Repository, projectID uuid.
 	t.Helper()
 	for i := range n {
 		if err := repo.Definition().Create(t.Context(), models.ProcessDefinitionModel{
-			Base:      models.Base{ID: uuid.Must(uuid.NewV7())},
-			ProjectID: projectID,
+			Base:      models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
+			ProjectID: models.UUID(projectID),
 			Key:       fmt.Sprintf("process-%03d", i),
 			Name:      fmt.Sprintf("Process %d", i),
 			Version:   1,
@@ -38,8 +38,8 @@ func seedDecisions(t *testing.T, repo repositories.Repository, projectID uuid.UU
 	t.Helper()
 	for i := range n {
 		if err := repo.Decision().Create(t.Context(), models.DecisionDefinitionModel{
-			Base:      models.Base{ID: uuid.Must(uuid.NewV7())},
-			ProjectID: projectID,
+			Base:      models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
+			ProjectID: models.UUID(projectID),
 			Key:       fmt.Sprintf("decision-%03d", i),
 			Name:      fmt.Sprintf("Decision %d", i),
 			Version:   1,
@@ -82,7 +82,7 @@ func TestDefinitionsPaged_PagesDoNotOverlap(t *testing.T) {
 			t.Fatalf("page %d: %v", n, err)
 		}
 		for _, row := range page.Items {
-			seen[row.ID]++
+			seen[uuid.UUID(row.ID)]++
 		}
 	}
 	if len(seen) != 30 {
@@ -126,15 +126,15 @@ func TestDefinitionsPaged_WorksUnderTenantScoping(t *testing.T) {
 
 	orgID := uuid.Must(uuid.NewV7())
 	if err := repo.Organization().Create(ctx, models.OrganizationModel{
-		Base: models.Base{ID: orgID},
+		Base: models.Base{ID: models.UUID(orgID)},
 		Name: "Acme",
 	}); err != nil {
 		t.Fatalf("seed organization: %v", err)
 	}
 	projectID := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(ctx, models.ProjectModel{
-		Base:           models.Base{ID: projectID},
-		OrganizationID: orgID,
+		Base:           models.Base{ID: models.UUID(projectID)},
+		OrganizationID: models.UUID(orgID),
 		Name:           "Acme Project",
 	}); err != nil {
 		t.Fatalf("seed project: %v", err)

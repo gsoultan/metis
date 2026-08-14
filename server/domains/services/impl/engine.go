@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/dop251/goja"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -481,18 +479,15 @@ func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entit
 // checkMultiInstanceCompletion increments the completion counter and returns
 // (true, nil) when all iterations are done (or the completion condition is met).
 func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
-	completedKey := fmt.Sprintf("_mi_%s_completed", nodeID)
-	totalKey := fmt.Sprintf("_mi_%s_total", nodeID)
-
-	completed := extractInt(instance.Variables, completedKey) + 1
-	total := extractInt(instance.Variables, totalKey)
-
-	instance.SetVariable(completedKey, completed)
+	completed, total := instance.CompleteMultiInstanceIteration(nodeID)
 	instance.RemoveTokenByIteration(node, iterationID)
 
 	conditionMet := completed >= total
 	if node.CompletionCondition != "" {
-		conditionMet = logic.GetConditionEvaluatorChain().Evaluate(node.CompletionCondition, instance.Variables)
+		// The condition sees the business variables plus BPMN's own progress
+		// counters, without either being written back to the instance.
+		conditionMet = logic.GetConditionEvaluatorChain().
+			Evaluate(node.CompletionCondition, instance.MultiInstanceConditionScope(nodeID))
 	}
 
 	if !conditionMet {
@@ -509,10 +504,8 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 		return false, nil
 	}
 
-	// All iterations complete — clean up MI tracking variables.
-	delete(instance.Variables, completedKey)
-	delete(instance.Variables, totalKey)
-	delete(instance.Variables, fmt.Sprintf("_mi_%s_active", nodeID))
+	// Every iteration is done, so the bookkeeping goes.
+	instance.FinishMultiInstance(nodeID)
 	return true, nil
 }
 
@@ -624,7 +617,10 @@ func (e *Engine) activateEventNode(ctx context.Context, instance *entities.Proce
 		}
 	}
 	if messageName := node.GetStringProperty("message_name"); messageName != "" {
-		correlationKey := node.GetStringProperty("correlation_key")
+		correlationKey, err := entities.ResolveCorrelationKey(node.GetStringProperty("correlation_key"), instance.Variables)
+		if err != nil {
+			return fmt.Errorf("resolve correlation key for message %q on node %s: %w", messageName, node.ID, err)
+		}
 		sub := entities.NewMessageSubscription(instance.Project, instance, node, messageName, correlationKey)
 		if err := e.repo.Subscription().Create(ctx, adapters.SubscriptionModelAdapter{Subscription: sub}.ToModel()); err != nil {
 			return fmt.Errorf("create message subscription %q for node %s: %w", messageName, node.ID, err)
@@ -679,15 +675,26 @@ func (e *Engine) BroadcastSignal(ctx context.Context, projectID uuid.UUID, signa
 		return err
 	}
 
+	// A signal is a broadcast: every waiting instance is entitled to it, so one
+	// subscriber that fails must not silence the rest. Failures are collected and
+	// reported together — the same choice TriggerCompensation makes, and for the
+	// same reason. Returning on the first one delivered the signal to whichever
+	// subscribers happened to sort earlier and skipped the others without a word.
+	var errs []error
 	for _, m := range ms {
 		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
 		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
-			return fmt.Errorf("trigger signal subscription %s: %w", sub.ID, err)
+			errs = append(errs, fmt.Errorf("trigger signal subscription %s: %w", sub.ID, err))
 		}
 	}
 
-	// Handle Signal Start Events
-	return e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars)
+	// Signal start events are a separate audience; a failed subscriber must not
+	// stop the signal from starting the processes that wait for it.
+	if err := e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }
 
 func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error {
@@ -696,19 +703,26 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 		return err
 	}
 
+	// A correlated message normally has a single recipient, but an uncorrelated
+	// one fans out to every instance waiting on that message name, so the same
+	// all-or-report rule applies.
+	var errs []error
 	for _, m := range ms {
 		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
 		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
-			return fmt.Errorf("trigger message subscription %s: %w", sub.ID, err)
+			errs = append(errs, fmt.Errorf("trigger message subscription %s: %w", sub.ID, err))
 		}
 	}
 
-	// Handle Message Start Events
-	if correlationKey == "" { // Message starts usually don't have correlation key
-		return e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+	// Message start events carry no correlation key, so they are only in scope
+	// for an uncorrelated message.
+	if correlationKey == "" {
+		if err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // triggerSubscription advances the instance waiting on sub, merging vars into
@@ -778,6 +792,15 @@ func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, pr
 	return nil
 }
 
+// TriggerEscalation walks from the throwing node up through its ancestors,
+// offering the escalation to each level's boundary events and event
+// sub-processes until one takes it.
+//
+// "Did a handler take it" and "did the handler fail" are separate answers. They
+// used to share one error return, so a handler that failed for a real reason —
+// a database error, a failure inside the handler path — read as "nothing here"
+// and the escalation was passed up to an outer handler as well. That both hid
+// the failure and ran a second handler for one escalation.
 func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error {
 	currNodeID := node.ID
 	if node.ParentID != "" {
@@ -785,12 +808,20 @@ func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.Proce
 	}
 
 	for currNodeID != "" {
-		if err := e.checkBoundaryEscalation(ctx, instance, def, currNodeID, escalationCode); err == nil {
-			return nil // Handled
+		handled, err := e.checkBoundaryEscalation(ctx, instance, def, currNodeID, escalationCode)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
 		}
 
-		if err := e.checkEventSubProcessEscalation(ctx, instance, def, currNodeID, escalationCode); err == nil {
-			return nil // Handled
+		handled, err = e.checkEventSubProcessEscalation(ctx, instance, def, currNodeID, escalationCode)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
 		}
 
 		parent := def.FindNode(currNodeID)
@@ -800,26 +831,57 @@ func (e *Engine) TriggerEscalation(ctx context.Context, instance *entities.Proce
 			currNodeID = ""
 		}
 	}
+
+	// BPMN 2.0 treats an escalation as a notification, not a fault: one that
+	// reaches the top uncaught is tolerated rather than raised. It is logged so
+	// a model that reports something nobody listens for is still visible.
+	log.Warn().
+		Str("instanceId", instance.ID.String()).
+		Str("nodeId", node.ID).
+		Str("escalationCode", escalationCode).
+		Msg("Escalation reached the top of the process with no handler")
 	return nil
 }
 
-func (e *Engine) checkBoundaryEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) error {
-	boundaryEvents := def.GetBoundaryEvents(nodeID)
-	for _, be := range boundaryEvents {
-		if be.GetStringProperty("escalation_code") == escalationCode || be.GetStringProperty("escalation_code") == "" {
-			return e.Proceed(ctx, instance, def, be.ID)
-		}
-	}
-	return fmt.Errorf("no boundary escalation found")
+// isEscalationBoundary reports whether be is an escalation catch event.
+//
+// GetBoundaryEvents returns boundary events of every kind attached to a node,
+// and error, timer, message and compensation events all report an empty
+// escalation_code. Without this check the "no code catches anything" rule below
+// matched all of them, so an escalation was delivered to whichever boundary
+// event happened to come first — routinely an error handler written for a
+// completely different situation.
+func isEscalationBoundary(be *entities.Node) bool {
+	return be.GetStringProperty("event_type") == "escalation" ||
+		be.GetStringProperty("escalation_code") != ""
 }
 
-func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) error {
-	var siblings []*entities.Node
-	parent := def.FindNode(nodeID)
-	if parent != nil {
+// checkBoundaryEscalation offers the escalation to nodeID's boundary events.
+// It reports whether one took it, separately from whether that handler failed.
+func (e *Engine) checkBoundaryEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) (bool, error) {
+	for _, be := range def.GetBoundaryEvents(nodeID) {
+		if !isEscalationBoundary(be) {
+			continue
+		}
+		// BPMN 2.0: an escalation boundary event with no escalationRef catches
+		// any escalation. That catch-all belongs to escalation events only.
+		if code := be.GetStringProperty("escalation_code"); code != escalationCode && code != "" {
+			continue
+		}
+		if err := e.Proceed(ctx, instance, def, be.ID); err != nil {
+			return true, fmt.Errorf("escalation boundary event %s on node %s: %w", be.ID, nodeID, err)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// checkEventSubProcessEscalation offers the escalation to event sub-processes at
+// nodeID's level, matching on the start event's escalation code.
+func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, escalationCode string) (bool, error) {
+	siblings := def.Nodes
+	if parent := def.FindNode(nodeID); parent != nil {
 		siblings = parent.Nodes
-	} else {
-		siblings = def.Nodes
 	}
 
 	for _, sib := range siblings {
@@ -827,13 +889,17 @@ func (e *Engine) checkEventSubProcessEscalation(ctx context.Context, instance *e
 			continue
 		}
 		for _, sn := range sib.Nodes {
-			if sn.Type == entities.StartEvent && sn.GetStringProperty("escalation_code") == escalationCode {
-				instance.AddToken(sn)
-				return e.ExecuteNode(ctx, instance, def, sn.ID)
+			if sn.Type != entities.StartEvent || sn.GetStringProperty("escalation_code") != escalationCode {
+				continue
 			}
+			instance.AddToken(sn)
+			if err := e.ExecuteNode(ctx, instance, def, sn.ID); err != nil {
+				return true, fmt.Errorf("escalation event sub-process %s start %s: %w", sib.ID, sn.ID, err)
+			}
+			return true, nil
 		}
 	}
-	return fmt.Errorf("no event sub-process escalation found")
+	return false, nil
 }
 
 // TriggerCompensation compensates either a single referenced activity or, when
@@ -871,7 +937,7 @@ func (e *Engine) compensateActivity(ctx context.Context, instance *entities.Proc
 	if node == nil {
 		return nil
 	}
-	if slices.Contains(instance.CompensatedNodes, node) {
+	if instance.IsCompensated(node) {
 		return nil
 	}
 	boundaryEvents := def.GetBoundaryEvents(node.ID)
@@ -890,43 +956,7 @@ func (e *Engine) ExecuteScript(ctx context.Context, script string, scriptFormat 
 		return nil, fmt.Errorf("unsupported script format: %s", scriptFormat)
 	}
 
-	vm := logic.NewSandboxedRuntime()
-	for k, v := range variables {
-		if err := vm.Set(k, v); err != nil {
-			return nil, fmt.Errorf("bind variable %q into script scope: %w", k, err)
-		}
-	}
-
-	// Helper to set variables back
-	updatedVars := maps.Clone(variables)
-
-	if err := vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) >= 2 {
-			name := call.Arguments[0].String()
-			val := call.Arguments[1].Export()
-			updatedVars[name] = val
-		}
-		return goja.Undefined()
-	}); err != nil {
-		return nil, fmt.Errorf("bind setVar helper into script scope: %w", err)
-	}
-
-	// ExecuteScript runs user-authored script on the server; bound it.
-	if _, err := logic.RunSandboxed(ctx, vm, logic.ScriptTimeout(), func() (goja.Value, error) {
-		return vm.RunString(script)
-	}); err != nil {
-		return nil, fmt.Errorf("script execution failed: %w", err)
-	}
-
-	// Sync variables modified in root scope
-	for k := range variables {
-		val := vm.Get(k)
-		if val != nil {
-			updatedVars[k] = val.Export()
-		}
-	}
-
-	return updatedVars, nil
+	return logic.RunScript(ctx, script, variables)
 }
 
 // ListInstancesPaged returns one page of process instances with the total.

@@ -102,7 +102,7 @@ func seedUser(t *testing.T, repo repositories.Repository, username, password str
 	}
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(t.Context(), models.UserModel{
-		Base:     models.Base{ID: id},
+		Base:     models.Base{ID: models.UUID(id)},
 		Username: username,
 		FullName: "Alice Example",
 		Email:    "alice@example.com",

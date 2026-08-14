@@ -40,7 +40,7 @@ func TestUpdateUser_KeepsTheUsernameAndPasswordItWasNotGiven(t *testing.T) {
 	}
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: id},
+		Base:     models.Base{ID: models.UUID(id)},
 		Username: "admin",
 		FullName: "Ada Lovelace",
 		Email:    "ada@example.com",
@@ -86,7 +86,7 @@ func TestUpdateUser_StillAppliesTheFieldsItWasGiven(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.DefaultCost)
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: id},
+		Base:     models.Base{ID: models.UUID(id)},
 		Username: "bob",
 		FullName: "Bob Barker",
 		Email:    "bob@example.com",
@@ -126,7 +126,7 @@ func TestUpdateUser_LeavesRolesAloneWhenTheyAreNotSupplied(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.DefaultCost)
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: id},
+		Base:     models.Base{ID: models.UUID(id)},
 		Username: "carol",
 		Roles:    []string{"ADMIN"},
 	}, string(hash)); err != nil {

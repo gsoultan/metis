@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
@@ -24,7 +25,7 @@ func (a ConnectorModelAdapter) ToModel() models.Connector {
 	}
 	return models.Connector{
 		Base: models.Base{
-			ID:        a.Connector.ID,
+			ID:        models.UUID(a.Connector.ID),
 			CreatedAt: a.Connector.CreatedAt,
 		},
 		Key:         a.Connector.Key,
@@ -54,7 +55,7 @@ func (a ConnectorEntityAdapter) ToEntity() entities.Connector {
 		}
 	}
 	return entities.Connector{
-		ID:          a.Model.ID,
+		ID:          uuid.UUID(a.Model.ID),
 		Key:         a.Model.Key,
 		Name:        a.Model.Name,
 		Description: a.Model.Description,

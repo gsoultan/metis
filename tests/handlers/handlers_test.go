@@ -349,7 +349,7 @@ func newHandlerHarness(t *testing.T) (services.ServiceFacade, servicecontracts.J
 	engine.Apply(
 		service_impl2.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
 			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc,
-			service_impl2.NewFEELEvaluator(), repo.Subscription(),
+			repo.Subscription(),
 		)),
 		service_impl2.WithJobService(jobSvc),
 	)

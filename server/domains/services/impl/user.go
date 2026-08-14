@@ -221,7 +221,7 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 	if err != nil {
 		return fmt.Errorf("could not hash the new password: %w", err)
 	}
-	return s.repo.User().SetPasswordHash(ctx, user.ID, string(hash))
+	return s.repo.User().SetPasswordHash(ctx, uuid.UUID(user.ID), string(hash))
 }
 
 func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {

@@ -1,13 +1,9 @@
 package models
 
-import (
-	"github.com/google/uuid"
-)
-
 // Connector is the GORM model for Connector templates.
 type Connector struct {
 	Base
-	Key         string              `gorm:"uniqueIndex" json:"key"`
+	Key         string              `gorm:"size:255;uniqueIndex" json:"key"`
 	Name        string              `json:"name"`
 	Description string              `json:"description,omitzero"`
 	Icon        string              `json:"icon,omitzero"`
@@ -29,8 +25,8 @@ type ConnectorProperty struct {
 // ConnectorInstance is the GORM model for ConnectorInstance.
 type ConnectorInstance struct {
 	Base
-	ProjectID   uuid.UUID      `gorm:"index" json:"project_id,omitzero"`
-	ConnectorID uuid.UUID      `gorm:"index" json:"connector_id,omitzero"`
+	ProjectID   UUID           `gorm:"index" json:"project_id,omitzero"`
+	ConnectorID UUID           `gorm:"index" json:"connector_id,omitzero"`
 	Name        string         `json:"name"`
 	Config      map[string]any `gorm:"type:text;serializer:json" json:"config,omitzero"`
 }

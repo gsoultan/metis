@@ -49,13 +49,13 @@ func (s *sagaCoordinator) RecordActivity(ctx context.Context, activity entities.
 		compNodeID = activity.CompensationNode.ID
 	}
 	m := models.CompensatableActivityModel{
-		InstanceID:         instanceID,
+		InstanceID:         models.UUID(instanceID),
 		NodeID:             nodeID,
 		CompensationNodeID: compNodeID,
 		Variables:          activity.Variables,
 		CompletedAt:        activity.CompletedAt,
 	}
-	m.ID = activity.ID
+	m.ID = models.UUID(activity.ID)
 	_, err := s.repo.Create(ctx, m)
 	return err
 }

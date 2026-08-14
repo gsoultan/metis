@@ -94,8 +94,8 @@ func (r *gormUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *gormUserRepository) AddOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
-	user := models.UserModel{Base: models.Base{ID: userID}}
-	org := models.OrganizationModel{Base: models.Base{ID: organizationID}}
+	user := models.UserModel{Base: models.Base{ID: models.UUID(userID)}}
+	org := models.OrganizationModel{Base: models.Base{ID: models.UUID(organizationID)}}
 	if err := GetTx(ctx, r.db).Model(&user).Association("Organizations").Append(&org); err != nil {
 		return fmt.Errorf("could not add organization to user: %w", err)
 	}
@@ -103,8 +103,8 @@ func (r *gormUserRepository) AddOrganization(ctx context.Context, userID, organi
 }
 
 func (r *gormUserRepository) RemoveOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
-	user := models.UserModel{Base: models.Base{ID: userID}}
-	org := models.OrganizationModel{Base: models.Base{ID: organizationID}}
+	user := models.UserModel{Base: models.Base{ID: models.UUID(userID)}}
+	org := models.OrganizationModel{Base: models.Base{ID: models.UUID(organizationID)}}
 	if err := GetTx(ctx, r.db).Model(&user).Association("Organizations").Delete(&org); err != nil {
 		return fmt.Errorf("could not remove organization from user: %w", err)
 	}
@@ -112,8 +112,8 @@ func (r *gormUserRepository) RemoveOrganization(ctx context.Context, userID, org
 }
 
 func (r *gormUserRepository) AddProject(ctx context.Context, userID, projectID uuid.UUID) error {
-	user := models.UserModel{Base: models.Base{ID: userID}}
-	project := models.ProjectModel{Base: models.Base{ID: projectID}}
+	user := models.UserModel{Base: models.Base{ID: models.UUID(userID)}}
+	project := models.ProjectModel{Base: models.Base{ID: models.UUID(projectID)}}
 	if err := GetTx(ctx, r.db).Model(&user).Association("Projects").Append(&project); err != nil {
 		return fmt.Errorf("could not add project to user: %w", err)
 	}
@@ -121,8 +121,8 @@ func (r *gormUserRepository) AddProject(ctx context.Context, userID, projectID u
 }
 
 func (r *gormUserRepository) RemoveProject(ctx context.Context, userID, projectID uuid.UUID) error {
-	user := models.UserModel{Base: models.Base{ID: userID}}
-	project := models.ProjectModel{Base: models.Base{ID: projectID}}
+	user := models.UserModel{Base: models.Base{ID: models.UUID(userID)}}
+	project := models.ProjectModel{Base: models.Base{ID: models.UUID(projectID)}}
 	if err := GetTx(ctx, r.db).Model(&user).Association("Projects").Delete(&project); err != nil {
 		return fmt.Errorf("could not remove project from user: %w", err)
 	}

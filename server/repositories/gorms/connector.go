@@ -34,7 +34,7 @@ func (r *connectorRepository) Get(ctx context.Context, id uuid.UUID) (models.Con
 
 func (r *connectorRepository) GetByKey(ctx context.Context, key string) (models.Connector, error) {
 	var m models.Connector
-	if err := ResolveDB(r.db).WithContext(ctx).First(&m, "key = ?", key).Error; err != nil {
+	if err := ResolveDB(r.db).WithContext(ctx).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.Connector{}, err
 	}
 	return m, nil

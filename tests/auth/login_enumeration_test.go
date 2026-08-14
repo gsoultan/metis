@@ -31,7 +31,7 @@ func TestLogin_DoesNotRevealWhetherTheAccountExists(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: uuid.Must(uuid.NewV7())},
+		Base:     models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 		Username: "alice",
 		FullName: "Alice",
 	}, string(hash)); err != nil {
@@ -62,7 +62,7 @@ func TestLogin_SucceedsWithTheCorrectPassword(t *testing.T) {
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("correct-horse-battery"), bcrypt.DefaultCost)
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: uuid.Must(uuid.NewV7())},
+		Base:     models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 		Username: "alice",
 		FullName: "Alice",
 	}, string(hash)); err != nil {

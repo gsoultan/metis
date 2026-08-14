@@ -24,7 +24,7 @@ func (r *gormProcessRepository) Create(ctx context.Context, m models.ProcessInst
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return uuid.Nil, fmt.Errorf("could not create process instance: %w", err)
 	}
-	return m.ID, nil
+	return uuid.UUID(m.ID), nil
 }
 
 func (r *gormProcessRepository) Get(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {

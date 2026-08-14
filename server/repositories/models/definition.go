@@ -1,9 +1,5 @@
 package models
 
-import (
-	"github.com/google/uuid"
-)
-
 // NodeType represents the type of a BPMN element in the database.
 type NodeType string
 
@@ -89,13 +85,13 @@ type SequenceFlow struct {
 // ProcessDefinitionModel represents the GORM model for process definitions.
 type ProcessDefinitionModel struct {
 	Base
-	ProjectID    uuid.UUID      `gorm:"type:uuid;index" json:"project_id,omitzero"`
-	Key          string         `gorm:"index" json:"key"`
+	ProjectID    UUID           `gorm:"index" json:"project_id,omitzero"`
+	Key          string         `gorm:"size:255;index" json:"key"`
 	Name         string         `json:"name"`
 	Version      int            `json:"version"`
 	Nodes        []FlowNode     `gorm:"type:text;serializer:json" json:"nodes,omitzero"`
 	Flows        []SequenceFlow `gorm:"type:text;serializer:json" json:"flows,omitzero"`
-	DeploymentID uuid.UUID      `gorm:"type:uuid;index" json:"deployment_id,omitzero"`
+	DeploymentID UUID           `gorm:"index" json:"deployment_id,omitzero"`
 }
 
 // TableName overrides the table name for ProcessDefinitionModel.

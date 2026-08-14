@@ -52,8 +52,7 @@ func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.Pr
 }
 
 func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node) error {
-	activeKey := fmt.Sprintf("_mi_%s_active", node.ID)
-	if _, ok := instance.Variables[activeKey]; ok {
+	if instance.IsMultiInstanceActive(node.ID) {
 		return nil
 	}
 
@@ -72,9 +71,7 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 		return t.internal.DoExecute(ctx, instance, def, node, "")
 	}
 
-	instance.SetVariable(activeKey, true)
-	instance.SetVariable(fmt.Sprintf("_mi_%s_completed", node.ID), 0)
-	instance.SetVariable(fmt.Sprintf("_mi_%s_total", node.ID), total)
+	instance.StartMultiInstance(node.ID, total)
 	instance.RemoveTokenByNode(&node)
 
 	if node.MultiInstanceType == "parallel" {

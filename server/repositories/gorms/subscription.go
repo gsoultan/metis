@@ -46,6 +46,27 @@ func (r *subscriptionRepository) FindSignals(ctx context.Context, projectID uuid
 	return subs, nil
 }
 
+// ListTemplatedMessageSubscriptions finds message subscriptions still holding an
+// unresolved ${...} correlation key. "${" contains no LIKE wildcard, so it is
+// matched literally between the two wildcards.
+func (r *subscriptionRepository) ListTemplatedMessageSubscriptions(ctx context.Context) ([]models.Subscription, error) {
+	var subs []models.Subscription
+	err := GetTx(ctx, r.db).
+		Where("type = ? AND correlation_key LIKE ?", models.SubscriptionMessage, "%${%").
+		Find(&subs).Error
+	if err != nil {
+		return nil, err
+	}
+	return subs, nil
+}
+
+func (r *subscriptionRepository) UpdateCorrelationKey(ctx context.Context, id uuid.UUID, correlationKey string) error {
+	return GetTx(ctx, r.db).
+		Model(&models.Subscription{}).
+		Where("id = ?", id).
+		Update("correlation_key", correlationKey).Error
+}
+
 func (r *subscriptionRepository) FindMessages(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string) ([]models.Subscription, error) {
 	var subs []models.Subscription
 	query := GetTx(ctx, r.db).Where("project_id = ? AND type = ? AND event_name = ?", projectID, models.SubscriptionMessage, messageName)

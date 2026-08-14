@@ -69,6 +69,14 @@ vet: ## Run go vet across the whole module
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
 	go test $(GO_PKGS)
 
+.PHONY: test-db
+test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4
+	@echo "Postgres and MySQL tests skip unless GOBPM_TEST_POSTGRES_DSN / GOBPM_TEST_MYSQL_DSN are set."
+	@echo "Apple container:"
+	@echo "  container run -d --rm --name gobpm-pg -e POSTGRES_PASSWORD=gobpm -e POSTGRES_USER=gobpm -e POSTGRES_DB=gobpm docker.io/library/postgres:17"
+	@echo "  export GOBPM_TEST_POSTGRES_DSN=\"host=<ip> user=gobpm password=gobpm dbname=gobpm port=5432 sslmode=disable\""
+	go test ./tests/postgres/... ./tests/mysqldb/... -v
+
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
 	go test -race $(GO_PKGS)

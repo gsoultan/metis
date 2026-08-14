@@ -2,8 +2,6 @@ package models
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type JobStatus string
@@ -24,8 +22,8 @@ const (
 
 type JobModel struct {
 	Base
-	InstanceID   uuid.UUID      `gorm:"type:uuid;index" json:"instance_id,omitzero"`
-	DefinitionID uuid.UUID      `gorm:"type:uuid" json:"definition_id,omitzero"`
+	InstanceID   UUID           `gorm:"index" json:"instance_id,omitzero"`
+	DefinitionID UUID           `json:"definition_id,omitzero"`
 	NodeID       string         `json:"node_id"`
 	IterationID  string         `json:"iteration_id,omitzero"`
 	Type         JobType        `json:"type"`

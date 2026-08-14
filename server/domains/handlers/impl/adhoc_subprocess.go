@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/gobpm/server/domains/logic"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 )
 
@@ -13,42 +14,51 @@ import (
 // It implements the Strategy pattern — the SubProcessHandler delegates to this
 // handler when node.IsAdHoc is true.
 type AdHocSubProcessHandler struct {
-	engine   servicecontracts.EngineRunner
-	exprEval servicecontracts.ExpressionEvaluator
+	engine servicecontracts.EngineRunner
 }
 
 // NewAdHocSubProcessHandler creates a new AdHocSubProcessHandler.
-func NewAdHocSubProcessHandler(engine servicecontracts.ExecutionEngine, exprEval servicecontracts.ExpressionEvaluator) *AdHocSubProcessHandler {
-	return &AdHocSubProcessHandler{engine: engine, exprEval: exprEval}
+//
+// It takes no expression evaluator: completion conditions go through the shared
+// condition evaluator chain, the same one gateways use for sequence flows.
+func NewAdHocSubProcessHandler(engine servicecontracts.ExecutionEngine) *AdHocSubProcessHandler {
+	return &AdHocSubProcessHandler{engine: engine}
 }
 
-// DoExecute enters the ad-hoc subprocess by placing a token on it and
-// immediately checking the completion condition. If the condition is already
-// satisfied (e.g., empty/wildcard), it proceeds; otherwise it waits for
-// explicit task activations from the knowledge worker.
+// DoExecute enters the ad-hoc subprocess and checks its completion condition.
+// If the condition is already satisfied — including the case of no condition at
+// all — it proceeds.
+//
+// If it is not satisfied, the subprocess would have to wait for a knowledge
+// worker to activate the tasks inside it. Nothing in this repository can do
+// that: the AdHocActivator contract that describes it has no implementation and
+// no caller. So rather than parking a token and reporting success, this reports
+// that the instance has no route forward. A process that can never continue is
+// an incident; silently hanging one leaves nothing to investigate.
 func (h *AdHocSubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
-	instance.AddTokenWithIteration(&node, iterationID)
+	if !h.isCompletionConditionMet(&node, instance) {
+		return fmt.Errorf(
+			"ad-hoc sub-process %q cannot be advanced: its completion condition %q is not satisfied and no task activation path is implemented (AdHocActivator has no implementation), so the instance would wait forever",
+			node.ID, node.CompletionCondition)
+	}
 
-	complete, err := h.isCompletionConditionMet(ctx, node, instance)
-	if err != nil {
-		return fmt.Errorf("ad-hoc subprocess %s: evaluate completion condition: %w", node.ID, err)
-	}
-	if !complete {
-		// Wait for explicit task activations — no auto-proceed.
-		return h.engine.UpdateInstance(ctx, *instance)
-	}
+	instance.AddTokenWithIteration(&node, iterationID)
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
 
-// isCompletionConditionMet evaluates the node's CompletionCondition expression.
-// Returns true (complete) when no condition is set or the expression evaluates to true.
-func (h *AdHocSubProcessHandler) isCompletionConditionMet(ctx context.Context, node entities.Node, instance *entities.ProcessInstance) (bool, error) {
+// isCompletionConditionMet evaluates the node's CompletionCondition with the
+// same chain gateways use for sequence-flow conditions, so an ad-hoc condition
+// is written the same way as every other process condition ("js:done >= 2",
+// "status=approved", or a plain boolean variable name).
+//
+// It previously went through the DMN FEEL evaluator, which is a decision-table
+// cell matcher: it compares against variables["_input"] and ignores the rest of
+// the map. An ad-hoc sub-process never sets _input, so every non-empty condition
+// evaluated to false and the only reachable outcomes were "no condition, proceed
+// immediately" and "any condition, hang forever".
+func (h *AdHocSubProcessHandler) isCompletionConditionMet(node *entities.Node, instance *entities.ProcessInstance) bool {
 	if node.CompletionCondition == "" {
-		return true, nil
+		return true
 	}
-	result, err := h.exprEval.EvaluateBool(ctx, node.CompletionCondition, instance.Variables)
-	if err != nil {
-		return false, err
-	}
-	return result, nil
+	return logic.GetConditionEvaluatorChain().Evaluate(node.CompletionCondition, instance.Variables)
 }

@@ -17,11 +17,11 @@ func (a ProjectModelAdapter) ToModel() models.ProjectModel {
 	}
 	return models.ProjectModel{
 		Base: models.Base{
-			ID:        a.Project.ID,
+			ID:        models.UUID(a.Project.ID),
 			CreatedAt: a.Project.CreatedAt,
 			UpdatedAt: a.Project.UpdatedAt,
 		},
-		OrganizationID: orgID,
+		OrganizationID: models.UUID(orgID),
 		Name:           a.Project.Name,
 		Description:    a.Project.Description,
 	}
@@ -33,8 +33,8 @@ type ProjectEntityAdapter struct {
 
 func (a ProjectEntityAdapter) ToEntity() entities.Project {
 	return entities.Project{
-		ID:           a.Model.ID,
-		Organization: &entities.Organization{ID: a.Model.OrganizationID},
+		ID:           uuid.UUID(a.Model.ID),
+		Organization: &entities.Organization{ID: uuid.UUID(a.Model.OrganizationID)},
 		Name:         a.Model.Name,
 		Description:  a.Model.Description,
 		CreatedAt:    a.Model.CreatedAt,

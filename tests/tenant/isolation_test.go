@@ -179,7 +179,7 @@ func seedOrgWithProject(t *testing.T, repo repositories.Repository, name string)
 
 	orgID := uuid.Must(uuid.NewV7())
 	if err := repo.Organization().Create(ctx, models.OrganizationModel{
-		Base: models.Base{ID: orgID},
+		Base: models.Base{ID: models.UUID(orgID)},
 		Name: name,
 	}); err != nil {
 		t.Fatalf("seed org %s: %v", name, err)
@@ -187,8 +187,8 @@ func seedOrgWithProject(t *testing.T, repo repositories.Repository, name string)
 
 	projID := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(ctx, models.ProjectModel{
-		Base:           models.Base{ID: projID},
-		OrganizationID: orgID,
+		Base:           models.Base{ID: models.UUID(projID)},
+		OrganizationID: models.UUID(orgID),
 		Name:           name + " Project",
 	}); err != nil {
 		t.Fatalf("seed project for %s: %v", name, err)

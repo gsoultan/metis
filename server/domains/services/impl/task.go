@@ -159,7 +159,7 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 	if err != nil {
 		return fmt.Errorf("%w: cannot resolve caller %s: %w", ErrTaskForbidden, userID, err)
 	}
-	groups, err := s.repo.Group().ListUserGroups(ctx, userModel.ID)
+	groups, err := s.repo.Group().ListUserGroups(ctx, uuid.UUID(userModel.ID))
 	if err != nil {
 		return fmt.Errorf("resolve group membership for %s: %w", userID, err)
 	}

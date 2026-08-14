@@ -55,23 +55,23 @@ func NewJobService(
 func (s *jobService) EnqueueServiceTask(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error {
 	job := entities.Job{
 		IterationID: iterationID,
-		Instance:   &instance,
-		Definition: &entities.ProcessDefinition{ID: instance.Definition.ID},
-		Node:       &node,
-		Type:       entities.JobServiceTask,
-		Status:     entities.JobPending,
-		Payload:    instance.Variables,
-		MaxRetries: 3,
-		NextRunAt:  time.Now(),
+		Instance:    &instance,
+		Definition:  &entities.ProcessDefinition{ID: instance.Definition.ID},
+		Node:        &node,
+		Type:        entities.JobServiceTask,
+		Status:      entities.JobPending,
+		Payload:     instance.Variables,
+		MaxRetries:  3,
+		NextRunAt:   time.Now(),
 	}
 	_, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
 }
 
 func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.ProcessInstance, node entities.Node, duration string) error {
-	d, err := time.ParseDuration(duration)
+	fireAt, err := entities.ParseTimerExpression(duration, time.Now())
 	if err != nil {
-		return fmt.Errorf("invalid duration %s: %w", duration, err)
+		return fmt.Errorf("timer on node %s: %w", node.ID, err)
 	}
 
 	job := entities.Job{
@@ -81,7 +81,7 @@ func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.Process
 		Type:       entities.JobTimer,
 		Status:     entities.JobPending,
 		Payload:    instance.Variables,
-		NextRunAt:  time.Now().Add(d),
+		NextRunAt:  fireAt,
 	}
 	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
@@ -130,7 +130,7 @@ func (s *jobService) dispatchPendingJobs(ctx context.Context, wait bool) error {
 
 	var running sync.WaitGroup
 	for _, m := range ms {
-		if !s.tryAcquireJobLock(ctx, m.ID) {
+		if !s.tryAcquireJobLock(ctx, uuid.UUID(m.ID)) {
 			continue
 		}
 		// Acquire a slot before spawning; the slot is released when the job finishes.
@@ -339,8 +339,17 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		}
 	}
 
+	// The row lock is taken for the whole read-modify-write, not just the read.
+	//
+	// Advancing a node that runs once per item increments a completion counter
+	// held in the instance, and up to maxConcurrentJobs of these run at once. An
+	// unlocked read let two iterations finishing together both see the same count
+	// and both write the next one, losing an increment — the counter then never
+	// reached the total and the process waited forever with no error and no
+	// incident. The connector call above deliberately stays outside the
+	// transaction so the lock is not held across network I/O.
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		instance, err := s.engine.GetInstance(txCtx, job.Instance.ID)
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
 		if err != nil {
 			return err
 		}
@@ -453,9 +462,9 @@ func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.Pr
 }
 
 func (s *jobService) EnqueueBoundaryTimer(ctx context.Context, instance entities.ProcessInstance, boundaryNode entities.Node, duration string) error {
-	d, err := time.ParseDuration(duration)
+	fireAt, err := entities.ParseTimerExpression(duration, time.Now())
 	if err != nil {
-		return fmt.Errorf("invalid boundary timer duration %q: %w", duration, err)
+		return fmt.Errorf("boundary timer on node %s: %w", boundaryNode.ID, err)
 	}
 	job := entities.Job{
 		Instance:   &instance,
@@ -464,16 +473,63 @@ func (s *jobService) EnqueueBoundaryTimer(ctx context.Context, instance entities
 		Type:       entities.JobTimerBoundary,
 		Status:     entities.JobPending,
 		Payload:    instance.Variables,
-		NextRunAt:  time.Now().Add(d),
+		NextRunAt:  fireAt,
 	}
 	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
 }
 
+// timerTokenBearer returns the node whose tokens decide whether a timer is still
+// live.
+//
+// A boundary event never holds a token of its own — it is a deadline on the
+// activity it is attached to, and that activity is where the token sits. A catch
+// event does hold its own token.
+func timerTokenBearer(def *entities.ProcessDefinition, node *entities.Node) *entities.Node {
+	if node == nil {
+		return nil
+	}
+	if node.Type == entities.BoundaryEvent && node.AttachedToRef != "" {
+		return def.FindNode(node.AttachedToRef)
+	}
+	return node
+}
+
+// timerStillApplies reports whether a due timer is still relevant to the
+// instance it was scheduled for.
+//
+// A timer cannot be cancelled: JobRepository has no delete, so when a branch of
+// an event-based gateway loses the race, or an activity finishes inside its
+// deadline, the pending job survives and comes due anyway. Cancelling at the
+// source would still leave this check necessary — a job already claimed by a
+// worker cannot be recalled — so relevance is decided when the timer fires,
+// against the tokens the engine maintains.
+func timerStillApplies(instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, iterationID string) bool {
+	if instance.Status != entities.ProcessActive {
+		return false
+	}
+	node := timerTokenBearer(def, def.FindNode(nodeID))
+	if node == nil {
+		return false
+	}
+	tokens := instance.GetTokensByNode(node)
+	if iterationID == "" {
+		return len(tokens) > 0
+	}
+	// A node that runs once per item has a token per iteration; only the one
+	// this job was scheduled for counts.
+	for _, tk := range tokens {
+		if tk.IterationID == iterationID {
+			return true
+		}
+	}
+	return false
+}
+
 // executeTimerBoundary fires the boundary event node directly on the instance.
 func (s *jobService) executeTimerBoundary(ctx context.Context, job entities.Job) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		instance, err := s.engine.GetInstance(txCtx, job.Instance.ID)
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
 		if err != nil {
 			return err
 		}
@@ -482,13 +538,25 @@ func (s *jobService) executeTimerBoundary(ctx context.Context, job entities.Job)
 			return err
 		}
 		def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
+
+		// A boundary timer is a deadline on the activity it is attached to. Once
+		// that activity has moved on, the deadline is moot — firing it would
+		// start the escalation path for work that finished on time.
+		if !timerStillApplies(&instance, def, job.Node.ID, job.IterationID) {
+			log.Debug().
+				Str("instanceId", instance.ID.String()).
+				Str("boundaryNodeId", job.Node.ID).
+				Msg("Boundary timer came due after its activity had already moved on; skipping")
+			return nil
+		}
+
 		return s.engine.ExecuteNode(txCtx, &instance, def, job.Node.ID)
 	})
 }
 
 func (s *jobService) executeTimer(ctx context.Context, job entities.Job) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		instance, err := s.engine.GetInstance(txCtx, job.Instance.ID)
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
 		if err != nil {
 			return err
 		}
@@ -498,6 +566,17 @@ func (s *jobService) executeTimer(ctx context.Context, job entities.Job) error {
 			return err
 		}
 		def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()
+
+		// The token is gone when another branch of an event-based gateway has
+		// already won the race. Proceeding anyway would take the losing branch
+		// as well and run the process down two paths at once.
+		if !timerStillApplies(&instance, def, job.Node.ID, job.IterationID) {
+			log.Debug().
+				Str("instanceId", instance.ID.String()).
+				Str("nodeId", job.Node.ID).
+				Msg("Timer came due after its branch was already resolved; skipping")
+			return nil
+		}
 
 		// For a node that runs once per item this has to say which iteration
 		// finished, or the engine cannot tell which of the node's tokens to

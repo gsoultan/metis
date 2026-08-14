@@ -101,7 +101,7 @@ func TestPagination_PagesDoNotOverlap(t *testing.T) {
 			t.Fatalf("page %d: %v", pageNum, err)
 		}
 		for _, row := range page.Items {
-			seen[row.ID]++
+			seen[uuid.UUID(row.ID)]++
 		}
 	}
 	if len(seen) != 30 {
@@ -176,7 +176,7 @@ func TestPagination_WorksUnderTenantScoping(t *testing.T) {
 
 	orgID := uuid.Must(uuid.NewV7())
 	if err := repo.Organization().Create(ctx, models.OrganizationModel{
-		Base: models.Base{ID: orgID},
+		Base: models.Base{ID: models.UUID(orgID)},
 		Name: "Acme",
 	}); err != nil {
 		t.Fatalf("seed organization: %v", err)
@@ -184,8 +184,8 @@ func TestPagination_WorksUnderTenantScoping(t *testing.T) {
 
 	projectID := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(ctx, models.ProjectModel{
-		Base:           models.Base{ID: projectID},
-		OrganizationID: orgID,
+		Base:           models.Base{ID: models.UUID(projectID)},
+		OrganizationID: models.UUID(orgID),
 		Name:           "Acme Project",
 	}); err != nil {
 		t.Fatalf("seed project: %v", err)
