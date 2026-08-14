@@ -87,7 +87,20 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	return engineHarness{svc: svc, engine: engine, repo: repo, jobSvc: jobSvc, projID: proj.ID}
 }
 
-// waitingAt reports whether the instance currently has a user task open at nodeID.
+// taskIsOpen reports whether a task is still work someone could pick up.
+//
+// ListTasks returns every row regardless of status, so a completed or cancelled
+// task would otherwise read as "the process is waiting here".
+func taskIsOpen(status entities.TaskStatus) bool {
+	switch status {
+	case entities.TaskUnclaimed, entities.TaskClaimed, entities.TaskDelegated:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitingAt reports whether the instance currently has an open task at nodeID.
 func (h engineHarness) waitingAt(ctx context.Context, t *testing.T, instanceID uuid.UUID, nodeID string) bool {
 	t.Helper()
 
@@ -96,7 +109,7 @@ func (h engineHarness) waitingAt(ctx context.Context, t *testing.T, instanceID u
 		t.Fatalf("list tasks: %v", err)
 	}
 	for _, task := range tasks {
-		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID {
+		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID && taskIsOpen(task.Status) {
 			return true
 		}
 	}

@@ -27,7 +27,7 @@ func (h engineHarness) countTasksAt(ctx context.Context, t *testing.T, instanceI
 	}
 	count := 0
 	for _, task := range tasks {
-		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID {
+		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID && taskIsOpen(task.Status) {
 			count++
 		}
 	}

@@ -450,6 +450,48 @@ func (e *Engine) proceedInternal(ctx context.Context, instance *entities.Process
 // Deletion errors are returned, not ignored: a subscription that outlives its
 // node can re-trigger an already-completed activity when a later signal or
 // message arrives, producing duplicate execution.
+
+// cancelOpenTasksForNode withdraws any task still open for nodeID.
+//
+// Removing an activity's token cancels it as far as the engine is concerned,
+// but the user task it created is a separate row and nothing was closing it.
+// The work stayed in whoever's inbox it was assigned to, and completing it acted
+// on an activity the process had already abandoned.
+//
+// A failure here is returned: an interrupt that half-happened — token gone, task
+// still offered — is worse than one that reports itself.
+func (e *Engine) cancelOpenTasksForNode(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
+	if node == nil {
+		return nil
+	}
+	ms, err := e.repo.Task().ListByInstance(ctx, instance.ID)
+	if err != nil {
+		return fmt.Errorf("list tasks for instance %s: %w", instance.ID, err)
+	}
+
+	for i := range ms {
+		m := &ms[i]
+		if m.NodeID != node.ID {
+			continue
+		}
+		if m.Status != models.TaskUnclaimed && m.Status != models.TaskClaimed && m.Status != models.TaskDelegated {
+			continue
+		}
+		if err := e.repo.Task().UpdateStatus(ctx, uuid.UUID(m.ID), models.TaskCanceled); err != nil {
+			return fmt.Errorf("cancel task %s on node %s: %w", m.ID, node.ID, err)
+		}
+		e.dispatcher.Dispatch(ctx, entities.ProcessEvent{
+			Type:      entities.EventTaskCanceled,
+			Instance:  instance,
+			Project:   instance.Project,
+			Node:      node,
+			Timestamp: time.Now().Unix(),
+			Variables: instance.Variables,
+		})
+	}
+	return nil
+}
+
 func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) error {
 	if node == nil || node.Type != entities.BoundaryEvent || node.AttachedToRef == "" {
 		return nil
@@ -464,6 +506,9 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 	hostNode := def.FindNode(node.AttachedToRef)
 	if hostNode != nil {
 		instance.RemoveTokenByNode(hostNode)
+		if err := e.cancelOpenTasksForNode(ctx, instance, hostNode); err != nil {
+			return err
+		}
 	}
 	for _, ev := range def.GetBoundaryEvents(node.AttachedToRef) {
 		if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID); err != nil {

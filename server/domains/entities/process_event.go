@@ -11,11 +11,14 @@ type ProcessEvent struct {
 }
 
 const (
-	EventProcessStarted   = "ProcessStarted"
-	EventNodeReached      = "NodeReached"
-	EventTaskCreated      = "TaskCreated"
-	EventTaskCompleted    = "TaskCompleted"
-	EventTaskUpdated      = "TaskUpdated"
-	EventTaskClaimed      = "TaskClaimed"
+	EventProcessStarted = "ProcessStarted"
+	EventNodeReached    = "NodeReached"
+	EventTaskCreated    = "TaskCreated"
+	EventTaskCompleted  = "TaskCompleted"
+	EventTaskUpdated    = "TaskUpdated"
+	EventTaskClaimed    = "TaskClaimed"
+	// EventTaskCanceled is raised when an activity is interrupted and the task it
+	// created is withdrawn, so the audit trail says why it left the inbox.
+	EventTaskCanceled     = "TaskCanceled"
 	EventProcessCompleted = "ProcessCompleted"
 )

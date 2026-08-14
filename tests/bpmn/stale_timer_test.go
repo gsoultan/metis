@@ -357,17 +357,13 @@ func TestBoundaryEventInterruptsByDefault(t *testing.T) {
 	}
 }
 
-// An interrupting boundary event cancels the activity, but the user task it
-// created stays open in the inbox.
+// An interrupted activity's task must leave the inbox.
 //
-// The token is removed, so the engine treats the activity as cancelled and will
-// not advance through it again — but nothing closes the task row, so it is still
-// offered to whoever it was assigned to and completing it acts on an activity
-// the process has already abandoned.
-//
-// Recorded rather than fixed: cancelling a task on interrupt touches the task
-// lifecycle and its audit trail, which is its own piece of work.
-func TestInterruptedActivityLeavesItsTaskOpen(t *testing.T) {
+// Removing the token cancels the activity as far as the engine is concerned,
+// but the task it created is a separate row. Nothing closed it, so the work
+// stayed in whoever's inbox it was assigned to and completing it acted on an
+// activity the process had already abandoned.
+func TestInterruptedActivityCancelsItsTask(t *testing.T) {
 	ctx := t.Context()
 	h := newEngineHarness(t, "Interrupted Task Project")
 
@@ -376,7 +372,7 @@ func TestInterruptedActivityLeavesItsTaskOpen(t *testing.T) {
 		Key:     "approval-orphan-task",
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
-			{ID: "approve", Type: entities.UserTask, Name: "Approve the request"},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request", Assignee: "carol"},
 			{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "approve", Properties: map[string]any{
 				"timer_duration": "PT2H",
 			}},
@@ -399,7 +395,11 @@ func TestInterruptedActivityLeavesItsTaskOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
+	if !h.waitingAt(ctx, t, instanceID, "approve") {
+		t.Fatal("the approval task was never offered")
+	}
 
+	// The deadline passes with the approval still open.
 	h.dueNow(ctx, t, instanceID)
 	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
@@ -409,14 +409,13 @@ func TestInterruptedActivityLeavesItsTaskOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload instance: %v", err)
 	}
-	cancelled := len(instance.GetTokensByNode(&entities.Node{ID: "approve"})) == 0
-	stillInInbox := h.waitingAt(ctx, t, instanceID, "approve")
-
-	if !cancelled {
-		t.Fatal("the activity was not cancelled at all")
+	if len(instance.GetTokensByNode(&entities.Node{ID: "approve"})) != 0 {
+		t.Fatal("the activity was not interrupted at all")
 	}
-	if !stillInInbox {
-		t.Skip("interrupted activities now close their task; this record can be retired")
+	if h.waitingAt(ctx, t, instanceID, "approve") {
+		t.Error("the interrupted activity is still offered in the inbox")
 	}
-	t.Log("an interrupted activity leaves its task open in the inbox — the token is gone but the work is still offered")
+	if !h.waitingAt(ctx, t, instanceID, "escalate") {
+		t.Error("the escalation path did not open")
+	}
 }
