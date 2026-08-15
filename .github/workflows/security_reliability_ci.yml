@@ -10,7 +10,10 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: '1.26.5'
+  # 1.26.6 carries the fix for GO-2026-6218 (quadratic resolvePath in net/url).
+  # govulncheck reports it against the standard library itself, so the version
+  # here is the fix — there is nothing to change in this repository's code.
+  GO_VERSION: '1.26.6'
 
 jobs:
   ui:
@@ -107,6 +110,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the linter can diff against the merge base itself
+          # rather than asking the API for the pull request patch.
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -119,14 +126,24 @@ jobs:
           name: ui-dist
           path: ui/dist
 
-      # only-new-issues blocks every NEW violation while the pre-existing
-      # backlog (see .golangci.yml adoption note) is burned down by area.
-      # Do not disable this to "get green" — narrow the backlog instead.
+      # Blocks every NEW violation while the pre-existing backlog (see the
+      # .golangci.yml adoption note) is burned down by area. Do not weaken this
+      # to "get green" — narrow the backlog instead.
+      #
+      # The diff comes from git rather than the action's only-new-issues, which
+      # asks the API for the pull request patch and gives up past 300 files:
+      # a branch this size got no linting at all, silently. --new-from-merge-base
+      # is the same comparison done locally, with no such limit.
+      #
+      # install-mode: goinstall builds the linter with the Go above. A released
+      # binary is built with whatever Go its release used, and refuses to run
+      # when that is older than the version this module targets.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          only-new-issues: true
+          install-mode: goinstall
+          args: --new-from-merge-base=origin/${{ github.base_ref || 'main' }}
 
   proto-generated:
     name: Generated code matches protos
@@ -175,5 +192,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # gitleaks-action requires a token to scan a pull request; without it the
+      # job fails before scanning anything, so every pull request went unscanned
+      # while reporting a failure that looked like a finding.
       - name: Gitleaks scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
