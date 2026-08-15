@@ -90,6 +90,9 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 	return scoped
 }
 
+// migrationModels is the schema every test database gets, on all three
+// dialects. SetupTestDB, SetupPostgresDB and SetupMySQLDB all migrate from this
+// one list so a model added for one engine cannot go missing on another.
 func migrationModels() []any {
 	return []any{
 		&models2.OrganizationModel{},
@@ -110,6 +113,10 @@ func migrationModels() []any {
 		&models2.MembershipModel{},
 		&models2.CompensatableActivityModel{},
 		&models2.VariableSnapshotModel{},
+		&models2.FormModel{},
+		&models2.NotificationModel{},
+		&models2.DeploymentModel{},
+		&models2.ResourceModel{},
 	}
 }
 

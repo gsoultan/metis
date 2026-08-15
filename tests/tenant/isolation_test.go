@@ -1,226 +1,432 @@
-package tenant_test
+// Package tenant holds the cross-tenant isolation tests: proof that a caller
+// authenticated into one organization cannot read another organization's rows,
+// on every SQL engine the product supports.
+//
+// These run against SQLite always, and against PostgreSQL and MySQL when
+// GOBPM_TEST_POSTGRES_DSN / GOBPM_TEST_MYSQL_DSN are set. The scope is built
+// from SQL joins, so the dialect is part of what needs proving — SQLite
+// accepting a join says nothing about how MySQL resolves the same column names.
+package tenant
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/interceptors/tenant"
-	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/gobpm/server/repositories/gorms"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/gsoultan/gobpm/tests/testutils"
+	"gorm.io/gorm"
 )
 
-// Tenant isolation was written and then wired to nothing: the resolver was
-// never in the request path, so TenantContext was never populated and
-// tenantScopeDB returned the unscoped database on every call. Every
-// authenticated user could read every organization's data.
-//
-// These tests assert the two halves separately — that the resolver derives the
-// tenant from the authenticated principal rather than a client header, and that
-// repositories actually filter once it does.
+const (
+	sharedUserID  = "user-in-both-inboxes"
+	sharedTopic   = "shared-topic"
+	sharedSignal  = "order.cancelled"
+	sharedFormKey = "expense-form"
+	sharedConnKey = "connector-template"
 
-func ctxWithUser(orgIDs ...uuid.UUID) context.Context {
-	orgs := make([]*entities.Organization, 0, len(orgIDs))
-	for _, id := range orgIDs {
-		orgs = append(orgs, &entities.Organization{ID: id})
+	// testMaxConns keeps the server-backed pools small; these tests are
+	// sequential and a wide pool only slows the schema setup down.
+	testMaxConns = 2
+)
+
+// forEachDialect runs body against every SQL engine the product supports.
+// PostgreSQL and MySQL skip themselves unless their DSN is configured.
+func forEachDialect(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
+	t.Helper()
+
+	engines := []struct {
+		name string
+		open func(*testing.T) *gorm.DB
+	}{
+		{"sqlite", func(t *testing.T) *gorm.DB { return testutils.SetupTestDB(t) }},
+		{"postgres", func(t *testing.T) *gorm.DB { return testutils.SetupPostgresDB(t, testMaxConns) }},
+		{"mysql", func(t *testing.T) *gorm.DB { return testutils.SetupMySQLDB(t, testMaxConns) }},
 	}
-	return context.WithValue(context.Background(), pkgauth.UserContextKey, entities.User{
-		Username:      "tester",
-		Organizations: orgs,
+
+	for _, engine := range engines {
+		t.Run(engine.name, func(t *testing.T) {
+			body(t, engine.open(t))
+		})
+	}
+}
+
+// tenantFixture is two organizations that own one of everything, so every
+// assertion below can ask the same question: reading as A, do I ever see B?
+type tenantFixture struct {
+	orgA, orgB           uuid.UUID
+	projectA, projectB   uuid.UUID
+	instanceA, instanceB uuid.UUID
+
+	auditA, auditB            uuid.UUID
+	formA, formB              uuid.UUID
+	deploymentA, deploymentB  uuid.UUID
+	resourceA, resourceB      uuid.UUID
+	subscriptionA, subB       uuid.UUID
+	externalTaskA, extB       uuid.UUID
+	connectorInstA, connInstB uuid.UUID
+	connectorID               uuid.UUID
+	notificationA, notifB     uuid.UUID
+	systemNotification        uuid.UUID
+}
+
+// ctxAsA returns a context carrying organization A as the active tenant, which
+// is what the auth interceptor injects on a real request.
+func (f tenantFixture) ctxAsA(t *testing.T) context.Context {
+	t.Helper()
+	return entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: f.orgA.String()})
+}
+
+// seedTenantFixture writes one row per tenant-owned table for each of two
+// organizations. Where a filter exists (form key, signal name, topic, user id)
+// both organizations deliberately use the same value, so a read that returns
+// the wrong tenant's row cannot be explained away as a filter mismatch.
+func seedTenantFixture(t *testing.T, db *gorm.DB) tenantFixture {
+	t.Helper()
+
+	f := tenantFixture{
+		orgA: uuid.New(), orgB: uuid.New(),
+		projectA: uuid.New(), projectB: uuid.New(),
+		instanceA: uuid.New(), instanceB: uuid.New(),
+		auditA: uuid.New(), auditB: uuid.New(),
+		formA: uuid.New(), formB: uuid.New(),
+		deploymentA: uuid.New(), deploymentB: uuid.New(),
+		resourceA: uuid.New(), resourceB: uuid.New(),
+		subscriptionA: uuid.New(), subB: uuid.New(),
+		externalTaskA: uuid.New(), extB: uuid.New(),
+		connectorInstA: uuid.New(), connInstB: uuid.New(),
+		connectorID:   uuid.New(),
+		notificationA: uuid.New(), notifB: uuid.New(),
+		systemNotification: uuid.New(),
+	}
+
+	id := func(v uuid.UUID) models.Base { return models.Base{ID: models.FromUUID(v)} }
+
+	seed := []any{
+		&models.OrganizationModel{Base: id(f.orgA), Name: "Org A"},
+		&models.OrganizationModel{Base: id(f.orgB), Name: "Org B"},
+		&models.ProjectModel{Base: id(f.projectA), OrganizationID: models.FromUUID(f.orgA), Name: "Project A"},
+		&models.ProjectModel{Base: id(f.projectB), OrganizationID: models.FromUUID(f.orgB), Name: "Project B"},
+		&models.Connector{Base: id(f.connectorID), Key: sharedConnKey, Name: "Shared template"},
+
+		&models.AuditModel{Base: id(f.auditA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Message: "a"},
+		&models.AuditModel{Base: id(f.auditB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Message: "b"},
+
+		&models.FormModel{Base: id(f.formA), ProjectID: models.FromUUID(f.projectA), Key: sharedFormKey},
+		&models.FormModel{Base: id(f.formB), ProjectID: models.FromUUID(f.projectB), Key: sharedFormKey},
+
+		&models.DeploymentModel{Base: id(f.deploymentA), ProjectID: models.FromUUID(f.projectA), Name: "dep A"},
+		&models.DeploymentModel{Base: id(f.deploymentB), ProjectID: models.FromUUID(f.projectB), Name: "dep B"},
+		&models.ResourceModel{Base: id(f.resourceA), DeploymentID: models.FromUUID(f.deploymentA), Name: "res A"},
+		&models.ResourceModel{Base: id(f.resourceB), DeploymentID: models.FromUUID(f.deploymentB), Name: "res B"},
+
+		&models.Subscription{Base: id(f.subscriptionA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Type: models.SubscriptionSignal, EventName: sharedSignal},
+		&models.Subscription{Base: id(f.subB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Type: models.SubscriptionSignal, EventName: sharedSignal},
+
+		&models.ExternalTaskModel{Base: id(f.externalTaskA), ProjectID: models.FromUUID(f.projectA), ProcessInstanceID: models.FromUUID(f.instanceA), Topic: sharedTopic},
+		&models.ExternalTaskModel{Base: id(f.extB), ProjectID: models.FromUUID(f.projectB), ProcessInstanceID: models.FromUUID(f.instanceB), Topic: sharedTopic},
+
+		&models.ConnectorInstance{Base: id(f.connectorInstA), ProjectID: models.FromUUID(f.projectA), ConnectorID: models.FromUUID(f.connectorID), Name: "conn A"},
+		&models.ConnectorInstance{Base: id(f.connInstB), ProjectID: models.FromUUID(f.projectB), ConnectorID: models.FromUUID(f.connectorID), Name: "conn B"},
+
+		// Both organizations address a notification to the same user id, plus
+		// one system notification that belongs to no project at all.
+		&models.NotificationModel{Base: id(f.notificationA), UserID: sharedUserID, ProjectID: models.FromUUIDPtr(&f.projectA), Title: "a"},
+		&models.NotificationModel{Base: id(f.notifB), UserID: sharedUserID, ProjectID: models.FromUUIDPtr(&f.projectB), Title: "b"},
+		&models.NotificationModel{Base: id(f.systemNotification), UserID: sharedUserID, Title: "system"},
+	}
+	for _, row := range seed {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatalf("seed %T: %v", row, err)
+		}
+	}
+	return f
+}
+
+// TestTenantIsolation_ListsExcludeOtherTenants asserts that every list-shaped
+// read on a tenant-owned table returns the caller's rows and nothing else, even
+// when the other organization holds a row matching the same filter.
+func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		tests := []struct {
+			name string
+			read func() ([]uuid.UUID, error)
+			want []uuid.UUID
+		}{
+			{
+				name: "audit of another tenant's project",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewAuditRepository(db).ListByProject(ctx, f.projectB)
+					return idsOf(rows, func(m models.AuditModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "audit of another tenant's instance",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewAuditRepository(db).ListByInstance(ctx, f.instanceB)
+					return idsOf(rows, func(m models.AuditModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "audit of own project",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewAuditRepository(db).ListByProject(ctx, f.projectA)
+					return idsOf(rows, func(m models.AuditModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.auditA},
+			},
+			{
+				name: "forms across all projects",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewFormRepository(db).ListByProject(ctx, uuid.Nil)
+					return idsOf(rows, func(m models.FormModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.formA},
+			},
+			{
+				name: "deployments across all projects",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewDeploymentRepository(db).ListByProject(ctx, uuid.Nil)
+					return idsOf(rows, func(m models.DeploymentModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.deploymentA},
+			},
+			{
+				name: "deployment resources of another tenant's deployment",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewDeploymentRepository(db).ListResources(ctx, f.deploymentB)
+					return idsOf(rows, func(m models.ResourceModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "signal correlation cannot cross tenants",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewSubscriptionRepository(db).FindSignals(ctx, f.projectB, sharedSignal)
+					return idsOf(rows, func(m models.Subscription) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "subscriptions of another tenant's instance",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewSubscriptionRepository(db).ListByInstance(ctx, f.instanceB)
+					return idsOf(rows, func(m models.Subscription) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "external tasks of another tenant's instance",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewExternalTaskRepository(db).ListByProcessInstance(ctx, f.instanceB)
+					return idsOf(rows, func(m *models.ExternalTaskModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				// Both organizations publish work on the same topic name, which
+				// nothing prevents. A worker polling as A must never be handed
+				// B's task, and both tasks are unlocked and eligible here.
+				name: "worker long-poll on a topic both tenants use",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewExternalTaskRepository(db).FetchAndLock(ctx, sharedTopic, "worker-a", 10, 30_000)
+					return idsOf(rows, func(m *models.ExternalTaskModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.externalTaskA},
+			},
+			{
+				name: "connector instances of another tenant's project",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewConnectorInstanceRepository(db).ListByProject(ctx, f.projectB)
+					return idsOf(rows, func(m models.ConnectorInstance) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "notifications keep system messages and drop the other tenant's",
+				read: func() ([]uuid.UUID, error) {
+					rows, err := gorms.NewNotificationRepository(db).ListByUser(ctx, sharedUserID)
+					return idsOf(rows, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.notificationA, f.systemNotification},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				got, err := tc.read()
+				if err != nil {
+					t.Fatalf("read: %v", err)
+				}
+				assertSameIDs(t, got, tc.want)
+			})
+		}
 	})
 }
 
-// capture returns an endpoint that records the TenantContext it was called with.
-func capture(got *entities.TenantContext) endpoint.Endpoint {
-	return func(ctx context.Context, _ any) (any, error) {
-		tc, _ := entities.TenantContextFrom(ctx)
-		*got = tc
-		return nil, nil
-	}
+// TestTenantIsolation_GetByIDDeniesOtherTenants asserts that holding another
+// organization's row ID is not enough to read the row: every scoped Get answers
+// "not found" rather than handing the record over.
+func TestTenantIsolation_GetByIDDeniesOtherTenants(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		tests := []struct {
+			name string
+			read func() error
+		}{
+			{"form", func() error { _, err := gorms.NewFormRepository(db).Get(ctx, f.formB); return err }},
+			{"form by key", func() error {
+				_, err := gorms.NewFormRepository(db).GetByKey(ctx, f.projectB, sharedFormKey)
+				return err
+			}},
+			{"deployment", func() error { _, err := gorms.NewDeploymentRepository(db).Get(ctx, f.deploymentB); return err }},
+			{"deployment resource", func() error {
+				_, err := gorms.NewDeploymentRepository(db).GetResource(ctx, f.resourceB)
+				return err
+			}},
+			{"external task", func() error { _, err := gorms.NewExternalTaskRepository(db).Get(ctx, f.extB); return err }},
+			{"connector instance", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).Get(ctx, f.connInstB)
+				return err
+			}},
+			{"connector instance by project and connector", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).GetByProjectAndConnector(ctx, f.projectB, f.connectorID)
+				return err
+			}},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				err := tc.read()
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					t.Fatalf("reading another tenant's row: got err %v, want %v", err, gorm.ErrRecordNotFound)
+				}
+			})
+		}
+	})
 }
 
-func TestTenantResolver_DerivesTenantFromAuthenticatedPrincipal(t *testing.T) {
-	org := uuid.Must(uuid.NewV7())
-	var got entities.TenantContext
+// TestTenantIsolation_OwnRowsStillReadable guards the other direction: the scope
+// must not hide the caller's own data. A join that returned nothing for everyone
+// would satisfy every assertion above.
+func TestTenantIsolation_OwnRowsStillReadable(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
 
-	guarded := tenant.NewEndpointTenantResolver().Intercept(capture(&got))
-	if _, err := guarded(ctxWithUser(org), nil); err != nil {
-		t.Fatalf("resolver rejected a legitimate single-org caller: %v", err)
-	}
+		reads := []struct {
+			name string
+			read func() error
+		}{
+			{"form", func() error { _, err := gorms.NewFormRepository(db).Get(ctx, f.formA); return err }},
+			{"form by key", func() error {
+				_, err := gorms.NewFormRepository(db).GetByKey(ctx, f.projectA, sharedFormKey)
+				return err
+			}},
+			{"deployment", func() error { _, err := gorms.NewDeploymentRepository(db).Get(ctx, f.deploymentA); return err }},
+			{"deployment resource", func() error {
+				_, err := gorms.NewDeploymentRepository(db).GetResource(ctx, f.resourceA)
+				return err
+			}},
+			{"external task", func() error {
+				_, err := gorms.NewExternalTaskRepository(db).Get(ctx, f.externalTaskA)
+				return err
+			}},
+			{"connector instance", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).Get(ctx, f.connectorInstA)
+				return err
+			}},
+			{"connector instance by project and connector", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).GetByProjectAndConnector(ctx, f.projectA, f.connectorID)
+				return err
+			}},
+		}
+		for _, tc := range reads {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := tc.read(); err != nil {
+					t.Errorf("own row unreadable: %v", err)
+				}
+			})
+		}
 
-	if got.TenantID != org.String() {
-		t.Fatalf("TenantID = %q, want %q", got.TenantID, org.String())
-	}
+		t.Run("own deployment resources", func(t *testing.T) {
+			rows, err := gorms.NewDeploymentRepository(db).ListResources(ctx, f.deploymentA)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.ResourceModel) uuid.UUID { return uuid.UUID(m.ID) }), []uuid.UUID{f.resourceA})
+		})
+
+		t.Run("own signals", func(t *testing.T) {
+			rows, err := gorms.NewSubscriptionRepository(db).FindSignals(ctx, f.projectA, sharedSignal)
+			if err != nil {
+				t.Fatalf("find: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.Subscription) uuid.UUID { return uuid.UUID(m.ID) }), []uuid.UUID{f.subscriptionA})
+		})
+	})
 }
 
-// The core of the old vulnerability: the tenant came straight from a
-// client-controlled header, so changing one header read another org's data.
-func TestTenantResolver_RejectsOrganizationTheCallerDoesNotBelongTo(t *testing.T) {
-	mine := uuid.Must(uuid.NewV7())
-	theirs := uuid.Must(uuid.NewV7())
-	var got entities.TenantContext
+// TestTenantIsolation_NoTenantContextReadsEverything pins the documented
+// fail-open behaviour of the scope helpers: the engine and its background
+// workers run with no request context, and must keep seeing the whole
+// installation. Changing that is a deliberate decision, not a silent one.
+func TestTenantIsolation_NoTenantContextReadsEverything(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := t.Context()
 
-	guarded := tenant.NewEndpointTenantResolver().Intercept(capture(&got))
-	ctx := tenant.WithRequestedOrganization(ctxWithUser(mine), theirs.String())
-
-	_, err := guarded(ctx, nil)
-	if !errors.Is(err, pkgauth.ErrUnauthorized) {
-		t.Fatalf("caller reached a foreign organization by asserting a header: got %v, want ErrUnauthorized", err)
-	}
-	if got.TenantID != "" {
-		t.Fatalf("endpoint executed with tenant %q despite the membership check failing", got.TenantID)
-	}
-}
-
-// A member of several organizations may choose between them.
-func TestTenantResolver_AllowsSelectingAmongOwnMemberships(t *testing.T) {
-	first := uuid.Must(uuid.NewV7())
-	second := uuid.Must(uuid.NewV7())
-	var got entities.TenantContext
-
-	guarded := tenant.NewEndpointTenantResolver().Intercept(capture(&got))
-	ctx := tenant.WithRequestedOrganization(ctxWithUser(first, second), second.String())
-
-	if _, err := guarded(ctx, nil); err != nil {
-		t.Fatalf("multi-org caller could not select their own second org: %v", err)
-	}
-	if got.TenantID != second.String() {
-		t.Fatalf("TenantID = %q, want %q", got.TenantID, second.String())
-	}
-}
-
-func TestTenantResolver_RejectsPrincipalWithNoMembership(t *testing.T) {
-	guarded := tenant.NewEndpointTenantResolver().Intercept(capture(new(entities.TenantContext)))
-
-	if _, err := guarded(ctxWithUser(), nil); !errors.Is(err, tenant.ErrNoTenantMembership) {
-		t.Fatalf("principal with no organization: got %v, want ErrNoTenantMembership", err)
-	}
-}
-
-// The other half: with a TenantContext present, repositories must filter.
-func TestRepositories_ScopeListsToTheActiveTenant(t *testing.T) {
-	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(db)
-	ctx := t.Context()
-
-	orgA, projA := seedOrgWithProject(t, repo, "Org A")
-	orgB, projB := seedOrgWithProject(t, repo, "Org B")
-
-	seedDefinition(t, repo, projA, "def-a")
-	seedDefinition(t, repo, projB, "def-b")
-	seedTask(t, repo, projA, "task-a")
-	seedTask(t, repo, projB, "task-b")
-
-	t.Run("definitions", func(t *testing.T) {
-		got, err := repo.Definition().List(entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgA.String()}))
+		forms, err := gorms.NewFormRepository(db).ListByProject(ctx, uuid.Nil)
 		if err != nil {
-			t.Fatalf("list definitions: %v", err)
+			t.Fatalf("list forms: %v", err)
 		}
-		assertOnlyKeys(t, "definitions", keysOf(got), "def-a")
-	})
+		assertSameIDs(t, idsOf(forms, func(m models.FormModel) uuid.UUID { return uuid.UUID(m.ID) }),
+			[]uuid.UUID{f.formA, f.formB})
 
-	t.Run("tasks", func(t *testing.T) {
-		got, err := repo.Task().List(entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgB.String()}))
+		notifications, err := gorms.NewNotificationRepository(db).ListByUser(ctx, sharedUserID)
 		if err != nil {
-			t.Fatalf("list tasks: %v", err)
+			t.Fatalf("list notifications: %v", err)
 		}
-		names := make([]string, 0, len(got))
-		for _, m := range got {
-			names = append(names, m.Name)
-		}
-		assertOnlyKeys(t, "tasks", names, "task-b")
-	})
-
-	// Without a TenantContext the repository is unscoped. That is the
-	// documented behaviour for internal/system calls such as the job worker,
-	// which runs outside any request. It is only safe because the endpoint
-	// chain always populates the context for external callers — which is what
-	// the resolver tests above guarantee.
-	t.Run("system calls see everything", func(t *testing.T) {
-		got, err := repo.Definition().List(ctx)
-		if err != nil {
-			t.Fatalf("list definitions: %v", err)
-		}
-		if len(got) != 2 {
-			t.Fatalf("unscoped list returned %d definitions, want 2", len(got))
-		}
+		assertSameIDs(t, idsOf(notifications, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
+			[]uuid.UUID{f.notificationA, f.notifB, f.systemNotification})
 	})
 }
 
-func keysOf(ms []models.ProcessDefinitionModel) []string {
-	out := make([]string, 0, len(ms))
-	for _, m := range ms {
-		out = append(out, m.Key)
+// idsOf projects a result set down to the IDs the assertions compare.
+func idsOf[T any](rows []T, id func(T) uuid.UUID) []uuid.UUID {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, id(row))
 	}
 	return out
 }
 
-func assertOnlyKeys(t *testing.T, what string, got []string, want ...string) {
+// assertSameIDs compares two ID sets without depending on row order.
+func assertSameIDs(t *testing.T, got, want []uuid.UUID) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Fatalf("%s: got %v, want exactly %v — cross-tenant rows leaked", what, got, want)
+		t.Fatalf("got %d rows %v, want %d %v", len(got), got, len(want), want)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("%s: got %v, want %v", what, got, want)
+	seen := make(map[uuid.UUID]struct{}, len(got))
+	for _, id := range got {
+		seen[id] = struct{}{}
+	}
+	for _, id := range want {
+		if _, ok := seen[id]; !ok {
+			t.Fatalf("missing %v in %v", id, got)
 		}
-	}
-}
-
-func seedOrgWithProject(t *testing.T, repo repositories.Repository, name string) (uuid.UUID, uuid.UUID) {
-	t.Helper()
-	ctx := t.Context()
-
-	orgID := uuid.Must(uuid.NewV7())
-	if err := repo.Organization().Create(ctx, models.OrganizationModel{
-		Base: models.Base{ID: models.UUID(orgID)},
-		Name: name,
-	}); err != nil {
-		t.Fatalf("seed org %s: %v", name, err)
-	}
-
-	projID := uuid.Must(uuid.NewV7())
-	if err := repo.Project().Create(ctx, models.ProjectModel{
-		Base:           models.Base{ID: models.UUID(projID)},
-		OrganizationID: models.UUID(orgID),
-		Name:           name + " Project",
-	}); err != nil {
-		t.Fatalf("seed project for %s: %v", name, err)
-	}
-	return orgID, projID
-}
-
-func seedDefinition(t *testing.T, repo repositories.Repository, projectID uuid.UUID, key string) {
-	t.Helper()
-	def := entities.ProcessDefinition{
-		ID:      uuid.Must(uuid.NewV7()),
-		Project: &entities.Project{ID: projectID},
-		Key:     key,
-		Name:    key,
-		Version: 1,
-		Nodes:   []*entities.Node{{ID: "start", Type: entities.StartEvent}},
-	}
-	if err := repo.Definition().Create(t.Context(), adapters.DefinitionModelAdapter{Definition: &def}.ToModel()); err != nil {
-		t.Fatalf("seed definition %s: %v", key, err)
-	}
-}
-
-func seedTask(t *testing.T, repo repositories.Repository, projectID uuid.UUID, name string) {
-	t.Helper()
-	task := entities.Task{
-		ID:      uuid.Must(uuid.NewV7()),
-		Project: &entities.Project{ID: projectID},
-		Name:    name,
-		Status:  entities.TaskUnclaimed,
-		Node:    &entities.Node{ID: "n1"},
-	}
-	if err := repo.Task().Create(t.Context(), adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-		t.Fatalf("seed task %s: %v", name, err)
 	}
 }

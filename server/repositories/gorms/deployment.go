@@ -25,19 +25,32 @@ func (r *gormDeploymentRepository) Create(ctx context.Context, d models.Deployme
 	})
 }
 
+// tableDeployments and tableDeploymentResources are the SQL tables behind
+// DeploymentModel and ResourceModel, needed by name so the tenant scope can
+// build its JOINs.
+const (
+	tableDeployments         = "deployments"
+	tableDeploymentResources = "deployment_resources"
+)
+
+// Get returns a deployment by ID, scoped to the caller's tenant — an ID from
+// another organization reads as not found.
 func (r *gormDeploymentRepository) Get(ctx context.Context, id uuid.UUID) (models.DeploymentModel, error) {
 	var m models.DeploymentModel
-	if err := GetTx(ctx, r.db).Preload("Resources").First(&m, "id = ?", id).Error; err != nil {
+	if err := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDeployments).
+		Preload("Resources").
+		First(&m, QualifiedByID(tableDeployments), id).Error; err != nil {
 		return models.DeploymentModel{}, err
 	}
 	return m, nil
 }
 
+// ListByProject lists a project's deployments, scoped to the caller's tenant.
 func (r *gormDeploymentRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.DeploymentModel, error) {
 	var modelsList []models.DeploymentModel
-	query := GetTx(ctx, r.db)
+	query := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDeployments)
 	if projectID != uuid.Nil {
-		query = query.Where("project_id = ?", projectID)
+		query = query.Where("deployments.project_id = ?", projectID)
 	}
 	if err := query.Find(&modelsList).Error; err != nil {
 		return nil, err
@@ -45,17 +58,23 @@ func (r *gormDeploymentRepository) ListByProject(ctx context.Context, projectID 
 	return modelsList, nil
 }
 
+// GetResource returns a deployed resource by ID. Resources carry no project of
+// their own, so the scope reaches the tenant through the parent deployment.
 func (r *gormDeploymentRepository) GetResource(ctx context.Context, id uuid.UUID) (models.ResourceModel, error) {
 	var m models.ResourceModel
-	if err := GetTx(ctx, r.db).First(&m, "id = ?", id).Error; err != nil {
+	if err := tenantScopeDeploymentResources(ctx, GetTx(ctx, r.db)).
+		First(&m, QualifiedByID(tableDeploymentResources), id).Error; err != nil {
 		return models.ResourceModel{}, err
 	}
 	return m, nil
 }
 
+// ListResources lists a deployment's resources, scoped through that deployment
+// to the caller's tenant.
 func (r *gormDeploymentRepository) ListResources(ctx context.Context, deploymentID uuid.UUID) ([]models.ResourceModel, error) {
 	var modelsList []models.ResourceModel
-	if err := GetTx(ctx, r.db).Find(&modelsList, "deployment_id = ?", deploymentID).Error; err != nil {
+	if err := tenantScopeDeploymentResources(ctx, GetTx(ctx, r.db)).
+		Find(&modelsList, "deployment_resources.deployment_id = ?", deploymentID).Error; err != nil {
 		return nil, err
 	}
 	return modelsList, nil

@@ -25,9 +25,21 @@ func (r *gormNotificationRepository) Create(ctx context.Context, n models.Notifi
 	return nil
 }
 
+// tableNotifications is the SQL table behind NotificationModel, needed by name
+// so the tenant scope can build its JOIN.
+const tableNotifications = "notifications"
+
+// ListByUser returns a user's notifications, scoped to the caller's tenant.
+//
+// The scope tolerates a null project_id: a notification raised by a process
+// names the project it came from, but a system message to a user names none,
+// and an inner join would erase those from the inbox entirely.
 func (r *gormNotificationRepository) ListByUser(ctx context.Context, userID string) ([]models.NotificationModel, error) {
 	var ms []models.NotificationModel
-	if err := GetTx(ctx, r.db).Where("user_id = ?", userID).Order("created_at DESC").Find(&ms).Error; err != nil {
+	db := tenantScopeDBOptionalProject(ctx, GetTx(ctx, r.db), tableNotifications)
+	if err := db.Where("notifications.user_id = ?", userID).
+		Order("notifications.created_at DESC").
+		Find(&ms).Error; err != nil {
 		return nil, fmt.Errorf("could not list notifications: %w", err)
 	}
 	return ms, nil

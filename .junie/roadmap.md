@@ -158,7 +158,11 @@
   - [x] Context timeout/cancellation propagation audit.
 - [x] 5. Security Hardening
   - [x] Authn/Authz parity (`RBAC` + optional `ABAC`) audit completed.
-  - [x] Tenant isolation verification completed in repositories/queries.
+  - [x] Tenant isolation verification completed in repositories/queries — every
+        project-owned table is scoped on its read paths, proven on SQLite,
+        PostgreSQL and MySQL by `tests/tenant/isolation_test.go`. Write-path
+        scoping and the fail-open-without-context behaviour remain open; see
+        `execution-plan.md` §Status.
   - [x] DB parameterization audit completed.
   - [x] Secret/PII redaction implemented for outward errors/log paths.
   - [x] API abuse controls implemented (request-size limit + rate limit interceptors).
@@ -494,11 +498,44 @@
   - Result notes:
     - Inbound message dispatch now has an explicit upper-bound execution budget and preserves existing retry/DLQ semantics, reducing risk of unbounded blocked dispatch under heavy traffic.
 
+- 2026-08-16 (completed): Closed the `P0-SEC-02` tenant-scoping coverage gap on read paths.
+  - Scope extended from 4 tables to every project-owned table:
+    - `server/repositories/gorms/audit.go`, `form.go`, `deployment.go`,
+      `external_task.go`, `subscription.go`, `connector.go`, `notification.go`.
+    - `server/repositories/gorms/tenant.go`: added `tenantScopeDBOptionalProject`
+      (null-tolerant, for `notifications`) and `tenantScopeDeploymentResources`
+      (scopes through the parent deployment, which is where the project lives).
+    - `server/repositories/gorms/queries.go`: added the two new JOIN clauses and
+      `QualifiedByID`, because a bare `id = ?` is ambiguous once projects is joined.
+  - `Get`-by-ID reads are scoped too, not only lists: holding another organization's
+    UUID now reads as `ErrRecordNotFound` instead of returning the row. That closed an
+    IDOR on `connector_instances`, which stores configured credentials.
+  - Deliberately unscoped, with comments saying why: `FetchAndLock` (worker long-poll,
+    runs `SELECT ... FOR UPDATE`) and `ListTemplatedMessageSubscriptions` (installation-
+    wide background sweep with no request context).
+  - Regression coverage: `tests/tenant/isolation_test.go` — 4 tests × 3 SQL dialects,
+    covering cross-tenant lists, cross-tenant `Get`, own-rows-still-readable (so an
+    over-broad join cannot pass), and the documented no-context fail-open behaviour.
+    17 of 18 subtests fail without the fix.
+  - `tests/testutils/db.go` now migrates from the shared `migrationModels()` list rather
+    than a second copy, and that list gained `FormModel`, `NotificationModel`,
+    `DeploymentModel` and `ResourceModel`, which no test database had before.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — both green
+    - `go test ./...` and `go test -race ./...` — green module-wide
+    - `go test ./tests/tenant/ -v` against live PostgreSQL 17 and MySQL 8 — all pass
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+
 #### 11. What’s Next (Execution Order)
 
-1. P2 UX Delight (next):
+1. P0 Security remainder:
+   - Write-path tenant scoping (`UPDATE`/`DELETE` by bare ID) via the portable
+     subquery form; a JOIN is not portable in those statements.
+   - Decide whether `TenantContext`-absent should keep failing open, and if not, give
+     system work an explicit system identity.
+2. P0 Reliability gaps:
+   - Fuzz tests for parsers/forms/expressions — the module currently has none.
+   - Feature-flag/canary rollout mechanism.
+3. P2 UX Delight:
    - Task Inbox SLA fields: overdue countdown + priority badge backend fields.
    - Business Timeline already complete.
-2. P0 Reliability gaps:
-   - Fuzz tests for parsers/forms/expressions.
-   - Feature-flag/canary rollout mechanism.

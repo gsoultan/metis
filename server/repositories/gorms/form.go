@@ -20,27 +20,45 @@ func (r *gormFormRepository) Create(ctx context.Context, f models.FormModel) err
 	return GetTx(ctx, r.db).Create(&f).Error
 }
 
+// tableForms is the SQL table behind FormModel, needed by name so the tenant
+// scope can build its JOIN.
+const tableForms = "forms"
+
+// Get returns a form by ID, scoped to the caller's tenant — an ID belonging to
+// another organization reads as not found rather than as a form.
 func (r *gormFormRepository) Get(ctx context.Context, id uuid.UUID) (models.FormModel, error) {
 	var m models.FormModel
-	if err := GetTx(ctx, r.db).First(&m, "id = ?", id).Error; err != nil {
+	if err := tenantScopeDB(ctx, GetTx(ctx, r.db), tableForms).
+		First(&m, QualifiedByID(tableForms), id).Error; err != nil {
 		return models.FormModel{}, err
 	}
 	return m, nil
 }
 
+// GetByKey returns a project's form by key, scoped to the caller's tenant.
+//
+// `key` is quoted through a map because it is a reserved word in MySQL; the
+// project condition stays a raw clause so it can be table-qualified against the
+// projects join.
 func (r *gormFormRepository) GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.FormModel, error) {
 	var m models.FormModel
-	if err := GetTx(ctx, r.db).Where("project_id = ? AND key = ?", projectID, key).First(&m).Error; err != nil {
+	if err := tenantScopeDB(ctx, GetTx(ctx, r.db), tableForms).
+		Where("forms.project_id = ?", projectID).
+		Where(ByKey(key)).
+		First(&m).Error; err != nil {
 		return models.FormModel{}, err
 	}
 	return m, nil
 }
 
+// ListByProject lists a project's forms, scoped to the caller's tenant. A nil
+// project ID means "every form I may see", which the scope bounds to the
+// caller's organization.
 func (r *gormFormRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.FormModel, error) {
 	var modelsList []models.FormModel
-	query := GetTx(ctx, r.db)
+	query := tenantScopeDB(ctx, GetTx(ctx, r.db), tableForms)
 	if projectID != uuid.Nil {
-		query = query.Where("project_id = ?", projectID)
+		query = query.Where("forms.project_id = ?", projectID)
 	}
 	if err := query.Find(&modelsList).Error; err != nil {
 		return nil, err
