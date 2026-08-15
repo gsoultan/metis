@@ -194,3 +194,70 @@ func taskNames(tasks []entities.Task) []string {
 	}
 	return out
 }
+
+// The error code can be written in two places, and both paths must read both.
+//
+// ErrorCode is a field on the node; "error_code" is a property. The in-process
+// path read the property and the job worker read the field, so a definition
+// setting only one worked on one path and silently not on the other — and the
+// designer writes the field.
+func TestErrorBoundary_MatchesWhicheverWayTheCodeWasWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		node *entities.Node
+	}{
+		{
+			name: "written as a field, which is what the designer saves",
+			node: &entities.Node{ID: "recover", Type: entities.BoundaryEvent, AttachedToRef: "charge",
+				ErrorCode: "charge-failed"},
+		},
+		{
+			name: "written as a property, which older definitions carry",
+			node: &entities.Node{ID: "recover", Type: entities.BoundaryEvent, AttachedToRef: "charge",
+				Properties: map[string]any{"error_code": "charge-failed"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.node.ErrorCodeValue(); got != "charge-failed" {
+				t.Errorf("the code was not found: got %q", got)
+			}
+			if !tc.node.IsErrorBoundary() {
+				t.Error("a node carrying an error code was not recognised as an error boundary")
+			}
+		})
+	}
+}
+
+// A boundary event configured as something else must not swallow failures.
+func TestErrorBoundary_LeavesFailuresToBoundariesThatAreNotErrorEvents(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		node *entities.Node
+	}{
+		{name: "a timer boundary", node: &entities.Node{ID: "deadline", Type: entities.BoundaryEvent,
+			Properties: map[string]any{"timer_duration": "PT2H"}}},
+		{name: "a message boundary", node: &entities.Node{ID: "cancelled", Type: entities.BoundaryEvent,
+			Properties: map[string]any{"message_name": "OrderCancelled"}}},
+		{name: "an escalation boundary", node: &entities.Node{ID: "raise", Type: entities.BoundaryEvent,
+			Properties: map[string]any{"escalation_code": "over-limit"}}},
+		{name: "a compensation boundary", node: &entities.Node{ID: "undo", Type: entities.BoundaryEvent,
+			Properties: map[string]any{"event_type": "compensation"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.node.IsErrorBoundary() {
+				t.Error("a boundary event configured as another kind of event would catch failures meant for an error boundary")
+			}
+		})
+	}
+}
+
+// A bare boundary event is still the catch-all it has always been.
+func TestErrorBoundary_ABareBoundaryStillCatchesAnything(t *testing.T) {
+	bare := &entities.Node{ID: "recover", Type: entities.BoundaryEvent, AttachedToRef: "charge"}
+	if !bare.IsErrorBoundary() {
+		t.Error("a boundary event with nothing on it stopped being a catch-all")
+	}
+	if bare.ErrorCodeValue() != "" {
+		t.Error("a bare boundary event reported a code it does not have")
+	}
+}

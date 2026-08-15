@@ -67,6 +67,51 @@ func (n *Node) GetBoolProperty(key string) bool {
 	}
 }
 
+// ErrorCodeValue returns the error code this node carries, from either place a
+// definition may have put it.
+//
+// ErrorCode is a field on the node and "error_code" is a property, and the two
+// matching paths had each grown up reading a different one: the in-process path
+// read the property, the job worker read the field. A definition setting only
+// one of them worked on one path and silently not on the other — and the
+// designer writes the field.
+func (n *Node) ErrorCodeValue() string {
+	if n.ErrorCode != "" {
+		return n.ErrorCode
+	}
+	return n.GetStringProperty("error_code")
+}
+
+// IsErrorBoundary reports whether a boundary event is there to catch a failure.
+//
+// A bare boundary event with nothing configured on it is a catch-all error
+// boundary — "if this goes wrong at all, do that instead" — so this cannot
+// demand positive proof that it is an error event. What it can do is rule out
+// the ones that are identifiably something else: GetBoundaryEvents returns
+// boundary events of every kind, and a timer or message event carries no error
+// code either, so without this a failure landed on whichever boundary event
+// happened to come first.
+func (n *Node) IsErrorBoundary() bool {
+	if n.GetStringProperty("event_type") == "error" || n.ErrorCodeValue() != "" {
+		return true
+	}
+	return !n.isNonErrorBoundaryKind()
+}
+
+// isNonErrorBoundaryKind reports whether a boundary event is configured as some
+// other kind of event.
+func (n *Node) isNonErrorBoundaryKind() bool {
+	switch n.GetStringProperty("event_type") {
+	case "timer", "message", "signal", "escalation", "compensation":
+		return true
+	}
+	return n.GetStringProperty("timer_duration") != "" ||
+		n.GetStringProperty("message_name") != "" ||
+		n.GetStringProperty("signal_name") != "" ||
+		n.GetStringProperty("escalation_code") != "" ||
+		n.GetStringProperty("compensation") == "true"
+}
+
 // IsNonInterrupting reports whether a boundary event notifies without cancelling
 // the activity it is attached to.
 //

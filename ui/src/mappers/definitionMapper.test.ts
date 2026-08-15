@@ -148,3 +148,81 @@ describe('the arrows between steps', () => {
     expect(edge.data?.condition).toBe('approvalLevel = director');
   });
 });
+
+/**
+ * Boundary events, which the designer could not draw.
+ *
+ * The engine runs error, escalation and compensation boundary events, and
+ * non-interrupting ones, and has tests for all of them. The property panel
+ * offered only timer, message and signal, and the mapper carried no field for
+ * the rest — so there was no way to author one short of editing the API by
+ * hand.
+ */
+describe('boundary events', () => {
+  it('saves which failure an error boundary catches', () => {
+    const saved = payloadFor({ eventType: 'error', errorCode: 'payment-declined' }, 'boundaryEvent');
+
+    // error_code is a field on the node, not a setting in the bag: the engine
+    // matches on Node.ErrorCode.
+    expect(saved.error_code).toBe('payment-declined');
+  });
+
+  it('treats a blank failure code as catching anything', () => {
+    const saved = payloadFor({ eventType: 'error' }, 'boundaryEvent');
+    expect(saved.error_code).toBe('');
+  });
+
+  it('saves the code an escalation is raised under', () => {
+    const saved = payloadFor({ eventType: 'escalation', escalationCode: 'over-approval-limit' }, 'boundaryEvent');
+    expect(saved.properties).toMatchObject({ escalation_code: 'over-approval-limit' });
+  });
+
+  it('saves a compensation boundary so the engine recognises it', () => {
+    const saved = payloadFor({ eventType: 'compensation' }, 'boundaryEvent');
+    expect(saved.properties).toMatchObject({ event_type: 'compensation' });
+  });
+
+  it('saves letting the attached step carry on', () => {
+    const saved = payloadFor({ eventType: 'timer', duration: 'R3/PT1H', nonInterrupting: true }, 'boundaryEvent');
+
+    expect(saved.properties).toMatchObject({
+      non_interrupting: true,
+      timer_duration: 'R3/PT1H',
+    });
+  });
+
+  it('leaves a boundary interrupting unless it is asked not to', () => {
+    const saved = payloadFor({ eventType: 'timer', duration: 'PT2H' }, 'boundaryEvent');
+
+    // Absent rather than false: the engine reads an absent value as
+    // interrupting, which is the BPMN default and what every stored definition
+    // already does.
+    expect(saved.properties?.non_interrupting).toBeUndefined();
+  });
+
+  it('reads all of it back when the process is opened again', () => {
+    const [loaded] = mapLoadedNodes([
+      {
+        id: 'deadline',
+        type: 'boundaryEvent',
+        x: 0,
+        y: 0,
+        attached_to_ref: 'approve',
+        error_code: 'payment-declined',
+        properties: {
+          event_type: 'error',
+          escalation_code: 'over-approval-limit',
+          activity_ref: 'book-flight',
+          non_interrupting: true,
+        },
+      },
+    ] as Parameters<typeof mapLoadedNodes>[0]);
+
+    expect(loaded.data).toMatchObject({
+      errorCode: 'payment-declined',
+      escalationCode: 'over-approval-limit',
+      activityRef: 'book-flight',
+      nonInterrupting: true,
+    });
+  });
+});

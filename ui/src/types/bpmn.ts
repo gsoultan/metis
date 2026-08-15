@@ -115,6 +115,20 @@ export interface EventData extends BaseBPMNNodeData {
   attachedToRef?: string;
   /** Boundary event: whether the attached activity is cancelled. */
   cancelActivity?: boolean;
+  /**
+   * Boundary event: notify without stopping the work it is attached to.
+   *
+   * Interrupting is the default, both in BPMN and in every definition already
+   * stored, so this is an explicit opt-in rather than a reading of
+   * cancelActivity.
+   */
+  nonInterrupting?: boolean;
+  /** Error boundary event: which failure it catches. Empty catches any. */
+  errorCode?: string;
+  /** Escalation event: which situation is being raised or caught. */
+  escalationCode?: string;
+  /** Compensation throw: the one activity to undo. Empty undoes them all. */
+  activityRef?: string;
 }
 
 // ─── Sub-process ──────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"gorm.io/driver/mysql"
@@ -44,6 +45,10 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 	}
 	sqlDB.SetMaxOpenConns(maxConns)
 	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	if err := pingWithin(db, 5*time.Second); err != nil {
+		t.Fatalf("%s is set but MySQL is not reachable at that DSN: %v", MySQLDSNEnv, err)
+	}
 
 	// MySQL has no cheap per-test schema equivalent that GORM will route to
 	// without reconnecting, so the tables are dropped and rebuilt instead.

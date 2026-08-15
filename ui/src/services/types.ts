@@ -61,6 +61,8 @@ export interface ApiNode {
   attached_to_ref?: string;
   parent_id?: string;
   cancel_activity?: boolean;
+  /** Error boundary events match on this; empty catches every error. */
+  error_code?: string;
   multi_instance_type?: string;
   loop_cardinality?: number;
   collection?: string;
@@ -124,6 +126,7 @@ export interface CreateNodePayload {
   attached_to_ref: string;
   parent_id: string;
   cancel_activity: boolean;
+  error_code: string;
   multi_instance_type: string;
   loop_cardinality: number;
   collection: string;

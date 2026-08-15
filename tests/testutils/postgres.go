@@ -1,8 +1,10 @@
 package testutils
 
 import (
+	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	models2 "github.com/gsoultan/gobpm/server/repositories/models"
@@ -41,6 +43,9 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open postgres: %v", err)
+	}
+	if err := pingWithin(db, 5*time.Second); err != nil {
+		t.Fatalf("%s is set but PostgreSQL is not reachable at that DSN: %v", PostgresDSNEnv, err)
 	}
 
 	sqlDB, err := db.DB()
@@ -126,4 +131,16 @@ func sanitiseSchemaName(name string) string {
 		out = out[:50]
 	}
 	return string(out)
+}
+
+// pingWithin bounds the reachability check so a stale DSN reports itself in
+// seconds rather than sitting on the driver's default connect timeout.
+func pingWithin(db *gorm.DB, timeout time.Duration) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return sqlDB.PingContext(ctx)
 }
