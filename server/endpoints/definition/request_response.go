@@ -36,7 +36,7 @@ type GetDefinitionRequest struct {
 
 type GetDefinitionResponse struct {
 	Definition *entities.ProcessDefinition `json:"definition,omitzero"`
-	Err        error                      `json:"err,omitzero"`
+	Err        error                       `json:"err,omitzero"`
 }
 
 func (r GetDefinitionResponse) Failed() error { return r.Err }

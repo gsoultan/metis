@@ -431,6 +431,13 @@ func (e *Engine) proceedInternal(ctx context.Context, instance *entities.Process
 		return err // not done yet — wait for remaining iterations
 	}
 
+	// A step inside an ad-hoc sub-process finishing is what makes its completion
+	// condition worth re-reading: the condition is written against the work done
+	// inside, so it can only become true here.
+	if done, err := e.checkAdHocCompletion(ctx, instance, def, node); err != nil || done {
+		return err
+	}
+
 	// Step 3: clean up sibling tokens and subscriptions.
 	if err := e.cleanupEventBasedGatewaySiblings(ctx, instance, def, nodeID); err != nil {
 		return err
@@ -516,6 +523,32 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 		}
 	}
 	return nil
+}
+
+// checkAdHocCompletion re-evaluates the completion condition of the ad-hoc
+// sub-process a finished step belongs to, and lets the process through when it
+// is satisfied.
+//
+// Returns true when it advanced the process, so the caller stops treating the
+// finished step as an ordinary node.
+func (e *Engine) checkAdHocCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) (bool, error) {
+	if node == nil || node.ParentID == "" {
+		return false, nil
+	}
+	parent := def.FindNode(node.ParentID)
+	if parent == nil || !parent.IsAdHoc {
+		return false, nil
+	}
+	if len(instance.GetTokensByNode(parent)) == 0 {
+		return false, nil
+	}
+	if parent.CompletionCondition != "" &&
+		!logic.GetConditionEvaluatorChain().Evaluate(parent.CompletionCondition, instance.Variables) {
+		// More work to do inside; the sub-process keeps waiting.
+		return false, e.UpdateInstance(ctx, *instance)
+	}
+
+	return true, e.Proceed(ctx, instance, def, parent.ID)
 }
 
 // removeOrCheckMultiInstance handles token removal for both simple and multi-instance

@@ -24,6 +24,7 @@ type service struct {
 	contracts.ConnectorService
 	contracts.CollaborationService
 	contracts.MessagingService
+	contracts.AdHocActivator
 	contracts.UserService
 	contracts.GroupService
 	contracts.SetupService
@@ -43,6 +44,7 @@ type ServiceParams struct {
 	ConnectorService     contracts.ConnectorService
 	CollaborationService contracts.CollaborationService
 	MessagingService     contracts.MessagingService
+	AdHocActivator       contracts.AdHocActivator
 	UserService          contracts.UserService
 	GroupService         contracts.GroupService
 	SetupService         contracts.SetupService
@@ -63,6 +65,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		ConnectorService:     p.ConnectorService,
 		CollaborationService: p.CollaborationService,
 		MessagingService:     p.MessagingService,
+		AdHocActivator:       p.AdHocActivator,
 		UserService:          p.UserService,
 		GroupService:         p.GroupService,
 		SetupService:         p.SetupService,
@@ -103,6 +106,7 @@ func NewServiceFacade(
 	userSvc := serviceimpl.NewUserService(repo, jwtSecret)
 	groupSvc := serviceimpl.NewGroupService(repo)
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
+	adHocActivator := serviceimpl.NewAdHocActivator(engine)
 	setupSvc := serviceimpl.NewSetupService(setupCallback)
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
@@ -129,6 +133,7 @@ func NewServiceFacade(
 		ConnectorService:     connectorSvc,
 		CollaborationService: collaborationSvc,
 		MessagingService:     messagingSvc,
+		AdHocActivator:       adHocActivator,
 		UserService:          userSvc,
 		GroupService:         groupSvc,
 		SetupService:         setupSvc,

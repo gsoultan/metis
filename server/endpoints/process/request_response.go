@@ -100,6 +100,19 @@ type GetProcessStatisticsResponse struct {
 
 func (r GetProcessStatisticsResponse) Failed() error { return r.Err }
 
+// ActivateAdHocTaskRequest names one step inside an ad-hoc sub-process to start.
+type ActivateAdHocTaskRequest struct {
+	InstanceID       string `json:"instance_id"`
+	SubProcessNodeID string `json:"sub_process_node_id"`
+	TaskNodeID       string `json:"task_node_id"`
+}
+
+type ActivateAdHocTaskResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r ActivateAdHocTaskResponse) Failed() error { return r.Err }
+
 type BroadcastSignalRequest struct {
 	ProjectID  string         `json:"project_id"`
 	SignalName string         `json:"signal_name"`

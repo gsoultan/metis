@@ -18,6 +18,7 @@ type ServiceFacade interface {
 	serviceContracts.ConnectorService
 	serviceContracts.CollaborationService
 	serviceContracts.MessagingService
+	serviceContracts.AdHocActivator
 	serviceContracts.UserService
 	serviceContracts.GroupService
 	serviceContracts.SetupService

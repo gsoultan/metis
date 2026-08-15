@@ -56,6 +56,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	)
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
+	adHocActivator := service_impl2.NewAdHocActivator(engine)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
 	setupSvc := service_impl2.NewSetupService(nil)
 	svc := services.NewService(services.ServiceParams{
@@ -71,6 +72,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 		ConnectorService:     connectorSvc,
 		CollaborationService: collaborationSvc,
 		MessagingService:     messagingSvc,
+		AdHocActivator:       adHocActivator,
 		UserService:          userSvc,
 		SetupService:         setupSvc,
 	})

@@ -2,7 +2,6 @@ package impl
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/logic"
@@ -29,21 +28,22 @@ func NewAdHocSubProcessHandler(engine servicecontracts.ExecutionEngine) *AdHocSu
 // If the condition is already satisfied — including the case of no condition at
 // all — it proceeds.
 //
-// If it is not satisfied, the subprocess would have to wait for a knowledge
-// worker to activate the tasks inside it. Nothing in this repository can do
-// that: the AdHocActivator contract that describes it has no implementation and
-// no caller. So rather than parking a token and reporting success, this reports
-// that the instance has no route forward. A process that can never continue is
-// an incident; silently hanging one leaves nothing to investigate.
+// If it is not satisfied, the sub-process holds a token and waits for a
+// knowledge worker to activate the steps inside it, one at a time and in
+// whatever order the work needs. Each step that finishes re-checks the
+// condition, which is what eventually lets the process through.
 func (h *AdHocSubProcessHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
-	if !h.isCompletionConditionMet(&node, instance) {
-		return fmt.Errorf(
-			"ad-hoc sub-process %q cannot be advanced: its completion condition %q is not satisfied and no task activation path is implemented (AdHocActivator has no implementation), so the instance would wait forever",
-			node.ID, node.CompletionCondition)
+	// The token is already on this node: whatever flowed here put it there. The
+	// handler used to add a second one, which the proceeding path hid because
+	// removing by node id clears both — but waiting kept it, and a node holding
+	// two tokens is a node the engine never finishes with.
+	if h.isCompletionConditionMet(&node, instance) {
+		return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 	}
 
-	instance.AddTokenWithIteration(&node, iterationID)
-	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
+	// Waiting: the token marks where the process is, and activating a step
+	// inside is what eventually moves it on.
+	return h.engine.UpdateInstance(ctx, *instance)
 }
 
 // isCompletionConditionMet evaluates the node's CompletionCondition with the
