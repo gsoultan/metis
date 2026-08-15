@@ -98,6 +98,11 @@ func (pd *ProcessDefinition) traverseFlows(fn func(*SequenceFlow)) {
 
 func (pd *ProcessDefinition) Accept(visitor DefinitionVisitor) {
 	visitor.VisitDefinition(pd)
+	// The visitor is given the nil so it can record it as a validation error;
+	// walking the children of one is what would fault.
+	if pd == nil {
+		return
+	}
 	for i := range pd.Nodes {
 		pd.Nodes[i].Accept(visitor)
 	}

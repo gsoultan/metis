@@ -2,8 +2,6 @@ package models
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type IncidentStatus string
@@ -15,9 +13,9 @@ const (
 
 type IncidentModel struct {
 	Base
-	JobID        uuid.UUID      `gorm:"type:uuid;index" json:"job_id,omitzero"`
-	InstanceID   uuid.UUID      `gorm:"type:uuid;index" json:"instance_id,omitzero"`
-	DefinitionID uuid.UUID      `gorm:"type:uuid" json:"definition_id,omitzero"`
+	JobID        UUID           `gorm:"index" json:"job_id,omitzero"`
+	InstanceID   UUID           `gorm:"index" json:"instance_id,omitzero"`
+	DefinitionID UUID           `json:"definition_id,omitzero"`
 	NodeID       string         `json:"node_id"`
 	Error        string         `json:"error"`
 	Status       IncidentStatus `gorm:"index" json:"status"`

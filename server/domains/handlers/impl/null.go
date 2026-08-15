@@ -11,7 +11,7 @@ import (
 // It logs an error when executed, as it represents an unsupported or missing node type.
 type NullNodeHandler struct{}
 
-func (h *NullNodeHandler) Execute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *NullNodeHandler) Execute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	log.Error().
 		Str("instance_id", instance.ID.String()).
 		Str("node_id", node.ID).
@@ -20,6 +20,6 @@ func (h *NullNodeHandler) Execute(ctx context.Context, instance *entities.Proces
 	return nil
 }
 
-func (h *NullNodeHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *NullNodeHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	return h.Execute(ctx, instance, def, node, iterationID)
 }

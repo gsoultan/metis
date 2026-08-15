@@ -23,12 +23,12 @@ func (a ExternalTaskModelAdapter) ToModel() models.ExternalTaskModel {
 	}
 	return models.ExternalTaskModel{
 		Base: models.Base{
-			ID:        a.ExternalTask.ID,
+			ID:        models.UUID(a.ExternalTask.ID),
 			CreatedAt: a.ExternalTask.CreatedAt,
 		},
-		ProjectID:           projectID,
-		ProcessInstanceID:   instanceID,
-		ProcessDefinitionID: defID,
+		ProjectID:           models.UUID(projectID),
+		ProcessInstanceID:   models.UUID(instanceID),
+		ProcessDefinitionID: models.UUID(defID),
 		NodeID: func() string {
 			if a.ExternalTask.Node != nil {
 				return a.ExternalTask.Node.ID
@@ -52,10 +52,10 @@ type ExternalTaskEntityAdapter struct {
 
 func (a ExternalTaskEntityAdapter) ToEntity() entities.ExternalTask {
 	return entities.ExternalTask{
-		ID:                a.Model.ID,
-		Project:           &entities.Project{ID: a.Model.ProjectID},
-		ProcessInstance:   &entities.ProcessInstance{ID: a.Model.ProcessInstanceID},
-		ProcessDefinition: &entities.ProcessDefinition{ID: a.Model.ProcessDefinitionID},
+		ID:                uuid.UUID(a.Model.ID),
+		Project:           &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
+		ProcessInstance:   &entities.ProcessInstance{ID: uuid.UUID(a.Model.ProcessInstanceID)},
+		ProcessDefinition: &entities.ProcessDefinition{ID: uuid.UUID(a.Model.ProcessDefinitionID)},
 		Node:              &entities.Node{ID: a.Model.NodeID},
 		Topic:             a.Model.Topic,
 		WorkerID:          a.Model.WorkerID,

@@ -50,12 +50,12 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 	}
 	return &pbentities.Task{
 		Id:              a.Task.ID.String(),
-		ProjectId:       projectID,
-		InstanceId:      instanceID,
+		Project:         projectRef(projectID),
+		Instance:        instanceRef(instanceID),
 		Node:            NodeToProto(a.Task.Node),
 		Name:            a.Task.Name,
 		Status:          string(a.Task.Status),
-		Assignee:        assignee,
+		Assignee:        userRef(assignee),
 		CandidateUsers:  candidateUsers,
 		CandidateGroups: candidateGroups,
 		Priority:        int32(a.Task.Priority),
@@ -63,5 +63,11 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 		CreatedAt:       a.Task.CreatedAt.Format(time.RFC3339),
 		Variables:       variables,
 		FormKey:         a.Task.FormKey,
+		// The form a task is completed with, and the node type that decides
+		// whether it has one at all. Both are on the domain task and neither was
+		// being sent, so a task with a custom form rendered the default one.
+		FormDefinition: a.Task.FormDefinition,
+		Type:           string(a.Task.Type),
+		Description:    a.Task.Description,
 	}
 }

@@ -2,32 +2,51 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { ProcessVariables } from '../services/types';
 
-export const useTasks = () => {
+type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
+
+export const useTasks = (page = 1, pageSize = 50) => {
   const { currentProjectId } = useAppStore();
   return useQuery({
-    queryKey: ['tasks', currentProjectId],
+    queryKey: ['tasks', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
-      currentProjectId ? processService.listTasks(currentProjectId, signal) : Promise.resolve({ tasks: [], err: "" }),
+      currentProjectId
+        ? processService.listTasks(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as AllTasksResult),
     enabled: !!currentProjectId,
   });
 };
 
-export const useTasksByAssignee = (assignee: string) => {
+type AssigneeTasksResult = Awaited<ReturnType<typeof processService.listTasksByAssignee>>;
+
+export const useTasksByAssignee = (assignee: string, page = 1, pageSize = 25) => {
   return useQuery({
-    queryKey: ['tasks', 'assignee', assignee],
+    // The page is part of the key, so moving between pages is a cache hit on
+    // the way back rather than a refetch.
+    queryKey: ['tasks', 'assignee', assignee, page, pageSize],
     queryFn: ({ signal }) =>
-      assignee ? processService.listTasksByAssignee(assignee, signal) : Promise.resolve({ tasks: [], err: "" }),
+      assignee
+        ? processService.listTasksByAssignee(assignee, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as AssigneeTasksResult),
     enabled: !!assignee,
+    // Keeps the previous page on screen while the next one loads, so the table
+    // does not collapse to a skeleton on every page change.
+    placeholderData: (previous) => previous,
   });
 };
 
-export const useTasksByCandidates = (userId: string, groups: string[] = []) => {
+type CandidateTasksResult = Awaited<ReturnType<typeof processService.listTasksByCandidates>>;
+
+export const useTasksByCandidates = (userId: string, groups: string[] = [], page = 1, pageSize = 25) => {
   return useQuery({
-    queryKey: ['tasks', 'candidates', userId, ...groups],
+    queryKey: ['tasks', 'candidates', userId, groups.join(','), page, pageSize],
     queryFn: ({ signal }) =>
-      userId ? processService.listTasksByCandidates(userId, groups, signal) : Promise.resolve({ tasks: [], err: "" }),
+      userId
+        ? processService.listTasksByCandidates(userId, groups, { page, pageSize }, signal)
+        : Promise.resolve({ tasks: [], err: '', pageInfo: undefined } as CandidateTasksResult),
     enabled: !!userId,
+    placeholderData: (previous) => previous,
   });
 };
 
@@ -54,7 +73,7 @@ export const useStartProcess = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: ({ definitionKey, variables }: { definitionKey: string; variables?: any }) =>
+    mutationFn: ({ definitionKey, variables }: { definitionKey: string; variables?: ProcessVariables }) =>
       currentProjectId ? processService.startProcess(currentProjectId, definitionKey, variables) : Promise.reject('No project selected'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks', currentProjectId] });
@@ -65,7 +84,7 @@ export const useStartProcess = () => {
 export const useCompleteTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, userId, variables }: { id: string; userId: string; variables?: any }) => processService.completeTask(id, userId, variables),
+    mutationFn: ({ id, userId, variables }: { id: string; userId: string; variables?: ProcessVariables }) => processService.completeTask(id, userId, variables),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
@@ -74,7 +93,7 @@ export const useCompleteTask = () => {
         color: 'green',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to complete task',
@@ -96,7 +115,7 @@ export const useClaimTask = () => {
         color: 'blue',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to claim task',
@@ -118,7 +137,7 @@ export const useUnclaimTask = () => {
         color: 'gray',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to unclaim task',
@@ -140,7 +159,7 @@ export const useDelegateTask = () => {
         color: 'yellow',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to delegate task',
@@ -163,7 +182,7 @@ export const useUpdateTask = () => {
         color: 'green',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to update task',
@@ -185,7 +204,7 @@ export const useAssignTask = () => {
         color: 'blue',
       });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       notifications.show({
         title: 'Error',
         message: error.message || 'Failed to assign task',

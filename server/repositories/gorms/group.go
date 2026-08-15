@@ -78,8 +78,8 @@ func (r *gormGroupRepository) ListGroupMembers(ctx context.Context, groupID uuid
 
 func (r *gormGroupRepository) AddMembership(ctx context.Context, userID, groupID uuid.UUID) error {
 	m := models.MembershipModel{
-		UserID:  userID,
-		GroupID: groupID,
+		UserID:  models.UUID(userID),
+		GroupID: models.UUID(groupID),
 	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return fmt.Errorf("could not add membership: %w", err)

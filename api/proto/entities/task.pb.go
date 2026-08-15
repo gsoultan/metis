@@ -25,12 +25,12 @@ const (
 type Task struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ProjectId       string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	InstanceId      string                 `protobuf:"bytes,3,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Project         *Project               `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Instance        *ProcessInstance       `protobuf:"bytes,3,opt,name=instance,proto3" json:"instance,omitempty"`
 	Node            *Node                  `protobuf:"bytes,4,opt,name=node,proto3" json:"node,omitempty"`
 	Name            string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
 	Status          string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	Assignee        string                 `protobuf:"bytes,7,opt,name=assignee,proto3" json:"assignee,omitempty"`
+	Assignee        *User                  `protobuf:"bytes,7,opt,name=assignee,proto3" json:"assignee,omitempty"`
 	CandidateUsers  []*User                `protobuf:"bytes,8,rep,name=candidate_users,json=candidateUsers,proto3" json:"candidate_users,omitempty"`
 	CandidateGroups []*Group               `protobuf:"bytes,9,rep,name=candidate_groups,json=candidateGroups,proto3" json:"candidate_groups,omitempty"`
 	Priority        int32                  `protobuf:"varint,10,opt,name=priority,proto3" json:"priority,omitempty"`
@@ -39,8 +39,13 @@ type Task struct {
 	Variables       *structpb.Struct       `protobuf:"bytes,13,opt,name=variables,proto3" json:"variables,omitempty"`
 	FormKey         string                 `protobuf:"bytes,14,opt,name=form_key,json=formKey,proto3" json:"form_key,omitempty"`
 	FormDefinition  string                 `protobuf:"bytes,15,opt,name=form_definition,json=formDefinition,proto3" json:"form_definition,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The BPMN node type this task came from. The UI branches on it: a manual
+	// task is completed with "Mark as Done" and has no form to fill in, a user
+	// task does. Without it every task looked like a user task.
+	Type          string `protobuf:"bytes,16,opt,name=type,proto3" json:"type,omitempty"`
+	Description   string `protobuf:"bytes,17,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -80,18 +85,18 @@ func (x *Task) GetId() string {
 	return ""
 }
 
-func (x *Task) GetProjectId() string {
+func (x *Task) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
-func (x *Task) GetInstanceId() string {
+func (x *Task) GetInstance() *ProcessInstance {
 	if x != nil {
-		return x.InstanceId
+		return x.Instance
 	}
-	return ""
+	return nil
 }
 
 func (x *Task) GetNode() *Node {
@@ -115,11 +120,11 @@ func (x *Task) GetStatus() string {
 	return ""
 }
 
-func (x *Task) GetAssignee() string {
+func (x *Task) GetAssignee() *User {
 	if x != nil {
 		return x.Assignee
 	}
-	return ""
+	return nil
 }
 
 func (x *Task) GetCandidateUsers() []*User {
@@ -178,21 +183,33 @@ func (x *Task) GetFormDefinition() string {
 	return ""
 }
 
+func (x *Task) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *Task) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 var File_entities_task_proto protoreflect.FileDescriptor
 
 const file_entities_task_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\"\x85\x04\n" +
+	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xec\x04\n" +
 	"\x04Task\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\x12\x1f\n" +
-	"\vinstance_id\x18\x03 \x01(\tR\n" +
-	"instanceId\x12!\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
+	"\binstance\x18\x03 \x01(\v2\x18.process.ProcessInstanceR\binstance\x12!\n" +
 	"\x04node\x18\x04 \x01(\v2\r.process.NodeR\x04node\x12\x12\n" +
 	"\x04name\x18\x05 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1a\n" +
-	"\bassignee\x18\a \x01(\tR\bassignee\x126\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12)\n" +
+	"\bassignee\x18\a \x01(\v2\r.process.UserR\bassignee\x126\n" +
 	"\x0fcandidate_users\x18\b \x03(\v2\r.process.UserR\x0ecandidateUsers\x129\n" +
 	"\x10candidate_groups\x18\t \x03(\v2\x0e.process.GroupR\x0fcandidateGroups\x12\x1a\n" +
 	"\bpriority\x18\n" +
@@ -202,7 +219,9 @@ const file_entities_task_proto_rawDesc = "" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x125\n" +
 	"\tvariables\x18\r \x01(\v2\x17.google.protobuf.StructR\tvariables\x12\x19\n" +
 	"\bform_key\x18\x0e \x01(\tR\aformKey\x12'\n" +
-	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinitionB\x8b\x01\n" +
+	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinition\x12\x12\n" +
+	"\x04type\x18\x10 \x01(\tR\x04type\x12 \n" +
+	"\vdescription\x18\x11 \x01(\tR\vdescriptionB\x8b\x01\n" +
 	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -220,21 +239,26 @@ func file_entities_task_proto_rawDescGZIP() []byte {
 var file_entities_task_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_task_proto_goTypes = []any{
 	(*Task)(nil),            // 0: process.Task
-	(*Node)(nil),            // 1: process.Node
-	(*User)(nil),            // 2: process.User
-	(*Group)(nil),           // 3: process.Group
-	(*structpb.Struct)(nil), // 4: google.protobuf.Struct
+	(*Project)(nil),         // 1: process.Project
+	(*ProcessInstance)(nil), // 2: process.ProcessInstance
+	(*Node)(nil),            // 3: process.Node
+	(*User)(nil),            // 4: process.User
+	(*Group)(nil),           // 5: process.Group
+	(*structpb.Struct)(nil), // 6: google.protobuf.Struct
 }
 var file_entities_task_proto_depIdxs = []int32{
-	1, // 0: process.Task.node:type_name -> process.Node
-	2, // 1: process.Task.candidate_users:type_name -> process.User
-	3, // 2: process.Task.candidate_groups:type_name -> process.Group
-	4, // 3: process.Task.variables:type_name -> google.protobuf.Struct
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	1, // 0: process.Task.project:type_name -> process.Project
+	2, // 1: process.Task.instance:type_name -> process.ProcessInstance
+	3, // 2: process.Task.node:type_name -> process.Node
+	4, // 3: process.Task.assignee:type_name -> process.User
+	4, // 4: process.Task.candidate_users:type_name -> process.User
+	5, // 5: process.Task.candidate_groups:type_name -> process.Group
+	6, // 6: process.Task.variables:type_name -> google.protobuf.Struct
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_entities_task_proto_init() }
@@ -245,6 +269,8 @@ func file_entities_task_proto_init() {
 	file_entities_node_proto_init()
 	file_entities_user_proto_init()
 	file_entities_group_proto_init()
+	file_entities_project_proto_init()
+	file_entities_process_instance_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

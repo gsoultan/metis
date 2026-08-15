@@ -5,11 +5,24 @@ package process;
 option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
 
 import "entities/project.proto";
+import "entities/node.proto";
+import "entities/flow.proto";
 
+// ProcessDefinition is a process as modelled: its nodes and the flows between
+// them.
+//
+// The nodes and flows had no field here at all, so reading a definition back
+// returned its name and version and nothing else. The designer saved a process
+// and then reopened it to an empty canvas, because there was nothing in the
+// response to draw.
 message ProcessDefinition {
   string id = 1;
   Project project = 2;
   string key = 3;
   string name = 4;
   int32 version = 5;
+  string documentation = 6;
+  repeated Node nodes = 7;
+  repeated Flow flows = 8;
+  string created_at = 9;
 }

@@ -3,7 +3,7 @@ package models
 // UserModel represents the GORM model for users.
 type UserModel struct {
 	Base
-	Username      string              `gorm:"uniqueIndex" json:"username"`
+	Username      string              `gorm:"size:255;uniqueIndex" json:"username"`
 	PasswordHash  string              `json:"-"`
 	FullName      string              `json:"full_name"`
 	DisplayName   string              `json:"display_name"`

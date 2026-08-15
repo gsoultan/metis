@@ -44,10 +44,10 @@ func (a DecisionModelAdapter) ToModel() models.DecisionDefinitionModel {
 	}
 	return models.DecisionDefinitionModel{
 		Base: models.Base{
-			ID:        a.Decision.ID,
+			ID:        models.UUID(a.Decision.ID),
 			CreatedAt: a.Decision.CreatedAt,
 		},
-		ProjectID:         projectID,
+		ProjectID:         models.UUID(projectID),
 		Key:               a.Decision.Key,
 		Name:              a.Decision.Name,
 		Version:           a.Decision.Version,
@@ -93,8 +93,8 @@ func (a DecisionEntityAdapter) ToEntity() entities.DecisionDefinition {
 		}
 	}
 	return entities.DecisionDefinition{
-		ID:                a.Model.ID,
-		Project:           &entities.Project{ID: a.Model.ProjectID},
+		ID:                uuid.UUID(a.Model.ID),
+		Project:           &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
 		Key:               a.Model.Key,
 		Name:              a.Model.Name,
 		Version:           a.Model.Version,

@@ -31,25 +31,27 @@ import { useDefinitions, useStartProcess, useDefinition } from '../hooks/useProc
 import { PageHeader } from '../components/PageHeader';
 import { BPMNGraph } from '../components/BPMNGraph';
 import { CreationWizard } from '../components/CreationWizard';
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import dayjs from 'dayjs';
+import { ErrorState } from '../components/state';
+import type { ProcessDefinition } from '../gen/entities/definition_pb';
 
 export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id: string) => void, hideHeader?: boolean }) {
   const navigate = useNavigate();
-  const { data, isLoading } = useDefinitions();
+  const { data, isLoading, error, refetch } = useDefinitions();
   const startProcess = useStartProcess();
-  const [selectedDef, setSelectedDef] = useState<any>(null);
+  const [selectedDef, setSelectedDef] = useState<ProcessDefinition | null>(null);
   const [historyKey, setHistoryKey] = useState<string | null>(null);
   const [wizardOpened, setWizardOpened] = useState(false);
   
   const { data: fullDefData, isLoading: isFullLoading } = useDefinition(selectedDef?.id || null);
 
-  const definitions = data?.definitions || [];
+  const definitions = useMemo(() => data?.definitions ?? [], [data]);
 
   const groupedDefinitions = useMemo(() => {
-    const groups: Record<string, any[]> = {};
-    definitions.forEach((def: any) => {
+    const groups: Record<string, ProcessDefinition[]> = {};
+    definitions.forEach((def) => {
       if (!groups[def.key]) groups[def.key] = [];
       groups[def.key].push(def);
     });
@@ -95,6 +97,12 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
         </Card>
       </Stack>
     );
+  }
+
+  // A rejected request previously fell through to the empty state, so an
+  // outage was reported to the user as "you have nothing".
+  if (error) {
+    return <ErrorState error={error} action="load your process models" onRetry={() => refetch()} />;
   }
 
   const historyVersions = historyKey ? groupedDefinitions[historyKey] || [] : [];
@@ -162,7 +170,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                latestDefinitions.map((def: any) => (
+                latestDefinitions.map((def) => (
                   <Table.Tr key={def.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -183,7 +191,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4}>
-                        <Text size="xs" c="dimmed">{dayjs(def.created_at).fromNow()}</Text>
+                        <Text size="xs" c="dimmed">{dayjs(def.createdAt).fromNow()}</Text>
                       </Group>
                     </Table.Td>
                     <Table.Td>
@@ -199,7 +207,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           Run
                         </Button>
                         <Tooltip label="Version History">
-                          <ActionIcon 
+                          <ActionIcon aria-label="History process model" 
                             variant="light" 
                             color="orange" 
                             onClick={() => setHistoryKey(def.key)}
@@ -208,7 +216,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit Flow">
-                          <ActionIcon 
+                          <ActionIcon aria-label="View process versions" 
                             variant="light" 
                             color="blue" 
                             onClick={() => onEditModel?.(def.id)}
@@ -217,7 +225,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="View Graph">
-                          <ActionIcon 
+                          <ActionIcon aria-label="View process model" 
                             variant="light" 
                             color="indigo" 
                             onClick={() => setSelectedDef(def)}
@@ -253,10 +261,10 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {historyVersions.map((v: any) => (
+              {historyVersions.map((v) => (
                 <Table.Tr key={v.id}>
                   <Table.Td><Badge color={v.version === historyVersions[0].version ? "blue" : "gray"}>v{v.version}</Badge></Table.Td>
-                  <Table.Td><Text size="sm">{dayjs(v.created_at).format('YYYY-MM-DD HH:mm')}</Text></Table.Td>
+                  <Table.Td><Text size="sm">{dayjs(v.createdAt).format('YYYY-MM-DD HH:mm')}</Text></Table.Td>
                   <Table.Td>
                     <Group justify="flex-end" gap="xs">
                       <Button size="compact-xs" variant="light" leftSection={<Eye size={12} />} onClick={() => { setSelectedDef(v); setHistoryKey(null); }}>View</Button>
@@ -283,7 +291,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
           </Center>
         ) : !!fullDefData?.definition && (
           <Stack gap="md">
-            <BPMNGraph nodes={fullDefData.definition.nodes} flows={fullDefData.definition.flows} />
+            <BPMNGraph nodes={(fullDefData.definition as unknown as { nodes?: React.ComponentProps<typeof BPMNGraph>['nodes'] })?.nodes} flows={(fullDefData.definition as unknown as { flows?: React.ComponentProps<typeof BPMNGraph>['flows'] })?.flows} />
             <Group justify="flex-end">
               <Button onClick={() => setSelectedDef(null)}>Close</Button>
               <Button 
@@ -291,7 +299,7 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                 color="green" 
                 leftSection={<Play size={16} />}
                 onClick={() => {
-                  startProcess.mutate({ definitionKey: fullDefData.definition.key });
+                  startProcess.mutate({ definitionKey: fullDefData.definition!.key });
                   setSelectedDef(null);
                 }}
               >

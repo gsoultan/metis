@@ -36,6 +36,8 @@ func (h *TaskHandler) GetTask(ctx context.Context, req *connect.Request[pbendpoi
 func (h *TaskHandler) ListTasks(ctx context.Context, req *connect.Request[pbendpoints.ListTasksRequest]) (*connect.Response[pbendpoints.ListTasksResponse], error) {
 	response, err := h.eps.ListTasks(ctx, task.ListTasksRequest{
 		ProjectID: req.Msg.ProjectId,
+		Page:      int(req.Msg.GetPage().GetPage()),
+		PageSize:  int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err
@@ -45,15 +47,26 @@ func (h *TaskHandler) ListTasks(ctx context.Context, req *connect.Request[pbendp
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
 	}
-	return connect.NewResponse(&pbendpoints.ListTasksResponse{
+	out := &pbendpoints.ListTasksResponse{
 		Tasks: pbTasks,
 		Error: common.ErrString(resp.Err),
-	}), nil
+	}
+	if resp.Page != nil {
+		out.Page = &pbendpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 func (h *TaskHandler) ListTasksByAssignee(ctx context.Context, req *connect.Request[pbendpoints.ListTasksByAssigneeRequest]) (*connect.Response[pbendpoints.ListTasksResponse], error) {
 	response, err := h.eps.ListTasksByAssignee(ctx, task.ListTasksByAssigneeRequest{
 		Assignee: req.Msg.Assignee,
+		Page:     int(req.Msg.GetPage().GetPage()),
+		PageSize: int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err
@@ -63,16 +76,27 @@ func (h *TaskHandler) ListTasksByAssignee(ctx context.Context, req *connect.Requ
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
 	}
-	return connect.NewResponse(&pbendpoints.ListTasksResponse{
+	out := &pbendpoints.ListTasksResponse{
 		Tasks: pbTasks,
 		Error: common.ErrString(resp.Err),
-	}), nil
+	}
+	if resp.Page != nil {
+		out.Page = &pbendpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 func (h *TaskHandler) ListTasksByCandidates(ctx context.Context, req *connect.Request[pbendpoints.ListTasksByCandidatesRequest]) (*connect.Response[pbendpoints.ListTasksResponse], error) {
 	response, err := h.eps.ListTasksByCandidates(ctx, task.ListTasksByCandidatesRequest{
-		UserID: req.Msg.UserId,
-		Groups: req.Msg.Groups,
+		UserID:   req.Msg.UserId,
+		Groups:   req.Msg.Groups,
+		Page:     int(req.Msg.GetPage().GetPage()),
+		PageSize: int(req.Msg.GetPage().GetPageSize()),
 	})
 	if err != nil {
 		return nil, err
@@ -82,10 +106,19 @@ func (h *TaskHandler) ListTasksByCandidates(ctx context.Context, req *connect.Re
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
 	}
-	return connect.NewResponse(&pbendpoints.ListTasksResponse{
+	out := &pbendpoints.ListTasksResponse{
 		Tasks: pbTasks,
 		Error: common.ErrString(resp.Err),
-	}), nil
+	}
+	if resp.Page != nil {
+		out.Page = &pbendpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 func (h *TaskHandler) ClaimTask(ctx context.Context, req *connect.Request[pbendpoints.ClaimTaskRequest]) (*connect.Response[pbendpoints.ClaimTaskResponse], error) {

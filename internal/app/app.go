@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -21,13 +23,16 @@ import (
 	pbservices "github.com/gsoultan/gobpm/api/proto/services"
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
+	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/logger"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
+	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
 	"github.com/gsoultan/gobpm/server/endpoints"
 	"github.com/gsoultan/gobpm/server/interceptors"
 	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
+	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 	"github.com/gsoultan/gobpm/server/repositories"
 	gorms "github.com/gsoultan/gobpm/server/repositories/gorms"
 	models "github.com/gsoultan/gobpm/server/repositories/models"
@@ -67,7 +72,26 @@ const (
 	defaultPprofAddress                  = "127.0.0.1:6060"
 	envPprofEnabled                      = "GOBPM_PPROF_ENABLED"
 	envPprofAddress                      = "GOBPM_PPROF_ADDRESS"
+
+	defaultHTTPAddress = ":8080"
+	defaultGRPCAddress = ":8081"
+	envHTTPAddress     = "GOBPM_HTTP_ADDRESS"
+	envGRPCAddress     = "GOBPM_GRPC_ADDRESS"
+
+	// envResetPassword supplies the new password for --reset-password, so that
+	// a chosen one need not be typed where it will be recorded.
+	envResetPassword = "GOBPM_NEW_PASSWORD"
 )
+
+// resolveAddress returns the listen address from env, falling back to a
+// default. Both were previously hardcoded, so two instances could not run side
+// by side and a container could not be told which port to publish.
+func resolveAddress(envVar, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(envVar)); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func profilingEnabled() bool {
 	enabledValue, exists := os.LookupEnv(envPprofEnabled)
@@ -134,6 +158,7 @@ func (a *App) Run() error {
 
 	// 0. Flag Parsing
 	buildUI := flag.Bool("build-ui", false, "Build the UI using bun")
+	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
 	flag.Parse()
 
 	if *buildUI {
@@ -145,21 +170,83 @@ func (a *App) Run() error {
 
 	a.initDBOnce()
 
-	// 1. Initialize DB with GORM
+	// 1. Install the at-rest encryption key before any repository can read or
+	//    write an encrypted column.
+	if err := a.setupEncryption(); err != nil {
+		return err
+	}
+
+	// 2. Initialize DB with GORM
 	if err := a.setupDatabase(); err != nil {
 		return err
 	}
 
-	// 2. Initialize Domain
+	// 3. Initialize Domain
 	if err := a.setupService(ctx); err != nil {
 		return err
 	}
 
-	// 3. Setup Transports
+	// A password reset is a maintenance task, not a server. It runs against the
+	// configured database and then exits, without opening a port — an operator
+	// doing this has usually been locked out, and starting a server they cannot
+	// log into would not help.
+	if *resetPassword != "" {
+		return a.handleResetPassword(ctx, *resetPassword)
+	}
+
+	// 4. Setup Transports
 	a.setupAuth(ctx)
 
-	// 4. Start Servers using errgroup
+	// 5. Start Servers using errgroup
 	return a.runServers(ctx)
+}
+
+// handleResetPassword sets a new password for one account and prints it.
+//
+// There was no way to change a password at all, so a forgotten one had no
+// answer: there is no default account by design, and an installation with a
+// single administrator was simply unreachable. Reading it from the environment
+// keeps a chosen password out of the shell history; without one, a strong
+// password is generated, which is the better default for a recovery step.
+func (a *App) handleResetPassword(ctx context.Context, username string) error {
+	password, generated := os.Getenv(envResetPassword), false
+	if password == "" {
+		var err error
+		if password, err = generatePassword(); err != nil {
+			return fmt.Errorf("could not generate a password: %w", err)
+		}
+		generated = true
+	}
+
+	if err := a.svc.SetPassword(ctx, username, password); err != nil {
+		return err
+	}
+
+	fmt.Printf("Password updated for %q.\n", username)
+	if generated {
+		fmt.Printf("New password: %s\n", password)
+		fmt.Println("Sign in with it and change it; it is on screen and in this terminal's scrollback.")
+	}
+	return nil
+}
+
+// generatePassword returns a password from the crypto/rand source.
+//
+// The alphabet omits characters that are read wrongly when a password is copied
+// off a screen — no O/0, l/1/I — because this one is going to be.
+func generatePassword() (string, error) {
+	const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	const length = 20
+
+	out := make([]byte, length)
+	for i := range out {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		out[i] = alphabet[n.Int64()]
+	}
+	return string(out), nil
 }
 
 func (a *App) handleBuildUI() error {
@@ -175,6 +262,71 @@ func (a *App) handleBuildUI() error {
 		return fmt.Errorf("error building UI: %w", err)
 	}
 	fmt.Println("UI build successful!")
+	return nil
+}
+
+// setupEncryption installs the AES key used for process/task variables at rest.
+//
+// Resolution mirrors resolveJWTSecret: ENCRYPTION_KEY wins, then config.yaml.
+// When the system is configured (config.yaml present) and neither supplies a
+// key, startup fails rather than falling back to a default — the package
+// previously shipped a hardcoded literal key, which meant unconfigured
+// deployments encrypted business data with a value published in the repository.
+//
+// Pre-setup (no config.yaml) is allowed to start without a key: no process data
+// exists yet, and the setup flow collects the key before anything is written.
+func (a *App) setupEncryption() error {
+	envKey := os.Getenv("ENCRYPTION_KEY")
+
+	// A configured system's key is whatever its data was actually encrypted
+	// with, so config.yaml wins over the environment.
+	//
+	// The usual precedence is the other way round, but here it produced a
+	// confusing failure: a stale or unrelated ENCRYPTION_KEY silently replaced
+	// the real one and the server died at startup with "cipher: message
+	// authentication failed", which names the symptom and not the cause. The
+	// environment variable is for deployments that keep no key in the file at
+	// all; once one is in the file, disagreeing with it is a misconfiguration
+	// rather than an override.
+	if config.Exists(config.DefaultConfigPath) {
+		cfg, err := config.Load(config.DefaultConfigPath)
+		if err == nil && cfg.EncryptionKey != "" {
+			if envKey != "" && envKey != cfg.EncryptionKey {
+				log.Warn().Msg(
+					"ENCRYPTION_KEY differs from the key in config.yaml; using the key from config.yaml, " +
+						"because that is what the existing data was encrypted with. " +
+						"To rotate the key, re-encrypt the data first.")
+			}
+			if err := crypto.Configure(cfg.EncryptionKey); err != nil {
+				return fmt.Errorf("invalid encryption_key in config.yaml: %w", err)
+			}
+			log.Info().Msg("At-rest encryption key loaded from config.yaml")
+			return nil
+		}
+
+		if envKey != "" {
+			if err := crypto.Configure(envKey); err != nil {
+				return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
+			}
+			log.Info().Msg("At-rest encryption key loaded from ENCRYPTION_KEY")
+			return nil
+		}
+
+		return errors.New(
+			"config.yaml is present but carries no encryption_key, and ENCRYPTION_KEY is not set; " +
+				"process and task variables are encrypted at rest and cannot be read or written without it",
+		)
+	}
+
+	if envKey != "" {
+		if err := crypto.Configure(envKey); err != nil {
+			return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
+		}
+		log.Info().Msg("At-rest encryption key loaded from ENCRYPTION_KEY")
+		return nil
+	}
+
+	log.Warn().Msg("No ENCRYPTION_KEY set and no config.yaml found; running in pre-setup mode (no encrypted data can be written yet)")
 	return nil
 }
 
@@ -195,6 +347,25 @@ func (a *App) setupDatabase() error {
 func (a *App) migrate() error {
 	if err := a.db.AutoMigrate(models.MigrationModels()...); err != nil {
 		return fmt.Errorf("failed to migrate db: %w", err)
+	}
+
+	// Schema alone is not enough here: message subscriptions written before
+	// correlation keys were resolved per instance still hold the raw ${...}
+	// template, which no inbound correlation value can match. Repair them before
+	// serving traffic, or every instance already waiting on a message event
+	// hangs.
+	repo := repositories.NewRepository(a.db)
+	if _, err := serviceimpl.BackfillMessageCorrelationKeys(context.Background(), repo); err != nil {
+		return fmt.Errorf("failed to backfill message correlation keys: %w", err)
+	}
+
+	// The engine's own bookkeeping — multi-instance progress and gateway join
+	// counts — moved out of the business variable namespace into its own
+	// columns. An instance part-way through either would otherwise come back
+	// with nothing recorded: restarting its iterations from zero, or forgetting
+	// the branches that had already reached a waiting gateway.
+	if _, err := serviceimpl.BackfillEngineBookkeeping(context.Background(), repo); err != nil {
+		return fmt.Errorf("failed to backfill multi-instance state: %w", err)
 	}
 	return nil
 }
@@ -222,6 +393,15 @@ func (a *App) setupService(ctx context.Context) error {
 	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, func(targetDB *gorm.DB) {
 		log.Info().Msg("Setup complete: hot-swapping database connection to target database")
 		gorms.SetDBOverride(targetDB)
+
+		// The built-in connectors were created during startup, which means they
+		// went into the bootstrap database this call has just replaced. Without
+		// seeding again, a freshly configured installation opens the connector
+		// catalogue and finds it empty — no Slack, no email, no HTTP — with
+		// nothing to indicate why.
+		if err := a.svc.EnsureDefaultConnectors(ctx); err != nil {
+			log.Error().Err(err).Msg("Failed to seed default connectors into the target database")
+		}
 	})
 
 	dispatcher.Register(impl.NewNotificationObserver(a.svc))
@@ -266,7 +446,13 @@ func (a *App) runServers(ctx context.Context) error {
 		f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute).Wrap(
 			f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
 				f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
-					f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+					// Carries X-Organization-ID into the context. It only lets a
+					// caller *choose* among the organizations they belong to;
+					// the endpoint tenant resolver validates it against their
+					// actual memberships.
+					tenant.NewHTTPOrganizationSelector().Wrap(
+						f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+					),
 				),
 			),
 		),
@@ -304,9 +490,10 @@ func (a *App) runServers(ctx context.Context) error {
 	}
 
 	// HTTP Server
+	httpAddress := resolveAddress(envHTTPAddress, defaultHTTPAddress)
 	g.Go(func() error {
-		log.Info().Msg("HTTP server listening on :8080")
-		server := newHTTPServer(":8080", httpHandler)
+		log.Info().Str("addr", httpAddress).Msg("HTTP server listening")
+		server := newHTTPServer(httpAddress, httpHandler)
 		go func() {
 			<-ctx.Done()
 			shutdownCtx, cancel := context.WithTimeoutCause(
@@ -324,15 +511,19 @@ func (a *App) runServers(ctx context.Context) error {
 	})
 
 	// gRPC Server
+	grpcAddress := resolveAddress(envGRPCAddress, defaultGRPCAddress)
 	g.Go(func() error {
-		lis, err := net.Listen("tcp", ":8081")
+		// ListenConfig rather than net.Listen so the listener is bound under the
+		// server's context and shutdown can interrupt a slow bind.
+		var lc net.ListenConfig
+		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
 		if err != nil {
 			return err
 		}
 		baseServer := grpc.NewServer()
 		a.registerGRPCServices(baseServer, grpcServer)
 
-		log.Info().Msg("gRPC server listening on :8081")
+		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
 
 		go func() {
 			<-ctx.Done()
@@ -415,10 +606,19 @@ func (a *App) resolveDialector() (gorm.Dialector, error) {
 }
 
 func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
-	encKey := os.Getenv("ENCRYPTION_KEY")
+	// Same precedence as setupEncryption: the key stored alongside the data
+	// wins, because it is the one the data was encrypted with.
+	encKey := cfg.EncryptionKey
+	if encKey == "" {
+		encKey = os.Getenv("ENCRYPTION_KEY")
+	}
+
 	dsn, err := cfg.DecryptConnectionString(encKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt database connection string: %w", err)
+		return nil, fmt.Errorf(
+			"could not decrypt the database connection string in %s — this almost always means the "+
+				"encryption key does not match the one used when the system was set up: %w",
+			config.DefaultConfigPath, err)
 	}
 
 	switch cfg.Database.Driver {

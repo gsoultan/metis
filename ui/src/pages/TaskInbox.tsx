@@ -25,6 +25,7 @@ import {
   Paper,
   Center,
   Box,
+  Pagination,
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import dayjs from 'dayjs';
@@ -53,8 +54,13 @@ import { TaskForm } from '../components/TaskForm';
 import { BusinessTimeline } from '../components/BusinessTimeline';
 import { useTaskInbox } from '../hooks/useTaskInbox';
 import { useNavigate } from '@tanstack/react-router';
+import { TableLoadingState, EmptyState } from '../components/state';
+import type { Task } from '../services/types';
+import type { JsonObject } from '@bufbuild/protobuf';
+import { StatusBadge } from '../components/StatusBadge';
+import { statusLabel } from '../components/statusVocabulary';
 
-function TaskContextTable({ variables }: { variables: Record<string, any> | undefined }) {
+function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
   if (!variables) return null;
   const entries = Object.entries(variables);
   if (entries.length === 0) {
@@ -88,15 +94,34 @@ function TaskContextTable({ variables }: { variables: Record<string, any> | unde
 }
 
 interface TaskRowProps {
-  task: any;
+  task: Task;
   isSelected: boolean;
   onToggleSelection: (id: string) => void;
   onClaim: (id: string) => void;
   onUnclaim: (id: string) => void;
-  onComplete: (task: any) => void;
-  onEdit: (task: any) => void;
-  onReassign: (task: any) => void;
-  navigate: (args: any) => void;
+  onComplete: (task: Task) => void;
+  onEdit: (task: Task) => void;
+  onReassign: (task: Task) => void;
+  navigate: NavigateFn;
+}
+
+/** The subset of TanStack Router's navigate that this page uses. */
+type NavigateFn = (args: { to: string; search?: Record<string, unknown> }) => void;
+
+/** The card renders the same task as the row, minus the unclaim action. */
+type TaskCardProps = TaskRowProps;
+
+interface KanbanViewProps {
+  tasks: Task[];
+  selectedTaskIds: string[];
+  onToggleSelection: (id: string) => void;
+  onClaim: (id: string) => void;
+  onUnclaim: (id: string) => void;
+  onComplete: (task: Task) => void;
+  onEdit: (task: Task) => void;
+  onReassign: (task: Task) => void;
+  searchQuery: string;
+  navigate: NavigateFn;
 }
 
 function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, navigate }: TaskRowProps) {
@@ -123,7 +148,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
             <Text fw={700} size="sm">{task.name}</Text>
             <Group gap={4}>
               <Tooltip label="View Process Instance Path">
-                <ActionIcon 
+                <ActionIcon aria-label="Open task" 
                   variant="subtle" 
                   size="xs" 
                   color="blue"
@@ -131,7 +156,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
                     e.stopPropagation();
                     navigate({
                       to: '/designer',
-                      search: { instanceId: task.instance_id, definitionId: task.definition_id }
+                      search: { instanceId: task.instance?.id }
                     });
                   }}
                 >
@@ -143,8 +168,8 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
                   Priority: {task.priority}
                 </Badge>
               )}
-              {task.form_key && (
-                <Badge size="xs" variant="outline" color="gray">Form: {task.form_key}</Badge>
+              {task.formKey && (
+                <Badge size="xs" variant="outline" color="gray">Form: {task.formKey}</Badge>
               )}
             </Group>
           </Stack>
@@ -153,15 +178,15 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
       <Table.Td>
         <Group gap="xs">
           {task.assignee ? (
-            <Tooltip label={`Assigned to ${task.assignee}`}>
+            <Tooltip label={`Assigned to ${task.assignee?.username ?? ''}`}>
               <Group gap="xs">
                 <ThemeIcon size="sm" variant="subtle" color="blue">
                   <User size={14} />
                 </ThemeIcon>
                 <Avatar size="sm" radius="xl" color="blue" variant="light">
-                  {task.assignee.substring(0, 2).toUpperCase()}
+                  {(task.assignee.username || '').substring(0, 2).toUpperCase()}
                 </Avatar>
-                <Text size="sm">{task.assignee}</Text>
+                <Text size="sm">{task.assignee?.username}</Text>
               </Group>
             </Tooltip>
           ) : (
@@ -179,30 +204,30 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
       <Table.Td>
         <Stack gap={0}>
           <Group gap={4}>
-            <Text size="sm" fw={600}>{task.instance_id.substring(0, 8)}</Text>
+            <Text size="sm" fw={600}>{(task.instance?.id ?? '').substring(0, 8)}</Text>
             <Tooltip label="View Process Instance Path">
-              <ActionIcon 
+              <ActionIcon aria-label="Open task" 
                 variant="subtle" 
                 size="xs"
                 onClick={() => navigate({
                   to: '/designer',
-                  search: { instanceId: task.instance_id, definitionId: task.definition_id }
+                  search: { instanceId: task.instance?.id }
                 })}
               >
                 <ExternalLink size={12} />
               </ActionIcon>
             </Tooltip>
           </Group>
-          <Text size="xs" c="dimmed">Created: {new Date(task.created_at).toLocaleDateString()}</Text>
+          <Text size="xs" c="dimmed">Created: {new Date(task.createdAt).toLocaleDateString()}</Text>
         </Stack>
       </Table.Td>
       <Table.Td>
         <Group gap="xs">
-          <Clock size={14} color={task.due_date && new Date(task.due_date) < new Date() ? "red" : "gray"} />
+          <Clock size={14} color={task.dueDate && new Date(task.dueDate) < new Date() ? "red" : "gray"} />
           <Stack gap={0}>
-            {task.due_date ? (
-              <Text size="sm" c={new Date(task.due_date) < new Date() ? "red" : undefined}>
-                {new Date(task.due_date).toLocaleString()}
+            {task.dueDate ? (
+              <Text size="sm" c={new Date(task.dueDate) < new Date() ? "red" : undefined}>
+                {new Date(task.dueDate).toLocaleString()}
               </Text>
             ) : (
               <Text size="sm" c="dimmed">No due date</Text>
@@ -211,17 +236,10 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
         </Group>
       </Table.Td>
       <Table.Td>
-        <Badge 
-          color={
-            task.status === 'unclaimed' ? 'orange' : 
-            task.status === 'claimed' ? 'blue' : 
-            task.status === 'escalated' ? 'red' : 'green'
-          } 
-          variant="light"
-          radius="sm"
-        >
-          {task.status}
-        </Badge>
+        {/* This printed the stored value — "unclaimed" — in a palette of its
+            own, so the inbox and the task list disagreed about both the word
+            and the colour for the same task. */}
+        <StatusBadge status={task.status} withIcon />
       </Table.Td>
       <Table.Td ta="right">
         <Group gap="xs" justify="flex-end">
@@ -237,7 +255,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
           ) : (
             <>
               <Tooltip label="Release back to group">
-                <ActionIcon 
+                <ActionIcon aria-label="Show candidate groups" 
                   variant="light" 
                   color="gray"
                   onClick={() => onUnclaim(task.id)}
@@ -258,7 +276,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
           )}
           <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <ActionIcon variant="subtle" color="gray">
+              <ActionIcon aria-label="More actions" variant="subtle" color="gray">
                 <MoreVertical size={16} />
               </ActionIcon>
             </Menu.Target>
@@ -281,7 +299,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
                 leftSection={<ExternalLink size={14} />}
                 onClick={() => navigate({
                   to: '/designer',
-                  search: { instanceId: task.instance_id, definitionId: task.definition_id }
+                  search: { instanceId: task.instance?.id }
                 })}
               >
                 View Process Path
@@ -294,8 +312,8 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
   );
 }
 
-function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate }: any) {
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date();
+function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate }: TaskCardProps) {
+  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
   
   return (
     <Card withBorder padding="md" radius="md" shadow="sm" style={{ 
@@ -309,17 +327,11 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
             onChange={() => onToggleSelection(task.id)} 
             size="xs"
           />
-          <Badge size="xs" color={
-              task.status === 'unclaimed' ? 'orange' : 
-              task.status === 'claimed' ? 'blue' : 
-              task.status === 'escalated' ? 'red' : 'green'
-            }>
-            {task.status}
-          </Badge>
+          <StatusBadge status={task.status} size="xs" />
         </Group>
         <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <ActionIcon variant="subtle" color="gray" size="sm">
+              <ActionIcon aria-label="More actions" variant="subtle" color="gray" size="sm">
                 <MoreVertical size={14} />
               </ActionIcon>
             </Menu.Target>
@@ -331,7 +343,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
                 leftSection={<ExternalLink size={12} />}
                 onClick={() => navigate({
                   to: '/designer',
-                  search: { instanceId: task.instance_id, definitionId: task.definition_id }
+                  search: { instanceId: task.instance?.id }
                 })}
               >
                 View Process Path
@@ -348,24 +360,24 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
             Priority: {task.priority}
           </Badge>
         )}
-        {task.form_key && (
-          <Badge size="xs" variant="outline" color="gray">Form: {task.form_key}</Badge>
+        {task.formKey && (
+          <Badge size="xs" variant="outline" color="gray">Form: {task.formKey}</Badge>
         )}
       </Group>
 
       <Stack gap={8}>
         <Group gap="xs">
           <Avatar size="xs" radius="xl" color="blue" variant="light">
-            {task.assignee ? task.assignee.substring(0, 2).toUpperCase() : '?'}
+            {task.assignee ? (task.assignee.username || '').substring(0, 2).toUpperCase() : '?'}
           </Avatar>
-          <Text size="xs" c="dimmed" lineClamp={1}>{task.assignee || 'Unassigned'}</Text>
+          <Text size="xs" c="dimmed" lineClamp={1}>{task.assignee?.username || 'Unassigned'}</Text>
         </Group>
 
         <Group gap="xs">
           <Clock size={12} color={isOverdue ? "var(--mantine-color-red-6)" : "var(--mantine-color-gray-6)"} />
           <Group gap={4}>
             <Text size="xs" c={isOverdue ? "red.6" : "dimmed"}>
-              {task.due_date ? dayjs(task.due_date).fromNow() : 'No due date'}
+              {task.dueDate ? dayjs(task.dueDate).fromNow() : 'No due date'}
             </Text>
             {isOverdue && (
               <Tooltip label="Task is overdue!">
@@ -391,21 +403,24 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
   );
 }
 
-function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: any) {
+function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: KanbanViewProps) {
+  // The column headings are the status names, so they come from the same place
+  // the badges do — "Unclaimed" here and "Available" on the card was the board
+  // disagreeing with the cards on it.
   const columns = [
-    { id: 'unclaimed', title: 'Unclaimed', status: 'unclaimed', color: 'orange' },
-    { id: 'claimed', title: 'In Progress', status: 'claimed', color: 'blue' },
-    { id: 'completed', title: 'Completed', status: 'completed', color: 'green' },
+    { id: 'unclaimed', title: statusLabel('unclaimed'), status: 'unclaimed', color: 'grape' },
+    { id: 'claimed', title: statusLabel('claimed'), status: 'claimed', color: 'indigo' },
+    { id: 'completed', title: statusLabel('completed'), status: 'completed', color: 'green' },
   ];
 
-  const filteredTasks = tasks.filter((t: any) => {
+  const filteredTasks = tasks.filter((t) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return t.name?.toLowerCase().includes(q) || t.id?.toLowerCase().includes(q);
   });
 
   return (
-    <Grid gutter="md">
+    <Grid gap="md">
       {columns.map(col => (
         <Grid.Col span={{ base: 12, md: 4 }} key={col.id}>
           <Paper p="md" radius="lg" bg="gray.0" withBorder h="100%" style={{ minHeight: 500 }}>
@@ -413,12 +428,12 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
               <Group gap="xs">
                 <Badge color={col.color} variant="filled" size="sm">{col.title}</Badge>
                 <Text size="xs" c="dimmed" fw={500}>
-                  {filteredTasks.filter((t: any) => t.status === col.status).length} Tasks
+                  {filteredTasks.filter((t) => t.status === col.status).length} Tasks
                 </Text>
               </Group>
             </Group>
             <Stack gap="md">
-              {filteredTasks.filter((t: any) => t.status === col.status).map((task: any) => (
+              {filteredTasks.filter((t) => t.status === col.status).map((task) => (
                 <TaskCard 
                   key={task.id} 
                   task={task} 
@@ -432,7 +447,7 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
                   navigate={navigate}
                 />
               ))}
-              {filteredTasks.filter((t: any) => t.status === col.status).length === 0 && (
+              {filteredTasks.filter((t) => t.status === col.status).length === 0 && (
                 <Stack align="center" py={40} gap="xs">
                   <ClipboardList size={24} color="var(--mantine-color-gray-4)" />
                   <Text size="xs" c="dimmed">No tasks in this stage</Text>
@@ -471,6 +486,14 @@ export function TaskInbox() {
     candidateLoading,
     assignedCount,
     candidateCount,
+    setPage,
+    pageSize,
+    setPageSize,
+    // The control shows the page the SERVER reports serving, not the one that
+    // was requested — the two differ when a value is clamped, and reflecting
+    // the request would leave the highlighted page lying about what is on
+    // screen.
+    activePageInfo,
     currentTasks,
     viewMode,
     setViewMode,
@@ -488,13 +511,13 @@ export function TaskInbox() {
     updateTaskMutation,
   } = useTaskInbox();
 
-  const onFormSubmit = (values: any) => {
+  const onFormSubmit = (values: Record<string, unknown>) => {
     if (selectedTask) {
-      handleComplete(selectedTask.id, values);
+      handleComplete(selectedTask.id, values as JsonObject);
     }
   };
 
-  const onCompleteClick = (task: any) => {
+  const onCompleteClick = (task: Task) => {
     if (task.type === 'manualTask') {
       handleComplete(task.id, {});
     } else {
@@ -502,9 +525,9 @@ export function TaskInbox() {
     }
   };
 
-  const onReassignClick = (task: any) => {
+  const onReassignClick = (task: Task) => {
     setTaskToReassign(task);
-    setNewAssignee(task.assignee || null);
+    setNewAssignee(task.assignee?.username || null);
     setReassignModalOpened(true);
   };
 
@@ -518,7 +541,7 @@ export function TaskInbox() {
             <SegmentedControl
               size="xs"
               value={viewMode}
-              onChange={(val: any) => setViewMode(val)}
+              onChange={(val) => setViewMode(val === 'kanban' ? 'kanban' : 'table')}
               data={[
                 { label: <Center><List size={14} /><Box ml={4}>Table</Box></Center>, value: 'table' },
                 { label: <Center><LayoutGrid size={14} /><Box ml={4}>Kanban</Box></Center>, value: 'kanban' },
@@ -655,15 +678,15 @@ export function TaskInbox() {
                           if (selectedTaskIds.length === currentTasks.length) {
                             setSelectedTaskIds([]);
                           } else {
-                            setSelectedTaskIds(currentTasks.map((t: any) => t.id));
+                            setSelectedTaskIds(currentTasks.map((t) => t.id));
                           }
                         }}
                       />
                     </Table.Th>
                     <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('name')}>Task Info</Table.Th>
                     <Table.Th>Assignment</Table.Th>
-                    <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('instance_id')}>Process Instance</Table.Th>
-                    <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('due_date')}>Timeline</Table.Th>
+                    <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('instanceId')}>Process Instance</Table.Th>
+                    <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('dueDate')}>Timeline</Table.Th>
                     <Table.Th style={{ cursor: 'pointer' }} onClick={() => handleSort('status')}>Status</Table.Th>
                     <Table.Th ta="right">Actions</Table.Th>
                   </Table.Tr>
@@ -671,28 +694,37 @@ export function TaskInbox() {
                 <Table.Tbody>
                   {assignedLoading || candidateLoading ? (
                     <Table.Tr>
-                      <Table.Td colSpan={6}>
-                        <Group justify="center" py="xl">
-                          <Text c="dimmed">Loading tasks...</Text>
-                        </Group>
+                      <Table.Td colSpan={6} p={0}>
+                        {/* Was the string "Loading tasks…", which gave no sense
+                            of how much was coming and let the table collapse
+                            then jump when rows arrived. */}
+                        <TableLoadingState rows={6} columns={6} />
                       </Table.Td>
                     </Table.Tr>
                   ) : currentTasks.length === 0 ? (
                     <Table.Tr>
                       <Table.Td colSpan={6}>
-                        <Stack align="center" py={60} gap="sm">
-                          <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                            <ClipboardList size={32} />
-                          </ThemeIcon>
-                          <Text fw={700} size="lg">No tasks found</Text>
-                          <Text ta="center" c="dimmed" maw={400}>
-                            {searchQuery ? "No tasks match your search criteria." : "Everything is done! You have no pending tasks in this view."}
-                          </Text>
-                        </Stack>
+                        {/* An empty inbox is good news, not a failure — and a
+                            search that matched nothing is a different message
+                            from having nothing to do. */}
+                        {searchQuery ? (
+                          <EmptyState
+                            icon={ClipboardList}
+                            title="No tasks match your search"
+                            description="Try a different term, or clear the search to see everything in this view."
+                            variant="filtered"
+                          />
+                        ) : (
+                          <EmptyState
+                            icon={CheckCircle}
+                            title="You're all caught up"
+                            description="Nothing needs your attention right now. New tasks appear here as soon as a process reaches a step assigned to you."
+                          />
+                        )}
                       </Table.Td>
                     </Table.Tr>
                   ) : (
-                    currentTasks.map((task: any) => (
+                    currentTasks.map((task) => (
                       <TaskRow
                         key={task.id}
                         task={task}
@@ -710,6 +742,55 @@ export function TaskInbox() {
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
+
+            {/*
+              Paging controls.
+              
+              The range is stated in words rather than left to a bare page
+              number, because "51–75 of 1,240" answers both questions someone
+              has — where am I, and how much is there — while "page 3" answers
+              neither.
+
+              Rendered only when there is more than one page: controls that can
+              never do anything are noise on the screen someone uses all day.
+            */}
+            {activePageInfo && activePageInfo.total > activePageInfo.pageSize && (
+              <Group justify="space-between" px="md" py="sm" wrap="wrap" gap="sm">
+                <Text size="sm" c="dimmed">
+                  {`${(activePageInfo.page - 1) * activePageInfo.pageSize + 1}–` +
+                    `${Math.min(activePageInfo.page * activePageInfo.pageSize, activePageInfo.total)}` +
+                    ` of ${activePageInfo.total.toLocaleString()}`}
+                </Text>
+
+                <Group gap="sm" wrap="nowrap">
+                  <Select
+                    aria-label="Tasks per page"
+                    data={['25', '50', '100']}
+                    value={String(pageSize)}
+                    onChange={(value) => value && setPageSize(Number(value))}
+                    size="xs"
+                    w={92}
+                    allowDeselect={false}
+                    comboboxProps={{ withinPortal: true }}
+                  />
+                  <Pagination
+                    value={activePageInfo.page}
+                    onChange={setPage}
+                    total={Math.max(1, Math.ceil(activePageInfo.total / activePageInfo.pageSize))}
+                    size="sm"
+                    withEdges
+                    getControlProps={(control) => ({
+                      'aria-label': {
+                        first: 'First page',
+                        last: 'Last page',
+                        next: 'Next page',
+                        previous: 'Previous page',
+                      }[control] ?? undefined,
+                    })}
+                  />
+                </Group>
+              </Group>
+            )}
           </Card>
         ) : (
           allTasksLoading ? (
@@ -808,7 +889,7 @@ export function TaskInbox() {
                   Activity Timeline
                 </Accordion.Control>
                 <Accordion.Panel>
-                  <BusinessTimeline instanceId={selectedTask.instance_id} />
+                  <BusinessTimeline instanceId={selectedTask.instance?.id ?? ''} />
                 </Accordion.Panel>
               </Accordion.Item>
             </Accordion>
@@ -827,8 +908,9 @@ export function TaskInbox() {
               <TaskForm 
                 fields={(() => {
                   try {
-                    return JSON.parse(selectedTask.form_definition || '[]');
-                  } catch (e) {
+                    return JSON.parse(selectedTask.formDefinition || '[]');
+                  } catch (error) {
+                    console.warn('Task form definition is not valid JSON; rendering an empty form', error);
                     return [];
                   }
                 })()} 
@@ -863,18 +945,18 @@ export function TaskInbox() {
             <NumberInput 
               label="Priority" 
               value={editingTask.priority} 
-              onChange={(val) => setEditingTask({...editingTask, priority: val})}
+              onChange={(val) => setEditingTask({...editingTask, priority: Number(val) || 0})}
             />
             <DateInput 
               label="Due Date" 
-              value={editingTask.due_date ? new Date(editingTask.due_date) : null} 
-              onChange={(date: any) => {
+              value={editingTask.dueDate ? new Date(editingTask.dueDate) : null} 
+              onChange={(date: string | Date | null) => {
                 if (!date) {
-                  setEditingTask({...editingTask, due_date: null});
+                  setEditingTask({...editingTask, dueDate: '' });
                   return;
                 }
                 const d = new Date(date);
-                setEditingTask({...editingTask, due_date: d.toISOString()});
+                setEditingTask({...editingTask, dueDate: d.toISOString()});
               }}
               clearable
             />
@@ -887,7 +969,7 @@ export function TaskInbox() {
                     id: editingTask.id,
                     name: editingTask.name,
                     priority: Number(editingTask.priority),
-                    dueDate: editingTask.due_date
+                    dueDate: editingTask.dueDate
                   }, {
                     onSuccess: () => setEditingTask(null)
                   });

@@ -31,7 +31,7 @@ type endEventEngine interface {
 	contracts2.EngineRunner
 	contracts2.EngineEventBus
 	GetInstance(ctx context.Context, id uuid.UUID) (entities.ProcessInstance, error)
-	GetProcessDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error)
+	GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error)
 }
 
 // terminateEventEngine is the surface needed by TerminateEndEventHandler:
@@ -46,7 +46,7 @@ type StartEventHandler struct {
 	engine contracts2.EngineRunner
 }
 
-func (h *StartEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *StartEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
 
@@ -55,7 +55,7 @@ type EndEventHandler struct {
 	engine endEventEngine
 }
 
-func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	instance.RemoveTokenByNode(&node)
 
 	// If node belongs to a sub-process, check if there are other tokens in the same sub-process.
@@ -89,43 +89,77 @@ func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.Proc
 			Variables: instance.Variables,
 		})
 
-		// Notify and resume parent process if it exists
-		if instance.ParentInstance != nil {
-			parentInstance, err := h.engine.GetInstance(ctx, instance.ParentInstance.ID)
-			if err == nil {
-				// Resuming parent at the Call Activity node
-				parentDef, err := h.engine.GetProcessDefinition(ctx, parentInstance.Definition.ID)
-				if err == nil {
-					parentNodeID := ""
-					if instance.ParentNode != nil {
-						parentNodeID = instance.ParentNode.ID
-					}
-					callActivityNode := parentDef.FindNode(parentNodeID)
-					if callActivityNode != nil {
-						// Apply output mapping from sub-process back to parent
-						if mapping, ok := callActivityNode.Properties["out_mapping"].(map[string]any); ok && len(mapping) > 0 {
-							for target, source := range mapping {
-								if srcKey, ok := source.(string); ok {
-									if val, ok := instance.Variables[srcKey]; ok {
-										parentInstance.SetVariable(target, val)
-									}
-								}
-							}
-						} else {
-							// Default: copy all variables back to parent
-							for k, v := range instance.Variables {
-								parentInstance.SetVariable(k, v)
-							}
-						}
-					}
+		// Persist this instance's completion before handing control back to the
+		// parent. If the resume then fails, the error surfaces with the
+		// sub-process already recorded as completed, rather than the completion
+		// being lost along with it.
+		if err := h.engine.UpdateInstance(ctx, *instance); err != nil {
+			return fmt.Errorf("persist completion of instance %s: %w", instance.ID, err)
+		}
 
-					h.engine.UpdateInstance(ctx, parentInstance)
-					h.engine.ProceedIteration(ctx, &parentInstance, parentDef, parentNodeID, "")
+		if instance.ParentInstance != nil {
+			return h.resumeParent(ctx, instance)
+		}
+		return nil
+	}
+	return h.engine.UpdateInstance(ctx, *instance)
+}
+
+// resumeParent hands control back to the call activity in the parent process
+// once a sub-process instance has completed.
+//
+// Every failure here is returned. A parent that is not resumed waits at its call
+// activity forever, and the sub-process it was waiting on has already been
+// marked completed — so an error swallowed here is a process that can never
+// finish and never reports why.
+func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.ProcessInstance) error {
+	parentInstance, err := h.engine.GetInstance(ctx, instance.ParentInstance.ID)
+	if err != nil {
+		return fmt.Errorf("load parent instance %s of sub-process %s: %w", instance.ParentInstance.ID, instance.ID, err)
+	}
+	if parentInstance.Definition == nil {
+		return fmt.Errorf("parent instance %s has no definition reference", parentInstance.ID)
+	}
+
+	parentDef, err := h.engine.GetProcessDefinition(ctx, parentInstance.Definition.ID)
+	if err != nil {
+		return fmt.Errorf("load definition %s of parent instance %s: %w", parentInstance.Definition.ID, parentInstance.ID, err)
+	}
+
+	parentNodeID := ""
+	if instance.ParentNode != nil {
+		parentNodeID = instance.ParentNode.ID
+	}
+	if callActivityNode := parentDef.FindNode(parentNodeID); callActivityNode != nil {
+		applyOutputMapping(callActivityNode, instance, &parentInstance)
+	}
+
+	if err := h.engine.UpdateInstance(ctx, parentInstance); err != nil {
+		return fmt.Errorf("update parent instance %s after sub-process %s completed: %w", parentInstance.ID, instance.ID, err)
+	}
+	if err := h.engine.ProceedIteration(ctx, &parentInstance, parentDef, parentNodeID, ""); err != nil {
+		return fmt.Errorf("resume parent instance %s at call activity %q: %w", parentInstance.ID, parentNodeID, err)
+	}
+	return nil
+}
+
+// applyOutputMapping copies variables from a finished sub-process back into its
+// parent, honouring the call activity's out_mapping when one is configured and
+// copying every variable otherwise.
+func applyOutputMapping(callActivityNode *entities.Node, child *entities.ProcessInstance, parent *entities.ProcessInstance) {
+	if mapping, ok := callActivityNode.Properties["out_mapping"].(map[string]any); ok && len(mapping) > 0 {
+		for target, source := range mapping {
+			if srcKey, ok := source.(string); ok {
+				if val, ok := child.Variables[srcKey]; ok {
+					parent.SetVariable(target, val)
 				}
 			}
 		}
+		return
 	}
-	return h.engine.UpdateInstance(ctx, *instance)
+	for k, v := range child.Variables {
+		parent.SetVariable(k, v)
+	}
 }
 
 // TerminateEndEventHandler handles the termination of all paths in the process.
@@ -133,7 +167,7 @@ type TerminateEndEventHandler struct {
 	engine terminateEventEngine
 }
 
-func (h *TerminateEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *TerminateEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	instance.Tokens = nil // Remove all tokens
 	instance.Status = entities.ProcessCompleted
 	h.engine.DispatchEvent(ctx, entities.ProcessEvent{
@@ -153,13 +187,16 @@ type IntermediateCatchEventHandler struct {
 	subRepo    contracts.SubscriptionRepository
 }
 
-func (h *IntermediateCatchEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *IntermediateCatchEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	if signalName := node.GetStringProperty("signal_name"); signalName != "" {
 		return h.subRepo.Create(ctx, h.subToModel(entities.NewSignalSubscription(instance.Project, instance, &node, signalName)))
 	}
 
 	if messageName := node.GetStringProperty("message_name"); messageName != "" {
-		correlationKey := node.GetStringProperty("correlation_key") // Evaluation logic could be added here
+		correlationKey, err := entities.ResolveCorrelationKey(node.GetStringProperty("correlation_key"), instance.Variables)
+		if err != nil {
+			return fmt.Errorf("resolve correlation key for message %q on node %s: %w", messageName, node.ID, err)
+		}
 		return h.subRepo.Create(ctx, h.subToModel(entities.NewMessageSubscription(instance.Project, instance, &node, messageName, correlationKey)))
 	}
 
@@ -185,11 +222,11 @@ func (h *IntermediateCatchEventHandler) subToModel(ent entities.EventSubscriptio
 	}
 	return models.Subscription{
 		Base: models.Base{
-			ID:        ent.ID,
+			ID:        models.UUID(ent.ID),
 			CreatedAt: ent.CreatedAt,
 		},
-		ProjectID:  projectID,
-		InstanceID: instanceID,
+		ProjectID:  models.UUID(projectID),
+		InstanceID: models.UUID(instanceID),
 		NodeID: func() string {
 			if ent.Node != nil {
 				return ent.Node.ID
@@ -207,10 +244,15 @@ type SignalThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *SignalThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *SignalThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	signalName := node.GetStringProperty("signal_name")
 	if signalName != "" {
-		h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables)
+		// A broadcast that failed must not be reported as thrown: the catching
+		// instances stay parked forever and this one would advance past the throw
+		// as though they had been notified.
+		if err := h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables); err != nil {
+			return fmt.Errorf("broadcast signal %q from node %s: %w", signalName, node.ID, err)
+		}
 	}
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
@@ -220,13 +262,20 @@ type IntermediateThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *IntermediateThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *IntermediateThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	if signalName := node.GetStringProperty("signal_name"); signalName != "" {
-		h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables)
+		if err := h.engine.BroadcastSignal(ctx, instance.Project.ID, signalName, instance.Variables); err != nil {
+			return fmt.Errorf("broadcast signal %q from node %s: %w", signalName, node.ID, err)
+		}
 	}
 	if messageName := node.GetStringProperty("message_name"); messageName != "" {
-		correlationKey := node.GetStringProperty("correlation_key")
-		h.engine.SendMessage(ctx, instance.Project.ID, messageName, correlationKey, instance.Variables)
+		correlationKey, err := entities.ResolveCorrelationKey(node.GetStringProperty("correlation_key"), instance.Variables)
+		if err != nil {
+			return fmt.Errorf("resolve correlation key for message %q on node %s: %w", messageName, node.ID, err)
+		}
+		if err := h.engine.SendMessage(ctx, instance.Project.ID, messageName, correlationKey, instance.Variables); err != nil {
+			return fmt.Errorf("send message %q from node %s: %w", messageName, node.ID, err)
+		}
 	}
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
@@ -236,11 +285,16 @@ type MessageThrowEventHandler struct {
 	engine eventBusRunner
 }
 
-func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	messageName := node.GetStringProperty("message_name")
-	correlationKey := node.GetStringProperty("correlation_key")
 	if messageName != "" {
-		h.engine.SendMessage(ctx, instance.Project.ID, messageName, correlationKey, instance.Variables)
+		correlationKey, err := entities.ResolveCorrelationKey(node.GetStringProperty("correlation_key"), instance.Variables)
+		if err != nil {
+			return fmt.Errorf("resolve correlation key for message %q on node %s: %w", messageName, node.ID, err)
+		}
+		if err := h.engine.SendMessage(ctx, instance.Project.ID, messageName, correlationKey, instance.Variables); err != nil {
+			return fmt.Errorf("send message %q from node %s: %w", messageName, node.ID, err)
+		}
 	}
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
@@ -249,7 +303,7 @@ func (h *MessageThrowEventHandler) DoExecute(ctx context.Context, instance *enti
 // boundary-event matching.  The engine field has been removed to satisfy ISP.
 type ErrorEndEventHandler struct{}
 
-func (h *ErrorEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ErrorEndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	errorCode := node.GetStringProperty("error_code")
 	if errorCode == "" {
 		errorCode = "unspecified"
@@ -265,7 +319,7 @@ type EscalationThrowEventHandler struct {
 	engine contracts2.EngineEventBus
 }
 
-func (h *EscalationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, escalationCode string) error {
+func (h *EscalationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error {
 	escalationCodeValue := node.GetStringProperty("escalation_code")
 	return h.engine.TriggerEscalation(ctx, instance, def, node, escalationCodeValue)
 }
@@ -275,7 +329,7 @@ type CompensationThrowEventHandler struct {
 	engine contracts2.EngineEventBus
 }
 
-func (h *CompensationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *CompensationThrowEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	activityRef := node.GetStringProperty("activity_ref")
 	return h.engine.TriggerCompensation(ctx, instance, def, node, activityRef)
 }

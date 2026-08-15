@@ -2,6 +2,9 @@ package process
 
 import (
 	"context"
+	"fmt"
+
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -15,6 +18,7 @@ type Endpoints struct {
 	GetExecutionPath     endpoint.Endpoint
 	GetAuditLogs         endpoint.Endpoint
 	GetProcessStatistics endpoint.Endpoint
+	ActivateAdHocTask    endpoint.Endpoint
 	BroadcastSignal      endpoint.Endpoint
 	SendMessage          endpoint.Endpoint
 	ExecuteScript        endpoint.Endpoint
@@ -29,6 +33,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		GetExecutionPath:     MakeGetExecutionPathEndpoint(s),
 		GetAuditLogs:         MakeGetAuditLogsEndpoint(s),
 		GetProcessStatistics: MakeGetProcessStatisticsEndpoint(s),
+		ActivateAdHocTask:    MakeActivateAdHocTaskEndpoint(s),
 		BroadcastSignal:      MakeBroadcastSignalEndpoint(s),
 		SendMessage:          MakeSendMessageEndpoint(s),
 		ExecuteScript:        MakeExecuteScriptEndpoint(s),
@@ -50,17 +55,38 @@ func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListInstancesRequest)
-		var projectID uuid.UUID
-		var err error
-		if req.ProjectID != "" {
-			projectID, err = uuid.Parse(req.ProjectID)
-			if err != nil {
-				return ListInstancesResponse{Err: err}, nil
-			}
+		req, ok := request.(ListInstancesRequest)
+		if !ok {
+			return ListInstancesResponse{Err: fmt.Errorf("unexpected request type %T", request)}, nil
 		}
-		instances, err := s.ListInstances(ctx, projectID)
-		return ListInstancesResponse{Instances: instances, Err: err}, nil
+
+		// A project id that does not parse used to be discarded, leaving
+		// uuid.Nil — which ListInstancesPaged reads as "no project filter" and
+		// answers with every instance in the tenant. A malformed id must narrow
+		// nothing.
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListInstancesResponse{
+				Err: fmt.Errorf("project id %q is not a valid identifier: %w", req.ProjectID, err),
+			}, nil
+		}
+
+		page, pageErr := s.ListInstancesPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if pageErr != nil {
+			return ListInstancesResponse{Err: pageErr}, nil
+		}
+		return ListInstancesResponse{
+			Instances: page.Items,
+			Page: &InstancePageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 
@@ -138,6 +164,32 @@ func MakeGetProcessStatisticsEndpoint(s services.ServiceFacade) endpoint.Endpoin
 			NodeFrequencies:    stats.NodeFrequencies,
 		}, nil
 	}
+}
+
+// MakeActivateAdHocTaskEndpoint starts one step inside an ad-hoc sub-process.
+//
+// It is scoped like the other operations on a running instance: the tenant and
+// auth interceptors decide who may reach it. It does not consult the assignee or
+// candidate list of the enclosing activity — those govern who may complete a
+// task, and an ad-hoc sub-process has no task of its own.
+func MakeActivateAdHocTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ActivateAdHocTaskRequest)
+		if !ok {
+			return ActivateAdHocTaskResponse{Err: fmt.Errorf("unexpected request type %T", request)}, nil
+		}
+		// The domain error travels in the response, as it does for every endpoint
+		// here; the second return is for transport failures.
+		return ActivateAdHocTaskResponse{Err: activateAdHocTask(ctx, s, req)}, nil
+	}
+}
+
+func activateAdHocTask(ctx context.Context, s services.ServiceFacade, req ActivateAdHocTaskRequest) error {
+	instanceID, err := uuid.Parse(req.InstanceID)
+	if err != nil {
+		return fmt.Errorf("instance id %q is not a valid identifier: %w", req.InstanceID, err)
+	}
+	return s.ActivateTask(ctx, instanceID, req.SubProcessNodeID, req.TaskNodeID)
 }
 
 func MakeBroadcastSignalEndpoint(s services.ServiceFacade) endpoint.Endpoint {

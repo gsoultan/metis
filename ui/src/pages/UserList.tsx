@@ -21,25 +21,32 @@ import {
   UserCircle,
   Edit2,
   Trash2,
-  Filter,
+  Filter, User
 } from 'lucide-react';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../hooks/useUser';
 import { PageHeader } from '../components/PageHeader';
 import { useState, useTransition } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { ApiOrganizationUser } from '../services/types';
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 const AVAILABLE_ROLES = ['admin', 'user', 'manager', 'developer'];
 
 export function UserList() {
-  const { data, isLoading } = useUsers();
+  const { data, isLoading, error, refetch } = useUsers();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
   const { currentOrganizationId } = useAppStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editingUser, setEditingUser] = useState<ApiOrganizationUser | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -50,24 +57,23 @@ export function UserList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [, startTransition] = useTransition();
 
-  if (isLoading) return <Text>Loading users...</Text>;
 
   const allUsers = data?.users || [];
   const users = searchQuery
-    ? allUsers.filter((u: any) =>
+    ? allUsers.filter((u) =>
         u.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        u.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         u.email?.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : allUsers;
 
-  const handleOpenModal = (user?: any) => {
+  const handleOpenModal = (user?: ApiOrganizationUser) => {
     if (user) {
       setEditingUser(user);
       setUsername(user.username || '');
-      setFullName(user.fullName || '');
+      setFullName(user.full_name || '');
       setDisplayName(user.display_name || '');
-      setOrganization(user.organization || '');
+      setOrganization(user.organization?.name || '');
       setEmail(user.email || '');
       setRoles(user.roles || []);
       setPassword('');
@@ -110,8 +116,8 @@ export function UserList() {
         notifications.show({ title: 'Success', message: 'User created successfully', color: 'green' });
       }
       setIsModalOpen(false);
-    } catch (error: any) {
-      notifications.show({ title: 'Error', message: error.message || 'Failed to save user', color: 'red' });
+    } catch (error: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to save user'), color: 'red' });
     }
   };
 
@@ -120,8 +126,8 @@ export function UserList() {
       try {
         await deleteUser.mutateAsync(id);
         notifications.show({ title: 'Success', message: 'User deleted successfully', color: 'green' });
-      } catch (error: any) {
-        notifications.show({ title: 'Error', message: error.message || 'Failed to delete user', color: 'red' });
+      } catch (error: unknown) {
+        notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to delete user'), color: 'red' });
       }
     }
   };
@@ -166,6 +172,17 @@ export function UserList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your users" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -180,19 +197,11 @@ export function UserList() {
               {users.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={4}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <UserCircle size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No users found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first user to manage access.
-                      </Text>
-                    </Stack>
+                    <EmptyState icon={User} title="No people yet" description="Invite people so they can be assigned tasks and manage processes." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                users.map((u: any) => (
+                users.map((u) => (
                   <Table.Tr key={u.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -200,7 +209,7 @@ export function UserList() {
                           <UserCircle size={16} />
                         </ThemeIcon>
                         <Stack gap={0}>
-                          <Text fw={700} size="sm">{u.fullName || u.username}</Text>
+                          <Text fw={700} size="sm">{u.full_name || u.username}</Text>
                           <Text size="xs" c="dimmed">@{u.username}</Text>
                         </Stack>
                       </Group>
@@ -220,7 +229,7 @@ export function UserList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Edit User">
-                          <ActionIcon
+                          <ActionIcon aria-label="Edit user"
                             variant="light"
                             color="indigo"
                             onClick={() => handleOpenModal(u)}
@@ -229,7 +238,7 @@ export function UserList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete User">
-                          <ActionIcon
+                          <ActionIcon aria-label="Delete user"
                             variant="light"
                             color="red"
                             onClick={() => handleDelete(u.id)}
@@ -245,6 +254,7 @@ export function UserList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       <Modal

@@ -24,7 +24,7 @@ func TestProjectAssociation(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -32,7 +32,7 @@ func TestProjectAssociation(t *testing.T) {
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
+	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription())
 	engine.Apply(
 		service_impl2.WithHandlerFactory(handlerFactory),
 		service_impl2.WithJobService(jobSvc),
@@ -70,25 +70,25 @@ func TestProjectAssociation(t *testing.T) {
 		Project: &entities.Project{ID: proj1.ID},
 		Key:     "proc1",
 		Name:    "Process 1",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{{ID: "f1", SourceRef: "start", TargetRef: "end"}},
+		Flows: []*entities.SequenceFlow{{ID: "f1", SourceRef: "start", TargetRef: "end"}},
 	}
-	_, _ = svc.CreateDefinition(ctx, def1)
+	_, _ = svc.CreateDefinition(ctx, &def1)
 
 	def2 := entities.ProcessDefinition{
 		Project: &entities.Project{ID: proj2.ID},
 		Key:     "proc2",
 		Name:    "Process 2",
-		Nodes: []entities.FlowNode{
+		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "end", Type: entities.EndEvent},
 		},
-		Flows: []entities.SequenceFlow{{ID: "f1", SourceRef: "start", TargetRef: "end"}},
+		Flows: []*entities.SequenceFlow{{ID: "f1", SourceRef: "start", TargetRef: "end"}},
 	}
-	_, _ = svc.CreateDefinition(ctx, def2)
+	_, _ = svc.CreateDefinition(ctx, &def2)
 
 	// ListConnectors definitions by project
 	defs1, _ := svc.ListDefinitions(ctx, proj1.ID)

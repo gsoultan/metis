@@ -17,5 +17,5 @@ type AdHocActivator interface {
 	ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID string, taskNodeID string) error
 
 	// IsComplete returns true if the ad-hoc subprocess completion condition is met.
-	IsComplete(ctx context.Context, instance entities.ProcessInstance, subProcessNode entities.Node) (bool, error)
+	IsComplete(ctx context.Context, instance *entities.ProcessInstance, subProcessNode *entities.Node) (bool, error)
 }

@@ -1,13 +1,9 @@
 package models
 
-import (
-	"github.com/google/uuid"
-)
-
 type AuditModel struct {
 	Base
-	ProjectID  uuid.UUID      `gorm:"type:uuid;index" json:"project_id,omitzero"`
-	InstanceID uuid.UUID      `gorm:"type:uuid;index" json:"instance_id,omitzero"`
+	ProjectID  UUID           `gorm:"index" json:"project_id,omitzero"`
+	InstanceID UUID           `gorm:"index" json:"instance_id,omitzero"`
 	Type       string         `json:"type"`
 	NodeID     string         `json:"node_id,omitzero"`
 	NodeName   string         `json:"node_name,omitzero"`

@@ -1,6 +1,8 @@
 package adapters
 
 import (
+	"maps"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
@@ -31,8 +33,8 @@ func (a InstanceModelAdapter) ToModel() models.ProcessInstanceModel {
 			instID = t.Instance.ID
 		}
 		tokens[i] = models.Token{
-			ID:         t.ID,
-			InstanceID: instID,
+			ID:         models.UUID(t.ID),
+			InstanceID: models.UUID(instID),
 			NodeID: func() string {
 				if t.Node != nil {
 					return t.Node.ID
@@ -47,12 +49,12 @@ func (a InstanceModelAdapter) ToModel() models.ProcessInstanceModel {
 	}
 	return models.ProcessInstanceModel{
 		Base: models.Base{
-			ID:        a.Instance.ID,
+			ID:        models.UUID(a.Instance.ID),
 			CreatedAt: a.Instance.CreatedAt,
 		},
-		ProjectID:        projectID,
-		DefinitionID:     definitionID,
-		ParentInstanceID: parentInstanceID,
+		ProjectID:        models.UUID(projectID),
+		DefinitionID:     models.UUID(definitionID),
+		ParentInstanceID: models.FromUUIDPtr(parentInstanceID),
 		ParentNodeID: func() string {
 			if a.Instance.ParentNode != nil {
 				return a.Instance.ParentNode.ID
@@ -70,6 +72,22 @@ func (a InstanceModelAdapter) ToModel() models.ProcessInstanceModel {
 				}
 			}
 			return ids
+		}(),
+		Joins: func() map[string]int {
+			if len(a.Instance.Joins) == 0 {
+				return nil
+			}
+			return maps.Clone(a.Instance.Joins)
+		}(),
+		MultiInstance: func() map[string]models.MultiInstanceStateModel {
+			if len(a.Instance.MultiInstance) == 0 {
+				return nil
+			}
+			out := make(map[string]models.MultiInstanceStateModel, len(a.Instance.MultiInstance))
+			for nodeID, st := range a.Instance.MultiInstance {
+				out[nodeID] = models.MultiInstanceStateModel{Total: st.Total, Completed: st.Completed}
+			}
+			return out
 		}(),
 		CompensatedNodes: func() []string {
 			ids := make([]string, len(a.Instance.CompensatedNodes))
@@ -90,14 +108,14 @@ type InstanceEntityAdapter struct {
 func (a InstanceEntityAdapter) ToEntity() entities.ProcessInstance {
 	var parentInstance *entities.ProcessInstance
 	if a.Model.ParentInstanceID != nil {
-		parentInstance = &entities.ProcessInstance{ID: *a.Model.ParentInstanceID}
+		parentInstance = &entities.ProcessInstance{ID: uuid.UUID(*a.Model.ParentInstanceID)}
 	}
 
 	tokens := make([]entities.Token, len(a.Model.Tokens))
 	for i, t := range a.Model.Tokens {
 		tokens[i] = entities.Token{
-			ID:          t.ID,
-			Instance:    &entities.ProcessInstance{ID: t.InstanceID},
+			ID:          uuid.UUID(t.ID),
+			Instance:    &entities.ProcessInstance{ID: uuid.UUID(t.InstanceID)},
 			Node:        &entities.Node{ID: t.NodeID},
 			Status:      entities.TokenStatus(t.Status),
 			IterationID: t.IterationID,
@@ -106,9 +124,9 @@ func (a InstanceEntityAdapter) ToEntity() entities.ProcessInstance {
 		}
 	}
 	return entities.ProcessInstance{
-		ID:             a.Model.ID,
-		Project:        &entities.Project{ID: a.Model.ProjectID},
-		Definition:     &entities.ProcessDefinition{ID: a.Model.DefinitionID},
+		ID:             uuid.UUID(a.Model.ID),
+		Project:        &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
+		Definition:     &entities.ProcessDefinition{ID: uuid.UUID(a.Model.DefinitionID)},
 		ParentInstance: parentInstance,
 		ParentNode:     &entities.Node{ID: a.Model.ParentNodeID},
 		Status:         entities.ProcessStatus(a.Model.Status),
@@ -120,6 +138,22 @@ func (a InstanceEntityAdapter) ToEntity() entities.ProcessInstance {
 				nodes[i] = &entities.Node{ID: id}
 			}
 			return nodes
+		}(),
+		Joins: func() map[string]int {
+			if len(a.Model.Joins) == 0 {
+				return nil
+			}
+			return maps.Clone(a.Model.Joins)
+		}(),
+		MultiInstance: func() map[string]entities.MultiInstanceState {
+			if len(a.Model.MultiInstance) == 0 {
+				return nil
+			}
+			out := make(map[string]entities.MultiInstanceState, len(a.Model.MultiInstance))
+			for nodeID, st := range a.Model.MultiInstance {
+				out[nodeID] = entities.MultiInstanceState{Total: st.Total, Completed: st.Completed}
+			}
+			return out
 		}(),
 		CompensatedNodes: func() []*entities.Node {
 			nodes := make([]*entities.Node, len(a.Model.CompensatedNodes))

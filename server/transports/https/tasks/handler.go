@@ -76,8 +76,11 @@ func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransp
 }
 
 func decodeListTasksRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
 	return task.ListTasksRequest{
 		ProjectID: r.URL.Query().Get("project_id"),
+		Page:      page,
+		PageSize:  pageSize,
 	}, nil
 }
 

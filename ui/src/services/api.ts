@@ -16,7 +16,14 @@ import {
 
 export type { Task, Project } from "./types";
 
-export const processService: any = {
+/**
+ * Facade over the domain services.
+ *
+ * The type is inferred. It was annotated `any`, which erased every type the
+ * domain services define and left callers nothing to infer from — the single
+ * largest source of untyped code in this app.
+ */
+export const processService = {
   ...authService,
   ...organizationService,
   ...projectService,

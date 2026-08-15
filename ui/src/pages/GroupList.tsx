@@ -24,7 +24,7 @@ import {
   Trash2,
   Filter,
   UserPlus,
-  UserMinus,
+  UserMinus, Users
 } from 'lucide-react';
 import {
   useGroups,
@@ -40,11 +40,18 @@ import { PageHeader } from '../components/PageHeader';
 import { useState, useTransition } from 'react';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { ApiGroup } from '../services/types';
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 const AVAILABLE_ROLES = ['admin', 'user', 'manager', 'developer', 'viewer'];
 
 export function GroupList() {
-  const { data, isLoading } = useGroups();
+  const { data, isLoading, error, refetch } = useGroups();
   const { data: usersData } = useUsers();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
@@ -55,8 +62,8 @@ export function GroupList() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<any>(null);
-  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [editingGroup, setEditingGroup] = useState<ApiGroup | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<ApiGroup | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
@@ -66,11 +73,10 @@ export function GroupList() {
 
   const { data: membersData, isLoading: membersLoading } = useGroupMembers(selectedGroup?.id || '');
 
-  if (isLoading) return <Text>Loading groups...</Text>;
 
   const allGroups = data?.groups || [];
   const groups = searchQuery
-    ? allGroups.filter((g: any) =>
+    ? allGroups.filter((g) =>
         g.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         g.description?.toLowerCase().includes(searchQuery.toLowerCase())
       )
@@ -78,12 +84,12 @@ export function GroupList() {
 
   const allUsers = usersData?.users || [];
   const members = membersData?.users || [];
-  const memberIds = new Set(members.map((m: any) => m.id));
+  const memberIds = new Set(members.map((m) => m.id));
   const availableUsers = allUsers
-    .filter((u: any) => !memberIds.has(u.id))
-    .map((u: any) => ({ value: u.id, label: `${u.fullName || u.username} (@${u.username})` }));
+    .filter((u) => !memberIds.has(u.id))
+    .map((u) => ({ value: u.id, label: `${u.full_name || u.username} (@${u.username})` }));
 
-  const handleOpenModal = (group?: any) => {
+  const handleOpenModal = (group?: ApiGroup) => {
     if (group) {
       setEditingGroup(group);
       setName(group.name || '');
@@ -98,7 +104,7 @@ export function GroupList() {
     setIsModalOpen(true);
   };
 
-  const handleOpenMembers = (group: any) => {
+  const handleOpenMembers = (group: ApiGroup) => {
     setSelectedGroup(group);
     setSelectedUserId(null);
     setIsMembersModalOpen(true);
@@ -119,8 +125,8 @@ export function GroupList() {
         notifications.show({ title: 'Success', message: 'Group created successfully', color: 'green' });
       }
       setIsModalOpen(false);
-    } catch (error: any) {
-      notifications.show({ title: 'Error', message: error.message || 'Failed to save group', color: 'red' });
+    } catch (error: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to save group'), color: 'red' });
     }
   };
 
@@ -129,8 +135,8 @@ export function GroupList() {
       try {
         await deleteGroup.mutateAsync(id);
         notifications.show({ title: 'Success', message: 'Group deleted successfully', color: 'green' });
-      } catch (error: any) {
-        notifications.show({ title: 'Error', message: error.message || 'Failed to delete group', color: 'red' });
+      } catch (error: unknown) {
+        notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to delete group'), color: 'red' });
       }
     }
   };
@@ -141,8 +147,8 @@ export function GroupList() {
       await addMembership.mutateAsync({ groupId: selectedGroup.id, userId: selectedUserId });
       setSelectedUserId(null);
       notifications.show({ title: 'Success', message: 'Member added successfully', color: 'green' });
-    } catch (error: any) {
-      notifications.show({ title: 'Error', message: error.message || 'Failed to add member', color: 'red' });
+    } catch (error: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to add member'), color: 'red' });
     }
   };
 
@@ -151,8 +157,8 @@ export function GroupList() {
     try {
       await removeMembership.mutateAsync({ groupId: selectedGroup.id, userId });
       notifications.show({ title: 'Success', message: 'Member removed successfully', color: 'green' });
-    } catch (error: any) {
-      notifications.show({ title: 'Error', message: error.message || 'Failed to remove member', color: 'red' });
+    } catch (error: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(error, 'Failed to remove member'), color: 'red' });
     }
   };
 
@@ -196,6 +202,17 @@ export function GroupList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your groups" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -209,20 +226,12 @@ export function GroupList() {
             <Table.Tbody>
               {groups.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={3}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <ShieldCheck size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No groups found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first group to organize users.
-                      </Text>
-                    </Stack>
+                  <Table.Td colSpan={4}>
+                    <EmptyState icon={Users} title="No groups yet" description="Groups let you route work to a team rather than to one named person." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                groups.map((g: any) => (
+                groups.map((g) => (
                   <Table.Tr key={g.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -251,7 +260,7 @@ export function GroupList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Manage Members">
-                          <ActionIcon
+                          <ActionIcon aria-label="Add member to group"
                             variant="light"
                             color="teal"
                             onClick={() => handleOpenMembers(g)}
@@ -260,7 +269,7 @@ export function GroupList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit Group">
-                          <ActionIcon
+                          <ActionIcon aria-label="Edit group"
                             variant="light"
                             color="indigo"
                             onClick={() => handleOpenModal(g)}
@@ -269,7 +278,7 @@ export function GroupList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete Group">
-                          <ActionIcon
+                          <ActionIcon aria-label="Delete group"
                             variant="light"
                             color="red"
                             onClick={() => handleDelete(g.id)}
@@ -285,6 +294,7 @@ export function GroupList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       {/* Create/Edit Group Modal */}
@@ -370,11 +380,11 @@ export function GroupList() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {members.map((m: any) => (
+                {members.map((m) => (
                   <Table.Tr key={m.id}>
                     <Table.Td>
                       <Stack gap={0}>
-                        <Text fw={600} size="sm">{m.fullName || m.username}</Text>
+                        <Text fw={600} size="sm">{m.full_name || m.username}</Text>
                         <Text size="xs" c="dimmed">@{m.username}</Text>
                       </Stack>
                     </Table.Td>
@@ -384,7 +394,7 @@ export function GroupList() {
                     <Table.Td>
                       <Group justify="flex-end">
                         <Tooltip label="Remove Member">
-                          <ActionIcon
+                          <ActionIcon aria-label="Remove member from group"
                             variant="light"
                             color="red"
                             onClick={() => handleRemoveMember(m.id)}

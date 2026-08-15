@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+
+	"os"
 	"strings"
+
+	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
@@ -47,7 +51,10 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			if origin := corsOrigin(parseCORSOrigins(os.Getenv(envCORSOrigins)), r.Header.Get("Origin")); origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+			}
 
 			ch := sseObserver.AddClient()
 			defer sseObserver.RemoveClient(ch)
@@ -112,18 +119,74 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 		fileServer.ServeHTTP(w, r)
 	})
 
-	// CORS middleware
 	authenticatedHandler := authMiddleware.Wrap(m)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+	return withCORS(authenticatedHandler)
+}
 
-		if r.Method == "OPTIONS" {
+// envCORSOrigins configures cross-origin access as a comma-separated list of
+// allowed origins, or "*" to allow any.
+const envCORSOrigins = "GOBPM_CORS_ORIGINS"
+
+// withCORS applies cross-origin headers.
+//
+// The default is no CORS at all. In production the Go server serves both the
+// UI bundle and the API from one origin, and the Vite dev server proxies /api
+// to the backend, so neither case is cross-origin. The previous unconditional
+// `Access-Control-Allow-Origin: *` therefore bought nothing and let any site
+// on the internet call this API with a token it had obtained.
+//
+// Set GOBPM_CORS_ORIGINS when a separately hosted front end genuinely needs
+// access.
+func withCORS(next http.Handler) http.Handler {
+	allowed := parseCORSOrigins(os.Getenv(envCORSOrigins))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := corsOrigin(allowed, r.Header.Get("Origin")); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers",
+				"Content-Type, Authorization, Idempotency-Key, "+tenant.OrganizationHeader)
+		}
+
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		authenticatedHandler.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
+}
+
+func parseCORSOrigins(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// corsOrigin returns the value to echo back, or "" when the request origin is
+// not allowed.
+func corsOrigin(allowed []string, requestOrigin string) string {
+	if len(allowed) == 0 || requestOrigin == "" {
+		return ""
+	}
+	for _, a := range allowed {
+		if a == "*" {
+			return "*"
+		}
+		if a == requestOrigin {
+			// Echo the specific origin rather than the list, so caches key
+			// correctly (paired with Vary: Origin above).
+			return requestOrigin
+		}
+	}
+	return ""
 }

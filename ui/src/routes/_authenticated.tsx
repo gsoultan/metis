@@ -2,22 +2,12 @@ import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { MainLayout } from '../containers/MainLayout'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useAppStore } from '../store/useAppStore'
-import { processService } from '../services/api'
+import { requireConfigured } from './guards'
 
 export const Route = createFileRoute('/_authenticated')({
   component: AuthenticatedLayout,
   beforeLoad: async ({ location }) => {
-    // If system is not configured, redirect to setup
-    try {
-      const { status } = await processService.getSetupStatus()
-      if (!status?.is_initialized) {
-        throw redirect({ to: '/setup' })
-      }
-    } catch (e) {
-      if (e instanceof Error && 'to' in e) throw e
-      // On network error, assume not configured and redirect to setup
-      throw redirect({ to: '/setup' })
-    }
+    await requireConfigured()
 
     // If not authenticated, redirect to login
     const { user, token } = useAppStore.getState()
@@ -33,10 +23,10 @@ export const Route = createFileRoute('/_authenticated')({
 })
 
 function AuthenticatedLayout() {
-  const { activeTab, setActiveTab } = useAppStore()
-
+  // activeTab/onTabChange were passed here and never read by MainLayout —
+  // navigation state lives in the router, not the store.
   return (
-    <MainLayout activeTab={activeTab} onTabChange={setActiveTab}>
+    <MainLayout>
       <ErrorBoundary>
         <Outlet />
       </ErrorBoundary>

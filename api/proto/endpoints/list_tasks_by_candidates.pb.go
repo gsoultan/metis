@@ -22,9 +22,11 @@ const (
 )
 
 type ListTasksByCandidatesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Groups        []string               `protobuf:"bytes,2,rep,name=groups,proto3" json:"groups,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Groups []string               `protobuf:"bytes,2,rep,name=groups,proto3" json:"groups,omitempty"`
+	// Optional; omitted means the first page at the server default.
+	Page          *PageRequest `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -73,14 +75,22 @@ func (x *ListTasksByCandidatesRequest) GetGroups() []string {
 	return nil
 }
 
+func (x *ListTasksByCandidatesRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 var File_endpoints_list_tasks_by_candidates_proto protoreflect.FileDescriptor
 
 const file_endpoints_list_tasks_by_candidates_proto_rawDesc = "" +
 	"\n" +
-	"(endpoints/list_tasks_by_candidates.proto\x12\aprocess\x1a\x1aendpoints/list_tasks.proto\"O\n" +
+	"(endpoints/list_tasks_by_candidates.proto\x12\aprocess\x1a\x1aendpoints/list_tasks.proto\x1a\x14endpoints/page.proto\"y\n" +
 	"\x1cListTasksByCandidatesRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
-	"\x06groups\x18\x02 \x03(\tR\x06groupsB\x9e\x01\n" +
+	"\x06groups\x18\x02 \x03(\tR\x06groups\x12(\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.process.PageRequestR\x04pageB\x9e\x01\n" +
 	"\vcom.processB\x1aListTasksByCandidatesProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -98,13 +108,15 @@ func file_endpoints_list_tasks_by_candidates_proto_rawDescGZIP() []byte {
 var file_endpoints_list_tasks_by_candidates_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_endpoints_list_tasks_by_candidates_proto_goTypes = []any{
 	(*ListTasksByCandidatesRequest)(nil), // 0: process.ListTasksByCandidatesRequest
+	(*PageRequest)(nil),                  // 1: process.PageRequest
 }
 var file_endpoints_list_tasks_by_candidates_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: process.ListTasksByCandidatesRequest.page:type_name -> process.PageRequest
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_endpoints_list_tasks_by_candidates_proto_init() }
@@ -113,6 +125,7 @@ func file_endpoints_list_tasks_by_candidates_proto_init() {
 		return
 	}
 	file_endpoints_list_tasks_proto_init()
+	file_endpoints_page_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

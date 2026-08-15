@@ -21,13 +21,24 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ProcessDefinition is a process as modelled: its nodes and the flows between
+// them.
+//
+// The nodes and flows had no field here at all, so reading a definition back
+// returned its name and version and nothing else. The designer saved a process
+// and then reopened it to an empty canvas, because there was nothing in the
+// response to draw.
 type ProcessDefinition struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	Project       *Project               `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
 	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
 	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
 	Version       int32                  `protobuf:"varint,5,opt,name=version,proto3" json:"version,omitempty"`
+	Documentation string                 `protobuf:"bytes,6,opt,name=documentation,proto3" json:"documentation,omitempty"`
+	Nodes         []*Node                `protobuf:"bytes,7,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	Flows         []*Flow                `protobuf:"bytes,8,rep,name=flows,proto3" json:"flows,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -69,11 +80,11 @@ func (x *ProcessDefinition) GetId() string {
 	return ""
 }
 
-func (x *ProcessDefinition) GetProjectId() string {
+func (x *ProcessDefinition) GetProject() *Project {
 	if x != nil {
-		return x.ProjectId
+		return x.Project
 	}
-	return ""
+	return nil
 }
 
 func (x *ProcessDefinition) GetKey() string {
@@ -97,18 +108,50 @@ func (x *ProcessDefinition) GetVersion() int32 {
 	return 0
 }
 
+func (x *ProcessDefinition) GetDocumentation() string {
+	if x != nil {
+		return x.Documentation
+	}
+	return ""
+}
+
+func (x *ProcessDefinition) GetNodes() []*Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *ProcessDefinition) GetFlows() []*Flow {
+	if x != nil {
+		return x.Flows
+	}
+	return nil
+}
+
+func (x *ProcessDefinition) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
 var File_entities_definition_proto protoreflect.FileDescriptor
 
 const file_entities_definition_proto_rawDesc = "" +
 	"\n" +
-	"\x19entities/definition.proto\x12\aprocess\"\x82\x01\n" +
+	"\x19entities/definition.proto\x12\aprocess\x1a\x16entities/project.proto\x1a\x13entities/node.proto\x1a\x13entities/flow.proto\"\x9e\x02\n" +
 	"\x11ProcessDefinition\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
-	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\x12\x10\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
+	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x12\x10\n" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x05 \x01(\x05R\aversionB\x91\x01\n" +
+	"\aversion\x18\x05 \x01(\x05R\aversion\x12$\n" +
+	"\rdocumentation\x18\x06 \x01(\tR\rdocumentation\x12#\n" +
+	"\x05nodes\x18\a \x03(\v2\r.process.NodeR\x05nodes\x12#\n" +
+	"\x05flows\x18\b \x03(\v2\r.process.FlowR\x05flows\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\t \x01(\tR\tcreatedAtB\x91\x01\n" +
 	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -126,13 +169,19 @@ func file_entities_definition_proto_rawDescGZIP() []byte {
 var file_entities_definition_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_definition_proto_goTypes = []any{
 	(*ProcessDefinition)(nil), // 0: process.ProcessDefinition
+	(*Project)(nil),           // 1: process.Project
+	(*Node)(nil),              // 2: process.Node
+	(*Flow)(nil),              // 3: process.Flow
 }
 var file_entities_definition_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: process.ProcessDefinition.project:type_name -> process.Project
+	2, // 1: process.ProcessDefinition.nodes:type_name -> process.Node
+	3, // 2: process.ProcessDefinition.flows:type_name -> process.Flow
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_entities_definition_proto_init() }
@@ -140,6 +189,9 @@ func file_entities_definition_proto_init() {
 	if File_entities_definition_proto != nil {
 		return
 	}
+	file_entities_project_proto_init()
+	file_entities_node_proto_init()
+	file_entities_flow_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

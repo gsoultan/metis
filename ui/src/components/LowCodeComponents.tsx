@@ -17,6 +17,12 @@ import {
 } from '@mantine/core';
 import { Variable, HelpCircle, Zap, Plus, Trash2 } from 'lucide-react';
 
+/** One row of a mapping table: this variable goes out as that field. */
+export interface DataMapping {
+  source: string;
+  target: string;
+}
+
 export function HelpTooltip({ label, link }: { label: string, link?: string }) {
   return (
     <Tooltip 
@@ -30,7 +36,7 @@ export function HelpTooltip({ label, link }: { label: string, link?: string }) {
       w={220} 
       withArrow
     >
-      <ActionIcon 
+      <ActionIcon aria-label="Help mapping" 
         variant="subtle" 
         size="xs" 
         color="gray"
@@ -126,7 +132,7 @@ export function VisualConditionBuilder({
           />
         </Group>
         
-        <Grid gutter="xs" align="flex-end">
+        <Grid gap="xs" align="flex-end">
           <Grid.Col span={5}>
             <VariablePicker 
               label="Variable" 
@@ -186,8 +192,8 @@ export function VisualDataMapper({
   sourceLabel = "Process Variable",
   targetLabel = "Target Field"
 }: {
-  mappings: any[],
-  onUpdate: (m: any[]) => void,
+  mappings: DataMapping[],
+  onUpdate: (m: DataMapping[]) => void,
   sourceOptions?: string[],
   targetOptions?: string[],
   title?: string,
@@ -245,7 +251,7 @@ export function VisualDataMapper({
                   onChange={(v) => updateMapping(i, 'target', v)}
                   size="xs"
                 />
-                <ActionIcon color="red" variant="subtle" onClick={() => removeMapping(i)} mb={4}>
+                <ActionIcon aria-label="Delete mapping" color="red" variant="subtle" onClick={() => removeMapping(i)} mb={4}>
                   <Trash2 size={14} />
                 </ActionIcon>
               </Group>

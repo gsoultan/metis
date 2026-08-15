@@ -3,7 +3,21 @@ syntax = "proto3";
 package process;
 
 import "entities/task.proto";
+import "endpoints/page.proto";
 
 option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
 
-message ListTasksRequest { string project_id = 1; } message ListTasksResponse { repeated Task tasks = 1; string error = 2; }
+message ListTasksRequest {
+  string project_id = 1;
+  // Optional; see PageRequest.
+  PageRequest page = 2;
+}
+
+// Shared by ListTasks, ListTasksByAssignee and ListTasksByCandidates.
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  string error = 2;
+  // Absent when the caller did not page, so an old client sees exactly the
+  // response it saw before.
+  PageInfo page = 3;
+}

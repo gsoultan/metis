@@ -1,0 +1,60 @@
+/*
+ * Header chrome.
+ *
+ * Deliberately quiet: a border rather than a shadow, and the page background
+ * rather than a contrasting bar. Chrome that competes with content is chrome
+ * the user has to look past every time.
+ */
+
+.header {
+  height: 60px;
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}
+
+.userButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding-inline: 8px;
+  border-radius: var(--mantine-radius-md);
+  max-width: 220px;
+  transition: background-color 120ms ease;
+}
+
+.userButton:hover {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+}
+
+.userButton:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+
+.contextButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding-inline: 10px;
+  max-width: 220px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  color: var(--mantine-color-text);
+}
+
+.contextButton:hover {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-6));
+}
+
+.contextButton:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .userButton {
+    transition: none;
+  }
+}

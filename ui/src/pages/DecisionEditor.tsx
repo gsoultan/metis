@@ -42,6 +42,12 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useCreateDecision, useUpdateDecision, useDecision, useEvaluateDecision } from '../hooks/useDecisions';
 import { notifications } from '@mantine/notifications';
 import { useAppStore } from '../store/useAppStore';
+import type { ProcessVariables } from '../services/types';
+
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 interface DecisionInput {
   id: string;
@@ -94,12 +100,49 @@ const FEEL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
   ]
 };
 
+/**
+ * Hit policies, in terms of the question they answer.
+ *
+ * These were labelled with the DMN letter codes — "First (F)", "Unique (U)",
+ * "Collect (C)" — and described in terms of "rules" and "outputs". Someone
+ * building a pricing table does not think in rules and outputs; they think
+ * "what if two lines both apply?". That is the question a hit policy settles,
+ * so it is the question these now answer.
+ *
+ * The DMN name stays alongside, because it is what appears in any table
+ * exported to or imported from another engine.
+ */
 const HIT_POLICIES = [
-  { value: 'FIRST', label: 'First (F)', description: 'Returns result of the first matching rule.' },
-  { value: 'UNIQUE', label: 'Unique (U)', description: 'Only one rule is allowed to match.' },
-  { value: 'COLLECT', label: 'Collect (C)', description: 'Returns all matching results in a list.' },
-  { value: 'ANY', label: 'Any (A)', description: 'Multiple matching rules must have the same output.' },
-  { value: 'PRIORITY', label: 'Priority (P)', description: 'Returns the output with the highest priority.' },
+  {
+    value: 'FIRST',
+    label: 'Use the first line that matches',
+    description: 'Rows are checked top to bottom and the first match wins. Order the table from most specific to most general.',
+    dmn: 'FIRST (F)',
+  },
+  {
+    value: 'UNIQUE',
+    label: 'Only one line may match',
+    description: 'Reports an error if two lines match at once. Use it when overlapping rules would be a mistake worth catching.',
+    dmn: 'UNIQUE (U)',
+  },
+  {
+    value: 'COLLECT',
+    label: 'Collect every match',
+    description: 'Returns a list containing the result of every line that matched, rather than a single answer.',
+    dmn: 'COLLECT (C)',
+  },
+  {
+    value: 'ANY',
+    label: 'Any match — they must agree',
+    description: 'Several lines may match, but they must all give the same result. Reports an error if they disagree.',
+    dmn: 'ANY (A)',
+  },
+  {
+    value: 'PRIORITY',
+    label: 'Highest priority wins',
+    description: 'When several lines match, the one with the highest-priority result is used.',
+    dmn: 'PRIORITY (P)',
+  },
 ];
 
 function RuleCell({ 
@@ -115,7 +158,9 @@ function RuleCell({
   isOutput?: boolean,
   placeholder?: string
 }) {
-  const cellPlaceholder = placeholder || (isOutput ? "Result" : "Condition (e.g. > 10)");
+  // An empty condition cell means "this column does not matter for this line",
+// which is the single most confusing thing about reading a decision table.
+const cellPlaceholder = placeholder || (isOutput ? 'Result' : 'Any value');
 
   if (type === 'boolean') {
     return (
@@ -164,7 +209,7 @@ function RuleCell({
       {!isOutput && templates.length > 0 && (
         <Menu position="bottom-end" shadow="md" width={200}>
           <Menu.Target>
-            <ActionIcon size="xs" variant="subtle" color="gray" mr={4}>
+            <ActionIcon aria-label="Expand rule" size="xs" variant="subtle" color="gray" mr={4}>
               <ChevronDown size={12} />
             </ActionIcon>
           </Menu.Target>
@@ -187,7 +232,7 @@ function RuleCell({
 
 export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/_authenticated/decision-editor' }) as any;
+  const search = useSearch({ from: '/_authenticated/decision-editor' });
   const { expertMode, setExpertMode } = useAppStore();
   const { data: existingDef } = useDecision(definitionId || null);
   const createDecision = useCreateDecision();
@@ -211,7 +256,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
   // Test Harness State
   const [testInputs, setTestInputs] = useState<Record<string, string>>({});
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
   const [matchedRules, setMatchedRules] = useState<number[]>([]);
   const [isTesting, setIsTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
@@ -226,16 +271,16 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       setRequiredDecisions((d.required_decisions || []).join(', '));
       setInputs(d.inputs || []);
       setOutputs(d.outputs || []);
-      setRules((d.rules || []).map((r: any) => ({
+      setRules((d.rules || []).map((r) => ({
         id: r.id,
         input_entries: r.inputs || [],
-        output_entries: (r.outputs || []).map((v: any) => String(v)),
+        output_entries: (r.outputs || []).map((v) => String(v)),
         description: r.description || ''
       })));
       
       // Initialize test inputs
       const initialTestInputs: Record<string, string> = {};
-      d.inputs?.forEach((input: any) => {
+      d.inputs?.forEach((input) => {
         initialTestInputs[input.expression] = "";
       });
       setTestInputs(initialTestInputs);
@@ -245,13 +290,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const addInput = () => {
     const newId = uuidv4();
     const newExpression = `input${inputs.length + 1}`;
-    setInputs([...inputs, { id: newId, label: `Input ${inputs.length + 1}`, expression: newExpression, type: 'string' }]);
+    setInputs([...inputs, { id: newId, label: `Condition ${inputs.length + 1}`, expression: newExpression, type: 'string' }]);
     setRules(rules.map(r => ({ ...r, input_entries: [...r.input_entries, '""'] })));
     setTestInputs({ ...testInputs, [newExpression]: "" });
   };
   
   const addOutput = () => {
-    setOutputs([...outputs, { id: uuidv4(), label: `Output ${outputs.length + 1}`, name: '', type: 'string' }]);
+    setOutputs([...outputs, { id: uuidv4(), label: `Result ${outputs.length + 1}`, name: '', type: 'string' }]);
     setRules(rules.map(r => ({ ...r, output_entries: [...r.output_entries, '""'] })));
   };
   const addRule = () => setRules([...rules, { 
@@ -305,8 +350,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
         notifications.show({ title: 'Success', message: 'Decision table created', color: 'green' });
       }
       navigate({ to: '/models', search: { tab: 'decisions' } });
-    } catch (err: any) {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' });
+    } catch (err: unknown) {
+      notifications.show({ title: 'Error', message: errorMessage(err, 'Could not save the decision'), color: 'red' });
     }
   };
 
@@ -316,7 +361,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setTestResult(null);
     setMatchedRules([]);
 
-    const variables: Record<string, any> = {};
+    const variables: ProcessVariables = {};
     Object.entries(testInputs).forEach(([k, v]) => {
       try {
         if (v === 'true') variables[k] = true;
@@ -329,17 +374,16 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     });
 
     try {
-      const res = await evaluateDecision.mutateAsync({ key, variables }) as any;
+      const res = await evaluateDecision.mutateAsync({ key, variables });
       if (res.err) {
         setTestError(typeof res.err === 'string' ? res.err : JSON.stringify(res.err));
       } else {
-        setTestResult(res.result);
-        if (res.matchedRuleIndexes) {
-          setMatchedRules(res.matchedRuleIndexes);
-        }
+        setTestResult(res.result?.values ?? {});
+        // Which lines produced the answer, so the table can show its reasoning.
+        setMatchedRules(res.matchedRules ?? []);
       }
-    } catch (e: any) {
-      setTestError(e.message || "Failed to evaluate decision");
+    } catch (e: unknown) {
+      setTestError(errorMessage(e, 'Failed to evaluate decision'));
     } finally {
       setIsTesting(false);
     }
@@ -398,7 +442,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 <TextInput label="Decision Key" placeholder="e.g. loan_approval" value={key} onChange={(e) => setKey(e.currentTarget.value)} required />
                 {expertMode && (
                   <Select 
-                    label="Hit Policy" 
+                    label="When several lines match" 
                     value={hitPolicy} 
                     onChange={(val) => setHitPolicy(val || 'FIRST')}
                     data={HIT_POLICIES}
@@ -438,14 +482,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 )}
               </Group>
 
-              <Divider label="Rules Grid" labelPosition="center" />
+              <Divider label="Rules — read left to right: if all the conditions hold, the result on the right applies" labelPosition="center" />
               
               <ScrollArea scrollbars="x" type="auto">
                 <Table withTableBorder withColumnBorders verticalSpacing="sm">
                   <Table.Thead bg="gray.0">
                     <Table.Tr>
                       <Table.Th w={40} ta="center">
-                        <MantineTooltip label={`Hit Policy: ${hitPolicy}`}>
+                        <MantineTooltip label={`When several lines match: ${HIT_POLICIES.find((p) => p.value === hitPolicy)?.label ?? hitPolicy}`}>
                           <Badge size="xs" variant="filled" color="dark">{hitPolicy.charAt(0)}</Badge>
                         </MantineTooltip>
                       </Table.Th>
@@ -459,7 +503,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                                   <Info size={10} color="var(--mantine-color-blue-6)" />
                                 </MantineTooltip>
                               </Group>
-                              <ActionIcon size="xs" variant="subtle" color="red" onClick={() => setInputs(inputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
+                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setInputs(inputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
                             </Group>
                             <TextInput 
                               size="xs" 
@@ -505,7 +549,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                                   <Info size={10} color="var(--mantine-color-teal-6)" />
                                 </MantineTooltip>
                               </Group>
-                              <ActionIcon size="xs" variant="subtle" color="red" onClick={() => setOutputs(outputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
+                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setOutputs(outputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
                             </Group>
                             <TextInput 
                               size="xs" 
@@ -592,7 +636,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                             />
                           </Table.Td>
                           <Table.Td>
-                            <ActionIcon variant="subtle" color="red" size="sm" onClick={() => removeRule(ruleIdx)}>
+                            <ActionIcon aria-label="Delete rule" variant="subtle" color="red" size="sm" onClick={() => removeRule(ruleIdx)}>
                               <Trash2 size={14} />
                             </ActionIcon>
                           </Table.Td>

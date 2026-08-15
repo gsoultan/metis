@@ -4,9 +4,20 @@ package process;
 
 option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
 
+import "google/protobuf/struct.proto";
 import "entities/user.proto";
 import "entities/group.proto";
+import "entities/flow.proto";
 
+// Node is one element of a process: an event, a task, a gateway or a
+// sub-process.
+//
+// This carries the whole domain node rather than a summary of it. It used to
+// stop at candidate_groups, which meant the settings that make a node do
+// anything — the decision it applies, the endpoint it calls, how its inputs and
+// outputs are named — had no field to travel in and were dropped in transit.
+// The definition still saved, so the loss showed up later as a process that ran
+// but did nothing.
 message Node {
   string id = 1;
   string name = 2;
@@ -16,4 +27,44 @@ message Node {
   repeated string outgoing = 6;
   repeated User candidate_users = 7;
   repeated Group candidate_groups = 8;
+
+  // properties holds per-type settings: decision_key on a business rule task,
+  // http_url and the input_/output_ mappings on a service task, form_definition
+  // on a user task. Struct rather than map<string, string> because a value may
+  // be a number or a boolean, and rewriting those as text would not survive the
+  // round trip.
+  google.protobuf.Struct properties = 9;
+
+  string documentation = 10;
+  string form_key = 11;
+  string default_flow = 12;
+  string script = 13;
+  string script_format = 14;
+  string external_topic = 15;
+  int32 priority = 16;
+  string due_date = 17;
+  string condition = 18;
+
+  // Boundary events and sub-process membership.
+  string attached_to_ref = 19;
+  string parent_id = 20;
+  bool cancel_activity = 21;
+  string error_code = 22;
+  bool is_ad_hoc = 23;
+  bool is_event_sub_process = 24;
+
+  // Multi-instance ("do this once per item in a collection").
+  string multi_instance_type = 25;
+  int32 loop_cardinality = 26;
+  string collection = 27;
+  string element_variable = 28;
+  string completion_condition = 29;
+
+  // Diagram position, so a saved process reopens looking the way it was drawn.
+  int32 x = 30;
+  int32 y = 31;
+
+  // A sub-process holds its own nodes and flows.
+  repeated Node nodes = 32;
+  repeated Flow flows = 33;
 }

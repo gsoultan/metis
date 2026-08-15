@@ -18,21 +18,42 @@ type GetTaskResponse struct {
 func (r GetTaskResponse) Failed() error { return r.Err }
 
 type ListTasksRequest struct {
+	// Zero means "no paging requested" — the first page at the server default.
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+
 	ProjectID string `json:"project_id,omitzero"`
 }
 
 type ListTasksResponse struct {
+	Page  *PageInfo       `json:"page,omitempty"`
 	Tasks []entities.Task `json:"tasks,omitzero"`
 	Err   error           `json:"err,omitzero"`
 }
 
 func (r ListTasksResponse) Failed() error { return r.Err }
 
+// PageInfo describes the window returned, when the caller paged. Nil otherwise,
+// so an unpaged response is byte-identical to what it was before.
+type PageInfo struct {
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+	HasMore  bool  `json:"has_more"`
+}
+
 type ListTasksByAssigneeRequest struct {
 	Assignee string `json:"assignee"`
+	// Zero means "no paging requested", which returns the first page at the
+	// server default. Clients written before paging existed keep working.
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
 }
 
 type ListTasksByCandidatesRequest struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+
 	UserID string   `json:"user_id"`
 	Groups []string `json:"groups"`
 }

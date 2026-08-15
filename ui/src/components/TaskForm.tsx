@@ -17,11 +17,12 @@ import { type FormField } from './FormBuilder';
 import { DatePickerInput } from '@mantine/dates';
 import { CheckCircle, Info } from 'lucide-react';
 import { useTaskForm } from '../hooks/useTaskForm';
+import { asText, asNumber } from '../types/bpmn';
 
 interface TaskFormProps {
   fields: FormField[];
-  variables: any;
-  onSubmit: (values: any) => void;
+  variables: Record<string, unknown>;
+  onSubmit: (values: Record<string, unknown>) => void;
   loading?: boolean;
 }
 
@@ -47,7 +48,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
           required={field.required}
           disabled={disabled}
           error={errors[field.id]}
-          value={values[field.id] || ''}
+          value={asText(values[field.id])}
           onChange={(event) => handleChange(field.id, event.target.value)}
           onBlur={() => handleBlur(field.id)}
         />
@@ -61,7 +62,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
           disabled={disabled}
           error={errors[field.id]}
           minRows={3}
-          value={values[field.id] || ''}
+          value={asText(values[field.id])}
           onChange={(event) => handleChange(field.id, event.target.value)}
           onBlur={() => handleBlur(field.id)}
         />
@@ -74,7 +75,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
           required={field.required}
           disabled={disabled}
           error={errors[field.id]}
-          value={values[field.id]}
+          value={asNumber(values[field.id])}
           onChange={(value) => handleChange(field.id, value)}
           onBlur={() => handleBlur(field.id)}
         />
@@ -87,7 +88,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
           required={field.required}
           disabled={disabled}
           error={errors[field.id]}
-          value={values[field.id] ? new Date(values[field.id]) : null}
+          value={values[field.id] ? new Date(asText(values[field.id])) : null}
           onChange={(value) => handleChange(field.id, value)}
           onBlur={() => handleBlur(field.id)}
         />
@@ -101,7 +102,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
           disabled={disabled}
           error={errors[field.id]}
           data={getSelectOptions(field)}
-          value={values[field.id] || null}
+          value={asText(values[field.id]) || null}
           onChange={(value) => handleChange(field.id, value)}
           onBlur={() => handleBlur(field.id)}
         />
@@ -140,7 +141,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
 
   return (
     <form onSubmit={handleSubmit}>
-      <Grid gutter="md">
+      <Grid gap="md">
         {visibleFields.map((field) => {
           const disabled = isDisabled(field);
           const span = field.gridSpan || 1;
@@ -155,7 +156,7 @@ export function TaskForm({ fields, variables, onSubmit, loading }: TaskFormProps
                       <Text fw={700} size="sm">{field.label}</Text>
                       {field.description && (
                         <Tooltip label={field.description}>
-                          <ActionIcon variant="transparent" color="gray" size="xs">
+                          <ActionIcon aria-label="Details" variant="transparent" color="gray" size="xs">
                             <Info size={14} />
                           </ActionIcon>
                         </Tooltip>

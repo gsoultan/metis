@@ -29,16 +29,23 @@ func (e *DecisionTableEvaluatorImpl) EvaluateTable(ctx context.Context, def enti
 	return e.applyHitPolicy(def, matched)
 }
 
+// matchedRule is a rule that applied, with its position in the table so the
+// result can say which line the answer came from.
+type matchedRule struct {
+	index int
+	rule  entities.DecisionRule
+}
+
 // collectMatchingRules returns all rules whose input conditions match the variables.
-func (e *DecisionTableEvaluatorImpl) collectMatchingRules(ctx context.Context, def entities.DecisionDefinition, variables map[string]any) ([]entities.DecisionRule, error) {
-	var matched []entities.DecisionRule
-	for _, rule := range def.Rules {
+func (e *DecisionTableEvaluatorImpl) collectMatchingRules(ctx context.Context, def entities.DecisionDefinition, variables map[string]any) ([]matchedRule, error) {
+	var matched []matchedRule
+	for i, rule := range def.Rules {
 		ok, err := e.ruleMatches(ctx, def, rule, variables)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			matched = append(matched, rule)
+			matched = append(matched, matchedRule{index: i, rule: rule})
 		}
 	}
 	return matched, nil
@@ -62,27 +69,27 @@ func (e *DecisionTableEvaluatorImpl) ruleMatches(ctx context.Context, def entiti
 }
 
 // applyHitPolicy applies the table's hit policy to the matched rules.
-func (e *DecisionTableEvaluatorImpl) applyHitPolicy(def entities.DecisionDefinition, matched []entities.DecisionRule) (entities.DecisionResult, error) {
+func (e *DecisionTableEvaluatorImpl) applyHitPolicy(def entities.DecisionDefinition, matched []matchedRule) (entities.DecisionResult, error) {
 	if len(matched) == 0 {
 		return entities.DecisionResult{Values: map[string]any{}}, nil
 	}
 	switch def.HitPolicy {
 	case entities.HitPolicyFirst:
-		return e.buildResult(def, []entities.DecisionRule{matched[0]}), nil
+		return e.buildResult(def, matched[:1]), nil
 	case entities.HitPolicyCollect:
 		return e.applyCollect(def, matched), nil
 	case entities.HitPolicyUnique, entities.HitPolicyAny, entities.HitPolicyPriority, "":
 		if len(matched) > 1 && def.HitPolicy == entities.HitPolicyUnique {
 			return entities.DecisionResult{}, fmt.Errorf("UNIQUE hit policy violated: %d rules matched", len(matched))
 		}
-		return e.buildResult(def, []entities.DecisionRule{matched[0]}), nil
+		return e.buildResult(def, matched[:1]), nil
 	default:
-		return e.buildResult(def, []entities.DecisionRule{matched[0]}), nil
+		return e.buildResult(def, matched[:1]), nil
 	}
 }
 
 // applyCollect aggregates all matched rule outputs according to the aggregation function.
-func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinition, matched []entities.DecisionRule) entities.DecisionResult {
+func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinition, matched []matchedRule) entities.DecisionResult {
 	result := e.buildResult(def, matched)
 	if def.Aggregation == "" {
 		return result
@@ -90,29 +97,32 @@ func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinitio
 	aggregated := make(map[string]any)
 	for i, output := range def.Outputs {
 		var nums []float64
-		for _, rule := range matched {
-			if i < len(rule.Outputs) {
-				if n, ok := toFloat64(rule.Outputs[i]); ok {
+		for _, m := range matched {
+			if i < len(m.rule.Outputs) {
+				if n, ok := toFloat64(m.rule.Outputs[i]); ok {
 					nums = append(nums, n)
 				}
 			}
 		}
 		aggregated[output.Name] = aggregate(def.Aggregation, nums)
 	}
-	return entities.DecisionResult{Values: aggregated}
+	// An aggregate still comes from lines, and which ones is the explanation.
+	return entities.DecisionResult{Values: aggregated, MatchedRules: result.MatchedRules}
 }
 
 // buildResult maps output values from the first (or all) matched rules into the result.
-func (e *DecisionTableEvaluatorImpl) buildResult(def entities.DecisionDefinition, rules []entities.DecisionRule) entities.DecisionResult {
+func (e *DecisionTableEvaluatorImpl) buildResult(def entities.DecisionDefinition, rules []matchedRule) entities.DecisionResult {
 	values := make(map[string]any)
-	for _, rule := range rules {
+	indexes := make([]int, 0, len(rules))
+	for _, m := range rules {
+		indexes = append(indexes, m.index)
 		for i, output := range def.Outputs {
-			if i < len(rule.Outputs) {
-				values[output.Name] = rule.Outputs[i]
+			if i < len(m.rule.Outputs) {
+				values[output.Name] = m.rule.Outputs[i]
 			}
 		}
 	}
-	return entities.DecisionResult{Values: values}
+	return entities.DecisionResult{Values: values, MatchedRules: indexes}
 }
 
 // aggregate applies the aggregation function over a slice of numbers.

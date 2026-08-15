@@ -17,6 +17,15 @@ type ConnectorWriter interface {
 	CreateConnector(ctx context.Context, connector entities.Connector) (entities.Connector, error)
 	UpdateConnector(ctx context.Context, connector entities.Connector) error
 	DeleteConnector(ctx context.Context, id uuid.UUID) error
+
+	// EnsureDefaultConnectors creates the built-in connector catalogue in the
+	// database that is current now, skipping any that already exist.
+	//
+	// It has to be callable rather than only running at construction because
+	// the first run writes into the bootstrap database and setup then swaps to
+	// the real one, which would otherwise be left with an empty catalogue for
+	// good — no Slack, no email, no HTTP for any service task to pick.
+	EnsureDefaultConnectors(ctx context.Context) error
 }
 
 // ConnectorInstanceManager manages project-scoped connector instances.

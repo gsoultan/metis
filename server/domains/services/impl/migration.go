@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"github.com/gsoultan/gobpm/server/repositories/models"
 
 	"github.com/google/uuid"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
@@ -31,7 +32,7 @@ func (s *migrationService) MigrateInstances(ctx context.Context, sourceDefID uui
 	for _, instance := range instances {
 		err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 			// UpdateConnectorInstance Process Instance
-			instance.DefinitionID = targetDefID
+			instance.DefinitionID = models.UUID(targetDefID)
 			for i := range instance.Tokens {
 				if newNodeID, ok := nodeMapping[instance.Tokens[i].NodeID]; ok {
 					instance.Tokens[i].NodeID = newNodeID
@@ -42,7 +43,7 @@ func (s *migrationService) MigrateInstances(ctx context.Context, sourceDefID uui
 			}
 
 			// UpdateConnectorInstance Tasks
-			tasks, err := s.repo.Task().ListByInstance(txCtx, instance.ID)
+			tasks, err := s.repo.Task().ListByInstance(txCtx, uuid.UUID(instance.ID))
 			if err != nil {
 				return err
 			}
@@ -56,12 +57,12 @@ func (s *migrationService) MigrateInstances(ctx context.Context, sourceDefID uui
 			}
 
 			// UpdateConnectorInstance Jobs
-			jobs, err := s.repo.Job().ListByInstance(txCtx, instance.ID)
+			jobs, err := s.repo.Job().ListByInstance(txCtx, uuid.UUID(instance.ID))
 			if err != nil {
 				return err
 			}
 			for _, job := range jobs {
-				job.DefinitionID = targetDefID
+				job.DefinitionID = models.UUID(targetDefID)
 				if newNodeID, ok := nodeMapping[job.NodeID]; ok {
 					job.NodeID = newNodeID
 				}

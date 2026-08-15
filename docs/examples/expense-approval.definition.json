@@ -1,0 +1,120 @@
+{
+  "key": "expense-approval",
+  "name": "Expense approval",
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Expense submitted",
+      "type": "startEvent",
+      "x": 80,
+      "y": 200
+    },
+    {
+      "id": "decide-level",
+      "name": "Decide approval level",
+      "type": "businessRuleTask",
+      "x": 260,
+      "y": 190,
+      "documentation": "Reads `amount` from the process variables and writes `approvalLevel` and `approver` back.",
+      "properties": {
+        "decision_key": "expense-approval-level"
+      }
+    },
+    {
+      "id": "route",
+      "name": "Who approves?",
+      "type": "exclusiveGateway",
+      "x": 470,
+      "y": 200,
+      "documentation": "Reads `approvalLevel`. Chooses a path; changes nothing."
+    },
+    {
+      "id": "ask-manager",
+      "name": "Manager approves",
+      "type": "userTask",
+      "x": 640,
+      "y": 100,
+      "candidate_groups": [
+        {
+          "name": "line-managers"
+        }
+      ],
+      "documentation": "Completing this writes `approved` and `approverNote`."
+    },
+    {
+      "id": "ask-director",
+      "name": "Director approves",
+      "type": "userTask",
+      "x": 640,
+      "y": 300,
+      "candidate_groups": [
+        {
+          "name": "finance"
+        }
+      ],
+      "documentation": "Completing this writes `approved` and `approverNote`."
+    },
+    {
+      "id": "auto-approve",
+      "name": "Approved automatically",
+      "type": "scriptTask",
+      "x": 640,
+      "y": 480,
+      "script_format": "javascript",
+      "script": "setVar('approved', true); setVar('approverNote', 'Under the \u00a3100 threshold');",
+      "documentation": "The third path the trace in docs/data-flow.md asks for: without it, a small expense has nowhere to go."
+    },
+    {
+      "id": "end",
+      "name": "Decision recorded",
+      "type": "endEvent",
+      "x": 860,
+      "y": 200
+    }
+  ],
+  "flows": [
+    {
+      "id": "f1",
+      "source_ref": "start",
+      "target_ref": "decide-level"
+    },
+    {
+      "id": "f2",
+      "source_ref": "decide-level",
+      "target_ref": "route"
+    },
+    {
+      "id": "f3",
+      "source_ref": "route",
+      "target_ref": "ask-manager",
+      "condition": "approvalLevel = manager"
+    },
+    {
+      "id": "f4",
+      "source_ref": "route",
+      "target_ref": "ask-director",
+      "condition": "approvalLevel = director"
+    },
+    {
+      "id": "f5",
+      "source_ref": "route",
+      "target_ref": "auto-approve",
+      "condition": "approvalLevel = auto"
+    },
+    {
+      "id": "f6",
+      "source_ref": "ask-manager",
+      "target_ref": "end"
+    },
+    {
+      "id": "f7",
+      "source_ref": "ask-director",
+      "target_ref": "end"
+    },
+    {
+      "id": "f8",
+      "source_ref": "auto-approve",
+      "target_ref": "end"
+    }
+  ]
+}

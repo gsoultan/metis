@@ -6,6 +6,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/services"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 )
 
 type Endpoints struct {
@@ -39,8 +40,22 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 				return ListDecisionsResponse{Err: err}, nil
 			}
 		}
-		decs, err := s.ListDecisions(ctx, projectID)
-		return ListDecisionsResponse{Decisions: decs, Err: err}, nil
+		page, err := s.ListDecisionsPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListDecisionsResponse{Err: err}, nil
+		}
+		return ListDecisionsResponse{
+			Decisions: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

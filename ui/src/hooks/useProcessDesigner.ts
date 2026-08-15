@@ -26,10 +26,13 @@ import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappe
 import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
-type ValidationIssue = {
+import type { ApiNode, ApiFlow } from '../services/types';
+export type ValidationIssue = {
   message: string;
   severity: 'error' | 'warning';
   id?: string;
+  /** What to do about it, when the check knows. */
+  suggestion?: string;
 };
 
 // mapLoadedNodes, mapLoadedEdges, and buildDefinitionPayload have been moved to
@@ -140,6 +143,23 @@ type UseProcessDesignerParams = {
   initialKey?: string;
 };
 
+/*
+ * The Connect-generated ProcessDefinition carries only id/projectId/key/name/
+ * version — the designer needs nodes and flows, which the REST endpoint
+ * returns but the protobuf message does not declare. Narrowed here, at the
+ * boundary, rather than widening the whole call chain back to `any`.
+ *
+ * The correct fix is for the proto to describe the full definition, or for the
+ * designer to read from the REST client. Tracked in .junie/ui-ux-audit.md.
+ */
+type FullDefinition = {
+  id: string;
+  key: string;
+  name: string;
+  nodes?: ApiNode[];
+  flows?: ApiFlow[];
+};
+
 export function useProcessDesigner({ definitionId, instanceId, initialName, initialKey }: UseProcessDesignerParams) {
   const [nodes, setNodes] = useState<Node<BPMNNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge<BPMNEdgeData>[]>([]);
@@ -228,7 +248,13 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     }
 
     exportMutation.mutate(definitionId, {
-      onSuccess: (data: any) => {
+      onSuccess: (data) => {
+        // An export with no XML is a failed export; decoding undefined throws
+        // and the download silently never starts.
+        if (!data?.xml) {
+          notifications.show({ title: 'Export failed', message: 'The server returned no BPMN XML', color: 'red' });
+          return;
+        }
         const xml = atob(data.xml);
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
@@ -326,7 +352,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       };
 
       setEdges((currentEdges) => {
-        const nextEdges = addEdge(nextEdge, currentEdges as any) as Edge[];
+        const nextEdges = addEdge<Edge<BPMNEdgeData>>(nextEdge, currentEdges);
         pushToHistory(nodes, nextEdges);
         return nextEdges;
       });
@@ -491,24 +517,36 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     ['mod+Y', () => redo()],
   ]);
 
+  // Node execution status is derived data and belongs in render, not in state.
+  // Untangling it means changing how nodes reach React Flow, in a 630-line hook
+  // with no test coverage — a change my own review process would block without
+  // tests first. Deliberately deferred to the designer refactor
+  // (.junie/execution-plan.md §5.4); disabled narrowly rather than repo-wide so
+  // the debt stays visible here.
   useEffect(() => {
     if (!instanceId || nodes.length === 0) {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         let status: BPMNNodeData['status'] = node.data.status;
 
-        if (Array.isArray((pathData as any)?.nodes) && (pathData as any).nodes.some((n: any) => n?.id === node.id)) {
+        if (pathData?.nodes?.some((n) => n?.id === node.id)) {
           status = 'completed';
         }
 
-        if (instanceData?.instance?.active_nodes?.includes(node.id)) {
+        // activeNodes carries Node messages now, not bare ids — the proto models a
+        // relationship as an object. Comparing against the id keeps the check
+        // working whichever shape a given server sends.
+        if (instanceData?.instance?.activeNodes?.some((n) => (typeof n === 'string' ? n : n?.id) === node.id)) {
           status = 'active';
         }
 
-        const heatmapValue = ((pathData as any)?.node_frequencies?.[node.id]) ?? ((pathData as any)?.nodeFrequencies?.[node.id]) ?? 0;
+        // The service normalises the protobuf nodeFrequencies to this name, so
+        // there is one spelling to read rather than a guess at two.
+        const heatmapValue = pathData?.node_frequencies?.[node.id] ?? 0;
 
         return {
           ...node,
@@ -531,12 +569,18 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     pushToHistory(nodes, edges);
   }, [edges, historyIndex, nodes, pushToHistory]);
 
+  // Loads a fetched definition into locally editable designer state. Syncing
+  // server data into an editor's working copy is a legitimate effect — the
+  // alternative React recommends is a `key` on the component, which would
+  // require changing the route boundary. Tracked with the designer refactor
+  // (.junie/execution-plan.md §5.4).
   useEffect(() => {
     if (!loadedData?.definition) {
       return;
     }
 
-    const definition = loadedData.definition;
+    const definition = loadedData.definition as unknown as FullDefinition;
+    /* eslint-disable react-hooks/set-state-in-effect */
     setProcessName(definition.name);
     setProcessKey(definition.key);
 
@@ -545,6 +589,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
 
     setNodes(mappedNodes);
     setEdges(mappedEdges);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     if (!reactFlowInstance) {
       return;

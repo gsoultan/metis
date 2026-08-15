@@ -20,10 +20,22 @@ func (r StartProcessResponse) Failed() error { return r.Err }
 
 type ListInstancesRequest struct {
 	ProjectID string `json:"project_id,omitzero"`
+	// Zero means "no paging requested" — the first page at the server default.
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+}
+
+// InstancePageInfo describes the window returned, when the caller paged.
+type InstancePageInfo struct {
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+	HasMore  bool  `json:"has_more"`
 }
 
 type ListInstancesResponse struct {
 	Instances []entities.ProcessInstance `json:"instances"`
+	Page      *InstancePageInfo          `json:"page,omitempty"`
 	Err       error                      `json:"err,omitzero"`
 }
 
@@ -87,6 +99,19 @@ type GetProcessStatisticsResponse struct {
 }
 
 func (r GetProcessStatisticsResponse) Failed() error { return r.Err }
+
+// ActivateAdHocTaskRequest names one step inside an ad-hoc sub-process to start.
+type ActivateAdHocTaskRequest struct {
+	InstanceID       string `json:"instance_id"`
+	SubProcessNodeID string `json:"sub_process_node_id"`
+	TaskNodeID       string `json:"task_node_id"`
+}
+
+type ActivateAdHocTaskResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r ActivateAdHocTaskResponse) Failed() error { return r.Err }
 
 type BroadcastSignalRequest struct {
 	ProjectID  string         `json:"project_id"`

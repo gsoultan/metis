@@ -15,13 +15,13 @@ import {
   Modal,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import type { LucideIcon } from 'lucide-react';
 import { 
   GitBranch, 
+  TrendingUp, 
   Activity, 
   CheckCircle, 
-  TrendingUp, 
   AlertCircle,
-  Clock,
   LayoutGrid,
 } from 'lucide-react';
 import { 
@@ -35,21 +35,38 @@ import { PageHeader } from '../components/PageHeader';
 import { BusinessTimeline } from '../components/BusinessTimeline';
 import { BPMNGraph } from '../components/BPMNGraph';
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import { ComingSoonButton } from '../components/state/ComingSoon';
+import { StatsLoadingState, ErrorState } from '../components/state';
+import type { ProcessDefinition } from '../gen/entities/definition_pb';
 
-function StatCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  color, 
-  trend, 
-  progress 
-}: { 
-  title: string, 
-  value: any, 
-  icon: any, 
-  color: string, 
-  trend?: string,
-  progress?: number 
+/**
+ * A single headline number.
+ *
+ * There is deliberately no `trend` prop. It used to accept a string, and every
+ * call site passed a hardcoded one ("+12%", "+5%", "+2%") rendered beside a
+ * green upward arrow and the words "vs last month" — while no endpoint in the
+ * product computes a trend of any kind. Removing the prop means the fabrication
+ * cannot come back without someone first building the data.
+ *
+ * `progress` is only for values that genuinely are a percentage of a whole.
+ */
+function StatCard({
+  title,
+  value,
+  icon: Icon,
+  color,
+  progress,
+  progressLabel,
+  hint,
+}: {
+  title: string;
+  value: React.ReactNode;
+  icon: LucideIcon;
+  color: string;
+  progress?: number;
+  progressLabel?: string;
+  hint?: string;
 }) {
   return (
     <Card shadow="md" radius="lg">
@@ -70,21 +87,21 @@ function StatCard({
       {progress !== undefined && (
         <Stack gap={4} mt="md">
           <Group justify="space-between" align="flex-end">
-            <Text size="xs" c="dimmed" fw={600}>Target completion</Text>
+            <Text size="xs" c="dimmed" fw={600}>{progressLabel ?? 'Complete'}</Text>
             <Text size="xs" fw={700} c={color}>{progress}%</Text>
           </Group>
-          <Progress value={progress} color={color} size="sm" radius="xl" />
+          <Progress
+            value={progress}
+            color={color}
+            size="sm"
+            radius="xl"
+            aria-label={`${progressLabel ?? 'Complete'}: ${progress}%`}
+          />
         </Stack>
       )}
 
-      {trend && (
-        <Group gap="xs" mt="md">
-          <ThemeIcon size="xs" radius="xl" variant="transparent" color="green">
-            <TrendingUp size={rem(14)} />
-          </ThemeIcon>
-          <Text size="xs" c="green" fw={700}>{trend}</Text>
-          <Text size="xs" c="dimmed">vs last month</Text>
-        </Group>
+      {hint && (
+        <Text size="xs" c="dimmed" mt="md">{hint}</Text>
       )}
     </Card>
   );
@@ -92,29 +109,42 @@ function StatCard({
 
 export function Dashboard() {
   const { currentProjectId, setActiveTab, currentOrganizationId } = useAppStore();
-  const { data: statsData } = useProcessStatistics();
+  const { data: statsData, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useProcessStatistics();
   const { data: defs } = useDefinitions();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const { data: instancesData } = useInstances();
   
   const [heatmapOpened, { open: openHeatmap, close: closeHeatmap }] = useDisclosure(false);
-  const [selectedHeatmapDef, setSelectedHeatmapDef] = useState<any>(null);
+  const [selectedHeatmapDef, setSelectedHeatmapDef] = useState<ProcessDefinition | null>(null);
 
-  const stats = statsData?.stats || {
-    active_instances: 0,
-    completed_instances: 0,
-    failed_instances: 0,
-    total_tasks: 0,
-    pending_tasks: 0,
-    node_frequencies: {}
-  };
+  // Falling back to zeros made an unloaded dashboard indistinguishable from a
+  // real, idle one — "we don't know yet" rendered as "we know, and it's none".
+  // The zeros remain only as a shape for the render below; statsLoading decides
+  // whether they are ever shown.
+  /*
+   * These come from the Connect (protobuf) client, which serialises field
+   * names in camelCase — activeInstances, not active_instances.
+   *
+   * Every read here used snake_case, so each one evaluated to `undefined` and
+   * the `|| 0` fallback rendered a zero. The dashboard showed 0 active
+   * instances, 0 process models and 0% completion no matter what the system
+   * was actually doing, and nothing caught it because the processService
+   * facade was typed `any`.
+   */
+  const stats = statsData?.stats;
+  const activeInstances = stats?.activeInstances ?? 0;
+  const failedInstances = stats?.failedInstances ?? 0;
+  const totalTasks = stats?.totalTasks ?? 0;
+  const pendingTasks = stats?.pendingTasks ?? 0;
+  const completedInstances = stats?.completedInstances ?? 0;
+  const nodeFrequencies = (stats as unknown as { nodeFrequencies?: Record<string, number> })?.nodeFrequencies ?? {};
 
   const lastInstanceId = instancesData?.instances?.[0]?.id;
 
   const totalDefinitions = defs?.definitions?.length || 0;
   const totalProjects = projectsData?.projects?.length || 0;
 
-  const nodeFreqs = stats.node_frequencies || {};
+  const nodeFreqs = nodeFrequencies;
   const topNodes = Object.entries(nodeFreqs)
     .sort(([, a], [, b]) => (b as number) - (a as number))
     .slice(0, 5);
@@ -123,7 +153,7 @@ export function Dashboard() {
     return (
       <Stack gap="xl">
         <PageHeader 
-          title="Welcome to Hermod BPM" 
+          title="Welcome to Metis BPM" 
           description="Get started by selecting or creating a project."
         />
         
@@ -150,8 +180,8 @@ export function Dashboard() {
     );
   }
 
-  const completionRate = stats.total_tasks > 0 
-    ? Math.round(((stats.total_tasks - stats.pending_tasks) / stats.total_tasks) * 100) 
+  const completionRate = totalTasks > 0 
+    ? Math.round(((totalTasks - pendingTasks) / totalTasks) * 100) 
     : 0;
 
   return (
@@ -160,55 +190,63 @@ export function Dashboard() {
         title="Dashboard" 
         description="Overview of your business processes and tasks."
         actions={
-          <Button variant="light" leftSection={<Activity size={16} />}>
+          <ComingSoonButton variant="light" leftSection={<Activity size={16} />} label="Report export is not implemented yet">
             Generate Report
-          </Button>
+          </ComingSoonButton>
         }
       />
 
-      <Grid gutter="xl">
+      {statsLoading ? (
+        <StatsLoadingState count={4} />
+      ) : statsError ? (
+        <ErrorState error={statsError} action="load your statistics" onRetry={() => refetchStats()} />
+      ) : (
+      <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Active Instances" 
-            value={stats.active_instances} 
-            icon={Activity} 
-            color="indigo" 
-            trend="+12%"
-            progress={75}
+          <StatCard
+            title="Active Instances"
+            value={activeInstances}
+            icon={Activity}
+            color="indigo"
+            hint="Processes currently running"
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Process Models" 
-            value={totalDefinitions} 
-            icon={GitBranch} 
-            color="teal" 
-            progress={100}
+          <StatCard
+            title="Process Models"
+            value={totalDefinitions}
+            icon={GitBranch}
+            color="teal"
+            hint="Deployed definitions in this project"
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="Task Completion" 
-            value={`${completionRate}%`} 
-            icon={CheckCircle} 
-            color="orange" 
-            trend="+5%"
+          <StatCard
+            title="Tasks Completed"
+            value={`${completionRate}%`}
+            icon={CheckCircle}
+            color="orange"
             progress={completionRate}
+            progressLabel={`${totalTasks - pendingTasks} of ${totalTasks}`}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <StatCard 
-            title="SLA Compliance" 
-            value="94%" 
-            icon={Clock} 
-            color="green" 
-            trend="+2%"
-            progress={94}
+          <StatCard
+            title="Needs Attention"
+            value={failedInstances}
+            icon={AlertCircle}
+            color={failedInstances > 0 ? 'red' : 'green'}
+            hint={
+              failedInstances > 0
+                ? 'Failed instances waiting on someone'
+                : 'Nothing has failed'
+            }
           />
         </Grid.Col>
       </Grid>
+      )}
 
-      <Grid gutter="xl">
+      <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 8 }}>
           <Card shadow="sm" radius="lg" withBorder h="100%">
             <Group justify="space-between" mb="xl">
@@ -216,7 +254,7 @@ export function Dashboard() {
                 <Title order={4}>Business Timeline</Title>
                 <Badge variant="light" color="indigo" radius="sm">Recent Activity</Badge>
               </Group>
-              <Button variant="subtle" size="xs">View All Logs</Button>
+              <Button component={Link} to="/instances" variant="subtle" size="xs">View all instances</Button>
             </Group>
             
             {lastInstanceId ? (
@@ -247,7 +285,7 @@ export function Dashboard() {
                       <Badge variant="light" color="orange">{(count as number)} hits</Badge>
                     </Group>
                     <Progress 
-                      value={Math.min(((count as number) / (stats.completed_instances || 1)) * 100, 100)} 
+                      value={Math.min(((count as number) / (completedInstances || 1)) * 100, 100)} 
                       color="orange" 
                       size="xs" 
                       radius="xl" 
@@ -258,7 +296,7 @@ export function Dashboard() {
               <Divider my="sm" />
               <Stack gap="xs">
                 <Text size="xs" fw={700} c="dimmed" tt="uppercase">Heatmap Overlays</Text>
-                {defs?.definitions?.slice(0, 3).map((def: any) => (
+                {defs?.definitions?.slice(0, 3).map((def) => (
                   <Button 
                     key={def.id}
                     variant="light" 
@@ -288,10 +326,26 @@ export function Dashboard() {
         <Box h={600} style={{ position: 'relative' }}>
           {selectedHeatmapDef && (
             <BPMNGraph 
-              nodes={selectedHeatmapDef.nodes} 
-              flows={selectedHeatmapDef.flows}
+              // The graph draws the REST shape: an assignee is a name and a
+              // flow names its ends source_ref/target_ref. A definition read
+              // over Connect uses nested objects and camelCase, so it is
+              // translated here rather than drawn as blanks.
+              nodes={selectedHeatmapDef.nodes.map((n) => ({
+                id: n.id,
+                name: n.name,
+                type: n.type,
+                assignee: n.assignee?.username,
+                x: n.x,
+                y: n.y,
+              }))}
+              flows={selectedHeatmapDef.flows.map((f) => ({
+                id: f.id,
+                source_ref: f.sourceRef,
+                target_ref: f.targetRef,
+                condition: f.condition,
+              }))}
               isReadOnly 
-              heatmapData={stats.node_frequencies}
+              heatmapData={nodeFrequencies}
             />
           )}
         </Box>
@@ -309,7 +363,7 @@ export function Dashboard() {
           <Text size="xs" c="dimmed">Quick start by picking a template</Text>
         </Group>
         
-        <Grid gutter="md">
+        <Grid gap="md">
           {[
             { 
               title: "Simple Approval", 
@@ -335,12 +389,7 @@ export function Dashboard() {
                 withBorder 
                 padding="md" 
                 radius="md" 
-                style={{ 
-                  cursor: 'pointer', 
-                  height: '100%', 
-                  transition: 'transform 0.2s',
-                  '&:hover': { transform: 'translateY(-5px)' }
-                }}
+                style={{ height: '100%' }}
               >
                  <Stack align="center" ta="center" gap="sm">
                    <ThemeIcon variant="light" color={t.color} size={50} radius="xl">
@@ -350,9 +399,12 @@ export function Dashboard() {
                       <Text size="md" fw={700}>{t.title}</Text>
                       <Text size="xs" c="dimmed" mt={4}>{t.desc}</Text>
                    </Box>
-                   <Button variant="light" color={t.color} size="xs" fullWidth mt="xs">
+                   {/* Templates are not implemented; the card was a preview
+                       with a button that did nothing when pressed. */}
+                   <ComingSoonButton variant="light" color={t.color} size="xs" fullWidth mt="xs"
+                                     label="Process templates are not available yet">
                       Use Template
-                   </Button>
+                   </ComingSoonButton>
                  </Stack>
               </Card>
             </Grid.Col>

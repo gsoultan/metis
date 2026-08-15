@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
@@ -12,7 +13,7 @@ type OrganizationModelAdapter struct {
 func (a OrganizationModelAdapter) ToModel() models.OrganizationModel {
 	return models.OrganizationModel{
 		Base: models.Base{
-			ID:        a.Organization.ID,
+			ID:        models.UUID(a.Organization.ID),
 			CreatedAt: a.Organization.CreatedAt,
 			UpdatedAt: a.Organization.UpdatedAt,
 		},
@@ -27,7 +28,7 @@ type OrganizationEntityAdapter struct {
 
 func (a OrganizationEntityAdapter) ToEntity() entities.Organization {
 	return entities.Organization{
-		ID:          a.Model.ID,
+		ID:          uuid.UUID(a.Model.ID),
 		Name:        a.Model.Name,
 		Description: a.Model.Description,
 		CreatedAt:   a.Model.CreatedAt,

@@ -115,6 +115,20 @@ export interface EventData extends BaseBPMNNodeData {
   attachedToRef?: string;
   /** Boundary event: whether the attached activity is cancelled. */
   cancelActivity?: boolean;
+  /**
+   * Boundary event: notify without stopping the work it is attached to.
+   *
+   * Interrupting is the default, both in BPMN and in every definition already
+   * stored, so this is an explicit opt-in rather than a reading of
+   * cancelActivity.
+   */
+  nonInterrupting?: boolean;
+  /** Error boundary event: which failure it catches. Empty catches any. */
+  errorCode?: string;
+  /** Escalation event: which situation is being raised or caught. */
+  escalationCode?: string;
+  /** Compensation throw: the one activity to undo. Empty undoes them all. */
+  activityRef?: string;
 }
 
 // ─── Sub-process ──────────────────────────────────────────────────────────────
@@ -147,3 +161,43 @@ export interface BPMNEdgeData {
   [key: string]: unknown;
 }
 
+
+// ─── Reading settings off node data ──────────────────────────────────────────
+
+/**
+ * BaseBPMNNodeData carries an index signature so the property editors can hold
+ * settings the union does not name — and every read through it is `unknown`.
+ * These narrow at the point of use, so an editor binds a value without each one
+ * inventing its own cast, and a setting stored as the wrong type shows as empty
+ * rather than reaching a control that cannot render it.
+ */
+export function asText(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+export function asNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+export function asBoolean(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
+export function asTextList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((v) => asText(v)) : [];
+}
+
+/** A mapping editor holds name → name pairs. */
+export function asTextMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, asText(v)]),
+  );
+}

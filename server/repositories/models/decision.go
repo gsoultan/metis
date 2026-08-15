@@ -1,14 +1,10 @@
 package models
 
-import (
-	"github.com/google/uuid"
-)
-
 // DecisionDefinitionModel represents the GORM model for decision definitions.
 type DecisionDefinitionModel struct {
 	Base
-	ProjectID         uuid.UUID        `gorm:"type:uuid;index" json:"project_id,omitzero"`
-	Key               string           `gorm:"index" json:"key"`
+	ProjectID         UUID             `gorm:"index" json:"project_id,omitzero"`
+	Key               string           `gorm:"size:255;index" json:"key"`
 	Name              string           `json:"name"`
 	Version           int              `json:"version"`
 	HitPolicy         string           `json:"hit_policy"`

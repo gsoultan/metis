@@ -7,7 +7,7 @@ import (
 )
 
 type DefinitionModelAdapter struct {
-	Definition entities.ProcessDefinition
+	Definition *entities.ProcessDefinition
 }
 
 func (a DefinitionModelAdapter) ToModel() models.ProcessDefinitionModel {
@@ -40,16 +40,16 @@ func (a DefinitionModelAdapter) ToModel() models.ProcessDefinitionModel {
 	}
 	return models.ProcessDefinitionModel{
 		Base: models.Base{
-			ID:        a.Definition.ID,
+			ID:        models.UUID(a.Definition.ID),
 			CreatedAt: a.Definition.CreatedAt,
 		},
-		ProjectID:    projectID,
+		ProjectID:    models.UUID(projectID),
 		Key:          a.Definition.Key,
 		Name:         a.Definition.Name,
 		Version:      a.Definition.Version,
 		Nodes:        nodes,
 		Flows:        flows,
-		DeploymentID: deploymentID,
+		DeploymentID: models.UUID(deploymentID),
 	}
 }
 
@@ -105,6 +105,8 @@ func (a DefinitionModelAdapter) nodeToModel(n *entities.Node) models.FlowNode {
 		ExternalTopic:       n.ExternalTopic,
 		Documentation:       n.Documentation,
 		AttachedToRef:       n.AttachedToRef,
+		ErrorCode:           n.ErrorCode,
+		IsAdHoc:             n.IsAdHoc,
 		ParentID:            n.ParentID,
 		CancelActivity:      n.CancelActivity,
 		MultiInstanceType:   n.MultiInstanceType,
@@ -128,7 +130,7 @@ type DefinitionEntityAdapter struct {
 	Model models.ProcessDefinitionModel
 }
 
-func (a DefinitionEntityAdapter) ToEntity() entities.ProcessDefinition {
+func (a DefinitionEntityAdapter) ToEntity() *entities.ProcessDefinition {
 	nodes := make([]*entities.Node, len(a.Model.Nodes))
 	for i, n := range a.Model.Nodes {
 		nodes[i] = a.nodeToEntity(n)
@@ -144,15 +146,15 @@ func (a DefinitionEntityAdapter) ToEntity() entities.ProcessDefinition {
 		}
 		flows[i] = cf
 	}
-	return entities.ProcessDefinition{
-		ID:         a.Model.ID,
-		Project:    &entities.Project{ID: a.Model.ProjectID},
+	return &entities.ProcessDefinition{
+		ID:         uuid.UUID(a.Model.ID),
+		Project:    &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
 		Key:        a.Model.Key,
 		Name:       a.Model.Name,
 		Version:    a.Model.Version,
 		Nodes:      nodes,
 		Flows:      flows,
-		Deployment: &entities.Deployment{ID: a.Model.DeploymentID},
+		Deployment: &entities.Deployment{ID: uuid.UUID(a.Model.DeploymentID)},
 		CreatedAt:  a.Model.CreatedAt,
 	}
 }
@@ -197,6 +199,8 @@ func (a DefinitionEntityAdapter) nodeToEntity(n models.FlowNode) *entities.Node 
 		ExternalTopic:       n.ExternalTopic,
 		Documentation:       n.Documentation,
 		AttachedToRef:       n.AttachedToRef,
+		ErrorCode:           n.ErrorCode,
+		IsAdHoc:             n.IsAdHoc,
 		ParentID:            n.ParentID,
 		CancelActivity:      n.CancelActivity,
 		MultiInstanceType:   n.MultiInstanceType,

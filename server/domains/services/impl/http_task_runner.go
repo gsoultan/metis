@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/rs/zerolog/log"
 )
@@ -20,10 +22,11 @@ type HTTPServiceTaskRunner struct {
 }
 
 // NewHTTPServiceTaskRunner returns a runner that uses the supplied HTTP client.
-// Pass nil to use http.DefaultClient.
+// Pass nil to use the shared guarded client (explicit timeout, bounded
+// redirects, SSRF egress policy).
 func NewHTTPServiceTaskRunner(client *http.Client) *HTTPServiceTaskRunner {
 	if client == nil {
-		client = http.DefaultClient
+		client = httpclient.Shared()
 	}
 	return &HTTPServiceTaskRunner{client: client}
 }

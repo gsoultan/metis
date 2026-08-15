@@ -2,12 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ui</title>
+
+    <title>Metis BPM</title>
+    <meta
+      name="description"
+      content="Design, run and monitor business processes. BPMN 2.0 orchestration with a DMN decision engine."
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+
+    <!--
+      Follows the app's own light/dark setting so the browser chrome does not
+      stay light while the app is dark.
+    -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1b1e" />
+
+    <!--
+      Inter is declared by the Mantine theme and index.css but was never
+      loaded, so every user saw their platform's default sans-serif and the
+      product looked different on macOS, Windows and Linux.
+
+      preconnect first so the font request does not pay DNS + TLS setup on the
+      critical path; display=swap so text is readable immediately rather than
+      invisible while the font downloads.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Metis BPM requires JavaScript to run.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

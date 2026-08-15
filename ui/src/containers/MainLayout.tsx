@@ -1,237 +1,186 @@
-import { AppShell, Burger, Box, Select, Group, Text, Paper, Badge, ThemeIcon, Stack, Button, Menu, Avatar, UnstyledButton, Switch, Drawer, Timeline, Title, ActionIcon, Divider } from '@mantine/core';
+import { useMemo } from 'react';
+import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Text, ThemeIcon, Timeline, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Sidebar } from '../components/Sidebar';
-import React from 'react';
-import { useAppStore } from '../store/useAppStore';
-import { useProjects } from '../hooks/useProcess';
-import { useOrganizations } from '../hooks/useOrganization';
-import { FolderGit2, AlertCircle, LogOut, User, Settings, ShieldCheck, ShieldOff, HelpCircle, BookOpen, Lightbulb } from 'lucide-react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { NotificationCenter } from '../components/NotificationCenter';
+import { BookOpen, ExternalLink, FolderGit2, Lightbulb } from 'lucide-react';
+import React from 'react';
+import { AppHeader, Sidebar } from '../components/shell';
+import { EmptyState } from '../components/state';
+import { useOrganizations } from '../hooks/useOrganization';
+import { useProjects } from '../hooks/useProcess';
+import { useAppStore } from '../store/useAppStore';
 
 interface MainLayoutProps {
   children: React.ReactNode;
-  activeTab?: string;
-  onTabChange?: (tab: string) => void;
 }
 
+const NAV_WIDTH_EXPANDED = 240;
+const NAV_WIDTH_COLLAPSED = 68;
+
+/**
+ * The application shell.
+ *
+ * Every surface here previously branched on `theme === 'dark' ? … : …` inline —
+ * the header background, its border, the main background. That was repeated per
+ * element and guaranteed to drift the moment someone added a surface and forgot
+ * the dark branch. Colour now resolves in CSS through light-dark(), which works
+ * since postcss-preset-mantine was installed, so there is one definition per
+ * surface and dark mode cannot be half-applied.
+ */
 export function MainLayout({ children }: MainLayoutProps) {
-  const [opened, { toggle }] = useDisclosure();
+  const [navOpened, { toggle: toggleNav }] = useDisclosure();
   const [helpOpened, { open: openHelp, close: closeHelp }] = useDisclosure(false);
-  const { theme, currentProjectId, setCurrentProjectId, sidebarExpanded, user, clearAuth, currentOrganizationId, setCurrentOrganizationId, expertMode, setExpertMode } = useAppStore();
+
+  const {
+    currentProjectId,
+    sidebarExpanded,
+    currentOrganizationId,
+    setCurrentOrganizationId,
+    setCurrentProjectId,
+    user,
+  } = useAppStore();
   const { data: organizationsData } = useOrganizations();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const location = useLocation();
-  const organizations = organizationsData?.organizations || user?.organizations || [];
 
-  // Sync currentOrganizationId from available organizations
+  // A fresh [] each render would restart the effect below on every render.
+  const organizations = useMemo(
+    () => organizationsData?.organizations ?? user?.organizations ?? [],
+    [organizationsData, user],
+  );
+  const projects = projectsData?.projects ?? [];
+
+  // Fall back to the first organization the caller belongs to when the stored
+  // one is no longer among them.
   React.useEffect(() => {
-    if (organizations.length === 0) {
-      return;
-    }
-
-    const hasCurrentOrganization = organizations.some((organization: any) => organization.id === currentOrganizationId);
-    if (!hasCurrentOrganization) {
+    if (organizations.length === 0) return;
+    const stillAMember = organizations.some((o: { id: string }) => o.id === currentOrganizationId);
+    if (!stillAMember) {
       setCurrentOrganizationId(organizations[0].id);
       setCurrentProjectId(null);
     }
   }, [organizations, currentOrganizationId, setCurrentOrganizationId, setCurrentProjectId]);
 
   const isDesigner = location.pathname.includes('/designer');
-  const isProjectsPage = location.pathname.includes('/projects');
-  const isDashboard = location.pathname === '/';
-
-  const projects = projectsData?.projects || [];
-  const currentProject = projects.find((p: any) => p.id === currentProjectId);
+  const worksWithoutProject =
+    location.pathname === '/' ||
+    ['/projects', '/organizations', '/users', '/groups', '/settings', '/profile'].some((path) =>
+      location.pathname.includes(path),
+    );
 
   return (
     <AppShell
       header={{ height: 60 }}
       navbar={{
-        width: sidebarExpanded ? 240 : 80,
+        width: sidebarExpanded ? NAV_WIDTH_EXPANDED : NAV_WIDTH_COLLAPSED,
         breakpoint: 'sm',
-        collapsed: { mobile: !opened },
+        collapsed: { mobile: !navOpened },
       }}
-      padding="0"
-      transitionDuration={200}
+      padding={0}
+      transitionDuration={160}
     >
-      <AppShell.Header bg={theme === 'dark' ? 'dark.7' : 'white'} style={{ borderBottom: `1px solid ${theme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-2)'}` }}>
-        <Group h="100%" px="md" justify="space-between">
-          <Group>
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <Text fw={800} size="xl" variant="gradient" gradient={{ from: 'blue', to: 'cyan' }}>Hermod BPM</Text>
-          </Group>
-          
-          <Group gap="lg">
-            <Group>
-              {organizations.length > 0 && (
-                <Select
-                  placeholder="Select Organization"
-                  data={organizations.map((organization: any) => ({ value: organization.id, label: organization.name }))}
-                  value={currentOrganizationId}
-                  onChange={(val) => {
-                    setCurrentOrganizationId(val);
-                    setCurrentProjectId(null); // Clear project when organization changes
-                  }}
-                  style={{ width: 200 }}
-                  variant="filled"
-                  radius="md"
-                />
-              )}
-              {projects.length > 0 ? (
-                <Select
-                  placeholder="Select Project"
-                  data={projects.map((p: any) => ({ value: p.id, label: p.name }))}
-                  value={currentProjectId}
-                  onChange={setCurrentProjectId}
-                  leftSection={<FolderGit2 size={16} />}
-                  style={{ width: 200 }}
-                  variant="filled"
-                  radius="md"
-                />
-              ) : (
-                <Badge color="red" variant="light" leftSection={<AlertCircle size={14} />}>No Projects Found</Badge>
-              )}
-              
-              {currentProject && (
-                <Paper withBorder px="xs" py={4} radius="md" bg={theme === 'dark' ? 'dark.6' : 'gray.0'}>
-                  <Group gap="xs">
-                    <ThemeIcon size="xs" variant="light" color="green" radius="xl">
-                      <FolderGit2 size={10} />
-                    </ThemeIcon>
-                    <Text size="xs" fw={700}>{currentProject.name}</Text>
-                  </Group>
-                </Paper>
-              )}
-            </Group>
-
-            <NotificationCenter />
-
-            <ActionIcon variant="subtle" color="gray" size="lg" radius="xl" onClick={openHelp}>
-              <HelpCircle size={20} />
-            </ActionIcon>
-
-            <Menu shadow="md" width={200} position="bottom-end">
-              <Menu.Target>
-                <UnstyledButton>
-                  <Group gap="xs">
-                    <Avatar color="blue" radius="xl" size="sm">
-                      {user?.name?.charAt(0) || 'U'}
-                    </Avatar>
-                    <Box visibleFrom="sm">
-                      <Text size="sm" fw={600}>{user?.name}</Text>
-                      <Text size="xs" c="dimmed">{user?.role}</Text>
-                    </Box>
-                  </Group>
-                </UnstyledButton>
-              </Menu.Target>
-
-              <Menu.Dropdown>
-                <Menu.Label>Application</Menu.Label>
-                <Menu.Item component={Link} to="/profile" leftSection={<User size={14} />}>Profile</Menu.Item>
-                <Menu.Item component={Link} to="/settings" leftSection={<Settings size={14} />}>Settings</Menu.Item>
-                <Menu.Item 
-                  closeMenuOnClick={false}
-                  leftSection={expertMode ? <ShieldCheck size={14} color="green" /> : <ShieldOff size={14} color="gray" />}
-                  rightSection={
-                    <Switch 
-                      checked={expertMode} 
-                      onChange={(event) => setExpertMode(event.currentTarget.checked)} 
-                      size="xs" 
-                    />
-                  }
-                >
-                  Expert Mode
-                </Menu.Item>
-                <Menu.Divider />
-                <Menu.Label>Danger zone</Menu.Label>
-                <Menu.Item 
-                  color="red" 
-                  leftSection={<LogOut size={14} />}
-                  onClick={clearAuth}
-                >
-                  Logout
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </Group>
-        </Group>
+      <AppShell.Header withBorder={false}>
+        <AppHeader
+          navOpened={navOpened}
+          onNavToggle={toggleNav}
+          onHelpOpen={openHelp}
+          organizations={organizations}
+          projects={projects}
+        />
       </AppShell.Header>
 
-      <AppShell.Navbar>
+      <AppShell.Navbar withBorder={false}>
         <Sidebar />
       </AppShell.Navbar>
 
-      <AppShell.Main bg={theme === 'dark' ? 'dark.8' : 'gray.0'} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <Box p={isDesigner ? 0 : "xl"} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {!currentProjectId && !isProjectsPage && !isDashboard ? (
-            <Stack align="center" py={100} gap="md">
-              <ThemeIcon size={80} radius="xl" variant="light" color="orange">
-                <AlertCircle size={40} />
-              </ThemeIcon>
-              <Text fw={800} size="xl">No Project Selected</Text>
-              <Text c="dimmed" ta="center" maw={500}>
-                Please select a project from the header or go to the Projects page to create/select one before managing definitions or tasks.
-              </Text>
-              <Button component={Link} to="/projects" variant="filled" color="indigo">
-                Go to Projects
-              </Button>
-            </Stack>
+      <AppShell.Main
+        style={{
+          backgroundColor: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))',
+          minHeight: '100vh',
+        }}
+      >
+        {/*
+          A max width on text-and-table content. Without one, a table stretches
+          to whatever the monitor is, and the eye loses the row it was reading
+          on the way across. The designer is exempt: a canvas wants every pixel.
+        */}
+        <Box p={isDesigner ? 0 : 'xl'} maw={isDesigner ? undefined : 1440} mx="auto">
+          {!currentProjectId && !worksWithoutProject ? (
+            <EmptyState
+              icon={FolderGit2}
+              title="Choose a project to continue"
+              description="Processes, tasks and instances all belong to a project. Pick one from the header, or create your first."
+              action={
+                <Button component={Link} to="/projects">
+                  Go to projects
+                </Button>
+              }
+            />
           ) : (
             children
           )}
         </Box>
       </AppShell.Main>
 
-      <Drawer 
-        opened={helpOpened} 
-        onClose={closeHelp} 
-        title={<Group gap="xs"><HelpCircle size={20} color="var(--mantine-color-blue-6)" /><Text fw={800}>Hermod Help Center</Text></Group>} 
-        position="right"
-        size="md"
-      >
+      <Drawer opened={helpOpened} onClose={closeHelp} position="right" size="md" title={<Text fw={600}>Help</Text>}>
         <Stack gap="xl">
-          <Paper withBorder p="md" radius="md" bg="blue.0">
-            <Group align="flex-start" wrap="nowrap">
-              <ThemeIcon variant="light" color="blue"><Lightbulb size={16} /></ThemeIcon>
-              <Box>
-                <Text fw={700} size="sm">Quick Tip</Text>
-                <Text size="xs">Use <b>Cmd + K</b> (or Ctrl + K) anywhere to search for nodes, tasks, and documentation.</Text>
-              </Box>
+          <Paper p="md" radius="md" bg="var(--mantine-color-blue-light)">
+            <Group align="flex-start" wrap="nowrap" gap="sm">
+              <ThemeIcon variant="light" color="blue" size="sm">
+                <Lightbulb size={14} />
+              </ThemeIcon>
+              <Text size="sm">
+                In the process designer, press <b>Cmd + K</b> (or Ctrl + K) to search nodes and actions.
+              </Text>
             </Group>
           </Paper>
 
           <Box>
-            <Title order={5} mb="md">Getting Started Guide</Title>
-            <Timeline active={1} bulletSize={24} lineWidth={2}>
-              <Timeline.Item bullet={<Text size="xs" fw={700}>1</Text>} title="Create a Project">
-                <Text c="dimmed" size="xs">Organize your process models into projects.</Text>
+            <Title order={5} mb="md">Getting started</Title>
+            <Timeline active={-1} bulletSize={22} lineWidth={2}>
+              <Timeline.Item title="Create a project">
+                <Text c="dimmed" size="xs">Projects group related processes, decisions and tasks.</Text>
               </Timeline.Item>
-              <Timeline.Item bullet={<Text size="xs" fw={700}>2</Text>} title="Design your Process">
-                <Text c="dimmed" size="xs">Use the drag-and-drop designer to model your workflow.</Text>
+              <Timeline.Item title="Design a process">
+                <Text c="dimmed" size="xs">Model the flow of work with the drag-and-drop designer.</Text>
               </Timeline.Item>
-              <Timeline.Item bullet={<Text size="xs" fw={700}>3</Text>} title="Configure Connectors">
-                <Text c="dimmed" size="xs">Integrate with Slack, Email, or HTTP services.</Text>
+              <Timeline.Item title="Connect other systems">
+                <Text c="dimmed" size="xs">Call an API, send a message, or hand work to an external worker.</Text>
               </Timeline.Item>
-              <Timeline.Item bullet={<Text size="xs" fw={700}>4</Text>} title="Deploy & Run">
-                <Text c="dimmed" size="xs">Start instances and monitor their execution.</Text>
+              <Timeline.Item title="Deploy and watch it run">
+                <Text c="dimmed" size="xs">Start instances and follow them from the Instances view.</Text>
               </Timeline.Item>
             </Timeline>
           </Box>
 
-          <Divider label="Documentation" labelPosition="center" />
-          
-          <Stack gap="xs">
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">BPMN 2.0 Reference</Button>
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">JavaScript Scripting</Button>
-            <Button variant="light" leftSection={<BookOpen size={16} />} justify="flex-start">API Guide</Button>
-          </Stack>
+          <Divider label="Reference" labelPosition="center" />
 
-          <Paper withBorder p="md" radius="md">
-            <Text fw={700} size="sm" mb="xs">Need more help?</Text>
-            <Text size="xs" c="dimmed" mb="md">Our support team is available Mon-Fri, 9am-5pm.</Text>
-            <Button fullWidth variant="outline" size="xs">Contact Support</Button>
-          </Paper>
+          <Stack gap="xs">
+            <Button
+              variant="light"
+              component="a"
+              href="https://www.omg.org/spec/BPMN/2.0/"
+              target="_blank"
+              rel="noreferrer noopener"
+              leftSection={<BookOpen size={16} />}
+              rightSection={<ExternalLink size={14} />}
+              justify="flex-start"
+            >
+              BPMN 2.0 specification
+            </Button>
+            <Button
+              variant="light"
+              component="a"
+              href="https://github.com/gsoultan/gobpm"
+              target="_blank"
+              rel="noreferrer noopener"
+              leftSection={<BookOpen size={16} />}
+              rightSection={<ExternalLink size={14} />}
+              justify="flex-start"
+            >
+              Project repository
+            </Button>
+          </Stack>
         </Stack>
       </Drawer>
     </AppShell>

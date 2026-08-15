@@ -30,15 +30,36 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useConnectors, useExecuteConnector, useExecuteScript } from '../../hooks/useProcess';
+import type { ApiConnector } from '../../services/types';
+import { asText, asTextMap, type BPMNNodeData } from '../../types/bpmn';
+import type { NodeConfigProps } from '../PropertyPanel';
 
-export function MappingTable({ 
-  title, 
-  mapping, 
-  onUpdate 
-}: { 
-  title: string, 
-  mapping: Record<string, string>, 
-  onUpdate: (m: Record<string, string>) => void 
+/** A caught value is `unknown`; take its message when it has one. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/**
+ * Pairs of names: what a value is called here, and what it is called there.
+ *
+ * The columns were headed "Target Key" and "Source (JS Expression)". Neither is
+ * what goes in them — the second is a variable name, not an expression — and
+ * neither says which side is yours. Each caller now names its own two sides,
+ * because "the table's input" and "the endpoint's field" are different things
+ * that were both called Target.
+ */
+export function MappingTable({
+  title,
+  mapping,
+  onUpdate,
+  sourceLabel = 'Name here',
+  targetLabel = 'Name there',
+}: {
+  title: string,
+  mapping: Record<string, string>,
+  onUpdate: (m: Record<string, string>) => void,
+  sourceLabel?: string,
+  targetLabel?: string,
 }) {
   const [newKey, setNewKey] = useState('');
   const [newVal, setNewVal] = useState('');
@@ -59,12 +80,12 @@ export function MappingTable({
 
   return (
     <Stack gap="xs">
-      <Text fw={700} size="sm">{title}</Text>
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed">{title}</Text>
       <Table withTableBorder withColumnBorders>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Target Key</Table.Th>
-            <Table.Th>Source (JS Expression)</Table.Th>
+            <Table.Th>{sourceLabel}</Table.Th>
+            <Table.Th>{targetLabel}</Table.Th>
             <Table.Th w={50}></Table.Th>
           </Table.Tr>
         </Table.Thead>
@@ -80,7 +101,7 @@ export function MappingTable({
                 />
               </Table.Td>
               <Table.Td>
-                <ActionIcon variant="subtle" color="red" size="sm" onClick={() => remove(k)}>
+                <ActionIcon aria-label="Delete" variant="subtle" color="red" size="sm" onClick={() => remove(k)}>
                   <Trash2 size={14} />
                 </ActionIcon>
               </Table.Td>
@@ -104,7 +125,7 @@ export function MappingTable({
               />
             </Table.Td>
             <Table.Td>
-              <ActionIcon variant="light" size="sm" onClick={add}>
+              <ActionIcon aria-label="Add" variant="light" size="sm" onClick={add}>
                 <Plus size={14} />
               </ActionIcon>
             </Table.Td>
@@ -115,9 +136,19 @@ export function MappingTable({
   );
 }
 
-export function MultiInstanceConfig({ data, onUpdate }: { data: any, onUpdate: (d: any) => void }) {
-  const isMulti = !!data.loopCharacteristics;
-  const characteristics = data.loopCharacteristics || {};
+/**
+ * "Do this once for each item in a list."
+ *
+ * The settings are flat on a node — multiInstanceType, collection,
+ * elementVariable, completionCondition — which is how the domain, the mapper
+ * and the engine all name them. This editor used to keep them nested under a
+ * `loopCharacteristics` object of its own invention, with a boolean
+ * `isSequential` in place of the type, so nothing it wrote was ever read: a
+ * task set to run once per item ran exactly once.
+ */
+export function MultiInstanceConfig({ data, onUpdate }: NodeConfigProps) {
+  const multiInstanceType = asText(data.multiInstanceType, 'none');
+  const isMulti = multiInstanceType === 'parallel' || multiInstanceType === 'sequential';
 
   return (
     <Stack gap="md">
@@ -128,48 +159,49 @@ export function MultiInstanceConfig({ data, onUpdate }: { data: any, onUpdate: (
           </ThemeIcon>
           <Text fw={700} size="md">Loop Characteristics</Text>
         </Group>
-        <Checkbox 
-          label="Multi-instance" 
-          checked={isMulti} 
+        <Checkbox
+          label="Multi-instance"
+          checked={isMulti}
           onChange={(e) => {
             if (e.currentTarget.checked) {
-              onUpdate({ loopCharacteristics: { isSequential: false, collection: 'items', elementVariable: 'item' } });
+              onUpdate({ multiInstanceType: 'parallel', collection: 'items', elementVariable: 'item' });
             } else {
-              onUpdate({ loopCharacteristics: undefined });
+              onUpdate({ multiInstanceType: 'none', collection: '', elementVariable: '', completionCondition: '' });
             }
-          }} 
+          }}
         />
       </Group>
 
       {isMulti && (
         <Stack gap="sm" pl="xl">
-          <Checkbox 
-            label="Sequential Execution" 
-            checked={characteristics.isSequential} 
-            onChange={(e) => onUpdate({ loopCharacteristics: { ...characteristics, isSequential: e.currentTarget.checked } })} 
+          <Checkbox
+            label="Sequential Execution"
+            description="One at a time, in order, rather than all at once"
+            checked={multiInstanceType === 'sequential'}
+            onChange={(e) => onUpdate({ multiInstanceType: e.currentTarget.checked ? 'sequential' : 'parallel' })}
           />
-          <TextInput 
-            label="Collection" 
-            placeholder="e.g. users" 
+          <TextInput
+            label="Collection"
+            placeholder="e.g. users"
             description="Process variable containing a list"
             size="sm"
-            value={characteristics.collection || ''}
-            onChange={(e) => onUpdate({ loopCharacteristics: { ...characteristics, collection: e.target.value } })} 
+            value={asText(data.collection)}
+            onChange={(e) => onUpdate({ collection: e.target.value })}
           />
-          <TextInput 
-            label="Element Variable" 
-            placeholder="e.g. user" 
+          <TextInput
+            label="Element Variable"
+            placeholder="e.g. user"
             description="Variable name for current item"
             size="sm"
-            value={characteristics.elementVariable || ''}
-            onChange={(e) => onUpdate({ loopCharacteristics: { ...characteristics, elementVariable: e.target.value } })} 
+            value={asText(data.elementVariable)}
+            onChange={(e) => onUpdate({ elementVariable: e.target.value })}
           />
-          <TextInput 
-            label="Completion Condition" 
-            placeholder="e.g. nrOfCompletedInstances == nrOfInstances" 
+          <TextInput
+            label="Completion Condition"
+            placeholder="e.g. nrOfCompletedInstances == nrOfInstances"
             size="sm"
-            value={characteristics.completionCondition || ''}
-            onChange={(e) => onUpdate({ loopCharacteristics: { ...characteristics, completionCondition: e.target.value } })} 
+            value={asText(data.completionCondition)}
+            onChange={(e) => onUpdate({ completionCondition: e.target.value })}
           />
         </Stack>
       )}
@@ -177,23 +209,22 @@ export function MultiInstanceConfig({ data, onUpdate }: { data: any, onUpdate: (
   );
 }
 
-export function ConnectorCatalog({ onSelect }: { onSelect: (connector: any) => void }) {
+export function ConnectorCatalog({ onSelect }: { onSelect: (connector: ApiConnector) => void }) {
   const { data: connectorsData } = useConnectors();
-  const connectors = (connectorsData as any)?.connectors || [];
+  const connectors = connectorsData?.connectors ?? [];
 
   return (
     <Stack gap="md">
       <Text fw={700} size="sm">Choose a Connector</Text>
       <ScrollArea h={300}>
         <Stack gap="xs">
-          {connectors.map((c: any) => (
+          {connectors.map((c) => (
             <Paper 
               key={c.id} 
               withBorder 
               p="sm" 
               onClick={() => onSelect(c)} 
               style={{ cursor: 'pointer' }}
-              className="hover-bg-gray"
             >
               <Group gap="sm" wrap="nowrap">
                 <ThemeIcon size="lg" radius="md" color="yellow" variant="light">
@@ -222,14 +253,14 @@ export function NodeTestModal({
   onClose 
 }: { 
   nodeId: string, 
-  data: any, 
+  data: BPMNNodeData, 
   opened: boolean, 
   onClose: () => void 
 }) {
   const executeConnector = useExecuteConnector();
   const executeScript = useExecuteScript();
   const [testVars, setTestVars] = useState('{}');
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
 
   const runTest = async () => {
@@ -240,21 +271,21 @@ export function NodeTestModal({
 
       if (data.implementation === 'connector') {
         const res = await executeConnector.mutateAsync({
-          connectorKey: data.connector_id,
-          config: data.inputs || {},
+          connectorKey: asText(data.connector_id),
+          config: asTextMap(data.inputs),
           payload: variables,
         });
         setResult(res);
       } else if (data.implementation === 'script') {
          const res = await executeScript.mutateAsync({
-           script: data.script,
-           scriptFormat: data.scriptFormat || 'javascript',
+           script: asText(data.script),
+           scriptFormat: asText(data.scriptFormat, 'javascript'),
            variables: { ...variables },
          });
          setResult(res);
       }
-    } catch (e: any) {
-      setError(e.message || 'Test execution failed');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Test execution failed'));
     }
   };
 
@@ -288,7 +319,7 @@ export function NodeTestModal({
           </Alert>
         )}
 
-        {result && (
+        {result != null && (
           <Box>
             <Text size="xs" fw={700} mb={4}>Resulting Variables:</Text>
             <MantineCode block color="green" style={{ maxHeight: '200px', overflow: 'auto' }}>
@@ -301,10 +332,10 @@ export function NodeTestModal({
   );
 }
 
-export function ApiExample({ type, id, data }: { type: string, id: string, data: any }) {
+export function ApiExample({ type, id, data }: { type: string, id: string, data: BPMNNodeData }) {
   let snippet = "";
   let title = "API Usage Example";
-  let description = "Execute this node using the gobpm API or client library.";
+  const description = "Execute this node using the gobpm API or client library.";
 
   switch (type) {
     case 'userTask':
@@ -365,7 +396,7 @@ GET /v1/instances/{instanceId}/nodes/${id}
               <Terminal size={18} />
             </ThemeIcon>
             <Box>
-              <Text fw={700} size="sm">{title}</Text>
+              <Text size="xs" fw={700} tt="uppercase" c="dimmed">{title}</Text>
               <Text size="xs" c="dimmed">{description}</Text>
             </Box>
           </Group>
@@ -386,33 +417,6 @@ GET /v1/instances/{instanceId}/nodes/${id}
   );
 }
 
-export const SCRIPT_TEMPLATES = [
-  {
-    name: "Set Variable",
-    description: "Update a process variable",
-    code: "setVar('status', 'approved');"
-  },
-  {
-    name: "Conditional Logic",
-    description: "If/Else block",
-    code: "if (amount > 1000) {\n  setVar('isLargeOrder', true);\n} else {\n  setVar('isLargeOrder', false);\n}"
-  },
-  {
-    name: "Math Calculation",
-    description: "Perform arithmetic",
-    code: "const total = amount * 1.1; // Add 10% tax\nsetVar('totalWithTax', total);"
-  },
-  {
-    name: "String Manipulation",
-    description: "Format strings",
-    code: "const greeting = 'Hello, ' + (firstName || 'User');\nsetVar('fullGreeting', greeting);"
-  },
-  {
-    name: "Date Formatting",
-    description: "Current date/time",
-    code: "const now = new Date().toISOString();\nsetVar('processedAt', now);"
-  }
-];
 
 export function ScriptTestModal({ 
   opened, 
@@ -426,7 +430,7 @@ export function ScriptTestModal({
   format: string
 }) {
   const [variables, setVariables] = useState('{\n  "amount": 1200,\n  "firstName": "John",\n  "lastName": "Doe"\n}');
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
   
   const execute = useExecuteScript();
@@ -442,8 +446,8 @@ export function ScriptTestModal({
         variables: parsedVars
       });
       setResult(res);
-    } catch (e: any) {
-      setError(e.message || 'Execution failed');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Execution failed'));
     }
   };
 
@@ -475,7 +479,7 @@ export function ScriptTestModal({
           </Alert>
         )}
 
-        {result && (
+        {result != null && (
           <Box>
             <Text size="xs" fw={700} mb={4}>Resulting Variables:</Text>
             <MantineCode block color="green" style={{ maxHeight: '200px', overflow: 'auto' }}>
@@ -535,7 +539,7 @@ export function KeyValueEditor({
             <Text size="xs" fw={700}>{title}</Text>
             {description && <Text size="10px" c="dimmed">{description}</Text>}
         </Box>
-        <ActionIcon size="xs" variant="light" onClick={addRow}>
+        <ActionIcon aria-label="Add" size="xs" variant="light" onClick={addRow}>
           <Plus size={12} />
         </ActionIcon>
       </Group>
@@ -556,7 +560,7 @@ export function KeyValueEditor({
             value={v}
             onChange={(e) => updateValue(k, e.target.value)}
           />
-          <ActionIcon color="red" variant="subtle" size="xs" mt={4} onClick={() => removeRow(k)}>
+          <ActionIcon aria-label="Delete" color="red" variant="subtle" size="xs" mt={4} onClick={() => removeRow(k)}>
             <Trash2 size={12} />
           </ActionIcon>
         </Group>

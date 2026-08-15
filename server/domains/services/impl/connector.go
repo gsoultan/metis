@@ -7,8 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"sync"
 	"time"
+
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+
+	"net"
+	"net/smtp"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -17,9 +24,6 @@ import (
 	"github.com/gsoultan/gobpm/server/repositories"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
-	"net"
-	"net/smtp"
-	"strconv"
 )
 
 type connectorService struct {
@@ -48,8 +52,12 @@ func NewConnectorService(
 	// MS Teams Connector
 	s.executors["ms-teams-message"] = &MSTeamsMessageExecutor{}
 
-	// Bootstrap default connectors in DB if they don't exist (simplified for this task)
-	s.bootstrapDefaultConnectors()
+	// Seed the catalogue for an already-configured installation. A first run
+	// writes into the bootstrap database instead, so setup calls this again
+	// once it has swapped to the real one.
+	if err := s.EnsureDefaultConnectors(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to bootstrap default connectors")
+	}
 
 	return s
 }
@@ -103,7 +111,40 @@ func (s *connectorService) ListConnectorInstances(ctx context.Context, projectID
 	for i, m := range ms {
 		res[i] = adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()
 	}
+	s.nameConnectors(ctx, res)
 	return res, nil
+}
+
+// nameConnectors fills in the connector each instance configures.
+//
+// A row stores a connector id, so an instance otherwise arrives naming nothing:
+// no key, which is what a service task refers to, and no name to show in a
+// list. The catalogue is read once for the whole slice rather than per row —
+// it is a handful of built-ins, and a query each would be a lot of round trips
+// to answer "which Slack is this".
+func (s *connectorService) nameConnectors(ctx context.Context, instances []entities.ConnectorInstance) {
+	if len(instances) == 0 {
+		return
+	}
+	catalogue, err := s.repo.Connector().List(ctx)
+	if err != nil {
+		// The instances are still worth returning; they just stay unnamed.
+		log.Warn().Err(err).Msg("could not load the connector catalogue to name instances")
+		return
+	}
+	byID := make(map[uuid.UUID]entities.Connector, len(catalogue))
+	for _, m := range catalogue {
+		c := adapters.ConnectorEntityAdapter{Model: m}.ToEntity()
+		byID[c.ID] = c
+	}
+	for i := range instances {
+		if instances[i].Connector == nil {
+			continue
+		}
+		if c, ok := byID[instances[i].Connector.ID]; ok {
+			instances[i].Connector = &c
+		}
+	}
 }
 
 func (s *connectorService) GetConnectorInstance(ctx context.Context, id uuid.UUID) (entities.ConnectorInstance, error) {
@@ -111,7 +152,9 @@ func (s *connectorService) GetConnectorInstance(ctx context.Context, id uuid.UUI
 	if err != nil {
 		return entities.ConnectorInstance{}, err
 	}
-	return adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity(), nil
+	one := []entities.ConnectorInstance{adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()}
+	s.nameConnectors(ctx, one)
+	return one[0], nil
 }
 
 func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context.Context, projectID, connectorID uuid.UUID) (entities.ConnectorInstance, error) {
@@ -119,10 +162,23 @@ func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context
 	if err != nil {
 		return entities.ConnectorInstance{}, err
 	}
-	return adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity(), nil
+	one := []entities.ConnectorInstance{adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()}
+	s.nameConnectors(ctx, one)
+	return one[0], nil
 }
 
 func (s *connectorService) CreateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) (entities.ConnectorInstance, error) {
+	// An instance belongs to a project and configures a connector, and an
+	// instance missing either is unreachable rather than merely incomplete: the
+	// only listing is scoped to a project, and execution needs a connector to
+	// run. Storing one anyway returns an id for a row nothing can ever find.
+	if instance.Project == nil || instance.Project.ID == uuid.Nil {
+		return entities.ConnectorInstance{}, fmt.Errorf("connector instance requires a project")
+	}
+	if instance.Connector == nil || instance.Connector.ID == uuid.Nil {
+		return entities.ConnectorInstance{}, fmt.Errorf("connector instance requires a connector")
+	}
+
 	if instance.ID == uuid.Nil {
 		instance.ID, _ = uuid.NewV7()
 	}
@@ -156,8 +212,14 @@ func (s *connectorService) RegisterExecutor(key string, executor servicecontract
 	s.executors[key] = executor
 }
 
-func (s *connectorService) bootstrapDefaultConnectors() {
-	ctx := context.Background()
+// EnsureDefaultConnectors creates the built-in catalogue in whichever database
+// is current, skipping any connector that is already there.
+//
+// This runs at construction and again after setup swaps to the target
+// database. Without the second call the catalogue only ever existed in the
+// bootstrap database that setup replaces, so a configured installation offered
+// no connectors at all and every service task had nothing to call.
+func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 	log.Info().Msg("Bootstrapping default connectors...")
 
 	connectors := []entities.Connector{
@@ -256,18 +318,20 @@ func (s *connectorService) bootstrapDefaultConnectors() {
 		},
 	}
 
+	var failed error
 	for _, c := range connectors {
-		if _, err := s.repo.Connector().GetByKey(ctx, c.Key); err != nil {
-			log.Info().Str("key", c.Key).Msg("Creating default connector")
-			c.CreatedAt = time.Now()
-			_, err := s.repo.Connector().Create(ctx, adapters.ConnectorModelAdapter{Connector: c}.ToModel())
-			if err != nil {
-				log.Error().Err(err).Str("key", c.Key).Msg("Failed to create default connector")
-			}
-		} else {
+		if _, err := s.repo.Connector().GetByKey(ctx, c.Key); err == nil {
 			log.Debug().Str("key", c.Key).Msg("Default connector already exists")
+			continue
+		}
+		log.Info().Str("key", c.Key).Msg("Creating default connector")
+		c.CreatedAt = time.Now()
+		if _, err := s.repo.Connector().Create(ctx, adapters.ConnectorModelAdapter{Connector: c}.ToModel()); err != nil {
+			log.Error().Err(err).Str("key", c.Key).Msg("Failed to create default connector")
+			failed = err
 		}
 	}
+	return failed
 }
 
 // Built-in Executors
@@ -298,7 +362,7 @@ func (e *HttpJsonExecutor) Execute(ctx context.Context, config map[string]any, p
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +404,7 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +458,7 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +492,7 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +528,7 @@ func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]an
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,10 @@ type UserService interface {
 	UpdateUser(ctx context.Context, u entities.User) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
 
+	// SetPassword replaces one account's password, identified by username so
+	// that an operator who has been locked out can name the account they know.
+	SetPassword(ctx context.Context, username, newPassword string) error
+
 	Login(ctx context.Context, username, password string) (entities.User, string, error) // Returns user and JWT token
 	ValidateToken(ctx context.Context, token string) (entities.User, error)
 

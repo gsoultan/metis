@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -71,10 +72,32 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 	return s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash))
 }
 
+// dummyHash is compared against when no user matches, so that a login attempt
+// costs the same whether or not the account exists.
+//
+// bcrypt of "" at the default cost; the value is irrelevant, only the work is.
+var dummyHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy")
+
 func (s *userService) Login(ctx context.Context, username, password string) (entities.User, string, error) {
+	// A failed login must not reveal whether the account exists.
+	//
+	// This previously returned the repository's error verbatim, so a missing
+	// account answered "could not get user: record not found" while a wrong
+	// password answered "invalid credentials" — enough to enumerate every
+	// username on the system by reading the error text.
+	//
+	// The comparison still runs when no user is found, against a fixed hash, so
+	// the two paths also cost roughly the same amount of time. Returning early
+	// would leave a timing signal saying the same thing more quietly.
 	mu, hash, err := s.repo.User().GetWithPasswordByUsername(ctx, username)
 	if err != nil {
-		return entities.User{}, "", fmt.Errorf("%w: %w", auth.ErrAuthenticationFailed, err)
+		// The result is deliberately unused: this compare exists only so that a
+		// missing account costs the same time as a wrong password. Checking it
+		// would be checking that a fake hash failed to match, which it always
+		// does.
+		//nolint:errcheck // deliberate: equalises timing, result is meaningless
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	u := adapters.UserEntityAdapter{Model: mu}.ToEntity()
 
@@ -128,8 +151,82 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (en
 	return entities.User{}, fmt.Errorf("invalid token")
 }
 
+// UpdateUser applies an edit to an existing user without disturbing what the
+// edit did not mention.
+//
+// The request carries a whole entities.User and the repository writes it with
+// GORM's Save, which sets every column. Applying that directly meant a profile
+// edit — which sends no username, because it is not editable, and no password,
+// because that has its own screen — blanked both, along with anything else the
+// caller left out. The account was then unreachable: no username to log in
+// with and no password hash to check, and if it was the only administrator the
+// installation was locked out for good.
+//
+// So the incoming user is merged onto the stored one. A field that carries a
+// value replaces the stored one, including an empty string where clearing is a
+// legitimate edit — a name can be removed. The exceptions are the two that
+// cannot be recovered from: an empty username is read as "not supplied" rather
+// than as a request to remove the login identity, and the password hash is not
+// reachable from here at all. Roles distinguish absent from empty, since JSON
+// decodes a missing list to nil and an explicit [] to an empty one, so a client
+// that knows nothing about roles cannot strip them.
 func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
-	return s.repo.User().Update(ctx, adapters.UserModelAdapter{User: u}.ToModel())
+	if u.ID == uuid.Nil {
+		return fmt.Errorf("user id is required")
+	}
+
+	stored, err := s.repo.User().Get(ctx, u.ID)
+	if err != nil {
+		return fmt.Errorf("could not load the user being updated: %w", err)
+	}
+
+	stored.FullName = u.FullName
+	stored.DisplayName = u.DisplayName
+	stored.Email = u.Email
+	if u.Username != "" {
+		stored.Username = u.Username
+	}
+	if u.Roles != nil {
+		stored.Roles = u.Roles
+	}
+	if u.Organization != nil {
+		stored.Organization = u.Organization.Name
+	}
+
+	return s.repo.User().Update(ctx, stored)
+}
+
+// MinPasswordLength is the shortest password SetPassword will store.
+//
+// Short enough not to be an obstacle, long enough that a reset does not hand
+// back something worse than what it replaced.
+const MinPasswordLength = 8
+
+// SetPassword replaces an account's password.
+//
+// There was no way to change one at all: the only path that wrote a hash was
+// Create. A forgotten password therefore had no answer for the person who
+// forgot it or for an administrator, and since there is no default account by
+// design, an installation with one administrator became unreachable for good.
+func (s *userService) SetPassword(ctx context.Context, username, newPassword string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("a username is required")
+	}
+	if len(strings.TrimSpace(newPassword)) < MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", MinPasswordLength)
+	}
+
+	user, err := s.repo.User().GetByUsername(ctx, username)
+	if err != nil {
+		return fmt.Errorf("no such user %q", username)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("could not hash the new password: %w", err)
+	}
+	return s.repo.User().SetPasswordHash(ctx, uuid.UUID(user.ID), string(hash))
 }
 
 func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {

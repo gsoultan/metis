@@ -23,9 +23,9 @@ func (a DeploymentModelAdapter) ToModel() models.DeploymentModel {
 		}
 		resources[i] = models.ResourceModel{
 			Base: models.Base{
-				ID: r.ID,
+				ID: models.UUID(r.ID),
 			},
-			DeploymentID: depID,
+			DeploymentID: models.UUID(depID),
 			Name:         r.Name,
 			Content:      r.Content,
 			Type:         r.Type,
@@ -33,10 +33,10 @@ func (a DeploymentModelAdapter) ToModel() models.DeploymentModel {
 	}
 	return models.DeploymentModel{
 		Base: models.Base{
-			ID:        a.Deployment.ID,
+			ID:        models.UUID(a.Deployment.ID),
 			CreatedAt: a.Deployment.CreatedAt,
 		},
-		ProjectID: projectID,
+		ProjectID: models.UUID(projectID),
 		Name:      a.Deployment.Name,
 		Resources: resources,
 	}
@@ -50,16 +50,16 @@ func (a DeploymentEntityAdapter) ToEntity() entities.Deployment {
 	resources := make([]entities.Resource, len(a.Model.Resources))
 	for i, r := range a.Model.Resources {
 		resources[i] = entities.Resource{
-			ID:         r.ID,
-			Deployment: &entities.Deployment{ID: r.DeploymentID},
+			ID:         uuid.UUID(r.ID),
+			Deployment: &entities.Deployment{ID: uuid.UUID(r.DeploymentID)},
 			Name:       r.Name,
 			Content:    r.Content,
 			Type:       r.Type,
 		}
 	}
 	return entities.Deployment{
-		ID:        a.Model.ID,
-		Project:   &entities.Project{ID: a.Model.ProjectID},
+		ID:        uuid.UUID(a.Model.ID),
+		Project:   &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
 		Name:      a.Model.Name,
 		CreatedAt: a.Model.CreatedAt,
 		Resources: resources,

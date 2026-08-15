@@ -14,11 +14,18 @@ type nodeHandlerFactory struct {
 	externalTaskService servicecontracts.ExternalTaskService
 	decisionService     servicecontracts.DecisionService
 	connectorService    servicecontracts.ConnectorService
-	exprEval            servicecontracts.ExpressionEvaluator
 	subRepo             contracts.SubscriptionRepository
 }
 
 // NewNodeHandlerFactory creates a new NodeHandlerFactory implementation.
+//
+// It takes no ExpressionEvaluator. That dependency was a FEEL evaluator, and
+// FEEL here is a DMN decision-table cell matcher — it resolves an expression
+// against variables["_input"], not against process variables. Handing it to
+// process-node handlers invited exactly one bug: the ad-hoc sub-process
+// completion condition was evaluated with it and could never be true. Process
+// conditions go through logic.GetConditionEvaluatorChain(), the same chain
+// gateways use; DMN cells keep their evaluator inside the decision service.
 func NewNodeHandlerFactory(
 	engine servicecontracts.ExecutionEngine,
 	taskService servicecontracts.TaskService,
@@ -26,7 +33,6 @@ func NewNodeHandlerFactory(
 	externalTaskService servicecontracts.ExternalTaskService,
 	decisionService servicecontracts.DecisionService,
 	connectorService servicecontracts.ConnectorService,
-	exprEval servicecontracts.ExpressionEvaluator,
 	subRepo contracts.SubscriptionRepository,
 ) handlercontracts.NodeHandlerFactory {
 	return &nodeHandlerFactory{
@@ -36,7 +42,6 @@ func NewNodeHandlerFactory(
 		externalTaskService: externalTaskService,
 		decisionService:     decisionService,
 		connectorService:    connectorService,
-		exprEval:            exprEval,
 		subRepo:             subRepo,
 	}
 }
@@ -76,7 +81,7 @@ func (f *nodeHandlerFactory) GetHandler(nodeType entities.NodeType) (handlercont
 	case entities.CallActivity:
 		internal = &CallActivityHandler{f.engine}
 	case entities.SubProcess:
-		adHoc := NewAdHocSubProcessHandler(f.engine, f.exprEval)
+		adHoc := NewAdHocSubProcessHandler(f.engine)
 		internal = &SubProcessHandler{engine: f.engine, adHocHandler: adHoc}
 	case entities.BoundaryEvent:
 		internal = &BoundaryEventHandler{f.engine}

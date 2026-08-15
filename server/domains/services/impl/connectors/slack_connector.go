@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
 )
 
 const SlackConnectorKey = "slack-message"
@@ -69,7 +71,7 @@ func postToSlack(ctx context.Context, webhookURL string, body []byte) error {
 		return fmt.Errorf("slack connector: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Shared().Do(req)
 	if err != nil {
 		return fmt.Errorf("slack connector: send request: %w", err)
 	}

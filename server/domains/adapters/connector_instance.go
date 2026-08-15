@@ -20,12 +20,12 @@ func (a ConnectorInstanceModelAdapter) ToModel() models.ConnectorInstance {
 	}
 	return models.ConnectorInstance{
 		Base: models.Base{
-			ID:        a.Instance.ID,
+			ID:        models.UUID(a.Instance.ID),
 			CreatedAt: a.Instance.CreatedAt,
 			UpdatedAt: a.Instance.UpdatedAt,
 		},
-		ProjectID:   projectID,
-		ConnectorID: connectorID,
+		ProjectID:   models.UUID(projectID),
+		ConnectorID: models.UUID(connectorID),
 		Name:        a.Instance.Name,
 		Config:      a.Instance.Config,
 	}
@@ -37,9 +37,9 @@ type ConnectorInstanceEntityAdapter struct {
 
 func (a ConnectorInstanceEntityAdapter) ToEntity() entities.ConnectorInstance {
 	return entities.ConnectorInstance{
-		ID:        a.Model.ID,
-		Project:   &entities.Project{ID: a.Model.ProjectID},
-		Connector: &entities.Connector{ID: a.Model.ConnectorID},
+		ID:        uuid.UUID(a.Model.ID),
+		Project:   &entities.Project{ID: uuid.UUID(a.Model.ProjectID)},
+		Connector: &entities.Connector{ID: uuid.UUID(a.Model.ConnectorID)},
 		Name:      a.Model.Name,
 		Config:    a.Model.Config,
 		CreatedAt: a.Model.CreatedAt,

@@ -17,7 +17,7 @@ func (a CompensatableActivityModelAdapter) ToModel() models.CompensatableActivit
 		instanceID = a.Activity.Instance.ID
 	}
 	m := models.CompensatableActivityModel{
-		InstanceID: instanceID,
+		InstanceID: models.UUID(instanceID),
 		NodeID: func() string {
 			if a.Activity.Node != nil {
 				return a.Activity.Node.ID
@@ -34,7 +34,7 @@ func (a CompensatableActivityModelAdapter) ToModel() models.CompensatableActivit
 		CompletedAt: a.Activity.CompletedAt,
 		Compensated: a.Activity.Compensated,
 	}
-	m.ID = a.Activity.ID
+	m.ID = models.UUID(a.Activity.ID)
 	return m
 }
 
@@ -45,8 +45,8 @@ type CompensatableActivityEntityAdapter struct {
 
 func (a CompensatableActivityEntityAdapter) ToEntity() entities.CompensatableActivity {
 	return entities.CompensatableActivity{
-		ID:               a.Model.ID,
-		Instance:         &entities.ProcessInstance{ID: a.Model.InstanceID},
+		ID:               uuid.UUID(a.Model.ID),
+		Instance:         &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
 		Node:             &entities.Node{ID: a.Model.NodeID},
 		CompensationNode: &entities.Node{ID: a.Model.CompensationNodeID},
 		Variables:        a.Model.Variables,

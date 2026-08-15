@@ -7,7 +7,7 @@ export interface CollaborationEvent {
   projectId: string;
   userId: string;
   userName: string;
-  data: any;
+  data: Record<string, unknown>;
   timestamp: string;
 }
 
@@ -35,7 +35,7 @@ export function useCollaboration(projectId: string | undefined) {
             setRemoteEvents(prev => [...prev, data]);
           }
         }
-      } catch (err) {
+      } catch {
         // Not a collaboration event or parse error
       }
     };
@@ -43,7 +43,7 @@ export function useCollaboration(projectId: string | undefined) {
     return () => eventSource.close();
   }, [projectId, user?.id]);
 
-  const broadcast = async (type: CollaborationEvent['type'], data: any) => {
+  const broadcast = async (type: CollaborationEvent['type'], data: Record<string, unknown>) => {
     if (!projectId || !user) return;
     
     await processService.broadcastCollaboration({

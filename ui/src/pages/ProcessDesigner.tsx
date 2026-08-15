@@ -40,8 +40,7 @@ import {
 } from 'lucide-react';
 import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
-import { nodeTypes } from '../components/BPMNNodes';
-import { useAppStore } from '../store/useAppStore';
+import { nodeTypes } from '../components/bpmnNodeTypes';
 import { useSearch } from '@tanstack/react-router';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -55,8 +54,7 @@ export function ProcessDesigner({
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
 }) {
-  const search = useSearch({ from: '/_authenticated/designer' }) as any;
-  const { theme } = useAppStore();
+  const search = useSearch({ from: '/_authenticated/designer' });
 
   const designer = useProcessDesigner({
     definitionId,
@@ -96,7 +94,13 @@ export function ProcessDesigner({
 
   return (
     <Box h="calc(100vh - 60px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Box p="md" bg={theme === 'dark' ? 'dark.7' : 'white'} style={{ borderBottom: `1px solid ${theme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-2)'}` }}>
+      <Box
+        p="md"
+        style={{
+          backgroundColor: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-7))',
+          borderBottom: '1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))',
+        }}
+      >
         <Group justify="space-between" align="center">
           <Stack gap={0}>
             <Title order={3} fw={800}>{processName || 'Process Designer'}</Title>
@@ -230,7 +234,7 @@ export function ProcessDesigner({
             <Paper p="4" withBorder radius="xl" bg="var(--mantine-color-body)" shadow="md" mb="md">
               <Group gap="xs">
                 <Tooltip label="Selection Mode">
-                  <ActionIcon variant="light" size="lg">
+                  <ActionIcon aria-label="Select tool" variant="light" size="lg">
                     <MousePointer2 size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -238,7 +242,7 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label={`Undo (${historyIndex > 0 ? historyIndex : 0} steps)`}>
-                  <ActionIcon 
+                  <ActionIcon aria-label="Undo" 
                     variant="subtle" 
                     size="lg" 
                     disabled={historyIndex <= 0}
@@ -249,7 +253,7 @@ export function ProcessDesigner({
                 </Tooltip>
 
                 <Tooltip label="Redo">
-                  <ActionIcon 
+                  <ActionIcon aria-label="Redo" 
                     variant="subtle" 
                     size="lg" 
                     disabled={historyIndex >= history.length - 1}
@@ -262,23 +266,23 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label="Zoom In">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomIn()}>
+                  <ActionIcon aria-label="Zoom in" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomIn()}>
                     <ZoomIn size={18} />
                   </ActionIcon>
                 </Tooltip>
                 <Tooltip label="Zoom Out">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomOut()}>
+                  <ActionIcon aria-label="Zoom out" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomOut()}>
                     <ZoomOut size={18} />
                   </ActionIcon>
                 </Tooltip>
                 <Tooltip label="Fit View">
-                  <ActionIcon variant="subtle" size="lg" onClick={() => reactFlowInstance?.fitView()}>
+                  <ActionIcon aria-label="Fit diagram to view" variant="subtle" size="lg" onClick={() => reactFlowInstance?.fitView()}>
                     <Maximize size={18} />
                   </ActionIcon>
                 </Tooltip>
 
                 <Tooltip label="Auto-Layout">
-                  <ActionIcon variant="subtle" color="indigo" size="lg" onClick={onAutoLayout}>
+                  <ActionIcon aria-label="Apply automatic layout" variant="subtle" color="indigo" size="lg" onClick={onAutoLayout}>
                     <LayoutGrid size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -286,7 +290,7 @@ export function ProcessDesigner({
                 <Divider orientation="vertical" />
 
                 <Tooltip label="Clear Canvas">
-                  <ActionIcon variant="subtle" color="red" size="lg" onClick={clearCanvas}>
+                  <ActionIcon aria-label="Delete" variant="subtle" color="red" size="lg" onClick={clearCanvas}>
                     <Trash size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -334,6 +338,7 @@ export function ProcessDesigner({
           onDelete={deleteSelected}
           updateNodeData={updateNodeData}
           updateEdgeData={updateEdgeData}
+          nodes={nodes}
           edges={edges}
           instanceId={instanceId}
           onViewInstance={onViewInstance}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { 
   Modal, 
   Stepper, 
@@ -44,9 +44,15 @@ export function CreationWizard({ opened, onClose, onCreateProcess, onCreateDecis
     setKey(initialType === 'process' ? 'new_process' : initialType === 'decision' ? 'new_decision' : '');
   }, [initialType]);
 
-  useEffect(() => {
+  // Reset when the wizard transitions closed → open, during render rather than
+  // in an effect. As an effect it also re-fired whenever `reset` changed
+  // identity (it depends on initialType), discarding input the user had already
+  // entered in an open wizard.
+  const [wasOpened, setWasOpened] = useState(opened);
+  if (opened !== wasOpened) {
+    setWasOpened(opened);
     if (opened) reset();
-  }, [opened, reset]);
+  }
 
   const nextStep = () => setActive((current) => (current < 2 ? current + 1 : current));
   const prevStep = () => setActive((current) => (current > 0 ? current - 1 : current));
@@ -192,7 +198,16 @@ export function CreationWizard({ opened, onClose, onCreateProcess, onCreateDecis
   );
 }
 
-function TypeButton({ icon, title, description, color, onClick, active }: any) {
+interface TypeButtonProps {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  color: string;
+  onClick: () => void;
+  active: boolean;
+}
+
+function TypeButton({ icon, title, description, color, onClick, active }: TypeButtonProps) {
   return (
     <UnstyledButton 
       onClick={onClick}

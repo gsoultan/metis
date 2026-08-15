@@ -22,13 +22,13 @@ const (
 )
 
 type Project struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Description    string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Organization  *Organization          `protobuf:"bytes,2,opt,name=organization,proto3" json:"organization,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Project) Reset() {
@@ -68,11 +68,11 @@ func (x *Project) GetId() string {
 	return ""
 }
 
-func (x *Project) GetOrganizationId() string {
+func (x *Project) GetOrganization() *Organization {
 	if x != nil {
-		return x.OrganizationId
+		return x.Organization
 	}
-	return ""
+	return nil
 }
 
 func (x *Project) GetName() string {
@@ -93,10 +93,10 @@ var File_entities_project_proto protoreflect.FileDescriptor
 
 const file_entities_project_proto_rawDesc = "" +
 	"\n" +
-	"\x16entities/project.proto\x12\aprocess\"x\n" +
+	"\x16entities/project.proto\x12\aprocess\x1a\x1bentities/organization.proto\"\x8a\x01\n" +
 	"\aProject\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
-	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x12\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
+	"\forganization\x18\x02 \x01(\v2\x15.process.OrganizationR\forganization\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescriptionB\x8e\x01\n" +
 	"\vcom.processB\fProjectProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
@@ -115,14 +115,16 @@ func file_entities_project_proto_rawDescGZIP() []byte {
 
 var file_entities_project_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_project_proto_goTypes = []any{
-	(*Project)(nil), // 0: process.Project
+	(*Project)(nil),      // 0: process.Project
+	(*Organization)(nil), // 1: process.Organization
 }
 var file_entities_project_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: process.Project.organization:type_name -> process.Organization
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_entities_project_proto_init() }
@@ -130,6 +132,7 @@ func file_entities_project_proto_init() {
 	if File_entities_project_proto != nil {
 		return
 	}
+	file_entities_organization_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -1,5 +1,6 @@
 import { taskClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
+import type { ProcessVariables } from "../types";
 
 type ListIncidentsResponse = {
   incidents?: unknown[];
@@ -7,12 +8,20 @@ type ListIncidentsResponse = {
 };
 
 export const taskService = {
-  async listTasks(projectId: string, signal?: AbortSignal) {
-    const response = await taskClient.listTasks({ projectId }, { signal });
+  /** One page of a project's tasks. */
+  async listTasks(
+    projectId: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasks(
+      { projectId, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
     return { tasks: response.tasks ?? [], err: response.error };
   },
 
-  async completeTask(id: string, userId: string, variables: Record<string, unknown> = {}, signal?: AbortSignal) {
+  async completeTask(id: string, userId: string, variables: ProcessVariables = {}, signal?: AbortSignal) {
     const response = await taskClient.completeTask({ id, userId, variables }, { signal });
     return { err: response.error };
   },
@@ -54,14 +63,61 @@ export const taskService = {
     return { err: data.err };
   },
 
-  async listTasksByCandidates(userId: string, groups: string[] = [], signal?: AbortSignal) {
-    const response = await taskClient.listTasksByCandidates({ userId, groups }, { signal });
-    return { tasks: response.tasks ?? [], err: response.error };
+  /** One page of the unclaimed tasks this user could take. */
+  async listTasksByCandidates(
+    userId: string,
+    groups: string[] = [],
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasksByCandidates(
+      { userId, groups, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
+    return {
+      tasks: response.tasks ?? [],
+      err: response.error,
+      pageInfo: response.page
+        ? {
+            total: Number(response.page.total),
+            page: response.page.page,
+            pageSize: response.page.pageSize,
+            hasMore: response.page.hasMore,
+          }
+        : undefined,
+    };
   },
 
-  async listTasksByAssignee(assignee: string, signal?: AbortSignal) {
-    const response = await taskClient.listTasksByAssignee({ assignee }, { signal });
-    return { tasks: response.tasks ?? [], err: response.error };
+  /**
+   * One page of the tasks assigned to a user.
+   *
+   * `page` is optional on the wire, so omitting it asks the server for its
+   * default window rather than for everything — the unbounded read is no
+   * longer reachable from here.
+   */
+  async listTasksByAssignee(
+    assignee: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const response = await taskClient.listTasksByAssignee(
+      { assignee, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      { signal },
+    );
+    return {
+      tasks: response.tasks ?? [],
+      err: response.error,
+      // The server reports the window it actually served, after clamping, so
+      // the controls reflect reality rather than what was asked for.
+      pageInfo: response.page
+        ? {
+            total: Number(response.page.total),
+            page: response.page.page,
+            pageSize: response.page.pageSize,
+            hasMore: response.page.hasMore,
+          }
+        : undefined,
+    };
   },
 
   async listIncidents(instanceId: string, signal?: AbortSignal) {

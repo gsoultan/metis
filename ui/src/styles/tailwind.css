@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+/*
+ * One token source.
+ *
+ * Tailwind's theme consumes Mantine's CSS variables rather than defining a
+ * parallel scale. Two independent token sets would drift within weeks, and a
+ * component styled from one while sitting next to a component styled from the
+ * other is exactly how a design system stops looking designed.
+ *
+ * Division of responsibility (enforced by lint, see eslint.config.js):
+ *   - Mantine owns COMPONENTS: Button, Table, Modal, Select, focus management,
+ *     accessible semantics. Never restyle a Mantine component with Tailwind.
+ *   - Tailwind owns LAYOUT: grid, flex, gaps, responsive composition in page
+ *     shells.
+ */
+@theme {
+  --color-brand-50:  var(--mantine-color-blue-0);
+  --color-brand-100: var(--mantine-color-blue-1);
+  --color-brand-300: var(--mantine-color-blue-3);
+  --color-brand-500: var(--mantine-color-blue-5);
+  --color-brand-600: var(--mantine-color-blue-6);
+  --color-brand-700: var(--mantine-color-blue-7);
+
+  --color-surface:      var(--mantine-color-body);
+  --color-surface-muted: var(--mantine-color-default-hover);
+  --color-border:       var(--mantine-color-default-border);
+  --color-text:         var(--mantine-color-text);
+  --color-text-dimmed:  var(--mantine-color-dimmed);
+
+  --spacing-xs: var(--mantine-spacing-xs);
+  --spacing-sm: var(--mantine-spacing-sm);
+  --spacing-md: var(--mantine-spacing-md);
+  --spacing-lg: var(--mantine-spacing-lg);
+  --spacing-xl: var(--mantine-spacing-xl);
+
+  --radius-sm: var(--mantine-radius-sm);
+  --radius-md: var(--mantine-radius-md);
+  --radius-lg: var(--mantine-radius-lg);
+
+  --breakpoint-sm: 48em;
+  --breakpoint-md: 62em;
+  --breakpoint-lg: 75em;
+  --breakpoint-xl: 88em;
+}
+
+/*
+ * Cards opt in to interactivity with data-interactive, so hover elevation
+ * only appears on surfaces that actually respond to a click.
+ *
+ * prefers-reduced-motion is honoured: users who ask the OS to reduce motion
+ * get the shadow change without the movement.
+ */
+.app-card[data-interactive] {
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.app-card[data-interactive]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.app-card[data-interactive]:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-card[data-interactive] {
+    transition: box-shadow 150ms ease;
+  }
+  .app-card[data-interactive]:hover {
+    transform: none;
+  }
+}

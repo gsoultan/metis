@@ -12,6 +12,7 @@ import (
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/domains/validation"
 	"github.com/gsoultan/gobpm/server/repositories"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 )
 
@@ -26,7 +27,7 @@ func NewDefinitionService(repo repositories.Repository) servicecontracts.Definit
 	}
 }
 
-func (s *definitionService) CreateDefinition(ctx context.Context, def entities.ProcessDefinition) (uuid.UUID, error) {
+func (s *definitionService) CreateDefinition(ctx context.Context, def *entities.ProcessDefinition) (uuid.UUID, error) {
 	// Use Visitor Pattern to validate definition
 	validator := validation.NewVisitor()
 	def.Accept(validator)
@@ -60,7 +61,24 @@ func (s *definitionService) DeleteDefinition(ctx context.Context, id uuid.UUID) 
 	return s.repo.Definition().Delete(ctx, id)
 }
 
-func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.UUID) ([]entities.ProcessDefinition, error) {
+// ListDefinitionsPaged returns one page of a project's definitions.
+//
+// The unpaged call returns every version of every process the project has ever
+// had. That list only grows, and it exists to pick one process from.
+func (s *definitionService) ListDefinitionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[*entities.ProcessDefinition], error) {
+	result, err := s.repo.Definition().ListByProjectPaged(ctx, projectID, page)
+	if err != nil {
+		return repocontracts.Page[*entities.ProcessDefinition]{}, err
+	}
+	defs := make([]*entities.ProcessDefinition, len(result.Items))
+	for i, m := range result.Items {
+		def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
+		defs[i] = def
+	}
+	return repocontracts.NewPage(defs, result.Total, page), nil
+}
+
+func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.UUID) ([]*entities.ProcessDefinition, error) {
 	var ms []models.ProcessDefinitionModel
 	var err error
 	if projectID != uuid.Nil {
@@ -71,25 +89,25 @@ func (s *definitionService) ListDefinitions(ctx context.Context, projectID uuid.
 	if err != nil {
 		return nil, err
 	}
-	res := make([]entities.ProcessDefinition, len(ms))
+	res := make([]*entities.ProcessDefinition, len(ms))
 	for i, m := range ms {
 		res[i] = adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
 	}
 	return res, nil
 }
 
-func (s *definitionService) GetDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error) {
+func (s *definitionService) GetDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error) {
 	m, err := s.repo.Definition().Get(ctx, id)
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }
 
-func (s *definitionService) GetDefinitionByKey(ctx context.Context, key string) (entities.ProcessDefinition, error) {
+func (s *definitionService) GetDefinitionByKey(ctx context.Context, key string) (*entities.ProcessDefinition, error) {
 	m, err := s.repo.Definition().GetByKey(ctx, key)
 	if err != nil {
-		return entities.ProcessDefinition{}, err
+		return nil, err
 	}
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }

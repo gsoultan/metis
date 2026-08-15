@@ -25,11 +25,12 @@ import {
   Settings,
   FileCode,
   Hand,
-  Briefcase
+  Briefcase, ListChecks
 } from 'lucide-react';
 import { useTasks, useCompleteTask } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
 
 const getTaskIcon = (type: string) => {
   switch (type) {
@@ -43,10 +44,9 @@ const getTaskIcon = (type: string) => {
 };
 
 export function TaskList() {
-  const { data, isLoading } = useTasks();
+  const { data, isLoading, error, refetch } = useTasks();
   const completeTask = useCompleteTask();
 
-  if (isLoading) return <Text>Loading tasks...</Text>;
 
   const tasks = data?.tasks || [];
 
@@ -75,12 +75,23 @@ export function TaskList() {
               />
               <Button variant="light" leftSection={<Filter size={16} />} radius="md">Filter</Button>
             </Group>
-            <ActionIcon variant="subtle" color="gray">
+            <ActionIcon aria-label="More actions" variant="subtle" color="gray">
               <MoreHorizontal size={20} />
             </ActionIcon>
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your tasks" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -99,30 +110,26 @@ export function TaskList() {
             <Table.Tbody>
               {tasks.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={7}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <CheckCircle size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">All caught up!</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        You don't have any pending tasks at the moment. Take a break or start a new process.
-                      </Text>
-                    </Stack>
+                  <Table.Td colSpan={4}>
+                    <EmptyState icon={ListChecks} title="No tasks yet" description="Tasks appear here when a running process reaches a step that needs a person." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                tasks.map((task: any) => (
+                tasks.map((task) => (
                   <Table.Tr key={task.id}>
                     <Table.Td>
                       <TextInput type="checkbox" size="xs" />
                     </Table.Td>
                     <Table.Td>
                       <Group gap="sm">
-                        <ThemeIcon 
-                          color={task.status === 'completed' ? 'green' : (task.type === 'userTask' ? 'blue' : 'teal')} 
-                          variant="light" 
-                          radius="md" 
+                        {/* The icon says what kind of work this is; the badge
+                            beside it says how it is going. Colouring the icon by
+                            status as well said the same thing twice, in a
+                            different palette. */}
+                        <ThemeIcon
+                          color={task.type === 'userTask' ? 'blue' : 'teal'}
+                          variant="light"
+                          radius="md"
                           size="md"
                         >
                           {React.createElement(getTaskIcon(task.type), { size: 16 })}
@@ -172,14 +179,14 @@ export function TaskList() {
                           size="xs" 
                           variant="light"
                           color="indigo"
-                          onClick={() => completeTask.mutate(task.id)}
+                          onClick={() => completeTask.mutate({ id: task.id, userId: task.assignee?.username ?? '' })}
                           loading={completeTask.isPending}
                           disabled={task.status === 'completed'}
                           leftSection={<CheckCircle size={14} />}
                         >
                           Complete
                         </Button>
-                        <ActionIcon variant="subtle" color="gray">
+                        <ActionIcon aria-label="Open task" variant="subtle" color="gray">
                           <ExternalLink size={16} />
                         </ActionIcon>
                       </Group>
@@ -190,6 +197,7 @@ export function TaskList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
     </Stack>
   );

@@ -13,7 +13,7 @@ import (
 
 // Base is a base model that uses UUID V7 for the ID.
 type Base struct {
-	ID        uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id,omitzero"`
+	ID        UUID           `gorm:"primaryKey" json:"id,omitzero"`
 	CreatedAt time.Time      `json:"created_at,omitzero"`
 	UpdatedAt time.Time      `json:"updated_at,omitzero"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
@@ -21,8 +21,12 @@ type Base struct {
 
 // BeforeCreate is a GORM hook that generates a new UUID V7 for the ID if it's nil.
 func (b *Base) BeforeCreate(tx *gorm.DB) (err error) {
-	if b.ID == uuid.Nil {
-		b.ID, err = uuid.NewV7()
+	if b.ID == NilUUID {
+		id, genErr := uuid.NewV7()
+		if genErr != nil {
+			return genErr
+		}
+		b.ID = UUID(id)
 	}
 	return
 }
@@ -51,17 +55,29 @@ func (m *EncryptedMap) Scan(value any) error {
 		return nil
 	}
 
-	// Try to decrypt
-	decrypted, err := crypto.Decrypt(s)
-	if err != nil {
-		// If decryption fails, maybe it's not encrypted (fallback for old data)
-		decrypted = s
+	// Values carrying the scheme prefix must decrypt. A decryption failure here
+	// means the key is wrong or the column is corrupt; returning the raw bytes
+	// as if they were cleartext (the previous behaviour) would silently hand
+	// ciphertext to the caller as business data.
+	if crypto.IsCiphertext(s) {
+		decrypted, err := crypto.Decrypt(s)
+		if err != nil {
+			return fmt.Errorf("decrypt variables column: %w", err)
+		}
+		return json.Unmarshal([]byte(decrypted), m)
 	}
 
-	return json.Unmarshal([]byte(decrypted), m)
+	// No prefix: a row written before encryption was introduced. Read it as
+	// cleartext JSON so existing deployments keep working; the next write
+	// re-persists it encrypted.
+	return json.Unmarshal([]byte(s), m)
 }
 
 // Value marshals and encrypts the map for the database.
+//
+// An encryption failure is returned rather than swallowed. The previous version
+// wrote the plaintext JSON instead, so a misconfigured or missing key silently
+// downgraded every subsequent write to cleartext with nothing in the logs.
 func (m EncryptedMap) Value() (driver.Value, error) {
 	if m == nil {
 		return nil, nil
@@ -74,7 +90,7 @@ func (m EncryptedMap) Value() (driver.Value, error) {
 
 	encrypted, err := crypto.Encrypt(string(b))
 	if err != nil {
-		return string(b), nil // Fallback to plain JSON if encryption fails? Or return error?
+		return nil, fmt.Errorf("encrypt variables column: %w", err)
 	}
 
 	return encrypted, nil

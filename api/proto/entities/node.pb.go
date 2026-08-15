@@ -9,6 +9,7 @@ package entities
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -21,18 +22,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Node is one element of a process: an event, a task, a gateway or a
+// sub-process.
+//
+// This carries the whole domain node rather than a summary of it. It used to
+// stop at candidate_groups, which meant the settings that make a node do
+// anything — the decision it applies, the endpoint it calls, how its inputs and
+// outputs are named — had no field to travel in and were dropped in transit.
+// The definition still saved, so the loss showed up later as a process that ran
+// but did nothing.
 type Node struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Type            string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
-	Assignee        string                 `protobuf:"bytes,4,opt,name=assignee,proto3" json:"assignee,omitempty"`
+	Assignee        *User                  `protobuf:"bytes,4,opt,name=assignee,proto3" json:"assignee,omitempty"`
 	Incoming        []string               `protobuf:"bytes,5,rep,name=incoming,proto3" json:"incoming,omitempty"`
 	Outgoing        []string               `protobuf:"bytes,6,rep,name=outgoing,proto3" json:"outgoing,omitempty"`
 	CandidateUsers  []*User                `protobuf:"bytes,7,rep,name=candidate_users,json=candidateUsers,proto3" json:"candidate_users,omitempty"`
 	CandidateGroups []*Group               `protobuf:"bytes,8,rep,name=candidate_groups,json=candidateGroups,proto3" json:"candidate_groups,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// properties holds per-type settings: decision_key on a business rule task,
+	// http_url and the input_/output_ mappings on a service task, form_definition
+	// on a user task. Struct rather than map<string, string> because a value may
+	// be a number or a boolean, and rewriting those as text would not survive the
+	// round trip.
+	Properties    *structpb.Struct `protobuf:"bytes,9,opt,name=properties,proto3" json:"properties,omitempty"`
+	Documentation string           `protobuf:"bytes,10,opt,name=documentation,proto3" json:"documentation,omitempty"`
+	FormKey       string           `protobuf:"bytes,11,opt,name=form_key,json=formKey,proto3" json:"form_key,omitempty"`
+	DefaultFlow   string           `protobuf:"bytes,12,opt,name=default_flow,json=defaultFlow,proto3" json:"default_flow,omitempty"`
+	Script        string           `protobuf:"bytes,13,opt,name=script,proto3" json:"script,omitempty"`
+	ScriptFormat  string           `protobuf:"bytes,14,opt,name=script_format,json=scriptFormat,proto3" json:"script_format,omitempty"`
+	ExternalTopic string           `protobuf:"bytes,15,opt,name=external_topic,json=externalTopic,proto3" json:"external_topic,omitempty"`
+	Priority      int32            `protobuf:"varint,16,opt,name=priority,proto3" json:"priority,omitempty"`
+	DueDate       string           `protobuf:"bytes,17,opt,name=due_date,json=dueDate,proto3" json:"due_date,omitempty"`
+	Condition     string           `protobuf:"bytes,18,opt,name=condition,proto3" json:"condition,omitempty"`
+	// Boundary events and sub-process membership.
+	AttachedToRef     string `protobuf:"bytes,19,opt,name=attached_to_ref,json=attachedToRef,proto3" json:"attached_to_ref,omitempty"`
+	ParentId          string `protobuf:"bytes,20,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	CancelActivity    bool   `protobuf:"varint,21,opt,name=cancel_activity,json=cancelActivity,proto3" json:"cancel_activity,omitempty"`
+	ErrorCode         string `protobuf:"bytes,22,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	IsAdHoc           bool   `protobuf:"varint,23,opt,name=is_ad_hoc,json=isAdHoc,proto3" json:"is_ad_hoc,omitempty"`
+	IsEventSubProcess bool   `protobuf:"varint,24,opt,name=is_event_sub_process,json=isEventSubProcess,proto3" json:"is_event_sub_process,omitempty"`
+	// Multi-instance ("do this once per item in a collection").
+	MultiInstanceType   string `protobuf:"bytes,25,opt,name=multi_instance_type,json=multiInstanceType,proto3" json:"multi_instance_type,omitempty"`
+	LoopCardinality     int32  `protobuf:"varint,26,opt,name=loop_cardinality,json=loopCardinality,proto3" json:"loop_cardinality,omitempty"`
+	Collection          string `protobuf:"bytes,27,opt,name=collection,proto3" json:"collection,omitempty"`
+	ElementVariable     string `protobuf:"bytes,28,opt,name=element_variable,json=elementVariable,proto3" json:"element_variable,omitempty"`
+	CompletionCondition string `protobuf:"bytes,29,opt,name=completion_condition,json=completionCondition,proto3" json:"completion_condition,omitempty"`
+	// Diagram position, so a saved process reopens looking the way it was drawn.
+	X int32 `protobuf:"varint,30,opt,name=x,proto3" json:"x,omitempty"`
+	Y int32 `protobuf:"varint,31,opt,name=y,proto3" json:"y,omitempty"`
+	// A sub-process holds its own nodes and flows.
+	Nodes         []*Node `protobuf:"bytes,32,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	Flows         []*Flow `protobuf:"bytes,33,rep,name=flows,proto3" json:"flows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Node) Reset() {
@@ -86,11 +130,11 @@ func (x *Node) GetType() string {
 	return ""
 }
 
-func (x *Node) GetAssignee() string {
+func (x *Node) GetAssignee() *User {
 	if x != nil {
 		return x.Assignee
 	}
-	return ""
+	return nil
 }
 
 func (x *Node) GetIncoming() []string {
@@ -121,20 +165,226 @@ func (x *Node) GetCandidateGroups() []*Group {
 	return nil
 }
 
+func (x *Node) GetProperties() *structpb.Struct {
+	if x != nil {
+		return x.Properties
+	}
+	return nil
+}
+
+func (x *Node) GetDocumentation() string {
+	if x != nil {
+		return x.Documentation
+	}
+	return ""
+}
+
+func (x *Node) GetFormKey() string {
+	if x != nil {
+		return x.FormKey
+	}
+	return ""
+}
+
+func (x *Node) GetDefaultFlow() string {
+	if x != nil {
+		return x.DefaultFlow
+	}
+	return ""
+}
+
+func (x *Node) GetScript() string {
+	if x != nil {
+		return x.Script
+	}
+	return ""
+}
+
+func (x *Node) GetScriptFormat() string {
+	if x != nil {
+		return x.ScriptFormat
+	}
+	return ""
+}
+
+func (x *Node) GetExternalTopic() string {
+	if x != nil {
+		return x.ExternalTopic
+	}
+	return ""
+}
+
+func (x *Node) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *Node) GetDueDate() string {
+	if x != nil {
+		return x.DueDate
+	}
+	return ""
+}
+
+func (x *Node) GetCondition() string {
+	if x != nil {
+		return x.Condition
+	}
+	return ""
+}
+
+func (x *Node) GetAttachedToRef() string {
+	if x != nil {
+		return x.AttachedToRef
+	}
+	return ""
+}
+
+func (x *Node) GetParentId() string {
+	if x != nil {
+		return x.ParentId
+	}
+	return ""
+}
+
+func (x *Node) GetCancelActivity() bool {
+	if x != nil {
+		return x.CancelActivity
+	}
+	return false
+}
+
+func (x *Node) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *Node) GetIsAdHoc() bool {
+	if x != nil {
+		return x.IsAdHoc
+	}
+	return false
+}
+
+func (x *Node) GetIsEventSubProcess() bool {
+	if x != nil {
+		return x.IsEventSubProcess
+	}
+	return false
+}
+
+func (x *Node) GetMultiInstanceType() string {
+	if x != nil {
+		return x.MultiInstanceType
+	}
+	return ""
+}
+
+func (x *Node) GetLoopCardinality() int32 {
+	if x != nil {
+		return x.LoopCardinality
+	}
+	return 0
+}
+
+func (x *Node) GetCollection() string {
+	if x != nil {
+		return x.Collection
+	}
+	return ""
+}
+
+func (x *Node) GetElementVariable() string {
+	if x != nil {
+		return x.ElementVariable
+	}
+	return ""
+}
+
+func (x *Node) GetCompletionCondition() string {
+	if x != nil {
+		return x.CompletionCondition
+	}
+	return ""
+}
+
+func (x *Node) GetX() int32 {
+	if x != nil {
+		return x.X
+	}
+	return 0
+}
+
+func (x *Node) GetY() int32 {
+	if x != nil {
+		return x.Y
+	}
+	return 0
+}
+
+func (x *Node) GetNodes() []*Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *Node) GetFlows() []*Flow {
+	if x != nil {
+		return x.Flows
+	}
+	return nil
+}
+
 var File_entities_node_proto protoreflect.FileDescriptor
 
 const file_entities_node_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/node.proto\x12\aprocess\x1a\x13entities/user.proto\x1a\x14entities/group.proto\"\x85\x02\n" +
+	"\x13entities/node.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x13entities/flow.proto\"\x83\t\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x03 \x01(\tR\x04type\x12\x1a\n" +
-	"\bassignee\x18\x04 \x01(\tR\bassignee\x12\x1a\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12)\n" +
+	"\bassignee\x18\x04 \x01(\v2\r.process.UserR\bassignee\x12\x1a\n" +
 	"\bincoming\x18\x05 \x03(\tR\bincoming\x12\x1a\n" +
 	"\boutgoing\x18\x06 \x03(\tR\boutgoing\x126\n" +
 	"\x0fcandidate_users\x18\a \x03(\v2\r.process.UserR\x0ecandidateUsers\x129\n" +
-	"\x10candidate_groups\x18\b \x03(\v2\x0e.process.GroupR\x0fcandidateGroupsB\x8b\x01\n" +
+	"\x10candidate_groups\x18\b \x03(\v2\x0e.process.GroupR\x0fcandidateGroups\x127\n" +
+	"\n" +
+	"properties\x18\t \x01(\v2\x17.google.protobuf.StructR\n" +
+	"properties\x12$\n" +
+	"\rdocumentation\x18\n" +
+	" \x01(\tR\rdocumentation\x12\x19\n" +
+	"\bform_key\x18\v \x01(\tR\aformKey\x12!\n" +
+	"\fdefault_flow\x18\f \x01(\tR\vdefaultFlow\x12\x16\n" +
+	"\x06script\x18\r \x01(\tR\x06script\x12#\n" +
+	"\rscript_format\x18\x0e \x01(\tR\fscriptFormat\x12%\n" +
+	"\x0eexternal_topic\x18\x0f \x01(\tR\rexternalTopic\x12\x1a\n" +
+	"\bpriority\x18\x10 \x01(\x05R\bpriority\x12\x19\n" +
+	"\bdue_date\x18\x11 \x01(\tR\adueDate\x12\x1c\n" +
+	"\tcondition\x18\x12 \x01(\tR\tcondition\x12&\n" +
+	"\x0fattached_to_ref\x18\x13 \x01(\tR\rattachedToRef\x12\x1b\n" +
+	"\tparent_id\x18\x14 \x01(\tR\bparentId\x12'\n" +
+	"\x0fcancel_activity\x18\x15 \x01(\bR\x0ecancelActivity\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x16 \x01(\tR\terrorCode\x12\x1a\n" +
+	"\tis_ad_hoc\x18\x17 \x01(\bR\aisAdHoc\x12/\n" +
+	"\x14is_event_sub_process\x18\x18 \x01(\bR\x11isEventSubProcess\x12.\n" +
+	"\x13multi_instance_type\x18\x19 \x01(\tR\x11multiInstanceType\x12)\n" +
+	"\x10loop_cardinality\x18\x1a \x01(\x05R\x0floopCardinality\x12\x1e\n" +
+	"\n" +
+	"collection\x18\x1b \x01(\tR\n" +
+	"collection\x12)\n" +
+	"\x10element_variable\x18\x1c \x01(\tR\x0felementVariable\x121\n" +
+	"\x14completion_condition\x18\x1d \x01(\tR\x13completionCondition\x12\f\n" +
+	"\x01x\x18\x1e \x01(\x05R\x01x\x12\f\n" +
+	"\x01y\x18\x1f \x01(\x05R\x01y\x12#\n" +
+	"\x05nodes\x18  \x03(\v2\r.process.NodeR\x05nodes\x12#\n" +
+	"\x05flows\x18! \x03(\v2\r.process.FlowR\x05flowsB\x8b\x01\n" +
 	"\vcom.processB\tNodeProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -151,18 +401,24 @@ func file_entities_node_proto_rawDescGZIP() []byte {
 
 var file_entities_node_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_entities_node_proto_goTypes = []any{
-	(*Node)(nil),  // 0: process.Node
-	(*User)(nil),  // 1: process.User
-	(*Group)(nil), // 2: process.Group
+	(*Node)(nil),            // 0: process.Node
+	(*User)(nil),            // 1: process.User
+	(*Group)(nil),           // 2: process.Group
+	(*structpb.Struct)(nil), // 3: google.protobuf.Struct
+	(*Flow)(nil),            // 4: process.Flow
 }
 var file_entities_node_proto_depIdxs = []int32{
-	1, // 0: process.Node.candidate_users:type_name -> process.User
-	2, // 1: process.Node.candidate_groups:type_name -> process.Group
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: process.Node.assignee:type_name -> process.User
+	1, // 1: process.Node.candidate_users:type_name -> process.User
+	2, // 2: process.Node.candidate_groups:type_name -> process.Group
+	3, // 3: process.Node.properties:type_name -> google.protobuf.Struct
+	0, // 4: process.Node.nodes:type_name -> process.Node
+	4, // 5: process.Node.flows:type_name -> process.Flow
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_entities_node_proto_init() }
@@ -172,6 +428,7 @@ func file_entities_node_proto_init() {
 	}
 	file_entities_user_proto_init()
 	file_entities_group_proto_init()
+	file_entities_flow_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

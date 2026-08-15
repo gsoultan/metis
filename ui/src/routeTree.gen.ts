@@ -9,40 +9,40 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SetupRouteImport } from './routes/setup'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
-import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
-import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
-import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
-import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated.projects'
-import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated.profile'
-import { Route as AuthenticatedOrganizationsRouteImport } from './routes/_authenticated.organizations'
-import { Route as AuthenticatedModelsRouteImport } from './routes/_authenticated.models'
-import { Route as AuthenticatedInstancesRouteImport } from './routes/_authenticated.instances'
-import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated.inbox'
-import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated.groups'
-import { Route as AuthenticatedDesignerRouteImport } from './routes/_authenticated.designer'
-import { Route as AuthenticatedDefinitionsRouteImport } from './routes/_authenticated.definitions'
-import { Route as AuthenticatedDecisionsRouteImport } from './routes/_authenticated.decisions'
-import { Route as AuthenticatedDecisionEditorRouteImport } from './routes/_authenticated.decision-editor'
 import { Route as AuthenticatedConnectorsRouteImport } from './routes/_authenticated.connectors'
+import { Route as AuthenticatedDecisionEditorRouteImport } from './routes/_authenticated.decision-editor'
+import { Route as AuthenticatedDecisionsRouteImport } from './routes/_authenticated.decisions'
+import { Route as AuthenticatedDefinitionsRouteImport } from './routes/_authenticated.definitions'
+import { Route as AuthenticatedDesignerRouteImport } from './routes/_authenticated.designer'
+import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated.groups'
+import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated.inbox'
+import { Route as AuthenticatedInstancesRouteImport } from './routes/_authenticated.instances'
+import { Route as AuthenticatedModelsRouteImport } from './routes/_authenticated.models'
+import { Route as AuthenticatedOrganizationsRouteImport } from './routes/_authenticated.organizations'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated.profile'
+import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated.projects'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
+import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
+import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
 
-const SetupRoute = SetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/setup.lazy').then((d) => d.Route))
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/login.lazy').then((d) => d.Route))
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/setup.lazy').then((d) => d.Route))
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -50,35 +50,61 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_authenticated.index.lazy').then((d) => d.Route),
 )
-const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
+const AuthenticatedConnectorsRoute = AuthenticatedConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
   getParentRoute: () => AuthenticatedRoute,
 } as any).lazy(() =>
-  import('./routes/_authenticated.users.lazy').then((d) => d.Route),
+  import('./routes/_authenticated.connectors.lazy').then((d) => d.Route),
 )
-const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => AuthenticatedRoute,
-} as any).lazy(() =>
-  import('./routes/_authenticated.tasks.lazy').then((d) => d.Route),
-)
-const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+const AuthenticatedDecisionEditorRoute =
+  AuthenticatedDecisionEditorRouteImport.update({
+    id: '/decision-editor',
+    path: '/decision-editor',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedDecisionsRoute = AuthenticatedDecisionsRouteImport.update({
+  id: '/decisions',
+  path: '/decisions',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
-  id: '/projects',
-  path: '/projects',
+const AuthenticatedDefinitionsRoute =
+  AuthenticatedDefinitionsRouteImport.update({
+    id: '/definitions',
+    path: '/definitions',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedDesignerRoute = AuthenticatedDesignerRouteImport.update({
+  id: '/designer',
+  path: '/designer',
   getParentRoute: () => AuthenticatedRoute,
 } as any).lazy(() =>
-  import('./routes/_authenticated.projects.lazy').then((d) => d.Route),
+  import('./routes/_authenticated.designer.lazy').then((d) => d.Route),
 )
-const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
+const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
+  id: '/groups',
+  path: '/groups',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.groups.lazy').then((d) => d.Route),
+)
+const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.inbox.lazy').then((d) => d.Route),
+)
+const AuthenticatedInstancesRoute = AuthenticatedInstancesRouteImport.update({
+  id: '/instances',
+  path: '/instances',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.instances.lazy').then((d) => d.Route),
+)
+const AuthenticatedModelsRoute = AuthenticatedModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedOrganizationsRoute =
@@ -89,62 +115,36 @@ const AuthenticatedOrganizationsRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated.organizations.lazy').then((d) => d.Route),
   )
-const AuthenticatedModelsRoute = AuthenticatedModelsRouteImport.update({
-  id: '/models',
-  path: '/models',
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedInstancesRoute = AuthenticatedInstancesRouteImport.update({
-  id: '/instances',
-  path: '/instances',
+const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
   getParentRoute: () => AuthenticatedRoute,
 } as any).lazy(() =>
-  import('./routes/_authenticated.instances.lazy').then((d) => d.Route),
+  import('./routes/_authenticated.projects.lazy').then((d) => d.Route),
 )
-const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
-  id: '/inbox',
-  path: '/inbox',
-  getParentRoute: () => AuthenticatedRoute,
-} as any).lazy(() =>
-  import('./routes/_authenticated.inbox.lazy').then((d) => d.Route),
-)
-const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
-  id: '/groups',
-  path: '/groups',
-  getParentRoute: () => AuthenticatedRoute,
-} as any).lazy(() =>
-  import('./routes/_authenticated.groups.lazy').then((d) => d.Route),
-)
-const AuthenticatedDesignerRoute = AuthenticatedDesignerRouteImport.update({
-  id: '/designer',
-  path: '/designer',
-  getParentRoute: () => AuthenticatedRoute,
-} as any).lazy(() =>
-  import('./routes/_authenticated.designer.lazy').then((d) => d.Route),
-)
-const AuthenticatedDefinitionsRoute =
-  AuthenticatedDefinitionsRouteImport.update({
-    id: '/definitions',
-    path: '/definitions',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedDecisionsRoute = AuthenticatedDecisionsRouteImport.update({
-  id: '/decisions',
-  path: '/decisions',
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedDecisionEditorRoute =
-  AuthenticatedDecisionEditorRouteImport.update({
-    id: '/decision-editor',
-    path: '/decision-editor',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedConnectorsRoute = AuthenticatedConnectorsRouteImport.update({
-  id: '/connectors',
-  path: '/connectors',
+const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => AuthenticatedRoute,
 } as any).lazy(() =>
-  import('./routes/_authenticated.connectors.lazy').then((d) => d.Route),
+  import('./routes/_authenticated.tasks.lazy').then((d) => d.Route),
+)
+const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.users.lazy').then((d) => d.Route),
 )
 
 export interface FileRoutesByFullPath {
@@ -281,11 +281,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/setup': {
-      id: '/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof SetupRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -295,11 +295,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteImport
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/': {
@@ -309,95 +309,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/users': {
-      id: '/_authenticated/users'
-      path: '/users'
-      fullPath: '/users'
-      preLoaderRoute: typeof AuthenticatedUsersRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/tasks': {
-      id: '/_authenticated/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof AuthenticatedTasksRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/projects': {
-      id: '/_authenticated/projects'
-      path: '/projects'
-      fullPath: '/projects'
-      preLoaderRoute: typeof AuthenticatedProjectsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/profile': {
-      id: '/_authenticated/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof AuthenticatedProfileRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/organizations': {
-      id: '/_authenticated/organizations'
-      path: '/organizations'
-      fullPath: '/organizations'
-      preLoaderRoute: typeof AuthenticatedOrganizationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/models': {
-      id: '/_authenticated/models'
-      path: '/models'
-      fullPath: '/models'
-      preLoaderRoute: typeof AuthenticatedModelsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/instances': {
-      id: '/_authenticated/instances'
-      path: '/instances'
-      fullPath: '/instances'
-      preLoaderRoute: typeof AuthenticatedInstancesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/inbox': {
-      id: '/_authenticated/inbox'
-      path: '/inbox'
-      fullPath: '/inbox'
-      preLoaderRoute: typeof AuthenticatedInboxRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/groups': {
-      id: '/_authenticated/groups'
-      path: '/groups'
-      fullPath: '/groups'
-      preLoaderRoute: typeof AuthenticatedGroupsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/designer': {
-      id: '/_authenticated/designer'
-      path: '/designer'
-      fullPath: '/designer'
-      preLoaderRoute: typeof AuthenticatedDesignerRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/definitions': {
-      id: '/_authenticated/definitions'
-      path: '/definitions'
-      fullPath: '/definitions'
-      preLoaderRoute: typeof AuthenticatedDefinitionsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/decisions': {
-      id: '/_authenticated/decisions'
-      path: '/decisions'
-      fullPath: '/decisions'
-      preLoaderRoute: typeof AuthenticatedDecisionsRouteImport
+    '/_authenticated/connectors': {
+      id: '/_authenticated/connectors'
+      path: '/connectors'
+      fullPath: '/connectors'
+      preLoaderRoute: typeof AuthenticatedConnectorsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/decision-editor': {
@@ -407,11 +323,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDecisionEditorRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/connectors': {
-      id: '/_authenticated/connectors'
-      path: '/connectors'
-      fullPath: '/connectors'
-      preLoaderRoute: typeof AuthenticatedConnectorsRouteImport
+    '/_authenticated/decisions': {
+      id: '/_authenticated/decisions'
+      path: '/decisions'
+      fullPath: '/decisions'
+      preLoaderRoute: typeof AuthenticatedDecisionsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/definitions': {
+      id: '/_authenticated/definitions'
+      path: '/definitions'
+      fullPath: '/definitions'
+      preLoaderRoute: typeof AuthenticatedDefinitionsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/designer': {
+      id: '/_authenticated/designer'
+      path: '/designer'
+      fullPath: '/designer'
+      preLoaderRoute: typeof AuthenticatedDesignerRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/groups': {
+      id: '/_authenticated/groups'
+      path: '/groups'
+      fullPath: '/groups'
+      preLoaderRoute: typeof AuthenticatedGroupsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/inbox': {
+      id: '/_authenticated/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AuthenticatedInboxRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/instances': {
+      id: '/_authenticated/instances'
+      path: '/instances'
+      fullPath: '/instances'
+      preLoaderRoute: typeof AuthenticatedInstancesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/models': {
+      id: '/_authenticated/models'
+      path: '/models'
+      fullPath: '/models'
+      preLoaderRoute: typeof AuthenticatedModelsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/organizations': {
+      id: '/_authenticated/organizations'
+      path: '/organizations'
+      fullPath: '/organizations'
+      preLoaderRoute: typeof AuthenticatedOrganizationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/projects': {
+      id: '/_authenticated/projects'
+      path: '/projects'
+      fullPath: '/projects'
+      preLoaderRoute: typeof AuthenticatedProjectsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/tasks': {
+      id: '/_authenticated/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AuthenticatedTasksRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/users': {
+      id: '/_authenticated/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
   }

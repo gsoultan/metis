@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -52,16 +53,46 @@ func MakeGetTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 func MakeListTasksByAssigneeEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(ListTasksByAssigneeRequest)
-		tasks, err := s.ListTasksByAssignee(ctx, req.Assignee)
-		return ListTasksResponse{Tasks: tasks, Err: err}, nil
+
+		page, err := s.ListTasksByAssigneePaged(ctx, req.Assignee, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return ListTasksResponse{
+			Tasks: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 
 func MakeListTasksByCandidatesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(ListTasksByCandidatesRequest)
-		tasks, err := s.ListTasksByCandidates(ctx, req.UserID, req.Groups)
-		return ListTasksResponse{Tasks: tasks, Err: err}, nil
+
+		page, err := s.ListTasksByCandidatesPaged(ctx, req.UserID, req.Groups, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return ListTasksResponse{
+			Tasks: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 
@@ -112,8 +143,22 @@ func MakeListTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 				return ListTasksResponse{Err: err}, nil
 			}
 		}
-		tasks, err := s.ListTasks(ctx, projectID)
-		return ListTasksResponse{Tasks: tasks, Err: err}, nil
+		page, err := s.ListTasksPaged(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return ListTasksResponse{
+			Tasks: page.Items,
+			Page: &PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
 	}
 }
 

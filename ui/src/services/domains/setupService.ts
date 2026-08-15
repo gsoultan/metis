@@ -1,7 +1,21 @@
 import { requestJSON } from "../shared/rest";
 import type { SetupRequest } from "../types";
 
-export type SetupStatus = 'not_configured' | 'configured' | 'ready';
+/**
+ * Mirrors contracts.SetupStatus on the server, which serialises as
+ * `{"status":{"is_initialized":false}}`.
+ *
+ * This was previously declared as the string union
+ * 'not_configured' | 'configured' | 'ready', which no endpoint has ever
+ * returned. Every consumer already reads `status.is_initialized` — the three
+ * route guards that decide whether to show the setup wizard, the login page or
+ * the app — so the declaration contradicted both the wire format and its own
+ * callers. Nothing caught it because the processService facade was typed
+ * `any`, which erased the mismatch at every call site.
+ */
+export interface SetupStatus {
+  is_initialized: boolean;
+}
 
 export const setupService = {
   async getSetupStatus(signal?: AbortSignal) {

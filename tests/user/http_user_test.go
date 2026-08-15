@@ -62,7 +62,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	defSvc := service_impl.NewDefinitionService(repo)
 	connectorSvc := service_impl.NewConnectorService(repo)
 	engine := service_impl.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl.NewTaskService(repo, engine)
+	taskSvc := service_impl.NewTaskService(repo, engine, service_impl.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl.NewJobService(repo, engine, connectorSvc, service_impl.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl.NewDecisionService(repo, service_impl.NewDecisionTableEvaluator(service_impl.NewFEELEvaluator()))
@@ -70,7 +70,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl.NewCollaborationService(sse)
 
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl.NewFEELEvaluator(), repo.Subscription())
+	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription())
 	engine.Apply(
 		service_impl.WithHandlerFactory(handlerFactory),
 		service_impl.WithJobService(jobSvc),

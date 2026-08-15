@@ -51,7 +51,7 @@ func (s *deploymentService) Deploy(ctx context.Context, projectID uuid.UUID, nam
 		// For each resource, try to parse and create process definition
 		for _, res := range resources {
 			if res.Type == "BPMN_JSON" || res.Type == "JSON" {
-				var def entities.ProcessDefinition
+				var def *entities.ProcessDefinition
 				if err := json.Unmarshal(res.Content, &def); err != nil {
 					continue // Skip if not a valid process definition
 				}

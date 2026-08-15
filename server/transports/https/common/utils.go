@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
@@ -40,4 +42,25 @@ func CodeFrom(err error) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+// PageParams reads ?page= and ?page_size= from a request.
+//
+// Zero means "not supplied", which the pagination contract reads as the first
+// page at the server default — so a caller that knows nothing about paging
+// still gets a bounded response rather than everything.
+//
+// A value that is not a number is treated as absent rather than as an error: a
+// malformed page number is not worth failing a read over, and the contract
+// clamps whatever it is given anyway.
+func PageParams(r *http.Request) (page int, pageSize int) {
+	return atoiOrZero(r.URL.Query().Get("page")), atoiOrZero(r.URL.Query().Get("page_size"))
+}
+
+func atoiOrZero(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

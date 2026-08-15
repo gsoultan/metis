@@ -1,14 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
 
-export const useDecisions = () => {
+type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
+
+type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
+
+export const useDecisions = (page = 1, pageSize = 25) => {
   const { currentProjectId } = useAppStore();
   return useQuery({
-    queryKey: ['decisions', currentProjectId],
+    queryKey: ['decisions', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
-      currentProjectId ? processService.listDecisions(currentProjectId, signal) : Promise.resolve({ decisions: [], err: "" }),
+      currentProjectId
+        ? processService.listDecisions(currentProjectId, { page, pageSize }, signal)
+        : Promise.resolve({ decisions: [], err: undefined, pageInfo: undefined } as DecisionsResult),
     enabled: !!currentProjectId,
+    placeholderData: (previous) => previous,
   });
 };
 
@@ -16,7 +24,9 @@ export const useDecision = (id: string | null) => {
   return useQuery({
     queryKey: ['decision', id],
     queryFn: ({ signal }) =>
-      id ? processService.getDecision(id, signal) : Promise.resolve({ decision: null, err: "" }),
+      id
+        ? processService.getDecision(id, signal)
+        : Promise.resolve({ decision: undefined, err: undefined } as DecisionResult),
     enabled: !!id,
   });
 };
@@ -25,8 +35,11 @@ export const useCreateDecision = () => {
   const { currentProjectId } = useAppStore();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: any) => 
-      processService.createDecision({ ...params, project_id: currentProjectId }),
+    mutationFn: (params: CreateDecisionPayload) =>
+      // The API reads a nested project, not a project_id. Sending the id meant
+      // the decision was stored belonging to no project, so it never appeared
+      // in the project's list again.
+      processService.createDecision({ ...params, project: currentProjectId ? { id: currentProjectId } : undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
     },
@@ -36,7 +49,7 @@ export const useCreateDecision = () => {
 export const useUpdateDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...params }: any) => 
+    mutationFn: ({ id, ...params }: CreateDecisionPayload & { id: string }) =>
       processService.updateDecision(id, params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
@@ -57,7 +70,7 @@ export const useDeleteDecision = () => {
 
 export const useEvaluateDecision = () => {
   return useMutation({
-    mutationFn: ({ key, variables, version }: { key: string, variables: any, version?: number }) => 
+    mutationFn: ({ key, variables, version }: { key: string; variables: ProcessVariables; version?: number }) => 
       processService.evaluateDecision(key, variables, version),
   });
 };

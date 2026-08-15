@@ -23,8 +23,10 @@ const (
 )
 
 type ListTasksRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProjectId     string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ProjectId string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	// Optional; see PageRequest.
+	Page          *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,10 +68,21 @@ func (x *ListTasksRequest) GetProjectId() string {
 	return ""
 }
 
+func (x *ListTasksRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// Shared by ListTasks, ListTasksByAssignee and ListTasksByCandidates.
 type ListTasksResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tasks         []*entities.Task       `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Tasks []*entities.Task       `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	Error string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Absent when the caller did not page, so an old client sees exactly the
+	// response it saw before.
+	Page          *PageInfo `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -118,17 +131,26 @@ func (x *ListTasksResponse) GetError() string {
 	return ""
 }
 
+func (x *ListTasksResponse) GetPage() *PageInfo {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 var File_endpoints_list_tasks_proto protoreflect.FileDescriptor
 
 const file_endpoints_list_tasks_proto_rawDesc = "" +
 	"\n" +
-	"\x1aendpoints/list_tasks.proto\x12\aprocess\x1a\x13entities/task.proto\"1\n" +
+	"\x1aendpoints/list_tasks.proto\x12\aprocess\x1a\x13entities/task.proto\x1a\x14endpoints/page.proto\"[\n" +
 	"\x10ListTasksRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x01 \x01(\tR\tprojectId\"N\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\x12(\n" +
+	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04page\"u\n" +
 	"\x11ListTasksResponse\x12#\n" +
 	"\x05tasks\x18\x01 \x03(\v2\r.process.TaskR\x05tasks\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05errorB\x92\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12%\n" +
+	"\x04page\x18\x03 \x01(\v2\x11.process.PageInfoR\x04pageB\x92\x01\n" +
 	"\vcom.processB\x0eListTasksProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -147,15 +169,19 @@ var file_endpoints_list_tasks_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_endpoints_list_tasks_proto_goTypes = []any{
 	(*ListTasksRequest)(nil),  // 0: process.ListTasksRequest
 	(*ListTasksResponse)(nil), // 1: process.ListTasksResponse
-	(*entities.Task)(nil),     // 2: process.Task
+	(*PageRequest)(nil),       // 2: process.PageRequest
+	(*entities.Task)(nil),     // 3: process.Task
+	(*PageInfo)(nil),          // 4: process.PageInfo
 }
 var file_endpoints_list_tasks_proto_depIdxs = []int32{
-	2, // 0: process.ListTasksResponse.tasks:type_name -> process.Task
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: process.ListTasksRequest.page:type_name -> process.PageRequest
+	3, // 1: process.ListTasksResponse.tasks:type_name -> process.Task
+	4, // 2: process.ListTasksResponse.page:type_name -> process.PageInfo
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_endpoints_list_tasks_proto_init() }
@@ -163,6 +189,7 @@ func file_endpoints_list_tasks_proto_init() {
 	if File_endpoints_list_tasks_proto != nil {
 		return
 	}
+	file_endpoints_page_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

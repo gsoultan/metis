@@ -45,8 +45,11 @@ func RegisterHandlers(m *http.ServeMux, eps definition.Endpoints, options []http
 }
 
 func decodeListDefinitionsRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
 	return definition.ListDefinitionsRequest{
 		ProjectID: r.URL.Query().Get("project_id"),
+		Page:      page,
+		PageSize:  pageSize,
 	}, nil
 }
 

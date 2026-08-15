@@ -1,5 +1,9 @@
 ### Gobpm Production Roadmap (Scalability, Reliability, Security, UX)
 
+> **Sequenced execution plan:** see [`execution-plan.md`](execution-plan.md) — Phases 0–5 with
+> ordering, sizing, verified dependency versions, and exit gates. This file holds the *themes*;
+> `execution-plan.md` holds the *order*. Phase 0 (green verification gate) blocks all other work.
+
 #### 1. Production SLO Targets (Non-Negotiable)
 
 1. API latency targets:

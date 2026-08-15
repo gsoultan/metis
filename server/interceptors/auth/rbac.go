@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"slices"
 
 	"github.com/go-kit/kit/endpoint"
 	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
@@ -81,7 +80,11 @@ func (i *rbacInterceptor) hasRequiredRole(callerRoles []string) bool {
 		return true
 	}
 	for _, required := range i.requiredRoles {
-		if slices.Contains(callerRoles, required) {
+		// Case-insensitive: setup seeds "ADMIN" but tokens minted elsewhere may
+		// carry "admin". A case mismatch here would silently deny a legitimate
+		// administrator, which reads as a broken login rather than a policy
+		// decision.
+		if entities.HasRole(callerRoles, required) {
 			return true
 		}
 	}

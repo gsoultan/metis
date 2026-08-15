@@ -25,7 +25,7 @@ export interface FormField {
   type: 'text' | 'number' | 'date' | 'select' | 'boolean' | 'textarea' | 'section';
   placeholder?: string;
   description?: string;
-  defaultValue?: any;
+  defaultValue?: unknown;
   required?: boolean;
   gridSpan?: number; // 1 or 2
   options?: { value: string; label: string }[];
@@ -206,7 +206,7 @@ function FieldEditor({
       <Stack gap="sm">
         <Group justify="space-between" wrap="nowrap">
           <Group gap="xs">
-            <ActionIcon variant="subtle" color="gray" style={{ cursor: 'default' }}>
+            <ActionIcon aria-label="Reorder field" variant="subtle" color="gray" style={{ cursor: 'default' }}>
               <GripVertical size={16} />
             </ActionIcon>
             <TextInput 
@@ -219,16 +219,16 @@ function FieldEditor({
           </Group>
           <Group gap={4}>
             <Tooltip label="Move Up">
-              <ActionIcon variant="subtle" color="gray" size="sm" onClick={onMoveUp} disabled={isFirst}>
+              <ActionIcon aria-label="Add field" variant="subtle" color="gray" size="sm" onClick={onMoveUp} disabled={isFirst}>
                 <Plus size={14} style={{ transform: 'rotate(180deg)' }} />
               </ActionIcon>
             </Tooltip>
             <Tooltip label="Move Down">
-              <ActionIcon variant="subtle" color="gray" size="sm" onClick={onMoveDown} disabled={isLast}>
+              <ActionIcon aria-label="Add field" variant="subtle" color="gray" size="sm" onClick={onMoveDown} disabled={isLast}>
                 <Plus size={14} />
               </ActionIcon>
             </Tooltip>
-            <ActionIcon variant="light" color="red" size="sm" onClick={onRemove}>
+            <ActionIcon aria-label="Delete field" variant="light" color="red" size="sm" onClick={onRemove}>
               <Trash2 size={14} />
             </ActionIcon>
           </Group>
@@ -269,7 +269,7 @@ function FieldEditor({
                     { value: 'section', label: 'Section/Group' },
                   ]}
                   value={field.type}
-                  onChange={(val) => onUpdate({ type: val as any })}
+                  onChange={(val) => onUpdate({ type: val as FormField['type'] })}
                 />
               </Group>
 
@@ -348,7 +348,7 @@ function FieldEditor({
                           }}
                         />
                         <Box pt={i === 0 ? "xl" : 0}>
-                          <ActionIcon color="red" variant="subtle" size="sm" onClick={() => {
+                          <ActionIcon aria-label="Delete field" color="red" variant="subtle" size="sm" onClick={() => {
                               onUpdate({ options: field.options?.filter((_, idx) => idx !== i) });
                           }}>
                             <Trash2 size={12} />
@@ -421,7 +421,7 @@ function FieldEditor({
                   { value: 'endpoint', label: 'External Endpoint' },
                 ]}
                 value={field.dataSource?.type || 'static'}
-                onChange={(val) => onUpdate({ dataSource: { ...field.dataSource, type: val as any } })}
+                onChange={(val) => onUpdate({ dataSource: { ...field.dataSource, type: val as NonNullable<FormField['dataSource']>['type'] } })}
               />
               {field.dataSource?.type === 'variable' && (
                 <TextInput 

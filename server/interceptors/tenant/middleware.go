@@ -61,22 +61,3 @@ func (g *endpointTenantGuard) Intercept(next endpoint.Endpoint) endpoint.Endpoin
 		return next(ctx, request)
 	}
 }
-
-// HeaderTenantResolver resolves tenant from a configurable HTTP header (e.g., X-Tenant-ID).
-// Use this as the default resolver; swap for JWT-based resolver in production.
-type HeaderTenantResolver struct {
-	HeaderName string
-}
-
-// NewHeaderTenantResolver creates a HeaderTenantResolver that reads from the given header.
-func NewHeaderTenantResolver(headerName string) *HeaderTenantResolver {
-	return &HeaderTenantResolver{HeaderName: headerName}
-}
-
-func (r *HeaderTenantResolver) ResolveFromRequest(req *http.Request) (entities.TenantContext, error) {
-	id := req.Header.Get(r.HeaderName)
-	if id == "" {
-		return entities.TenantContext{}, ErrMissingTenant
-	}
-	return entities.TenantContext{TenantID: id}, nil
-}

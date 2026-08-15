@@ -60,6 +60,17 @@ func (o *AuditLogObserver) OnEvent(ctx context.Context, event entities.ProcessEv
 			nodeName = event.Node.Name
 		}
 		entry.Narrative = fmt.Sprintf("A new task '%s' is now pending.", nodeName)
+	case entities.EventTaskCanceled:
+		id := ""
+		if event.Node != nil {
+			id = event.Node.ID
+		}
+		entry.Message = "Task canceled for node: " + id
+		nodeName := "Human Action"
+		if event.Node != nil && event.Node.Name != "" {
+			nodeName = event.Node.Name
+		}
+		entry.Narrative = fmt.Sprintf("'%s' is no longer needed and has been withdrawn.", nodeName)
 	case entities.EventTaskClaimed:
 		id := ""
 		if event.Node != nil {

@@ -16,6 +16,7 @@ import { Bell, CheckCheck, Trash2, Info, AlertTriangle, ClipboardList } from 'lu
 import { useNotifications } from '../hooks/useNotification';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { ComingSoonButton } from './state/ComingSoon';
 
 dayjs.extend(relativeTime);
 
@@ -32,7 +33,7 @@ export function NotificationCenter() {
     <Popover width={400} position="bottom-end" withArrow shadow="md" radius="md">
       <Popover.Target>
         <Indicator label={unreadCount > 0 ? unreadCount : undefined} size={16} offset={4} color="red" disabled={unreadCount === 0}>
-          <ActionIcon variant="subtle" color="gray" size="lg" radius="xl">
+          <ActionIcon aria-label="Notifications" variant="subtle" color="gray" size="lg" radius="xl">
             <Bell size={20} />
           </ActionIcon>
         </Indicator>
@@ -63,7 +64,7 @@ export function NotificationCenter() {
               </Stack>
             ) : (
               <Stack gap={0}>
-                {notifications.map((n: any) => (
+                {notifications.map((n) => (
                   <Paper 
                     key={n.id} 
                     p="md" 
@@ -89,7 +90,7 @@ export function NotificationCenter() {
                       <Stack gap={2} style={{ flex: 1 }}>
                         <Group justify="space-between" wrap="nowrap">
                           <Text size="sm" fw={700}>{n.title}</Text>
-                          <ActionIcon 
+                          <ActionIcon aria-label="Delete notification" 
                             variant="subtle" 
                             color="gray" 
                             size="xs" 
@@ -114,9 +115,9 @@ export function NotificationCenter() {
           <Divider />
           
           <Box p="xs">
-            <Button variant="subtle" fullWidth size="xs" color="gray">
+            <ComingSoonButton variant="subtle" fullWidth size="xs" color="gray" label="A full notification history view is not built yet">
               View all notification history
-            </Button>
+            </ComingSoonButton>
           </Box>
         </Stack>
       </Popover.Dropdown>

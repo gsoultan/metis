@@ -3,7 +3,13 @@ syntax = "proto3";
 package process;
 
 import "endpoints/list_tasks.proto";
+import "endpoints/page.proto";
 
 option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
 
-message ListTasksByAssigneeRequest { string assignee = 1; }
+message ListTasksByAssigneeRequest {
+  string assignee = 1;
+  // Optional. Omitted means the first page at the server default size, so
+  // clients written before paging existed keep working unchanged.
+  PageRequest page = 2;
+}

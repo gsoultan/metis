@@ -23,12 +23,12 @@ func (a IncidentModelAdapter) ToModel() models.IncidentModel {
 	}
 	return models.IncidentModel{
 		Base: models.Base{
-			ID:        a.Incident.ID,
+			ID:        models.UUID(a.Incident.ID),
 			CreatedAt: a.Incident.CreatedAt,
 		},
-		JobID:        jobID,
-		InstanceID:   instanceID,
-		DefinitionID: defID,
+		JobID:        models.UUID(jobID),
+		InstanceID:   models.UUID(instanceID),
+		DefinitionID: models.UUID(defID),
 		NodeID: func() string {
 			if a.Incident.Node != nil {
 				return a.Incident.Node.ID
@@ -47,10 +47,10 @@ type IncidentEntityAdapter struct {
 
 func (a IncidentEntityAdapter) ToEntity() entities.Incident {
 	return entities.Incident{
-		ID:         a.Model.ID,
-		Job:        &entities.Job{ID: a.Model.JobID},
-		Instance:   &entities.ProcessInstance{ID: a.Model.InstanceID},
-		Definition: &entities.ProcessDefinition{ID: a.Model.DefinitionID},
+		ID:         uuid.UUID(a.Model.ID),
+		Job:        &entities.Job{ID: uuid.UUID(a.Model.JobID)},
+		Instance:   &entities.ProcessInstance{ID: uuid.UUID(a.Model.InstanceID)},
+		Definition: &entities.ProcessDefinition{ID: uuid.UUID(a.Model.DefinitionID)},
 		Node:       &entities.Node{ID: a.Model.NodeID},
 		Error:      a.Model.Error,
 		Status:     entities.IncidentStatus(a.Model.Status),

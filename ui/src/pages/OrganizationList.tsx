@@ -25,23 +25,25 @@ import { useOrganizations, useCreateOrganization, useUpdateOrganization, useDele
 import { PageHeader } from '../components/PageHeader';
 import { useState } from 'react';
 import { notifications } from '@mantine/notifications';
+import { failureMessage } from '../services/shared/errors';
+import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
+import type { Organization } from '../gen/entities/organization_pb';
 
 export function OrganizationList() {
-  const { data, isLoading } = useOrganizations();
+  const { data, isLoading, error, refetch } = useOrganizations();
   const createOrg = useCreateOrganization();
   const updateOrg = useUpdateOrganization();
   const deleteOrg = useDeleteOrganization();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingOrg, setEditingOrg] = useState<any>(null);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  if (isLoading) return <Text>Loading organizations...</Text>;
 
   const organizations = data?.organizations || [];
 
-  const handleOpenModal = (org?: any) => {
+  const handleOpenModal = (org?: Organization) => {
     if (org) {
       setEditingOrg(org);
       setName(org.name);
@@ -65,7 +67,9 @@ export function OrganizationList() {
       }
       setIsModalOpen(false);
     } catch (error) {
-      notifications.show({ title: 'Error', message: 'Failed to save organization', color: 'red' });
+      // Surface the actual reason rather than a generic string — the user
+      // cannot tell a validation problem from an outage otherwise.
+      notifications.show({ title: 'Error', message: failureMessage('Failed to save organization', error), color: 'red' });
     }
   };
 
@@ -74,7 +78,7 @@ export function OrganizationList() {
       try {
         await deleteOrg.mutateAsync(id);
         notifications.show({ title: 'Success', message: 'Organization deleted successfully', color: 'green' });
-      } catch (error) {
+      } catch {
         notifications.show({ title: 'Error', message: 'Failed to delete organization', color: 'red' });
       }
     }
@@ -113,6 +117,17 @@ export function OrganizationList() {
           </Group>
         </Box>
 
+        {/*
+          Loading and error render inside the page rather than replacing it.
+          The previous early return swapped the whole page — title, filters,
+          actions — for one line of text, so the layout jumped when data
+          arrived and a failed request looked identical to an empty list.
+        */}
+        {isLoading ? (
+          <TableLoadingState rows={5} columns={4} />
+        ) : error ? (
+          <ErrorState error={error} action="load your organizations" onRetry={() => refetch()} />
+        ) : (
         <Table.ScrollContainer minWidth={800}>
           <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
             <Table.Thead bg="gray.0">
@@ -125,20 +140,12 @@ export function OrganizationList() {
             <Table.Tbody>
               {organizations.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={3}>
-                    <Stack align="center" py={60} gap="sm">
-                      <ThemeIcon size={60} radius="xl" variant="light" color="gray">
-                        <Building2 size={32} />
-                      </ThemeIcon>
-                      <Text fw={700} size="lg">No organizations found</Text>
-                      <Text ta="center" c="dimmed" maw={400}>
-                        Start by creating your first organization to manage your projects.
-                      </Text>
-                    </Stack>
+                  <Table.Td colSpan={4}>
+                    <EmptyState icon={Building2} title="No organizations yet" description="An organization is the top-level container for your projects and people." />
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                organizations.map((org: any) => (
+                organizations.map((org) => (
                   <Table.Tr key={org.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -157,7 +164,7 @@ export function OrganizationList() {
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">
                         <Tooltip label="Edit Organization">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Edit organization" 
                             variant="light" 
                             color="indigo" 
                             onClick={() => handleOpenModal(org)}
@@ -166,7 +173,7 @@ export function OrganizationList() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete Organization">
-                          <ActionIcon 
+                          <ActionIcon aria-label="Delete organization" 
                             variant="light" 
                             color="red"
                             onClick={() => handleDelete(org.id)}
@@ -182,6 +189,7 @@ export function OrganizationList() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+        )}
       </Card>
 
       <Modal 

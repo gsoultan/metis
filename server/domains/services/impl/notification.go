@@ -36,13 +36,13 @@ func (s *notificationService) Send(ctx context.Context, n entities.Notification)
 		Title:      n.Title,
 		Message:    n.Message,
 		Link:       n.Link,
-		ProjectID:  projectID,
-		InstanceID: instanceID,
+		ProjectID:  models.FromUUIDPtr(projectID),
+		InstanceID: models.FromUUIDPtr(instanceID),
 	}
 	if n.ID != uuid.Nil {
-		m.ID = n.ID
+		m.ID = models.UUID(n.ID)
 	} else {
-		m.ID = uuid.New()
+		m.ID = models.UUID(uuid.New())
 	}
 	m.IsRead = n.IsRead
 	return s.repo.Create(ctx, m)
@@ -57,14 +57,14 @@ func (s *notificationService) ListByUser(ctx context.Context, userID string) ([]
 	for _, m := range ms {
 		var project *entities.Project
 		if m.ProjectID != nil {
-			project = &entities.Project{ID: *m.ProjectID}
+			project = &entities.Project{ID: uuid.UUID(*m.ProjectID)}
 		}
 		var instance *entities.ProcessInstance
 		if m.InstanceID != nil {
-			instance = &entities.ProcessInstance{ID: *m.InstanceID}
+			instance = &entities.ProcessInstance{ID: uuid.UUID(*m.InstanceID)}
 		}
 		ns = append(ns, entities.Notification{
-			ID:        m.ID,
+			ID:        uuid.UUID(m.ID),
 			User:      &entities.User{Username: m.UserID},
 			Type:      entities.NotificationType(m.Type),
 			Title:     m.Title,

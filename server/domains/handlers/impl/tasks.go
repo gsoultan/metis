@@ -22,7 +22,7 @@ type ServiceTaskHandler struct {
 	externalTaskService contracts.ExternalTaskService
 }
 
-func (h *ServiceTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ServiceTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// 1. External Task: create a pull-model task and return – the worker completes it.
 	if node.ExternalTopic != "" {
 		return h.externalTaskService.Create(ctx, &entities.ExternalTask{
@@ -38,7 +38,7 @@ func (h *ServiceTaskHandler) DoExecute(ctx context.Context, instance *entities.P
 
 	// 2. Enqueue an asynchronous job.  The job worker resolves any configured
 	//    connector or HTTP endpoint, stores results, and calls engine.Proceed.
-	return h.jobService.EnqueueServiceTask(ctx, *instance, node)
+	return h.jobService.EnqueueServiceTask(ctx, *instance, node, iterationID)
 }
 
 // UserTaskHandler handles tasks that require human intervention.
@@ -46,7 +46,7 @@ type UserTaskHandler struct {
 	taskService contracts.TaskService
 }
 
-func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// Full implementation: This delegates to the taskService which manages the lifecycle of human tasks.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node)
 }
@@ -56,7 +56,7 @@ type ManualTaskHandler struct {
 	taskService contracts.TaskService
 }
 
-func (h *ManualTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ManualTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// Like UserTask, ManualTask creates a task entry that must be completed.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node)
 }
@@ -66,6 +66,6 @@ type PassThroughHandler struct {
 	engine contracts.EngineRunner
 }
 
-func (h *PassThroughHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *PassThroughHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }

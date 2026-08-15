@@ -10,8 +10,8 @@ import (
 )
 
 type engineInternal interface {
-	executeNodeInternal(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error
-	proceedInternal(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error
+	executeNodeInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
+	proceedInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
 	startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error)
 }
 
@@ -19,12 +19,12 @@ type engineInternal interface {
 type ExecuteNodeCommand struct {
 	engine      engineInternal
 	instance    *entities.ProcessInstance
-	def         entities.ProcessDefinition
+	def         *entities.ProcessDefinition
 	nodeID      string
 	iterationID string
 }
 
-func NewExecuteNodeCommand(engine engineInternal, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) contracts.Command {
+func NewExecuteNodeCommand(engine engineInternal, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) contracts.Command {
 	return &ExecuteNodeCommand{engine: engine, instance: instance, def: def, nodeID: nodeID, iterationID: iterationID}
 }
 
@@ -36,12 +36,12 @@ func (c *ExecuteNodeCommand) Execute(ctx context.Context) error {
 type ProceedCommand struct {
 	engine      engineInternal
 	instance    *entities.ProcessInstance
-	def         entities.ProcessDefinition
+	def         *entities.ProcessDefinition
 	nodeID      string
 	iterationID string
 }
 
-func NewProceedCommand(engine engineInternal, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) contracts.Command {
+func NewProceedCommand(engine engineInternal, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) contracts.Command {
 	return &ProceedCommand{engine: engine, instance: instance, def: def, nodeID: nodeID, iterationID: iterationID}
 }
 

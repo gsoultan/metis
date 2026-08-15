@@ -3,11 +3,14 @@ package impl
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/logic"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/rs/zerolog/log"
 )
 
 // parallelJoinEngine is the minimal engine surface needed by ParallelGatewayHandler.
@@ -23,7 +26,7 @@ type ExclusiveGatewayHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	flows := def.GetOutgoingFlows(node.ID)
 	if len(flows) == 0 {
 		return fmt.Errorf("exclusive gateway %s has no outgoing flows", node.ID)
@@ -48,8 +51,14 @@ func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 	}
 
 	if selectedFlow == nil {
-		// Use the first flow as default if no condition matches and no default flow is specified.
+		if !allowImplicitDefaultFlow() {
+			return fmt.Errorf(
+				"BPMN_ERROR:no outgoing sequence flow could be selected at exclusive gateway %q: "+
+					"no condition evaluated true and no default flow is declared", node.ID)
+		}
+		// Legacy behaviour, retained only behind GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW.
 		selectedFlow = flows[0]
+		logImplicitDefaultFlow(node.ID, selectedFlow.ID)
 	}
 
 	instance.RemoveTokenByNode(&node)
@@ -70,7 +79,7 @@ type ParallelGatewayHandler struct {
 	engine parallelJoinEngine
 }
 
-func (h *ParallelGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ParallelGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	incoming := def.GetIncomingFlows(node.ID)
 	outgoing := def.GetOutgoingFlows(node.ID)
 
@@ -99,9 +108,7 @@ func (h *ParallelGatewayHandler) recordAndCheckJoin(ctx context.Context, instanc
 		return false, fmt.Errorf("parallel gateway join: load instance for update: %w", err)
 	}
 
-	joinKey := fmt.Sprintf("_join_%s", nodeID)
-	count := extractIntVar(fresh.Variables, joinKey) + 1
-	fresh.SetVariable(joinKey, count)
+	count := fresh.RecordJoinArrival(nodeID)
 
 	if err := h.engine.UpdateInstance(ctx, fresh); err != nil {
 		return false, err
@@ -115,7 +122,7 @@ func (h *ParallelGatewayHandler) recordAndCheckJoin(ctx context.Context, instanc
 	}
 
 	// All branches arrived – clean up the join counter.
-	delete(instance.Variables, joinKey)
+	instance.ClearJoin(nodeID)
 	if err := h.engine.UpdateInstance(ctx, *instance); err != nil {
 		return false, err
 	}
@@ -123,7 +130,7 @@ func (h *ParallelGatewayHandler) recordAndCheckJoin(ctx context.Context, instanc
 }
 
 // fork removes the current token and spawns one token per outgoing flow.
-func (h *ParallelGatewayHandler) fork(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node *entities.Node, outgoing []*entities.SequenceFlow) error {
+func (h *ParallelGatewayHandler) fork(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, outgoing []*entities.SequenceFlow) error {
 	instance.RemoveTokenByNode(node)
 	if err := h.engine.UpdateInstance(ctx, *instance); err != nil {
 		return err
@@ -164,7 +171,7 @@ type InclusiveGatewayHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *InclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *InclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	incoming := def.GetIncomingFlows(node.ID)
 	outgoing := def.GetOutgoingFlows(node.ID)
 
@@ -191,9 +198,14 @@ func (h *InclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 			}
 		}
 	}
-	// Last-resort fallback: first outgoing flow.
 	if len(selectedFlows) == 0 && len(outgoing) > 0 {
+		if !allowImplicitDefaultFlow() {
+			return fmt.Errorf(
+				"BPMN_ERROR:no outgoing sequence flow could be selected at inclusive gateway %q: "+
+					"no condition evaluated true and no default flow is declared", node.ID)
+		}
 		selectedFlows = append(selectedFlows, outgoing[0])
+		logImplicitDefaultFlow(node.ID, outgoing[0].ID)
 	}
 
 	instance.RemoveTokenByNode(&node)
@@ -220,7 +232,7 @@ func (h *InclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 //
 // BuildAncestorSet constructs the reachability map once — O(nodes + flows) — so
 // each token check is an O(1) map lookup rather than a full BFS per token.
-func (h *InclusiveGatewayHandler) hasLiveUpstreamToken(instance *entities.ProcessInstance, def entities.ProcessDefinition, gatewayID string) bool {
+func (h *InclusiveGatewayHandler) hasLiveUpstreamToken(instance *entities.ProcessInstance, def *entities.ProcessDefinition, gatewayID string) bool {
 	reachable := def.BuildAncestorSet(gatewayID)
 	for _, token := range instance.Tokens {
 		if token.Node != nil && token.Node.ID != gatewayID && reachable[token.Node.ID] {
@@ -235,7 +247,7 @@ type EventBasedGatewayHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *EventBasedGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *EventBasedGatewayHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	outgoing := def.GetOutgoingFlows(node.ID)
 
 	instance.RemoveTokenByNode(&node)
@@ -256,4 +268,33 @@ func (h *EventBasedGatewayHandler) DoExecute(ctx context.Context, instance *enti
 		}
 	}
 	return nil
+}
+
+// envAllowImplicitDefaultFlow re-enables the pre-existing behaviour in which a
+// gateway with no matching condition and no declared default flow silently took
+// its first outgoing flow.
+//
+// That behaviour is a business-correctness hazard: a typo in a condition, or a
+// variable absent at runtime, routed the instance down whichever branch the
+// definition happened to list first — potentially "approve" instead of
+// "reject" — and recorded it in the audit trail as a normal transition. BPMN
+// 2.0 requires an exception when no outgoing flow can be selected.
+//
+// It is a behaviour change for existing definitions, so the old path remains
+// available for one migration window. Deployments that set this should use the
+// logged warnings to find and fix the affected definitions.
+const envAllowImplicitDefaultFlow = "GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW"
+
+func allowImplicitDefaultFlow() bool {
+	v, err := strconv.ParseBool(os.Getenv(envAllowImplicitDefaultFlow))
+	return err == nil && v
+}
+
+func logImplicitDefaultFlow(nodeID, flowID string) {
+	log.Warn().
+		Str("nodeId", nodeID).
+		Str("flowId", flowID).
+		Str("env", envAllowImplicitDefaultFlow).
+		Msg("gateway had no matching condition and no default flow; took the first outgoing flow. " +
+			"Declare an explicit default flow — this fallback will be removed.")
 }

@@ -21,36 +21,87 @@ import {
 } from 'lucide-react';
 import classes from './DesignerSidebar.module.css';
 import { useConnectors } from '../hooks/useProcess';
+import { useAppStore } from '../store/useAppStore';
+import { NODE_VOCABULARY, type NodeKind } from '../domain/bpmnVocabulary';
+import type { LucideIcon } from 'lucide-react';
+import type { BPMNNodeData } from '../types/bpmn';
 
-const designerItems = [
-  { group: 'Events', items: [
-    { type: 'startEvent', label: 'Start Event', description: 'The starting point of a process flow.', icon: Play, color: 'green' },
-    { type: 'endEvent', label: 'End Event', description: 'The completion point of a process flow.', icon: Square, color: 'red' },
-    { type: 'terminateEndEvent', label: 'Terminate Event', description: 'Immediately terminates all paths in the process.', icon: Zap, color: 'red' },
-    { type: 'intermediateCatchEvent', label: 'Timer Event', description: 'Wait for a specific duration or date.', icon: Clock, color: 'blue', data: { icon: 'timer' } },
-    { type: 'intermediateCatchEvent', label: 'Signal Event', description: 'Wait for a specific signal or message.', icon: Bell, color: 'blue', data: { icon: 'signal' } },
-    { type: 'boundaryEvent', label: 'Boundary Event', description: 'An event attached to an activity boundary.', icon: Circle, color: 'orange', data: { icon: 'timer' } },
-  ]},
-  { group: 'Tasks', items: [
-    { type: 'userTask', label: 'User Task', description: 'A task that must be completed by a person.', icon: User, color: 'blue' },
-    { type: 'serviceTask', label: 'Service Task', description: 'An automated task performed by a service.', icon: Settings, color: 'teal' },
-    { type: 'scriptTask', label: 'Script Task', description: 'Execute a custom script or expression.', icon: FileCode, color: 'violet' },
-    { type: 'manualTask', label: 'Manual Task', description: 'A task performed manually without engine aid.', icon: Hand, color: 'orange' },
-    { type: 'businessRuleTask', label: 'Business Rule', description: 'Execute a business decision or rule.', icon: Briefcase, color: 'indigo' },
-    { type: 'callActivity', label: 'Call Activity', description: 'Invoke another process as a sub-process.', icon: ExternalLink, color: 'cyan' },
-  ]},
-  { group: 'Gateways', items: [
-    { type: 'exclusiveGateway', label: 'Exclusive Gateway', description: 'Route to exactly one path based on conditions.', icon: GitBranch, color: 'orange' },
-    { type: 'parallelGateway', label: 'Parallel Gateway', description: 'Split into multiple paths or synchronize them.', icon: Plus, color: 'orange' },
-    { type: 'inclusiveGateway', label: 'Inclusive Gateway', description: 'Route to one or more paths based on conditions.', icon: Circle, color: 'orange' },
-    { type: 'eventBasedGateway', label: 'Event Gateway', description: 'Wait for the first of multiple events to occur.', icon: Zap, color: 'orange' },
-  ]},
-  { group: 'Containers', items: [
-    { type: 'subProcess', label: 'Sub Process', description: 'A container for a sub-process flow.', icon: Plus, color: 'indigo' },
-    { type: 'pool', label: 'Pool', description: 'A container for a participant or organization.', icon: GripVertical, color: 'gray' },
-    { type: 'lane', label: 'Lane', description: 'A sub-partition within a pool.', icon: GripVertical, color: 'gray' },
-  ]},
+/** One draggable entry in the palette, after the vocabulary has named it. */
+interface PaletteEntry {
+  type: string;
+  label: string;
+  description?: string;
+  icon: React.ComponentType<{ size?: number | string }>;
+  color?: string;
+  data?: Partial<BPMNNodeData>;
+  /** Filled in from the vocabulary: a worked example and the BPMN term. */
+  example?: string;
+  alsoKnownAs?: string;
+}
+
+type DragStartHandler = (
+  event: React.DragEvent,
+  nodeType: string,
+  initialData?: Partial<BPMNNodeData>,
+) => void;
+
+/**
+ * The palette, grouped and labelled by what each thing DOES.
+ *
+ * Every entry used to be named for the notation — "Exclusive Gateway",
+ * "Call Activity", "Boundary Event" — which meant the palette could only be
+ * used by someone who already knew BPMN. Names and descriptions now come from
+ * the shared vocabulary, and expert mode swaps them back to the spec terms.
+ *
+ * Groups follow the same logic: "Decisions and branching" rather than
+ * "Gateways", because a person looking for a way to split the flow does not
+ * know to look under "Gateways".
+ */
+const paletteItems: Array<{
+  kind: NodeKind;
+  type: string;
+  icon: LucideIcon;
+  color: string;
+  data?: Record<string, unknown>;
+  /** Distinguishes variants that share a node type, e.g. timer vs message. */
+  variantName?: string;
+  variantExample?: string;
+}> = [
+  { kind: 'startEvent', type: 'startEvent', icon: Play, color: 'green' },
+  { kind: 'endEvent', type: 'endEvent', icon: Square, color: 'gray' },
+  { kind: 'terminateEndEvent', type: 'terminateEndEvent', icon: Zap, color: 'red' },
+
+  { kind: 'userTask', type: 'userTask', icon: User, color: 'blue' },
+  { kind: 'serviceTask', type: 'serviceTask', icon: Settings, color: 'teal' },
+  { kind: 'businessRuleTask', type: 'businessRuleTask', icon: Briefcase, color: 'indigo' },
+  { kind: 'scriptTask', type: 'scriptTask', icon: FileCode, color: 'violet' },
+  { kind: 'manualTask', type: 'manualTask', icon: Hand, color: 'orange' },
+  { kind: 'callActivity', type: 'callActivity', icon: ExternalLink, color: 'cyan' },
+
+  { kind: 'exclusiveGateway', type: 'exclusiveGateway', icon: GitBranch, color: 'orange' },
+  { kind: 'parallelGateway', type: 'parallelGateway', icon: Plus, color: 'orange' },
+  { kind: 'inclusiveGateway', type: 'inclusiveGateway', icon: Circle, color: 'orange' },
+  { kind: 'eventBasedGateway', type: 'eventBasedGateway', icon: Zap, color: 'orange' },
+
+  {
+    kind: 'intermediateCatchEvent', type: 'intermediateCatchEvent', icon: Clock, color: 'blue',
+    data: { icon: 'timer' },
+    variantName: 'Wait for a time',
+    variantExample: 'Wait three days for the customer to respond.',
+  },
+  {
+    kind: 'intermediateCatchEvent', type: 'intermediateCatchEvent', icon: Bell, color: 'blue',
+    data: { icon: 'signal' },
+    variantName: 'Wait for a message',
+    variantExample: 'Wait until the payment system confirms the transfer.',
+  },
+  { kind: 'boundaryEvent', type: 'boundaryEvent', icon: Circle, color: 'orange', data: { icon: 'timer' } },
+
+  { kind: 'subProcess', type: 'subProcess', icon: Plus, color: 'indigo' },
+  { kind: 'pool', type: 'pool', icon: GripVertical, color: 'gray' },
+  { kind: 'lane', type: 'lane', icon: GripVertical, color: 'gray' },
 ];
+
 
 interface DesignerSidebarProps {
   embedded?: boolean;
@@ -58,17 +109,18 @@ interface DesignerSidebarProps {
 
 export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   const [search, setSearch] = useState('');
+  const { expertMode } = useAppStore();
   const { data: connectorsData, isLoading: connectorsLoading } = useConnectors();
   
-  const onDragStart = (event: React.DragEvent, nodeType: string, initialData: any = {}) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string, initialData: Partial<BPMNNodeData> = {}) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.setData('application/initialData', JSON.stringify(initialData));
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const connectors = (connectorsData as any)?.connectors || [];
+  const connectors = connectorsData?.connectors ?? [];
   
-  const connectorItems = connectors.map((c: any) => ({
+  const connectorItems = connectors.map((c) => ({
     type: 'serviceTask',
     label: c.name,
     description: c.description,
@@ -81,36 +133,65 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
     }
   }));
 
+  // Resolve each palette entry through the vocabulary, so one place decides
+  // what everything is called.
+  const resolved = paletteItems.map((entry) => {
+    const vocab = NODE_VOCABULARY[entry.kind];
+    const primary = expertMode ? vocab.bpmnName : (entry.variantName ?? vocab.plainName);
+    const secondary = expertMode ? (entry.variantName ?? vocab.plainName) : vocab.bpmnName;
+    return {
+      ...entry,
+      label: primary,
+      alsoKnownAs: secondary,
+      description: entry.variantExample ?? vocab.whatItDoes,
+      example: entry.variantExample ?? vocab.example,
+      group: vocab.group,
+    };
+  });
+
+  const grouped = resolved.reduce<Record<string, typeof resolved>>((acc, item) => {
+    (acc[item.group] ??= []).push(item);
+    return acc;
+  }, {});
+
   const allGroups = [
-    ...designerItems,
-    ...(connectorItems.length > 0 ? [{ group: 'Connectors', items: connectorItems }] : [])
+    ...Object.entries(grouped).map(([group, items]) => ({ group, items })),
+    ...(connectorItems.length > 0 ? [{ group: 'Connectors', items: connectorItems }] : []),
   ];
 
-  const filteredItems = allGroups.map(group => ({
-    ...group,
-    items: group.items.filter((item: any) => 
-      item.label.toLowerCase().includes(search.toLowerCase())
-    )
-  })).filter(group => group.items.length > 0);
+  // Search matches the plain name, the BPMN name and the example, so someone
+  // who knows only "gateway" and someone who only knows "choose a path" both
+  // find the same thing.
+  const needle = search.toLowerCase();
+  const filteredItems = allGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item: Record<string, unknown>) =>
+        [item.label, item.alsoKnownAs, item.description, item.example]
+          .filter((v): v is string => typeof v === 'string')
+          .some((v) => v.toLowerCase().includes(needle)),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
 
   const content = (
     <Stack gap="md" style={{ height: '100%' }}>
       {!embedded && (
         <Box>
-          <Text fw={800} size="lg" mb={4}>Components</Text>
-          <Text size="xs" c="dimmed">Drag items to the canvas to build your process</Text>
+          <Text fw={600} size="md" mb={4}>Building blocks</Text>
+          <Text size="xs" c="dimmed">Drag one onto the canvas to add a step</Text>
         </Box>
       )}
       
       <TextInput
-        placeholder="Search components..."
+        placeholder="Search — try “approve” or “wait”"
         size="xs"
         leftSection={<Search size={14} />}
         value={search}
         onChange={(e) => setSearch(e.currentTarget.value)}
         rightSection={
           search && (
-            <ActionIcon size="xs" variant="transparent" onClick={() => setSearch('')}>
+            <ActionIcon aria-label="Remove" size="xs" variant="transparent" onClick={() => setSearch('')}>
               <X size={12} />
             </ActionIcon>
           )
@@ -123,11 +204,11 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
         {search ? (
           <Stack gap="xs">
             {filteredItems.flatMap(group => group.items).map((item) => (
-              <DesignerItem key={item.label} item={item} onDragStart={onDragStart} />
+              <DesignerItem key={`${item.type}-${item.label}`} item={item} onDragStart={onDragStart} />
             ))}
             {filteredItems.length === 0 && (
               <Box py="xl" style={{ textAlign: 'center' }}>
-                <Text size="sm" c="dimmed">No components found</Text>
+                <Text size="sm" c="dimmed">Nothing matches “{search}”</Text>
               </Box>
             )}
           </Stack>
@@ -153,7 +234,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
                 </Accordion.Control>
                 <Accordion.Panel>
                   <Stack gap="xs">
-                    {group.items.map((item: any) => (
+                    {group.items.map((item) => (
                       <DesignerItem key={item.label} item={item} onDragStart={onDragStart} />
                     ))}
                   </Stack>
@@ -187,13 +268,31 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   );
 }
 
-function DesignerItem({ item, onDragStart }: { item: any, onDragStart: any }) {
+function DesignerItem({ item, onDragStart }: { item: PaletteEntry; onDragStart: DragStartHandler }) {
   return (
-    <Tooltip 
-      label={`Drag to add ${item.label}`} 
-      position="right" 
+    <Tooltip
+      multiline
+      w={260}
+      position="right"
       withArrow
-      openDelay={500}
+      openDelay={350}
+      label={
+        <Box>
+          <Text size="xs" fw={600}>{item.label}</Text>
+          {item.description && <Text size="xs" mt={2}>{item.description}</Text>}
+          {/* A concrete example is what makes an abstract construct click. */}
+          {item.example && (
+            <Text size="xs" mt={6} c="blue.2">
+              For example: {item.example}
+            </Text>
+          )}
+          {item.alsoKnownAs && (
+            <Text size="xs" mt={6} opacity={0.7}>
+              Known in BPMN as “{item.alsoKnownAs}”
+            </Text>
+          )}
+        </Box>
+      }
     >
       <UnstyledButton
         component="div"

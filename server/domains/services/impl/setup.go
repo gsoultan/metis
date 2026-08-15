@@ -9,6 +9,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
+	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories/models"
@@ -178,6 +179,13 @@ func saveConfiguration(req contracts.SetupRequest) error {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
+	// Install the key in the running process. Without this the server would
+	// have persisted a config it cannot use until the next restart, and every
+	// write to an encrypted column would fail with ErrKeyNotConfigured.
+	if err := crypto.Configure(req.EncryptionKey); err != nil {
+		return fmt.Errorf("failed to install encryption key: %w", err)
+	}
+
 	return nil
 }
 
@@ -225,7 +233,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 
 		org := models.OrganizationModel{
 			Base: models.Base{
-				ID:        orgID,
+				ID:        models.UUID(orgID),
 				CreatedAt: now,
 			},
 			Name: req.OrganizationName,
@@ -240,10 +248,10 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 		}
 		project := models.ProjectModel{
 			Base: models.Base{
-				ID:        uuid.Must(uuid.NewV7()),
+				ID:        models.UUID(uuid.Must(uuid.NewV7())),
 				CreatedAt: now,
 			},
-			OrganizationID: orgID,
+			OrganizationID: models.UUID(orgID),
 			Name:           projectName,
 		}
 		if err := tx.Create(&project).Error; err != nil {
@@ -257,7 +265,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 
 		admin := models.UserModel{
 			Base: models.Base{
-				ID:        uuid.Must(uuid.NewV7()),
+				ID:        models.UUID(uuid.Must(uuid.NewV7())),
 				CreatedAt: now,
 			},
 			Username:      req.AdminUsername,

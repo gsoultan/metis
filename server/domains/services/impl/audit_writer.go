@@ -122,19 +122,19 @@ func toAuditModel(e entities.AuditEntry) models.AuditModel {
 		Narrative: e.Narrative,
 		Data:      e.Data,
 	}
-	m.Base.ID = e.ID
-	if m.Base.ID == uuid.Nil {
-		m.Base.ID = uuid.New()
+	m.ID = models.UUID(e.ID)
+	if m.ID == models.NilUUID {
+		m.ID = models.UUID(uuid.New())
 	}
 	m.Base.CreatedAt = e.Timestamp
 	if m.Base.CreatedAt.IsZero() {
 		m.Base.CreatedAt = time.Now()
 	}
 	if e.Project != nil {
-		m.ProjectID = e.Project.ID
+		m.ProjectID = models.UUID(e.Project.ID)
 	}
 	if e.Instance != nil {
-		m.InstanceID = e.Instance.ID
+		m.InstanceID = models.UUID(e.Instance.ID)
 	}
 	if e.Node != nil {
 		m.NodeID = e.Node.ID

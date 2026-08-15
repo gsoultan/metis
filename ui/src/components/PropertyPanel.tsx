@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Stack,
   Group,
@@ -43,8 +44,14 @@ import { CallActivityConfig } from './properties/CallActivityConfig';
 import { ServiceTaskConfig } from './properties/ServiceTaskConfig';
 import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
 import { EventConfig } from './properties/EventConfig';
+import { StartEventConfig } from './properties/StartEventConfig';
+import { DataFlowPanel } from './properties/DataFlowPanel';
+import { PropertySection } from './properties/PropertySection';
+import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
 import { GatewayConfig } from './properties/GatewayConfig';
 import { ApiExample } from './properties/CommonProperties';
+import { vocabularyFor } from '../domain/bpmnVocabulary';
+import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 /**
  * FE-ARCH-10: Typed node configuration registry.
@@ -53,10 +60,10 @@ import { ApiExample } from './properties/CommonProperties';
  * Components that need extra context (e.g. GatewayConfig needs edges, CallActivityConfig
  * needs nodeId) extend this interface with optional fields.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export interface NodeConfigProps {
-  data: any;
-  onUpdate: (data: any) => void;
+  data: BPMNNodeData;
+  onUpdate: (data: Partial<BPMNNodeData>) => void;
   /** Provided to GatewayConfig for outgoing-flow condition editing. */
   selectedNode?: Node;
   /** Provided to GatewayConfig for outgoing-flow condition editing. */
@@ -83,20 +90,22 @@ const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
   signalEvent: EventConfig,
   messageEvent: EventConfig,
   timerEvent: EventConfig,
-  startEvent: EventConfig,
+  startEvent: StartEventConfig,
   exclusiveGateway: GatewayConfig,
   inclusiveGateway: GatewayConfig,
   eventBasedGateway: GatewayConfig,
 };
 
 interface PropertyPanelProps {
-  selectedNode: Node | null;
-  selectedEdge: Edge | null;
+  selectedNode: Node<BPMNNodeData> | null;
+  selectedEdge: Edge<BPMNEdgeData> | null;
   onClose: () => void;
   onDelete: () => void;
-  updateNodeData: (id: string, data: any) => void;
-  updateEdgeData: (id: string, label: string, data?: any) => void;
+  updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
+  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void;
   edges?: Edge[];
+  /** The whole diagram, so the panel can trace what data reaches this step. */
+  nodes?: Node<BPMNNodeData>[];
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
 }
@@ -110,15 +119,33 @@ export function PropertyPanel({
   updateNodeData,
   updateEdgeData,
   edges = [],
+  nodes = [],
   instanceId = null,
   onViewInstance,
 }: PropertyPanelProps) {
   const { expertMode, setExpertMode } = useAppStore();
+
+  // Recomputed as the diagram changes: what reaches each step depends on every
+  // step before it, so editing one changes the answer for the rest.
+  const dataFlow = useMemo(
+    () => computeDataFlow(nodes, edges as Edge<BPMNEdgeData>[]),
+    [nodes, edges],
+  );
+  const hasSample = useMemo(() => Object.keys(sampleDataOf(nodes)).length > 0, [nodes]);
   if (!selectedNode && !selectedEdge) return null;
 
-  const title = selectedNode 
-    ? `Node Properties: ${selectedNode.data.label || selectedNode.id}` 
-    : `Connection Properties: ${selectedEdge?.label || selectedEdge?.id}`;
+  // The heading names the thing the user is editing, not the notation. It
+  // read "Node Properties: Approve" — "Node Properties" is a category from the
+  // spec, and the person editing it just wants to know what this step does.
+  const nodeVocab = selectedNode ? vocabularyFor(String(selectedNode.type)) : undefined;
+  const title = selectedNode
+    ? String(selectedNode.data.label || selectedNode.id)
+    : String(selectedEdge?.label || selectedEdge?.id || 'Connection');
+  const subtitle = selectedNode
+    ? nodeVocab
+      ? `${expertMode ? nodeVocab.bpmnName : nodeVocab.plainName} — ${nodeVocab.whatItDoes}`
+      : String(selectedNode.type)
+    : 'The path between two steps. Add a condition to control when it is taken.';
 
   return (
     <Modal
@@ -130,11 +157,13 @@ export function PropertyPanel({
             <Settings size={24} />
           </ThemeIcon>
           <Box style={{ flex: 1 }}>
-            <Title order={3}>{title}</Title>
-            <Text size="xs" c="dimmed" fw={500}>Configure parameters, execution logic, and view API details</Text>
+            <Title order={4}>{title}</Title>
+            <Text size="xs" c="dimmed">{subtitle}</Text>
           </Box>
           <Group gap="xs" mr="xl">
-             <Text size="xs" fw={700} c={expertMode ? "indigo" : "dimmed"}>Expert Mode</Text>
+             {/* Expert mode swaps plain names for BPMN terms everywhere, so
+                 someone can learn the notation without being blocked by it. */}
+             <Text size="xs" c={expertMode ? "indigo" : "dimmed"}>BPMN names</Text>
              <Checkbox 
                 checked={expertMode} 
                 onChange={(e) => setExpertMode(e.currentTarget.checked)}
@@ -170,12 +199,12 @@ export function PropertyPanel({
     >
       <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
         <Container fluid px="xl" py="xl">
-          <Grid gutter="xl">
+          <Grid gap="xl">
             {/* Column 1: Configuration & General */}
             <Grid.Col span={{ base: 12, md: 8 }}>
               <Stack gap="lg">
                 <Card withBorder radius="md" p="xl" shadow="sm">
-                  <Grid gutter="xl">
+                  <Grid gap="xl">
                     <Grid.Col span={{ base: 12, md: 5 }}>
                       <Stack gap="md">
                         <Group gap="xs" mb="xs">
@@ -185,37 +214,51 @@ export function PropertyPanel({
                           <Text fw={700} size="lg">General Info</Text>
                         </Group>
                         
-                        <Box>
-                           <Text size="xs" fw={700} c="dimmed" tt="uppercase" mb={8}>Element Metadata</Text>
-                           <Group gap="xs">
-                             <Badge variant="filled" color="indigo" size="lg" radius="sm">
-                                {selectedNode?.type || 'sequenceFlow'}
-                             </Badge>
-                             <MantineCode style={{ padding: '4px 8px' }}>{selectedNode?.id || selectedEdge?.id}</MantineCode>
-                           </Group>
-                        </Box>
-
-                        <Divider variant="dashed" />
 
                         {selectedNode && (
                           <Stack gap="md">
                             <TextInput
-                              label="Name / Label"
-                              placeholder="Enter node name"
-                              description="The human-readable name of this node"
+                              label="Name"
+                              placeholder="e.g. Approve the expense"
+                              description="What this step is called, wherever it appears — on the diagram, in someone's task list, in the history."
                               size="md"
                               value={selectedNode.data.label as string || ''}
                               onChange={(e) => updateNodeData(selectedNode.id, { label: e.target.value })}
                             />
                             <Textarea
-                              label="Documentation"
-                              placeholder="Describe what this node does..."
-                              description="Additional details or implementation notes"
+                              label="Notes"
+                              placeholder="Anything the next person needs to know about this step"
+                              description="Shown to whoever opens this step later. Optional."
                               size="md"
-                              minRows={4}
+                              minRows={3}
                               value={selectedNode.data.documentation as string || ''}
                               onChange={(e) => updateNodeData(selectedNode.id, { documentation: e.target.value })}
                             />
+
+                            {/* The id identifies the step to the engine and to
+                                anything integrating over the API. It is not
+                                something to fill in, so it sits at the end
+                                rather than being the first thing read. */}
+                            <Group gap={6} align="baseline">
+                              <Text size="xs" c="dimmed">Reference</Text>
+                              <MantineCode>{selectedNode.id}</MantineCode>
+                              <Badge size="xs" variant="light" color="gray" radius="sm">
+                                {selectedNode.type}
+                              </Badge>
+                            </Group>
+
+                            <Divider variant="dashed" />
+
+                            <PropertySection
+                              title="Data"
+                              hint="What this step receives, and what it leaves for the steps after it."
+                            >
+                              <DataFlowPanel
+                                flow={dataFlow.get(selectedNode.id)}
+                                hasSample={hasSample}
+                                readsOnly={String(selectedNode.type).toLowerCase().includes('gateway')}
+                              />
+                            </PropertySection>
                           </Stack>
                         )}
 
@@ -230,10 +273,14 @@ export function PropertyPanel({
                               onChange={(e) => updateEdgeData(selectedEdge.id, e.target.value)}
                             />
                             <TextInput
-                              label="Condition Expression"
-                              placeholder="e.g. status == 'approved'"
+                              label="Take this path when"
+                              placeholder="e.g. approvalLevel = director"
                               size="md"
-                              description="JS expression that returns a boolean"
+                              description={
+                                'One "=" and no quotes: approvalLevel = director. ' +
+                                'Writing == looks more like code and never matches, ' +
+                                'so the path is silently never taken. Leave empty to always take it.'
+                              }
                               value={selectedEdge.data?.condition as string || ''}
                               onChange={(e) => updateEdgeData(selectedEdge.id, selectedEdge.label as string, { ...selectedEdge.data, condition: e.target.value })}
                             />
@@ -291,8 +338,8 @@ export function PropertyPanel({
             <Grid.Col span={{ base: 12, md: 4 }}>
               <Stack gap="lg">
                 <SmartTroubleshooter 
-                  node={selectedNode} 
-                  edge={selectedEdge} 
+                  node={selectedNode ?? undefined} 
+                  edge={selectedEdge ?? undefined} 
                   updateNodeData={updateNodeData}
                   updateEdgeData={updateEdgeData}
                 />
@@ -341,7 +388,7 @@ export function PropertyPanel({
                             } else if (selectedEdge) {
                               updateEdgeData(selectedEdge.id, selectedEdge.label as string, parsed);
                             }
-                          } catch (err) {
+                          } catch {
                             // Silently ignore parse errors while typing
                           }
                         }}
@@ -402,8 +449,8 @@ function NodeConfigSection({
   instanceId,
   onViewInstance,
 }: { 
-  selectedNode: Node, 
-  updateNodeData: (id: string, data: any) => void, 
+  selectedNode: Node<BPMNNodeData>, 
+  updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void, 
   edges: Edge[],
   instanceId?: string | null,
   onViewInstance?: (id: string, defId: string) => void,
@@ -414,7 +461,7 @@ function NodeConfigSection({
   const configContent = ConfigComponent ? (
     <ConfigComponent 
       data={selectedNode.data} 
-      onUpdate={(d: any) => updateNodeData(selectedNode.id, d)}
+      onUpdate={(d) => updateNodeData(selectedNode.id, d)}
       selectedNode={selectedNode}
       edges={edges}
       instanceId={instanceId}
@@ -434,7 +481,7 @@ function NodeConfigSection({
             <Text size="xs" c="dimmed">Use the general info section to change the label of this container.</Text>
           </>
        ) : (
-          <Text size="sm" c="dimmed">No specific configuration for this node type</Text>
+          <Text size="sm" c="dimmed">This step has nothing to configure — it does its job as soon as the process reaches it.</Text>
        )}
     </Box>
   );
@@ -464,7 +511,7 @@ function EdgeConfigSection({
   updateEdgeData 
 }: { 
   selectedEdge: Edge, 
-  updateEdgeData: (id: string, label: string, data?: any) => void 
+  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void 
 }) {
   const data = selectedEdge.data || {};
   const label = selectedEdge.label as string || '';

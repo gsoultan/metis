@@ -39,7 +39,7 @@ func (a UserPBAdapter) ToProto() *pbentities.User {
 		Username:      a.User.Username,
 		FullName:      a.User.FullName,
 		DisplayName:   a.User.DisplayName,
-		Organization:  org,
+		Organization:  organizationRef(org),
 		Email:         a.User.Email,
 		Roles:         a.User.Roles,
 	}

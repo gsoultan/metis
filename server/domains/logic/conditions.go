@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -123,13 +124,20 @@ func (e *JSExpressionEvaluator) Evaluate(condition string, vars map[string]any) 
 	}
 
 	script := strings.TrimPrefix(condition, "js:")
-	vm := goja.New()
+	vm := NewSandboxedRuntime()
 
 	for k, v := range vars {
-		vm.Set(k, v)
+		if err := vm.Set(k, v); err != nil {
+			return false
+		}
 	}
 
-	val, err := vm.RunString(script)
+	// Gateway conditions are user-authored and run on the server, so they get
+	// the same wall-clock budget and interrupt as script tasks. Without it a
+	// condition containing an infinite loop blocks its goroutine forever.
+	val, err := RunSandboxed(context.Background(), vm, ScriptTimeout(), func() (goja.Value, error) {
+		return vm.RunString(script)
+	})
 	if err != nil {
 		return false
 	}

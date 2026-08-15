@@ -9,9 +9,60 @@ on:
 permissions:
   contents: read
 
+env:
+  # 1.26.6 carries the fix for GO-2026-6218 (quadratic resolvePath in net/url).
+  # govulncheck reports it against the standard library itself, so the version
+  # here is the fix — there is nothing to change in this repository's code.
+  GO_VERSION: '1.26.6'
+
 jobs:
+  ui:
+    name: UI (typecheck, lint, build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: ui
+
+      # tsgo is the TypeScript 7 native compiler. typescript@5.9 is also
+      # installed purely so typescript-eslint can run — see ui/TYPESCRIPT.md.
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: ui
+
+      - name: Lint
+        run: bun run lint
+        working-directory: ui
+
+      - name: Test
+        run: bun test
+        working-directory: ui
+
+      # `bun run build` runs the bundle budget as its final step, so a change
+      # that pushes the first-paint payload past its ceiling fails here rather
+      # than being noticed months later.
+      - name: Build (includes bundle budget)
+        run: bun run build
+        working-directory: ui
+
+      # The Go build embeds ui/dist (ui/embed.go). Publish it so the Go job
+      # compiles the same assets rather than rebuilding them.
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 1
+
   go-security-reliability:
-    name: Go Security and Reliability Checks
+    name: Go (build, vet, race, vuln)
+    needs: ui
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,24 +71,119 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download UI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
 
       - name: Download Go modules
         run: go mod download
 
+      # Scope note: these run across the WHOLE module. They were previously
+      # limited to a six-package allowlist, which is why 145 vet findings and
+      # seven non-compiling test packages accumulated undetected. Do not
+      # reintroduce an allowlist — narrow the code, not the check.
+      - name: Build
+        run: make build
+
       - name: Static analysis (go vet)
-        run: go vet ./cmd/gobpm ./internal/app ./internal/pkg/redaction ./server/interceptors/... ./server/transports/grpcs/common ./server/transports/https/common
+        run: make vet
 
-      - name: Race checks
-        run: go test -race ./internal/app ./internal/pkg/redaction ./server/interceptors/... ./server/transports/grpcs/common ./server/transports/https/common
+      - name: Tests
+        run: make test
 
-      - name: Build entrypoint
-        run: go build ./cmd/gobpm
+      - name: Race detector
+        run: make race
 
       - name: Vulnerability scan (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./cmd/gobpm ./internal/app ./internal/pkg/redaction ./server/interceptors/... ./server/transports/grpcs/common ./server/transports/https/common
+          govulncheck $(go list ./... | grep -v '/node_modules/')
+
+  golangci-lint:
+    name: golangci-lint
+    needs: ui
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the linter can diff against the merge base itself
+          # rather than asking the API for the pull request patch.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download UI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      # Blocks every NEW violation while the pre-existing backlog (see the
+      # .golangci.yml adoption note) is burned down by area. Do not weaken this
+      # to "get green" — narrow the backlog instead.
+      #
+      # The diff comes from git rather than the action's only-new-issues, which
+      # asks the API for the pull request patch and gives up past 300 files:
+      # a branch this size got no linting at all, silently. --new-from-merge-base
+      # is the same comparison done locally, with no such limit.
+      #
+      # Installed from source at a pinned version rather than through the action.
+      # A released binary is built with whatever Go its release used and refuses
+      # to run when that is older than the Go this module targets; building it
+      # here uses the Go above. The version is pinned so a linter upgrade is a
+      # deliberate commit rather than something that lands overnight, and the
+      # module path carries the /v2 that matches this repository's config schema.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - name: golangci-lint
+        run: golangci-lint run --new-from-merge-base=origin/${{ github.base_ref || 'main' }}
+
+  proto-generated:
+    name: Generated code matches protos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      # The .proto files are the contract for the Connect API the UI speaks.
+      # They had silently diverged from the checked-in generated code: the
+      # protos modelled relationships as nested messages while the generated Go
+      # still had flat *_id strings, so anyone running `buf generate` — a normal
+      # thing to do — broke the build, and no client generated from these protos
+      # by a third party would have matched the server.
+      #
+      # Regenerating in CI and failing on any diff makes the protos the source
+      # of truth in fact and not just in intent.
+      - name: Regenerate
+        run: buf generate
+
+      - name: Fail if the tree changed
+        run: |
+          if ! git diff --quiet -- api/proto ui/src/gen; then
+            echo "::error::Generated code is out of date. Run 'buf generate' and commit the result."
+            git --no-pager diff --stat -- api/proto ui/src/gen
+            exit 1
+          fi
+          echo "Generated code matches the protos."
 
   secret-scan:
     name: Secret Scan
@@ -48,5 +194,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # gitleaks-action requires a token to scan a pull request; without it the
+      # job fails before scanning anything, so every pull request went unscanned
+      # while reporting a failure that looked like a finding.
       - name: Gitleaks scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

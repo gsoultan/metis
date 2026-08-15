@@ -1,211 +1,185 @@
-import { 
-  Stack, 
-  Group, 
-  Text, 
-  ThemeIcon, 
-  Select, 
-  Grid, 
-  TextInput, 
-  Divider, 
-  Button, 
-  Paper, 
-  Box, 
-  ActionIcon, 
-  Textarea
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Group,
+  Paper,
+  PasswordInput,
+  Select,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
 } from '@mantine/core';
-import { Globe, Zap, Settings, Play, Trash2 } from 'lucide-react';
+import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { useConnectors } from '../../hooks/useProcess';
-import { useAppStore } from '../../store/useAppStore';
-import { MappingTable, MultiInstanceConfig, NodeTestModal, ConnectorCatalog } from './CommonProperties';
-import { HelpTooltip } from '../LowCodeComponents';
-import type { NodeConfigProps } from '../PropertyPanel';
 
+import { useConnectors } from '../../hooks/useConnectors';
+import { useAppStore } from '../../store/useAppStore';
+import { asText, asTextMap } from '../../types/bpmn';
+import type { NodeConfigProps } from '../PropertyPanel';
+import { ConnectorCatalog, MappingTable, MultiInstanceConfig, NodeTestModal } from './CommonProperties';
+import { PropertySection } from './PropertySection';
+
+/**
+ * A step that calls another system.
+ *
+ * The first choice decides everything after it, so it is a choice with an
+ * explanation rather than a dropdown of protocol names: "HTTP Push (Remote
+ * Endpoint)" and "External Worker (Long Polling)" describe the mechanism to
+ * someone who already knows which one they want.
+ */
 export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const implementation = data.implementation || 'push';
+  const implementation = asText(data.implementation, 'push');
   const { data: connectorsData } = useConnectors();
   const { expertMode } = useAppStore();
   const [testModalOpened, setTestModalOpened] = useState(false);
-  
-  const connectors = (connectorsData as any)?.connectors || [];
-  const selectedConnector = connectors.find((c: any) => c.id === data.connector_id);
+
+  const connectors = connectorsData?.connectors ?? [];
+  const selectedConnector = connectors.find((c) => c.id === asText(data.connector_id));
+
+  const options = [
+    { value: 'push', label: 'Call a web address', description: 'We send the request and wait for the answer' },
+    { value: 'connector', label: 'Use a connector', description: 'Slack, email and the rest, already set up' },
+    { value: 'external', label: 'Let a worker pick it up', description: 'Your own program asks for work and reports back' },
+    ...(expertMode
+      ? [{ value: 'script', label: 'Run a script here', description: 'A little JavaScript, sandboxed' }]
+      : []),
+  ];
 
   return (
     <Stack gap="xl">
-      <Stack gap="md">
-        <Group gap="xs">
-          <ThemeIcon variant="light" color="teal" radius="md">
-            <Globe size={18} />
-          </ThemeIcon>
-          <Text fw={700} size="md">Service Protocol</Text>
-        </Group>
-
-        <Grid gutter="md">
-          <Grid.Col span={{ base: 12 }}>
-            <Select
-              label={
-                <Group gap={4} wrap="nowrap">
-                  <Text size="sm" fw={500}>Implementation Type</Text>
-                  <HelpTooltip label="Choose how the service task logic is executed." link="https://docs.gobpm.io/service-tasks" />
-                </Group>
-              }
-              description="How the task logic is executed"
-              size="md"
-              data={[
-                { value: 'push', label: 'HTTP Push (Remote Endpoint)' },
-                { value: 'external', label: 'External Worker (Long Polling)' },
-                { value: 'connector', label: 'Marketplace Connector' },
-                ...(expertMode ? [{ value: 'script', label: 'Internal Script (JS Sandbox)' }] : [])
-              ]}
-              value={implementation}
-              onChange={(val) => onUpdate({ implementation: val })}
-            />
-          </Grid.Col>
-        </Grid>
-      </Stack>
-
-      <Divider variant="dashed" />
+      <PropertySection title="What it calls" hint="Everything below follows from this.">
+        <Select
+          data={options.map(({ value, label }) => ({ value, label }))}
+          value={implementation}
+          onChange={(val) => onUpdate({ implementation: val })}
+          allowDeselect={false}
+        />
+        <Text size="xs" c="dimmed">
+          {options.find((option) => option.value === implementation)?.description}
+        </Text>
+      </PropertySection>
 
       {implementation === 'connector' && (
-        <Stack gap="md">
-           {!data.connector_id ? (
-             <ConnectorCatalog 
-                onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '' })} 
-             />
-           ) : (
-             <Stack gap="md">
-                <Group gap="xs">
-                  <ThemeIcon variant="light" color="yellow" radius="md">
-                    <Zap size={18} />
-                  </ThemeIcon>
-                  <Text fw={700} size="md">Selected Connector</Text>
-                </Group>
-
-                {selectedConnector && (
-                  <Paper withBorder p="md" bg="gray.0" radius="md">
-                    <Group gap="xs" wrap="nowrap">
-                      <ThemeIcon size="xl" radius="md" color="yellow" variant="light">
-                        <Zap size={24} />
-                      </ThemeIcon>
-                      <Box style={{ flex: 1 }}>
-                        <Group justify="space-between">
-                          <Text size="md" fw={700}>{selectedConnector.name}</Text>
-                          <ActionIcon 
-                            size="sm" 
-                            variant="subtle" 
-                            color="red" 
-                            onClick={() => onUpdate({ connector_id: undefined, connector_instance_id: undefined })}
-                          >
-                            <Trash2 size={14} />
-                          </ActionIcon>
-                        </Group>
-                        <Text size="xs" c="dimmed">{selectedConnector.description}</Text>
-                      </Box>
+        !data.connector_id ? (
+          <PropertySection title="Choose a connector">
+            <ConnectorCatalog onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '' })} />
+          </PropertySection>
+        ) : (
+          <>
+            <PropertySection title="Connector">
+              {selectedConnector && (
+                <Paper withBorder p="sm" radius="md">
+                  <Group justify="space-between" wrap="nowrap">
+                    <Box style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={600}>{selectedConnector.name}</Text>
+                      <Text size="xs" c="dimmed" lineClamp={2}>{selectedConnector.description}</Text>
+                    </Box>
+                    <Group gap={4} wrap="nowrap">
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        leftSection={<Play size={12} />}
+                        onClick={() => setTestModalOpened(true)}
+                      >
+                        Try it
+                      </Button>
+                      <ActionIcon
+                        aria-label="Remove this connector"
+                        size="sm"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => onUpdate({ connector_id: undefined, connector_instance_id: undefined })}
+                      >
+                        <Trash2 size={14} />
+                      </ActionIcon>
                     </Group>
-                  </Paper>
-                )}
+                  </Group>
+                </Paper>
+              )}
+            </PropertySection>
 
-                <Button 
-                  size="xs" 
-                  variant="light" 
-                  color="indigo" 
-                  leftSection={<Play size={14} />}
-                  onClick={() => setTestModalOpened(true)}
-                >
-                  Test Connection
-                </Button>
-
-                <MappingTable 
-                  title="Input Variables (Parent → Connector)" 
-                  mapping={data.inputs || {}} 
-                  onUpdate={(m) => onUpdate({ inputs: m })} 
-                />
-
-                <MappingTable 
-                  title="Output Mapping (Connector → Parent)" 
-                  mapping={data.outputs || {}} 
-                  onUpdate={(m) => onUpdate({ outputs: m })} 
-                />
-             </Stack>
-           )}
-        </Stack>
+            <PropertySection
+              title="If the names differ"
+              hint="Only needed when the connector calls things differently from your process."
+            >
+              <MappingTable
+                title="SENDING"
+                sourceLabel="Your variable"
+                targetLabel="Their field"
+                mapping={asTextMap(data.inputs)}
+                onUpdate={(m) => onUpdate({ inputs: m })}
+              />
+              <MappingTable
+                title="RECEIVING"
+                sourceLabel="Their field"
+                targetLabel="Store it as"
+                mapping={asTextMap(data.outputs)}
+                onUpdate={(m) => onUpdate({ outputs: m })}
+              />
+            </PropertySection>
+          </>
+        )
       )}
 
       {implementation === 'push' && (
-        <Stack gap="md">
-          <TextInput 
-            label="Endpoint URL" 
+        <PropertySection title="Where to call" hint="The process waits for the answer before carrying on.">
+          <TextInput
+            label="Web address"
             placeholder="https://api.example.com/webhook"
-            description="The URL that will receive a POST request when this task starts"
-            size="md"
-            value={data.url || ''}
+            value={asText(data.url)}
             onChange={(e) => onUpdate({ url: e.target.value })}
           />
-          <TextInput 
-            label="Secret / Auth Token" 
-            placeholder="Optional bearer token"
-            description="Sent in Authorization header"
-            size="md"
-            type="password"
-            value={data.auth_token || ''}
+          <PasswordInput
+            label="Access token"
+            placeholder="Only if they need one"
+            description="Sent as an Authorization header. Stored encrypted."
+            value={asText(data.auth_token)}
             onChange={(e) => onUpdate({ auth_token: e.target.value })}
           />
-        </Stack>
+        </PropertySection>
       )}
 
       {implementation === 'external' && (
-        <Stack gap="md">
-          <TextInput 
-            label="Topic Name" 
+        <PropertySection
+          title="What to call it"
+          hint="Your worker asks for work under this name, does it, and reports back. The process waits meanwhile."
+        >
+          <TextInput
+            label="Topic"
             placeholder="e.g. process-invoice"
-            description="External workers will subscribe to this topic"
-            size="md"
-            value={data.topic || ''}
+            value={asText(data.topic)}
             onChange={(e) => onUpdate({ topic: e.target.value })}
           />
-        </Stack>
+        </PropertySection>
       )}
 
       {implementation === 'script' && expertMode && (
-        <Stack gap="md">
-           <Group gap="xs">
-              <ThemeIcon variant="light" color="indigo" radius="md">
-                <Settings size={18} />
-              </ThemeIcon>
-              <Text fw={700} size="md">Script Definition</Text>
-           </Group>
-           <Textarea 
-              label="JavaScript Logic" 
-              placeholder="// context contains 'vars' and 'data'..." 
-              minRows={10}
-              styles={{ input: { fontFamily: 'monospace', fontSize: '12px' } }}
-              value={data.script || ''}
-              onChange={(e) => onUpdate({ script: e.target.value })}
-           />
-           <Button 
-              size="xs" 
-              variant="light" 
-              color="indigo" 
-              leftSection={<Play size={14} />}
-              onClick={() => setTestModalOpened(true)}
-            >
-              Run Dry-Run Test
+        <PropertySection title="The script" hint="Runs here, with the process variables available to it.">
+          <Textarea
+            placeholder="// the process variables are in `vars`"
+            minRows={10}
+            autosize
+            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12 } }}
+            value={asText(data.script)}
+            onChange={(e) => onUpdate({ script: e.target.value })}
+          />
+          <Group justify="flex-end">
+            <Button size="compact-xs" variant="light" leftSection={<Play size={12} />} onClick={() => setTestModalOpened(true)}>
+              Try it
             </Button>
-        </Stack>
+          </Group>
+        </PropertySection>
       )}
 
-      {expertMode && (
-        <>
-          <Divider variant="dashed" />
-          <MultiInstanceConfig data={data} onUpdate={onUpdate} />
-        </>
-      )}
+      {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
 
-      <NodeTestModal 
-        nodeId="test" 
-        data={data} 
-        opened={testModalOpened} 
-        onClose={() => setTestModalOpened(false)} 
+      <NodeTestModal
+        nodeId="test"
+        data={data}
+        opened={testModalOpened}
+        onClose={() => setTestModalOpened(false)}
       />
     </Stack>
   );

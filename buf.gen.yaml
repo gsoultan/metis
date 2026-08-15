@@ -14,11 +14,10 @@ plugins:
     out: api/proto
     opt:
       - paths=source_relative
-  - remote: buf.build/bufbuild/es:v1.5.0
-    out: ui/src/gen
-    opt:
-      - target=ts
-  - remote: buf.build/connectrpc/es:v1.6.1
+  # protoc-gen-es v2 emits schemas rather than message classes, and connect-es
+  # v2 consumes them directly — so there is no separate *_connect.ts plugin any
+  # more; service descriptors live alongside the messages.
+  - remote: buf.build/bufbuild/es:v2.13.0
     out: ui/src/gen
     opt:
       - target=ts

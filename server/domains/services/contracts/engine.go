@@ -6,6 +6,7 @@ package contracts
 
 import (
 	"context"
+	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -15,10 +16,10 @@ import (
 type EngineRunner interface {
 	StartProcess(ctx context.Context, projectID uuid.UUID, definitionKey string, vars map[string]any) (uuid.UUID, error)
 	StartSubProcess(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error)
-	ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) error
-	ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error
-	Proceed(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string) error
-	ProceedIteration(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, nodeID string, iterationID string) error
+	ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error
+	ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
+	Proceed(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error
+	ProceedIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
 	UpdateInstance(ctx context.Context, instance entities.ProcessInstance) error
 }
 
@@ -26,8 +27,13 @@ type EngineRunner interface {
 type EngineReader interface {
 	GetInstance(ctx context.Context, id uuid.UUID) (entities.ProcessInstance, error)
 	GetInstanceForUpdate(ctx context.Context, id uuid.UUID) (entities.ProcessInstance, error)
-	GetProcessDefinition(ctx context.Context, id uuid.UUID) (entities.ProcessDefinition, error)
+	GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error)
 	ListInstances(ctx context.Context, projectID uuid.UUID) ([]entities.ProcessInstance, error)
+
+	// ListInstancesPaged returns one window plus the total. A busy engine
+	// produces instances continuously, so this is the list most likely to grow
+	// past what a browser can hold.
+	ListInstancesPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error)
 	ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUID) ([]entities.ProcessInstance, error)
 	// GetRootInstance walks the parent chain and returns the top-level ancestor.
 	GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error)
@@ -40,8 +46,8 @@ type EngineEventBus interface {
 	DispatchEvent(ctx context.Context, event entities.ProcessEvent)
 	BroadcastSignal(ctx context.Context, projectID uuid.UUID, signalName string, vars map[string]any) error
 	SendMessage(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
-	TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, escalationCode string) error
-	TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, activityRef string) error
+	TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error
+	TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, activityRef string) error
 }
 
 // ScriptExecutor evaluates embedded process scripts.

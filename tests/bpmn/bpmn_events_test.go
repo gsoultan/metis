@@ -24,7 +24,7 @@ func TestBPMNEvents(t *testing.T) {
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
 	engine := service_impl2.NewExecutionEngine(repo, dispatcher)
-	taskSvc := service_impl2.NewTaskService(repo, engine)
+	taskSvc := service_impl2.NewTaskService(repo, engine, service_impl2.NewAuditWriter(repo.Audit()))
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
@@ -32,7 +32,7 @@ func TestBPMNEvents(t *testing.T) {
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, service_impl2.NewFEELEvaluator(), repo.Subscription())
+	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription())
 	engine.Apply(
 		service_impl2.WithHandlerFactory(handlerFactory),
 		service_impl2.WithJobService(jobSvc),
@@ -65,26 +65,26 @@ func TestBPMNEvents(t *testing.T) {
 		def := entities.ProcessDefinition{
 			Project: &entities.Project{ID: proj.ID},
 			Key:     "error-process",
-			Nodes: []entities.FlowNode{
+			Nodes: []*entities.Node{
 				{ID: "start", Type: entities.StartEvent},
-				{ID: "sub", Type: entities.SubProcess, Nodes: []entities.FlowNode{
+				{ID: "sub", Type: entities.SubProcess, Nodes: []*entities.Node{
 					{ID: "sub-start", Type: entities.StartEvent, ParentID: "sub"},
 					{ID: "error-end", Type: entities.ErrorEndEvent, ParentID: "sub", Properties: map[string]any{"error_code": "ERROR_1"}},
-				}, Flows: []entities.SequenceFlow{
+				}, Flows: []*entities.SequenceFlow{
 					{ID: "sf1", SourceRef: "sub-start", TargetRef: "error-end"},
 				}},
 				{ID: "error-catch", Type: entities.BoundaryEvent, AttachedToRef: "sub", Properties: map[string]any{"error_code": "ERROR_1"}},
 				{ID: "task-after-error", Type: entities.UserTask, Name: "Task After Error"},
 				{ID: "end", Type: entities.EndEvent},
 			},
-			Flows: []entities.SequenceFlow{
+			Flows: []*entities.SequenceFlow{
 				{ID: "f1", SourceRef: "start", TargetRef: "sub"},
 				{ID: "f2", SourceRef: "sub", TargetRef: "end"},
 				{ID: "f3", SourceRef: "error-catch", TargetRef: "task-after-error"},
 				{ID: "f4", SourceRef: "task-after-error", TargetRef: "end"},
 			},
 		}
-		defRes, err := svc.CreateDefinition(ctx, def)
+		defRes, err := svc.CreateDefinition(ctx, &def)
 		if err != nil {
 			t.Fatalf("failed to create definition: %v", err)
 		}
@@ -97,7 +97,7 @@ func TestBPMNEvents(t *testing.T) {
 		tasks, _ := svc.ListTasks(ctx, proj.ID)
 		found := false
 		for _, task := range tasks {
-			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID == "task-after-error" {
+			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "task-after-error" {
 				found = true
 			}
 		}
@@ -110,13 +110,13 @@ func TestBPMNEvents(t *testing.T) {
 		def := entities.ProcessDefinition{
 			Project: &entities.Project{ID: proj.ID},
 			Key:     "escalation-process",
-			Nodes: []entities.FlowNode{
+			Nodes: []*entities.Node{
 				{ID: "start", Type: entities.StartEvent},
-				{ID: "sub", Type: entities.SubProcess, Nodes: []entities.FlowNode{
+				{ID: "sub", Type: entities.SubProcess, Nodes: []*entities.Node{
 					{ID: "sub-start", Type: entities.StartEvent, ParentID: "sub"},
 					{ID: "esc-throw", Type: entities.EscalationThrowEvent, ParentID: "sub", Properties: map[string]any{"escalation_code": "ESC_1"}},
 					{ID: "sub-end", Type: entities.EndEvent, ParentID: "sub"},
-				}, Flows: []entities.SequenceFlow{
+				}, Flows: []*entities.SequenceFlow{
 					{ID: "sf1", SourceRef: "sub-start", TargetRef: "esc-throw"},
 					{ID: "sf2", SourceRef: "esc-throw", TargetRef: "sub-end"},
 				}},
@@ -124,14 +124,14 @@ func TestBPMNEvents(t *testing.T) {
 				{ID: "task-after-esc", Type: entities.UserTask, Name: "Task After Escalation"},
 				{ID: "end", Type: entities.EndEvent},
 			},
-			Flows: []entities.SequenceFlow{
+			Flows: []*entities.SequenceFlow{
 				{ID: "f1", SourceRef: "start", TargetRef: "sub"},
 				{ID: "f2", SourceRef: "sub", TargetRef: "end"},
 				{ID: "f3", SourceRef: "esc-catch", TargetRef: "task-after-esc"},
 				{ID: "f4", SourceRef: "task-after-esc", TargetRef: "end"},
 			},
 		}
-		if _, err := svc.CreateDefinition(ctx, def); err != nil {
+		if _, err := svc.CreateDefinition(ctx, &def); err != nil {
 			t.Fatalf("failed to create definition: %v", err)
 		}
 		instanceID, err := svc.StartProcess(ctx, proj.ID, "escalation-process", nil)
@@ -142,7 +142,7 @@ func TestBPMNEvents(t *testing.T) {
 		tasks, _ := svc.ListTasks(ctx, proj.ID)
 		found := false
 		for _, task := range tasks {
-			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID == "task-after-esc" {
+			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "task-after-esc" {
 				found = true
 			}
 		}
@@ -155,7 +155,7 @@ func TestBPMNEvents(t *testing.T) {
 		def := entities.ProcessDefinition{
 			Project: &entities.Project{ID: proj.ID},
 			Key:     "comp-process",
-			Nodes: []entities.FlowNode{
+			Nodes: []*entities.Node{
 				{ID: "start", Type: entities.StartEvent},
 				{ID: "task1", Type: entities.UserTask, Name: "Task 1"},
 				{ID: "comp-boundary", Type: entities.BoundaryEvent, AttachedToRef: "task1", Properties: map[string]any{"compensation": "true"}},
@@ -163,14 +163,14 @@ func TestBPMNEvents(t *testing.T) {
 				{ID: "comp-throw", Type: entities.CompensationThrowEvent},
 				{ID: "end", Type: entities.EndEvent},
 			},
-			Flows: []entities.SequenceFlow{
+			Flows: []*entities.SequenceFlow{
 				{ID: "f1", SourceRef: "start", TargetRef: "task1"},
 				{ID: "f2", SourceRef: "task1", TargetRef: "comp-throw"},
 				{ID: "f3", SourceRef: "comp-throw", TargetRef: "end"},
 				{ID: "f4", SourceRef: "comp-boundary", TargetRef: "comp-handler"},
 			},
 		}
-		if _, err := svc.CreateDefinition(ctx, def); err != nil {
+		if _, err := svc.CreateDefinition(ctx, &def); err != nil {
 			t.Fatalf("failed to create definition: %v", err)
 		}
 		instanceID, err := svc.StartProcess(ctx, proj.ID, "comp-process", nil)
@@ -181,7 +181,7 @@ func TestBPMNEvents(t *testing.T) {
 		// Complete Task 1
 		tasks, _ := svc.ListTasks(ctx, proj.ID)
 		for _, task := range tasks {
-			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID == "task1" {
+			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "task1" {
 				_ = svc.CompleteTask(ctx, task.ID, "test-user", nil)
 			}
 		}
@@ -190,7 +190,7 @@ func TestBPMNEvents(t *testing.T) {
 		tasks, _ = svc.ListTasks(ctx, proj.ID)
 		found := false
 		for _, task := range tasks {
-			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID == "comp-handler" {
+			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "comp-handler" {
 				found = true
 			}
 		}

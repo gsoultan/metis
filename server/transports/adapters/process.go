@@ -27,11 +27,11 @@ func (a ProcessInstancePBAdapter) ToProto() *pbentities.ProcessInstance {
 		definitionID = a.Instance.Definition.ID.String()
 	}
 	return &pbentities.ProcessInstance{
-		Id:           a.Instance.ID.String(),
-		ProjectId:    projectID,
-		DefinitionId: definitionID,
-		Status:       string(a.Instance.Status),
-		Variables:    variables,
-		ActiveNodes:  activeNodes,
+		Id:          a.Instance.ID.String(),
+		Project:     projectRef(projectID),
+		Definition:  definitionRef(definitionID),
+		Status:      string(a.Instance.Status),
+		Variables:   variables,
+		ActiveNodes: nodeRefs(activeNodes),
 	}
 }

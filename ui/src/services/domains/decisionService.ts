@@ -1,12 +1,19 @@
 import { requestJSON } from "../shared/rest";
+import type {
+  ApiDecision,
+  CreateDecisionPayload,
+  DecisionResult,
+  ProcessVariables,
+} from "../types";
 
 type DecisionListResponse = {
-  decisions?: any[];
+  decisions?: ApiDecision[];
+  page?: { total: number; page: number; page_size: number; has_more: boolean };
   err?: string;
 };
 
 type DecisionResponse = {
-  decision?: any;
+  decision?: ApiDecision;
   err?: string;
 };
 
@@ -15,15 +22,39 @@ type CreateDecisionResponse = {
   err?: string;
 };
 
+type MutationResponse = {
+  err?: string;
+};
+
 type EvaluateDecisionResponse = {
-  result?: any;
+  result?: DecisionResult;
   err?: string;
 };
 
 export const decisionService = {
-  async listDecisions(projectId: string, signal?: AbortSignal) {
-    const data = await requestJSON<DecisionListResponse>(`/decisions?project_id=${projectId}`, { signal });
-    return { decisions: data.decisions ?? [], err: data.err };
+  async listDecisions(
+    projectId: string,
+    page?: { page: number; pageSize: number },
+    signal?: AbortSignal,
+  ) {
+    const query = new URLSearchParams({ project_id: projectId });
+    if (page) {
+      query.set("page", String(page.page));
+      query.set("page_size", String(page.pageSize));
+    }
+    const data = await requestJSON<DecisionListResponse>(`/decisions?${query}`, { signal });
+    return {
+      decisions: data.decisions ?? [],
+      err: data.err,
+      pageInfo: data.page
+        ? {
+            total: data.page.total,
+            page: data.page.page,
+            pageSize: data.page.page_size,
+            hasMore: data.page.has_more,
+          }
+        : undefined,
+    };
   },
 
   async getDecision(id: string, signal?: AbortSignal) {
@@ -31,7 +62,7 @@ export const decisionService = {
     return { decision: data.decision, err: data.err };
   },
 
-  async createDecision(params: any) {
+  async createDecision(params: CreateDecisionPayload) {
     const data = await requestJSON<CreateDecisionResponse>("/decisions", {
       method: "POST",
       body: { decision: params },
@@ -39,8 +70,8 @@ export const decisionService = {
     return { id: data.id, err: data.err };
   },
 
-  async updateDecision(id: string, params: any) {
-    const data = await requestJSON<any>(`/decisions/${id}`, {
+  async updateDecision(id: string, params: CreateDecisionPayload) {
+    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
       method: "PUT",
       body: { decision: params },
     });
@@ -48,18 +79,29 @@ export const decisionService = {
   },
 
   async deleteDecision(id: string) {
-    const data = await requestJSON<any>(`/decisions/${id}`, {
+    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
       method: "DELETE",
     });
     return { err: data.err };
   },
 
-  async evaluateDecision(key: string, variables: any = {}, version: number = 0, signal?: AbortSignal) {
+  async evaluateDecision(
+    key: string,
+    variables: ProcessVariables = {},
+    version: number = 0,
+    signal?: AbortSignal,
+  ) {
     const data = await requestJSON<EvaluateDecisionResponse>("/decisions/evaluate", {
       method: "POST",
       body: { key, variables, version },
       signal,
     });
-    return { result: data.result, err: data.err };
+    return {
+      result: data.result,
+      // Which lines of the table produced the answer, so the editor can show
+      // the reasoning rather than only the outcome.
+      matchedRules: data.result?.matched_rules ?? [],
+      err: data.err,
+    };
   },
 };

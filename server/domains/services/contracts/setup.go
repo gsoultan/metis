@@ -52,7 +52,7 @@ type TestConnectionResult struct {
 	Message string `json:"message"`
 }
 
-// SetupService handles the initial configuration and status of the Hermod system.
+// SetupService handles the initial configuration and status of the Metis system.
 type SetupService interface {
 	GetSetupStatus(ctx context.Context) (SetupStatus, error)
 	Setup(ctx context.Context, req SetupRequest) error

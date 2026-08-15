@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dop251/goja"
 	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/gobpm/server/domains/logic"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 )
 
@@ -13,7 +13,7 @@ type ScriptTaskHandler struct {
 	engine servicecontracts.EngineRunner
 }
 
-func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def entities.ProcessDefinition, node entities.Node, iterationID string) error {
+func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	script := node.Script
 	if script == "" {
 		script = node.Condition
@@ -26,34 +26,14 @@ func (h *ScriptTaskHandler) DoExecute(ctx context.Context, instance *entities.Pr
 		return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 	}
 
-	vm := goja.New()
-
-	// Expose variables to JS
-	for k, v := range instance.Variables {
-		vm.Set(k, v)
-	}
-
-	// Helper to set variables back
-	vm.Set("setVar", func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) >= 2 {
-			name := call.Arguments[0].String()
-			val := call.Arguments[1].Export()
-			instance.SetVariable(name, val)
-		}
-		return goja.Undefined()
-	})
-
-	_, err := vm.RunString(script)
+	// The variables are applied only once the script has finished, so a script
+	// that fails partway leaves the instance as it was rather than half-written.
+	updated, err := logic.RunScript(ctx, script, instance.Variables)
 	if err != nil {
-		return fmt.Errorf("script execution failed: %w", err)
+		return fmt.Errorf("script task %s: %w", node.ID, err)
 	}
-
-	// Also sync all variables that were modified in the root scope
-	for k := range instance.Variables {
-		val := vm.Get(k)
-		if val != nil {
-			instance.SetVariable(k, val.Export())
-		}
+	for k, v := range updated {
+		instance.SetVariable(k, v)
 	}
 
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)

@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/gobpm/server/interceptors/contracts"
 	"github.com/gsoultan/gobpm/server/interceptors/logging"
 	"github.com/gsoultan/gobpm/server/interceptors/security"
+	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 )
 
 // InterceptorFactory creates various interceptors.
@@ -64,12 +65,42 @@ func (f *InterceptorFactory) NewOIDCStrategy(validator *auth.TokenValidator) aut
 	})
 }
 
-// ProtectedChain returns a function that applies both logging and auth to an endpoint.
+// NewTenantResolver derives the active tenant from the authenticated principal.
+func (f *InterceptorFactory) NewTenantResolver() contracts.EndpointInterceptor {
+	return tenant.NewEndpointTenantResolver()
+}
+
+// ProtectedChain applies logging, authentication and tenant resolution.
+//
+// Tenant resolution runs inside authentication so it can read the principal
+// that auth put in the context; repositories then scope their queries to the
+// resulting TenantContext.
 func (f *InterceptorFactory) ProtectedChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
+	tenantResolver := f.NewTenantResolver()
 	return func(e endpoint.Endpoint) endpoint.Endpoint {
-		return auth.Intercept(logging.Intercept(e))
+		return auth.Intercept(tenantResolver.Intercept(logging.Intercept(e)))
+	}
+}
+
+// ProtectedChainWithRoles applies logging, authentication and role-based
+// authorization to an endpoint.
+//
+// ProtectedChain only proves the caller is signed in. Endpoints that mutate
+// tenant-wide state — users, groups, organizations, connectors, deployments —
+// need to prove *who* is signed in, which is what this adds. Passing no roles
+// is equivalent to ProtectedChain and should be reserved for endpoints where
+// any authenticated participant is legitimately allowed.
+func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
+	logging := f.NewLogging(method)
+	auth := f.NewEndpointAuth()
+	rbac := authinterceptor.NewRequireRoles(roles...)
+	tenantResolver := f.NewTenantResolver()
+	return func(e endpoint.Endpoint) endpoint.Endpoint {
+		// Order matters: authenticate, then authorize, then scope. A missing
+		// token reports "unauthenticated" rather than "insufficient role".
+		return auth.Intercept(rbac.Intercept(tenantResolver.Intercept(logging.Intercept(e))))
 	}
 }
 

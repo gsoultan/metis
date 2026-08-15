@@ -30,14 +30,14 @@ func (r *gormDefinitionRepository) Get(ctx context.Context, id uuid.UUID) (model
 func (r *gormDefinitionRepository) GetByKey(ctx context.Context, key string) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
 	// GetConnector latest version
-	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).First(&m, SelectLatestDefinition, key).Error; err != nil {
+	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key: %w", err)
 	}
 	return m, nil
 }
 func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key string, version int) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).Where("key = ? AND version = ?", key, version).First(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key and version: %w", err)
 	}
 	return m, nil
@@ -45,10 +45,23 @@ func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key s
 
 func (r *gormDefinitionRepository) List(ctx context.Context) ([]models.ProcessDefinitionModel, error) {
 	var modelsList []models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).Select("id", "project_id", "key", "name", "version", "created_at").Find(&modelsList).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions")
+	if err := db.Select("process_definitions.id", "process_definitions.project_id", "process_definitions.key", "process_definitions.name", "process_definitions.version", "process_definitions.created_at").Find(&modelsList).Error; err != nil {
 		return nil, fmt.Errorf("could not list definitions: %w", err)
 	}
 	return modelsList, nil
+}
+
+// ListByProjectPaged returns one page of a project's definitions, newest first.
+//
+// The order is table-qualified: tenant scoping joins the projects table, which
+// carries a created_at of its own, and a bare column name is ambiguous the
+// moment that join is present — which is every request-driven call.
+func (r *gormDefinitionRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.ProcessDefinitionModel], error) {
+	base := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions").
+		Model(&models.ProcessDefinitionModel{}).
+		Where("process_definitions.project_id = ?", projectID)
+	return countAndPage[models.ProcessDefinitionModel](base, p, "process_definitions.created_at DESC")
 }
 
 func (r *gormDefinitionRepository) Create(ctx context.Context, m models.ProcessDefinitionModel) error {

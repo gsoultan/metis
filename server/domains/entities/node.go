@@ -51,6 +51,81 @@ func (n *Node) GetStringProperty(key string) string {
 	return ""
 }
 
+// GetBoolProperty reads a boolean node property, accepting both a real bool and
+// the string form a JSON round-trip or an XML import may leave behind.
+func (n *Node) GetBoolProperty(key string) bool {
+	if n.Properties == nil {
+		return false
+	}
+	switch v := n.Properties[key].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true"
+	default:
+		return false
+	}
+}
+
+// ErrorCodeValue returns the error code this node carries, from either place a
+// definition may have put it.
+//
+// ErrorCode is a field on the node and "error_code" is a property, and the two
+// matching paths had each grown up reading a different one: the in-process path
+// read the property, the job worker read the field. A definition setting only
+// one of them worked on one path and silently not on the other — and the
+// designer writes the field.
+func (n *Node) ErrorCodeValue() string {
+	if n.ErrorCode != "" {
+		return n.ErrorCode
+	}
+	return n.GetStringProperty("error_code")
+}
+
+// IsErrorBoundary reports whether a boundary event is there to catch a failure.
+//
+// A bare boundary event with nothing configured on it is a catch-all error
+// boundary — "if this goes wrong at all, do that instead" — so this cannot
+// demand positive proof that it is an error event. What it can do is rule out
+// the ones that are identifiably something else: GetBoundaryEvents returns
+// boundary events of every kind, and a timer or message event carries no error
+// code either, so without this a failure landed on whichever boundary event
+// happened to come first.
+func (n *Node) IsErrorBoundary() bool {
+	if n.GetStringProperty("event_type") == "error" || n.ErrorCodeValue() != "" {
+		return true
+	}
+	return !n.isNonErrorBoundaryKind()
+}
+
+// isNonErrorBoundaryKind reports whether a boundary event is configured as some
+// other kind of event.
+func (n *Node) isNonErrorBoundaryKind() bool {
+	switch n.GetStringProperty("event_type") {
+	case "timer", "message", "signal", "escalation", "compensation":
+		return true
+	}
+	return n.GetStringProperty("timer_duration") != "" ||
+		n.GetStringProperty("message_name") != "" ||
+		n.GetStringProperty("signal_name") != "" ||
+		n.GetStringProperty("escalation_code") != "" ||
+		n.GetStringProperty("compensation") == "true"
+}
+
+// IsNonInterrupting reports whether a boundary event notifies without cancelling
+// the activity it is attached to.
+//
+// This is an explicit opt-in property rather than the CancelActivity field.
+// BPMN's default is interrupting, but CancelActivity is a plain bool whose zero
+// value is false and which the designer writes as false unconditionally — so
+// honouring it would turn every existing boundary event non-interrupting, and an
+// error boundary would stop cancelling the activity that failed. An absent
+// property means interrupting, which is both the BPMN default and what every
+// stored definition already does.
+func (n *Node) IsNonInterrupting() bool {
+	return n.GetBoolProperty("non_interrupting")
+}
+
 func (n *Node) traverseFlows(callback func(*SequenceFlow)) {
 	for i := range n.Flows {
 		callback(n.Flows[i])

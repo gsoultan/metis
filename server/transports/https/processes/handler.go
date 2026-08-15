@@ -50,6 +50,13 @@ func RegisterHandlers(m *http.ServeMux, eps process.Endpoints, options []httptra
 		options...,
 	))
 
+	m.Handle("POST /api/v1/processes/adhoc/activate", httptransport.NewServer(
+		eps.ActivateAdHocTask,
+		decodeActivateAdHocTaskRequest,
+		common.EncodeResponse,
+		options...,
+	))
+
 	m.Handle("POST /api/v1/processes/signal", httptransport.NewServer(
 		eps.BroadcastSignal,
 		decodeBroadcastSignalRequest,
@@ -106,6 +113,14 @@ func decodeGetAuditLogsRequest(_ context.Context, r *http.Request) (any, error) 
 
 func decodeListSubProcessesRequest(_ context.Context, r *http.Request) (any, error) {
 	return process.ListSubProcessesRequest{ParentInstanceID: r.PathValue("id")}, nil
+}
+
+func decodeActivateAdHocTaskRequest(_ context.Context, r *http.Request) (any, error) {
+	var req process.ActivateAdHocTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	return req, nil
 }
 
 func decodeBroadcastSignalRequest(_ context.Context, r *http.Request) (any, error) {
