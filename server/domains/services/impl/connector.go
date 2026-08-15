@@ -8,9 +8,14 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
 	"sync"
 	"time"
+
+	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+
+	"net"
+	"net/smtp"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -19,9 +24,6 @@ import (
 	"github.com/gsoultan/gobpm/server/repositories"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
-	"net"
-	"net/smtp"
-	"strconv"
 )
 
 type connectorService struct {

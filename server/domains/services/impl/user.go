@@ -91,7 +91,12 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 	// would leave a timing signal saying the same thing more quietly.
 	mu, hash, err := s.repo.User().GetWithPasswordByUsername(ctx, username)
 	if err != nil {
-		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		// The result is deliberately unused: this compare exists only so that a
+		// missing account costs the same time as a wrong password. Checking it
+		// would be checking that a fake hash failed to match, which it always
+		// does.
+		//nolint:errcheck // deliberate: equalises timing, result is meaningless
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	u := adapters.UserEntityAdapter{Model: mu}.ToEntity()

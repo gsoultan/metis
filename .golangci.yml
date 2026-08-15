@@ -74,6 +74,26 @@ linters:
           - errcheck
           - gocritic
 
+      # go-kit endpoints carry the domain error in the response and reserve the
+      # error return for transport failures — Failed() is what the transport
+      # reads. `return Response{Err: err}, nil` is therefore correct here, and
+      # nilerr cannot see the difference. This is scoped to the endpoint layer
+      # only; everywhere else a nil return after a non-nil error is the bug
+      # nilerr says it is.
+      - path: ^server/endpoints/
+        linters:
+          - nilerr
+
+      # hugeParam and rangeValCopy are performance hints, not the defect class
+      # this config was adopted for. Acting on them means turning the node
+      # handler interface and the adapters from values into pointers, which
+      # changes copy semantics on structs the engine mutates in place — a real
+      # aliasing risk for a saving nobody has measured. Left for a change that
+      # can measure it; the rest of gocritic's diagnostic tag still applies.
+      - linters:
+          - gocritic
+        text: "(hugeParam|rangeValCopy)"
+
 formatters:
   enable:
     - gofmt

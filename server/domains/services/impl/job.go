@@ -107,7 +107,12 @@ func (s *jobService) StartWorkers(ctx context.Context) {
 // goroutine.  A semaphore prevents unbounded goroutine growth when jobs arrive
 // faster than they complete.
 func (s *jobService) processPendingJobs(ctx context.Context) {
-	_ = s.dispatchPendingJobs(ctx, false)
+	// The ticker cannot return anything, so a failed round is logged here.
+	// Dropping it left a worker that had stopped claiming jobs looking exactly
+	// like one with nothing to do.
+	if err := s.dispatchPendingJobs(ctx, false); err != nil {
+		log.Error().Err(err).Msg("A round of pending jobs could not be dispatched")
+	}
 }
 
 // ProcessPendingJobs runs one round of pending jobs and waits for it to finish.

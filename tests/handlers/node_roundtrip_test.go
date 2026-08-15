@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
 	domainadapters "github.com/gsoultan/gobpm/server/domains/adapters"
+	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/transports/adapters"
 )
 

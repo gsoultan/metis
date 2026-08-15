@@ -513,7 +513,10 @@ func (a *App) runServers(ctx context.Context) error {
 	// gRPC Server
 	grpcAddress := resolveAddress(envGRPCAddress, defaultGRPCAddress)
 	g.Go(func() error {
-		lis, err := net.Listen("tcp", grpcAddress)
+		// ListenConfig rather than net.Listen so the listener is bound under the
+		// server's context and shutdown can interrupt a slow bind.
+		var lc net.ListenConfig
+		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
 		if err != nil {
 			return err
 		}

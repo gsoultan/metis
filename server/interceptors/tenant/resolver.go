@@ -122,7 +122,11 @@ func WithRequestedOrganization(ctx context.Context, id string) context.Context {
 }
 
 func requestedOrganization(ctx context.Context) string {
-	id, _ := ctx.Value(organizationRequestKey{}).(string)
+	// No organisation on the context means none was requested.
+	id, ok := ctx.Value(organizationRequestKey{}).(string)
+	if !ok {
+		return ""
+	}
 	return id
 }
 

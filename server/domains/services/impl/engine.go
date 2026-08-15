@@ -320,7 +320,11 @@ func executionDepthLimit() int {
 // enterNode increments the traversal depth for this execution, returning an
 // error once the bound is exceeded.
 func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
-	depth, _ := ctx.Value(executionDepthKey{}).(int)
+	// An absent depth means this is the first node of the execution.
+	depth := 0
+	if current, ok := ctx.Value(executionDepthKey{}).(int); ok {
+		depth = current
+	}
 	depth++
 	if limit := executionDepthLimit(); depth > limit {
 		return nil, fmt.Errorf(

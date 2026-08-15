@@ -55,15 +55,28 @@ func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListInstancesRequest)
-		projectID, _ := uuid.Parse(req.ProjectID)
+		req, ok := request.(ListInstancesRequest)
+		if !ok {
+			return ListInstancesResponse{Err: fmt.Errorf("unexpected request type %T", request)}, nil
+		}
 
-		page, err := s.ListInstancesPaged(ctx, projectID, repocontracts.Pagination{
+		// A project id that does not parse used to be discarded, leaving
+		// uuid.Nil — which ListInstancesPaged reads as "no project filter" and
+		// answers with every instance in the tenant. A malformed id must narrow
+		// nothing.
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListInstancesResponse{
+				Err: fmt.Errorf("project id %q is not a valid identifier: %w", req.ProjectID, err),
+			}, nil
+		}
+
+		page, pageErr := s.ListInstancesPaged(ctx, projectID, repocontracts.Pagination{
 			Page:     req.Page,
 			PageSize: req.PageSize,
 		})
-		if err != nil {
-			return ListInstancesResponse{Err: err}, nil
+		if pageErr != nil {
+			return ListInstancesResponse{Err: pageErr}, nil
 		}
 		return ListInstancesResponse{
 			Instances: page.Items,

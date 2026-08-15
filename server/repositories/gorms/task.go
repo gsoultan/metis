@@ -68,11 +68,11 @@ func (r *gormTaskRepository) candidateQuery(ctx context.Context, userID string, 
 	// LIKE against the serialised JSON array; the quotes anchor the match to a
 	// whole element so "alice" does not match "alice.smith".
 	subQuery := QueryByCandidateUser
-	args := []any{fmt.Sprintf("%%\"%s\"%%", userID)}
+	args := []any{fmt.Sprintf("%%%q%%", userID)}
 
 	for _, g := range groups {
 		subQuery += " OR " + QueryByCandidateGroup
-		args = append(args, fmt.Sprintf("%%\"%s\"%%", g))
+		args = append(args, fmt.Sprintf("%%%q%%", g))
 	}
 
 	return query.Where(subQuery, args...)

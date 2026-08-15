@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/rs/zerolog/log"
 )
 
 // ErrScriptTimeout is returned when user-supplied script exceeds its budget.
@@ -87,7 +88,14 @@ func RunSandboxed(ctx context.Context, vm *goja.Runtime, budget time.Duration, f
 func NewSandboxedRuntime() *goja.Runtime {
 	vm := goja.New()
 	for _, global := range []string{"eval", "Function"} {
-		_ = vm.GlobalObject().Delete(global)
+		// Removing these is a security control, not a tidy-up: process
+		// definitions are untrusted input, and a runtime that still has eval can
+		// build code the sandbox was meant to keep out. A refusal here is loud
+		// rather than silent.
+		if err := vm.GlobalObject().Delete(global); err != nil {
+			log.Error().Err(err).Str("global", global).
+				Msg("Could not remove a global from the script sandbox; scripts may reach it")
+		}
 	}
 	return vm
 }
