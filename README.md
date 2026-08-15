@@ -79,7 +79,7 @@ One command runs the backend and the UI together:
 ./scripts/dev.sh          # or: make dev
 ```
 
-- UI on **http://localhost:5173**, API on **:8080**, gRPC on **:8081**
+- UI on **http://localhost:5273**, API on **:8080**, gRPC on **:8081**
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
