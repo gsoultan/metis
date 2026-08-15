@@ -15,21 +15,27 @@ import (
 // multi-instance bookkeeping under, inside the business variable namespace.
 const legacyMultiInstancePrefix = "_mi_"
 
-// MultiInstanceBackfillResult reports what one backfill run did.
-type MultiInstanceBackfillResult struct {
+// legacyJoinPrefix is the prefix the engine used for gateway join counters, in
+// the same namespace and for the same reason.
+const legacyJoinPrefix = "_join_"
+
+// EngineBookkeepingBackfillResult reports what one backfill run did.
+type EngineBookkeepingBackfillResult struct {
 	Scanned   int
 	Migrated  int
 	Unchanged int
 }
 
-// BackfillMultiInstanceState moves multi-instance bookkeeping out of the
-// variables map and into the instance's own field.
+// BackfillEngineBookkeeping moves the engine's own bookkeeping out of the
+// variables map and into the instance's own fields.
 //
 // The engine used to track a node that runs once per item with three variables —
-// `_mi_<node>_active`, `_mi_<node>_completed` and `_mi_<node>_total` — sharing
-// the namespace with business data. Those now live in their own column, so an
-// instance already mid-way through such a node would come back from the database
-// with no progress recorded and its iterations would restart from zero.
+// `_mi_<node>_active`, `_mi_<node>_completed` and `_mi_<node>_total` — and a
+// gateway waiting on several branches with `_join_<node>`, all sharing the
+// namespace with business data. Those now live in their own columns, so an
+// instance already mid-way through either would come back from the database with
+// nothing recorded: its iterations would restart from zero, or a gateway would
+// forget the branches that had already arrived and wait forever.
 //
 // This reads the legacy keys once at startup, rewrites them into the new field
 // and removes them from the variables.
@@ -37,13 +43,13 @@ type MultiInstanceBackfillResult struct {
 // It is idempotent: a migrated instance has no `_mi_` keys left, so a later run
 // does not touch it. Only active instances are considered — a finished process
 // has nothing left to count, and the stale keys on it are harmless history.
-func BackfillMultiInstanceState(ctx context.Context, repo repositories.Repository) (MultiInstanceBackfillResult, error) {
+func BackfillEngineBookkeeping(ctx context.Context, repo repositories.Repository) (EngineBookkeepingBackfillResult, error) {
 	ms, err := repo.Process().List(ctx)
 	if err != nil {
-		return MultiInstanceBackfillResult{}, fmt.Errorf("list process instances: %w", err)
+		return EngineBookkeepingBackfillResult{}, fmt.Errorf("list process instances: %w", err)
 	}
 
-	var result MultiInstanceBackfillResult
+	var result EngineBookkeepingBackfillResult
 	for i := range ms {
 		m := &ms[i]
 		if m.Status != "active" {
@@ -52,7 +58,7 @@ func BackfillMultiInstanceState(ctx context.Context, repo repositories.Repositor
 		result.Scanned++
 
 		instance := adapters.InstanceEntityAdapter{Model: *m}.ToEntity()
-		if !migrateLegacyMultiInstanceKeys(&instance) {
+		if !migrateLegacyBookkeepingKeys(&instance) {
 			result.Unchanged++
 			continue
 		}
@@ -67,14 +73,14 @@ func BackfillMultiInstanceState(ctx context.Context, repo repositories.Repositor
 		log.Info().
 			Int("scanned", result.Scanned).
 			Int("migrated", result.Migrated).
-			Msg("Moved multi-instance bookkeeping out of the process variables")
+			Msg("Moved engine bookkeeping out of the process variables")
 	}
 	return result, nil
 }
 
-// migrateLegacyMultiInstanceKeys rewrites one instance in place, reporting
+// migrateLegacyBookkeepingKeys rewrites one instance in place, reporting
 // whether anything changed.
-func migrateLegacyMultiInstanceKeys(instance *entities.ProcessInstance) bool {
+func migrateLegacyBookkeepingKeys(instance *entities.ProcessInstance) bool {
 	if len(instance.Variables) == 0 {
 		return false
 	}
@@ -85,6 +91,14 @@ func migrateLegacyMultiInstanceKeys(instance *entities.ProcessInstance) bool {
 	var legacyKeys []string
 
 	for key, value := range instance.Variables {
+		if strings.HasPrefix(key, legacyJoinPrefix) {
+			if instance.Joins == nil {
+				instance.Joins = map[string]int{}
+			}
+			instance.Joins[strings.TrimPrefix(key, legacyJoinPrefix)] = toInt(value)
+			legacyKeys = append(legacyKeys, key)
+			continue
+		}
 		if !strings.HasPrefix(key, legacyMultiInstancePrefix) {
 			continue
 		}

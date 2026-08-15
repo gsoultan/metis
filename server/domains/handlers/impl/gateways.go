@@ -108,9 +108,7 @@ func (h *ParallelGatewayHandler) recordAndCheckJoin(ctx context.Context, instanc
 		return false, fmt.Errorf("parallel gateway join: load instance for update: %w", err)
 	}
 
-	joinKey := fmt.Sprintf("_join_%s", nodeID)
-	count := extractIntVar(fresh.Variables, joinKey) + 1
-	fresh.SetVariable(joinKey, count)
+	count := fresh.RecordJoinArrival(nodeID)
 
 	if err := h.engine.UpdateInstance(ctx, fresh); err != nil {
 		return false, err
@@ -124,7 +122,7 @@ func (h *ParallelGatewayHandler) recordAndCheckJoin(ctx context.Context, instanc
 	}
 
 	// All branches arrived – clean up the join counter.
-	delete(instance.Variables, joinKey)
+	instance.ClearJoin(nodeID)
 	if err := h.engine.UpdateInstance(ctx, *instance); err != nil {
 		return false, err
 	}

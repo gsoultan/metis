@@ -359,11 +359,12 @@ func (a *App) migrate() error {
 		return fmt.Errorf("failed to backfill message correlation keys: %w", err)
 	}
 
-	// Multi-instance bookkeeping moved out of the business variable namespace
-	// into its own column. An instance already part-way through a node that runs
-	// once per item would otherwise come back with no progress recorded and
-	// restart its iterations from zero.
-	if _, err := serviceimpl.BackfillMultiInstanceState(context.Background(), repo); err != nil {
+	// The engine's own bookkeeping — multi-instance progress and gateway join
+	// counts — moved out of the business variable namespace into its own
+	// columns. An instance part-way through either would otherwise come back
+	// with nothing recorded: restarting its iterations from zero, or forgetting
+	// the branches that had already reached a waiting gateway.
+	if _, err := serviceimpl.BackfillEngineBookkeeping(context.Background(), repo); err != nil {
 		return fmt.Errorf("failed to backfill multi-instance state: %w", err)
 	}
 	return nil

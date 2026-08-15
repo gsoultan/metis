@@ -205,7 +205,7 @@ func TestMultiInstanceBackfillPreservesProgress(t *testing.T) {
 		t.Fatalf("stage the legacy shape: %v", err)
 	}
 
-	result, err := service_impl2.BackfillMultiInstanceState(ctx, h.repo)
+	result, err := service_impl2.BackfillEngineBookkeeping(ctx, h.repo)
 	if err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
@@ -231,11 +231,162 @@ func TestMultiInstanceBackfillPreservesProgress(t *testing.T) {
 	}
 
 	// Running it again finds nothing left to do.
-	repeat, err := service_impl2.BackfillMultiInstanceState(ctx, h.repo)
+	repeat, err := service_impl2.BackfillEngineBookkeeping(ctx, h.repo)
 	if err != nil {
 		t.Fatalf("repeat backfill: %v", err)
 	}
 	if repeat.Migrated != 0 {
 		t.Errorf("a repeat run migrated %d instances; it is not idempotent", repeat.Migrated)
+	}
+}
+
+// A gateway that waits for several branches counts them somewhere, and that
+// somewhere must not be the business variables either.
+//
+// AGENTS.md names `_join_*` alongside `_mi_*` in the same veto. The count now
+// has its own field, and an instance caught mid-join when it moved must keep
+// the branches that had already arrived — otherwise the gateway forgets them
+// and waits forever.
+func TestParallelJoinBookkeepingIsNotInProcessVariables(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Join Namespace Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "two-approvals",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "split", Type: entities.ParallelGateway},
+			{ID: "legal", Type: entities.UserTask, Name: "Legal review"},
+			{ID: "finance", Type: entities.UserTask, Name: "Finance review"},
+			{ID: "join", Type: entities.ParallelGateway},
+			{ID: "sign", Type: entities.UserTask, Name: "Sign it off"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "split"},
+			{ID: "f2", SourceRef: "split", TargetRef: "legal"},
+			{ID: "f3", SourceRef: "split", TargetRef: "finance"},
+			{ID: "f4", SourceRef: "legal", TargetRef: "join"},
+			{ID: "f5", SourceRef: "finance", TargetRef: "join"},
+			{ID: "f6", SourceRef: "join", TargetRef: "sign"},
+			{ID: "f7", SourceRef: "sign", TargetRef: "end"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "two-approvals", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	// Finish one branch so the gateway is mid-count.
+	tasks, err := h.svc.ListTasks(ctx, h.projID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	for _, task := range tasks {
+		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "legal" {
+			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+				t.Fatalf("complete the legal review: %v", err)
+			}
+		}
+	}
+
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	for k := range instance.Variables {
+		if strings.HasPrefix(k, "_join_") || strings.HasPrefix(k, "_mi_") {
+			t.Errorf("engine bookkeeping %q is in the business variable namespace", k)
+		}
+	}
+	if arrived := instance.JoinArrivals("join"); arrived != 1 {
+		t.Errorf("expected 1 branch recorded at the gateway, got %d", arrived)
+	}
+
+	// The other branch finishes and the process goes through.
+	tasks, err = h.svc.ListTasks(ctx, h.projID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	for _, task := range tasks {
+		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "finance" {
+			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+				t.Fatalf("complete the finance review: %v", err)
+			}
+		}
+	}
+	if !h.waitingAt(ctx, t, instanceID, "sign") {
+		t.Error("both branches arrived but the gateway did not let the process through")
+	}
+}
+
+// An instance caught mid-join when the counter moved keeps its arrivals.
+func TestJoinBackfillPreservesArrivals(t *testing.T) {
+	ctx := t.Context()
+	h := newEngineHarness(t, "Join Backfill Project")
+
+	def := entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "two-approvals-legacy",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "split", Type: entities.ParallelGateway},
+			{ID: "legal", Type: entities.UserTask, Name: "Legal review"},
+			{ID: "finance", Type: entities.UserTask, Name: "Finance review"},
+			{ID: "join", Type: entities.ParallelGateway},
+			{ID: "sign", Type: entities.UserTask, Name: "Sign it off"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "split"},
+			{ID: "f2", SourceRef: "split", TargetRef: "legal"},
+			{ID: "f3", SourceRef: "split", TargetRef: "finance"},
+			{ID: "f4", SourceRef: "legal", TargetRef: "join"},
+			{ID: "f5", SourceRef: "finance", TargetRef: "join"},
+			{ID: "f6", SourceRef: "join", TargetRef: "sign"},
+			{ID: "f7", SourceRef: "sign", TargetRef: "end"},
+		},
+	}
+	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "two-approvals-legacy", nil)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	// Put it back into the pre-move shape: one branch already arrived, recorded
+	// in the variables.
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	instance.Joins = nil
+	instance.SetVariable("_join_join", 1)
+	if err := h.engine.UpdateInstance(ctx, instance); err != nil {
+		t.Fatalf("stage the legacy shape: %v", err)
+	}
+
+	if _, err := service_impl2.BackfillEngineBookkeeping(ctx, h.repo); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	migrated, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload after backfill: %v", err)
+	}
+	if arrived := migrated.JoinArrivals("join"); arrived != 1 {
+		t.Errorf("the gateway forgot the branch that had already arrived: %d recorded", arrived)
+	}
+	for k := range migrated.Variables {
+		if strings.HasPrefix(k, "_join_") {
+			t.Errorf("legacy key %q was left in the variables", k)
+		}
 	}
 }

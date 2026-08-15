@@ -52,6 +52,9 @@ type ProcessInstanceModel struct {
 	// has its own column so it cannot collide with business variables or reach
 	// the audit trail through them.
 	MultiInstance map[string]MultiInstanceStateModel `gorm:"type:text;serializer:json" json:"multi_instance,omitzero"`
+	// Joins counts the branches that have reached each waiting gateway. Its own
+	// column for the same reason as MultiInstance.
+	Joins map[string]int `gorm:"type:text;serializer:json" json:"joins,omitzero"`
 }
 
 // TableName overrides the table name for ProcessInstanceModel.

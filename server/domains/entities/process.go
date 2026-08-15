@@ -26,7 +26,10 @@ type ProcessInstance struct {
 	// MultiInstance holds engine bookkeeping for nodes that run once per item,
 	// keyed by node ID. Deliberately separate from Variables.
 	MultiInstance map[string]MultiInstanceState `json:"multi_instance,omitzero"`
-	CreatedAt     time.Time                     `json:"created_at,omitzero"`
+	// Joins counts the branches that have reached each waiting gateway, keyed by
+	// node ID. Separate from Variables for the same reason as MultiInstance.
+	Joins     map[string]int `json:"joins,omitzero"`
+	CreatedAt time.Time      `json:"created_at,omitzero"`
 }
 
 func (pi *ProcessInstance) AddToken(node *Node) Token {
@@ -210,4 +213,25 @@ func (pi *ProcessInstance) MultiInstanceConditionScope(nodeID string) map[string
 		scope["nrOfActiveInstances"] = state.Total - state.Completed
 	}
 	return scope
+}
+
+// RecordJoinArrival counts one branch reaching a gateway that waits for several,
+// and returns how many have now arrived.
+func (pi *ProcessInstance) RecordJoinArrival(nodeID string) int {
+	if pi.Joins == nil {
+		pi.Joins = map[string]int{}
+	}
+	pi.Joins[nodeID]++
+	return pi.Joins[nodeID]
+}
+
+// JoinArrivals reports how many branches have reached the gateway so far.
+func (pi *ProcessInstance) JoinArrivals(nodeID string) int {
+	return pi.Joins[nodeID]
+}
+
+// ClearJoin drops the count once every branch has arrived and the gateway has
+// let the process through.
+func (pi *ProcessInstance) ClearJoin(nodeID string) {
+	delete(pi.Joins, nodeID)
 }

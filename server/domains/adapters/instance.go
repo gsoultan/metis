@@ -1,6 +1,8 @@
 package adapters
 
 import (
+	"maps"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
@@ -71,6 +73,12 @@ func (a InstanceModelAdapter) ToModel() models.ProcessInstanceModel {
 			}
 			return ids
 		}(),
+		Joins: func() map[string]int {
+			if len(a.Instance.Joins) == 0 {
+				return nil
+			}
+			return maps.Clone(a.Instance.Joins)
+		}(),
 		MultiInstance: func() map[string]models.MultiInstanceStateModel {
 			if len(a.Instance.MultiInstance) == 0 {
 				return nil
@@ -130,6 +138,12 @@ func (a InstanceEntityAdapter) ToEntity() entities.ProcessInstance {
 				nodes[i] = &entities.Node{ID: id}
 			}
 			return nodes
+		}(),
+		Joins: func() map[string]int {
+			if len(a.Model.Joins) == 0 {
+				return nil
+			}
+			return maps.Clone(a.Model.Joins)
 		}(),
 		MultiInstance: func() map[string]entities.MultiInstanceState {
 			if len(a.Model.MultiInstance) == 0 {
