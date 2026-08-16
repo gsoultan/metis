@@ -119,9 +119,24 @@ Outstanding:
    so probe traffic does not skew the percentiles. Scrape endpoint binds to loopback by
    default on `:9464`.
 
-   Still missing for production: **no tracing**, and **`AutoMigrate` is the migration
-   strategy** — there is no versioned migration history, no review step before DDL runs
-   against production data, and no rollback.
+   **Versioned migrations** replaced AutoMigrate-on-every-boot
+   (`server/repositories/migrations`). A `schema_migrations` table records what ran;
+   migration 1 is the baseline AutoMigrate, so it is a no-op on every existing
+   installation and starts versioning without having to guess at the current state.
+   Replicas contend for a lock row, since they start together. Migrations are Go rather
+   than SQL because four dialects would otherwise mean four copies of every change.
+
+   The two data backfills became migrations 2 and 3. They had been running on **every
+   boot** — and `BackfillEngineBookkeeping` calls `Process().List`, loading every process
+   instance ever created into memory, so startup got slower forever and found nothing to
+   do after the first time.
+
+   `DriftReport` warns at startup when a model declares a column the database lacks,
+   which is the guard rail that makes strict migrations usable: adding a field no longer
+   applies itself, and forgetting the migration would otherwise fail at the first request
+   rather than at boot.
+
+   Still missing for production: **no tracing**.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

@@ -37,6 +37,7 @@ import (
 	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 	"github.com/gsoultan/gobpm/server/repositories"
 	gorms "github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/gobpm/server/repositories/migrations"
 	models "github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/gsoultan/gobpm/server/transports/grpcs"
 	https "github.com/gsoultan/gobpm/server/transports/https"
@@ -379,29 +380,81 @@ func (a *App) setupDatabase() error {
 }
 
 func (a *App) migrate() error {
-	if err := a.db.AutoMigrate(models.MigrationModels()...); err != nil {
+	ctx := context.Background()
+
+	result, err := migrations.Run(ctx, a.db, a.migrationList())
+	if err != nil {
 		return fmt.Errorf("failed to migrate db: %w", err)
 	}
+	log.Info().
+		Ints("applied", result.Applied).
+		Int("alreadyApplied", result.Skipped).
+		Msg("Database migrations complete")
 
-	// Schema alone is not enough here: message subscriptions written before
-	// correlation keys were resolved per instance still hold the raw ${...}
-	// template, which no inbound correlation value can match. Repair them before
-	// serving traffic, or every instance already waiting on a message event
-	// hangs.
-	repo := repositories.NewRepository(a.db)
-	if _, err := serviceimpl.BackfillMessageCorrelationKeys(context.Background(), repo); err != nil {
-		return fmt.Errorf("failed to backfill message correlation keys: %w", err)
-	}
-
-	// The engine's own bookkeeping — multi-instance progress and gateway join
-	// counts — moved out of the business variable namespace into its own
-	// columns. An instance part-way through either would otherwise come back
-	// with nothing recorded: restarting its iterations from zero, or forgetting
-	// the branches that had already reached a waiting gateway.
-	if _, err := serviceimpl.BackfillEngineBookkeeping(context.Background(), repo); err != nil {
-		return fmt.Errorf("failed to backfill multi-instance state: %w", err)
-	}
+	a.reportSchemaDrift()
 	return nil
+}
+
+// migrationList is the full ordered set: the schema migrations, plus the data
+// repairs that need the repository layer.
+//
+// Both repairs used to run on every single boot. They are one-time upgrades —
+// they fix rows written by older versions of the engine, and nothing writes
+// those shapes any more — so every boot after the first scanned the whole table
+// to find nothing. BackfillEngineBookkeeping was the worse of the two: it calls
+// Process().List, loading every process instance ever created into memory, which
+// on a mature database is a startup that keeps getting slower and never has
+// anything to do.
+func (a *App) migrationList() []migrations.Migration {
+	repo := repositories.NewRepository(a.db)
+
+	return append(migrations.Schema(models.MigrationModels()), []migrations.Migration{
+		{
+			Version:       2,
+			Name:          "resolve templated message correlation keys",
+			Transactional: true,
+			// Message subscriptions written before correlation keys were
+			// resolved per instance still hold the raw ${...} template, which no
+			// inbound correlation value can match. Until they are repaired every
+			// instance waiting on a message event hangs.
+			Run: func(ctx context.Context, _ *gorm.DB) error {
+				_, err := serviceimpl.BackfillMessageCorrelationKeys(ctx, repo)
+				return err
+			},
+		},
+		{
+			Version:       3,
+			Name:          "move engine bookkeeping out of business variables",
+			Transactional: true,
+			// Multi-instance progress and gateway join counts moved out of the
+			// business variable namespace into their own columns. An instance
+			// part-way through either would otherwise come back with nothing
+			// recorded: restarting its iterations from zero, or forgetting the
+			// branches that had already reached a waiting gateway.
+			Run: func(ctx context.Context, _ *gorm.DB) error {
+				_, err := serviceimpl.BackfillEngineBookkeeping(ctx, repo)
+				return err
+			},
+		},
+	}...)
+}
+
+// reportSchemaDrift warns when a model declares a column the database lacks.
+//
+// Adding a field to a model used to be enough, because AutoMigrate ran on every
+// boot. It is not any more, and forgetting the migration fails at the first
+// request that touches the column rather than at startup — so startup says so.
+// A warning rather than a refusal: an operator restarting a service at 3am
+// should not be blocked by a column the running code may never read.
+func (a *App) reportSchemaDrift() {
+	drift, err := migrations.DriftReport(a.db, models.MigrationModels())
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not check the schema against the models")
+		return
+	}
+	for _, item := range drift {
+		log.Warn().Str("drift", item).Msg("Schema drift: a model change is missing its migration")
+	}
 }
 
 func (a *App) setupService(ctx context.Context) error {

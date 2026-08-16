@@ -600,16 +600,67 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-08-16 (completed): Executed `P0-OPS-02` versioned schema migrations, replacing
+  AutoMigrate-on-every-boot.
+  - `server/repositories/migrations`: a `schema_migrations` table records every applied
+    version with its duration, so "which version is this database at" and "which migration
+    was slow" both have answers, which AutoMigrate could never give.
+  - Migration 1 is the baseline AutoMigrate over `MigrationModels()`. It reproduces exactly
+    the schema every existing installation already has, so it is a no-op on all of them
+    and creates everything on a fresh database — that is what lets versioning start
+    without a migration that has to guess at the current state.
+  - Migrations are Go, not SQL: four supported dialects would otherwise mean four copies
+    of every change, with the differences discovered in production.
+  - **The two data backfills became migrations 2 and 3.** They had been running on *every
+    boot*, and `BackfillEngineBookkeeping` calls `Process().List` — every process instance
+    ever created, loaded into memory — so startup got slower forever while finding nothing
+    to do after the first run. Verified: first boot `applied=[1,2,3]`, second boot
+    `alreadyApplied=3 applied=[]`.
+  - Replicas start together, so they contend for a lock row (`schema_migration_locks`).
+    Advisory locks differ across all four engines; a primary key that can only be inserted
+    once behaves the same everywhere. Stale locks are taken over after 15 minutes, or one
+    replica crashing mid-migration would block every future deployment.
+  - `DriftReport` warns at startup when a model declares a column the database lacks. This
+    is what makes strict migrations usable: adding a model field no longer applies itself,
+    and forgetting the migration would otherwise fail at the first request that touches
+    the column rather than at boot.
+  - Setup runs the same schema migrations rather than a bare AutoMigrate, so a freshly
+    created database is not treated on its first boot as one that had never been migrated.
+  - **Two real defects found by the concurrency test**, both of which would have hit a
+    multi-replica deployment:
+    - `AutoMigrate` is not concurrency-safe: replicas racing to create the bookkeeping
+      tables failed with "table already exists". Now tolerated, but only after confirming
+      the table really is there, so a genuine failure still stops the deployment.
+    - The lock could report a hard error where it should have retried — a holder that
+      finished quickly released the row between the failed insert and the check, making
+      "no lock held" indistinguishable from contention. Every failure is now retried under
+      a deadline, with the last error reported if it expires.
+    - Also fixed: GORM had made `version` an `AUTOINCREMENT` column. It is an identity we
+      assign, and a database that renumbered it would lose track of which migration is
+      which.
+  - Regression coverage: `tests/migrations/runner_test.go` — 8 tests across SQLite,
+    PostgreSQL and MySQL, covering apply-exactly-once, upgrade from an existing version,
+    stop-at-first-failure without recording it, four concurrent replicas applying a
+    migration exactly once, duplicate version rejection, ordering, baseline idempotency
+    against an already-migrated database, and drift detection.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+    - Two consecutive real boots, showing the migrations run once and then not again
+
 #### 11. What’s Next (Execution Order)
 
 1. P0 Security remainder:
    - Decide whether `TenantContext`-absent should keep failing open, and if not, give
      system work an explicit system identity.
 2. P0 Operability remainder:
-   - **Versioned migrations.** `AutoMigrate` is the current strategy: no migration
-     history, no review of DDL before it runs against production data, no rollback.
    - **Tracing.** Nothing emits spans; execution-plan §3.4 requires one per external call.
    - **RTO/RPO per environment**, still the one unchecked item in §1.
+   - **Migration rollback.** The runner applies forward only. A bad migration is
+     recovered by restoring a backup, so backup/restore procedure is the prerequisite
+     and is part of the RTO/RPO item above.
 3. P0 Reliability gaps:
    - Fuzz tests for parsers/forms/expressions — the module currently has none.
    - Feature-flag/canary rollout mechanism.
