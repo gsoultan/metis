@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"math/big"
 	"net"
 	"net/http"
@@ -51,6 +53,18 @@ import (
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
+
+// version identifies this build in traces and, later, anywhere else that needs
+// to say which build produced something.
+//
+// Set at build time with:
+//
+//	go build -ldflags "-X github.com/gsoultan/gobpm/internal/app.version=$(git describe --tags --always)"
+//
+// It defaults to "dev" rather than a fake version number, because a trace
+// labelled with a version that was never released is worse than one that admits
+// it does not know.
+var version = "dev"
 
 type App struct {
 	config     *config.Config
@@ -202,6 +216,15 @@ func (a *App) Run() error {
 
 	// 0. Initialize Logger
 	logger.Init()
+
+	// Tracing before anything that might be worth tracing. It is off unless an
+	// OTLP endpoint is configured, and the shutdown function is safe to call
+	// either way, so there is no conditional cleanup to get wrong.
+	shutdownTracing, err := tracing.Init(ctx, version)
+	if err != nil {
+		return fmt.Errorf("failed to start tracing: %w", err)
+	}
+	defer shutdownTracing(context.Background())
 
 	a.initDBOnce()
 
@@ -573,6 +596,13 @@ func (a *App) runServers(ctx context.Context) error {
 	// overloaded service look perfectly healthy.
 	metricsCollector := metrics.New()
 	httpHandler = metricsCollector.Wrap(httpHandler)
+
+	// Tracing wraps outside metrics so that a span covers the whole request,
+	// including time spent queued behind the backpressure limiter — which is
+	// exactly the time a caller complains about and the handler never sees.
+	// otelhttp also reads any incoming traceparent, so a request arriving from
+	// another service joins that trace instead of starting a new one.
+	httpHandler = otelhttp.NewHandler(httpHandler, "gobpm.http")
 
 	// Health wraps outside metrics, so probe traffic is served without being
 	// counted. Probes run every few seconds per replica and would otherwise

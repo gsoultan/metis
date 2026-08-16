@@ -136,7 +136,14 @@ Outstanding:
    applies itself, and forgetting the migration would otherwise fail at the first request
    rather than at boot.
 
-   Still missing for production: **no tracing**.
+   **Tracing** landed (`internal/pkg/tracing`): OTLP, off unless configured, spans on the
+   job service task and the connector call carrying the fields §3.4 names. Sampling
+   defaults to 5% — an engine executing thousands of nodes a minute would otherwise make
+   the exporter its own outage.
+
+   **Recovery targets** are in [`../docs/recovery.md`](../docs/recovery.md): production
+   RPO 5min / RTO 1h, with backup, restore and quarterly rehearsal. It doubles as the
+   migration rollback plan, the runner being forward-only.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

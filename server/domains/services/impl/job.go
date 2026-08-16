@@ -3,6 +3,9 @@ package impl
 import (
 	"context"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"strings"
 	"sync"
 	"time"
@@ -325,8 +328,24 @@ func (s *jobService) ResolveIncident(ctx context.Context, incidentID uuid.UUID) 
 //  2. Attempt a configured connector; fall back to HTTPServiceTaskRunner.
 //  3. Persist output variables and advance the process token.
 func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) error {
+	// The parent span for one attempt at one service task. The connector span
+	// nests under it, so a trace reads as "instance X, node Y, attempt 2, called
+	// Salesforce, waited 30s" — which is the question asked of a stuck instance.
+	ctx, span := tracing.Tracer().Start(ctx, "job.serviceTask",
+		trace.WithAttributes(
+			tracing.AttrInstanceID.String(job.Instance.ID.String()),
+			tracing.AttrNodeID.String(job.Node.ID),
+			tracing.AttrDefinitionID.String(job.Definition.ID.String()),
+			// Retries is the count already spent, so this attempt is the next.
+			tracing.AttrAttempt.Int(job.Retries+1),
+		),
+	)
+	defer span.End()
+
 	md, err := s.repo.Definition().Get(ctx, job.Definition.ID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "definition lookup failed")
 		return err
 	}
 	def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()

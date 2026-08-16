@@ -133,7 +133,9 @@
   - [x] API latency targets defined.
   - [x] Throughput target defined.
   - [x] Reliability target defined.
-  - [ ] Recovery target finalized with explicit per-environment `RTO`/`RPO` values.
+  - [x] Recovery target finalized with explicit per-environment `RTO`/`RPO` values —
+        see [`docs/recovery.md`](../docs/recovery.md). Production RPO 5min / RTO 1h,
+        with the backup, restore and quarterly rehearsal procedures behind them.
 - [ ] 2. Core Backend Architecture
   - [ ] `ServiceFacade` orchestration-only compliance verified across domains.
   - [ ] Small, consumer-centric interface compliance audit completed.
@@ -159,10 +161,12 @@
 - [x] 5. Security Hardening
   - [x] Authn/Authz parity (`RBAC` + optional `ABAC`) audit completed.
   - [x] Tenant isolation verification completed in repositories/queries — every
-        project-owned table is scoped on its read paths, proven on SQLite,
-        PostgreSQL and MySQL by `tests/tenant/isolation_test.go`. Write-path
-        scoping and the fail-open-without-context behaviour remain open; see
-        `execution-plan.md` §Status.
+        project-owned table is scoped on reads, writes and creates, proven on
+        SQLite, PostgreSQL and MySQL by `tests/tenant/isolation_test.go`. The
+        repository layer still fails open with no `TenantContext`, which is now
+        defence in depth rather than a live hole: unresolvable principals are
+        refused at the resolver, and the public chain's membership is asserted
+        by test. See `execution-plan.md` §Status.
   - [x] DB parameterization audit completed.
   - [x] Secret/PII redaction implemented for outward errors/log paths.
   - [x] API abuse controls implemented (request-size limit + rate limit interceptors).
@@ -170,7 +174,9 @@
 - [ ] 6. Reliability & Bug Reduction
   - [ ] Full test-pyramid baseline complete (unit + integration + contract + E2E).
   - [x] `go test -race` enabled in CI workflow.
-  - [ ] Fuzz tests added for parsers/forms/expressions.
+  - [x] Fuzz tests added for parsers/forms/expressions — `tests/fuzz`, five targets
+        over the BPMN XML parser, its round trip, the condition chain and FEEL.
+        Found the script-sandbox DoS and the `Parse` nil-contract defect.
   - [ ] Outage simulation suite added (DB/broker/network).
   - [ ] Feature-flag/canary rollout mechanism defined and integrated.
 - [ ] 7. User-Friendly UX Roadmap
@@ -650,20 +656,62 @@
     - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
     - Two consecutive real boots, showing the migrations run once and then not again
 
+- 2026-08-16 (completed): Closed the last open P0 items — authorization, tracing and recovery.
+  - **`P0-SEC-05` two authorization holes**, both found while closing the fail-open scope:
+    - The tenant resolver passed an *unresolvable* principal through with no
+      `TenantContext`, which the repository layer reads as a system call and does not
+      scope. OIDC validation returns `*auth.UserClaims`, which carries no membership list,
+      so every OIDC-authenticated request reached every tenant's rows. Now refused: the
+      three cases (no principal, resolved, unresolvable) are distinct, and collapsing the
+      last into the first was the bug.
+    - `CreateUser` sat on the public endpoint chain — logging only, no role check, no
+      tenant resolution — while `UpdateUser` and `DeleteUser` beside it are `adminOnly`.
+      Mandatory HTTP auth meant a token was needed, but any authenticated caller at any
+      privilege level could post a user with `roles:["admin"]` and someone else's
+      organization, then log in as their administrator. Now `adminOnly`, and the named
+      organizations are checked against the caller's tenant, because being an admin grants
+      authority over your own organization rather than every organization.
+    - The wiring test now asserts nothing administrative sits on the public chain, and
+      that the only public endpoints are those reachable before a caller can hold a token.
+  - **`P0-OPS-03` tracing** (`internal/pkg/tracing`): OTLP, off unless an endpoint is
+    configured, no-op and free when off. Spans on the job service task (instance, node,
+    definition, attempt) and on the connector call (key, status, latency), which is what
+    §3.4 asks for — the connector span is the boundary where this system stops being in
+    control, and usually the answer to "what is this instance stuck on". Sampling defaults
+    to 5%, not 100%: an engine executing thousands of nodes a minute would otherwise make
+    the trace exporter its own outage. `ParentBased` keeps traces whole rather than holed.
+  - **`P0-OPS-04` recovery** ([`docs/recovery.md`](../docs/recovery.md)): production RPO
+    5min / RTO 1h, staging 24h/4h, with the reasoning. The 5-minute RPO is chosen against
+    connector idempotency keys — they are what make a non-zero RPO survivable, since a
+    retried outbound call after recovery must not double-charge. Documents that
+    `ENCRYPTION_KEY` must be backed up *separately* (a database backup without it restores
+    unreadable rows), what a restore actually does to running instances (timer stampede,
+    re-sent external calls, human tasks completed twice), and a quarterly rehearsal —
+    because a restore nobody has performed is a hypothesis. It is also the migration
+    rollback plan, the runner being forward-only.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+
 #### 11. What’s Next (Execution Order)
 
-1. P0 Security remainder:
-   - Decide whether `TenantContext`-absent should keep failing open, and if not, give
-     system work an explicit system identity.
-2. P0 Operability remainder:
-   - **Tracing.** Nothing emits spans; execution-plan §3.4 requires one per external call.
-   - **RTO/RPO per environment**, still the one unchecked item in §1.
-   - **Migration rollback.** The runner applies forward only. A bad migration is
-     recovered by restoring a backup, so backup/restore procedure is the prerequisite
-     and is part of the RTO/RPO item above.
-3. P0 Reliability gaps:
-   - Fuzz tests for parsers/forms/expressions — the module currently has none.
-   - Feature-flag/canary rollout mechanism.
-3. P2 UX Delight:
-   - Task Inbox SLA fields: overdue countdown + priority badge backend fields.
-   - Business Timeline already complete.
+1. **P0 Security remainder** — the repository tenant scope still fails open when no
+   `TenantContext` is present, which is what lets the engine and its workers run. That is
+   defence in depth rather than a live hole (both protected chains resolve tenant,
+   unresolvable principals are refused, and the public chain's membership is asserted by
+   test), but closing it properly means giving system work an explicit system identity.
+2. **P0 Reliability remainder** — §6:
+   - Outage simulation suite (DB / broker / network).
+   - Feature-flag and canary rollout mechanism.
+   - Full test-pyramid baseline: contract tests for connectors are the missing tier.
+3. **P1** — `golangci-lint` backlog burn-down; order is in `.golangci.yml`.
+4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
+   backend fields. Business Timeline is already complete.
+
+The one item that is *not* on this list and arguably outranks all of it: **Phase 2, the
+FEEL expression layer**. `feel_evaluator.go` is string matching, not the parser in
+`execution-plan.md` §2.1, and the script-sandbox measurement above is the argument for it —
+gateway conditions accepting arbitrary JavaScript is a memory-exhaustion vector no sandbox
+setting can close.
