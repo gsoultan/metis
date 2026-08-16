@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/gobpm/server/domains/entities"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -352,6 +354,12 @@ func (s *messagingService) newInboundDispatchContext(ctx context.Context) (conte
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	// A message arrives from a broker rather than a request, so it carries no
+	// authenticated principal and no tenant. Correlating it has to look across
+	// tenants to find the subscription it belongs to; the repository scope
+	// narrows to the project once the subscription is known.
+	ctx = entities.WithSystemContext(ctx)
 
 	timeout := cmp.Or(s.inboundDispatchTimeout, inboundDispatchTimeout)
 

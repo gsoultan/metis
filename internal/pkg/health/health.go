@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // LivenessPath and ReadinessPath are the routes this package serves.
@@ -97,5 +99,12 @@ func writeResponse(w http.ResponseWriter, status int, body response) {
 	// A cached probe answer is a stale probe answer.
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+
+	// The status line is already sent, so a failed encode cannot change the
+	// answer the orchestrator acts on — but it means a probe body went out
+	// truncated, and silently swallowing that would leave a confusing readiness
+	// failure with no explanation anywhere.
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		log.Warn().Err(err).Msg("Could not write the health probe response body")
+	}
 }

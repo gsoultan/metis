@@ -3,12 +3,13 @@ package impl
 import (
 	"context"
 	"fmt"
-	"github.com/gsoultan/gobpm/internal/pkg/tracing"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -92,6 +93,12 @@ func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.Process
 }
 
 func (s *jobService) StartWorkers(ctx context.Context) {
+	// The job worker spans every tenant by design — a worker that could only see
+	// one organization's jobs would leave the rest unprocessed. Saying so
+	// explicitly is what lets a context with no identity at all be treated as a
+	// mistake rather than as background work.
+	ctx = entities.WithSystemContext(ctx)
+
 	ticker := time.NewTicker(2 * time.Second)
 	go func() {
 		defer ticker.Stop()

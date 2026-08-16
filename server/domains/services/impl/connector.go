@@ -58,7 +58,7 @@ func NewConnectorService(
 	// Seed the catalogue for an already-configured installation. A first run
 	// writes into the bootstrap database instead, so setup calls this again
 	// once it has swapped to the real one.
-	if err := s.EnsureDefaultConnectors(context.Background()); err != nil {
+	if err := s.EnsureDefaultConnectors(entities.WithSystemContext(context.Background())); err != nil {
 		log.Error().Err(err).Msg("Failed to bootstrap default connectors")
 	}
 

@@ -6,10 +6,39 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/features"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"gorm.io/gorm"
 )
+
+// QueryDenyAll matches nothing. It is how a query with no tenant identity is
+// answered once strict scoping is on: an empty result rather than an error,
+// because a repository's contract is rows, and every caller already handles
+// finding none.
+const QueryDenyAll = "1 = 0"
+
+// unscopedAccessAllowed decides what a context carrying no tenant may see.
+//
+// System work — the engine, the job worker, message consumers, migrations —
+// legitimately spans every tenant and says so explicitly. Anything else is a
+// path that failed to resolve a tenant, which AGENTS §2.3 says must deny.
+//
+// Behind a flag because the failure mode of getting it wrong is quiet: a
+// background entry point that forgets to mark itself does not error, it reads
+// nothing, and an engine that reads nothing looks like an engine with no work.
+// Off by default, so upgrading changes nothing until someone decides otherwise.
+func unscopedAccessAllowed(ctx context.Context) bool {
+	if entities.IsSystemContext(ctx) {
+		return true
+	}
+	return !features.Enabled(features.StrictTenantScope)
+}
+
+// denyAll returns a query guaranteed to match nothing.
+func denyAll(db *gorm.DB) *gorm.DB {
+	return db.Where(QueryDenyAll)
+}
 
 // tenantScopeDB returns a *gorm.DB scoped to the active tenant (organization)
 // extracted from the request context via TenantContext. It joins through the
@@ -24,7 +53,10 @@ import (
 func tenantScopeDB(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	joinClause := strings.ReplaceAll(QueryTenantScopeViaProject, "{table}", table)
@@ -40,7 +72,10 @@ func tenantScopeDB(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 func tenantScopeDBOptionalProject(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	joinClause := strings.ReplaceAll(QueryTenantScopeViaProjectOptional, "{table}", table)
@@ -55,7 +90,10 @@ func tenantScopeDBOptionalProject(ctx context.Context, db *gorm.DB, table string
 func tenantScopeCondition(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	condition := strings.ReplaceAll(QueryTenantScopeViaProjectSubquery, "{table}", table)
@@ -71,7 +109,10 @@ func tenantScopeCondition(ctx context.Context, db *gorm.DB, table string) *gorm.
 func tenantScopeOrganization(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	condition := strings.ReplaceAll(QueryTenantScopeDirect, "{table}", table)
@@ -85,7 +126,10 @@ func tenantScopeOrganization(ctx context.Context, db *gorm.DB, table string) *go
 func requireOwnOrganization(ctx context.Context, organizationID uuid.UUID) error {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return nil
+		if unscopedAccessAllowed(ctx) {
+			return nil
+		}
+		return gorm.ErrRecordNotFound
 	}
 	if organizationID == uuid.Nil {
 		return nil
@@ -106,7 +150,10 @@ func requireOwnOrganization(ctx context.Context, organizationID uuid.UUID) error
 func requireProjectInTenant(ctx context.Context, db *gorm.DB, projectID uuid.UUID) error {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return nil
+		if unscopedAccessAllowed(ctx) {
+			return nil
+		}
+		return gorm.ErrRecordNotFound
 	}
 	if projectID == uuid.Nil {
 		return nil
@@ -129,7 +176,10 @@ func requireProjectInTenant(ctx context.Context, db *gorm.DB, projectID uuid.UUI
 func tenantScopeConditionOptionalProject(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	condition := strings.ReplaceAll(QueryTenantScopeViaProjectSubqueryOptional, "{table}", table)
@@ -174,7 +224,10 @@ func requireVisible(
 ) error {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return nil
+		if unscopedAccessAllowed(ctx) {
+			return nil
+		}
+		return gorm.ErrRecordNotFound
 	}
 
 	var count int64
@@ -195,7 +248,10 @@ func requireVisible(
 func tenantScopeDeploymentResources(ctx context.Context, db *gorm.DB) *gorm.DB {
 	tc, ok := entities.TenantContextFrom(ctx)
 	if !ok || tc.TenantID == "" {
-		return db
+		if unscopedAccessAllowed(ctx) {
+			return db
+		}
+		return denyAll(db)
 	}
 
 	return db.Joins(QueryTenantScopeViaDeployment, tc.TenantID)

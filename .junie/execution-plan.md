@@ -100,12 +100,27 @@ Outstanding:
    nothing covered, precisely because it is what every other scope joins *through*, so
    `List()` had been returning every organization's projects to anyone authenticated.
 
-   One gap remains, deliberately:
+   **The fail-open default now has a way out.** `entities.WithSystemContext` marks work
+   that legitimately spans tenants — the job worker, inbound message dispatch, migrations,
+   connector bootstrap — and the feature flag `strict-tenant-scope`
+   (`GOBPM_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
+   marker return nothing instead of everything.
 
-   - **The scope fails open with no `TenantContext`.** That is what lets the engine and
-     its background workers run, and it contradicts AGENTS §2.3 *absent constraint means
-     deny*. Reversing it means giving system work an explicit system identity first —
-     a bigger change than this coverage pass, and one that should be made deliberately.
+   **It ships off**, and turning it on is not yet safe. Running the suite with it enabled
+   fails 10 packages: `tests/bpmn`, `connector`, `decision`, `handlers`, `pagination`,
+   `project`, `postgres`, `mysqldb`, plus `server/domains/services/impl`. Those are tests
+   calling engine internals directly with `t.Context()`, which bypasses the entry points
+   where the markers live — 106 call sites.
+
+   Blanket-marking them as system work was rejected: it would make the suite pass without
+   proving anything about production, since the tests would no longer traverse the paths
+   the markers are on. What is actually needed before the flag can be flipped is either
+   integration coverage that enters through the real entry points, or a staged rollout —
+   staging first, watching for queries that suddenly return nothing.
+
+   The failure mode is quiet by nature: a background path that forgets to mark itself does
+   not error, it reads nothing, and an engine reading nothing looks like an engine with no
+   work to do. That is precisely why this is behind a flag rather than simply switched on.
 
    `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
    carries a comment saying why — it is the installation-wide background sweep.

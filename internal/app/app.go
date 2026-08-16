@@ -6,8 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/gsoultan/gobpm/internal/pkg/tracing"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"math/big"
 	"net"
 	"net/http"
@@ -21,6 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/google/uuid"
 	pbservices "github.com/gsoultan/gobpm/api/proto/services"
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
@@ -30,6 +31,7 @@ import (
 	"github.com/gsoultan/gobpm/internal/pkg/logger"
 	"github.com/gsoultan/gobpm/internal/pkg/metrics"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
+	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
 	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
@@ -403,7 +405,9 @@ func (a *App) setupDatabase() error {
 }
 
 func (a *App) migrate() error {
-	ctx := context.Background()
+	// Migrations and the data repairs behind them rewrite rows across every
+	// tenant, which is exactly what they are for.
+	ctx := entities.WithSystemContext(context.Background())
 
 	result, err := migrations.Run(ctx, a.db, a.migrationList())
 	if err != nil {
@@ -629,8 +633,13 @@ func (a *App) runServers(ctx context.Context) error {
 
 			go func() {
 				<-ctx.Done()
+				// WithoutCancel rather than Background: this runs because ctx
+				// was cancelled, so deriving from it would hand Shutdown an
+				// already-expired deadline. Inheriting the values keeps the
+				// trace context attached to the shutdown instead of orphaning
+				// it, which context.Background() would have done.
 				shutdownCtx, cancel := context.WithTimeoutCause(
-					context.Background(),
+					context.WithoutCancel(ctx),
 					httpShutdownTimeout,
 					errors.New("metrics server shutdown timed out"),
 				)
