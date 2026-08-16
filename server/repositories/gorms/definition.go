@@ -19,25 +19,37 @@ func NewDefinitionRepository(db *gorm.DB) contracts.DefinitionRepository {
 	return &gormDefinitionRepository{db: db}
 }
 
+// Get returns a process definition by ID, scoped to the caller's tenant. The
+// row carries the deployed BPMN XML, so an unscoped read hands over another
+// organization's process model in full.
 func (r *gormDefinitionRepository) Get(ctx context.Context, id uuid.UUID) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
+	if err := db.First(&m, QualifiedByID(tableProcessDefinitions), id).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition: %w", err)
 	}
 	return m, nil
 }
 
+// GetByKey returns the latest version of a definition, scoped to the caller's
+// tenant. Keys are chosen per project, so two organizations can hold the same
+// one — unscoped, this returned whichever happened to sort first, which is a
+// leak and a wrong answer at the same time.
 func (r *gormDefinitionRepository) GetByKey(ctx context.Context, key string) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
-	// GetConnector latest version
-	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
+	if err := db.Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key: %w", err)
 	}
 	return m, nil
 }
+
+// GetByKeyAndVersion pins one version of a definition, scoped to the caller's
+// tenant for the same reason GetByKey is.
 func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key string, version int) (models.ProcessDefinitionModel, error) {
 	var m models.ProcessDefinitionModel
-	if err := GetTx(ctx, r.db).Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
+	if err := db.Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
 		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key and version: %w", err)
 	}
 	return m, nil
@@ -71,8 +83,18 @@ func (r *gormDefinitionRepository) Create(ctx context.Context, m models.ProcessD
 	return nil
 }
 
+// tableProcessDefinitions is the SQL table behind ProcessDefinitionModel,
+// needed by name so the tenant scope can build its clauses.
+const tableProcessDefinitions = "process_definitions"
+
+// Delete removes a process definition, refusing an ID outside the caller's
+// tenant.
 func (r *gormDefinitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := GetTx(ctx, r.db).Delete(&models.ProcessDefinitionModel{}, QueryByID, id).Error; err != nil {
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableProcessDefinitions, &models.ProcessDefinitionModel{}, id); err != nil {
+		return err
+	}
+	if err := db.Delete(&models.ProcessDefinitionModel{}, QualifiedByID(tableProcessDefinitions), id).Error; err != nil {
 		return fmt.Errorf("could not delete definition: %w", err)
 	}
 	return nil

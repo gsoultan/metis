@@ -20,9 +20,15 @@ func NewTaskRepository(db *gorm.DB) contracts.TaskRepository {
 	return &gormTaskRepository{db: db}
 }
 
+// tableTasks is the SQL table behind TaskModel, needed by name so the tenant
+// scope can build its clauses.
+const tableTasks = "tasks"
+
+// Get returns a task by ID, scoped to the caller's tenant.
 func (r *gormTaskRepository) Get(ctx context.Context, id uuid.UUID) (models.TaskModel, error) {
 	var m models.TaskModel
-	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableTasks)
+	if err := db.First(&m, QualifiedByID(tableTasks), id).Error; err != nil {
 		return models.TaskModel{}, fmt.Errorf("could not get task: %w", err)
 	}
 	return m, nil
@@ -127,15 +133,26 @@ func (r *gormTaskRepository) ListWithFilters(ctx context.Context, filter contrac
 	return modelsList, nil
 }
 
+// Update saves a task, refusing an ID outside the caller's tenant.
 func (r *gormTaskRepository) Update(ctx context.Context, t models.TaskModel) error {
-	if err := GetTx(ctx, r.db).Save(&t).Error; err != nil {
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableTasks, &models.TaskModel{}, uuid.UUID(t.ID)); err != nil {
+		return err
+	}
+	if err := db.Save(&t).Error; err != nil {
 		return fmt.Errorf("could not update task: %w", err)
 	}
 	return nil
 }
 
+// UpdateStatus moves a task's status, refusing an ID outside the caller's
+// tenant.
 func (r *gormTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.TaskStatus) error {
-	result := GetTx(ctx, r.db).Model(&models.TaskModel{}).Where(QueryByID, id).Update(UpdateFieldStatus, status)
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableTasks, &models.TaskModel{}, id); err != nil {
+		return err
+	}
+	result := db.Model(&models.TaskModel{}).Where(QualifiedByID(tableTasks), id).Update(UpdateFieldStatus, status)
 	if result.Error != nil {
 		return fmt.Errorf("could not update task status: %w", result.Error)
 	}

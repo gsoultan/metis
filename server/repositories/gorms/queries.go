@@ -82,6 +82,13 @@ const QueryTenantScopeOptionalCondition = "projects.organization_id = ? OR {tabl
 //     PostgreSQL and MySQL.
 const QueryTenantScopeViaProjectSubquery = "{table}.project_id IN (SELECT id FROM projects WHERE organization_id = ?)"
 
+// QueryTenantScopeViaProjectSubqueryOptional is the nullable counterpart of
+// QueryTenantScopeViaProjectSubquery, for the same reason the LEFT JOIN variant
+// exists: a notification that belongs to no project must stay reachable by the
+// user it is addressed to.
+const QueryTenantScopeViaProjectSubqueryOptional = "({table}.project_id IN (SELECT id FROM projects WHERE organization_id = ?) " +
+	"OR {table}.project_id IS NULL)"
+
 // QueryTenantScopeViaDeployment scopes deployment_resources, which carry no
 // project_id of their own — their tenant is whichever project owns the parent
 // deployment.

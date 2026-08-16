@@ -63,28 +63,49 @@ Outstanding:
    plus project references). The Makefile and CI now run `tsc -b --force`.
 2. **golangci-lint backlog** — 760 pre-existing findings, baselined; CI blocks new ones.
    Burn-down order is in `.golangci.yml`; the engine's slice is done.
-3. **Tenant scoping coverage** — **read paths are closed.** The scope now covers every
-   project-owned table: `tasks`, `process_instances`, `process_definitions`,
-   `decision_definitions`, plus `audit_logs`, `forms`, `deployments`,
-   `deployment_resources`, `event_subscriptions`, `external_tasks`,
-   `connector_instances` and `notifications`. `deployment_resources` scopes through its
-   parent deployment; `notifications` uses a null-tolerant scope so a system message
-   addressed to a user is not erased along with the other tenant's rows. Proof:
-   `tests/tenant/isolation_test.go`, run against SQLite, PostgreSQL and MySQL.
+3. **Tenant scoping coverage** — **reads and writes are both closed.** The scope covers
+   every project-owned table: `tasks`, `process_instances`, `process_definitions`,
+   `decision_definitions`, `audit_logs`, `forms`, `deployments`, `deployment_resources`,
+   `event_subscriptions`, `external_tasks`, `connector_instances` and `notifications`.
+
+   Note what the first pass missed, because it is the instructive part: the four tables
+   already listed as scoped were scoped **only on their list queries**. Every
+   `Get`-by-ID on them was open, so a UUID was enough to read another organization's
+   task, process instance, deployed BPMN XML or decision table. `GetByKey` was worse than
+   a leak — keys are unique per project, so it returned whichever row sorted first across
+   all tenants, which is also a wrong answer. "Repository X is scoped" was never a
+   property of the repository; it was a property of two of its methods.
+
+   Three clause shapes, because one does not fit every statement:
+
+   | Shape | Used for | Why |
+   | :-- | :-- | :-- |
+   | `JOIN projects` | ordinary selects | the default |
+   | `LEFT JOIN` + `IS NULL` | `notifications` | nullable `project_id`; an inner join erases system messages |
+   | `IN (SELECT ...)` subquery | `FetchAndLock`, `GetForUpdate` | these take `FOR UPDATE`; a join would lock `projects` too |
+
+   Writes are guarded by a scoped read rather than a scoped `UPDATE`/`DELETE`. **GORM's
+   `Save` ignores a preceding `Where`** — verified on all three engines — so a scope
+   expressed that way would read as applied and enforce nothing. Rewriting `Save` as
+   `Model().Where().Updates()` was rejected too: `Updates` skips zero values, so clearing
+   a field would quietly stop persisting.
+
+   Proof: `tests/tenant/isolation_test.go` — 198 subtests across SQLite, PostgreSQL and
+   MySQL, asserting refusal, that the refused row is genuinely unchanged, and that the
+   caller's own reads and writes still work.
 
    Two gaps remain, both deliberate:
 
-   - **Write paths are still unscoped.** `MarkAsRead`, `Delete`, `UpdateCorrelationKey`
-     and friends take a bare ID. A JOIN is not portable in `UPDATE`/`DELETE` across
-     SQLite, PostgreSQL and MySQL, so closing these needs the subquery form
-     (`WHERE project_id IN (SELECT id FROM projects WHERE organization_id = ?)`).
    - **The scope fails open with no `TenantContext`.** That is what lets the engine and
      its background workers run, and it contradicts AGENTS §2.3 *absent constraint means
      deny*. Reversing it means giving system work an explicit system identity first —
      a bigger change than this coverage pass, and one that should be made deliberately.
+   - **`Create` is unscoped.** Nothing at the repository layer stops a row being created
+     with another organization's `project_id`; that check belongs in the service layer,
+     which must verify the target project belongs to the caller.
 
-   `FetchAndLock` and `ListTemplatedMessageSubscriptions` are deliberately left unscoped
-   and carry comments saying why.
+   `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
+   carries a comment saying why — it is the installation-wide background sweep.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

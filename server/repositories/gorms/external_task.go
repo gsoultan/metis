@@ -38,12 +38,24 @@ func (r *externalTaskRepository) Get(ctx context.Context, id uuid.UUID) (*models
 	return &model, nil
 }
 
+// Update saves an external task, refusing an ID outside the caller's tenant.
+// This is the path a worker reports completion or failure on, so an unscoped
+// write would let one organization's worker resolve another's work.
 func (r *externalTaskRepository) Update(ctx context.Context, task *models.ExternalTaskModel) error {
-	return ResolveDB(r.db).WithContext(ctx).Save(task).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableExternalTasks, &models.ExternalTaskModel{}, uuid.UUID(task.ID)); err != nil {
+		return err
+	}
+	return db.Save(task).Error
 }
 
+// Delete removes an external task, refusing an ID outside the caller's tenant.
 func (r *externalTaskRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).Delete(&models.ExternalTaskModel{}, "id = ?", id).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableExternalTasks, &models.ExternalTaskModel{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.ExternalTaskModel{}, QualifiedByID(tableExternalTasks), id).Error
 }
 
 // FetchAndLock is the worker long-poll. Topic names are chosen per project and

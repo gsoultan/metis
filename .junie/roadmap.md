@@ -526,13 +526,42 @@
     - `go test ./tests/tenant/ -v` against live PostgreSQL 17 and MySQL 8 — all pass
     - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
 
+- 2026-08-16 (completed): Closed `P0-SEC-03` write-path tenant scoping, and the by-ID reads
+  that `P0-SEC-02` had missed.
+  - **What the earlier pass got wrong:** `tasks`, `process_instances`,
+    `process_definitions` and `decision_definitions` were recorded as tenant-scoped, but
+    only their list queries were. Every `Get`-by-ID on them was open — a UUID was enough to
+    read another organization's task, running instance, deployed BPMN XML or decision
+    table. `GetByKey`/`GetByKeyAndVersion` were both a leak and a wrong answer, since keys
+    are unique per project and the lookup searched globally.
+  - Reads now scoped: `Get`, `GetForUpdate`, `GetByKey`, `GetByKeyAndVersion` across
+    `task.go`, `process.go`, `definition.go`, `decision.go`. `GetForUpdate` uses the
+    subquery form so `FOR UPDATE` does not lock `projects` as well.
+  - Writes now scoped: `Update`, `UpdateStatus`, `Delete`, `MarkAsRead`, `MarkAllAsRead`,
+    `DeleteByNode` and `UpdateCorrelationKey` across nine repositories.
+  - **Why writes use a guard, not a scoped statement:** GORM's `Save` ignores a preceding
+    `Where` — verified on SQLite, PostgreSQL and MySQL, where the row updated anyway. A
+    scope written that way would read as applied and enforce nothing. Rewriting `Save` as
+    `Model().Where().Updates()` was rejected because `Updates` skips zero values, so
+    clearing a field would quietly stop persisting. `requireVisibleToTenant` therefore does
+    a scoped existence check and returns `ErrRecordNotFound`; it is a no-op when there is
+    no tenant context, so background work pays nothing.
+  - Regression coverage: `tests/tenant/isolation_test.go` grew to 198 subtests across three
+    dialects. The write cases assert both that the call is refused **and** that the target
+    row is unchanged — an error return alone would not have caught the `Save` trap.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `go test ./tests/tenant/ -count=1` — 198 subtests, all pass
+
 #### 11. What’s Next (Execution Order)
 
 1. P0 Security remainder:
-   - Write-path tenant scoping (`UPDATE`/`DELETE` by bare ID) via the portable
-     subquery form; a JOIN is not portable in those statements.
    - Decide whether `TenantContext`-absent should keep failing open, and if not, give
      system work an explicit system identity.
+   - Service-layer check that a `Create` targets a project the caller owns; the
+     repository cannot tell.
 2. P0 Reliability gaps:
    - Fuzz tests for parsers/forms/expressions — the module currently has none.
    - Feature-flag/canary rollout mechanism.

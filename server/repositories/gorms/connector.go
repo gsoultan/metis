@@ -114,10 +114,23 @@ func (r *connectorInstanceRepository) Create(ctx context.Context, m models.Conne
 	return m, nil
 }
 
+// Update saves a configured connector, refusing an ID outside the caller's
+// tenant — otherwise another organization's stored credentials could be
+// overwritten, or repointed at a host the attacker controls.
 func (r *connectorInstanceRepository) Update(ctx context.Context, m models.ConnectorInstance) error {
-	return ResolveDB(r.db).WithContext(ctx).Save(&m).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, uuid.UUID(m.ID)); err != nil {
+		return err
+	}
+	return db.Save(&m).Error
 }
 
+// Delete removes a configured connector, refusing an ID outside the caller's
+// tenant.
 func (r *connectorInstanceRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).Delete(&models.ConnectorInstance{}, "id = ?", id).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.ConnectorInstance{}, QualifiedByID(tableConnectorInstances), id).Error
 }
