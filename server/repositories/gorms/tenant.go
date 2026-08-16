@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/gobpm/server/repositories/models"
 	"gorm.io/gorm"
 )
 
@@ -59,6 +60,68 @@ func tenantScopeCondition(ctx context.Context, db *gorm.DB, table string) *gorm.
 
 	condition := strings.ReplaceAll(QueryTenantScopeViaProjectSubquery, "{table}", table)
 	return db.Where(condition, tc.TenantID)
+}
+
+// tenantScopeOrganization scopes a table that carries organization_id directly,
+// which today means projects alone.
+//
+// Projects were the one table nothing scoped, because they are what every other
+// scope joins through — so List returned every organization's projects, and a
+// caller could name any project as the parent of something they created.
+func tenantScopeOrganization(ctx context.Context, db *gorm.DB, table string) *gorm.DB {
+	tc, ok := entities.TenantContextFrom(ctx)
+	if !ok || tc.TenantID == "" {
+		return db
+	}
+
+	condition := strings.ReplaceAll(QueryTenantScopeDirect, "{table}", table)
+	return db.Where(condition, tc.TenantID)
+}
+
+// requireOwnOrganization refuses a write that names an organization other than
+// the caller's. It is the create-side counterpart of the read scope: the scope
+// stops a caller reading another tenant's rows, this stops them writing rows
+// into it.
+func requireOwnOrganization(ctx context.Context, organizationID uuid.UUID) error {
+	tc, ok := entities.TenantContextFrom(ctx)
+	if !ok || tc.TenantID == "" {
+		return nil
+	}
+	if organizationID == uuid.Nil {
+		return nil
+	}
+	if organizationID.String() != tc.TenantID {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// requireProjectInTenant returns ErrRecordNotFound unless the project belongs to
+// the caller's organization.
+//
+// This is the check that makes Create safe. A create request names its parent
+// project, and without this a caller could point one at another organization's
+// project — the row would then be scoped to *that* tenant, so the attacker could
+// not even read back what they had planted, but it would be there.
+func requireProjectInTenant(ctx context.Context, db *gorm.DB, projectID uuid.UUID) error {
+	tc, ok := entities.TenantContextFrom(ctx)
+	if !ok || tc.TenantID == "" {
+		return nil
+	}
+	if projectID == uuid.Nil {
+		return nil
+	}
+
+	var count int64
+	if err := tenantScopeOrganization(ctx, db.Model(&models.ProjectModel{}), tableProjects).
+		Where(QualifiedByID(tableProjects), projectID).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("could not check project ownership: %w", err)
+	}
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // tenantScopeConditionOptionalProject is tenantScopeCondition for tables whose

@@ -94,18 +94,34 @@ Outstanding:
    MySQL, asserting refusal, that the refused row is genuinely unchanged, and that the
    caller's own reads and writes still work.
 
-   Two gaps remain, both deliberate:
+   `Create` is scoped too. Every create names its parent project and the request body
+   is the caller's to choose, so `requireProjectInTenant` refuses one pointed at another
+   organization's project. **`projects` itself is now scoped** — it was the one table
+   nothing covered, precisely because it is what every other scope joins *through*, so
+   `List()` had been returning every organization's projects to anyone authenticated.
+
+   One gap remains, deliberately:
 
    - **The scope fails open with no `TenantContext`.** That is what lets the engine and
      its background workers run, and it contradicts AGENTS §2.3 *absent constraint means
      deny*. Reversing it means giving system work an explicit system identity first —
      a bigger change than this coverage pass, and one that should be made deliberately.
-   - **`Create` is unscoped.** Nothing at the repository layer stops a row being created
-     with another organization's `project_id`; that check belongs in the service layer,
-     which must verify the target project belongs to the caller.
 
    `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
    carries a comment saying why — it is the installation-wide background sweep.
+
+4. **Operability.** The service now has `/healthz`, `/readyz` and a Prometheus endpoint,
+   which it previously had none of — it could not be run behind a load balancer, and the
+   SLOs in `roadmap.md` §1 had nothing measuring them. Probes wrap outside every
+   interceptor (an orchestrator carries no credentials, and a probe shed by the
+   backpressure limiter reports a busy process as a dead one); metrics wrap outside the
+   limiters so rejected requests still count against the error budget, and inside health
+   so probe traffic does not skew the percentiles. Scrape endpoint binds to loopback by
+   default on `:9464`.
+
+   Still missing for production: **no tracing**, and **`AutoMigrate` is the migration
+   strategy** — there is no versioned migration history, no review step before DDL runs
+   against production data, and no rollback.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

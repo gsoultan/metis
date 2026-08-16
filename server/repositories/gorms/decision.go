@@ -62,6 +62,10 @@ func (r *gormDecisionRepository) List(ctx context.Context) ([]models.DecisionDef
 }
 
 func (r *gormDecisionRepository) Create(ctx context.Context, m models.DecisionDefinitionModel) error {
+	// Refuse a decision planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
+		return err
+	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return fmt.Errorf("could not create decision: %w", err)
 	}

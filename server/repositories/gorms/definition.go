@@ -77,6 +77,10 @@ func (r *gormDefinitionRepository) ListByProjectPaged(ctx context.Context, proje
 }
 
 func (r *gormDefinitionRepository) Create(ctx context.Context, m models.ProcessDefinitionModel) error {
+	// Refuse a process definition planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
+		return err
+	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return fmt.Errorf("could not create definition: %w", err)
 	}

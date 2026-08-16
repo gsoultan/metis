@@ -17,6 +17,10 @@ func NewFormRepository(db *gorm.DB) contracts.FormRepository {
 }
 
 func (r *gormFormRepository) Create(ctx context.Context, f models.FormModel) error {
+	// Refuse a form planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(f.ProjectID)); err != nil {
+		return err
+	}
 	return GetTx(ctx, r.db).Create(&f).Error
 }
 

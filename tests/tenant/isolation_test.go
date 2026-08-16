@@ -656,6 +656,145 @@ func TestTenantIsolation_OwnWritesStillSucceed(t *testing.T) {
 	})
 }
 
+// TestTenantIsolation_ProjectsAreScoped covers the table every other scope joins
+// *through*, and which nothing scoped as a result: unscoped, List returned every
+// organization's projects to anyone authenticated.
+func TestTenantIsolation_ProjectsAreScoped(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+		repo := gorms.NewProjectRepository(db)
+
+		t.Run("list returns only the caller's projects", func(t *testing.T) {
+			rows, err := repo.List(ctx)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.ProjectModel) uuid.UUID { return uuid.UUID(m.ID) }),
+				[]uuid.UUID{f.projectA})
+		})
+
+		t.Run("naming another organization returns nothing", func(t *testing.T) {
+			rows, err := repo.ListByOrganization(ctx, f.orgB)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.ProjectModel) uuid.UUID { return uuid.UUID(m.ID) }), nil)
+		})
+
+		t.Run("get denies another tenant's project", func(t *testing.T) {
+			if _, err := repo.Get(ctx, f.projectB); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+
+		t.Run("get allows the caller's own", func(t *testing.T) {
+			if _, err := repo.Get(ctx, f.projectA); err != nil {
+				t.Fatalf("own project: %v", err)
+			}
+		})
+
+		t.Run("delete denies another tenant's project", func(t *testing.T) {
+			if err := repo.Delete(ctx, f.projectB); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Errorf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+			if !rowExists(t, db, &models.ProjectModel{}, "projects", f.projectB) {
+				t.Fatal("the delete was refused but the project is gone")
+			}
+		})
+
+		t.Run("create denies planting into another organization", func(t *testing.T) {
+			err := repo.Create(ctx, models.ProjectModel{
+				Base:           models.Base{ID: models.FromUUID(uuid.New())},
+				OrganizationID: models.FromUUID(f.orgB),
+				Name:           "planted",
+			})
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+	})
+}
+
+// TestTenantIsolation_CreateDeniesForeignProject is the create-side counterpart
+// of the read scope. Every create names its parent project, and the request body
+// is the caller's to choose — so without this check a caller could plant rows in
+// another organization's project.
+func TestTenantIsolation_CreateDeniesForeignProject(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		foreign := models.FromUUID(f.projectB)
+		newID := func() models.Base { return models.Base{ID: models.FromUUID(uuid.New())} }
+
+		tests := []struct {
+			name   string
+			create func() error
+		}{
+			{"definition", func() error {
+				return gorms.NewDefinitionRepository(db).Create(ctx,
+					models.ProcessDefinitionModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"decision", func() error {
+				return gorms.NewDecisionRepository(db).Create(ctx,
+					models.DecisionDefinitionModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"form", func() error {
+				return gorms.NewFormRepository(db).Create(ctx,
+					models.FormModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"deployment", func() error {
+				return gorms.NewDeploymentRepository(db).Create(ctx,
+					models.DeploymentModel{Base: newID(), ProjectID: foreign, Name: "planted"})
+			}},
+			{"task", func() error {
+				return gorms.NewTaskRepository(db).Create(ctx,
+					models.TaskModel{Base: newID(), ProjectID: foreign, Name: "planted"})
+			}},
+			{"process instance", func() error {
+				_, err := gorms.NewProcessRepository(db).Create(ctx,
+					models.ProcessInstanceModel{Base: newID(), ProjectID: foreign, Status: models.ProcessActive})
+				return err
+			}},
+			{"connector instance", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).Create(ctx,
+					models.ConnectorInstance{Base: newID(), ProjectID: foreign, Name: "planted"})
+				return err
+			}},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := tc.create(); !errors.Is(err, gorm.ErrRecordNotFound) {
+					t.Fatalf("creating into another tenant's project: got %v, want %v", err, gorm.ErrRecordNotFound)
+				}
+			})
+		}
+	})
+}
+
+// TestTenantIsolation_CreateIntoOwnProjectSucceeds is the counterweight, so the
+// guard cannot pass by refusing everything.
+func TestTenantIsolation_CreateIntoOwnProjectSucceeds(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		own := models.FromUUID(f.projectA)
+		if err := gorms.NewFormRepository(db).Create(ctx, models.FormModel{
+			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, Key: "mine",
+		}); err != nil {
+			t.Errorf("create into own project: %v", err)
+		}
+		if err := gorms.NewTaskRepository(db).Create(ctx, models.TaskModel{
+			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, Name: "mine",
+		}); err != nil {
+			t.Errorf("create task into own project: %v", err)
+		}
+	})
+}
+
 // rowExists reports whether a row is still present, ignoring the tenant scope —
 // these assertions check the database, not the repository.
 func rowExists(t *testing.T, db *gorm.DB, model any, table string, id uuid.UUID) bool {

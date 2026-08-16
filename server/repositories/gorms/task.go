@@ -163,6 +163,10 @@ func (r *gormTaskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 }
 
 func (r *gormTaskRepository) Create(ctx context.Context, t models.TaskModel) error {
+	// Refuse a task planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(t.ProjectID)); err != nil {
+		return err
+	}
 	if err := GetTx(ctx, r.db).Create(&t).Error; err != nil {
 		return fmt.Errorf("could not create task: %w", err)
 	}

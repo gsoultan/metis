@@ -108,6 +108,10 @@ func (r *connectorInstanceRepository) GetByProjectAndConnector(ctx context.Conte
 }
 
 func (r *connectorInstanceRepository) Create(ctx context.Context, m models.ConnectorInstance) (models.ConnectorInstance, error) {
+	// Refuse a configured connector planted in another organization's project.
+	if err := requireProjectInTenant(ctx, ResolveDB(r.db).WithContext(ctx), uuid.UUID(m.ProjectID)); err != nil {
+		return models.ConnectorInstance{}, err
+	}
 	if err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error; err != nil {
 		return models.ConnectorInstance{}, err
 	}

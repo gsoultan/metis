@@ -21,6 +21,10 @@ func NewProcessRepository(db *gorm.DB) contracts.ProcessRepository {
 }
 
 func (r *gormProcessRepository) Create(ctx context.Context, m models.ProcessInstanceModel) (uuid.UUID, error) {
+	// Refuse a process instance planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
+		return uuid.Nil, err
+	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return uuid.Nil, fmt.Errorf("could not create process instance: %w", err)
 	}

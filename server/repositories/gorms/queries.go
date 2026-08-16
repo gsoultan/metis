@@ -89,6 +89,12 @@ const QueryTenantScopeViaProjectSubquery = "{table}.project_id IN (SELECT id FRO
 const QueryTenantScopeViaProjectSubqueryOptional = "({table}.project_id IN (SELECT id FROM projects WHERE organization_id = ?) " +
 	"OR {table}.project_id IS NULL)"
 
+// QueryTenantScopeDirect scopes a table that carries organization_id itself and
+// so needs no join to reach the tenant. Projects are the only such table: they
+// are what every other scope joins *through*, which is exactly why nothing
+// scoped them.
+const QueryTenantScopeDirect = "{table}.organization_id = ?"
+
 // QueryTenantScopeViaDeployment scopes deployment_resources, which carry no
 // project_id of their own — their tenant is whichever project owns the parent
 // deployment.

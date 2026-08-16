@@ -555,14 +555,62 @@
       and MySQL 8
     - `go test ./tests/tenant/ -count=1` — 198 subtests, all pass
 
+- 2026-08-16 (completed): Executed `P0-OPS-01` operability baseline and `P0-SEC-04`
+  create-path scoping, and added the first fuzz targets.
+  - **Health and readiness** (`internal/pkg/health`): `/healthz` checks nothing external,
+    because a liveness probe that consulted the database would fail on every replica at
+    once during a database blip and have the orchestrator restart the whole fleet.
+    `/readyz` does check it, so a replica that cannot serve is pulled from the load
+    balancer. Both wrap outside every interceptor: probes carry no credentials, and a
+    probe shed by the backpressure limiter reports a busy process as a dead one.
+  - **Metrics** (`internal/pkg/metrics`): the SLOs in §1 had nothing measuring them.
+    Histogram buckets sit *on* the 150ms and 500ms thresholds, since a quantile
+    interpolated across a bucket spanning the target cannot say which side it is on. The
+    route label is bounded at 200 values with an overflow bucket — it derives from an
+    attacker-supplied path, and an unbounded label is an unbounded map keyed by remote
+    input. Scrape endpoint on loopback `:9464`, separate from the public API.
+  - **Fuzz targets** (`tests/fuzz`): five, covering the BPMN XML parser, its round trip,
+    the condition evaluator chain and the FEEL evaluator. Two real defects found:
+    - **Script sandbox DoS.** `new Array(1e9).join('x')` as a gateway condition ran for
+      **37.6s against a 200ms budget** — goja honours interrupts only between statements
+      and cannot pre-empt a single native call. Every token through such a gateway held a
+      job worker for the duration; enough of them stop the engine, which is the exact
+      denial of service the budget existed to prevent. `RunSandboxed` now runs the script
+      on its own goroutine and releases the caller after the budget plus a grace period,
+      returning `ErrScriptAbandoned`. Measured after: 0.70s. This bounds worker
+      starvation, **not memory** — the abandoned script keeps allocating, and goja offers
+      no heap limit. The real fix is Phase 2.2, which takes JavaScript off gateway
+      conditions by default.
+    - **`Parse` returned `(nil, nil)`** for BPMN with no `<process>` — reachable by
+      uploading a file exported with only a collaboration or pool. It did not crash only
+      because `Accept` had been hardened separately; it was a landmine for any new caller
+      and surfaced to the user as a validation error about a definition they never wrote.
+      Now returns `ErrNoProcessInDefinition`, whose message says what to fix.
+  - **Create-path and project scoping**: `requireProjectInTenant` refuses a create
+    pointed at another organization's project. `projects` itself is now scoped — it was
+    the one table nothing covered, because it is what every other scope joins *through*,
+    so `List()` had been returning every organization's projects to anyone authenticated.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+    - Probes and metrics verified against a running server, not only unit tests:
+      `/healthz` and `/readyz` return 200, `/api/v1/tasks` still returns 401, the public
+      port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
+    - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
+
 #### 11. What’s Next (Execution Order)
 
 1. P0 Security remainder:
    - Decide whether `TenantContext`-absent should keep failing open, and if not, give
      system work an explicit system identity.
-   - Service-layer check that a `Create` targets a project the caller owns; the
-     repository cannot tell.
-2. P0 Reliability gaps:
+2. P0 Operability remainder:
+   - **Versioned migrations.** `AutoMigrate` is the current strategy: no migration
+     history, no review of DDL before it runs against production data, no rollback.
+   - **Tracing.** Nothing emits spans; execution-plan §3.4 requires one per external call.
+   - **RTO/RPO per environment**, still the one unchecked item in §1.
+3. P0 Reliability gaps:
    - Fuzz tests for parsers/forms/expressions — the module currently has none.
    - Feature-flag/canary rollout mechanism.
 3. P2 UX Delight:

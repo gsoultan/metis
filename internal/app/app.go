@@ -24,7 +24,9 @@ import (
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/gobpm/internal/pkg/health"
 	"github.com/gsoultan/gobpm/internal/pkg/logger"
+	"github.com/gsoultan/gobpm/internal/pkg/metrics"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
@@ -73,6 +75,17 @@ const (
 	envPprofEnabled                      = "GOBPM_PPROF_ENABLED"
 	envPprofAddress                      = "GOBPM_PPROF_ADDRESS"
 
+	// Metrics listen on their own address, away from the public API, so a
+	// scrape endpoint is never published alongside it. The default binds to
+	// loopback: a deployment that needs to be scraped across a pod network must
+	// say so explicitly rather than being exposed by accident.
+	//
+	// 9464 is the registered OpenTelemetry Prometheus exporter port. Using 9090
+	// would collide with a Prometheus running on the same host.
+	defaultMetricsAddress = "127.0.0.1:9464"
+	envMetricsEnabled     = "GOBPM_METRICS_ENABLED"
+	envMetricsAddress     = "GOBPM_METRICS_ADDRESS"
+
 	defaultHTTPAddress = ":8080"
 	defaultGRPCAddress = ":8081"
 	envHTTPAddress     = "GOBPM_HTTP_ADDRESS"
@@ -117,6 +130,27 @@ func resolvePprofAddress() string {
 		return defaultPprofAddress
 	}
 	return address
+}
+
+// metricsEnabled reports whether to serve the scrape endpoint. Unlike pprof
+// this defaults to on: an SLO nobody is measuring is not an objective, and the
+// endpoint is bound to loopback unless configured otherwise.
+func metricsEnabled() bool {
+	enabledValue, exists := os.LookupEnv(envMetricsEnabled)
+	if !exists {
+		return true
+	}
+
+	enabled, err := strconv.ParseBool(enabledValue)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("env", envMetricsEnabled).
+			Msg("Ignoring invalid metrics enable value")
+		return true
+	}
+
+	return enabled
 }
 
 func newPprofHandler() http.Handler {
@@ -424,6 +458,28 @@ func (a *App) setupAuth(ctx context.Context) {
 	}
 }
 
+// readinessCheckers names the dependencies a replica needs before it should be
+// sent traffic. Only the database qualifies today: without it no request can be
+// served, whereas the broker being down degrades messaging rather than stopping
+// the API.
+//
+// Before setup has run there is no database yet, and a replica in that state is
+// still ready — serving the setup wizard is its whole job.
+func (a *App) readinessCheckers() map[string]health.Checker {
+	return map[string]health.Checker{
+		"database": health.CheckerFunc(func(ctx context.Context) error {
+			if a.db == nil {
+				return nil
+			}
+			sqlDB, err := a.db.DB()
+			if err != nil {
+				return fmt.Errorf("resolve sql.DB: %w", err)
+			}
+			return sqlDB.PingContext(ctx)
+		}),
+	}
+}
+
 func (a *App) runServers(ctx context.Context) error {
 	endpts := endpoints.MakeEndpoints(a.svc)
 	httpHandler := https.NewHTTPHandler(a.svc, endpts, a.sse)
@@ -458,9 +514,56 @@ func (a *App) runServers(ctx context.Context) error {
 		),
 	)
 
+	// Metrics wrap outside the limiters so that requests they reject with 429 or
+	// 503 are still counted. Those spend a caller's error budget and are the
+	// first sign of trouble; measuring only what got through would make an
+	// overloaded service look perfectly healthy.
+	metricsCollector := metrics.New()
+	httpHandler = metricsCollector.Wrap(httpHandler)
+
+	// Health wraps outside metrics, so probe traffic is served without being
+	// counted. Probes run every few seconds per replica and would otherwise
+	// dominate the request count and drag the latency percentiles down.
+	//
+	// Outside every interceptor too, deliberately: an orchestrator's probe
+	// carries no credentials, so it must not meet the auth interceptor, and a
+	// probe shed by the backpressure limiter would report a merely busy process
+	// as an unhealthy one — getting it restarted or pulled from rotation at the
+	// moment it was recovering.
+	httpHandler = health.Wrap(httpHandler, a.readinessCheckers())
+
 	grpcServer := grpcs.NewGRPCServer(endpts)
 
 	g, ctx := errgroup.WithContext(ctx)
+
+	if metricsEnabled() {
+		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)
+		g.Go(func() error {
+			log.Info().Str("addr", metricsAddress).Msg("metrics server listening")
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", metricsCollector.Handler())
+			server := newHTTPServer(metricsAddress, mux)
+
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, cancel := context.WithTimeoutCause(
+					context.Background(),
+					httpShutdownTimeout,
+					errors.New("metrics server shutdown timed out"),
+				)
+				defer cancel()
+
+				if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Error().Err(err).Msg("metrics server shutdown failed")
+				}
+			}()
+
+			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server crashed: %w", err)
+			}
+			return nil
+		})
+	}
 
 	if profilingEnabled() {
 		pprofAddress := resolvePprofAddress()
