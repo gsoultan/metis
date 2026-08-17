@@ -18,7 +18,7 @@ func NewConnectorRepository(db *gorm.DB) contracts.ConnectorRepository {
 
 func (r *connectorRepository) List(ctx context.Context) ([]models.Connector, error) {
 	var ms []models.Connector
-	if err := ResolveDB(r.db).WithContext(ctx).Find(&ms).Error; err != nil {
+	if err := GetTx(ctx, r.db).Find(&ms).Error; err != nil {
 		return nil, err
 	}
 	return ms, nil
@@ -26,7 +26,7 @@ func (r *connectorRepository) List(ctx context.Context) ([]models.Connector, err
 
 func (r *connectorRepository) Get(ctx context.Context, id uuid.UUID) (models.Connector, error) {
 	var m models.Connector
-	if err := ResolveDB(r.db).WithContext(ctx).First(&m, "id = ?", id).Error; err != nil {
+	if err := GetTx(ctx, r.db).First(&m, "id = ?", id).Error; err != nil {
 		return models.Connector{}, err
 	}
 	return m, nil
@@ -34,25 +34,25 @@ func (r *connectorRepository) Get(ctx context.Context, id uuid.UUID) (models.Con
 
 func (r *connectorRepository) GetByKey(ctx context.Context, key string) (models.Connector, error) {
 	var m models.Connector
-	if err := ResolveDB(r.db).WithContext(ctx).Where(ByKey(key)).First(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.Connector{}, err
 	}
 	return m, nil
 }
 
 func (r *connectorRepository) Create(ctx context.Context, m models.Connector) (models.Connector, error) {
-	if err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return models.Connector{}, err
 	}
 	return m, nil
 }
 
 func (r *connectorRepository) Update(ctx context.Context, m models.Connector) error {
-	return ResolveDB(r.db).WithContext(ctx).Save(&m).Error
+	return GetTx(ctx, r.db).Save(&m).Error
 }
 
 func (r *connectorRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).Delete(&models.Connector{}, "id = ?", id).Error
+	return GetTx(ctx, r.db).Delete(&models.Connector{}, "id = ?", id).Error
 }
 
 type connectorInstanceRepository struct {
@@ -76,7 +76,7 @@ const tableConnectorInstances = "connector_instances"
 // tenant.
 func (r *connectorInstanceRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.ConnectorInstance, error) {
 	var ms []models.ConnectorInstance
-	db := tenantScopeDB(ctx, ResolveDB(r.db).WithContext(ctx), tableConnectorInstances)
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableConnectorInstances)
 	if err := db.Find(&ms, "connector_instances.project_id = ?", projectID).Error; err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (r *connectorInstanceRepository) ListByProject(ctx context.Context, project
 // anyone who can guess a UUID.
 func (r *connectorInstanceRepository) Get(ctx context.Context, id uuid.UUID) (models.ConnectorInstance, error) {
 	var m models.ConnectorInstance
-	db := tenantScopeDB(ctx, ResolveDB(r.db).WithContext(ctx), tableConnectorInstances)
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableConnectorInstances)
 	if err := db.First(&m, QualifiedByID(tableConnectorInstances), id).Error; err != nil {
 		return models.ConnectorInstance{}, err
 	}
@@ -99,7 +99,7 @@ func (r *connectorInstanceRepository) Get(ctx context.Context, id uuid.UUID) (mo
 // given template, scoped to the caller's tenant.
 func (r *connectorInstanceRepository) GetByProjectAndConnector(ctx context.Context, projectID, connectorID uuid.UUID) (models.ConnectorInstance, error) {
 	var m models.ConnectorInstance
-	db := tenantScopeDB(ctx, ResolveDB(r.db).WithContext(ctx), tableConnectorInstances)
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableConnectorInstances)
 	if err := db.First(&m, "connector_instances.project_id = ? AND connector_instances.connector_id = ?",
 		projectID, connectorID).Error; err != nil {
 		return models.ConnectorInstance{}, err
@@ -109,10 +109,10 @@ func (r *connectorInstanceRepository) GetByProjectAndConnector(ctx context.Conte
 
 func (r *connectorInstanceRepository) Create(ctx context.Context, m models.ConnectorInstance) (models.ConnectorInstance, error) {
 	// Refuse a configured connector planted in another organization's project.
-	if err := requireProjectInTenant(ctx, ResolveDB(r.db).WithContext(ctx), uuid.UUID(m.ProjectID)); err != nil {
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
 		return models.ConnectorInstance{}, err
 	}
-	if err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error; err != nil {
+	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return models.ConnectorInstance{}, err
 	}
 	return m, nil
@@ -122,7 +122,7 @@ func (r *connectorInstanceRepository) Create(ctx context.Context, m models.Conne
 // tenant — otherwise another organization's stored credentials could be
 // overwritten, or repointed at a host the attacker controls.
 func (r *connectorInstanceRepository) Update(ctx context.Context, m models.ConnectorInstance) error {
-	db := ResolveDB(r.db).WithContext(ctx)
+	db := GetTx(ctx, r.db)
 	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, uuid.UUID(m.ID)); err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (r *connectorInstanceRepository) Update(ctx context.Context, m models.Conne
 // Delete removes a configured connector, refusing an ID outside the caller's
 // tenant.
 func (r *connectorInstanceRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	db := ResolveDB(r.db).WithContext(ctx)
+	db := GetTx(ctx, r.db)
 	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, id); err != nil {
 		return err
 	}

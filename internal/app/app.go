@@ -185,6 +185,43 @@ func newPprofHandler() http.Handler {
 	return mux
 }
 
+// sqliteDSNWithBusyTimeout gives a SQLite DSN a lock-wait budget.
+//
+// Without one, SQLite answers a locked database with SQLITE_BUSY immediately,
+// and the very first install hits it: the job worker polls every two seconds,
+// so an API write racing one poll returned "database is locked (5)" to the
+// user. Five seconds of patience is the difference between a working install
+// and one that fails on its second request.
+func sqliteDSNWithBusyTimeout(dsn string) string {
+	if strings.Contains(dsn, "_pragma=busy_timeout") {
+		return dsn
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "_pragma=busy_timeout(5000)"
+}
+
+// serializeSQLitePool caps a SQLite connection pool at one connection.
+//
+// SQLite is a single-writer file database, and a pool pretends otherwise. Two
+// pooled connections inside transactions deadlock the classic way: one holds a
+// read lock and asks to write while the other holds the write lock — and for
+// that upgrade SQLite returns SQLITE_BUSY immediately, busy_timeout ignored by
+// design. The very first install hit it: the job worker polls in transactions
+// every two seconds, so the second API write raced one and failed with
+// "database is locked". One connection makes the pool tell the truth. The
+// server databases — Postgres, MySQL, SQL Server — keep their real pools.
+func serializeSQLitePool(db *gorm.DB) {
+	if db.Dialector.Name() != "sqlite" {
+		return
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
+}
+
 func newHTTPServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              address,
@@ -399,6 +436,7 @@ func (a *App) setupDatabase() error {
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}
+	serializeSQLitePool(db)
 	a.db = db
 
 	return a.migrate()
@@ -433,8 +471,13 @@ func (a *App) migrate() error {
 // on a mature database is a startup that keeps getting slower and never has
 // anything to do.
 func (a *App) migrationList() []migrations.Migration {
-	repo := repositories.NewRepository(a.db)
-
+	// Each data migration builds its repository over the *transaction* the
+	// runner hands it, not over a.db. The first version captured an outer
+	// repository, which had two consequences: the backfills' writes never
+	// actually joined the transaction their Transactional flag promised, and
+	// once SQLite's pool was capped at one connection the repository's request
+	// for a second one deadlocked against the migration's own transaction —
+	// a hang, at boot, on the very first install.
 	return append(migrations.Schema(models.MigrationModels()), []migrations.Migration{
 		{
 			Version:       2,
@@ -444,8 +487,8 @@ func (a *App) migrationList() []migrations.Migration {
 			// resolved per instance still hold the raw ${...} template, which no
 			// inbound correlation value can match. Until they are repaired every
 			// instance waiting on a message event hangs.
-			Run: func(ctx context.Context, _ *gorm.DB) error {
-				_, err := serviceimpl.BackfillMessageCorrelationKeys(ctx, repo)
+			Run: func(ctx context.Context, tx *gorm.DB) error {
+				_, err := serviceimpl.BackfillMessageCorrelationKeys(ctx, repositories.NewRepository(tx))
 				return err
 			},
 		},
@@ -458,8 +501,8 @@ func (a *App) migrationList() []migrations.Migration {
 			// part-way through either would otherwise come back with nothing
 			// recorded: restarting its iterations from zero, or forgetting the
 			// branches that had already reached a waiting gateway.
-			Run: func(ctx context.Context, _ *gorm.DB) error {
-				_, err := serviceimpl.BackfillEngineBookkeeping(ctx, repo)
+			Run: func(ctx context.Context, tx *gorm.DB) error {
+				_, err := serviceimpl.BackfillEngineBookkeeping(ctx, repositories.NewRepository(tx))
 				return err
 			},
 		},
@@ -797,7 +840,7 @@ func (a *App) resolveDialector() (gorm.Dialector, error) {
 
 	// Priority 3: Default to SQLite
 	log.Info().Msg("Using SQLite database (gobpm.db)...")
-	return sqlite.Open("gobpm.db"), nil
+	return sqlite.Open(sqliteDSNWithBusyTimeout("gobpm.db")), nil
 }
 
 func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
@@ -828,6 +871,6 @@ func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
 		return sqlserver.Open(dsn), nil
 	default:
 		log.Info().Str("path", redaction.RedactText(dsn)).Msg("Using SQLite database from config...")
-		return sqlite.Open(dsn), nil
+		return sqlite.Open(sqliteDSNWithBusyTimeout(dsn)), nil
 	}
 }

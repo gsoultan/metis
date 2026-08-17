@@ -50,14 +50,37 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 		t.Fatalf("%s is set but MySQL is not reachable at that DSN: %v", MySQLDSNEnv, err)
 	}
 
-	// MySQL has no cheap per-test schema equivalent that GORM will route to
-	// without reconnecting, so the tables are dropped and rebuilt instead.
-	models := migrationModels()
-	for i := len(models) - 1; i >= 0; i-- {
-		if err := db.Migrator().DropTable(models[i]); err != nil {
-			t.Fatalf("failed to drop table: %v", err)
-		}
+	// Each test gets its own database, mirroring the per-schema isolation the
+	// PostgreSQL helper has always had. The previous approach — drop and
+	// rebuild the shared tables — was correct for one test at a time and wrong
+	// the moment two packages ran together, which `go test ./...` does: the
+	// tenant-isolation and mysqldb packages ran concurrently, each dropping
+	// the tables out from under the other, and the failures looked exactly
+	// like real cross-tenant bugs.
+	testDB := "gobpm_test_" + sanitiseSchemaName(t.Name())
+	if err := db.Exec("DROP DATABASE IF EXISTS " + testDB).Error; err != nil {
+		t.Fatalf("failed to drop test database: %v", err)
 	}
+	if err := db.Exec("CREATE DATABASE " + testDB).Error; err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Exec("DROP DATABASE IF EXISTS " + testDB).Error
+	})
+
+	scoped, err := gorm.Open(mysql.Open(mysqlDSNForDatabase(dsn, testDB)), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open the test database: %v", err)
+	}
+	scopedDB, err := scoped.DB()
+	if err != nil {
+		t.Fatalf("failed to get scoped sql.DB: %v", err)
+	}
+	scopedDB.SetMaxOpenConns(maxConns)
+	t.Cleanup(func() { _ = scopedDB.Close() })
+	db = scoped
+
+	models := migrationModels()
 	if err := db.AutoMigrate(models...); err != nil {
 		// MySQL is offered as a backend (config.DriverMySQL, the setup wizard,
 		// gorm.io/driver/mysql) but the models pin their key columns to
@@ -77,6 +100,20 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 		t.Fatalf("failed to migrate mysql schema: %v", err)
 	}
 	return db
+}
+
+// mysqlDSNForDatabase swaps the database name inside a MySQL DSN of the form
+// user:pass@tcp(host:port)/dbname?params.
+func mysqlDSNForDatabase(dsn, database string) string {
+	slash := strings.LastIndex(dsn, "/")
+	if slash < 0 {
+		return dsn + "/" + database
+	}
+	rest := dsn[slash+1:]
+	if q := strings.Index(rest, "?"); q >= 0 {
+		return dsn[:slash+1] + database + rest[q:]
+	}
+	return dsn[:slash+1] + database
 }
 
 func isUUIDTypeIncompatibility(err error) bool {

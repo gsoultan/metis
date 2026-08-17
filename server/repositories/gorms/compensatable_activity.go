@@ -19,13 +19,13 @@ func NewCompensatableActivityRepository(db *gorm.DB) contracts.CompensatableActi
 }
 
 func (r *compensatableActivityRepository) Create(ctx context.Context, m models.CompensatableActivityModel) (models.CompensatableActivityModel, error) {
-	err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error
+	err := GetTx(ctx, r.db).Create(&m).Error
 	return m, err
 }
 
 func (r *compensatableActivityRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.CompensatableActivityModel, error) {
 	var ms []models.CompensatableActivityModel
-	err := ResolveDB(r.db).WithContext(ctx).
+	err := GetTx(ctx, r.db).
 		Where("instance_id = ? AND compensated = ?", instanceID, false).
 		Order("completed_at DESC").
 		Find(&ms).Error
@@ -36,7 +36,7 @@ func (r *compensatableActivityRepository) ListByInstance(ctx context.Context, in
 }
 
 func (r *compensatableActivityRepository) MarkCompensated(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).
+	return GetTx(ctx, r.db).
 		Model(&models.CompensatableActivityModel{}).
 		Where("id = ?", id).
 		Update("compensated", true).Error

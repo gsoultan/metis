@@ -24,6 +24,12 @@ func SetDBOverride(db *gorm.DB) {
 }
 
 // ResolveDB returns the override database if set, otherwise the original database.
+// ResolveDB applies the hot-swap override. Repository methods must not call it
+// directly — use GetTx, which both applies the override and joins any active
+// unit-of-work transaction. Five repositories called this directly and their
+// writes silently escaped every transaction they ran inside; with SQLite's
+// single connection the same call graph deadlocked against itself, which is
+// how it was finally noticed.
 func ResolveDB(db *gorm.DB) *gorm.DB {
 	dbOverrideMu.RLock()
 	defer dbOverrideMu.RUnlock()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -137,8 +138,23 @@ func buildDialector(driver, dsn string) gorm.Dialector {
 	case config.DriverSQLServer:
 		return sqlserver.Open(dsn)
 	default:
-		return sqlite.Open(dsn)
+		// Same busy-timeout treatment as the app's own open path; a
+		// freshly set-up database must not fail its second request.
+		return sqlite.Open(sqliteSetupDSN(dsn))
 	}
+}
+
+// sqliteSetupDSN mirrors the app's busy-timeout default for databases the
+// setup wizard creates.
+func sqliteSetupDSN(dsn string) string {
+	if strings.Contains(dsn, "_pragma=busy_timeout") {
+		return dsn
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "_pragma=busy_timeout(5000)"
 }
 
 func validateSetupRequest(req contracts.SetupRequest) error {
@@ -208,6 +224,15 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 	db, err := gorm.Open(dialector, new(gorm.Config))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open target database: %w", err)
+	}
+
+	// SQLite gets one connection, mirroring the app's own open path: pooled
+	// connections deadlock on lock upgrades, which busy_timeout cannot help
+	// with, and this database is about to be hot-swapped in as the live one.
+	if req.DatabaseDriver == config.DriverSQLite || req.DatabaseDriver == "" {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.SetMaxOpenConns(1)
+		}
 	}
 
 	cleanup := func() {
