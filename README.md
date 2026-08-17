@@ -19,7 +19,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Auto-Layout**: Integrated view centering for complex diagrams.
 - **Asynchronous Execution**: A robust job worker system for Service Tasks and Timers with:
   - **Reliability**: Persistent job storage and execution.
-  - **Error Handling**: Automatic retries with backoff (currently linear; exponential + jitter is planned — see `.junie/execution-plan.md` §3.4).
+  - **Error Handling**: Automatic retries with exponential backoff and jitter, then an incident when the attempts run out.
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
 - **Scripting Engine**: Integrated **Goja** (JavaScript engine) for:
   - **Script Tasks**: Complex data transformations within workflows.

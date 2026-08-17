@@ -259,7 +259,9 @@ func (s *jobService) handleJobFailure(ctx context.Context, job *entities.Job, jo
 	job.LastError = jobErr.Error()
 	if job.Retries < job.MaxRetries {
 		job.Status = entities.JobPending
-		job.NextRunAt = time.Now().Add(time.Duration(job.Retries) * time.Minute)
+		// Exponential with jitter — see backoff.go for why the linear schedule
+		// this replaces made an outage worse rather than better.
+		job.NextRunAt = time.Now().Add(retryDelay(job.Retries))
 		return
 	}
 	job.Status = entities.JobFailed
