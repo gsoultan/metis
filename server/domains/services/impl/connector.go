@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"io"
 	"net/http"
 
@@ -55,7 +58,7 @@ func NewConnectorService(
 	// Seed the catalogue for an already-configured installation. A first run
 	// writes into the bootstrap database instead, so setup calls this again
 	// once it has swapped to the real one.
-	if err := s.EnsureDefaultConnectors(context.Background()); err != nil {
+	if err := s.EnsureDefaultConnectors(entities.WithSystemContext(context.Background())); err != nil {
 		log.Error().Err(err).Msg("Failed to bootstrap default connectors")
 	}
 
@@ -200,12 +203,38 @@ func (s *connectorService) DeleteConnectorInstance(ctx context.Context, id uuid.
 	return s.repo.ConnectorInstance().Delete(ctx, id)
 }
 
+// ExecuteConnector runs one outbound integration call.
+//
+// This is the span execution-plan.md §3.4 asks for. It is the boundary where
+// this system stops being in control: everything inside is our code, and
+// everything past it is somebody else's availability. When an instance has been
+// stuck for hours, this span is usually the answer.
 func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey string, config map[string]any, payload map[string]any) (map[string]any, error) {
+	ctx, span := tracing.Tracer().Start(ctx, "connector.execute",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(tracing.AttrConnectorKey.String(connectorKey)),
+	)
+	defer span.End()
+
 	executor, ok := s.executors[connectorKey]
 	if !ok {
-		return nil, fmt.Errorf("no executor found for connector key: %s", connectorKey)
+		err := fmt.Errorf("no executor found for connector key: %s", connectorKey)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "no executor for connector")
+		return nil, err
 	}
-	return executor.Execute(ctx, config, payload)
+
+	result, err := executor.Execute(ctx, config, payload)
+	if err != nil {
+		// Recorded rather than merely returned: a connector failure is the most
+		// common cause of a stalled instance, and a trace that shows the call
+		// happening but not that it failed sends the reader looking elsewhere.
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "connector call failed")
+		return nil, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return result, nil
 }
 
 func (s *connectorService) RegisterExecutor(key string, executor servicecontracts.ConnectorExecutor) {

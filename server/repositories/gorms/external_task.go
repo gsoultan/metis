@@ -20,7 +20,7 @@ func NewExternalTaskRepository(db *gorm.DB) contracts.ExternalTaskRepository {
 }
 
 func (r *externalTaskRepository) Create(ctx context.Context, model *models.ExternalTaskModel) error {
-	return ResolveDB(r.db).WithContext(ctx).Create(model).Error
+	return GetTx(ctx, r.db).Create(model).Error
 }
 
 // tableExternalTasks is the SQL table behind ExternalTaskModel, needed by name
@@ -31,19 +31,31 @@ const tableExternalTasks = "external_tasks"
 // from another organization reads as not found.
 func (r *externalTaskRepository) Get(ctx context.Context, id uuid.UUID) (*models.ExternalTaskModel, error) {
 	var model models.ExternalTaskModel
-	db := tenantScopeDB(ctx, ResolveDB(r.db).WithContext(ctx), tableExternalTasks)
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableExternalTasks)
 	if err := db.First(&model, QualifiedByID(tableExternalTasks), id).Error; err != nil {
 		return nil, fmt.Errorf("external task not found: %w", err)
 	}
 	return &model, nil
 }
 
+// Update saves an external task, refusing an ID outside the caller's tenant.
+// This is the path a worker reports completion or failure on, so an unscoped
+// write would let one organization's worker resolve another's work.
 func (r *externalTaskRepository) Update(ctx context.Context, task *models.ExternalTaskModel) error {
-	return ResolveDB(r.db).WithContext(ctx).Save(task).Error
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableExternalTasks, &models.ExternalTaskModel{}, uuid.UUID(task.ID)); err != nil {
+		return err
+	}
+	return db.Save(task).Error
 }
 
+// Delete removes an external task, refusing an ID outside the caller's tenant.
 func (r *externalTaskRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).Delete(&models.ExternalTaskModel{}, "id = ?", id).Error
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableExternalTasks, &models.ExternalTaskModel{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.ExternalTaskModel{}, QualifiedByID(tableExternalTasks), id).Error
 }
 
 // FetchAndLock is the worker long-poll. Topic names are chosen per project and
@@ -59,7 +71,7 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic string,
 	var modelsList []*models.ExternalTaskModel
 	now := time.Now()
 
-	err := ResolveDB(r.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := GetTx(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		// Find available tasks: topic matches, AND (lock_expiration is null OR lock_expiration < now) AND retries >= 0
 		err := tenantScopeCondition(ctx, tx, tableExternalTasks).
 			Set("gorm:query_option", "FOR UPDATE").
@@ -101,7 +113,7 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic string,
 // caller's tenant.
 func (r *externalTaskRepository) ListByProcessInstance(ctx context.Context, instanceID uuid.UUID) ([]*models.ExternalTaskModel, error) {
 	var modelsList []*models.ExternalTaskModel
-	db := tenantScopeDB(ctx, ResolveDB(r.db).WithContext(ctx), tableExternalTasks)
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableExternalTasks)
 	if err := db.Where("external_tasks.process_instance_id = ?", instanceID).Find(&modelsList).Error; err != nil {
 		return nil, err
 	}

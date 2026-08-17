@@ -57,6 +57,13 @@ func (s *userService) ListUsers(ctx context.Context, organizationID uuid.UUID) (
 }
 
 func (s *userService) CreateUser(ctx context.Context, u entities.User, password string) error {
+	// The organizations arrive in the request body, so an administrator of one
+	// tenant could otherwise mint an account inside another. Being an admin
+	// grants authority over your own organization, not over every organization.
+	if err := requireOwnOrganizations(ctx, u.Organizations); err != nil {
+		return err
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)

@@ -91,8 +91,12 @@ vuln: ## Scan for known vulnerabilities
 
 # --- Gate -----------------------------------------------------------------
 
+.PHONY: sdk
+sdk: ## Build and test the Go client SDK (its own module — the main gate skips it)
+	cd sdk && go vet ./... && go test -race ./...
+
 .PHONY: gate
-gate: ui-build build vet test race ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
+gate: ui-build build vet test race sdk ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
 	@echo "✅ gate green"
 
 .PHONY: graph

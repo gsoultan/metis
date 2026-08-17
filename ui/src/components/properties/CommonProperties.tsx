@@ -332,59 +332,129 @@ export function NodeTestModal({
   );
 }
 
-export function ApiExample({ type, id, data }: { type: string, id: string, data: BPMNNodeData }) {
-  let snippet = "";
-  let title = "API Usage Example";
-  const description = "Execute this node using the gobpm API or client library.";
+/**
+ * Per-node API guidance: how an outside application drives exactly this node,
+ * as curl and as the Go SDK, with variables taken from the node where it has
+ * any. Every snippet here is the real wire contract — the paths and bodies
+ * are the ones sdk/examples/quickstart exercises against a live server, so if
+ * this drifts the quickstart is the test that catches the API side of it.
+ */
+export function ApiExample({ type, data }: { type: string, id: string, data: BPMNNodeData }) {
+  let snippet = '';
+  let title = 'API usage';
+  let description = 'How another application drives this step.';
+
+  const topic = data.externalTopic || 'your-topic';
+  const message = data.messageName || 'your-message';
+  const signal = data.signalName || 'your-signal';
 
   switch (type) {
-    case 'userTask':
-      title = "Complete User Task";
-      snippet = `// Using REST API
-POST /v1/tasks/${id}/complete
-{
-  "variables": {
-    "approval_status": "approved",
-    "comments": "Looks good!"
-  }
-}
-
-// Using Go Client
-err := client.CompleteTask(ctx, uuid.MustParse("${id}"), map[string]any{
-    "approval_status": "approved",
-    "comments": "Looks good!",
-})`;
-      break;
     case 'startEvent':
-      title = "Start Process Instance";
-      snippet = `// Using REST API
-POST /v1/projects/{projectId}/processes/${data.key || 'process_key'}/start
-{
-  "variables": {
-    "initiator": "admin",
-    "request_data": "..."
-  }
-}
+      title = 'Start this process from your application';
+      description = 'Deploy once, then every call starts a fresh instance with its own variables.';
+      snippet = `# curl
+curl -X POST $GOBPM/api/v1/process/start \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"project_id":"<project-uuid>","definition_key":"<process-key>",
+       "variables":{"amount":42.5}}'
 
-// Using Go Client
-resp, err := client.StartProcess(ctx, "${data.key || 'process_key'}", map[string]any{
-    "initiator": "admin",
-})
-`;
+// Go SDK  (go get github.com/gsoultan/gobpm/sdk)
+instanceID, err := client.StartProcess(ctx, projectID, "<process-key>",
+    gobpm.Variables{"amount": 42.5})`;
       break;
+
+    case 'userTask':
+      title = 'Work this task from your own inbox UI';
+      description = 'List, claim so nobody works it twice, then complete with the decision.';
+      snippet = `# curl
+curl -H "Authorization: Bearer $TOKEN" "$GOBPM/api/v1/tasks?page_size=50"
+curl -X POST $GOBPM/api/v1/tasks/<task-id>/claim \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id":"alice"}'
+curl -X POST $GOBPM/api/v1/tasks/<task-id>/complete \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id":"alice","variables":{"approved":true}}'
+
+// Go SDK
+tasks, _, err := client.ListTasks(ctx, gobpm.ListTasksOptions{})
+err = client.ClaimTask(ctx, task.ID, "alice")
+err = client.CompleteTask(ctx, task.ID, "alice", gobpm.Variables{"approved": true})`;
+      break;
+
     case 'serviceTask':
-      title = "External Worker Logic";
-      snippet = `// For 'external' worker implementation
-client.Subscribe("topic_name", func(task Task) (map[string]any, error) {
-    // Implement logic here
-    return map[string]any{"status": "ok"}, nil
-})
-`;
+      if (data.externalTopic) {
+        title = `Serve topic "${topic}" with a worker`;
+        description = 'The engine publishes this step as work; your service pulls it, does the job in your own runtime, and reports back.';
+        snippet = `// Go SDK — a long-polling worker
+worker := gobpm.NewWorker(client, "${topic}", "my-worker",
+    gobpm.WorkerOptions{},
+    func(ctx context.Context, task *gobpm.ExternalTask) (gobpm.Variables, error) {
+        // your integration logic; task.Variables carries the process data
+        return gobpm.Variables{"done": true}, nil
+    })
+go worker.Run(ctx)
+
+# or raw HTTP
+curl -X POST $GOBPM/api/v1/external-tasks/fetch-and-lock \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"topic":"${topic}","worker_id":"my-worker","max_tasks":5,"lock_duration_ms":60000}'
+curl -X POST $GOBPM/api/v1/external-tasks/<task-id>/complete \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"worker_id":"my-worker","variables":{"done":true}}'`;
+      } else {
+        title = 'This step calls out by itself';
+        description = 'A connector or HTTP call configured here runs inside the engine — nothing to integrate. Set an external topic instead if your own service should do the work.';
+        snippet = `# Watch it run: the instance timeline shows the call and its outcome
+curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>/audit`;
+      }
       break;
+
+    case 'intermediateCatchEvent':
+    case 'boundaryEvent':
+      title = `Deliver "${message}" from your application`;
+      description = 'The instance waits here until your system sends the message; the correlation key picks which instance.';
+      snippet = `# curl
+curl -X POST $GOBPM/api/v1/processes/message \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"project_id":"<project-uuid>","message_name":"${message}",
+       "correlation_key":"<order-id>","variables":{"paid":true}}'
+
+// Go SDK
+err := client.SendMessage(ctx, projectID, "${message}", "<order-id>",
+    gobpm.Variables{"paid": true})`;
+      break;
+
+    case 'intermediateThrowEvent':
+      title = `Broadcast "${signal}" from your application`;
+      description = 'A signal reaches every instance in the project waiting on it — no single addressee.';
+      snippet = `# curl
+curl -X POST $GOBPM/api/v1/processes/signal \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"project_id":"<project-uuid>","signal_name":"${signal}","variables":{}}'
+
+// Go SDK
+err := client.BroadcastSignal(ctx, projectID, "${signal}", nil)`;
+      break;
+
+    case 'businessRuleTask':
+      title = 'Try the decision this step consults';
+      description = 'Evaluate the decision table directly with sample inputs before running the whole process.';
+      snippet = `# curl
+curl -X POST $GOBPM/api/v1/decisions/evaluate \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"key":"<decision-key>","variables":{"amount":900}}'`;
+      break;
+
     default:
-      snippet = `// Generic API details for ${type}
-GET /v1/instances/{instanceId}/nodes/${id}
-`;
+      title = 'Watch this step from your application';
+      description = 'Every step lands in the instance audit trail as it happens.';
+      snippet = `# curl
+curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>
+curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>/audit
+
+// Go SDK
+instance, err := client.GetInstance(ctx, instanceID)
+entries, err := client.GetTimeline(ctx, instanceID)`;
   }
 
   return (

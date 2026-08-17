@@ -21,30 +21,50 @@ func NewProcessRepository(db *gorm.DB) contracts.ProcessRepository {
 }
 
 func (r *gormProcessRepository) Create(ctx context.Context, m models.ProcessInstanceModel) (uuid.UUID, error) {
+	// Refuse a process instance planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
+		return uuid.Nil, err
+	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return uuid.Nil, fmt.Errorf("could not create process instance: %w", err)
 	}
 	return uuid.UUID(m.ID), nil
 }
 
+// tableProcessInstances is the SQL table behind ProcessInstanceModel, needed by
+// name so the tenant scope can build its clauses.
+const tableProcessInstances = "process_instances"
+
+// Get returns a process instance by ID, scoped to the caller's tenant.
 func (r *gormProcessRepository) Get(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {
 	var m models.ProcessInstanceModel
-	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessInstances)
+	if err := db.First(&m, QualifiedByID(tableProcessInstances), id).Error; err != nil {
 		return models.ProcessInstanceModel{}, fmt.Errorf("could not get process instance: %w", err)
 	}
 	return m, nil
 }
 
+// GetForUpdate is Get with a row lock. The scope is the subquery form here: this
+// statement takes FOR UPDATE, and joining projects would lock rows in that table
+// too on every instance the engine touches.
 func (r *gormProcessRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {
 	var m models.ProcessInstanceModel
-	if err := GetTx(ctx, r.db).Clauses(clause.Locking{Strength: "UPDATE"}).First(&m, QueryByID, id).Error; err != nil {
+	db := tenantScopeCondition(ctx, GetTx(ctx, r.db), tableProcessInstances)
+	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&m, QualifiedByID(tableProcessInstances), id).Error; err != nil {
 		return models.ProcessInstanceModel{}, fmt.Errorf("could not get process instance for update: %w", err)
 	}
 	return m, nil
 }
 
+// Update saves instance state, refusing an ID outside the caller's tenant.
 func (r *gormProcessRepository) Update(ctx context.Context, m models.ProcessInstanceModel) error {
-	if err := GetTx(ctx, r.db).Save(&m).Error; err != nil {
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableProcessInstances, &models.ProcessInstanceModel{}, uuid.UUID(m.ID)); err != nil {
+		return err
+	}
+	if err := db.Save(&m).Error; err != nil {
 		return fmt.Errorf("could not update process instance: %w", err)
 	}
 	return nil

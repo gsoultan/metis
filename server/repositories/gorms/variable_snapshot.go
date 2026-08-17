@@ -19,13 +19,13 @@ func NewVariableSnapshotRepository(db *gorm.DB) contracts.VariableSnapshotReposi
 }
 
 func (r *variableSnapshotRepository) Create(ctx context.Context, m models.VariableSnapshotModel) (models.VariableSnapshotModel, error) {
-	err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error
+	err := GetTx(ctx, r.db).Create(&m).Error
 	return m, err
 }
 
 func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.VariableSnapshotModel, error) {
 	var ms []models.VariableSnapshotModel
-	err := ResolveDB(r.db).WithContext(ctx).
+	err := GetTx(ctx, r.db).
 		Where("instance_id = ?", instanceID).
 		Order("captured_at ASC").
 		Find(&ms).Error

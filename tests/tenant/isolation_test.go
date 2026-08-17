@@ -22,11 +22,13 @@ import (
 )
 
 const (
-	sharedUserID  = "user-in-both-inboxes"
-	sharedTopic   = "shared-topic"
-	sharedSignal  = "order.cancelled"
-	sharedFormKey = "expense-form"
-	sharedConnKey = "connector-template"
+	sharedUserID        = "user-in-both-inboxes"
+	sharedTopic         = "shared-topic"
+	sharedSignal        = "order.cancelled"
+	sharedFormKey       = "expense-form"
+	sharedConnKey       = "connector-template"
+	sharedDefinitionKey = "invoice-approval"
+	sharedDecisionKey   = "discount-policy"
 
 	// testMaxConns keeps the server-backed pools small; these tests are
 	// sequential and a wide pool only slows the schema setup down.
@@ -71,6 +73,9 @@ type tenantFixture struct {
 	connectorID               uuid.UUID
 	notificationA, notifB     uuid.UUID
 	systemNotification        uuid.UUID
+	definitionA, definitionB  uuid.UUID
+	decisionA, decisionB      uuid.UUID
+	taskA, taskB              uuid.UUID
 }
 
 // ctxAsA returns a context carrying organization A as the active tenant, which
@@ -101,6 +106,9 @@ func seedTenantFixture(t *testing.T, db *gorm.DB) tenantFixture {
 		connectorID:   uuid.New(),
 		notificationA: uuid.New(), notifB: uuid.New(),
 		systemNotification: uuid.New(),
+		definitionA:        uuid.New(), definitionB: uuid.New(),
+		decisionA: uuid.New(), decisionB: uuid.New(),
+		taskA: uuid.New(), taskB: uuid.New(),
 	}
 
 	id := func(v uuid.UUID) models.Base { return models.Base{ID: models.FromUUID(v)} }
@@ -131,6 +139,19 @@ func seedTenantFixture(t *testing.T, db *gorm.DB) tenantFixture {
 
 		&models.ConnectorInstance{Base: id(f.connectorInstA), ProjectID: models.FromUUID(f.projectA), ConnectorID: models.FromUUID(f.connectorID), Name: "conn A"},
 		&models.ConnectorInstance{Base: id(f.connInstB), ProjectID: models.FromUUID(f.projectB), ConnectorID: models.FromUUID(f.connectorID), Name: "conn B"},
+
+		// Definitions and decisions share a key across organizations, which
+		// nothing prevents — key is unique per project, not globally.
+		&models.ProcessDefinitionModel{Base: id(f.definitionA), ProjectID: models.FromUUID(f.projectA), Key: sharedDefinitionKey, Name: "def A", Version: 1},
+		&models.ProcessDefinitionModel{Base: id(f.definitionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDefinitionKey, Name: "def B", Version: 2},
+		&models.DecisionDefinitionModel{Base: id(f.decisionA), ProjectID: models.FromUUID(f.projectA), Key: sharedDecisionKey, Name: "dec A", Version: 1},
+		&models.DecisionDefinitionModel{Base: id(f.decisionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDecisionKey, Name: "dec B", Version: 2},
+
+		&models.ProcessInstanceModel{Base: id(f.instanceA), ProjectID: models.FromUUID(f.projectA), DefinitionID: models.FromUUID(f.definitionA), Status: models.ProcessActive},
+		&models.ProcessInstanceModel{Base: id(f.instanceB), ProjectID: models.FromUUID(f.projectB), DefinitionID: models.FromUUID(f.definitionB), Status: models.ProcessActive},
+
+		&models.TaskModel{Base: id(f.taskA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Name: "task A", Status: models.TaskUnclaimed},
+		&models.TaskModel{Base: id(f.taskB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Name: "task B", Status: models.TaskUnclaimed},
 
 		// Both organizations address a notification to the same user id, plus
 		// one system notification that belongs to no project at all.
@@ -303,6 +324,17 @@ func TestTenantIsolation_GetByIDDeniesOtherTenants(t *testing.T) {
 				_, err := gorms.NewConnectorInstanceRepository(db).GetByProjectAndConnector(ctx, f.projectB, f.connectorID)
 				return err
 			}},
+			{"task", func() error { _, err := gorms.NewTaskRepository(db).Get(ctx, f.taskB); return err }},
+			{"process instance", func() error { _, err := gorms.NewProcessRepository(db).Get(ctx, f.instanceB); return err }},
+			{"process instance for update", func() error {
+				_, err := gorms.NewProcessRepository(db).GetForUpdate(ctx, f.instanceB)
+				return err
+			}},
+			{"process definition", func() error {
+				_, err := gorms.NewDefinitionRepository(db).Get(ctx, f.definitionB)
+				return err
+			}},
+			{"decision", func() error { _, err := gorms.NewDecisionRepository(db).Get(ctx, f.decisionB); return err }},
 		}
 
 		for _, tc := range tests {
@@ -314,6 +346,464 @@ func TestTenantIsolation_GetByIDDeniesOtherTenants(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestTenantIsolation_KeyLookupsStayInTenant covers the lookups that resolve a
+// business key rather than a UUID. Keys are unique per project, so both
+// organizations hold one under the same name and only the caller's may answer.
+func TestTenantIsolation_KeyLookupsStayInTenant(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		t.Run("definition by key resolves to own project", func(t *testing.T) {
+			// B's row has the higher version, so an unscoped "latest wins"
+			// lookup returns B.
+			got, err := gorms.NewDefinitionRepository(db).GetByKey(ctx, sharedDefinitionKey)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if uuid.UUID(got.ID) != f.definitionA {
+				t.Fatalf("got definition %v, want own %v", uuid.UUID(got.ID), f.definitionA)
+			}
+		})
+
+		t.Run("definition by key and version denies another tenant's version", func(t *testing.T) {
+			_, err := gorms.NewDefinitionRepository(db).GetByKeyAndVersion(ctx, sharedDefinitionKey, 2)
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+
+		t.Run("decision by key resolves to own project", func(t *testing.T) {
+			got, err := gorms.NewDecisionRepository(db).GetByKey(ctx, sharedDecisionKey)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if uuid.UUID(got.ID) != f.decisionA {
+				t.Fatalf("got decision %v, want own %v", uuid.UUID(got.ID), f.decisionA)
+			}
+		})
+
+		t.Run("decision by key and version denies another tenant's version", func(t *testing.T) {
+			_, err := gorms.NewDecisionRepository(db).GetByKeyAndVersion(ctx, sharedDecisionKey, 2)
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+	})
+}
+
+// TestTenantIsolation_WritesDenyOtherTenants asserts that a write aimed at
+// another organization's row is refused *and* leaves the row alone. Returning an
+// error is not enough on its own — GORM's Save ignores a preceding Where, so a
+// scope written that way would report failure while the UPDATE still landed.
+func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		tests := []struct {
+			name string
+			// write attempts the mutation as tenant A against tenant B's row.
+			write func() error
+			// unchanged reports whether B's row still holds its seeded value.
+			unchanged func() bool
+		}{
+			{
+				name:  "delete another tenant's form",
+				write: func() error { return gorms.NewFormRepository(db).Delete(ctx, f.formB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.FormModel{}, "forms", f.formB)
+				},
+			},
+			{
+				name:  "delete another tenant's definition",
+				write: func() error { return gorms.NewDefinitionRepository(db).Delete(ctx, f.definitionB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.ProcessDefinitionModel{}, "process_definitions", f.definitionB)
+				},
+			},
+			{
+				name:  "delete another tenant's decision",
+				write: func() error { return gorms.NewDecisionRepository(db).Delete(ctx, f.decisionB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.DecisionDefinitionModel{}, "decision_definitions", f.decisionB)
+				},
+			},
+			{
+				name: "rewrite another tenant's decision",
+				write: func() error {
+					return gorms.NewDecisionRepository(db).Update(ctx, f.decisionB,
+						models.DecisionDefinitionModel{ProjectID: models.FromUUID(f.projectA), Name: "stolen"})
+				},
+				unchanged: func() bool {
+					var m models.DecisionDefinitionModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.decisionB)).Error; err != nil {
+						t.Fatalf("reload decision: %v", err)
+					}
+					return m.Name == "dec B" && uuid.UUID(m.ProjectID) == f.projectB
+				},
+			},
+			{
+				name:  "delete another tenant's connector instance",
+				write: func() error { return gorms.NewConnectorInstanceRepository(db).Delete(ctx, f.connInstB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.ConnectorInstance{}, "connector_instances", f.connInstB)
+				},
+			},
+			{
+				name: "repoint another tenant's connector instance",
+				write: func() error {
+					return gorms.NewConnectorInstanceRepository(db).Update(ctx, models.ConnectorInstance{
+						Base:      models.Base{ID: models.FromUUID(f.connInstB)},
+						ProjectID: models.FromUUID(f.projectA),
+						Name:      "stolen",
+					})
+				},
+				unchanged: func() bool {
+					var m models.ConnectorInstance
+					if err := db.First(&m, "id = ?", models.FromUUID(f.connInstB)).Error; err != nil {
+						t.Fatalf("reload connector instance: %v", err)
+					}
+					return m.Name == "conn B" && uuid.UUID(m.ProjectID) == f.projectB
+				},
+			},
+			{
+				name:  "delete another tenant's notification",
+				write: func() error { return gorms.NewNotificationRepository(db).Delete(ctx, f.notifB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.NotificationModel{}, "notifications", f.notifB)
+				},
+			},
+			{
+				name:  "mark another tenant's notification read",
+				write: func() error { return gorms.NewNotificationRepository(db).MarkAsRead(ctx, f.notifB) },
+				unchanged: func() bool {
+					var m models.NotificationModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
+						t.Fatalf("reload notification: %v", err)
+					}
+					return !m.IsRead
+				},
+			},
+			{
+				name:  "delete another tenant's subscription",
+				write: func() error { return gorms.NewSubscriptionRepository(db).Delete(ctx, f.subB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.Subscription{}, "event_subscriptions", f.subB)
+				},
+			},
+			{
+				name: "redirect another tenant's correlation key",
+				write: func() error {
+					return gorms.NewSubscriptionRepository(db).UpdateCorrelationKey(ctx, f.subB, "hijacked")
+				},
+				unchanged: func() bool {
+					var m models.Subscription
+					if err := db.First(&m, "id = ?", models.FromUUID(f.subB)).Error; err != nil {
+						t.Fatalf("reload subscription: %v", err)
+					}
+					return m.CorrelationKey != "hijacked"
+				},
+			},
+			{
+				name: "resolve another tenant's external task",
+				write: func() error {
+					return gorms.NewExternalTaskRepository(db).Update(ctx, &models.ExternalTaskModel{
+						Base:      models.Base{ID: models.FromUUID(f.extB)},
+						ProjectID: models.FromUUID(f.projectA),
+						Topic:     "stolen",
+					})
+				},
+				unchanged: func() bool {
+					var m models.ExternalTaskModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.extB)).Error; err != nil {
+						t.Fatalf("reload external task: %v", err)
+					}
+					return m.Topic == sharedTopic && uuid.UUID(m.ProjectID) == f.projectB
+				},
+			},
+			{
+				name:  "delete another tenant's external task",
+				write: func() error { return gorms.NewExternalTaskRepository(db).Delete(ctx, f.extB) },
+				unchanged: func() bool {
+					return rowExists(t, db, &models.ExternalTaskModel{}, "external_tasks", f.extB)
+				},
+			},
+			{
+				name: "move another tenant's task status",
+				write: func() error {
+					return gorms.NewTaskRepository(db).UpdateStatus(ctx, f.taskB, models.TaskCompleted)
+				},
+				unchanged: func() bool {
+					var m models.TaskModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.taskB)).Error; err != nil {
+						t.Fatalf("reload task: %v", err)
+					}
+					return m.Status == models.TaskUnclaimed
+				},
+			},
+			{
+				name: "rewrite another tenant's task",
+				write: func() error {
+					return gorms.NewTaskRepository(db).Update(ctx, models.TaskModel{
+						Base:      models.Base{ID: models.FromUUID(f.taskB)},
+						ProjectID: models.FromUUID(f.projectA),
+						Name:      "stolen",
+					})
+				},
+				unchanged: func() bool {
+					var m models.TaskModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.taskB)).Error; err != nil {
+						t.Fatalf("reload task: %v", err)
+					}
+					return m.Name == "task B" && uuid.UUID(m.ProjectID) == f.projectB
+				},
+			},
+			{
+				name: "rewrite another tenant's process instance",
+				write: func() error {
+					return gorms.NewProcessRepository(db).Update(ctx, models.ProcessInstanceModel{
+						Base:      models.Base{ID: models.FromUUID(f.instanceB)},
+						ProjectID: models.FromUUID(f.projectA),
+						Status:    models.ProcessFailed,
+					})
+				},
+				unchanged: func() bool {
+					var m models.ProcessInstanceModel
+					if err := db.First(&m, "id = ?", models.FromUUID(f.instanceB)).Error; err != nil {
+						t.Fatalf("reload instance: %v", err)
+					}
+					return m.Status == models.ProcessActive && uuid.UUID(m.ProjectID) == f.projectB
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := tc.write(); !errors.Is(err, gorm.ErrRecordNotFound) {
+					t.Errorf("write: got err %v, want %v", err, gorm.ErrRecordNotFound)
+				}
+				if !tc.unchanged() {
+					t.Fatal("the write was refused but the row changed anyway")
+				}
+			})
+		}
+	})
+}
+
+// TestTenantIsolation_OwnWritesStillSucceed is the counterweight: the guard must
+// not turn the caller's own writes into not-found.
+func TestTenantIsolation_OwnWritesStillSucceed(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		writes := []struct {
+			name  string
+			write func() error
+		}{
+			{"mark own notification read", func() error {
+				return gorms.NewNotificationRepository(db).MarkAsRead(ctx, f.notificationA)
+			}},
+			{"mark a system notification read", func() error {
+				return gorms.NewNotificationRepository(db).MarkAsRead(ctx, f.systemNotification)
+			}},
+			{"mark whole inbox read", func() error {
+				return gorms.NewNotificationRepository(db).MarkAllAsRead(ctx, sharedUserID)
+			}},
+			{"own task status", func() error {
+				return gorms.NewTaskRepository(db).UpdateStatus(ctx, f.taskA, models.TaskClaimed)
+			}},
+			{"own correlation key", func() error {
+				return gorms.NewSubscriptionRepository(db).UpdateCorrelationKey(ctx, f.subscriptionA, "resolved")
+			}},
+			{"own connector instance", func() error {
+				// Load before saving, the way the service layer does. A model
+				// built from scratch has a zero CreatedAt, which MySQL rejects
+				// in strict mode — that is a Save footgun, not a scope failure.
+				repo := gorms.NewConnectorInstanceRepository(db)
+				m, err := repo.Get(ctx, f.connectorInstA)
+				if err != nil {
+					return err
+				}
+				m.Name = "renamed"
+				return repo.Update(ctx, m)
+			}},
+			{"own form deleted", func() error {
+				return gorms.NewFormRepository(db).Delete(ctx, f.formA)
+			}},
+		}
+
+		for _, tc := range writes {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := tc.write(); err != nil {
+					t.Errorf("own write refused: %v", err)
+				}
+			})
+		}
+
+		// Marking the whole inbox read must not have reached the other tenant's
+		// notification, which shares the user id.
+		var other models.NotificationModel
+		if err := db.First(&other, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
+			t.Fatalf("reload other tenant's notification: %v", err)
+		}
+		if other.IsRead {
+			t.Error("MarkAllAsRead crossed into the other tenant's inbox")
+		}
+	})
+}
+
+// TestTenantIsolation_ProjectsAreScoped covers the table every other scope joins
+// *through*, and which nothing scoped as a result: unscoped, List returned every
+// organization's projects to anyone authenticated.
+func TestTenantIsolation_ProjectsAreScoped(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+		repo := gorms.NewProjectRepository(db)
+
+		t.Run("list returns only the caller's projects", func(t *testing.T) {
+			rows, err := repo.List(ctx)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.ProjectModel) uuid.UUID { return uuid.UUID(m.ID) }),
+				[]uuid.UUID{f.projectA})
+		})
+
+		t.Run("naming another organization returns nothing", func(t *testing.T) {
+			rows, err := repo.ListByOrganization(ctx, f.orgB)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			assertSameIDs(t, idsOf(rows, func(m models.ProjectModel) uuid.UUID { return uuid.UUID(m.ID) }), nil)
+		})
+
+		t.Run("get denies another tenant's project", func(t *testing.T) {
+			if _, err := repo.Get(ctx, f.projectB); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+
+		t.Run("get allows the caller's own", func(t *testing.T) {
+			if _, err := repo.Get(ctx, f.projectA); err != nil {
+				t.Fatalf("own project: %v", err)
+			}
+		})
+
+		t.Run("delete denies another tenant's project", func(t *testing.T) {
+			if err := repo.Delete(ctx, f.projectB); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Errorf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+			if !rowExists(t, db, &models.ProjectModel{}, "projects", f.projectB) {
+				t.Fatal("the delete was refused but the project is gone")
+			}
+		})
+
+		t.Run("create denies planting into another organization", func(t *testing.T) {
+			err := repo.Create(ctx, models.ProjectModel{
+				Base:           models.Base{ID: models.FromUUID(uuid.New())},
+				OrganizationID: models.FromUUID(f.orgB),
+				Name:           "planted",
+			})
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("got %v, want %v", err, gorm.ErrRecordNotFound)
+			}
+		})
+	})
+}
+
+// TestTenantIsolation_CreateDeniesForeignProject is the create-side counterpart
+// of the read scope. Every create names its parent project, and the request body
+// is the caller's to choose — so without this check a caller could plant rows in
+// another organization's project.
+func TestTenantIsolation_CreateDeniesForeignProject(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		foreign := models.FromUUID(f.projectB)
+		newID := func() models.Base { return models.Base{ID: models.FromUUID(uuid.New())} }
+
+		tests := []struct {
+			name   string
+			create func() error
+		}{
+			{"definition", func() error {
+				return gorms.NewDefinitionRepository(db).Create(ctx,
+					models.ProcessDefinitionModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"decision", func() error {
+				return gorms.NewDecisionRepository(db).Create(ctx,
+					models.DecisionDefinitionModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"form", func() error {
+				return gorms.NewFormRepository(db).Create(ctx,
+					models.FormModel{Base: newID(), ProjectID: foreign, Key: "planted"})
+			}},
+			{"deployment", func() error {
+				return gorms.NewDeploymentRepository(db).Create(ctx,
+					models.DeploymentModel{Base: newID(), ProjectID: foreign, Name: "planted"})
+			}},
+			{"task", func() error {
+				return gorms.NewTaskRepository(db).Create(ctx,
+					models.TaskModel{Base: newID(), ProjectID: foreign, Name: "planted"})
+			}},
+			{"process instance", func() error {
+				_, err := gorms.NewProcessRepository(db).Create(ctx,
+					models.ProcessInstanceModel{Base: newID(), ProjectID: foreign, Status: models.ProcessActive})
+				return err
+			}},
+			{"connector instance", func() error {
+				_, err := gorms.NewConnectorInstanceRepository(db).Create(ctx,
+					models.ConnectorInstance{Base: newID(), ProjectID: foreign, Name: "planted"})
+				return err
+			}},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := tc.create(); !errors.Is(err, gorm.ErrRecordNotFound) {
+					t.Fatalf("creating into another tenant's project: got %v, want %v", err, gorm.ErrRecordNotFound)
+				}
+			})
+		}
+	})
+}
+
+// TestTenantIsolation_CreateIntoOwnProjectSucceeds is the counterweight, so the
+// guard cannot pass by refusing everything.
+func TestTenantIsolation_CreateIntoOwnProjectSucceeds(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		ctx := f.ctxAsA(t)
+
+		own := models.FromUUID(f.projectA)
+		if err := gorms.NewFormRepository(db).Create(ctx, models.FormModel{
+			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, Key: "mine",
+		}); err != nil {
+			t.Errorf("create into own project: %v", err)
+		}
+		if err := gorms.NewTaskRepository(db).Create(ctx, models.TaskModel{
+			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, Name: "mine",
+		}); err != nil {
+			t.Errorf("create task into own project: %v", err)
+		}
+	})
+}
+
+// rowExists reports whether a row is still present, ignoring the tenant scope —
+// these assertions check the database, not the repository.
+func rowExists(t *testing.T, db *gorm.DB, model any, table string, id uuid.UUID) bool {
+	t.Helper()
+	var count int64
+	if err := db.Model(model).Where(table+".id = ?", models.FromUUID(id)).Count(&count).Error; err != nil {
+		t.Fatalf("existence check on %s: %v", table, err)
+	}
+	return count == 1
 }
 
 // TestTenantIsolation_OwnRowsStillReadable guards the other direction: the scope

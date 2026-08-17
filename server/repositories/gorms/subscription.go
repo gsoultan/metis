@@ -20,12 +20,22 @@ func (r *subscriptionRepository) Create(ctx context.Context, sub models.Subscrip
 	return GetTx(ctx, r.db).Create(&sub).Error
 }
 
+// Delete removes an event subscription, refusing an ID outside the caller's
+// tenant.
 func (r *subscriptionRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return GetTx(ctx, r.db).Delete(&models.Subscription{}, "id = ?", id).Error
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableEventSubscriptions, &models.Subscription{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.Subscription{}, QualifiedByID(tableEventSubscriptions), id).Error
 }
 
+// DeleteByNode removes a node's subscriptions. It takes no row ID, so the tenant
+// scope goes into the statement rather than through a guard.
 func (r *subscriptionRepository) DeleteByNode(ctx context.Context, instanceID uuid.UUID, nodeID string) error {
-	return GetTx(ctx, r.db).Delete(&models.Subscription{}, "instance_id = ? AND node_id = ?", instanceID, nodeID).Error
+	db := tenantScopeCondition(ctx, GetTx(ctx, r.db), tableEventSubscriptions)
+	return db.Delete(&models.Subscription{},
+		"event_subscriptions.instance_id = ? AND event_subscriptions.node_id = ?", instanceID, nodeID).Error
 }
 
 // tableEventSubscriptions is the SQL table behind Subscription, needed by name
@@ -77,10 +87,17 @@ func (r *subscriptionRepository) ListTemplatedMessageSubscriptions(ctx context.C
 	return subs, nil
 }
 
+// UpdateCorrelationKey resolves a templated correlation key, refusing an ID
+// outside the caller's tenant. Rewriting another organization's key would
+// redirect where its messages correlate.
 func (r *subscriptionRepository) UpdateCorrelationKey(ctx context.Context, id uuid.UUID, correlationKey string) error {
-	return GetTx(ctx, r.db).
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableEventSubscriptions, &models.Subscription{}, id); err != nil {
+		return err
+	}
+	return db.
 		Model(&models.Subscription{}).
-		Where("id = ?", id).
+		Where(QualifiedByID(tableEventSubscriptions), id).
 		Update("correlation_key", correlationKey).Error
 }
 

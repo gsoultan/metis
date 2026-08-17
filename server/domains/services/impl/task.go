@@ -109,7 +109,7 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 			Type:      entities.EventTaskClaimed,
 			Instance:  task.Instance,
 			Project:   task.Project,
-			Node:      task.Node,
+			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: map[string]any{"assignee": userID},
 		})
@@ -204,7 +204,7 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
-			Node:      task.Node,
+			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
 		})
@@ -231,7 +231,7 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID str
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
-			Node:      task.Node,
+			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
 		})
@@ -290,7 +290,7 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			Type:      entities.EventTaskCompleted,
 			Instance:  &instance,
 			Project:   instance.Project,
-			Node:      task.Node,
+			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: vars,
 		})
@@ -411,7 +411,7 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 			Type:      entities.EventTaskClaimed,
 			Instance:  task.Instance,
 			Project:   task.Project,
-			Node:      task.Node,
+			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: map[string]any{"assignee": userID},
 		})
@@ -424,6 +424,29 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 // recordAuditEvent writes a Business Timeline narrative audit entry for a task
 // lifecycle event. Errors are intentionally swallowed so audit failures never
 // affect the primary operation outcome.
+// namedNode returns the task's node with the task's own name filled in when
+// the node carries none.
+//
+// A task loaded from storage references its node by ID alone, so every
+// lifecycle event shipped a nameless node — and both narrative writers
+// degraded to their fallbacks. The timeline read `admin claimed task
+// "unknown"` and `admin has started working on 'the task'` about a task whose
+// name was sitting in the same struct the whole time.
+func namedNode(task entities.Task) *entities.Node {
+	if task.Node == nil {
+		if task.Name == "" {
+			return nil
+		}
+		return &entities.Node{Name: task.Name}
+	}
+	if task.Node.Name != "" || task.Name == "" {
+		return task.Node
+	}
+	named := *task.Node
+	named.Name = task.Name
+	return &named
+}
+
 func (s *taskService) recordAuditEvent(ctx context.Context, task entities.Task, eventType, actor string) {
 	if s.auditWriter == nil {
 		return
@@ -432,7 +455,7 @@ func (s *taskService) recordAuditEvent(ctx context.Context, task entities.Task, 
 		Type:     eventType,
 		Project:  task.Project,
 		Instance: task.Instance,
-		Node:     task.Node,
+		Node:     namedNode(task),
 		Data:     map[string]any{"actor": actor},
 	})
 }

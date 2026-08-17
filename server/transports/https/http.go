@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/gobpm/server/transports/https/connectors"
 	"github.com/gsoultan/gobpm/server/transports/https/decisions"
 	"github.com/gsoultan/gobpm/server/transports/https/definitions"
+	"github.com/gsoultan/gobpm/server/transports/https/external_tasks"
 	"github.com/gsoultan/gobpm/server/transports/https/group"
 	"github.com/gsoultan/gobpm/server/transports/https/incidents"
 	"github.com/gsoultan/gobpm/server/transports/https/notification"
@@ -85,6 +86,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	definitions.RegisterHandlers(m, eps.Definition, options)
 	processes.RegisterHandlers(m, eps.Process, options)
 	tasks.RegisterHandlers(m, eps.Task, options)
+	external_tasks.RegisterHandlers(m, eps.ExternalTask, options)
 	users.RegisterHandlers(m, eps.User, options)
 	group.RegisterHandlers(m, eps.Group, options)
 	incidents.RegisterHandlers(m, eps.Incident, options)

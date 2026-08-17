@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,5 +78,53 @@ func TestRunSandboxed_ClearsInterruptForReuse(t *testing.T) {
 	}
 	if got := value.ToInteger(); got != 42 {
 		t.Fatalf("got %d, want 42", got)
+	}
+}
+
+// TestRunSandboxed_AbandonsUninterruptibleScript pins the bound on the one case
+// goja cannot stop.
+//
+// goja honours interrupts only between statements, so a script inside a single
+// long native call never sees one. `new Array(1e9).join('x')` measured 37s
+// against a 200ms budget before this bound existed — every token through such a
+// gateway held a job worker for the duration, which is the denial of service the
+// budget exists to prevent.
+//
+// The caller must now be released on time. The script itself keeps running; that
+// residual cost is documented on RunSandboxed.
+func TestRunSandboxed_AbandonsUninterruptibleScript(t *testing.T) {
+	vm := NewSandboxedRuntime()
+	budget := 200 * time.Millisecond
+
+	start := time.Now()
+	_, err := RunSandboxed(t.Context(), vm, budget, func() (goja.Value, error) {
+		return vm.RunString("new Array(1e9).join('x')")
+	})
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrScriptAbandoned) {
+		t.Fatalf("err = %v, want %v", err, ErrScriptAbandoned)
+	}
+
+	// The caller must come back on budget, not when the script finishes.
+	if limit := budget + interruptGrace + time.Second; elapsed > limit {
+		t.Fatalf("caller was held for %v, want under %v — the worker is still blocked", elapsed, limit)
+	}
+}
+
+// TestRunSandboxed_PanicInScriptDoesNotCrash keeps a panic inside user script
+// from taking the process down now that it runs on its own goroutine, where an
+// unrecovered panic would be unrecoverable rather than merely an error.
+func TestRunSandboxed_PanicInScriptDoesNotCrash(t *testing.T) {
+	vm := NewSandboxedRuntime()
+
+	_, err := RunSandboxed(t.Context(), vm, time.Second, func() (goja.Value, error) {
+		panic("boom")
+	})
+	if err == nil {
+		t.Fatal("a panicking script returned no error")
+	}
+	if !strings.Contains(err.Error(), "panicked") {
+		t.Errorf("err = %v, want it to name the panic", err)
 	}
 }

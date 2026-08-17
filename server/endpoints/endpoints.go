@@ -148,7 +148,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 	userEndpoints := user.MakeEndpoints(s)
 	userEndpoints.GetUser = protected("GetUser")(userEndpoints.GetUser)
-	userEndpoints.CreateUser = public("CreateUser")(userEndpoints.CreateUser)
+	// Creating a user is at least as privileged as updating one, and both of
+	// those are adminOnly. This was public: the endpoint chain applied logging
+	// and nothing else, so any authenticated caller — at any privilege level —
+	// could post a user carrying roles:["admin"] and an organization of their
+	// choosing, then log in as an administrator of someone else's tenant.
+	//
+	// The initial administrator is seeded by setup directly, not through this
+	// endpoint, so nothing legitimate depended on it being open.
+	userEndpoints.CreateUser = adminOnly("CreateUser")(userEndpoints.CreateUser)
 	userEndpoints.UpdateUser = adminOnly("UpdateUser")(userEndpoints.UpdateUser)
 	userEndpoints.DeleteUser = adminOnly("DeleteUser")(userEndpoints.DeleteUser)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)

@@ -7,6 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -89,6 +93,12 @@ func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.Process
 }
 
 func (s *jobService) StartWorkers(ctx context.Context) {
+	// The job worker spans every tenant by design — a worker that could only see
+	// one organization's jobs would leave the rest unprocessed. Saying so
+	// explicitly is what lets a context with no identity at all be treated as a
+	// mistake rather than as background work.
+	ctx = entities.WithSystemContext(ctx)
+
 	ticker := time.NewTicker(2 * time.Second)
 	go func() {
 		defer ticker.Stop()
@@ -325,8 +335,24 @@ func (s *jobService) ResolveIncident(ctx context.Context, incidentID uuid.UUID) 
 //  2. Attempt a configured connector; fall back to HTTPServiceTaskRunner.
 //  3. Persist output variables and advance the process token.
 func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) error {
+	// The parent span for one attempt at one service task. The connector span
+	// nests under it, so a trace reads as "instance X, node Y, attempt 2, called
+	// Salesforce, waited 30s" — which is the question asked of a stuck instance.
+	ctx, span := tracing.Tracer().Start(ctx, "job.serviceTask",
+		trace.WithAttributes(
+			tracing.AttrInstanceID.String(job.Instance.ID.String()),
+			tracing.AttrNodeID.String(job.Node.ID),
+			tracing.AttrDefinitionID.String(job.Definition.ID.String()),
+			// Retries is the count already spent, so this attempt is the next.
+			tracing.AttrAttempt.Int(job.Retries+1),
+		),
+	)
+	defer span.End()
+
 	md, err := s.repo.Definition().Get(ctx, job.Definition.ID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "definition lookup failed")
 		return err
 	}
 	def := adapters.DefinitionEntityAdapter{Model: md}.ToEntity()

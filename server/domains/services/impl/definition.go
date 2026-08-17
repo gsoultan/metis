@@ -3,6 +3,7 @@ package impl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -121,11 +122,21 @@ func (s *definitionService) ExportDefinition(ctx context.Context, id uuid.UUID) 
 	return parser.Export(def)
 }
 
-func (s *definitionService) ImportDefinition(ctx context.Context, xmlContent []byte) (uuid.UUID, error) {
+// ImportDefinition deploys BPMN XML into a project.
+//
+// The project is required, not optional: definitions are looked up under the
+// caller's tenant scope, which joins through the project. An import that set no
+// project produced a definition the tenant scope could never find — deployed,
+// versioned, and permanently invisible to the organization that uploaded it.
+func (s *definitionService) ImportDefinition(ctx context.Context, projectID uuid.UUID, xmlContent []byte) (uuid.UUID, error) {
+	if projectID == uuid.Nil {
+		return uuid.Nil, errors.New("import requires a project_id: a definition without a project is invisible to its own organization")
+	}
 	parser := &BPMNXMLParser{}
 	def, err := parser.Parse(bytes.NewReader(xmlContent))
 	if err != nil {
 		return uuid.Nil, err
 	}
+	def.Project = &entities.Project{ID: projectID}
 	return s.CreateDefinition(ctx, def)
 }

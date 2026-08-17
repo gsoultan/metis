@@ -17,6 +17,10 @@ func NewFormRepository(db *gorm.DB) contracts.FormRepository {
 }
 
 func (r *gormFormRepository) Create(ctx context.Context, f models.FormModel) error {
+	// Refuse a form planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(f.ProjectID)); err != nil {
+		return err
+	}
 	return GetTx(ctx, r.db).Create(&f).Error
 }
 
@@ -66,6 +70,11 @@ func (r *gormFormRepository) ListByProject(ctx context.Context, projectID uuid.U
 	return modelsList, nil
 }
 
+// Delete removes a form, refusing an ID outside the caller's tenant.
 func (r *gormFormRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return GetTx(ctx, r.db).Delete(&models.FormModel{}, "id = ?", id).Error
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableForms, &models.FormModel{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.FormModel{}, QualifiedByID(tableForms), id).Error
 }

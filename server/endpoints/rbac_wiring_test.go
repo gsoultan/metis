@@ -92,7 +92,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	adminGated := []string{
 		"CreateGroup", "UpdateGroup", "DeleteGroup",
 		"AddMembership", "RemoveMembership",
-		"UpdateUser", "DeleteUser",
+		"CreateUser", "UpdateUser", "DeleteUser",
 		"UpdateOrganization", "DeleteOrganization",
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",
@@ -114,6 +114,24 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	for _, name := range adminGated {
 		if strings.Contains(source, `protected("`+name+`")`) {
 			t.Errorf("%s is still on the plain authenticated chain", name)
+		}
+	}
+
+	// Nor on the public chain, which is worse: PublicChain applies logging and
+	// nothing else, so an endpoint there gets no role check *and* no tenant
+	// resolution. CreateUser sat here, which let any authenticated caller post a
+	// user carrying roles:["admin"] and somebody else's organization.
+	for _, name := range adminGated {
+		if strings.Contains(source, `public("`+name+`")`) {
+			t.Errorf("%s is on the public chain: no role check and no tenant scoping", name)
+		}
+	}
+
+	// The only endpoints that may be public are the ones reachable before a
+	// caller can possibly hold a token.
+	for _, name := range []string{"Login", "GetSetupStatus", "Setup", "TestConnection"} {
+		if !strings.Contains(source, `public("`+name+`")`) {
+			t.Errorf("%s must stay public or a fresh installation cannot be reached", name)
 		}
 	}
 }

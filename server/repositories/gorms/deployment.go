@@ -17,6 +17,10 @@ func NewDeploymentRepository(db *gorm.DB) contracts.DeploymentRepository {
 }
 
 func (r *gormDeploymentRepository) Create(ctx context.Context, d models.DeploymentModel) error {
+	// Refuse a deployment planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(d.ProjectID)); err != nil {
+		return err
+	}
 	return GetTx(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&d).Error; err != nil {
 			return err

@@ -2,11 +2,19 @@ package impl
 
 import (
 	"encoding/xml"
+	"errors"
 	"io"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 )
+
+// ErrNoProcessInDefinition is returned for BPMN that parses cleanly but declares
+// no process — most often a file exported with only a collaboration or a pool.
+// The message is the one shown to whoever uploaded the file, so it names what to
+// do rather than what failed.
+var ErrNoProcessInDefinition = errors.New(
+	"this BPMN file contains no process; add a process to the diagram, or check that the export included one")
 
 // BPMNXMLParser handles importing/exporting BPMN 2.0 XML.
 type BPMNXMLParser struct{}
@@ -75,6 +83,12 @@ type bpmnNode struct {
 	TimerEventDefinition     *bpmnTimerEventDef   `xml:"timerEventDefinition"`
 	Script                   string               `xml:"script"`
 	ScriptFormat             string               `xml:"scriptFormat,attr"`
+	// Topic marks a service task as external work: the engine publishes it on
+	// this topic and a worker pulls it, instead of the engine calling out. The
+	// attribute is matched by local name, so plain topic="", camunda:topic=""
+	// and zeebe-style exports all land here — an imported diagram that worked
+	// as external work elsewhere keeps working here.
+	Topic string `xml:"topic,attr"`
 }
 
 // bpmnProcessNode is a <subProcess>: simultaneously a flow node and a container
@@ -140,7 +154,15 @@ func (p *BPMNXMLParser) Parse(reader io.Reader) (*entities.ProcessDefinition, er
 	}
 
 	if len(defs.Processes) == 0 {
-		return nil, nil
+		// Returning (nil, nil) here broke the convention that a nil result comes
+		// with an error, and every caller then had to remember a nil check the
+		// signature did not ask for. It also surfaced to the user as a
+		// validation failure about a definition they never wrote, rather than
+		// the actual problem with the file they uploaded.
+		//
+		// This is reachable: a BPMN file exported with only a collaboration or
+		// pool, and no process, parses perfectly well and lands here.
+		return nil, ErrNoProcessInDefinition
 	}
 
 	// For now, we take the first process.
@@ -246,6 +268,7 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		Outgoing:      bn.Outgoing,
 		Script:        bn.Script,
 		ScriptFormat:  bn.ScriptFormat,
+		ExternalTopic: bn.Topic,
 		Properties:    make(map[string]any),
 	}
 
@@ -363,6 +386,7 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 		Outgoing:      n.Outgoing,
 		Script:        n.Script,
 		ScriptFormat:  n.ScriptFormat,
+		Topic:         n.ExternalTopic,
 	}
 	if code, ok := n.Properties["error_code"].(string); ok && code != "" {
 		bn.ErrorEventDefinition = &bpmnErrorEventDef{ErrorCode: code}

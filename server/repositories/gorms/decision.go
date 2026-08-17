@@ -19,25 +19,34 @@ func NewDecisionRepository(db *gorm.DB) contracts.DecisionRepository {
 	return &gormDecisionRepository{db: db}
 }
 
+// Get returns a decision by ID, scoped to the caller's tenant. The row carries
+// the rule table, which is the organization's business policy in full.
 func (r *gormDecisionRepository) Get(ctx context.Context, id uuid.UUID) (models.DecisionDefinitionModel, error) {
 	var m models.DecisionDefinitionModel
-	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
+	if err := db.First(&m, QualifiedByID(tableDecisionDefinitions), id).Error; err != nil {
 		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision: %w", err)
 	}
 	return m, nil
 }
 
+// GetByKey returns the latest version of a decision, scoped to the caller's
+// tenant. Keys are per project, so two organizations can hold the same one.
 func (r *gormDecisionRepository) GetByKey(ctx context.Context, key string) (models.DecisionDefinitionModel, error) {
 	var m models.DecisionDefinitionModel
-	// GetConnector latest version
-	if err := GetTx(ctx, r.db).Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
+	if err := db.Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
 		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key: %w", err)
 	}
 	return m, nil
 }
+
+// GetByKeyAndVersion pins one version of a decision, scoped to the caller's
+// tenant for the same reason GetByKey is.
 func (r *gormDecisionRepository) GetByKeyAndVersion(ctx context.Context, key string, version int) (models.DecisionDefinitionModel, error) {
 	var m models.DecisionDefinitionModel
-	if err := GetTx(ctx, r.db).Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
+	if err := db.Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
 		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key and version: %w", err)
 	}
 	return m, nil
@@ -53,22 +62,42 @@ func (r *gormDecisionRepository) List(ctx context.Context) ([]models.DecisionDef
 }
 
 func (r *gormDecisionRepository) Create(ctx context.Context, m models.DecisionDefinitionModel) error {
+	// Refuse a decision planted in another organization's project.
+	if err := requireProjectInTenant(ctx, GetTx(ctx, r.db), uuid.UUID(m.ProjectID)); err != nil {
+		return err
+	}
 	if err := GetTx(ctx, r.db).Create(&m).Error; err != nil {
 		return fmt.Errorf("could not create decision: %w", err)
 	}
 	return nil
 }
 
+// tableDecisionDefinitions is the SQL table behind DecisionDefinitionModel,
+// needed by name so the tenant scope can build its clauses.
+const tableDecisionDefinitions = "decision_definitions"
+
+// Update saves a decision, refusing an ID outside the caller's tenant. A
+// decision is business policy, so an unscoped write is a way to change what
+// another organization's processes decide.
 func (r *gormDecisionRepository) Update(ctx context.Context, id uuid.UUID, m models.DecisionDefinitionModel) error {
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableDecisionDefinitions, &models.DecisionDefinitionModel{}, id); err != nil {
+		return err
+	}
 	m.ID = models.UUID(id)
-	if err := GetTx(ctx, r.db).Save(&m).Error; err != nil {
+	if err := db.Save(&m).Error; err != nil {
 		return fmt.Errorf("could not update decision: %w", err)
 	}
 	return nil
 }
 
+// Delete removes a decision, refusing an ID outside the caller's tenant.
 func (r *gormDecisionRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := GetTx(ctx, r.db).Delete(&models.DecisionDefinitionModel{}, QueryByID, id).Error; err != nil {
+	db := GetTx(ctx, r.db)
+	if err := requireVisibleToTenant(ctx, db, tableDecisionDefinitions, &models.DecisionDefinitionModel{}, id); err != nil {
+		return err
+	}
+	if err := db.Delete(&models.DecisionDefinitionModel{}, QualifiedByID(tableDecisionDefinitions), id).Error; err != nil {
 		return fmt.Errorf("could not delete decision: %w", err)
 	}
 	return nil

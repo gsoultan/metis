@@ -133,7 +133,9 @@
   - [x] API latency targets defined.
   - [x] Throughput target defined.
   - [x] Reliability target defined.
-  - [ ] Recovery target finalized with explicit per-environment `RTO`/`RPO` values.
+  - [x] Recovery target finalized with explicit per-environment `RTO`/`RPO` values —
+        see [`docs/recovery.md`](../docs/recovery.md). Production RPO 5min / RTO 1h,
+        with the backup, restore and quarterly rehearsal procedures behind them.
 - [ ] 2. Core Backend Architecture
   - [ ] `ServiceFacade` orchestration-only compliance verified across domains.
   - [ ] Small, consumer-centric interface compliance audit completed.
@@ -159,10 +161,12 @@
 - [x] 5. Security Hardening
   - [x] Authn/Authz parity (`RBAC` + optional `ABAC`) audit completed.
   - [x] Tenant isolation verification completed in repositories/queries — every
-        project-owned table is scoped on its read paths, proven on SQLite,
-        PostgreSQL and MySQL by `tests/tenant/isolation_test.go`. Write-path
-        scoping and the fail-open-without-context behaviour remain open; see
-        `execution-plan.md` §Status.
+        project-owned table is scoped on reads, writes and creates, proven on
+        SQLite, PostgreSQL and MySQL by `tests/tenant/isolation_test.go`. The
+        repository layer still fails open with no `TenantContext`, which is now
+        defence in depth rather than a live hole: unresolvable principals are
+        refused at the resolver, and the public chain's membership is asserted
+        by test. See `execution-plan.md` §Status.
   - [x] DB parameterization audit completed.
   - [x] Secret/PII redaction implemented for outward errors/log paths.
   - [x] API abuse controls implemented (request-size limit + rate limit interceptors).
@@ -170,8 +174,14 @@
 - [ ] 6. Reliability & Bug Reduction
   - [ ] Full test-pyramid baseline complete (unit + integration + contract + E2E).
   - [x] `go test -race` enabled in CI workflow.
-  - [ ] Fuzz tests added for parsers/forms/expressions.
-  - [ ] Outage simulation suite added (DB/broker/network).
+  - [x] Fuzz tests added for parsers/forms/expressions — `tests/fuzz`, five targets
+        over the BPMN XML parser, its round trip, the condition chain and FEEL.
+        Found the script-sandbox DoS and the `Parse` nil-contract defect.
+  - [x] Outage simulation suite added — `tests/outage`: a severable TCP proxy cuts the
+        database under a running engine; asserts fail-fast during the outage, a truthful
+        503 from `/readyz`, and full recovery afterwards (parked external task completes,
+        the instance finishes, fresh work starts). Broker reconnect is covered at the unit
+        level in `messaging_test.go`; the network dimension is the proxy itself.
   - [ ] Feature-flag/canary rollout mechanism defined and integrated.
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).
@@ -526,16 +536,221 @@
     - `go test ./tests/tenant/ -v` against live PostgreSQL 17 and MySQL 8 — all pass
     - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
 
+- 2026-08-16 (completed): Closed `P0-SEC-03` write-path tenant scoping, and the by-ID reads
+  that `P0-SEC-02` had missed.
+  - **What the earlier pass got wrong:** `tasks`, `process_instances`,
+    `process_definitions` and `decision_definitions` were recorded as tenant-scoped, but
+    only their list queries were. Every `Get`-by-ID on them was open — a UUID was enough to
+    read another organization's task, running instance, deployed BPMN XML or decision
+    table. `GetByKey`/`GetByKeyAndVersion` were both a leak and a wrong answer, since keys
+    are unique per project and the lookup searched globally.
+  - Reads now scoped: `Get`, `GetForUpdate`, `GetByKey`, `GetByKeyAndVersion` across
+    `task.go`, `process.go`, `definition.go`, `decision.go`. `GetForUpdate` uses the
+    subquery form so `FOR UPDATE` does not lock `projects` as well.
+  - Writes now scoped: `Update`, `UpdateStatus`, `Delete`, `MarkAsRead`, `MarkAllAsRead`,
+    `DeleteByNode` and `UpdateCorrelationKey` across nine repositories.
+  - **Why writes use a guard, not a scoped statement:** GORM's `Save` ignores a preceding
+    `Where` — verified on SQLite, PostgreSQL and MySQL, where the row updated anyway. A
+    scope written that way would read as applied and enforce nothing. Rewriting `Save` as
+    `Model().Where().Updates()` was rejected because `Updates` skips zero values, so
+    clearing a field would quietly stop persisting. `requireVisibleToTenant` therefore does
+    a scoped existence check and returns `ErrRecordNotFound`; it is a no-op when there is
+    no tenant context, so background work pays nothing.
+  - Regression coverage: `tests/tenant/isolation_test.go` grew to 198 subtests across three
+    dialects. The write cases assert both that the call is refused **and** that the target
+    row is unchanged — an error return alone would not have caught the `Save` trap.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `go test ./tests/tenant/ -count=1` — 198 subtests, all pass
+
+- 2026-08-16 (completed): Executed `P0-OPS-01` operability baseline and `P0-SEC-04`
+  create-path scoping, and added the first fuzz targets.
+  - **Health and readiness** (`internal/pkg/health`): `/healthz` checks nothing external,
+    because a liveness probe that consulted the database would fail on every replica at
+    once during a database blip and have the orchestrator restart the whole fleet.
+    `/readyz` does check it, so a replica that cannot serve is pulled from the load
+    balancer. Both wrap outside every interceptor: probes carry no credentials, and a
+    probe shed by the backpressure limiter reports a busy process as a dead one.
+  - **Metrics** (`internal/pkg/metrics`): the SLOs in §1 had nothing measuring them.
+    Histogram buckets sit *on* the 150ms and 500ms thresholds, since a quantile
+    interpolated across a bucket spanning the target cannot say which side it is on. The
+    route label is bounded at 200 values with an overflow bucket — it derives from an
+    attacker-supplied path, and an unbounded label is an unbounded map keyed by remote
+    input. Scrape endpoint on loopback `:9464`, separate from the public API.
+  - **Fuzz targets** (`tests/fuzz`): five, covering the BPMN XML parser, its round trip,
+    the condition evaluator chain and the FEEL evaluator. Two real defects found:
+    - **Script sandbox DoS.** `new Array(1e9).join('x')` as a gateway condition ran for
+      **37.6s against a 200ms budget** — goja honours interrupts only between statements
+      and cannot pre-empt a single native call. Every token through such a gateway held a
+      job worker for the duration; enough of them stop the engine, which is the exact
+      denial of service the budget existed to prevent. `RunSandboxed` now runs the script
+      on its own goroutine and releases the caller after the budget plus a grace period,
+      returning `ErrScriptAbandoned`. Measured after: 0.70s. This bounds worker
+      starvation, **not memory** — the abandoned script keeps allocating, and goja offers
+      no heap limit. The real fix is Phase 2.2, which takes JavaScript off gateway
+      conditions by default.
+    - **`Parse` returned `(nil, nil)`** for BPMN with no `<process>` — reachable by
+      uploading a file exported with only a collaboration or pool. It did not crash only
+      because `Accept` had been hardened separately; it was a landmine for any new caller
+      and surfaced to the user as a validation error about a definition they never wrote.
+      Now returns `ErrNoProcessInDefinition`, whose message says what to fix.
+  - **Create-path and project scoping**: `requireProjectInTenant` refuses a create
+    pointed at another organization's project. `projects` itself is now scoped — it was
+    the one table nothing covered, because it is what every other scope joins *through*,
+    so `List()` had been returning every organization's projects to anyone authenticated.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+    - Probes and metrics verified against a running server, not only unit tests:
+      `/healthz` and `/readyz` return 200, `/api/v1/tasks` still returns 401, the public
+      port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
+    - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
+
+- 2026-08-16 (completed): Executed `P0-OPS-02` versioned schema migrations, replacing
+  AutoMigrate-on-every-boot.
+  - `server/repositories/migrations`: a `schema_migrations` table records every applied
+    version with its duration, so "which version is this database at" and "which migration
+    was slow" both have answers, which AutoMigrate could never give.
+  - Migration 1 is the baseline AutoMigrate over `MigrationModels()`. It reproduces exactly
+    the schema every existing installation already has, so it is a no-op on all of them
+    and creates everything on a fresh database — that is what lets versioning start
+    without a migration that has to guess at the current state.
+  - Migrations are Go, not SQL: four supported dialects would otherwise mean four copies
+    of every change, with the differences discovered in production.
+  - **The two data backfills became migrations 2 and 3.** They had been running on *every
+    boot*, and `BackfillEngineBookkeeping` calls `Process().List` — every process instance
+    ever created, loaded into memory — so startup got slower forever while finding nothing
+    to do after the first run. Verified: first boot `applied=[1,2,3]`, second boot
+    `alreadyApplied=3 applied=[]`.
+  - Replicas start together, so they contend for a lock row (`schema_migration_locks`).
+    Advisory locks differ across all four engines; a primary key that can only be inserted
+    once behaves the same everywhere. Stale locks are taken over after 15 minutes, or one
+    replica crashing mid-migration would block every future deployment.
+  - `DriftReport` warns at startup when a model declares a column the database lacks. This
+    is what makes strict migrations usable: adding a model field no longer applies itself,
+    and forgetting the migration would otherwise fail at the first request that touches
+    the column rather than at boot.
+  - Setup runs the same schema migrations rather than a bare AutoMigrate, so a freshly
+    created database is not treated on its first boot as one that had never been migrated.
+  - **Two real defects found by the concurrency test**, both of which would have hit a
+    multi-replica deployment:
+    - `AutoMigrate` is not concurrency-safe: replicas racing to create the bookkeeping
+      tables failed with "table already exists". Now tolerated, but only after confirming
+      the table really is there, so a genuine failure still stops the deployment.
+    - The lock could report a hard error where it should have retried — a holder that
+      finished quickly released the row between the failed insert and the check, making
+      "no lock held" indistinguishable from contention. Every failure is now retried under
+      a deadline, with the last error reported if it expires.
+    - Also fixed: GORM had made `version` an `AUTOINCREMENT` column. It is an identity we
+      assign, and a database that renumbered it would lose track of which migration is
+      which.
+  - Regression coverage: `tests/migrations/runner_test.go` — 8 tests across SQLite,
+    PostgreSQL and MySQL, covering apply-exactly-once, upgrade from an existing version,
+    stop-at-first-failure without recording it, four concurrent replicas applying a
+    migration exactly once, duplicate version rejection, ordering, baseline idempotency
+    against an already-migrated database, and drift detection.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+    - Two consecutive real boots, showing the migrations run once and then not again
+
+- 2026-08-16 (completed): Closed the last open P0 items — authorization, tracing and recovery.
+  - **`P0-SEC-05` two authorization holes**, both found while closing the fail-open scope:
+    - The tenant resolver passed an *unresolvable* principal through with no
+      `TenantContext`, which the repository layer reads as a system call and does not
+      scope. OIDC validation returns `*auth.UserClaims`, which carries no membership list,
+      so every OIDC-authenticated request reached every tenant's rows. Now refused: the
+      three cases (no principal, resolved, unresolvable) are distinct, and collapsing the
+      last into the first was the bug.
+    - `CreateUser` sat on the public endpoint chain — logging only, no role check, no
+      tenant resolution — while `UpdateUser` and `DeleteUser` beside it are `adminOnly`.
+      Mandatory HTTP auth meant a token was needed, but any authenticated caller at any
+      privilege level could post a user with `roles:["admin"]` and someone else's
+      organization, then log in as their administrator. Now `adminOnly`, and the named
+      organizations are checked against the caller's tenant, because being an admin grants
+      authority over your own organization rather than every organization.
+    - The wiring test now asserts nothing administrative sits on the public chain, and
+      that the only public endpoints are those reachable before a caller can hold a token.
+  - **`P0-OPS-03` tracing** (`internal/pkg/tracing`): OTLP, off unless an endpoint is
+    configured, no-op and free when off. Spans on the job service task (instance, node,
+    definition, attempt) and on the connector call (key, status, latency), which is what
+    §3.4 asks for — the connector span is the boundary where this system stops being in
+    control, and usually the answer to "what is this instance stuck on". Sampling defaults
+    to 5%, not 100%: an engine executing thousands of nodes a minute would otherwise make
+    the trace exporter its own outage. `ParentBased` keeps traces whole rather than holed.
+  - **`P0-OPS-04` recovery** ([`docs/recovery.md`](../docs/recovery.md)): production RPO
+    5min / RTO 1h, staging 24h/4h, with the reasoning. The 5-minute RPO is chosen against
+    connector idempotency keys — they are what make a non-zero RPO survivable, since a
+    retried outbound call after recovery must not double-charge. Documents that
+    `ENCRYPTION_KEY` must be backed up *separately* (a database backup without it restores
+    unreadable rows), what a restore actually does to running instances (timer stampede,
+    re-sent external calls, human tasks completed twice), and a quarterly rehearsal —
+    because a restore nobody has performed is a hypothesis. It is also the migration
+    rollback plan, the runner being forward-only.
+  - Verification evidence:
+    - `go build ./...`, `go vet ./...` — green
+    - `go test ./...`, `go test -race ./...` — green module-wide with live PostgreSQL 17
+      and MySQL 8
+    - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
+
+- 2026-08-17 (completed): Executed `P2-INT-01` — the integration surface: HTTP worker
+  protocol, Go client SDK, and per-node API guidance.
+  - **External-task worker protocol over HTTP** (`server/transports/https/external_tasks`):
+    fetch-and-lock, complete, failure. Previously gRPC/AMQP only, so a worker in "anything
+    that speaks HTTP" was impossible. Durations are `_ms`-suffixed on the wire because a
+    bare `lock_duration` was already misread once: the AMQP bridge passed 30 *seconds* to a
+    repository reading *milliseconds*, so bridge locks expired after 30ms and every poll
+    re-fetched the same tasks. Fixed.
+  - **`ImportDefinition` requires a project** — an imported definition had none, and under
+    tenant scoping was deployed, versioned, and permanently invisible to its own
+    organization. The XML parser now also carries `topic=` / `camunda:topic` into
+    `ExternalTopic` both ways, so XML-deployed processes can produce external tasks at all.
+  - **Go SDK** (`sdk/`, own module, zero dependencies): deploy/start, messages/signals,
+    tasks, and a long-poll `Worker` whose handler budget is its lock. Proven by
+    `sdk/examples/quickstart` against a live server: login → deploy BPMN → worker serves
+    the external task → human task claimed/completed → instance completed → timeline read.
+    `docs/integration.md` documents exactly what that program exercises. CI and `make gate`
+    include the SDK module, which the module-wide commands cannot see.
+  - **Transaction-joining sweep, found by running the product**: five repositories (29 call
+    sites — variable snapshots, connectors, external tasks, incidents, compensatable
+    activities) called `ResolveDB` instead of `GetTx`, so their writes ignored any active
+    unit of work. On every backend, the engine's variable snapshot was written *outside*
+    the instance-update transaction — roll back and the history lies. SQLite made it loud:
+    its pool is now one connection (pooled connections deadlock on lock upgrades, immune to
+    busy_timeout), which turned the silent escape into a boot hang and led straight to the
+    bug. Data migrations had the same flaw — `Transactional: true` over an outer-pool
+    repository — and now build their repository over the runner's transaction.
+  - **MySQL tests get per-test databases**, mirroring Postgres's per-schema isolation.
+    `go test` runs packages in parallel; two packages dropping the same shared tables
+    produced failures that read exactly like cross-tenant bugs.
+  - **Designer node panels show real API usage** — the previous `ApiExample` pointed at
+    routes that do not exist and a client that did not. Every node type now renders the
+    genuine curl + SDK for driving that step, drawn from the node's own configuration.
+  - Verification: full suite green with live Postgres 17 + MySQL 8; SDK vet/race green;
+    UI typecheck/lint/test/build green; quickstart run end to end against a live server.
+
 #### 11. What’s Next (Execution Order)
 
-1. P0 Security remainder:
-   - Write-path tenant scoping (`UPDATE`/`DELETE` by bare ID) via the portable
-     subquery form; a JOIN is not portable in those statements.
-   - Decide whether `TenantContext`-absent should keep failing open, and if not, give
-     system work an explicit system identity.
-2. P0 Reliability gaps:
-   - Fuzz tests for parsers/forms/expressions — the module currently has none.
-   - Feature-flag/canary rollout mechanism.
-3. P2 UX Delight:
-   - Task Inbox SLA fields: overdue countdown + priority badge backend fields.
-   - Business Timeline already complete.
+1. **P0 Security remainder** — the repository tenant scope still fails open when no
+   `TenantContext` is present, which is what lets the engine and its workers run. That is
+   defence in depth rather than a live hole (both protected chains resolve tenant,
+   unresolvable principals are refused, and the public chain's membership is asserted by
+   test), but closing it properly means giving system work an explicit system identity.
+2. **P0 Reliability remainder** — §6:
+   - Full test-pyramid baseline: contract tests for connectors are the missing tier.
+   (Outage simulation and feature flags both landed.)
+3. **P1** — `golangci-lint` backlog burn-down; order is in `.golangci.yml`.
+4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
+   backend fields. Business Timeline is already complete.
+
+The one item that is *not* on this list and arguably outranks all of it: **Phase 2, the
+FEEL expression layer**. `feel_evaluator.go` is string matching, not the parser in
+`execution-plan.md` §2.1, and the script-sandbox measurement above is the argument for it —
+gateway conditions accepting arbitrary JavaScript is a memory-exhaustion vector no sandbox
+setting can close.

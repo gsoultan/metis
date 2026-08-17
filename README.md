@@ -175,6 +175,20 @@ This runs against the configured database and exits without starting a server,
 so it works on an installation nobody can log into. It needs access to the
 machine and the database, which is the same access a backup restore would.
 
+## 🔌 Integrating from your application
+
+gobpm is built to be driven by other systems: deploy definitions, start
+instances, correlate messages, work human tasks from your own UI, and serve
+process steps with external workers — over plain HTTP or the Go SDK:
+
+```bash
+go get github.com/gsoultan/gobpm/sdk
+```
+
+The SDK has no dependencies outside the Go standard library. Start with
+[`docs/integration.md`](docs/integration.md); `sdk/examples/quickstart` runs
+the whole journey against a live server.
+
 ## 🧪 Testing
 
 Run the full verification gate (build, vet, tests, race, UI typecheck/lint/build):

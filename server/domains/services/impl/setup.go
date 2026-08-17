@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -12,6 +13,7 @@ import (
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/gobpm/server/repositories/migrations"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
@@ -60,7 +62,7 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	}
 
 	// 2. Run migrations on the target database
-	if err := migrateTargetDatabase(targetDB); err != nil {
+	if err := migrateTargetDatabase(ctx, targetDB); err != nil {
 		cleanup()
 		return fmt.Errorf("failed to migrate target database: %w", err)
 	}
@@ -136,8 +138,23 @@ func buildDialector(driver, dsn string) gorm.Dialector {
 	case config.DriverSQLServer:
 		return sqlserver.Open(dsn)
 	default:
-		return sqlite.Open(dsn)
+		// Same busy-timeout treatment as the app's own open path; a
+		// freshly set-up database must not fail its second request.
+		return sqlite.Open(sqliteSetupDSN(dsn))
 	}
+}
+
+// sqliteSetupDSN mirrors the app's busy-timeout default for databases the
+// setup wizard creates.
+func sqliteSetupDSN(dsn string) string {
+	if strings.Contains(dsn, "_pragma=busy_timeout") {
+		return dsn
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "_pragma=busy_timeout(5000)"
 }
 
 func validateSetupRequest(req contracts.SetupRequest) error {
@@ -209,6 +226,15 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 		return nil, nil, fmt.Errorf("failed to open target database: %w", err)
 	}
 
+	// SQLite gets one connection, mirroring the app's own open path: pooled
+	// connections deadlock on lock upgrades, which busy_timeout cannot help
+	// with, and this database is about to be hot-swapped in as the live one.
+	if req.DatabaseDriver == config.DriverSQLite || req.DatabaseDriver == "" {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.SetMaxOpenConns(1)
+		}
+	}
+
 	cleanup := func() {
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.Close()
@@ -218,10 +244,22 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 	return db, cleanup, nil
 }
 
-// migrateTargetDatabase applies all schema migrations to the target database.
-// It delegates to models.MigrationModels() so the model list stays in one place.
-func migrateTargetDatabase(db *gorm.DB) error {
-	return db.AutoMigrate(models.MigrationModels()...)
+// migrateTargetDatabase brings the freshly configured database up to the
+// current schema.
+//
+// It runs the same versioned migrations the application runs at boot, rather
+// than a bare AutoMigrate. Otherwise setup would create the schema without
+// recording a single version, and the first boot afterwards would treat a brand
+// new database as one that had never been migrated — replaying every data
+// migration over it, including the one that walks every process instance.
+func migrateTargetDatabase(ctx context.Context, db *gorm.DB) error {
+	// Only the schema migrations. The data migrations need the repository layer,
+	// which setup does not have here, and they repair rows written by older
+	// versions of the engine — of which a database created seconds ago has none.
+	// The first boot runs and records them against empty tables, which costs two
+	// queries that find nothing.
+	_, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels()))
+	return err
 }
 
 const defaultProjectName = "Default Project"
