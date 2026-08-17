@@ -1,6 +1,9 @@
 package feel
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Evaluate parses and evaluates an expression against variables.
 func Evaluate(expression string, vars map[string]any) (Value, error) {
@@ -88,3 +91,37 @@ func (c *astCache) parse(text string, parse func(string) (Node, error)) (Node, e
 
 	return node, err
 }
+
+// EvaluateCondition evaluates a gateway or completion condition.
+//
+// It differs from Evaluate in one way: in an equality comparison, a bare word
+// that names no variable is read as text. That is what lets `status = approved`
+// mean what its author meant, and it matches how the same ambiguity is resolved
+// in decision cells. Conditions in deployed definitions are written that way —
+// the legacy evaluator compared the right-hand side as a literal — so reading
+// it as an unresolvable variable would turn working gateways into dead ones.
+//
+// The result must be a boolean. Anything else is an error rather than a
+// coincidence: a condition that evaluates to a number has not decided anything,
+// and routing a token on it would be a guess.
+func EvaluateCondition(expression string, vars map[string]any) (bool, error) {
+	node, err := conditionCache.parse(expression, Parse)
+	if err != nil {
+		return false, err
+	}
+
+	e := &evaluator{scope: NewScope(vars), lenientEquality: true}
+	result, err := e.eval(node)
+	if err != nil {
+		return false, err
+	}
+	if result.Kind != KindBoolean {
+		return false, fmt.Errorf("feel: a condition must be true or false, but %q gives a %s",
+			expression, result.Kind)
+	}
+	return result.Bool, nil
+}
+
+// conditionCache is separate from expressionCache because the same text
+// evaluates differently under lenient equality.
+var conditionCache = &astCache{}

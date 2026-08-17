@@ -32,6 +32,12 @@ func Eval(node Node, scope Scope) (Value, error) {
 type evaluator struct {
 	scope Scope
 	depth int
+
+	// lenientEquality reads a bare word with no matching variable as text, on
+	// either side of = and !=. Set for conditions and decision cells, where
+	// authors write `status = approved`; left off for ordinary expressions,
+	// where a name means a variable.
+	lenientEquality bool
 }
 
 func (e *evaluator) eval(node Node) (Value, error) {
@@ -269,9 +275,14 @@ func (e *evaluator) evalBinary(n *Binary) (Value, error) {
 	}
 
 	switch n.Op {
-	case "=":
-		return Bool(equal(left, right)), nil
-	case "!=":
+	case "=", "!=":
+		if e.lenientEquality {
+			left = e.asTextIfUnresolved(n.Left, left)
+			right = e.asTextIfUnresolved(n.Right, right)
+		}
+		if n.Op == "=" {
+			return Bool(equal(left, right)), nil
+		}
 		return Bool(!equal(left, right)), nil
 	case "<", "<=", ">", ">=":
 		return compareOp(n.Op, left, right)
@@ -279,6 +290,22 @@ func (e *evaluator) evalBinary(n *Binary) (Value, error) {
 		return arithmetic(n.Op, left, right)
 	}
 	return Null, fmt.Errorf("feel: unknown operator %q", n.Op)
+}
+
+// asTextIfUnresolved reads a bare word as text when it names no variable.
+//
+// Confined to equality on purpose. Applying it everywhere would turn
+// `missing > 5` into a comparison of the word "missing" against 5 — a type
+// error where the answer should simply be false.
+func (e *evaluator) asTextIfUnresolved(node Node, value Value) Value {
+	name, isName := node.(*Name)
+	if !isName {
+		return value
+	}
+	if _, inScope := e.scope[name.Text]; inScope {
+		return value
+	}
+	return Str(name.Text)
 }
 
 // equal compares two values for FEEL equality. Different types are never equal,
