@@ -177,7 +177,11 @@
   - [x] Fuzz tests added for parsers/forms/expressions — `tests/fuzz`, five targets
         over the BPMN XML parser, its round trip, the condition chain and FEEL.
         Found the script-sandbox DoS and the `Parse` nil-contract defect.
-  - [ ] Outage simulation suite added (DB/broker/network).
+  - [x] Outage simulation suite added — `tests/outage`: a severable TCP proxy cuts the
+        database under a running engine; asserts fail-fast during the outage, a truthful
+        503 from `/readyz`, and full recovery afterwards (parked external task completes,
+        the instance finishes, fresh work starts). Broker reconnect is covered at the unit
+        level in `messaging_test.go`; the network dimension is the proxy itself.
   - [ ] Feature-flag/canary rollout mechanism defined and integrated.
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).
@@ -739,9 +743,8 @@
    unresolvable principals are refused, and the public chain's membership is asserted by
    test), but closing it properly means giving system work an explicit system identity.
 2. **P0 Reliability remainder** — §6:
-   - Outage simulation suite (DB / broker / network).
-   - Feature-flag and canary rollout mechanism.
    - Full test-pyramid baseline: contract tests for connectors are the missing tier.
+   (Outage simulation and feature flags both landed.)
 3. **P1** — `golangci-lint` backlog burn-down; order is in `.golangci.yml`.
 4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
    backend fields. Business Timeline is already complete.
