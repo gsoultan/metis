@@ -695,6 +695,42 @@
       and MySQL 8
     - `bunx tsc -b --force`, `bun run lint`, `bun run build`, `bun run test` — green
 
+- 2026-08-17 (completed): Executed `P2-INT-01` — the integration surface: HTTP worker
+  protocol, Go client SDK, and per-node API guidance.
+  - **External-task worker protocol over HTTP** (`server/transports/https/external_tasks`):
+    fetch-and-lock, complete, failure. Previously gRPC/AMQP only, so a worker in "anything
+    that speaks HTTP" was impossible. Durations are `_ms`-suffixed on the wire because a
+    bare `lock_duration` was already misread once: the AMQP bridge passed 30 *seconds* to a
+    repository reading *milliseconds*, so bridge locks expired after 30ms and every poll
+    re-fetched the same tasks. Fixed.
+  - **`ImportDefinition` requires a project** — an imported definition had none, and under
+    tenant scoping was deployed, versioned, and permanently invisible to its own
+    organization. The XML parser now also carries `topic=` / `camunda:topic` into
+    `ExternalTopic` both ways, so XML-deployed processes can produce external tasks at all.
+  - **Go SDK** (`sdk/`, own module, zero dependencies): deploy/start, messages/signals,
+    tasks, and a long-poll `Worker` whose handler budget is its lock. Proven by
+    `sdk/examples/quickstart` against a live server: login → deploy BPMN → worker serves
+    the external task → human task claimed/completed → instance completed → timeline read.
+    `docs/integration.md` documents exactly what that program exercises. CI and `make gate`
+    include the SDK module, which the module-wide commands cannot see.
+  - **Transaction-joining sweep, found by running the product**: five repositories (29 call
+    sites — variable snapshots, connectors, external tasks, incidents, compensatable
+    activities) called `ResolveDB` instead of `GetTx`, so their writes ignored any active
+    unit of work. On every backend, the engine's variable snapshot was written *outside*
+    the instance-update transaction — roll back and the history lies. SQLite made it loud:
+    its pool is now one connection (pooled connections deadlock on lock upgrades, immune to
+    busy_timeout), which turned the silent escape into a boot hang and led straight to the
+    bug. Data migrations had the same flaw — `Transactional: true` over an outer-pool
+    repository — and now build their repository over the runner's transaction.
+  - **MySQL tests get per-test databases**, mirroring Postgres's per-schema isolation.
+    `go test` runs packages in parallel; two packages dropping the same shared tables
+    produced failures that read exactly like cross-tenant bugs.
+  - **Designer node panels show real API usage** — the previous `ApiExample` pointed at
+    routes that do not exist and a client that did not. Every node type now renders the
+    genuine curl + SDK for driving that step, drawn from the node's own configuration.
+  - Verification: full suite green with live Postgres 17 + MySQL 8; SDK vet/race green;
+    UI typecheck/lint/test/build green; quickstart run end to end against a live server.
+
 #### 11. What’s Next (Execution Order)
 
 1. **P0 Security remainder** — the repository tenant scope still fails open when no
