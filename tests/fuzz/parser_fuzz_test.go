@@ -15,9 +15,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/logic"
+	"github.com/gsoultan/gobpm/server/domains/logic/feel"
 	"github.com/gsoultan/gobpm/server/domains/services/impl"
 )
 
@@ -215,6 +217,68 @@ func FuzzNodeTypeMapping(f *testing.F) {
 				// but the node must still be safe to walk.
 				continue
 			}
+		}
+	})
+}
+
+// FuzzFEELParser fuzzes the FEEL engine that replaced the string matcher.
+//
+// Gateway conditions and decision cells are authored in deployed definitions,
+// so every byte here is attacker-chosen. The bar is the same as the other
+// targets — never panic — plus one this language is uniquely able to promise:
+// it must always terminate, because it has no loop, no recursion the author
+// controls, and no allocation primitive. That is what makes it a safe
+// replacement for the JavaScript path, where one expression held a worker for
+// 37 seconds.
+func FuzzFEELParser(f *testing.F) {
+	seeds := []string{
+		"", "-", "1", `"x"`, "true", "null",
+		"1 + 2 * 3", "(1 + 2) * 3", "2 ** 10",
+		"amount > 500 and status = \"GOLD\"",
+		"not(amount > 5000)",
+		"5 in [1..10]", "[1..", "..]", "[,..,]",
+		`"GOLD","SILVER"`, "< 10, > 100",
+		"applicant.address.city", "items[1]", "items[-1]",
+		`date("2026-03-15") + duration("P1D")`,
+		`duration("P1Y2MT3H")`, `duration("")`, "duration(",
+		"sum(items.price)", "list contains([1,2], 1)",
+		"if 1 > 0 then \"a\" else \"b\"",
+		"{a: 1, b: {c: 2}}",
+		strings.Repeat("(", 100) + "1" + strings.Repeat(")", 100),
+		strings.Repeat("not(", 50) + "true" + strings.Repeat(")", 50),
+		strings.Repeat("1+", 1000) + "1",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+
+	vars := map[string]any{
+		"amount": 900.0,
+		"status": "GOLD",
+		"items":  []any{map[string]any{"price": 10.0}},
+	}
+
+	f.Fuzz(func(t *testing.T, expr string) {
+		if len(expr) > 4096 {
+			return
+		}
+
+		// Both grammars: an expression and a decision-table cell parse
+		// differently, and each is reachable from a deployed definition.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = feel.Evaluate(expr, vars)
+			_, _ = feel.EvaluateUnaryTests(expr, 42.0, vars)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			// Not a slow machine: this language cannot legitimately take ten
+			// seconds on four kilobytes, so a timeout means a loop exists that
+			// should not.
+			t.Fatalf("evaluation did not terminate for %q", expr)
 		}
 	})
 }

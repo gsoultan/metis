@@ -38,7 +38,7 @@ Phases 2–5 can overlap once 0 and 1 are done. 0 and 1 cannot overlap with anyt
 | :-- | :-- |
 | **0** Green gate | **done** — build/vet/test/race/lint green module-wide and enforced in CI |
 | **1** P0 security | **done** — all nine items landed; read-path tenant scoping now complete |
-| **2** Expression layer | **not started.** The DMN cell injection is closed — `feel_evaluator.go` replaced the `Sprintf` + `vm.RunString` path — but that evaluator is string matching, not the lexer/parser/AST in 2.1. No dates, durations, arithmetic, `and`/`or`, paths or built-ins. 2.3.1 (`matchingRules[0]` guard) is done; 2.3.3–2.3.5 are not. |
+| **2** Expression layer | **2.1 done.** `server/domains/logic/feel` is a real lexer + Pratt parser + typed evaluator over the documented subset: dates, durations, arithmetic, `and`/`or`, paths, ranges, lists, built-ins, unary tests. DMN cells now go through it. 2.2 remaining: gateway conditions and input/output mappings still use the old chain; timers still use `time.ParseDuration`. 2.3.1 done; 2.3.3–2.3.5 not. |
 | **3** Integration platform | not started |
 | **4** BPMN × DMN | partial — engine-side work landed (boundary events, repeating timers, multi-instance, ad-hoc activation, decision-driven routing proven by test). None of 4.3.1–4.3.6 built. |
 | **5** UI/UX + upgrade | partial — 5.2.f (TypeScript 7) landed, plus the designer rebuild, Connect RPC v2, list pagination and a bundle budget. 5.2.a–e, 5.2.g–h, PWA, virtualization, a11y and i18n are not started. |
@@ -266,6 +266,37 @@ Script tasks keep goja — that is their point — but sandboxed per 1.6.
 
 **Exit criterion:** a DMN table exported from Camunda evaluates identically in Metis for the
 supported subset, proven by a conformance test corpus.
+
+---
+
+### 2.1 status: what shipped, and two deliberate deviations
+
+The engine is in `server/domains/logic/feel` — lexer, Pratt parser, AST, typed
+evaluator, no JavaScript. The security property this buys is structural rather
+than configured: the language has no loop, no author-controlled recursion and no
+allocation primitive, so a hostile expression cannot hold a worker the way the
+goja path could (measured: 37s against a 200ms budget). Parser depth is bounded,
+the AST cache is bounded, and 2M fuzz executions found no crash or hang.
+
+**Two documented deviations from strict FEEL**, both to keep decisions that are
+live today working. Both are pinned by tests:
+
+1. **A bare word in a decision cell is text.** Strict FEEL reads `CLOSED` as a
+   variable reference; Camunda requires `"CLOSED"`. Every table in this
+   repository writes the bare form, and enforcing the strict rule would turn
+   those cells into null and stop them matching — a wrong answer rather than an
+   error anyone would see. A variable of the same name still wins, so
+   `> threshold` keeps its FEEL meaning. Leniency is confined to cells; in an
+   ordinary expression a bare name is still a variable.
+2. **Single-quoted strings are accepted.** FEEL defines only double quotes, but
+   tables written against the previous JavaScript-flavoured evaluator use
+   `'VIP'`. The character is unambiguous — nothing else in the grammar uses it.
+
+One deliberate narrowing: `matches()` is a literal substring test, not a regular
+expression. A regex compiled from a deployed definition is an attacker-supplied
+pattern, and catastrophic backtracking would reintroduce exactly the hang this
+package exists to remove. Shipping a denial-of-service vector under a familiar
+name would be worse than not shipping the function.
 
 ---
 

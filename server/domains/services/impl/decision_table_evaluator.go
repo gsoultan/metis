@@ -99,7 +99,7 @@ func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinitio
 		var nums []float64
 		for _, m := range matched {
 			if i < len(m.rule.Outputs) {
-				if n, ok := toFloat64(m.rule.Outputs[i]); ok {
+				if n, ok := numericOutput(m.rule.Outputs[i]); ok {
 					nums = append(nums, n)
 				}
 			}
@@ -165,4 +165,26 @@ func slicesMax(nums []float64) float64 {
 		}
 	}
 	return m
+}
+
+// numericOutput coerces a rule's output cell to a number for aggregation.
+//
+// Outputs are authored values that have been through JSON, so a figure may
+// arrive as any numeric type. COLLECT with SUM over a column that is not
+// numeric reports nothing rather than guessing, which is why this returns the
+// ok flag instead of a zero.
+func numericOutput(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
 }
