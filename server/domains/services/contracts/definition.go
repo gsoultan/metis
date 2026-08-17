@@ -18,5 +18,5 @@ type DefinitionService interface {
 	GetDefinitionByKey(ctx context.Context, key string) (*entities.ProcessDefinition, error)
 	DeleteDefinition(ctx context.Context, id uuid.UUID) error
 	ExportDefinition(ctx context.Context, id uuid.UUID) ([]byte, error)
-	ImportDefinition(ctx context.Context, xml []byte) (uuid.UUID, error)
+	ImportDefinition(ctx context.Context, projectID uuid.UUID, xml []byte) (uuid.UUID, error)
 }

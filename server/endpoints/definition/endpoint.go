@@ -2,6 +2,7 @@ package definition
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -109,7 +110,11 @@ func MakeExportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 func MakeImportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(ImportDefinitionRequest)
-		id, err := s.ImportDefinition(ctx, req.XML)
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ImportDefinitionResponse{Err: fmt.Errorf("project_id must be a UUID: %w", err)}, nil
+		}
+		id, err := s.ImportDefinition(ctx, projectID, req.XML)
 		return ImportDefinitionResponse{ID: id, Err: err}, nil
 	}
 }

@@ -74,7 +74,8 @@ type ExportDefinitionResponse struct {
 func (r ExportDefinitionResponse) Failed() error { return r.Err }
 
 type ImportDefinitionRequest struct {
-	XML []byte `json:"xml"`
+	ProjectID string `json:"project_id"`
+	XML       []byte `json:"xml"`
 }
 
 type ImportDefinitionResponse struct {

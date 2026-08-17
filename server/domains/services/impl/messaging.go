@@ -20,9 +20,14 @@ import (
 )
 
 const (
-	workerID          = "messaging-bridge"
-	maxTasks          = 10
-	lockDurationSec   = 30
+	workerID = "messaging-bridge"
+	maxTasks = 10
+	// lockDurationMS is how long a fetched task stays invisible to other
+	// workers. The repository treats this value as milliseconds; the previous
+	// constant was named ...Sec and passed 30, so bridge locks expired after
+	// thirty milliseconds and every poll re-fetched and re-published the same
+	// tasks.
+	lockDurationMS    = 30_000
 	pollInterval      = 5 * time.Second
 	reconnectInterval = 5 * time.Second
 
@@ -126,7 +131,7 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 			}
 
 			// Fetch and lock tasks
-			tasks, err := s.externalSvc.FetchAndLock(ctx, topic, workerID, maxTasks, lockDurationSec)
+			tasks, err := s.externalSvc.FetchAndLock(ctx, topic, workerID, maxTasks, lockDurationMS)
 			if err != nil {
 				log.Error().Err(err).Msg("Bridge fetch error")
 				continue

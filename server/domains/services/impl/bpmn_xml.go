@@ -83,6 +83,12 @@ type bpmnNode struct {
 	TimerEventDefinition     *bpmnTimerEventDef   `xml:"timerEventDefinition"`
 	Script                   string               `xml:"script"`
 	ScriptFormat             string               `xml:"scriptFormat,attr"`
+	// Topic marks a service task as external work: the engine publishes it on
+	// this topic and a worker pulls it, instead of the engine calling out. The
+	// attribute is matched by local name, so plain topic="", camunda:topic=""
+	// and zeebe-style exports all land here — an imported diagram that worked
+	// as external work elsewhere keeps working here.
+	Topic string `xml:"topic,attr"`
 }
 
 // bpmnProcessNode is a <subProcess>: simultaneously a flow node and a container
@@ -262,6 +268,7 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		Outgoing:      bn.Outgoing,
 		Script:        bn.Script,
 		ScriptFormat:  bn.ScriptFormat,
+		ExternalTopic: bn.Topic,
 		Properties:    make(map[string]any),
 	}
 
@@ -379,6 +386,7 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 		Outgoing:      n.Outgoing,
 		Script:        n.Script,
 		ScriptFormat:  n.ScriptFormat,
+		Topic:         n.ExternalTopic,
 	}
 	if code, ok := n.Properties["error_code"].(string); ok && code != "" {
 		bn.ErrorEventDefinition = &bpmnErrorEventDef{ErrorCode: code}
