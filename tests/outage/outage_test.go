@@ -59,7 +59,7 @@ func newSeverableProxy(t *testing.T, target string) *severableProxy {
 	t.Helper()
 	p := &severableProxy{t: t, target: target, conns: make(map[net.Conn]struct{})}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("proxy listen: %v", err)
 	}
@@ -79,7 +79,7 @@ func (p *severableProxy) acceptLoop(listener net.Listener) {
 		if err != nil {
 			return // severed
 		}
-		upstream, err := net.DialTimeout("tcp", p.target, 5*time.Second)
+		upstream, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", p.target)
 		if err != nil {
 			_ = client.Close()
 			continue
@@ -122,7 +122,7 @@ func (p *severableProxy) Restore() {
 	if p.listener != nil {
 		return
 	}
-	listener, err := net.Listen("tcp", p.addr)
+	listener, err := new(net.ListenConfig).Listen(p.t.Context(), "tcp", p.addr)
 	if err != nil {
 		p.t.Fatalf("proxy restore on %s: %v", p.addr, err)
 	}

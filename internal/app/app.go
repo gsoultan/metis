@@ -214,7 +214,7 @@ func sqliteDSNWithBusyTimeout(dsn string) string {
 // "database is locked". One connection makes the pool tell the truth. The
 // server databases — Postgres, MySQL, SQL Server — keep their real pools.
 func serializeSQLitePool(db *gorm.DB) {
-	if db.Dialector.Name() != "sqlite" {
+	if db.Name() != "sqlite" {
 		return
 	}
 	if sqlDB, err := db.DB(); err == nil {
