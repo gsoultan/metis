@@ -27,6 +27,21 @@ var ErrNoTenantMembership = fmt.Errorf("tenant: authenticated principal has no o
 // caller belongs to.
 var ErrNotAMember = fmt.Errorf("tenant: %w", pkgauth.ErrUnauthorized)
 
+// ErrUnresolvedTenant is returned when a request carries an authenticated
+// principal that cannot be resolved to an organization.
+//
+// This case used to be indistinguishable from an unauthenticated request, and
+// both were waved through. That was a cross-tenant read: OIDC token validation
+// yields *auth.UserClaims, which carries roles but no membership list, so every
+// OIDC-authenticated request arrived with no TenantContext — which the
+// repository layer reads as a system call and does not scope at all.
+//
+// Refusing is the only safe answer. A principal whose tenant cannot be
+// determined has no bounded view of the data, and serving it an unbounded one
+// is the failure this error exists to prevent.
+var ErrUnresolvedTenant = fmt.Errorf("tenant: %w: the authenticated principal could not be resolved to an organization",
+	pkgauth.ErrUnauthorized)
+
 // NewEndpointTenantResolver derives the active tenant from the *authenticated
 // principal* and injects it into the context for repository scoping.
 //
@@ -48,8 +63,18 @@ type endpointTenantResolver struct{}
 
 func (r *endpointTenantResolver) Intercept(next endpoint.Endpoint) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		orgs, ok := organizationsFromContext(ctx)
-		if !ok {
+		orgs, hasPrincipal, err := organizationsFromContext(ctx)
+		if err != nil {
+			// An authenticated principal we cannot place in an organization is
+			// refused rather than passed through. Passing through leaves the
+			// repository layer with no TenantContext, which it reads as a system
+			// call and does not scope.
+			return nil, err
+		}
+		if !hasPrincipal {
+			// No principal at all: a public endpoint such as login or setup.
+			// The auth interceptor is what keeps anonymous callers away from
+			// protected endpoints; this resolver has nothing to scope by.
 			return next(ctx, request)
 		}
 		if len(orgs) == 0 {
@@ -81,12 +106,18 @@ func selectOrganization(memberships []string, requested string) (string, error) 
 }
 
 // organizationsFromContext returns the organization IDs the authenticated
-// principal belongs to. The second result is false when the request carries no
-// authenticated principal at all.
-func organizationsFromContext(ctx context.Context) ([]string, bool) {
+// principal belongs to.
+//
+// The three outcomes must stay distinct, because collapsing the last two into
+// the first is what let OIDC callers read every tenant:
+//
+//	(nil,  false, nil) — no principal; a public endpoint, nothing to scope by
+//	(orgs, true,  nil) — resolved
+//	(nil,  true,  err) — a principal we cannot place; refuse
+func organizationsFromContext(ctx context.Context) ([]string, bool, error) {
 	v := ctx.Value(pkgauth.UserContextKey)
 	if v == nil {
-		return nil, false
+		return nil, false, nil
 	}
 
 	var user *entities.User
@@ -96,9 +127,11 @@ func organizationsFromContext(ctx context.Context) ([]string, bool) {
 	case *entities.User:
 		user = u
 	default:
-		// OIDC claims carry no membership list; the OIDC deployment path must
-		// map claims to organizations before this can scope anything.
-		return nil, false
+		// OIDC claims carry no membership list, so this principal cannot be
+		// placed in an organization. Until the OIDC deployment path maps claims
+		// to organizations, the honest answer is to refuse the request — the
+		// alternative was serving it unscoped.
+		return nil, true, fmt.Errorf("%w (principal type %T)", ErrUnresolvedTenant, v)
 	}
 
 	ids := make([]string, 0, len(user.Organizations))
@@ -107,7 +140,7 @@ func organizationsFromContext(ctx context.Context) ([]string, bool) {
 			ids = append(ids, o.ID.String())
 		}
 	}
-	return ids, true
+	return ids, true, nil
 }
 
 type organizationRequestKey struct{}

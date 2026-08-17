@@ -108,16 +108,33 @@ func (r *connectorInstanceRepository) GetByProjectAndConnector(ctx context.Conte
 }
 
 func (r *connectorInstanceRepository) Create(ctx context.Context, m models.ConnectorInstance) (models.ConnectorInstance, error) {
+	// Refuse a configured connector planted in another organization's project.
+	if err := requireProjectInTenant(ctx, ResolveDB(r.db).WithContext(ctx), uuid.UUID(m.ProjectID)); err != nil {
+		return models.ConnectorInstance{}, err
+	}
 	if err := ResolveDB(r.db).WithContext(ctx).Create(&m).Error; err != nil {
 		return models.ConnectorInstance{}, err
 	}
 	return m, nil
 }
 
+// Update saves a configured connector, refusing an ID outside the caller's
+// tenant — otherwise another organization's stored credentials could be
+// overwritten, or repointed at a host the attacker controls.
 func (r *connectorInstanceRepository) Update(ctx context.Context, m models.ConnectorInstance) error {
-	return ResolveDB(r.db).WithContext(ctx).Save(&m).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, uuid.UUID(m.ID)); err != nil {
+		return err
+	}
+	return db.Save(&m).Error
 }
 
+// Delete removes a configured connector, refusing an ID outside the caller's
+// tenant.
 func (r *connectorInstanceRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return ResolveDB(r.db).WithContext(ctx).Delete(&models.ConnectorInstance{}, "id = ?", id).Error
+	db := ResolveDB(r.db).WithContext(ctx)
+	if err := requireVisibleToTenant(ctx, db, tableConnectorInstances, &models.ConnectorInstance{}, id); err != nil {
+		return err
+	}
+	return db.Delete(&models.ConnectorInstance{}, QualifiedByID(tableConnectorInstances), id).Error
 }

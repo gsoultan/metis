@@ -19,13 +19,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/google/uuid"
 	pbservices "github.com/gsoultan/gobpm/api/proto/services"
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/config"
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/gobpm/internal/pkg/health"
 	"github.com/gsoultan/gobpm/internal/pkg/logger"
+	"github.com/gsoultan/gobpm/internal/pkg/metrics"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
+	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/observers/impl"
 	"github.com/gsoultan/gobpm/server/domains/services"
 	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
@@ -35,6 +41,7 @@ import (
 	"github.com/gsoultan/gobpm/server/interceptors/tenant"
 	"github.com/gsoultan/gobpm/server/repositories"
 	gorms "github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/gobpm/server/repositories/migrations"
 	models "github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/gsoultan/gobpm/server/transports/grpcs"
 	https "github.com/gsoultan/gobpm/server/transports/https"
@@ -48,6 +55,18 @@ import (
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
+
+// version identifies this build in traces and, later, anywhere else that needs
+// to say which build produced something.
+//
+// Set at build time with:
+//
+//	go build -ldflags "-X github.com/gsoultan/gobpm/internal/app.version=$(git describe --tags --always)"
+//
+// It defaults to "dev" rather than a fake version number, because a trace
+// labelled with a version that was never released is worse than one that admits
+// it does not know.
+var version = "dev"
 
 type App struct {
 	config     *config.Config
@@ -72,6 +91,17 @@ const (
 	defaultPprofAddress                  = "127.0.0.1:6060"
 	envPprofEnabled                      = "GOBPM_PPROF_ENABLED"
 	envPprofAddress                      = "GOBPM_PPROF_ADDRESS"
+
+	// Metrics listen on their own address, away from the public API, so a
+	// scrape endpoint is never published alongside it. The default binds to
+	// loopback: a deployment that needs to be scraped across a pod network must
+	// say so explicitly rather than being exposed by accident.
+	//
+	// 9464 is the registered OpenTelemetry Prometheus exporter port. Using 9090
+	// would collide with a Prometheus running on the same host.
+	defaultMetricsAddress = "127.0.0.1:9464"
+	envMetricsEnabled     = "GOBPM_METRICS_ENABLED"
+	envMetricsAddress     = "GOBPM_METRICS_ADDRESS"
 
 	defaultHTTPAddress = ":8080"
 	defaultGRPCAddress = ":8081"
@@ -117,6 +147,27 @@ func resolvePprofAddress() string {
 		return defaultPprofAddress
 	}
 	return address
+}
+
+// metricsEnabled reports whether to serve the scrape endpoint. Unlike pprof
+// this defaults to on: an SLO nobody is measuring is not an objective, and the
+// endpoint is bound to loopback unless configured otherwise.
+func metricsEnabled() bool {
+	enabledValue, exists := os.LookupEnv(envMetricsEnabled)
+	if !exists {
+		return true
+	}
+
+	enabled, err := strconv.ParseBool(enabledValue)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("env", envMetricsEnabled).
+			Msg("Ignoring invalid metrics enable value")
+		return true
+	}
+
+	return enabled
 }
 
 func newPprofHandler() http.Handler {
@@ -167,6 +218,15 @@ func (a *App) Run() error {
 
 	// 0. Initialize Logger
 	logger.Init()
+
+	// Tracing before anything that might be worth tracing. It is off unless an
+	// OTLP endpoint is configured, and the shutdown function is safe to call
+	// either way, so there is no conditional cleanup to get wrong.
+	shutdownTracing, err := tracing.Init(ctx, version)
+	if err != nil {
+		return fmt.Errorf("failed to start tracing: %w", err)
+	}
+	defer shutdownTracing(context.Background())
 
 	a.initDBOnce()
 
@@ -345,29 +405,83 @@ func (a *App) setupDatabase() error {
 }
 
 func (a *App) migrate() error {
-	if err := a.db.AutoMigrate(models.MigrationModels()...); err != nil {
+	// Migrations and the data repairs behind them rewrite rows across every
+	// tenant, which is exactly what they are for.
+	ctx := entities.WithSystemContext(context.Background())
+
+	result, err := migrations.Run(ctx, a.db, a.migrationList())
+	if err != nil {
 		return fmt.Errorf("failed to migrate db: %w", err)
 	}
+	log.Info().
+		Ints("applied", result.Applied).
+		Int("alreadyApplied", result.Skipped).
+		Msg("Database migrations complete")
 
-	// Schema alone is not enough here: message subscriptions written before
-	// correlation keys were resolved per instance still hold the raw ${...}
-	// template, which no inbound correlation value can match. Repair them before
-	// serving traffic, or every instance already waiting on a message event
-	// hangs.
-	repo := repositories.NewRepository(a.db)
-	if _, err := serviceimpl.BackfillMessageCorrelationKeys(context.Background(), repo); err != nil {
-		return fmt.Errorf("failed to backfill message correlation keys: %w", err)
-	}
-
-	// The engine's own bookkeeping — multi-instance progress and gateway join
-	// counts — moved out of the business variable namespace into its own
-	// columns. An instance part-way through either would otherwise come back
-	// with nothing recorded: restarting its iterations from zero, or forgetting
-	// the branches that had already reached a waiting gateway.
-	if _, err := serviceimpl.BackfillEngineBookkeeping(context.Background(), repo); err != nil {
-		return fmt.Errorf("failed to backfill multi-instance state: %w", err)
-	}
+	a.reportSchemaDrift()
 	return nil
+}
+
+// migrationList is the full ordered set: the schema migrations, plus the data
+// repairs that need the repository layer.
+//
+// Both repairs used to run on every single boot. They are one-time upgrades —
+// they fix rows written by older versions of the engine, and nothing writes
+// those shapes any more — so every boot after the first scanned the whole table
+// to find nothing. BackfillEngineBookkeeping was the worse of the two: it calls
+// Process().List, loading every process instance ever created into memory, which
+// on a mature database is a startup that keeps getting slower and never has
+// anything to do.
+func (a *App) migrationList() []migrations.Migration {
+	repo := repositories.NewRepository(a.db)
+
+	return append(migrations.Schema(models.MigrationModels()), []migrations.Migration{
+		{
+			Version:       2,
+			Name:          "resolve templated message correlation keys",
+			Transactional: true,
+			// Message subscriptions written before correlation keys were
+			// resolved per instance still hold the raw ${...} template, which no
+			// inbound correlation value can match. Until they are repaired every
+			// instance waiting on a message event hangs.
+			Run: func(ctx context.Context, _ *gorm.DB) error {
+				_, err := serviceimpl.BackfillMessageCorrelationKeys(ctx, repo)
+				return err
+			},
+		},
+		{
+			Version:       3,
+			Name:          "move engine bookkeeping out of business variables",
+			Transactional: true,
+			// Multi-instance progress and gateway join counts moved out of the
+			// business variable namespace into their own columns. An instance
+			// part-way through either would otherwise come back with nothing
+			// recorded: restarting its iterations from zero, or forgetting the
+			// branches that had already reached a waiting gateway.
+			Run: func(ctx context.Context, _ *gorm.DB) error {
+				_, err := serviceimpl.BackfillEngineBookkeeping(ctx, repo)
+				return err
+			},
+		},
+	}...)
+}
+
+// reportSchemaDrift warns when a model declares a column the database lacks.
+//
+// Adding a field to a model used to be enough, because AutoMigrate ran on every
+// boot. It is not any more, and forgetting the migration fails at the first
+// request that touches the column rather than at startup — so startup says so.
+// A warning rather than a refusal: an operator restarting a service at 3am
+// should not be blocked by a column the running code may never read.
+func (a *App) reportSchemaDrift() {
+	drift, err := migrations.DriftReport(a.db, models.MigrationModels())
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not check the schema against the models")
+		return
+	}
+	for _, item := range drift {
+		log.Warn().Str("drift", item).Msg("Schema drift: a model change is missing its migration")
+	}
 }
 
 func (a *App) setupService(ctx context.Context) error {
@@ -424,6 +538,28 @@ func (a *App) setupAuth(ctx context.Context) {
 	}
 }
 
+// readinessCheckers names the dependencies a replica needs before it should be
+// sent traffic. Only the database qualifies today: without it no request can be
+// served, whereas the broker being down degrades messaging rather than stopping
+// the API.
+//
+// Before setup has run there is no database yet, and a replica in that state is
+// still ready — serving the setup wizard is its whole job.
+func (a *App) readinessCheckers() map[string]health.Checker {
+	return map[string]health.Checker{
+		"database": health.CheckerFunc(func(ctx context.Context) error {
+			if a.db == nil {
+				return nil
+			}
+			sqlDB, err := a.db.DB()
+			if err != nil {
+				return fmt.Errorf("resolve sql.DB: %w", err)
+			}
+			return sqlDB.PingContext(ctx)
+		}),
+	}
+}
+
 func (a *App) runServers(ctx context.Context) error {
 	endpts := endpoints.MakeEndpoints(a.svc)
 	httpHandler := https.NewHTTPHandler(a.svc, endpts, a.sse)
@@ -458,9 +594,68 @@ func (a *App) runServers(ctx context.Context) error {
 		),
 	)
 
+	// Metrics wrap outside the limiters so that requests they reject with 429 or
+	// 503 are still counted. Those spend a caller's error budget and are the
+	// first sign of trouble; measuring only what got through would make an
+	// overloaded service look perfectly healthy.
+	metricsCollector := metrics.New()
+	httpHandler = metricsCollector.Wrap(httpHandler)
+
+	// Tracing wraps outside metrics so that a span covers the whole request,
+	// including time spent queued behind the backpressure limiter — which is
+	// exactly the time a caller complains about and the handler never sees.
+	// otelhttp also reads any incoming traceparent, so a request arriving from
+	// another service joins that trace instead of starting a new one.
+	httpHandler = otelhttp.NewHandler(httpHandler, "gobpm.http")
+
+	// Health wraps outside metrics, so probe traffic is served without being
+	// counted. Probes run every few seconds per replica and would otherwise
+	// dominate the request count and drag the latency percentiles down.
+	//
+	// Outside every interceptor too, deliberately: an orchestrator's probe
+	// carries no credentials, so it must not meet the auth interceptor, and a
+	// probe shed by the backpressure limiter would report a merely busy process
+	// as an unhealthy one — getting it restarted or pulled from rotation at the
+	// moment it was recovering.
+	httpHandler = health.Wrap(httpHandler, a.readinessCheckers())
+
 	grpcServer := grpcs.NewGRPCServer(endpts)
 
 	g, ctx := errgroup.WithContext(ctx)
+
+	if metricsEnabled() {
+		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)
+		g.Go(func() error {
+			log.Info().Str("addr", metricsAddress).Msg("metrics server listening")
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", metricsCollector.Handler())
+			server := newHTTPServer(metricsAddress, mux)
+
+			go func() {
+				<-ctx.Done()
+				// WithoutCancel rather than Background: this runs because ctx
+				// was cancelled, so deriving from it would hand Shutdown an
+				// already-expired deadline. Inheriting the values keeps the
+				// trace context attached to the shutdown instead of orphaning
+				// it, which context.Background() would have done.
+				shutdownCtx, cancel := context.WithTimeoutCause(
+					context.WithoutCancel(ctx),
+					httpShutdownTimeout,
+					errors.New("metrics server shutdown timed out"),
+				)
+				defer cancel()
+
+				if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Error().Err(err).Msg("metrics server shutdown failed")
+				}
+			}()
+
+			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server crashed: %w", err)
+			}
+			return nil
+		})
+	}
 
 	if profilingEnabled() {
 		pprofAddress := resolvePprofAddress()

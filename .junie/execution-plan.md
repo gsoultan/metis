@@ -63,28 +63,102 @@ Outstanding:
    plus project references). The Makefile and CI now run `tsc -b --force`.
 2. **golangci-lint backlog** — 760 pre-existing findings, baselined; CI blocks new ones.
    Burn-down order is in `.golangci.yml`; the engine's slice is done.
-3. **Tenant scoping coverage** — **read paths are closed.** The scope now covers every
-   project-owned table: `tasks`, `process_instances`, `process_definitions`,
-   `decision_definitions`, plus `audit_logs`, `forms`, `deployments`,
-   `deployment_resources`, `event_subscriptions`, `external_tasks`,
-   `connector_instances` and `notifications`. `deployment_resources` scopes through its
-   parent deployment; `notifications` uses a null-tolerant scope so a system message
-   addressed to a user is not erased along with the other tenant's rows. Proof:
-   `tests/tenant/isolation_test.go`, run against SQLite, PostgreSQL and MySQL.
+3. **Tenant scoping coverage** — **reads and writes are both closed.** The scope covers
+   every project-owned table: `tasks`, `process_instances`, `process_definitions`,
+   `decision_definitions`, `audit_logs`, `forms`, `deployments`, `deployment_resources`,
+   `event_subscriptions`, `external_tasks`, `connector_instances` and `notifications`.
 
-   Two gaps remain, both deliberate:
+   Note what the first pass missed, because it is the instructive part: the four tables
+   already listed as scoped were scoped **only on their list queries**. Every
+   `Get`-by-ID on them was open, so a UUID was enough to read another organization's
+   task, process instance, deployed BPMN XML or decision table. `GetByKey` was worse than
+   a leak — keys are unique per project, so it returned whichever row sorted first across
+   all tenants, which is also a wrong answer. "Repository X is scoped" was never a
+   property of the repository; it was a property of two of its methods.
 
-   - **Write paths are still unscoped.** `MarkAsRead`, `Delete`, `UpdateCorrelationKey`
-     and friends take a bare ID. A JOIN is not portable in `UPDATE`/`DELETE` across
-     SQLite, PostgreSQL and MySQL, so closing these needs the subquery form
-     (`WHERE project_id IN (SELECT id FROM projects WHERE organization_id = ?)`).
-   - **The scope fails open with no `TenantContext`.** That is what lets the engine and
-     its background workers run, and it contradicts AGENTS §2.3 *absent constraint means
-     deny*. Reversing it means giving system work an explicit system identity first —
-     a bigger change than this coverage pass, and one that should be made deliberately.
+   Three clause shapes, because one does not fit every statement:
 
-   `FetchAndLock` and `ListTemplatedMessageSubscriptions` are deliberately left unscoped
-   and carry comments saying why.
+   | Shape | Used for | Why |
+   | :-- | :-- | :-- |
+   | `JOIN projects` | ordinary selects | the default |
+   | `LEFT JOIN` + `IS NULL` | `notifications` | nullable `project_id`; an inner join erases system messages |
+   | `IN (SELECT ...)` subquery | `FetchAndLock`, `GetForUpdate` | these take `FOR UPDATE`; a join would lock `projects` too |
+
+   Writes are guarded by a scoped read rather than a scoped `UPDATE`/`DELETE`. **GORM's
+   `Save` ignores a preceding `Where`** — verified on all three engines — so a scope
+   expressed that way would read as applied and enforce nothing. Rewriting `Save` as
+   `Model().Where().Updates()` was rejected too: `Updates` skips zero values, so clearing
+   a field would quietly stop persisting.
+
+   Proof: `tests/tenant/isolation_test.go` — 198 subtests across SQLite, PostgreSQL and
+   MySQL, asserting refusal, that the refused row is genuinely unchanged, and that the
+   caller's own reads and writes still work.
+
+   `Create` is scoped too. Every create names its parent project and the request body
+   is the caller's to choose, so `requireProjectInTenant` refuses one pointed at another
+   organization's project. **`projects` itself is now scoped** — it was the one table
+   nothing covered, precisely because it is what every other scope joins *through*, so
+   `List()` had been returning every organization's projects to anyone authenticated.
+
+   **The fail-open default now has a way out.** `entities.WithSystemContext` marks work
+   that legitimately spans tenants — the job worker, inbound message dispatch, migrations,
+   connector bootstrap — and the feature flag `strict-tenant-scope`
+   (`GOBPM_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
+   marker return nothing instead of everything.
+
+   **It ships off**, and turning it on is not yet safe. Running the suite with it enabled
+   fails 10 packages: `tests/bpmn`, `connector`, `decision`, `handlers`, `pagination`,
+   `project`, `postgres`, `mysqldb`, plus `server/domains/services/impl`. Those are tests
+   calling engine internals directly with `t.Context()`, which bypasses the entry points
+   where the markers live — 106 call sites.
+
+   Blanket-marking them as system work was rejected: it would make the suite pass without
+   proving anything about production, since the tests would no longer traverse the paths
+   the markers are on. What is actually needed before the flag can be flipped is either
+   integration coverage that enters through the real entry points, or a staged rollout —
+   staging first, watching for queries that suddenly return nothing.
+
+   The failure mode is quiet by nature: a background path that forgets to mark itself does
+   not error, it reads nothing, and an engine reading nothing looks like an engine with no
+   work to do. That is precisely why this is behind a flag rather than simply switched on.
+
+   `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
+   carries a comment saying why — it is the installation-wide background sweep.
+
+4. **Operability.** The service now has `/healthz`, `/readyz` and a Prometheus endpoint,
+   which it previously had none of — it could not be run behind a load balancer, and the
+   SLOs in `roadmap.md` §1 had nothing measuring them. Probes wrap outside every
+   interceptor (an orchestrator carries no credentials, and a probe shed by the
+   backpressure limiter reports a busy process as a dead one); metrics wrap outside the
+   limiters so rejected requests still count against the error budget, and inside health
+   so probe traffic does not skew the percentiles. Scrape endpoint binds to loopback by
+   default on `:9464`.
+
+   **Versioned migrations** replaced AutoMigrate-on-every-boot
+   (`server/repositories/migrations`). A `schema_migrations` table records what ran;
+   migration 1 is the baseline AutoMigrate, so it is a no-op on every existing
+   installation and starts versioning without having to guess at the current state.
+   Replicas contend for a lock row, since they start together. Migrations are Go rather
+   than SQL because four dialects would otherwise mean four copies of every change.
+
+   The two data backfills became migrations 2 and 3. They had been running on **every
+   boot** — and `BackfillEngineBookkeeping` calls `Process().List`, loading every process
+   instance ever created into memory, so startup got slower forever and found nothing to
+   do after the first time.
+
+   `DriftReport` warns at startup when a model declares a column the database lacks,
+   which is the guard rail that makes strict migrations usable: adding a field no longer
+   applies itself, and forgetting the migration would otherwise fail at the first request
+   rather than at boot.
+
+   **Tracing** landed (`internal/pkg/tracing`): OTLP, off unless configured, spans on the
+   job service task and the connector call carrying the fields §3.4 names. Sampling
+   defaults to 5% — an engine executing thousands of nodes a minute would otherwise make
+   the exporter its own outage.
+
+   **Recovery targets** are in [`../docs/recovery.md`](../docs/recovery.md): production
+   RPO 5min / RTO 1h, with backup, restore and quarterly rehearsal. It doubles as the
+   migration rollback plan, the runner being forward-only.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

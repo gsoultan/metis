@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/gobpm/server/repositories/migrations"
 	"github.com/gsoultan/gobpm/server/repositories/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
@@ -60,7 +61,7 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	}
 
 	// 2. Run migrations on the target database
-	if err := migrateTargetDatabase(targetDB); err != nil {
+	if err := migrateTargetDatabase(ctx, targetDB); err != nil {
 		cleanup()
 		return fmt.Errorf("failed to migrate target database: %w", err)
 	}
@@ -218,10 +219,22 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 	return db, cleanup, nil
 }
 
-// migrateTargetDatabase applies all schema migrations to the target database.
-// It delegates to models.MigrationModels() so the model list stays in one place.
-func migrateTargetDatabase(db *gorm.DB) error {
-	return db.AutoMigrate(models.MigrationModels()...)
+// migrateTargetDatabase brings the freshly configured database up to the
+// current schema.
+//
+// It runs the same versioned migrations the application runs at boot, rather
+// than a bare AutoMigrate. Otherwise setup would create the schema without
+// recording a single version, and the first boot afterwards would treat a brand
+// new database as one that had never been migrated — replaying every data
+// migration over it, including the one that walks every process instance.
+func migrateTargetDatabase(ctx context.Context, db *gorm.DB) error {
+	// Only the schema migrations. The data migrations need the repository layer,
+	// which setup does not have here, and they repair rows written by older
+	// versions of the engine — of which a database created seconds ago has none.
+	// The first boot runs and records them against empty tables, which costs two
+	// queries that find nothing.
+	_, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels()))
+	return err
 }
 
 const defaultProjectName = "Default Project"
