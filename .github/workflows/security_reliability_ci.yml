@@ -197,28 +197,28 @@ jobs:
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest
-    # Overrides the workflow default, which grants contents:read alone. On a
-    # pull_request event gitleaks-action calls GET /repos/{owner}/{repo}/pulls/
-    # {n}/commits to work out the range to scan, and without pull-requests:read
-    # that returns 403 "Resource not accessible by integration" — which the job
-    # reports as a failure that reads exactly like a secret was found.
-    #
-    # Read, not write: the action only needs to enumerate the commits. Granting
-    # write so it can also post comments would hand a third-party action the
-    # ability to write to pull requests, which is not worth the convenience.
-    permissions:
-      contents: read
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # gitleaks-action requires a token to scan a pull request; without it the
-      # job fails before scanning anything, so every pull request went unscanned
-      # while reporting a failure that looked like a finding.
+      # The gitleaks binary, not gitleaks-action.
+      #
+      # The action works out which commits to scan by calling
+      # GET /repos/{owner}/{repo}/pulls/{n}/commits, and that call returned 403
+      # "Resource not accessible by integration" even with pull-requests:read
+      # granted and visible in the job's token — a failure the job reports in a
+      # way that reads exactly like a secret was found. Twice now the fix has
+      # been to grant a permission that was already there.
+      #
+      # Scanning the working tree needs no API call, no token and no license
+      # check, and it is strictly more thorough: the action looks at one pull
+      # request's commits, this looks at every file in the repository. The
+      # version is pinned so a scanner release cannot turn a green branch red
+      # without a commit here.
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            dir . --redact --no-banner --exit-code 1

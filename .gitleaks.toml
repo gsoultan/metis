@@ -1,0 +1,38 @@
+# What the secret scanner is allowed to ignore, and why.
+#
+# Every entry here is a decision that something which looks like a credential is
+# not one. That decision is only safe if it is narrow, so each rule names the
+# file and the exact text rather than switching a detector off or excusing a
+# directory. A blanket exclusion is how the one real secret in a test fixture
+# directory goes unnoticed.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = """
+  A sample password in the README, in the output of --reset-password.
+
+  The command generates a password and prints it; the documentation shows what
+  that looks like. Removing the sample would make the example less useful than
+  the risk it carries, which is none — this string was never a password for
+  anything.
+  """
+  paths = ['''^README\.md$''']
+  regexTarget = "match"
+  regexes = ['''M6vY8yCdp879cTsmmWxp''']
+
+  [[rules.allowlists]]
+  description = """
+  The encryption key in the config decryption test.
+
+  It is a literal in the test that proves a connection string round-trips
+  through encryption, and it says what it is in the value itself. A real key
+  would defeat the test, which needs to control both ends.
+  """
+  paths = ['''^tests/config/config_test\.go$''']
+  regexTarget = "match"
+  regexes = ['''my-encryption-key-16ch''']
