@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/circuit"
 	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -27,7 +29,10 @@ import (
 const maxConcurrentJobs = 5
 
 type jobService struct {
-	repo         repositories.Repository
+	repo repositories.Repository
+	// breakers stop the job pool filling with calls to a downstream that is
+	// already down — see internal/pkg/circuit.
+	breakers     *circuit.Group
 	engine       contracts2.ExecutionEngine
 	connectorSvc contracts2.ConnectorService
 	locker       contracts2.DistributedLocker
@@ -48,6 +53,7 @@ func NewJobService(
 	workerID, _ := uuid.NewV7()
 	return &jobService{
 		repo:         repo,
+		breakers:     circuit.NewGroup(circuit.DefaultSettings()),
 		engine:       engine,
 		connectorSvc: connectorSvc,
 		locker:       locker,
@@ -429,6 +435,21 @@ func (s *jobService) callOnce(
 	def *entities.ProcessDefinition,
 	node entities.Node,
 ) (map[string]any, error) {
+	// Ask the breaker before recording anything: a call refused here was never
+	// made, and inflating the recorded attempt count with calls that did not
+	// happen would mislead whoever reads that table during the incident.
+	target := serviceCallTarget(node)
+	if allowed, state := s.breakers.Allow(target); !allowed {
+		log.Warn().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Str("target", target).
+			Str("breaker", state.String()).
+			Msg("Refusing a service call: the downstream is failing and the retry will come back with backoff")
+		return nil, fmt.Errorf("service task %q: not calling %s, its circuit breaker is %s",
+			job.Node.ID, target, state)
+	}
+
 	key := idempotency.ForServiceCall(job.Instance.ID, job.Node.ID, job.IterationID)
 
 	record, err := s.repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
@@ -463,16 +484,15 @@ func (s *jobService) callOnce(
 
 	callCtx := idempotency.WithKey(ctx, key)
 	responseData, err := s.resolveAndExecuteConnector(callCtx, def, node, job.Payload)
-	if err != nil {
-		return nil, err
-	}
-	if responseData == nil {
+	if err == nil && responseData == nil {
 		// No connector matched — try the HTTP runner.
 		responseData, err = s.httpRunner.Run(callCtx, node, job.Payload)
-		if err != nil {
-			return nil, err
-		}
 	}
+	if err != nil {
+		s.breakers.Failed(target)
+		return nil, err
+	}
+	s.breakers.Succeeded(target)
 
 	if err := s.repo.ServiceCall().Complete(ctx, uuid.UUID(record.ID), responseData); err != nil {
 		// The call landed. Failing here would retry it, which is the thing this
@@ -484,6 +504,28 @@ func (s *jobService) callOnce(
 			Msg("Could not record a completed service call; a retry would repeat it")
 	}
 	return responseData, nil
+}
+
+// serviceCallTarget names the thing a breaker is about: the downstream, not the
+// process step.
+//
+// A connector instance is the better key when there is one — several nodes can
+// share a Salesforce connection, and it is the connection that is unhealthy. For
+// a plain HTTP task it is the host, so two tasks calling different paths on the
+// same failing API trip one breaker between them rather than one each.
+func serviceCallTarget(node entities.Node) string {
+	if id := node.GetStringProperty("connector_instance_id"); id != "" {
+		return "connector:" + id
+	}
+	if raw := node.GetStringProperty("http_url"); raw != "" {
+		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
+			return "host:" + parsed.Host
+		}
+		return "url:" + raw
+	}
+	// Nothing to call, so nothing to break. An empty key is a no-op everywhere
+	// in the group.
+	return ""
 }
 
 // projectIDOf reads the tenant off a definition, so a recorded call scopes like

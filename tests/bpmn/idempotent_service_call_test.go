@@ -156,3 +156,43 @@ func rewindJobToPending(t *testing.T, h *serviceTaskHarness, instanceID uuid.UUI
 		t.Fatalf("recorded call is %q, want completed", call.Status)
 	}
 }
+
+// The job pool is a fixed number of workers. When one endpoint starts timing
+// out, every instance waiting on it takes a worker and holds it for the full
+// timeout, and nothing else moves — the human tasks, the timers and the healthy
+// integrations all queue behind an outage they have nothing to do with.
+//
+// After enough consecutive failures the engine stops calling and fails the job
+// immediately instead. The instance still fails, and it still retries with
+// backoff; it just does it in microseconds rather than a worker-second each.
+func TestServiceTask_StopsCallingADownstreamThatKeepsFailing(t *testing.T) {
+	var calls atomic.Int64
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newServiceTaskHarness(t)
+	node := entities.Node{
+		ID:         "charge",
+		Type:       entities.ServiceTask,
+		Properties: map[string]any{"http_url": api.URL, "http_method": "POST"},
+	}
+
+	// Each instance is its own unit of work, so none of them is skipped for
+	// idempotency — every attempt here is a genuine call the breaker has to stop.
+	const instances = 12
+	for i := 0; i < instances; i++ {
+		h.run(t, node, map[string]any{"amount": float64(i)})
+	}
+
+	got := calls.Load()
+	if got == 0 {
+		t.Fatal("the endpoint was never called; the test proves nothing")
+	}
+	if got >= instances {
+		t.Errorf("the endpoint was called %d times for %d instances — the breaker never opened",
+			got, instances)
+	}
+}
