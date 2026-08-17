@@ -168,10 +168,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      # Installed from source at a pinned version rather than through
+      # bufbuild/buf-action, for the same two reasons golangci-lint is:
+      #
+      #  - The action installs whatever buf is current, so a buf release could
+      #    change this job's verdict with no commit here.
+      #  - It is fetched from the Go module proxy instead of codeload, which
+      #    returned 429 for every action download in this job across two
+      #    consecutive runs. The job never reached `buf generate`; it failed
+      #    downloading the tool that runs it.
+      #
+      # The plugins in buf.gen.yaml are already pinned, so the generated output
+      # is determined by those rather than by the CLI — this pins the last
+      # floating piece.
       - name: Setup buf
-        uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.70.0
 
       # The .proto files are the contract for the Connect API the UI speaks.
       # They had silently diverged from the checked-in generated code: the
