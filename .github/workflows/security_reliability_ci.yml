@@ -188,6 +188,18 @@ jobs:
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest
+    # Overrides the workflow default, which grants contents:read alone. On a
+    # pull_request event gitleaks-action calls GET /repos/{owner}/{repo}/pulls/
+    # {n}/commits to work out the range to scan, and without pull-requests:read
+    # that returns 403 "Resource not accessible by integration" — which the job
+    # reports as a failure that reads exactly like a secret was found.
+    #
+    # Read, not write: the action only needs to enumerate the commits. Granting
+    # write so it can also post comments would hand a third-party action the
+    # ability to write to pull requests, which is not worth the convenience.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
