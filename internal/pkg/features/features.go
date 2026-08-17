@@ -64,8 +64,30 @@ var StrictTenantScope = Flag{
 	Retire:  "delete once production has run with it on through a full release cycle; then make the behaviour unconditional",
 }
 
+// JavaScriptConditions allows `js:` gateway conditions to run.
+//
+// Conditions are authored in deployed definitions, and a JavaScript one is
+// handed to a runtime that cannot be fully bounded: goja honours interrupts
+// only between statements, so a single native call runs to completion —
+// measured at 37 seconds against a 200ms budget, allocating freely the whole
+// time. FEEL, which now handles conditions natively, has no construct that can
+// do that.
+//
+// It defaults ON because turning it off strands every definition that still
+// uses a `js:` condition, and a stranded gateway is a process that stops
+// without saying why. Every evaluation logs a warning naming the condition, so
+// the migration has a worklist. Turn it off once that list is empty; the
+// default is expected to flip once FEEL has been the documented language for a
+// release.
+var JavaScriptConditions = Flag{
+	Name:    "javascript-conditions",
+	Default: true,
+	Why:     "allow js: gateway conditions, which FEEL has replaced",
+	Retire:  "delete once the default has been off for a release and no definition uses js: conditions",
+}
+
 // all is the registry, used to report configuration at startup.
-var all = []*Flag{&StrictTenantScope}
+var all = []*Flag{&StrictTenantScope, &JavaScriptConditions}
 
 var (
 	resolveOnce sync.Once

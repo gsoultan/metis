@@ -38,7 +38,7 @@ Phases 2–5 can overlap once 0 and 1 are done. 0 and 1 cannot overlap with anyt
 | :-- | :-- |
 | **0** Green gate | **done** — build/vet/test/race/lint green module-wide and enforced in CI |
 | **1** P0 security | **done** — all nine items landed; read-path tenant scoping now complete |
-| **2** Expression layer | **not started.** The DMN cell injection is closed — `feel_evaluator.go` replaced the `Sprintf` + `vm.RunString` path — but that evaluator is string matching, not the lexer/parser/AST in 2.1. No dates, durations, arithmetic, `and`/`or`, paths or built-ins. 2.3.1 (`matchingRules[0]` guard) is done; 2.3.3–2.3.5 are not. |
+| **2** Expression layer | **2.1 and 2.2 done.** `server/domains/logic/feel` is a real lexer + Pratt parser + typed evaluator. All four surfaces use it: DMN cells, gateway conditions, input/output mappings, and timers (which already did ISO-8601). JavaScript conditions are behind a flag. 2.3.1 done; **2.3.3–2.3.5 remain**: `PRIORITY` is aliased to `FIRST`, `OUTPUT ORDER`/`RULE ORDER` are missing, and the decision-versioning race is unfixed. |
 | **3** Integration platform | not started |
 | **4** BPMN × DMN | partial — engine-side work landed (boundary events, repeating timers, multi-instance, ad-hoc activation, decision-driven routing proven by test). None of 4.3.1–4.3.6 built. |
 | **5** UI/UX + upgrade | partial — 5.2.f (TypeScript 7) landed, plus the designer rebuild, Connect RPC v2, list pagination and a bundle budget. 5.2.a–e, 5.2.g–h, PWA, virtualization, a11y and i18n are not started. |
@@ -245,12 +245,31 @@ No string concatenation, no JS runtime in the expression path.
 
 ### 2.2 Use it in four places
 
-| Surface | Today | After |
-| :-- | :-- | :-- |
-| DMN cell (unary test) | JS string concat | FEEL AST |
-| Gateway condition | raw JS via goja | FEEL, with JS available only behind an explicit `expressionLanguage: javascript` opt-in that is off by default |
-| Input/output mapping | manual JSON keys | FEEL expressions |
-| Timer duration | `time.ParseDuration` | ISO-8601 (`PT5M`, `R3/PT10M`, `timeDate`) |
+| Surface | State |
+| :-- | :-- |
+| DMN cell (unary test) | **done** — parsed as unary tests by the FEEL engine |
+| Gateway condition | **done** — FEEL added to the evaluator chain; `js:` behind a flag |
+| Input/output mapping | **done** — a mapping source is a FEEL expression |
+| Timer duration | **already done before this phase** — `ParseTimerSchedule` handles `PT5M`, `P1Y`, `R3/PT10M`, `R/PT1M`, absolute dates, and Go durations for older definitions. The row above previously claimed `time.ParseDuration`; that was stale. Verified by evaluating each form. |
+
+**The chain integration is additive, deliberately.** FEEL sits *last*, after
+Empty → JS → Equals → SimpleVariable, so every condition the legacy evaluators
+already claim keeps its exact previous answer — including `status=APPROVED`
+matching case-insensitively. FEEL answers what they decline, which until now
+fell off the end of the chain as `false` with no explanation.
+
+That silent `false` was hiding real breakage. `amount >= 500` looked up a
+variable named `amount >`; `tier = "GOLD"` was compared against the literal text
+`"GOLD"`, quotes included. Neither could ever be true. The legacy `Equals`
+evaluator is now narrowed to the plain `key=value` shape it was written for, so
+those reach FEEL instead of being mangled.
+
+**JavaScript conditions are behind `javascript-conditions`**, which defaults
+**on**. The plan originally said off; that would strand every definition still
+using `js:`, and a stranded gateway is a process that stops without saying why.
+Instead every `js:` evaluation logs a warning naming the condition, so the
+migration has a worklist, and an operator can refuse them outright once that
+list is empty. The default is expected to flip after a release.
 
 Script tasks keep goja — that is their point — but sandboxed per 1.6.
 
@@ -266,6 +285,37 @@ Script tasks keep goja — that is their point — but sandboxed per 1.6.
 
 **Exit criterion:** a DMN table exported from Camunda evaluates identically in Metis for the
 supported subset, proven by a conformance test corpus.
+
+---
+
+### 2.1 status: what shipped, and two deliberate deviations
+
+The engine is in `server/domains/logic/feel` — lexer, Pratt parser, AST, typed
+evaluator, no JavaScript. The security property this buys is structural rather
+than configured: the language has no loop, no author-controlled recursion and no
+allocation primitive, so a hostile expression cannot hold a worker the way the
+goja path could (measured: 37s against a 200ms budget). Parser depth is bounded,
+the AST cache is bounded, and 2M fuzz executions found no crash or hang.
+
+**Two documented deviations from strict FEEL**, both to keep decisions that are
+live today working. Both are pinned by tests:
+
+1. **A bare word in a decision cell is text.** Strict FEEL reads `CLOSED` as a
+   variable reference; Camunda requires `"CLOSED"`. Every table in this
+   repository writes the bare form, and enforcing the strict rule would turn
+   those cells into null and stop them matching — a wrong answer rather than an
+   error anyone would see. A variable of the same name still wins, so
+   `> threshold` keeps its FEEL meaning. Leniency is confined to cells; in an
+   ordinary expression a bare name is still a variable.
+2. **Single-quoted strings are accepted.** FEEL defines only double quotes, but
+   tables written against the previous JavaScript-flavoured evaluator use
+   `'VIP'`. The character is unambiguous — nothing else in the grammar uses it.
+
+One deliberate narrowing: `matches()` is a literal substring test, not a regular
+expression. A regex compiled from a deployed definition is an attacker-supplied
+pattern, and catastrophic backtracking would reintroduce exactly the hang this
+package exists to remove. Shipping a denial-of-service vector under a familiar
+name would be worse than not shipping the function.
 
 ---
 

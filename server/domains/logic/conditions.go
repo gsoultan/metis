@@ -3,6 +3,9 @@ package logic
 import (
 	"context"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/features"
+	"github.com/gsoultan/gobpm/server/domains/logic/feel"
+	"github.com/rs/zerolog/log"
 	"strings"
 	"sync"
 
@@ -63,7 +66,7 @@ type EqualsEvaluator struct {
 }
 
 func (e *EqualsEvaluator) Evaluate(condition string, vars map[string]any) bool {
-	if !strings.Contains(condition, "=") {
+	if !strings.Contains(condition, "=") || isRicherExpression(condition) {
 		return e.EvaluateNext(condition, vars)
 	}
 
@@ -123,6 +126,21 @@ func (e *JSExpressionEvaluator) Evaluate(condition string, vars map[string]any) 
 		return e.EvaluateNext(condition, vars)
 	}
 
+	if !features.Enabled(features.JavaScriptConditions) {
+		log.Error().
+			Str("condition", condition).
+			Str("flag", features.EnvName(features.JavaScriptConditions)).
+			Msg("A JavaScript condition was refused: this definition needs rewriting in FEEL")
+		return false
+	}
+
+	// Every use is logged, so migrating away from JavaScript has a worklist
+	// rather than an archaeology project. FEEL expresses the same routing
+	// without a runtime that can be held past its budget.
+	log.Warn().
+		Str("condition", condition).
+		Msg("A JavaScript condition ran; FEEL is the supported language and this will stop working")
+
 	script := strings.TrimPrefix(condition, "js:")
 	vm := NewSandboxedRuntime()
 
@@ -151,17 +169,71 @@ var (
 	conditionChainSingleton contracts.ConditionEvaluator
 )
 
+// isRicherExpression reports whether a condition is more than the plain
+// `key=value` shape this evaluator was written for.
+//
+// It matters because the guard used to be "contains an equals sign", which
+// claimed real expressions too: `status = "GOLD"` was compared against the
+// literal text `"GOLD"` — quotes included — and never matched, while
+// `amount >= 500` looked up a variable called `amount >` and silently answered
+// false. Both now fall through to FEEL, which understands them.
+func isRicherExpression(condition string) bool {
+	if strings.ContainsAny(condition, `<>!"'()[]`) {
+		return true
+	}
+	lowered := " " + strings.ToLower(condition) + " "
+	for _, keyword := range []string{" and ", " or ", " not ", " in ", " between "} {
+		if strings.Contains(lowered, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// FEELConditionEvaluator evaluates a condition as FEEL.
+//
+// It sits last in the chain, which makes it purely additive: every condition
+// the earlier evaluators claim keeps its exact previous behaviour, and FEEL
+// takes what they decline — which until now returned false without explanation.
+// `amount >= 500`, `status = "GOLD"`, `amount > 100 and tier = "GOLD"` and
+// `date(dueDate) < today()` all work now and all silently failed before.
+type FEELConditionEvaluator struct {
+	BaseEvaluator
+}
+
+func (e *FEELConditionEvaluator) Evaluate(condition string, vars map[string]any) bool {
+	result, err := feel.EvaluateCondition(condition, vars)
+	if err != nil {
+		// A condition that will not parse or does not yield a boolean is a
+		// routing decision nobody can make. Logged rather than swallowed: a
+		// gateway that quietly takes the default path is the kind of failure
+		// that gets diagnosed weeks later from the wrong end.
+		log.Warn().
+			Err(err).
+			Str("condition", condition).
+			Msg("Condition could not be evaluated; treating it as false")
+		return e.EvaluateNext(condition, vars)
+	}
+	return result
+}
+
 // GetConditionEvaluatorChain returns the singleton Chain-of-Responsibility for
 // condition evaluation.  Evaluators are stateless so a single shared chain is safe
 // for concurrent use.  The chain order is:
 //
-//	EmptyCondition → JSExpression (js: prefix) → Equals (var=value) → SimpleVariable
+//	EmptyCondition → JSExpression (js: prefix) → Equals (var=value) →
+//	SimpleVariable → FEEL
+//
+// FEEL is last so the integration is additive: everything the earlier
+// evaluators claim behaves exactly as before, and FEEL answers what they
+// decline — which previously fell off the end as false.
 func GetConditionEvaluatorChain() contracts.ConditionEvaluator {
 	conditionChainOnce.Do(func() {
 		root := &EmptyConditionEvaluator{}
 		root.SetNext(&JSExpressionEvaluator{}).
 			SetNext(&EqualsEvaluator{}).
-			SetNext(&SimpleVariableEvaluator{})
+			SetNext(&SimpleVariableEvaluator{}).
+			SetNext(&FEELConditionEvaluator{})
 		conditionChainSingleton = root
 	})
 	return conditionChainSingleton
