@@ -1,232 +1,256 @@
-import { 
-  Stack, 
-  TextInput, 
-  Button, 
-  Group, 
-  Text, 
-  Divider, 
-  Paper, 
-  Table, 
-  Select, 
-  ScrollArea, 
-  Title, 
-  Badge, 
-  rem, 
-  Code,
-  Alert,
-  Tabs,
-  Switch,
-  Tooltip as MantineTooltip,
-  Center,
+/**
+ * The decision table editor.
+ *
+ * A decision table is the one artifact in this product that a non-programmer is
+ * expected to own outright: pricing bands, approval limits, risk tiers. The
+ * editor is therefore judged on whether that person can read the table back and
+ * believe it — not on how many DMN features it exposes.
+ *
+ * Three things follow from that, and they are why this looks the way it does:
+ *
+ *  - The table gets the width. Settings sit in a rail beside it rather than in a
+ *    row above it, because the grid is the document and everything else is
+ *    about the grid.
+ *  - The hit policy is never hidden. It used to live behind Expert Mode, so the
+ *    single most consequential thing about a table — what happens when two
+ *    lines both apply — was invisible and silently "the first one".
+ *  - The table says what it does, in words, at the top. Anything the notation
+ *    hides is spelled out: what an empty cell means, which lines can never be
+ *    reached, what a ranking policy is missing.
+ */
+import {
   ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Center,
+  Code,
+  Divider,
+  Group,
   Menu,
+  Paper,
+  Radio,
+  ScrollArea,
+  Select,
+  Stack,
+  Switch,
+  Table,
+  TagsInput,
+  Text,
+  TextInput,
+  Title,
+  Tooltip,
+  rem,
 } from '@mantine/core';
-import { 
-  Plus, 
-  Trash2, 
-  Save, 
-  ArrowLeft, 
-  Play,
-  Settings,
-  HelpCircle,
-  FlaskConical,
-  AlertCircle,
-  CheckCircle2,
-  Info,
-  ChevronDown,
-} from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import { PageHeader } from '../components/PageHeader';
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useCreateDecision, useUpdateDecision, useDecision, useEvaluateDecision } from '../hooks/useDecisions';
 import { notifications } from '@mantine/notifications';
-import { useAppStore } from '../store/useAppStore';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  ChevronDown,
+  ChevronsUpDown,
+  CircleCheck,
+  FlaskConical,
+  Info,
+  Play,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+
+import { PageHeader } from '../components/PageHeader';
+import {
+  AGGREGATIONS,
+  ANY_VALUE,
+  HIT_POLICIES,
+  describeCell,
+  describeTable,
+  findProblems,
+  formatOutputValue,
+  hitPolicyOf,
+  moveRule,
+  newRuleRow,
+  parseOutputValue,
+  type DecisionInputColumn,
+  type DecisionOutputColumn,
+  type DecisionRuleRow,
+} from '../domain/decisionTable';
+import { useCreateDecision, useDecision, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
 import type { ProcessVariables } from '../services/types';
+import { useAppStore } from '../store/useAppStore';
 
 /** A caught value is `unknown`; take its message when it has one. */
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
-interface DecisionInput {
-  id: string;
-  label: string;
-  expression: string;
-  type: string;
-}
-
-interface DecisionOutput {
-  id: string;
-  label: string;
-  name: string;
-  type: string;
-}
-
-interface DecisionRule {
-  id: string;
-  input_entries: string[];
-  output_entries: string[];
-  description?: string;
-}
-
-const FEEL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
+/**
+ * Ready-made conditions, per column type.
+ *
+ * Someone writing their first table does not know that `]1..10]` excludes the
+ * lower bound, and should not have to. Picking the sentence writes the notation.
+ */
+const CELL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
   string: [
-    { value: '"Value"', label: 'Exact match (e.g. "Approved")' },
-    { value: 'not("Value")', label: 'Does not match' },
-    { value: '"A", "B"', label: 'Matches either A or B' },
-    { value: '""', label: 'Empty string' },
-    { value: '-', label: 'Any value (wildcard)' },
+    { value: ANY_VALUE, label: 'Any value' },
+    { value: 'Approved', label: 'Exactly this word' },
+    { value: '"A", "B"', label: 'Either of two values' },
+    { value: 'not("A")', label: 'Anything except' },
+    { value: '""', label: 'Empty' },
   ],
   number: [
-    { value: '10', label: 'Exactly 10' },
-    { value: '> 10', label: 'Greater than 10' },
-    { value: '< 10', label: 'Less than 10' },
-    { value: '>= 0', label: 'Zero or more' },
-    { value: '[1..10]', label: 'Between 1 and 10 (incl.)' },
-    { value: ']1..10]', label: 'Between 1 and 10 (excl. 1)' },
-    { value: '10, 20', label: 'Either 10 or 20' },
-    { value: '-', label: 'Any number (wildcard)' },
+    { value: ANY_VALUE, label: 'Any number' },
+    { value: '> 10', label: 'More than' },
+    { value: '>= 10', label: 'At least' },
+    { value: '< 10', label: 'Less than' },
+    { value: '[1..10]', label: 'Between, inclusive' },
+    { value: ']1..10]', label: 'Between, excluding the low end' },
+    { value: '10, 20', label: 'One of several' },
   ],
   boolean: [
-    { value: 'true', label: 'True' },
-    { value: 'false', label: 'False' },
+    { value: ANY_VALUE, label: 'Either' },
+    { value: 'true', label: 'Yes' },
+    { value: 'false', label: 'No' },
   ],
   date: [
-    { value: '"2024-01-01"', label: 'Exact date' },
-    { value: '> "2024-01-01"', label: 'After date' },
-    { value: '< "2024-01-01"', label: 'Before date' },
-    { value: '-', label: 'Any date (wildcard)' },
-  ]
+    { value: ANY_VALUE, label: 'Any date' },
+    { value: '> "2024-01-01"', label: 'After' },
+    { value: '< "2024-01-01"', label: 'Before' },
+  ],
 };
 
-/**
- * Hit policies, in terms of the question they answer.
- *
- * These were labelled with the DMN letter codes — "First (F)", "Unique (U)",
- * "Collect (C)" — and described in terms of "rules" and "outputs". Someone
- * building a pricing table does not think in rules and outputs; they think
- * "what if two lines both apply?". That is the question a hit policy settles,
- * so it is the question these now answer.
- *
- * The DMN name stays alongside, because it is what appears in any table
- * exported to or imported from another engine.
- */
-const HIT_POLICIES = [
-  {
-    value: 'FIRST',
-    label: 'Use the first line that matches',
-    description: 'Rows are checked top to bottom and the first match wins. Order the table from most specific to most general.',
-    dmn: 'FIRST (F)',
-  },
-  {
-    value: 'UNIQUE',
-    label: 'Only one line may match',
-    description: 'Reports an error if two lines match at once. Use it when overlapping rules would be a mistake worth catching.',
-    dmn: 'UNIQUE (U)',
-  },
-  {
-    value: 'COLLECT',
-    label: 'Collect every match',
-    description: 'Returns a list containing the result of every line that matched, rather than a single answer.',
-    dmn: 'COLLECT (C)',
-  },
-  {
-    value: 'ANY',
-    label: 'Any match — they must agree',
-    description: 'Several lines may match, but they must all give the same result. Reports an error if they disagree.',
-    dmn: 'ANY (A)',
-  },
-  {
-    value: 'PRIORITY',
-    label: 'Highest priority wins',
-    description: 'When several lines match, the one with the highest-priority result is used.',
-    dmn: 'PRIORITY (P)',
-  },
+const COLUMN_TYPES = [
+  { value: 'string', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'boolean', label: 'Yes / no' },
+  { value: 'date', label: 'Date' },
 ];
 
-function RuleCell({ 
-  value, 
-  onChange, 
-  type, 
-  isOutput = false, 
-  placeholder 
-}: { 
-  value: string, 
-  onChange: (val: string) => void, 
-  type: string, 
-  isOutput?: boolean,
-  placeholder?: string
-}) {
-  // An empty condition cell means "this column does not matter for this line",
-// which is the single most confusing thing about reading a decision table.
-const cellPlaceholder = placeholder || (isOutput ? 'Result' : 'Any value');
+const RAIL_WIDTH = 340;
 
+/** A condition cell: free text, with the notation available from a menu. */
+function ConditionCell({
+  value,
+  type,
+  columnLabel,
+  onChange,
+}: {
+  value: string;
+  type: string;
+  columnLabel: string;
+  onChange: (next: string) => void;
+}) {
+  const templates = CELL_TEMPLATES[type] ?? CELL_TEMPLATES.string;
+  const meaning = describeCell(value, columnLabel);
+
+  return (
+    <Group gap={0} wrap="nowrap" align="center">
+      <Tooltip label={meaning} openDelay={400} position="top-start" withArrow>
+        <TextInput
+          variant="unstyled"
+          px="sm"
+          aria-label={`${columnLabel} condition`}
+          placeholder={ANY_VALUE}
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          styles={{ input: { fontSize: rem(13) }, root: { flex: 1 } }}
+        />
+      </Tooltip>
+      <Menu position="bottom-end" shadow="md" width={260}>
+        <Menu.Target>
+          <ActionIcon aria-label={`Condition choices for ${columnLabel}`} size="xs" variant="subtle" color="gray" mr={4}>
+            <ChevronDown size={12} />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>{columnLabel}</Menu.Label>
+          {templates.map((template) => (
+            <Menu.Item key={template.value} onClick={() => onChange(template.value)}>
+              <Group justify="space-between" wrap="nowrap" gap="sm">
+                <Text size="xs">{template.label}</Text>
+                <Code fz={10}>{template.value}</Code>
+              </Group>
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
+    </Group>
+  );
+}
+
+/**
+ * A result cell.
+ *
+ * Typed rather than free-form: a result is a value the process receives, not an
+ * expression, so a text column is a text box and a yes/no column is a pair of
+ * choices. Nobody should have to know that `Approved` needs quotes — and under
+ * the old editor, which sent the cell text through Number(), the quotes ended up
+ * in the value.
+ */
+function ResultCell({
+  value,
+  type,
+  columnLabel,
+  allowed,
+  onChange,
+}: {
+  value: string;
+  type: string;
+  columnLabel: string;
+  allowed?: string[];
+  onChange: (next: string) => void;
+}) {
   if (type === 'boolean') {
     return (
-      <Select 
+      <Select
         variant="unstyled"
         size="xs"
+        aria-label={`${columnLabel} result`}
         value={value === 'true' ? 'true' : value === 'false' ? 'false' : ''}
-        onChange={(val) => onChange(val || '')}
+        onChange={(next) => onChange(next ?? '')}
         data={[
-          { value: 'true', label: 'true' },
-          { value: 'false', label: 'false' },
-          { value: '', label: isOutput ? 'false' : '-' },
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
         ]}
-        styles={{ 
-          input: { 
-            textAlign: 'center', 
-            fontWeight: isOutput ? 600 : 400,
-            color: isOutput ? 'var(--mantine-color-teal-9)' : 'inherit',
-            fontSize: rem(13)
-          } 
-        }}
+        placeholder="—"
+        styles={{ input: { textAlign: 'center', fontWeight: 600, fontSize: rem(13) } }}
       />
     );
   }
 
-  const templates = FEEL_TEMPLATES[type] || [];
+  // When the column declares its allowed values, offer exactly those: it is the
+  // list the ranking policies sort by, so a value outside it ranks last and is
+  // almost always a typo.
+  if (allowed?.length) {
+    return (
+      <Select
+        variant="unstyled"
+        size="xs"
+        searchable
+        aria-label={`${columnLabel} result`}
+        value={allowed.includes(value) ? value : null}
+        onChange={(next) => onChange(next ?? '')}
+        data={allowed}
+        placeholder="Choose"
+        styles={{ input: { fontWeight: 600, fontSize: rem(13) } }}
+      />
+    );
+  }
 
   return (
-    <Group gap={0} wrap="nowrap" align="center">
-      <TextInput 
-        variant="unstyled" 
-        px="sm"
-        placeholder={cellPlaceholder}
-        value={value || ''} 
-        onChange={(e) => onChange(e.currentTarget.value)} 
-        styles={{ 
-          input: { 
-            fontSize: rem(13),
-            fontWeight: isOutput ? 600 : 400,
-            color: isOutput ? 'var(--mantine-color-teal-9)' : 'inherit',
-            flex: 1
-          },
-          root: { flex: 1 }
-        }}
-      />
-      {!isOutput && templates.length > 0 && (
-        <Menu position="bottom-end" shadow="md" width={200}>
-          <Menu.Target>
-            <ActionIcon aria-label="Expand rule" size="xs" variant="subtle" color="gray" mr={4}>
-              <ChevronDown size={12} />
-            </ActionIcon>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Label>FEEL Templates ({type})</Menu.Label>
-            {templates.map((t) => (
-              <Menu.Item key={t.value} onClick={() => onChange(t.value)}>
-                <Group justify="space-between">
-                  <Text size="xs" fw={500}>{t.value}</Text>
-                  <Text size="xs" c="dimmed">{t.label}</Text>
-                </Group>
-              </Menu.Item>
-            ))}
-          </Menu.Dropdown>
-        </Menu>
-      )}
-    </Group>
+    <TextInput
+      variant="unstyled"
+      px="sm"
+      aria-label={`${columnLabel} result`}
+      placeholder={type === 'number' ? '0' : 'Result'}
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      styles={{ input: { fontSize: rem(13), fontWeight: 600 } }}
+    />
   );
 }
 
@@ -244,17 +268,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const [hitPolicy, setHitPolicy] = useState('FIRST');
   const [aggregation, setAggregation] = useState('');
   const [requiredDecisions, setRequiredDecisions] = useState('');
-  const [inputs, setInputs] = useState<DecisionInput[]>([
-    { id: uuidv4(), label: 'Input 1', expression: 'input1', type: 'string' }
+  const [inputs, setInputs] = useState<DecisionInputColumn[]>([
+    { id: uuidv4(), label: 'Amount', expression: 'amount', type: 'number' },
   ]);
-  const [outputs, setOutputs] = useState<DecisionOutput[]>([
-    { id: uuidv4(), label: 'Output 1', name: 'result', type: 'string' }
+  const [outputs, setOutputs] = useState<DecisionOutputColumn[]>([
+    { id: uuidv4(), label: 'Result', name: 'result', type: 'string' },
   ]);
-  const [rules, setRules] = useState<DecisionRule[]>([
-    { id: uuidv4(), input_entries: ['""'], output_entries: ['"ok"'], description: '' }
-  ]);
+  const [rules, setRules] = useState<DecisionRuleRow[]>([newRuleRow(uuidv4(), 1, 1)]);
 
-  // Test Harness State
   const [testInputs, setTestInputs] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
   const [matchedRules, setMatchedRules] = useState<number[]>([]);
@@ -262,96 +283,140 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (existingDef?.decision) {
-      const d = existingDef.decision;
-      setName(d.name);
-      setKey(d.key);
-      setHitPolicy(d.hit_policy || 'FIRST');
-      setAggregation(d.aggregation || '');
-      setRequiredDecisions((d.required_decisions || []).join(', '));
-      setInputs(d.inputs || []);
-      setOutputs(d.outputs || []);
-      setRules((d.rules || []).map((r) => ({
-        id: r.id,
-        input_entries: r.inputs || [],
-        output_entries: (r.outputs || []).map((v) => String(v)),
-        description: r.description || ''
-      })));
-      
-      // Initialize test inputs
-      const initialTestInputs: Record<string, string> = {};
-      d.inputs?.forEach((input) => {
-        initialTestInputs[input.expression] = "";
-      });
-      setTestInputs(initialTestInputs);
-    }
+    const decision = existingDef?.decision;
+    if (!decision) return;
+
+    setName(decision.name);
+    setKey(decision.key);
+    setHitPolicy(decision.hit_policy || 'FIRST');
+    setAggregation(decision.aggregation || '');
+    setRequiredDecisions((decision.required_decisions || []).join(', '));
+    setInputs(decision.inputs || []);
+    setOutputs(
+      (decision.outputs || []).map((output) => ({
+        id: output.id,
+        label: output.label,
+        name: output.name,
+        type: output.type,
+        values: output.values,
+      })),
+    );
+    setRules(
+      (decision.rules || []).map((rule) => ({
+        id: rule.id,
+        input_entries: rule.inputs || [],
+        // Stored results carry whatever the old editor wrote, quotes included.
+        output_entries: (rule.outputs || []).map((value) => formatOutputValue(value)),
+        description: rule.description || '',
+      })),
+    );
+
+    const seeded: Record<string, string> = {};
+    decision.inputs?.forEach((input) => {
+      seeded[input.expression] = '';
+    });
+    setTestInputs(seeded);
   }, [existingDef]);
 
+  const policy = hitPolicyOf(hitPolicy);
+  const problems = useMemo(
+    () => findProblems(hitPolicy, inputs, outputs, rules),
+    [hitPolicy, inputs, outputs, rules],
+  );
+  const blocking = problems.filter((problem) => problem.severity === 'error');
+  const summary = describeTable(hitPolicy, aggregation, inputs, outputs, rules.length);
+
   const addInput = () => {
-    const newId = uuidv4();
-    const newExpression = `input${inputs.length + 1}`;
-    setInputs([...inputs, { id: newId, label: `Condition ${inputs.length + 1}`, expression: newExpression, type: 'string' }]);
-    setRules(rules.map(r => ({ ...r, input_entries: [...r.input_entries, '""'] })));
-    setTestInputs({ ...testInputs, [newExpression]: "" });
+    const expression = `input${inputs.length + 1}`;
+    setInputs([...inputs, { id: uuidv4(), label: `Condition ${inputs.length + 1}`, expression, type: 'string' }]);
+    setRules(rules.map((rule) => ({ ...rule, input_entries: [...rule.input_entries, ANY_VALUE] })));
+    setTestInputs({ ...testInputs, [expression]: '' });
   };
-  
+
   const addOutput = () => {
     setOutputs([...outputs, { id: uuidv4(), label: `Result ${outputs.length + 1}`, name: '', type: 'string' }]);
-    setRules(rules.map(r => ({ ...r, output_entries: [...r.output_entries, '""'] })));
-  };
-  const addRule = () => setRules([...rules, { 
-    id: uuidv4(), 
-    input_entries: Array(inputs.length).fill('""'), 
-    output_entries: Array(outputs.length).fill('""'), 
-    description: '' 
-  }]);
-
-  const updateRuleInput = (ruleIdx: number, inputIdx: number, val: string) => {
-    const newRules = [...rules];
-    newRules[ruleIdx].input_entries[inputIdx] = val;
-    setRules(newRules);
+    setRules(rules.map((rule) => ({ ...rule, output_entries: [...rule.output_entries, ''] })));
   };
 
-  const updateRuleOutput = (ruleIdx: number, outputIdx: number, val: string) => {
-    const newRules = [...rules];
-    newRules[ruleIdx].output_entries[outputIdx] = val;
-    setRules(newRules);
+  const addRule = () => setRules([...rules, newRuleRow(uuidv4(), inputs.length, outputs.length)]);
+
+  const removeInput = (index: number) => {
+    setInputs(inputs.filter((_, i) => i !== index));
+    setRules(rules.map((rule) => ({ ...rule, input_entries: rule.input_entries.filter((_, i) => i !== index) })));
   };
 
-  const removeRule = (idx: number) => setRules(rules.filter((_, i) => i !== idx));
+  const removeOutput = (index: number) => {
+    setOutputs(outputs.filter((_, i) => i !== index));
+    setRules(rules.map((rule) => ({ ...rule, output_entries: rule.output_entries.filter((_, i) => i !== index) })));
+  };
+
+  const updateCell = (ruleIndex: number, columnIndex: number, side: 'input' | 'output', value: string) => {
+    setRules(
+      rules.map((rule, index) => {
+        if (index !== ruleIndex) return rule;
+        const field = side === 'input' ? 'input_entries' : 'output_entries';
+        const cells = [...rule[field]];
+        cells[columnIndex] = value;
+        return { ...rule, [field]: cells };
+      }),
+    );
+  };
 
   const handleSave = async () => {
-    const payload = { 
-      name, 
-      key, 
-      hit_policy: hitPolicy, 
+    if (blocking.length > 0) {
+      notifications.show({
+        title: 'The table cannot be saved yet',
+        message: blocking[0].message,
+        color: 'red',
+      });
+      return;
+    }
+
+    const payload = {
+      name,
+      key,
+      hit_policy: hitPolicy,
       aggregation: aggregation || undefined,
-      required_decisions: requiredDecisions.split(',').map(s => s.trim()).filter(s => s !== ''),
-      inputs: inputs.map(i => ({ id: i.id, label: i.label, expression: i.expression, type: i.type })),
-      outputs: outputs.map(o => ({ id: o.id, label: o.label, name: o.name, type: o.type })),
-      rules: rules.map(r => ({ 
-        id: r.id, 
-        inputs: r.input_entries, 
-        description: r.description,
-        outputs: r.output_entries.map(v => {
-          if (v === 'true') return true;
-          if (v === 'false') return false;
-          const num = Number(v);
-          return isNaN(num) ? v : num;
-        })
-      }))
+      required_decisions: requiredDecisions
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+      inputs: inputs.map((input) => ({
+        id: input.id,
+        label: input.label,
+        expression: input.expression,
+        type: input.type,
+      })),
+      outputs: outputs.map((output) => ({
+        id: output.id,
+        label: output.label,
+        name: output.name,
+        type: output.type,
+        values: output.values?.length ? output.values : undefined,
+      })),
+      rules: rules.map((rule) => ({
+        id: rule.id,
+        inputs: rule.input_entries,
+        description: rule.description,
+        outputs: rule.output_entries.map((cell, index) => parseOutputValue(cell, outputs[index]?.type ?? 'string')),
+      })),
     };
+
     try {
       if (definitionId) {
         await updateDecision.mutateAsync({ id: definitionId, ...payload });
-        notifications.show({ title: 'Success', message: 'Decision table updated', color: 'green' });
+        notifications.show({ title: 'Saved', message: `${name} updated`, color: 'green' });
       } else {
         await createDecision.mutateAsync(payload);
-        notifications.show({ title: 'Success', message: 'Decision table created', color: 'green' });
+        notifications.show({ title: 'Saved', message: `${name} created`, color: 'green' });
       }
       navigate({ to: '/models', search: { tab: 'decisions' } });
     } catch (err: unknown) {
-      notifications.show({ title: 'Error', message: errorMessage(err, 'Could not save the decision'), color: 'red' });
+      notifications.show({
+        title: 'Could not save',
+        message: errorMessage(err, 'Could not save the decision'),
+        color: 'red',
+      });
     }
   };
 
@@ -362,392 +427,544 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setMatchedRules([]);
 
     const variables: ProcessVariables = {};
-    Object.entries(testInputs).forEach(([k, v]) => {
-      try {
-        if (v === 'true') variables[k] = true;
-        else if (v === 'false') variables[k] = false;
-        else if (!isNaN(Number(v)) && v !== '') variables[k] = Number(v);
-        else variables[k] = JSON.parse(v);
-      } catch {
-        variables[k] = v;
+    Object.entries(testInputs).forEach(([variable, raw]) => {
+      const column = inputs.find((input) => input.expression === variable);
+      if (column?.type === 'boolean') {
+        variables[variable] = raw === 'true';
+      } else if (column?.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) {
+        variables[variable] = Number(raw);
+      } else {
+        variables[variable] = raw;
       }
     });
 
     try {
-      const res = await evaluateDecision.mutateAsync({ key, variables });
-      if (res.err) {
-        setTestError(typeof res.err === 'string' ? res.err : JSON.stringify(res.err));
+      const response = await evaluateDecision.mutateAsync({ key, variables });
+      if (response.err) {
+        setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
-        setTestResult(res.result?.values ?? {});
-        // Which lines produced the answer, so the table can show its reasoning.
-        setMatchedRules(res.matchedRules ?? []);
+        setTestResult(response.result?.values ?? {});
+        setMatchedRules(response.matchedRules ?? []);
       }
-    } catch (e: unknown) {
-      setTestError(errorMessage(e, 'Failed to evaluate decision'));
+    } catch (err: unknown) {
+      setTestError(errorMessage(err, 'Could not evaluate the decision'));
     } finally {
       setIsTesting(false);
     }
   };
 
-  const renderRuleInput = (ruleIdx: number, inputIdx: number, type: string, value: string) => (
-    <RuleCell 
-      value={value} 
-      type={type} 
-      onChange={(val) => updateRuleInput(ruleIdx, inputIdx, val)} 
-    />
-  );
-
-  const renderRuleOutput = (ruleIdx: number, outputIdx: number, type: string, value: string) => (
-    <RuleCell 
-      value={value} 
-      type={type} 
-      isOutput 
-      onChange={(val) => updateRuleOutput(ruleIdx, outputIdx, val)} 
-    />
-  );
+  const orderMatters = policy?.ordered ?? false;
 
   return (
-    <Stack gap="xl" p="md">
-      <PageHeader 
-        title={definitionId ? `Edit Decision: ${name}` : 'Create New Decision'} 
-        description="Define business rules using DMN-like decision tables."
+    <Stack gap="lg" p="md">
+      <PageHeader
+        title={definitionId ? name : 'New decision table'}
+        description={summary}
+        meta={
+          <Group gap="xs">
+            <Badge variant="light" color="gray" styles={{ label: { textTransform: 'none' } }}>
+              {key}
+            </Badge>
+            {existingDef?.decision?.version ? (
+              <Badge variant="light" color="indigo">
+                v{existingDef.decision.version}
+              </Badge>
+            ) : null}
+          </Group>
+        }
         actions={
-          <Group>
-            <MantineTooltip label="Toggle Expert Mode for advanced settings">
-              <Switch 
-                label="Expert Mode" 
-                checked={expertMode} 
-                onChange={(e) => setExpertMode(e.currentTarget.checked)}
-                color="indigo"
-                size="sm"
-              />
-            </MantineTooltip>
-            <Button variant="light" color="gray" leftSection={<ArrowLeft size={16} />} onClick={() => navigate({ to: '/models', search: { tab: 'decisions' } })}>Back</Button>
-            <Button color="indigo" leftSection={<Save size={16} />} onClick={handleSave} loading={createDecision.isPending || updateDecision.isPending}>Save Decision</Button>
+          <Group gap="sm">
+            <Button
+              variant="subtle"
+              color="gray"
+              leftSection={<ArrowLeft size={16} />}
+              onClick={() => navigate({ to: '/models', search: { tab: 'decisions' } })}
+            >
+              Back
+            </Button>
+            <Button
+              leftSection={<Save size={16} />}
+              onClick={handleSave}
+              loading={createDecision.isPending || updateDecision.isPending}
+              disabled={blocking.length > 0}
+            >
+              Save
+            </Button>
           </Group>
         }
       />
 
-      <Tabs defaultValue="editor" variant="outline" radius="md">
-        <Tabs.List>
-          <Tabs.Tab value="editor" leftSection={<Settings size={14} />}>Editor</Tabs.Tab>
-          <Tabs.Tab value="test" leftSection={<FlaskConical size={14} />}>Test Harness</Tabs.Tab>
-        </Tabs.List>
+      {problems.length > 0 && (
+        <Stack gap="xs">
+          {problems.map((problem) => (
+            <Alert
+              key={problem.message}
+              variant="light"
+              color={problem.severity === 'error' ? 'red' : 'yellow'}
+              icon={problem.severity === 'error' ? <AlertCircle size={16} /> : <AlertTriangle size={16} />}
+              py="xs"
+            >
+              <Text size="sm">{problem.message}</Text>
+            </Alert>
+          ))}
+        </Stack>
+      )}
 
-        <Tabs.Panel value="editor" pt="md">
-          <Paper p="xl" radius="lg" withBorder shadow="sm">
-            <Stack gap="lg">
-              <Group grow align="flex-start">
-                <TextInput label="Decision Name" placeholder="e.g. Loan Approval" value={name} onChange={(e) => setName(e.currentTarget.value)} required />
-                <TextInput label="Decision Key" placeholder="e.g. loan_approval" value={key} onChange={(e) => setKey(e.currentTarget.value)} required />
-                {expertMode && (
-                  <Select 
-                    label="When several lines match" 
-                    value={hitPolicy} 
-                    onChange={(val) => setHitPolicy(val || 'FIRST')}
-                    data={HIT_POLICIES}
-                    renderOption={({ option }) => {
-                      const policy = HIT_POLICIES.find(p => p.value === option.value);
-                      return (
-                        <Stack gap={0}>
-                          <Text size="sm" fw={500}>{option.label}</Text>
-                          <Text size="xs" c="dimmed">{policy?.description}</Text>
-                        </Stack>
-                      );
-                    }}
-                  />
-                )}
-                {expertMode && hitPolicy === 'COLLECT' && (
-                  <Select 
-                    label="Aggregation" 
-                    value={aggregation} 
-                    onChange={(val) => setAggregation(val || '')}
-                    data={[
-                      { value: '', label: 'None (List)' },
-                      { value: 'SUM', label: 'Sum (+)' },
-                      { value: 'COUNT', label: 'Count (#)' },
-                      { value: 'MIN', label: 'Min (<)' },
-                      { value: 'MAX', label: 'Max (>)' },
-                    ]}
-                  />
-                )}
-                {expertMode && (
-                  <TextInput 
-                    label="Required Decisions" 
-                    placeholder="key1, key2" 
-                    value={requiredDecisions} 
-                    onChange={(e) => setRequiredDecisions(e.currentTarget.value)}
-                    description="Comma-separated keys of dependent decisions"
-                  />
-                )}
-              </Group>
+      <Group align="flex-start" gap="lg" wrap="wrap">
+        {/* The table is the document; it gets whatever width is left. */}
+        <Stack gap="sm" style={{ flex: '1 1 640px', minWidth: 0 }}>
+          <Paper radius="md" withBorder p={0} style={{ overflow: 'hidden' }}>
+            <ScrollArea scrollbars="x" type="auto">
+              <Table withColumnBorders verticalSpacing={2} stickyHeader>
+                <Table.Thead bg="var(--mantine-color-gray-0)">
+                  <Table.Tr>
+                    <Table.Th w={orderMatters ? 76 : 44} ta="center">
+                      <Tooltip label={policy?.label ?? hitPolicy} withArrow>
+                        <Badge size="xs" variant="filled" color="dark">
+                          {hitPolicy.charAt(0)}
+                        </Badge>
+                      </Tooltip>
+                    </Table.Th>
 
-              <Divider label="Rules — read left to right: if all the conditions hold, the result on the right applies" labelPosition="center" />
-              
-              <ScrollArea scrollbars="x" type="auto">
-                <Table withTableBorder withColumnBorders verticalSpacing="sm">
-                  <Table.Thead bg="gray.0">
-                    <Table.Tr>
-                      <Table.Th w={40} ta="center">
-                        <MantineTooltip label={`When several lines match: ${HIT_POLICIES.find((p) => p.value === hitPolicy)?.label ?? hitPolicy}`}>
-                          <Badge size="xs" variant="filled" color="dark">{hitPolicy.charAt(0)}</Badge>
-                        </MantineTooltip>
-                      </Table.Th>
-                      {inputs.map((input, idx) => (
-                        <Table.Th key={input.id} bg="blue.0" style={{ borderBottom: '2px solid var(--mantine-color-blue-4)' }}>
-                          <Stack gap={4}>
-                            <Group justify="space-between" wrap="nowrap">
-                              <Group gap={4}>
-                                <Text size="xs" fw={700} c="blue.9">IF (INPUT)</Text>
-                                <MantineTooltip label={`Condition for ${input.expression} (${input.type}). e.g. > 10, "Value", or [1..10]`}>
-                                  <Info size={10} color="var(--mantine-color-blue-6)" />
-                                </MantineTooltip>
-                              </Group>
-                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setInputs(inputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
-                            </Group>
-                            <TextInput 
-                              size="xs" 
-                              variant="unstyled" 
-                              fw={800} 
-                              value={input.label} 
-                              placeholder="Label"
-                              onChange={(e) => {
-                                const next = [...inputs];
-                                next[idx].label = e.currentTarget.value;
-                                setInputs(next);
-                              }} 
-                            />
-                            {!expertMode && (
-                               <Badge size="xs" variant="light" color="blue" fullWidth styles={{ label: { textTransform: 'none' } }}>
-                                 {input.expression}
-                               </Badge>
-                            )}
-                            {expertMode && (
-                              <Stack gap={2}>
-                                <TextInput size="xs" placeholder="Expression" value={input.expression} onChange={(e) => {
-                                  const next = [...inputs];
-                                  next[idx].expression = e.currentTarget.value;
-                                  setInputs(next);
-                                }} />
-                                <Select size="xs" value={input.type} onChange={(val) => {
-                                  const next = [...inputs];
-                                  next[idx].type = val || 'string';
-                                  setInputs(next);
-                                }} data={['string', 'number', 'boolean', 'date']} />
-                              </Stack>
-                            )}
-                          </Stack>
-                        </Table.Th>
-                      ))}
-                      {outputs.map((output, idx) => (
-                        <Table.Th key={output.id} bg="teal.0" style={{ borderBottom: '2px solid var(--mantine-color-teal-4)' }}>
-                          <Stack gap={4}>
-                            <Group justify="space-between" wrap="nowrap">
-                              <Group gap={4}>
-                                <Text size="xs" fw={700} c="teal.9">THEN (OUTPUT)</Text>
-                                <MantineTooltip label={`Result value for ${output.name || 'result'} (${output.type}). e.g. 100, "Approved", or true`}>
-                                  <Info size={10} color="var(--mantine-color-teal-6)" />
-                                </MantineTooltip>
-                              </Group>
-                              <ActionIcon aria-label="Delete rule" size="xs" variant="subtle" color="red" onClick={() => setOutputs(outputs.filter((_, i) => i !== idx))}><Trash2 size={10} /></ActionIcon>
-                            </Group>
-                            <TextInput 
-                              size="xs" 
-                              variant="unstyled" 
-                              fw={800} 
-                              value={output.label} 
-                              placeholder="Label"
-                              onChange={(e) => {
-                                const next = [...outputs];
-                                next[idx].label = e.currentTarget.value;
-                                setOutputs(next);
-                              }} 
-                            />
-                            {!expertMode && (
-                               <Badge size="xs" variant="light" color="teal" fullWidth styles={{ label: { textTransform: 'none' } }}>
-                                 {output.name || 'result'}
-                               </Badge>
-                            )}
-                            {expertMode && (
-                               <Stack gap={2}>
-                                <TextInput size="xs" placeholder="Variable Name" value={output.name} onChange={(e) => {
-                                  const next = [...outputs];
-                                  next[idx].name = e.currentTarget.value;
-                                  setOutputs(next);
-                                }} />
-                                <Select size="xs" value={output.type} onChange={(val) => {
-                                  const next = [...outputs];
-                                  next[idx].type = val || 'string';
-                                  setOutputs(next);
-                                }} data={['string', 'number', 'boolean', 'date']} />
-                              </Stack>
-                            )}
-                          </Stack>
-                        </Table.Th>
-                      ))}
-                      <Table.Th bg="gray.0">
-                        <Stack gap={4}>
-                          <Group gap={4}>
-                            <Text size="xs" fw={700} c="gray.7">ANNOTATION</Text>
-                            <MantineTooltip label="Internal notes or comments for this rule">
-                              <Info size={10} color="var(--mantine-color-gray-6)" />
-                            </MantineTooltip>
-                          </Group>
-                          <Text size="xs">Description</Text>
-                        </Stack>
-                      </Table.Th>
-                      <Table.Th w={50}></Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {rules.map((rule, ruleIdx) => {
-                      const isMatched = matchedRules.includes(ruleIdx);
-                      return (
-                        <Table.Tr key={rule.id} bg={isMatched ? 'orange.0' : undefined} style={isMatched ? { outline: '1px solid var(--mantine-color-orange-4)', zIndex: 1, position: 'relative' } : undefined}>
-                          <Table.Td ta="center">
-                            {isMatched ? (
-                              <Badge color="orange" size="xs" variant="filled">{ruleIdx + 1}</Badge>
+                    {inputs.map((input, index) => (
+                      <ColumnHeader
+                        key={input.id}
+                        kind="condition"
+                        label={input.label}
+                        variable={input.expression}
+                        type={input.type}
+                        expert={expertMode}
+                        onLabel={(next) => setInputs(inputs.map((c, i) => (i === index ? { ...c, label: next } : c)))}
+                        onVariable={(next) =>
+                          setInputs(inputs.map((c, i) => (i === index ? { ...c, expression: next } : c)))
+                        }
+                        onType={(next) => setInputs(inputs.map((c, i) => (i === index ? { ...c, type: next } : c)))}
+                        onRemove={inputs.length > 1 ? () => removeInput(index) : undefined}
+                      />
+                    ))}
+
+                    {outputs.map((output, index) => (
+                      <ColumnHeader
+                        key={output.id}
+                        kind="result"
+                        label={output.label}
+                        variable={output.name}
+                        type={output.type}
+                        expert={expertMode}
+                        onLabel={(next) => setOutputs(outputs.map((c, i) => (i === index ? { ...c, label: next } : c)))}
+                        onVariable={(next) => setOutputs(outputs.map((c, i) => (i === index ? { ...c, name: next } : c)))}
+                        onType={(next) => setOutputs(outputs.map((c, i) => (i === index ? { ...c, type: next } : c)))}
+                        onRemove={outputs.length > 1 ? () => removeOutput(index) : undefined}
+                      />
+                    ))}
+
+                    <Table.Th miw={180}>
+                      <Text size={rem(10)} fw={700} c="dimmed">
+                        NOTE
+                      </Text>
+                    </Table.Th>
+                    <Table.Th w={44} />
+                  </Table.Tr>
+                </Table.Thead>
+
+                <Table.Tbody>
+                  {rules.map((rule, ruleIndex) => {
+                    const matched = matchedRules.includes(ruleIndex);
+                    return (
+                      <Table.Tr key={rule.id} bg={matched ? 'var(--mantine-color-orange-0)' : undefined}>
+                        <Table.Td ta="center">
+                          <Group gap={2} wrap="nowrap" justify="center">
+                            {matched ? (
+                              <Badge color="orange" size="xs" variant="filled">
+                                {ruleIndex + 1}
+                              </Badge>
                             ) : (
-                              <Text size="xs" c="dimmed">{ruleIdx + 1}</Text>
+                              <Text size="xs" c="dimmed">
+                                {ruleIndex + 1}
+                              </Text>
                             )}
-                          </Table.Td>
-                          {inputs.map((input, inputIdx) => (
-                            <Table.Td key={`in-${ruleIdx}-${inputIdx}`} p={0}>
-                              {renderRuleInput(ruleIdx, inputIdx, input.type, rule.input_entries[inputIdx])}
-                            </Table.Td>
-                          ))}
-                          {outputs.map((output, outputIdx) => (
-                            <Table.Td key={`out-${ruleIdx}-${outputIdx}`} p={0}>
-                              {renderRuleOutput(ruleIdx, outputIdx, output.type, rule.output_entries[outputIdx])}
-                            </Table.Td>
-                          ))}
-                          <Table.Td p={0}>
-                            <TextInput 
-                              variant="unstyled" 
-                              px="sm"
-                              placeholder="Add a comment..."
-                              value={rule.description || ''} 
-                              onChange={(e) => {
-                                const next = [...rules];
-                                next[ruleIdx].description = e.currentTarget.value;
-                                setRules(next);
-                              }}
-                              styles={{ input: { fontSize: rem(12), fontStyle: 'italic' } }}
+                            {orderMatters && (
+                              <Stack gap={0}>
+                                <ActionIcon
+                                  aria-label={`Move line ${ruleIndex + 1} up`}
+                                  size={14}
+                                  variant="subtle"
+                                  color="gray"
+                                  disabled={ruleIndex === 0}
+                                  onClick={() => setRules(moveRule(rules, ruleIndex, ruleIndex - 1))}
+                                >
+                                  <ChevronsUpDown size={10} style={{ transform: 'rotate(180deg)' }} />
+                                </ActionIcon>
+                                <ActionIcon
+                                  aria-label={`Move line ${ruleIndex + 1} down`}
+                                  size={14}
+                                  variant="subtle"
+                                  color="gray"
+                                  disabled={ruleIndex === rules.length - 1}
+                                  onClick={() => setRules(moveRule(rules, ruleIndex, ruleIndex + 1))}
+                                >
+                                  <ChevronsUpDown size={10} />
+                                </ActionIcon>
+                              </Stack>
+                            )}
+                          </Group>
+                        </Table.Td>
+
+                        {inputs.map((input, columnIndex) => (
+                          <Table.Td key={`${rule.id}-in-${input.id}`} p={0}>
+                            <ConditionCell
+                              value={rule.input_entries[columnIndex] ?? ''}
+                              type={input.type}
+                              columnLabel={input.label || input.expression}
+                              onChange={(next) => updateCell(ruleIndex, columnIndex, 'input', next)}
                             />
                           </Table.Td>
-                          <Table.Td>
-                            <ActionIcon aria-label="Delete rule" variant="subtle" color="red" size="sm" onClick={() => removeRule(ruleIdx)}>
-                              <Trash2 size={14} />
-                            </ActionIcon>
-                          </Table.Td>
-                        </Table.Tr>
-                      );
-                    })}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea>
+                        ))}
 
-              <Group>
-                <Button variant="light" size="xs" leftSection={<Plus size={14} />} onClick={addRule}>Add Rule</Button>
-                <Button variant="light" color="blue" size="xs" leftSection={<Plus size={14} />} onClick={addInput}>Add Input Column</Button>
-                <Button variant="light" color="teal" size="xs" leftSection={<Plus size={14} />} onClick={addOutput}>Add Output Column</Button>
-              </Group>
+                        {outputs.map((output, columnIndex) => (
+                          <Table.Td key={`${rule.id}-out-${output.id}`} p={0} bg="var(--mantine-color-teal-0)">
+                            <ResultCell
+                              value={rule.output_entries[columnIndex] ?? ''}
+                              type={output.type}
+                              columnLabel={output.label || output.name}
+                              allowed={output.values}
+                              onChange={(next) => updateCell(ruleIndex, columnIndex, 'output', next)}
+                            />
+                          </Table.Td>
+                        ))}
+
+                        <Table.Td p={0}>
+                          <TextInput
+                            variant="unstyled"
+                            px="sm"
+                            aria-label={`Note on line ${ruleIndex + 1}`}
+                            placeholder="Why this line exists…"
+                            value={rule.description ?? ''}
+                            onChange={(event) =>
+                              setRules(
+                                rules.map((r, i) =>
+                                  i === ruleIndex ? { ...r, description: event.currentTarget.value } : r,
+                                ),
+                              )
+                            }
+                            styles={{ input: { fontSize: rem(12), fontStyle: 'italic' } }}
+                          />
+                        </Table.Td>
+
+                        <Table.Td ta="center">
+                          <ActionIcon
+                            aria-label={`Delete line ${ruleIndex + 1}`}
+                            variant="subtle"
+                            color="red"
+                            size="sm"
+                            onClick={() => setRules(rules.filter((_, i) => i !== ruleIndex))}
+                          >
+                            <Trash2 size={14} />
+                          </ActionIcon>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+
+            {rules.length === 0 && (
+              <Center py="xl">
+                <Text size="sm" c="dimmed">
+                  No lines yet. Add one to start deciding something.
+                </Text>
+              </Center>
+            )}
+          </Paper>
+
+          <Group gap="xs">
+            <Button size="xs" leftSection={<Plus size={14} />} onClick={addRule}>
+              Add line
+            </Button>
+            <Button size="xs" variant="light" leftSection={<Plus size={14} />} onClick={addInput}>
+              Add condition
+            </Button>
+            <Button size="xs" variant="light" color="teal" leftSection={<Plus size={14} />} onClick={addOutput}>
+              Add result
+            </Button>
+            {orderMatters && (
+              <Text size="xs" c="dimmed" ml="sm">
+                Order matters here — lines are read top to bottom.
+              </Text>
+            )}
+          </Group>
+        </Stack>
+
+        {/* Everything about the table, beside the table. */}
+        <Stack gap="md" style={{ flex: `0 0 ${RAIL_WIDTH}px`, maxWidth: '100%' }}>
+          <Paper radius="md" withBorder p="md">
+            <Stack gap="sm">
+              <Title order={6}>Name</Title>
+              <TextInput
+                label="What this decides"
+                placeholder="Loan approval"
+                value={name}
+                onChange={(event) => setName(event.currentTarget.value)}
+                required
+              />
+              <TextInput
+                label="Key"
+                description="How a process refers to this table"
+                placeholder="loan_approval"
+                value={key}
+                onChange={(event) => setKey(event.currentTarget.value)}
+                required
+              />
             </Stack>
           </Paper>
-        </Tabs.Panel>
 
-        <Tabs.Panel value="test" pt="md">
-          <Group align="flex-start">
-            <Paper p="xl" radius="lg" withBorder shadow="sm" style={{ flex: 1 }}>
-              <Stack gap="md">
-                <Group justify="space-between">
-                  <Group gap="xs">
-                    <FlaskConical size={18} color="var(--mantine-color-orange-6)" />
-                    <Title order={4}>Inputs</Title>
-                  </Group>
-                </Group>
-                <Text size="sm" c="dimmed">Provide sample values for your input variables to simulate the decision evaluation.</Text>
-                
-                <Stack gap="xs">
-                  {inputs.map((input) => (
-                    <div key={input.id}>
-                      {input.type === 'boolean' ? (
-                        <Select 
-                          label={input.label}
-                          description={expertMode ? `Variable: ${input.expression} (boolean)` : null}
-                          value={testInputs[input.expression] || ''}
-                          onChange={(val) => setTestInputs({ ...testInputs, [input.expression]: val || '' })}
-                          data={[
-                            { value: 'true', label: 'true' },
-                            { value: 'false', label: 'false' },
-                          ]}
-                          placeholder="Select boolean"
-                        />
-                      ) : (
-                        <TextInput 
-                          label={input.label} 
-                          description={expertMode ? `Variable: ${input.expression} (${input.type})` : null}
-                          placeholder={input.type === 'number' ? 'e.g. 100' : 'Sample value'} 
-                          value={testInputs[input.expression] || ''}
-                          onChange={(e) => setTestInputs({ ...testInputs, [input.expression]: e.currentTarget.value })}
-                        />
-                      )}
-                    </div>
+          <Paper radius="md" withBorder p="md">
+            <Stack gap="sm">
+              <Group gap={6}>
+                <Title order={6}>When several lines match</Title>
+                <Tooltip
+                  label="Two lines can both apply to the same input. This is what happens then."
+                  multiline
+                  w={240}
+                  withArrow
+                >
+                  <Info size={13} color="var(--mantine-color-dimmed)" />
+                </Tooltip>
+              </Group>
+
+              <Radio.Group value={hitPolicy} onChange={setHitPolicy}>
+                <Stack gap={6}>
+                  {HIT_POLICIES.map((option) => (
+                    <Radio.Card key={option.value} value={option.value} p="xs" radius="sm">
+                      <Group align="flex-start" gap="xs" wrap="nowrap">
+                        <Radio.Indicator size="xs" mt={2} />
+                        <Stack gap={2}>
+                          <Text size="sm" fw={500}>
+                            {option.label}
+                          </Text>
+                          {hitPolicy === option.value && (
+                            <>
+                              <Text size="xs" c="dimmed">
+                                {option.description}
+                              </Text>
+                              {expertMode && (
+                                <Text size="xs" c="dimmed" ff="monospace">
+                                  {option.dmn}
+                                </Text>
+                              )}
+                            </>
+                          )}
+                        </Stack>
+                      </Group>
+                    </Radio.Card>
                   ))}
                 </Stack>
-                
-                <Button 
-                  variant="filled" 
-                  color="orange" 
-                  leftSection={<Play size={16} />} 
-                  onClick={handleTest}
-                  loading={isTesting}
-                  mt="md"
-                >
-                  Run Simulation
-                </Button>
-              </Stack>
-            </Paper>
+              </Radio.Group>
 
-            <Paper p="xl" radius="lg" withBorder shadow="sm" style={{ flex: 1, minHeight: 300 }}>
-              <Stack gap="md">
-                <Title order={4}>Results</Title>
-                <Divider />
-                
-                {testError && (
-                  <Alert icon={<AlertCircle size={16} />} title="Evaluation Error" color="red">
-                    {typeof testError === 'string' ? testError : JSON.stringify(testError)}
-                  </Alert>
-                )}
+              {hitPolicy === 'COLLECT' && (
+                <Select
+                  label="Then"
+                  value={aggregation}
+                  onChange={(next) => setAggregation(next ?? '')}
+                  data={AGGREGATIONS}
+                  allowDeselect={false}
+                />
+              )}
 
-                {testResult ? (
-                  <Stack gap="sm">
-                    <Group>
-                      <Badge color="green" size="lg" leftSection={<CheckCircle2 size={12} />}>Matched</Badge>
-                      <Text fw={700}>Evaluation successful</Text>
-                      {matchedRules.length > 0 && (
-                        <Badge variant="light" color="orange">Rule {matchedRules.map(i => i + 1).join(', ')}</Badge>
-                      )}
+              {policy?.needsValueList && (
+                <Stack gap={4}>
+                  <TagsInput
+                    label={`Ranking for ${outputs[0]?.label || 'the first result'}`}
+                    description="Most important first. This is what the policy sorts by."
+                    placeholder="Add a value and press Enter"
+                    value={outputs[0]?.values ?? []}
+                    onChange={(values) => setOutputs(outputs.map((c, i) => (i === 0 ? { ...c, values } : c)))}
+                    error={outputs[0]?.values?.length ? undefined : 'Required by this policy'}
+                  />
+                </Stack>
+              )}
+            </Stack>
+          </Paper>
+
+          <Paper radius="md" withBorder p="md">
+            <Stack gap="sm">
+              <Group gap={6}>
+                <FlaskConical size={15} color="var(--mantine-color-orange-6)" />
+                <Title order={6}>Try it</Title>
+              </Group>
+              <Text size="xs" c="dimmed">
+                Runs the saved table and highlights the lines that matched.
+              </Text>
+
+              {inputs.map((input) =>
+                input.type === 'boolean' ? (
+                  <Select
+                    key={input.id}
+                    size="xs"
+                    label={input.label}
+                    value={testInputs[input.expression] || ''}
+                    onChange={(next) => setTestInputs({ ...testInputs, [input.expression]: next ?? '' })}
+                    data={[
+                      { value: 'true', label: 'Yes' },
+                      { value: 'false', label: 'No' },
+                    ]}
+                  />
+                ) : (
+                  <TextInput
+                    key={input.id}
+                    size="xs"
+                    label={input.label}
+                    placeholder={input.type === 'number' ? '100' : 'Sample value'}
+                    value={testInputs[input.expression] || ''}
+                    onChange={(event) =>
+                      setTestInputs({ ...testInputs, [input.expression]: event.currentTarget.value })
+                    }
+                  />
+                ),
+              )}
+
+              <Button
+                size="xs"
+                color="orange"
+                leftSection={<Play size={14} />}
+                onClick={handleTest}
+                loading={isTesting}
+              >
+                Run
+              </Button>
+
+              {testError && (
+                <Alert variant="light" color="red" icon={<AlertCircle size={14} />} py="xs">
+                  <Text size="xs">{testError}</Text>
+                </Alert>
+              )}
+
+              {testResult && (
+                <Card withBorder radius="sm" p="xs" bg="var(--mantine-color-gray-0)">
+                  <Stack gap={6}>
+                    <Group gap={6}>
+                      <CircleCheck size={14} color="var(--mantine-color-green-6)" />
+                      <Text size="xs" fw={600}>
+                        {matchedRules.length === 0
+                          ? 'No line matched'
+                          : `Line ${matchedRules.map((index) => index + 1).join(', ')} matched`}
+                      </Text>
                     </Group>
-                    <Paper withBorder p="md" bg="gray.0">
-                      <Code block>{JSON.stringify(testResult, null, 2)}</Code>
-                    </Paper>
-                    <Text size="xs" c="dimmed">The result shows the output variables produced by the matching rules based on your hit policy ({hitPolicy}).</Text>
-                    <Button variant="subtle" size="xs" leftSection={<ArrowLeft size={14} />} onClick={() => { setTestResult(null); setMatchedRules([]); }}>Clear Results</Button>
+                    <Code block fz={11}>
+                      {JSON.stringify(testResult, null, 2)}
+                    </Code>
                   </Stack>
-                ) : !testError && (
-                  <Center py={60}>
-                    <Stack align="center" gap="xs">
-                      <HelpCircle size={40} color="var(--mantine-color-gray-4)" />
-                      <Text c="dimmed">Run a simulation to see the results here.</Text>
-                    </Stack>
-                  </Center>
-                )}
-              </Stack>
-            </Paper>
-          </Group>
-        </Tabs.Panel>
-      </Tabs>
+                </Card>
+              )}
+            </Stack>
+          </Paper>
+
+          <Paper radius="md" withBorder p="md">
+            <Stack gap="sm">
+              <Group justify="space-between">
+                <Title order={6}>Advanced</Title>
+                <Switch
+                  size="xs"
+                  label="Expert"
+                  checked={expertMode}
+                  onChange={(event) => setExpertMode(event.currentTarget.checked)}
+                />
+              </Group>
+              <Divider />
+              <TextInput
+                size="xs"
+                label="Depends on"
+                description="Other decision keys this one needs, comma separated"
+                placeholder="risk_band, region"
+                value={requiredDecisions}
+                onChange={(event) => setRequiredDecisions(event.currentTarget.value)}
+              />
+            </Stack>
+          </Paper>
+        </Stack>
+      </Group>
     </Stack>
+  );
+}
+
+/** One column heading: its name, and — in expert mode — its wiring. */
+function ColumnHeader({
+  kind,
+  label,
+  variable,
+  type,
+  expert,
+  onLabel,
+  onVariable,
+  onType,
+  onRemove,
+}: {
+  kind: 'condition' | 'result';
+  label: string;
+  variable: string;
+  type: string;
+  expert: boolean;
+  onLabel: (next: string) => void;
+  onVariable: (next: string) => void;
+  onType: (next: string) => void;
+  onRemove?: () => void;
+}) {
+  const isCondition = kind === 'condition';
+  const accent = isCondition ? 'blue' : 'teal';
+
+  return (
+    <Table.Th
+      bg={`var(--mantine-color-${accent}-0)`}
+      miw={170}
+      style={{ borderBottom: `2px solid var(--mantine-color-${accent}-4)` }}
+    >
+      <Stack gap={4}>
+        <Group justify="space-between" wrap="nowrap" gap={4}>
+          <Text size={rem(10)} fw={700} c={`${accent}.9`}>
+            {isCondition ? 'IF' : 'THEN'}
+          </Text>
+          {onRemove && (
+            <ActionIcon aria-label={`Remove the ${label} column`} size="xs" variant="subtle" color="red" onClick={onRemove}>
+              <Trash2 size={10} />
+            </ActionIcon>
+          )}
+        </Group>
+
+        <TextInput
+          variant="unstyled"
+          size="xs"
+          fw={700}
+          aria-label={`${isCondition ? 'Condition' : 'Result'} column name`}
+          placeholder="Name this column"
+          value={label}
+          onChange={(event) => onLabel(event.currentTarget.value)}
+        />
+
+        {expert ? (
+          <Stack gap={2}>
+            <TextInput
+              size="xs"
+              aria-label="Variable"
+              placeholder="variable"
+              value={variable}
+              onChange={(event) => onVariable(event.currentTarget.value)}
+            />
+            <Select
+              size="xs"
+              aria-label="Type"
+              value={type}
+              onChange={(next) => onType(next ?? 'string')}
+              data={COLUMN_TYPES}
+              allowDeselect={false}
+            />
+          </Stack>
+        ) : (
+          <Badge size="xs" variant="light" color={accent} styles={{ label: { textTransform: 'none' } }}>
+            {variable || 'unnamed'}
+          </Badge>
+        )}
+      </Stack>
+    </Table.Th>
   );
 }

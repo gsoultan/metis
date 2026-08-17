@@ -28,6 +28,10 @@ type parser struct {
 	tokens []token
 	pos    int
 	depth  int
+
+	// inRangeBound is non-zero while a range's upper bound is being read, which
+	// is the one place a `[` closes something instead of opening an index.
+	inRangeBound int
 }
 
 // Parse turns an expression into an AST.
@@ -221,6 +225,14 @@ func (p *parser) parsePrefix() (Node, error) {
 	case tokLParen, tokLBracket:
 		return p.parseParenOrRangeOrList()
 
+	case tokRBracket:
+		// `]10..20]` is the other FEEL spelling of an exclusive lower bound, and
+		// the one DMN decision tables are written in — it is what Camunda
+		// exports and what this product's own editor offers from its cell menu.
+		// A `]` cannot open anything else, so requiring a range here costs
+		// nothing and gives a better message when it is a typo.
+		return p.parseOpenLowRange()
+
 	case tokLBrace:
 		return p.parseContext()
 	}
@@ -249,21 +261,8 @@ func (p *parser) parseParenOrRangeOrList() (Node, error) {
 	switch {
 	case p.at(tokRange):
 		p.next()
-		high, err := p.parseExpr(bpNone)
-		if err != nil {
-			return nil, err
-		}
-		closeTok := p.peek()
-		if closeTok.kind != tokRBracket && closeTok.kind != tokRParen {
-			return nil, fmt.Errorf("feel: range is missing its closing bracket")
-		}
-		p.next()
-		// `[` and `]` include the endpoint; `(` and `)` exclude it.
-		return &RangeNode{
-			Low: first, High: high,
-			LowOpen:  !openBracket,
-			HighOpen: closeTok.kind == tokRParen,
-		}, nil
+		// `[` and `(` at the start include and exclude the low end respectively.
+		return p.finishRange(first, !openBracket)
 
 	case openBracket:
 		items := []Node{first}
@@ -408,6 +407,11 @@ func (p *parser) infixBindingPower() int {
 			return bpCompare
 		}
 	case tokLBracket:
+		// Inside a range's upper bound a `[` is the closing bracket of an
+		// exclusive range, not the start of an index. See finishRange.
+		if p.inRangeBound > 0 {
+			return bpNone
+		}
 		return bpPostfix
 	}
 	return bpNone
@@ -467,6 +471,49 @@ func (p *parser) parseInfix(left Node, bp int) (Node, error) {
 		return nil, err
 	}
 	return &Binary{Op: tok.text, Left: left, Right: right}, nil
+}
+
+// parseOpenLowRange reads `]low..high…`, whose leading bracket excludes the low
+// end.
+func (p *parser) parseOpenLowRange() (Node, error) {
+	p.next() // ]
+	low, err := p.parseExpr(bpNone)
+	if err != nil {
+		return nil, err
+	}
+	if !p.at(tokRange) {
+		return nil, fmt.Errorf("feel: a range opened with ']' must be followed by '..'")
+	}
+	p.next()
+	return p.finishRange(low, true)
+}
+
+// finishRange reads a range's upper bound and its closing bracket.
+//
+// Three closers are accepted: `]` includes the endpoint, and both `)` and `[`
+// exclude it. The last is the DMN spelling — `[10..20[` — and it collides with
+// the index operator, because `20[` looks like the start of `20[1]`. Indexing is
+// suppressed while the bound is read, which is why this is not simply a call to
+// parseExpr: nobody writes `[0..items[1][`, and everybody writes `[10..20[`.
+func (p *parser) finishRange(low Node, lowOpen bool) (Node, error) {
+	p.inRangeBound++
+	high, err := p.parseExpr(bpNone)
+	p.inRangeBound--
+	if err != nil {
+		return nil, err
+	}
+
+	closeTok := p.peek()
+	switch closeTok.kind {
+	case tokRBracket:
+		p.next()
+		return &RangeNode{Low: low, High: high, LowOpen: lowOpen}, nil
+	case tokRParen, tokLBracket:
+		p.next()
+		return &RangeNode{Low: low, High: high, LowOpen: lowOpen, HighOpen: true}, nil
+	default:
+		return nil, fmt.Errorf("feel: range is missing its closing bracket")
+	}
 }
 
 func (p *parser) peek() token { return p.tokens[p.pos] }

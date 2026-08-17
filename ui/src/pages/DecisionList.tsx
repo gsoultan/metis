@@ -28,6 +28,7 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import dayjs from 'dayjs';
 import { ErrorState } from '../components/state';
+import { hitPolicyOf } from '../domain/decisionTable';
 
 export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => void, hideHeader?: boolean }) {
   const navigate = useNavigate();
@@ -153,7 +154,13 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
                       <Badge variant="outline" color="gray" radius="sm">{def.key}</Badge>
                     </Table.Td>
                     <Table.Td>
-                      <Badge variant="light" color="blue">{def.hit_policy || 'FIRST'}</Badge>
+                      {/* The letter code means nothing to whoever owns the rule;
+                          what it settles does. */}
+                      <Tooltip label={hitPolicyOf(def.hit_policy || 'FIRST')?.description ?? def.hit_policy}>
+                        <Badge variant="light" color="blue" styles={{ label: { textTransform: 'none' } }}>
+                          {hitPolicyOf(def.hit_policy || 'FIRST')?.label ?? def.hit_policy}
+                        </Badge>
+                      </Tooltip>
                     </Table.Td>
                     <Table.Td>
                       <Text size="xs" c="dimmed">{dayjs(def.created_at).fromNow()}</Text>

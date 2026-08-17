@@ -33,6 +33,12 @@ type DecisionOutput struct {
 	Label string `json:"label"`
 	Name  string `json:"name"`
 	Type  string `json:"type"`
+
+	// Values is the ordered priority list — see entities.DecisionOutput. It
+	// needs no migration: outputs are stored as JSON in one column, so the
+	// field simply starts appearing. Tables written before it have none, which
+	// is the same state as an author who has not set one.
+	Values []string `json:"values,omitzero"`
 }
 
 // DecisionRule represents a rule in a decision table in the database.

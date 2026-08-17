@@ -365,6 +365,11 @@ export interface ApiDecisionOutput {
   label: string;
   name: string;
   type: string;
+  /**
+   * The allowed result values, most important first. PRIORITY and OUTPUT ORDER
+   * rank matches by this list, and refuse to evaluate without it.
+   */
+  values?: string[];
 }
 
 /**
