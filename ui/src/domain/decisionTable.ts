@@ -390,3 +390,103 @@ export function moveRule(rules: DecisionRuleRow[], from: number, to: number): De
   next.splice(to, 0, moved);
   return next;
 }
+
+/**
+ * Splits what came off the clipboard into a grid.
+ *
+ * People build decision tables in a spreadsheet first — that is where the rates
+ * and the bands already are — and then retype them. Tab-separated with newlines
+ * between lines is what every spreadsheet puts on the clipboard, so accepting it
+ * is the difference between an afternoon and a minute.
+ */
+export function parseClipboardGrid(text: string): string[][] {
+  const normalised = text.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+  if (normalised === '') return [];
+  return normalised.split('\n').map((line) => line.split('\t'));
+}
+
+/**
+ * Writes a pasted grid into the table, starting at one cell.
+ *
+ * Lines beyond the end are added; columns beyond the end are dropped, because
+ * adding a column means naming a variable and choosing a type, which a paste
+ * cannot decide. Cells are laid out left to right across the conditions and then
+ * the results, which is the order they are read in.
+ */
+export function applyPastedGrid(
+  rules: DecisionRuleRow[],
+  atRow: number,
+  atColumn: number,
+  grid: string[][],
+  inputCount: number,
+  outputCount: number,
+  makeId: () => string,
+): DecisionRuleRow[] {
+  if (grid.length === 0) return rules;
+
+  const width = inputCount + outputCount;
+  const next = rules.map((rule) => ({
+    ...rule,
+    input_entries: [...rule.input_entries],
+    output_entries: [...rule.output_entries],
+  }));
+
+  grid.forEach((line, lineOffset) => {
+    const rowIndex = atRow + lineOffset;
+    while (next.length <= rowIndex) {
+      next.push(newRuleRow(makeId(), inputCount, outputCount));
+    }
+    const row = next[rowIndex];
+
+    line.forEach((cell, cellOffset) => {
+      const column = atColumn + cellOffset;
+      if (column >= width) return;
+      if (column < inputCount) {
+        row.input_entries[column] = cell;
+      } else {
+        row.output_entries[column - inputCount] = cell;
+      }
+    });
+  });
+
+  return next;
+}
+
+/**
+ * What is wrong with one condition cell, if anything.
+ *
+ * Deliberately shallow: the real grammar lives in the Go parser and cannot run
+ * in a browser, so this catches the shapes that are wrong however you read them
+ * — an unclosed quote, an unbalanced bracket, an operator with nothing after it.
+ * Anything subtler is caught when the table is tried, which is one click away.
+ */
+export function validateCell(cell: string): string | undefined {
+  const text = cell.trim();
+  if (text === '' || text === ANY_VALUE) return undefined;
+
+  const doubleQuotes = (text.match(/"/g) ?? []).length;
+  const singleQuotes = (text.match(/'/g) ?? []).length;
+  if (doubleQuotes % 2 !== 0 || singleQuotes % 2 !== 0) return 'A quote is left open';
+
+  // Brackets are counted outside quoted text, where they are punctuation rather
+  // than content. A range's `]…[` spellings mean depth can legitimately dip, so
+  // only the final balance is checked.
+  let depth = 0;
+  let quote = '';
+  for (const character of text) {
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === '(' || character === '[') depth += 1;
+    else if (character === ')' || character === ']') depth -= 1;
+  }
+  if (depth !== 0) return 'A bracket is left open';
+
+  if (/^(>=|<=|>|<|!=|=)\s*$/.test(text)) return 'This comparison has nothing to compare against';
+  if (text.endsWith(',')) return 'This list ends with a comma';
+  if (/\.\.\s*$/.test(text)) return 'This range has no upper end';
+
+  return undefined;
+}

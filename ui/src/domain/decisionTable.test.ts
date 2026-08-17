@@ -9,6 +9,9 @@ import {
   moveRule,
   newRuleRow,
   parseOutputValue,
+  parseClipboardGrid,
+  applyPastedGrid,
+  validateCell,
   type DecisionInputColumn,
   type DecisionOutputColumn,
   type DecisionRuleRow,
@@ -156,5 +159,93 @@ describe('moveRule', () => {
   it('does nothing at the edges', () => {
     expect(moveRule(rows, 0, -1)).toBe(rows);
     expect(moveRule(rows, 2, 3)).toBe(rows);
+  });
+});
+
+/**
+ * Decision tables are built in a spreadsheet first — that is where the rates and
+ * the bands already live. Accepting what a spreadsheet puts on the clipboard is
+ * the difference between an afternoon of retyping and a minute.
+ */
+describe('parseClipboardGrid', () => {
+  it('reads tab-separated lines', () => {
+    expect(parseClipboardGrid('> 10\tGOLD\n> 20\tSILVER')).toEqual([
+      ['> 10', 'GOLD'],
+      ['> 20', 'SILVER'],
+    ]);
+  });
+
+  it('survives Windows line endings and a trailing newline', () => {
+    expect(parseClipboardGrid('a\tb\r\nc\td\r\n')).toEqual([
+      ['a', 'b'],
+      ['c', 'd'],
+    ]);
+  });
+
+  it('treats a single value as a one-cell grid', () => {
+    expect(parseClipboardGrid('GOLD')).toEqual([['GOLD']]);
+  });
+
+  it('reads nothing from nothing', () => {
+    expect(parseClipboardGrid('')).toEqual([]);
+  });
+});
+
+describe('applyPastedGrid', () => {
+  const start = [newRuleRow('r1', 2, 1)];
+  const id = (() => {
+    let n = 0;
+    return () => `new-${n++}`;
+  })();
+
+  it('fills across conditions and then results', () => {
+    const [row] = applyPastedGrid(start, 0, 0, [['> 10', 'GOLD', 'BULK']], 2, 1, id);
+    expect(row.input_entries).toEqual(['> 10', 'GOLD']);
+    expect(row.output_entries).toEqual(['BULK']);
+  });
+
+  it('adds the lines the paste needs', () => {
+    const rows = applyPastedGrid(start, 0, 0, [['a', 'b', 'c'], ['d', 'e', 'f']], 2, 1, id);
+    expect(rows).toHaveLength(2);
+    expect(rows[1].input_entries).toEqual(['d', 'e']);
+  });
+
+  it('drops columns past the end rather than inventing variables for them', () => {
+    const [row] = applyPastedGrid(start, 0, 0, [['a', 'b', 'c', 'ignored']], 2, 1, id);
+    expect(row.input_entries).toEqual(['a', 'b']);
+    expect(row.output_entries).toEqual(['c']);
+  });
+
+  it('starts where the cursor is, not at the top left', () => {
+    const [row] = applyPastedGrid(start, 0, 1, [['GOLD', 'BULK']], 2, 1, id);
+    expect(row.input_entries[0]).toBe(ANY_VALUE);
+    expect(row.input_entries[1]).toBe('GOLD');
+    expect(row.output_entries[0]).toBe('BULK');
+  });
+
+  it('leaves the original rows alone', () => {
+    applyPastedGrid(start, 0, 0, [['x', 'y', 'z']], 2, 1, id);
+    expect(start[0].input_entries).toEqual([ANY_VALUE, ANY_VALUE]);
+  });
+});
+
+describe('validateCell', () => {
+  it('accepts the notations a table is written in', () => {
+    for (const cell of ['', '-', '> 10', '[1..10]', ']1..10[', '"A", "B"', 'not("A")', 'GOLD']) {
+      expect(validateCell(cell)).toBeUndefined();
+    }
+  });
+
+  it('catches what is wrong however you read it', () => {
+    expect(validateCell('"GOLD')).toBe('A quote is left open');
+    expect(validateCell('not("A"')).toBe('A bracket is left open');
+    expect(validateCell('>')).toBe('This comparison has nothing to compare against');
+    expect(validateCell('10, 20,')).toBe('This list ends with a comma');
+    expect(validateCell('[1..')).toBe('A bracket is left open');
+    expect(validateCell('1..')).toBe('This range has no upper end');
+  });
+
+  it('does not count brackets inside quoted text', () => {
+    expect(validateCell('"a [ b"')).toBeUndefined();
   });
 });
