@@ -98,6 +98,15 @@ jobs:
       - name: Race detector
         run: make race
 
+      # The SDK is its own zero-dependency module, so the module-wide commands
+      # above never see it. Untested here, it would only break in a consumer's
+      # build — the one place we cannot fix it from.
+      - name: Client SDK (vet, race)
+        working-directory: sdk
+        run: |
+          go vet ./...
+          go test -race ./...
+
       - name: Vulnerability scan (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
