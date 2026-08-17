@@ -170,6 +170,45 @@ curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/path   # exec
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.
 
+## Your endpoint will be called twice, eventually
+
+A service task's call and the transaction that records its result cannot share a
+transaction: the call is network I/O, and the record takes a row lock on the
+process instance. Holding that lock across someone else's API is how one slow
+partner stalls a whole engine. So they are separate — and a process that is
+interrupted between them retries, because from the engine's side a request that
+never arrived and a response that was lost look identical.
+
+The engine does three things about it, and needs one thing from you.
+
+**It remembers.** Every outbound call is recorded before it is made and completed
+with its response afterwards. A retry that finds a completed record reuses the
+response and makes no call at all. This is the common case and it is handled
+entirely on our side.
+
+**It sends a key.** Every call carries an `Idempotency-Key` header:
+
+```
+Idempotency-Key: gobpm-<32 characters>
+```
+
+The key is derived from the unit of work — the process instance, the node, and
+the iteration for a node that runs once per item — not from the attempt. It is
+identical on every retry, survives a restart, and is different for every other
+call the engine makes.
+
+**It says so.** A repeated call is logged as a warning naming the instance, the
+node, the attempt count and the key.
+
+**What we need from you:** treat two requests carrying the same
+`Idempotency-Key` as one. Store the key with the result, and when you see it
+again return the first result rather than doing the work twice. This matters most
+for anything that moves money, sends a message or creates a record — for a read,
+it costs nothing to ignore.
+
+If your API already implements the Stripe-style idempotency convention, it works
+with no changes.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

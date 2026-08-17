@@ -68,7 +68,11 @@ func Schema(models []any) []Migration {
 			},
 		},
 		{
-			Version: 2,
+			// 2 and 3 are the data migrations App.migrationList appends. A
+			// schema migration cannot take a number a shipped migration already
+			// has: the runner refuses the whole list, and the server does not
+			// start.
+			Version: 4,
 			Name:    "unique version per definition key",
 			// Deliberately not transactional: the DDL half commits implicitly on
 			// MySQL and SQL Server anyway, so a transaction here would only
@@ -89,6 +93,24 @@ func Schema(models []any) []Migration {
 					}
 				}
 				return nil
+			},
+		},
+		{
+			Version: 5,
+			Name:    "create the tables the baseline list omitted",
+			// Five models — deployments, deployment resources, forms, variable
+			// snapshots and compensatable activities — were declared, given
+			// repositories and used, but left out of the model list the baseline
+			// migrates. Every test harness built its schema from a fuller list of
+			// its own, so nothing noticed: on a fresh installation the first
+			// deployment failed with "no such table".
+			//
+			// AutoMigrate over the corrected list rather than five explicit
+			// creates: it is a no-op for the tables that already exist, which is
+			// what makes this safe to run against an installation that somehow
+			// has them.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				return db.AutoMigrate(models...)
 			},
 		},
 	}

@@ -16,6 +16,10 @@ type Repository interface {
 	Job() contracts.JobRepository
 	Organization() contracts.OrganizationRepository
 	Process() contracts.ProcessRepository
+
+	// ServiceCall remembers a service task's outbound call across job attempts,
+	// so a retry after a failed commit does not make it a second time.
+	ServiceCall() contracts.ServiceCallRepository
 	Project() contracts.ProjectRepository
 	Subscription() contracts.SubscriptionRepository
 	Task() contracts.TaskRepository

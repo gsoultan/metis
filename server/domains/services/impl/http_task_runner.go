@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"io"
 	"net/http"
 
@@ -56,6 +57,11 @@ func (r *HTTPServiceTaskRunner) Run(ctx context.Context, node entities.Node, pay
 		req.Header.Set("Content-Type", "application/json")
 	}
 	r.applyAuth(req, node)
+	// See the note in the HTTP connector: a retried job repeats this call, and
+	// the key is what lets the other end tell that from a new one.
+	if key, ok := idempotency.KeyFrom(ctx); ok {
+		req.Header.Set(idempotency.Header, key)
+	}
 
 	resp, err := r.client.Do(req)
 	if err != nil {

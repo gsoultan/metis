@@ -12,10 +12,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	contracts2 "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/semaphore"
 )
@@ -362,16 +364,9 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		return fmt.Errorf("node %s not found", job.Node.ID)
 	}
 
-	responseData, err := s.resolveAndExecuteConnector(ctx, def, *node, job.Payload)
+	responseData, err := s.callOnce(ctx, job, def, *node)
 	if err != nil {
 		return err
-	}
-	if responseData == nil {
-		// No connector matched — try the HTTP runner.
-		responseData, err = s.httpRunner.Run(ctx, *node, job.Payload)
-		if err != nil {
-			return err
-		}
 	}
 
 	// The row lock is taken for the whole read-modify-write, not just the read.
@@ -401,6 +396,101 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		// retire and the process never moves past it.
 		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
 	})
+}
+
+// callOnce makes the node's outbound call, at most once per unit of work.
+//
+// The call cannot share a transaction with the token advance that follows it:
+// the call is network I/O and the advance takes a row lock on the instance, and
+// holding that lock across a call to someone else's API is how one slow partner
+// stops a whole engine. So they are separate — and that separation is precisely
+// the defect this closes. A call that succeeded and then failed to commit was
+// retried, and the second attempt called again. For an endpoint that charges a
+// card, that is a second charge.
+//
+// Three steps, each committed on its own:
+//
+//  1. Record the call in flight. If a previous attempt already recorded it as
+//     completed, return that response and make no call at all.
+//  2. Make the call, carrying an idempotency key derived from the unit of work
+//     rather than from the attempt.
+//  3. Record the response. Only after this does the caller advance the token, so
+//     a failure there costs a repeated advance, not a repeated call.
+//
+// The window that remains — the call succeeded and step 3 did not — is the one
+// no client can close, because a request that never arrived and a response that
+// was lost look identical from here. The key is what makes that window safe: the
+// downstream sees it twice and answers once.
+func (s *jobService) callOnce(
+	ctx context.Context,
+	job entities.Job,
+	def *entities.ProcessDefinition,
+	node entities.Node,
+) (map[string]any, error) {
+	key := idempotency.ForServiceCall(job.Instance.ID, job.Node.ID, job.IterationID)
+
+	record, err := s.repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
+		InstanceID:     models.UUID(job.Instance.ID),
+		NodeID:         job.Node.ID,
+		IterationID:    job.IterationID,
+		ProjectID:      projectIDOf(def),
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if record.Status == models.ServiceCallCompleted {
+		log.Info().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Msg("Service call already completed on an earlier attempt; reusing its response")
+		return record.Response, nil
+	}
+	if record.Attempts > 1 {
+		// Worth saying out loud: the call is about to be made a second time, and
+		// whether that is safe now rests entirely on the downstream honouring
+		// the key.
+		log.Warn().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Int("attempts", record.Attempts).
+			Str("idempotency_key", key).
+			Msg("Repeating a service call that did not record a response")
+	}
+
+	callCtx := idempotency.WithKey(ctx, key)
+	responseData, err := s.resolveAndExecuteConnector(callCtx, def, node, job.Payload)
+	if err != nil {
+		return nil, err
+	}
+	if responseData == nil {
+		// No connector matched — try the HTTP runner.
+		responseData, err = s.httpRunner.Run(callCtx, node, job.Payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.repo.ServiceCall().Complete(ctx, uuid.UUID(record.ID), responseData); err != nil {
+		// The call landed. Failing here would retry it, which is the thing this
+		// function exists to prevent, so the work goes on and the gap is logged:
+		// the next attempt will repeat the call carrying the same key.
+		log.Error().Err(err).
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Msg("Could not record a completed service call; a retry would repeat it")
+	}
+	return responseData, nil
+}
+
+// projectIDOf reads the tenant off a definition, so a recorded call scopes like
+// every other row.
+func projectIDOf(def *entities.ProcessDefinition) models.UUID {
+	if def == nil || def.Project == nil {
+		return models.NilUUID
+	}
+	return models.UUID(def.Project.ID)
 }
 
 // resolveAndExecuteConnector finds a connector instance for the node and executes

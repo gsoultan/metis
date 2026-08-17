@@ -93,33 +93,15 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 }
 
 // migrationModels is the schema every test database gets, on all three
-// dialects. SetupTestDB, SetupPostgresDB and SetupMySQLDB all migrate from this
-// one list so a model added for one engine cannot go missing on another.
+// dialects.
+//
+// It delegates to the application's own list rather than keeping a copy. The
+// copy is how a table ends up in every test database and in no real one — or,
+// as happened here, the other way round: five models were in this list and
+// missing from the application's, so the suite was green while a fresh
+// installation failed on its first deployment.
 func migrationModels() []any {
-	return []any{
-		&models2.OrganizationModel{},
-		&models2.ProcessInstanceModel{},
-		&models2.TaskModel{},
-		&models2.ProcessDefinitionModel{},
-		&models2.ProjectModel{},
-		&models2.AuditModel{},
-		&models2.JobModel{},
-		&models2.IncidentModel{},
-		&models2.ExternalTaskModel{},
-		&models2.Subscription{},
-		&models2.DecisionDefinitionModel{},
-		&models2.Connector{},
-		&models2.ConnectorInstance{},
-		&models2.UserModel{},
-		&models2.GroupModel{},
-		&models2.MembershipModel{},
-		&models2.CompensatableActivityModel{},
-		&models2.VariableSnapshotModel{},
-		&models2.FormModel{},
-		&models2.NotificationModel{},
-		&models2.DeploymentModel{},
-		&models2.ResourceModel{},
-	}
+	return models2.MigrationModels()
 }
 
 // sanitiseSchemaName reduces a Go test name to something PostgreSQL accepts as

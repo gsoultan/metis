@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"io"
 	"net/http"
 
@@ -82,6 +83,12 @@ func buildRequestBody(method string, payload map[string]any) (io.Reader, error) 
 
 func applyHeaders(req *http.Request, config map[string]any) {
 	req.Header.Set("Content-Type", "application/json")
+	// The engine may repeat this call — a job whose result failed to commit is
+	// retried — so it says which unit of work it belongs to and leaves the
+	// downstream free to answer once.
+	if key, ok := idempotency.KeyFrom(req.Context()); ok {
+		req.Header.Set(idempotency.Header, key)
+	}
 	headers, _ := config["headers"].(map[string]any)
 	for k, v := range headers {
 		if s, ok := v.(string); ok {
