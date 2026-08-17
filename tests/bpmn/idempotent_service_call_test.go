@@ -183,7 +183,7 @@ func TestServiceTask_StopsCallingADownstreamThatKeepsFailing(t *testing.T) {
 	// Each instance is its own unit of work, so none of them is skipped for
 	// idempotency — every attempt here is a genuine call the breaker has to stop.
 	const instances = 12
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		h.run(t, node, map[string]any{"amount": float64(i)})
 	}
 

@@ -28,7 +28,7 @@ func newTestGroup(t *testing.T, settings Settings) (*Group, *fixedClock) {
 func TestABrokenDownstreamStopsBeingCalled(t *testing.T) {
 	g, _ := newTestGroup(t, Settings{FailureThreshold: 3, OpenDuration: time.Minute})
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if allowed, _ := g.Allow("api"); !allowed {
 			t.Fatalf("refused after %d failures; the threshold is 3", i)
 		}
@@ -136,7 +136,7 @@ func TestTheMapIsBoundedAndForgets(t *testing.T) {
 		MaxBreakers:      8,
 	})
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		g.Failed("host-" + strconv.Itoa(i))
 	}
 	g.mu.Lock()
@@ -165,7 +165,7 @@ func TestTheMapIsBoundedAndForgets(t *testing.T) {
 func TestAHealthyDownstreamIsNotRemembered(t *testing.T) {
 	g, _ := newTestGroup(t, DefaultSettings())
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		if allowed, _ := g.Allow("api"); !allowed {
 			t.Fatal("a healthy downstream was refused")
 		}
@@ -186,12 +186,12 @@ func TestConcurrentUse(t *testing.T) {
 	g, _ := newTestGroup(t, DefaultSettings())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for i := range 16 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
 			key := "api-" + strconv.Itoa(n%4)
-			for j := 0; j < 200; j++ {
+			for j := range 200 {
 				g.Allow(key)
 				if j%3 == 0 {
 					g.Failed(key)
@@ -210,7 +210,7 @@ func TestConcurrentUse(t *testing.T) {
 func TestAnEmptyKeyIsANoOp(t *testing.T) {
 	g, _ := newTestGroup(t, Settings{FailureThreshold: 1})
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		g.Failed("")
 	}
 	if allowed, _ := g.Allow(""); !allowed {

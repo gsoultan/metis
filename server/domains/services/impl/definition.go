@@ -37,8 +37,11 @@ func (s *definitionService) CreateDefinition(ctx context.Context, def *entities.
 	}
 
 	if def.ID == uuid.Nil {
-		idObj, _ := uuid.NewV7()
-		def.ID = idObj
+		id, err := uuid.NewV7()
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("could not generate a definition id: %w", err)
+		}
+		def.ID = id
 	}
 
 	// The version series is per project, matching the unique index, so the

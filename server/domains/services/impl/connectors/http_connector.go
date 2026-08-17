@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"io"
 	"net/http"
+
+	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 
 	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
 )

@@ -57,7 +57,7 @@ func TestRetryDelayIsSpreadOut(t *testing.T) {
 	seen := map[time.Duration]int{}
 	var min, max time.Duration
 
-	for i := 0; i < instances; i++ {
+	for range instances {
 		delay := retryDelay(1)
 		seen[delay]++
 		if min == 0 || delay < min {
@@ -78,7 +78,7 @@ func TestRetryDelayIsSpreadOut(t *testing.T) {
 
 // A first retry is soon, because most failures are over inside a minute.
 func TestFirstRetryIsSoon(t *testing.T) {
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if got := retryDelay(1); got > time.Minute {
 			t.Fatalf("the first retry waits %v; a connection reset does not need a minute", got)
 		}

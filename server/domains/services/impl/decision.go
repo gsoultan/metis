@@ -128,7 +128,11 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 	}
 
 	if d.ID == uuid.Nil {
-		d.ID, _ = uuid.NewV7()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("could not generate a decision id: %w", err)
+		}
+		d.ID = id
 	}
 
 	// The version series is per project, matching the unique index, so the
