@@ -85,6 +85,17 @@ type SequenceFlow struct {
 // ProcessDefinitionModel represents the GORM model for process definitions.
 type ProcessDefinitionModel struct {
 	Base
+	// (project_id, key, version) is unique, and the uniqueness is the whole
+	// point: a version is allocated by reading the highest one and adding one,
+	// which two concurrent deployments of the same process will do from the
+	// same starting number. Without the constraint both writes succeed, two
+	// rows claim to be version N, and which one a "start version N" call gets
+	// is a coin flip. With it the loser is told to try again.
+	//
+	// The constraint is declared by a migration rather than a `uniqueIndex` tag
+	// here. A tag would put it in the baseline AutoMigrate, which runs before
+	// the migration that repairs pre-existing duplicates — so the upgrade would
+	// fail on exactly the installations that need it.
 	ProjectID    UUID           `gorm:"index" json:"project_id,omitzero"`
 	Key          string         `gorm:"size:255;index" json:"key"`
 	Name         string         `json:"name"`

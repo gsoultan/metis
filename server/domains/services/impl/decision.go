@@ -127,23 +127,29 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 		return uuid.Nil, fmt.Errorf("decision key is required")
 	}
 
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		if d.ID == uuid.Nil {
-			d.ID, _ = uuid.NewV7()
-		}
+	if d.ID == uuid.Nil {
+		d.ID, _ = uuid.NewV7()
+	}
 
-		// Increment version if key already exists
-		existing, err := s.repo.Decision().GetByKey(txCtx, d.Key)
-		if err == nil {
-			d.Version = existing.Version + 1
-		} else {
-			d.Version = 1
-		}
+	// The version series is per project, matching the unique index, so the
+	// allocator needs the same project the adapter is about to write.
+	var projectID uuid.UUID
+	if d.Project != nil {
+		projectID = d.Project.ID
+	}
 
-		return s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel())
-	})
-
-	return d.ID, err
+	err := allocateVersion(ctx, s.repo.UnitOfWork(), "decision "+d.Key,
+		func(ctx context.Context) (int, error) {
+			return s.repo.Decision().NextVersion(ctx, projectID, d.Key)
+		},
+		func(txCtx context.Context, version int) error {
+			d.Version = version
+			return s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel())
+		})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return d.ID, nil
 }
 
 func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d entities.DecisionDefinition) error {

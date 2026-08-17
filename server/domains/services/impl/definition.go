@@ -36,22 +36,26 @@ func (s *definitionService) CreateDefinition(ctx context.Context, def *entities.
 		return uuid.Nil, fmt.Errorf("invalid definition: %s", strings.Join(validator.Errors(), "; "))
 	}
 
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Versioning logic
-		m, err := s.repo.Definition().GetByKey(txCtx, def.Key)
-		if err == nil {
-			def.Version = m.Version + 1
-		} else {
-			def.Version = 1
-		}
+	if def.ID == uuid.Nil {
+		idObj, _ := uuid.NewV7()
+		def.ID = idObj
+	}
 
-		if def.ID == uuid.Nil {
-			idObj, _ := uuid.NewV7()
-			def.ID = idObj
-		}
-		return s.repo.Definition().Create(txCtx, adapters.DefinitionModelAdapter{Definition: def}.ToModel())
-	})
+	// The version series is per project, matching the unique index, so the
+	// allocator needs the same project the adapter is about to write.
+	var projectID uuid.UUID
+	if def.Project != nil {
+		projectID = def.Project.ID
+	}
 
+	err := allocateVersion(ctx, s.repo.UnitOfWork(), "process "+def.Key,
+		func(ctx context.Context) (int, error) {
+			return s.repo.Definition().NextVersion(ctx, projectID, def.Key)
+		},
+		func(txCtx context.Context, version int) error {
+			def.Version = version
+			return s.repo.Definition().Create(txCtx, adapters.DefinitionModelAdapter{Definition: def}.ToModel())
+		})
 	if err != nil {
 		return uuid.Nil, err
 	}

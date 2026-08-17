@@ -55,6 +55,27 @@ func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key s
 	return m, nil
 }
 
+// NextVersion returns the version number a new deployment of key should claim.
+//
+// See gormDecisionRepository.NextVersion — same contract, same reasoning: the
+// count runs over the rows the unique index covers, soft-deleted ones included,
+// and the answer is a proposal that the index arbitrates.
+func (r *gormDefinitionRepository) NextVersion(ctx context.Context, projectID uuid.UUID, key string) (int, error) {
+	db := tenantScopeDB(ctx,
+		GetTx(ctx, r.db).Unscoped().Model(&models.ProcessDefinitionModel{}),
+		tableProcessDefinitions)
+
+	var highest int
+	if err := db.
+		Where(QualifiedByProjectID(tableProcessDefinitions), projectID).
+		Where(ByKey(key)).
+		Select(QueryHighestVersion(tableProcessDefinitions)).
+		Scan(&highest).Error; err != nil {
+		return 0, fmt.Errorf("could not read the highest definition version: %w", err)
+	}
+	return highest + 1, nil
+}
+
 func (r *gormDefinitionRepository) List(ctx context.Context) ([]models.ProcessDefinitionModel, error) {
 	var modelsList []models.ProcessDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions")

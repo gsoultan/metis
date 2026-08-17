@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"github.com/gsoultan/gobpm/server/repositories/gorms"
 	"os"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 		t.Fatalf("failed to configure test encryption key: %v", err)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), gorms.Config())
 	if err != nil {
 		t.Fatalf("failed to open postgres: %v", err)
 	}
@@ -73,7 +74,7 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 
 	// Reopen with the schema pinned in the DSN so every pooled connection lands
 	// in it, not just the one that ran SET search_path.
-	scoped, err := gorm.Open(postgres.Open(dsn+" search_path="+schema), &gorm.Config{})
+	scoped, err := gorm.Open(postgres.Open(dsn+" search_path="+schema), gorms.Config())
 	if err != nil {
 		t.Fatalf("failed to reopen postgres on the test schema: %v", err)
 	}
@@ -87,6 +88,7 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 	if err := scoped.AutoMigrate(migrationModels()...); err != nil {
 		t.Fatalf("failed to migrate postgres schema: %v", err)
 	}
+	ensureVersionIndexes(t, scoped)
 	return scoped
 }
 

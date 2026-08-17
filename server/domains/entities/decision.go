@@ -12,6 +12,15 @@ const (
 	HitPolicyAny      = "ANY"
 	HitPolicyCollect  = "COLLECT"
 
+	// HitPolicyOutputOrder returns every matching line, ordered by the priority
+	// of its output value. HitPolicyRuleOrder returns every matching line in
+	// table order. Both were absent, which left the DMN hit-policy set
+	// incomplete: a table exported from another tool using either of them
+	// silently fell through to "take the first line", quietly answering with
+	// one value where the author asked for all of them.
+	HitPolicyOutputOrder = "OUTPUT ORDER"
+	HitPolicyRuleOrder   = "RULE ORDER"
+
 	AggregationSum   = "SUM"
 	AggregationCount = "COUNT"
 	AggregationMin   = "MIN"
@@ -48,6 +57,16 @@ type DecisionOutput struct {
 	Label string `json:"label"`
 	Name  string `json:"name"`
 	Type  string `json:"type"`
+
+	// Values is the ordered list of allowed output values, most important
+	// first — DMN's "output values" list.
+	//
+	// PRIORITY and OUTPUT ORDER are defined entirely in terms of it: they rank
+	// matching lines by where each line's output sits in this list, not by
+	// where the line sits in the table. Without it PRIORITY has nothing to sort
+	// by, which is why it used to be an alias for FIRST — a table asking for
+	// "the most severe outcome that applies" got "the first one written down".
+	Values []string `json:"values,omitzero"`
 }
 
 // DecisionRule represents a rule in a decision table.

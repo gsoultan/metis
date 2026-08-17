@@ -432,7 +432,7 @@ func (a *App) setupDatabase() error {
 	if err != nil {
 		return err
 	}
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	db, err := gorm.Open(dialector, gorms.Config())
 	if err != nil {
 		return fmt.Errorf("failed to open db: %w", err)
 	}

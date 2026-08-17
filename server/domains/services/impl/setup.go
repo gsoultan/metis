@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gsoultan/gobpm/server/repositories/gorms"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 	dsn := config.BuildConnectionString(req.DatabaseDriver, fields)
 	dialector := buildDialector(req.DatabaseDriver, dsn)
 
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	db, err := gorm.Open(dialector, gorms.Config())
 	if err != nil {
 		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Failed to open connection: %s", redaction.RedactError(err))}
 	}
@@ -221,7 +222,7 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 	dsn := config.BuildConnectionString(req.DatabaseDriver, buildDatabaseFields(req))
 	dialector := buildDialector(req.DatabaseDriver, dsn)
 
-	db, err := gorm.Open(dialector, new(gorm.Config))
+	db, err := gorm.Open(dialector, gorms.Config())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open target database: %w", err)
 	}

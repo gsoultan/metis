@@ -19,6 +19,13 @@ type DefinitionRepository interface {
 	// unpaged call above returns every version of every process a project has
 	// ever had, which is a list that only grows.
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.ProcessDefinitionModel], error)
+
+	// NextVersion proposes the version a new deployment of key should claim,
+	// counted over the rows the (project_id, key, version) unique index covers.
+	// It is a proposal: concurrent callers get the same number and the index
+	// decides which one keeps it.
+	NextVersion(ctx context.Context, projectID uuid.UUID, key string) (int, error)
+
 	Create(ctx context.Context, definition models.ProcessDefinitionModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

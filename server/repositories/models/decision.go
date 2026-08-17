@@ -3,6 +3,10 @@ package models
 // DecisionDefinitionModel represents the GORM model for decision definitions.
 type DecisionDefinitionModel struct {
 	Base
+	// (project_id, key, version) is unique, for the same reason it is on
+	// ProcessDefinitionModel: the version is allocated read-then-write, and only
+	// the database can settle a race between two deployments of the same key.
+	// The constraint lives in a migration, not a tag — see that model.
 	ProjectID         UUID             `gorm:"index" json:"project_id,omitzero"`
 	Key               string           `gorm:"size:255;index" json:"key"`
 	Name              string           `json:"name"`

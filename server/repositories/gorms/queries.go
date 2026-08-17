@@ -101,6 +101,22 @@ const QueryTenantScopeDirect = "{table}.organization_id = ?"
 const QueryTenantScopeViaDeployment = "JOIN deployments ON deployments.id = deployment_resources.deployment_id " +
 	"JOIN projects ON projects.id = deployments.project_id AND projects.organization_id = ?"
 
+// QualifiedByProjectID is QueryByProjectID qualified with its table, for reads
+// that run under a tenant join. See QualifiedByID for why qualification matters.
+func QualifiedByProjectID(table string) string {
+	return table + ".project_id = ?"
+}
+
+// QueryHighestVersion selects the highest version in the scoped rows, or zero
+// when there are none.
+//
+// COALESCE rather than a nullable scan: MAX over an empty set is NULL on every
+// engine, and "this key has never been deployed" is a normal answer, not an
+// error. The column is qualified because the read runs under a tenant join.
+func QueryHighestVersion(table string) string {
+	return "COALESCE(MAX(" + table + ".version), 0)"
+}
+
 // QualifiedByID builds an unambiguous primary-key condition for a table.
 //
 // A bare "id = ?" is ambiguous the moment tenant scoping joins projects, which
