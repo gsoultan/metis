@@ -8,11 +8,15 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite'
 // Go server runs on a different port.
 const backend = process.env.GOBPM_BACKEND ?? 'http://localhost:8080'
 
+// Deliberately not Vite's default 5173: every other Vite project claims it, so
+// two checkouts open at once would fight over the port. Override with UI_PORT.
+const port = Number(process.env.UI_PORT ?? 5273)
+
 export default defineConfig({
   // Proxying /api keeps development same-origin, so the app talks to the
   // backend exactly as it does in production and no CORS is involved.
   server: {
-    port: 5173,
+    port,
     proxy: {
       '/api': { target: backend, changeOrigin: true },
       // Server-sent events for live process/task updates.

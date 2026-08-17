@@ -59,3 +59,40 @@ const QueryByOrganizationID = "organization_id = ?"
 // tenant (organization) through the projects table. Apply when a TenantContext
 // is present in the request context.
 const QueryTenantScopeViaProject = "JOIN projects ON projects.id = {table}.project_id AND projects.organization_id = ?"
+
+// QueryTenantScopeViaProjectOptional is the join half of the scope for tables
+// whose project_id is nullable. It has to be a LEFT JOIN paired with
+// QueryTenantScopeOptionalCondition: an inner join would silently drop every
+// row that has no project, which for notifications means a system message
+// addressed to a user would vanish from their inbox.
+const QueryTenantScopeViaProjectOptional = "LEFT JOIN projects ON projects.id = {table}.project_id"
+
+// QueryTenantScopeOptionalCondition is the predicate half of the nullable
+// scope: the row belongs to the caller's organization, or it belongs to no
+// project at all and is reachable only through the column that already
+// identifies its owner.
+const QueryTenantScopeOptionalCondition = "projects.organization_id = ? OR {table}.project_id IS NULL"
+
+// QueryTenantScopeViaProjectSubquery scopes a table by project membership
+// without joining, for statements where a JOIN is the wrong tool:
+//
+//   - SELECT ... FOR UPDATE, where joining projects would take row locks on a
+//     second table on every call.
+//   - UPDATE and DELETE, where join syntax is not portable across SQLite,
+//     PostgreSQL and MySQL.
+const QueryTenantScopeViaProjectSubquery = "{table}.project_id IN (SELECT id FROM projects WHERE organization_id = ?)"
+
+// QueryTenantScopeViaDeployment scopes deployment_resources, which carry no
+// project_id of their own — their tenant is whichever project owns the parent
+// deployment.
+const QueryTenantScopeViaDeployment = "JOIN deployments ON deployments.id = deployment_resources.deployment_id " +
+	"JOIN projects ON projects.id = deployments.project_id AND projects.organization_id = ?"
+
+// QualifiedByID builds an unambiguous primary-key condition for a table.
+//
+// A bare "id = ?" is ambiguous the moment tenant scoping joins projects, which
+// carries an id of its own — SQLite and Postgres reject the statement outright.
+// Every read that can run under a tenant scope must qualify its columns.
+func QualifiedByID(table string) string {
+	return table + ".id = ?"
+}

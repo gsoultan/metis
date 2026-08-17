@@ -9,7 +9,7 @@
 #   ./scripts/dev.sh --reset      wipe the local SQLite database first
 #   ./scripts/dev.sh --sample     set up and fill it with worked examples
 #
-# The UI runs on :5173 and proxies /api to the backend on :8080, so
+# The UI runs on :5273 and proxies /api to the backend on :8080, so
 # development is same-origin — the app talks to the server exactly as it does
 # in production, and no CORS is involved.
 
@@ -18,7 +18,9 @@ set -Eeuo pipefail
 readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-readonly UI_PORT="${UI_PORT:-5173}"
+# Not Vite's default 5173 — it collides with every other Vite project on the
+# machine. Override with UI_PORT for a one-off run.
+readonly UI_PORT="${UI_PORT:-5273}"
 readonly API_PORT="${API_PORT:-8080}"
 
 # Ports this run actually bound, so shutdown only reports its own.

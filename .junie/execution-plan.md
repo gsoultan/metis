@@ -36,9 +36,15 @@ Phases 2–5 can overlap once 0 and 1 are done. 0 and 1 cannot overlap with anyt
 
 | Phase | State |
 | :-- | :-- |
-| **0** Green gate | **done except 0.6** — build/vet/test/race green module-wide and enforced in CI |
-| **1** P0 security | **done** — all nine items landed |
-| **2–5** | not started |
+| **0** Green gate | **done** — build/vet/test/race/lint green module-wide and enforced in CI |
+| **1** P0 security | **done** — all nine items landed; read-path tenant scoping now complete |
+| **2** Expression layer | **not started.** The DMN cell injection is closed — `feel_evaluator.go` replaced the `Sprintf` + `vm.RunString` path — but that evaluator is string matching, not the lexer/parser/AST in 2.1. No dates, durations, arithmetic, `and`/`or`, paths or built-ins. 2.3.1 (`matchingRules[0]` guard) is done; 2.3.3–2.3.5 are not. |
+| **3** Integration platform | not started |
+| **4** BPMN × DMN | partial — engine-side work landed (boundary events, repeating timers, multi-instance, ad-hoc activation, decision-driven routing proven by test). None of 4.3.1–4.3.6 built. |
+| **5** UI/UX + upgrade | partial — 5.2.f (TypeScript 7) landed, plus the designer rebuild, Connect RPC v2, list pagination and a bundle budget. 5.2.a–e, 5.2.g–h, PWA, virtualization, a11y and i18n are not started. |
+
+Phases 2–5 overlap by design, so "partial" here means slices landed opportunistically
+alongside Phase 0/1 work — not that the phases were started in order.
 
 Outstanding:
 
@@ -57,11 +63,28 @@ Outstanding:
    plus project references). The Makefile and CI now run `tsc -b --force`.
 2. **golangci-lint backlog** — 760 pre-existing findings, baselined; CI blocks new ones.
    Burn-down order is in `.golangci.yml`; the engine's slice is done.
-3. **Tenant scoping coverage** — `tenantScopeDB` now covers `tasks`, `process_instances`,
-   `process_definitions` and `decision_definitions`. Audit, forms, notifications,
-   subscriptions and external tasks are still unscoped; they are reachable only through
-   project-scoped endpoints today, but that is a property of the callers, not the
-   repository, and should be closed.
+3. **Tenant scoping coverage** — **read paths are closed.** The scope now covers every
+   project-owned table: `tasks`, `process_instances`, `process_definitions`,
+   `decision_definitions`, plus `audit_logs`, `forms`, `deployments`,
+   `deployment_resources`, `event_subscriptions`, `external_tasks`,
+   `connector_instances` and `notifications`. `deployment_resources` scopes through its
+   parent deployment; `notifications` uses a null-tolerant scope so a system message
+   addressed to a user is not erased along with the other tenant's rows. Proof:
+   `tests/tenant/isolation_test.go`, run against SQLite, PostgreSQL and MySQL.
+
+   Two gaps remain, both deliberate:
+
+   - **Write paths are still unscoped.** `MarkAsRead`, `Delete`, `UpdateCorrelationKey`
+     and friends take a bare ID. A JOIN is not portable in `UPDATE`/`DELETE` across
+     SQLite, PostgreSQL and MySQL, so closing these needs the subquery form
+     (`WHERE project_id IN (SELECT id FROM projects WHERE organization_id = ?)`).
+   - **The scope fails open with no `TenantContext`.** That is what lets the engine and
+     its background workers run, and it contradicts AGENTS §2.3 *absent constraint means
+     deny*. Reversing it means giving system work an explicit system identity first —
+     a bigger change than this coverage pass, and one that should be made deliberately.
+
+   `FetchAndLock` and `ListTemplatedMessageSubscriptions` are deliberately left unscoped
+   and carry comments saying why.
 
 Phase 1 exit criterion is met: an external security review can be scheduled.
 

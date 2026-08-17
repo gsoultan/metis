@@ -5,7 +5,6 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
-	models2 "github.com/gsoultan/gobpm/server/repositories/models"
 	"gorm.io/gorm"
 )
 
@@ -32,27 +31,10 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to get sql.DB: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	err = db.AutoMigrate(
-		&models2.OrganizationModel{},
-		&models2.ProcessInstanceModel{},
-		&models2.TaskModel{},
-		&models2.ProcessDefinitionModel{},
-		&models2.ProjectModel{},
-		&models2.AuditModel{},
-		&models2.JobModel{},
-		&models2.IncidentModel{},
-		&models2.ExternalTaskModel{},
-		&models2.Subscription{},
-		&models2.DecisionDefinitionModel{},
-		&models2.Connector{},
-		&models2.ConnectorInstance{},
-		&models2.UserModel{},
-		&models2.GroupModel{},
-		&models2.MembershipModel{},
-		&models2.CompensatableActivityModel{},
-		&models2.VariableSnapshotModel{},
-	)
-	if err != nil {
+	// The model list is shared with the PostgreSQL and MySQL helpers: keeping a
+	// second copy here guaranteed the three dialects would drift apart on the
+	// next model added.
+	if err := db.AutoMigrate(migrationModels()...); err != nil {
 		t.Fatalf("failed to migrate db: %v", err)
 	}
 	return db
