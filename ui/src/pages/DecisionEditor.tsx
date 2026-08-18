@@ -91,7 +91,7 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
-import { useCreateDecision, useDecision, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
+import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
 import type { ProcessVariables } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
@@ -306,6 +306,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const createDecision = useCreateDecision();
   const updateDecision = useUpdateDecision();
   const evaluateDecision = useEvaluateDecision();
+  const { data: impact } = useDecisionImpact(definitionId || null);
 
   const [name, setName] = useState(search.name || 'New Decision');
   const [key, setKey] = useState(search.key || 'new_decision');
@@ -1012,6 +1013,43 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
               )}
             </Stack>
           </Paper>
+
+          {/* Who else this table decides for. A threshold changed with three
+              hundred instances part-way through the process that reads it is a
+              different act from one changed on a table nothing uses, and the
+              difference belongs on screen before the change, not after. */}
+          {impact && (impact.processes?.length ?? 0) > 0 && (
+            <Paper radius="md" withBorder p="md">
+              <Stack gap="xs">
+                <Title order={6}>Used by</Title>
+                {impact.processes?.map((process) => (
+                  <Group key={process.definition_id} justify="space-between" wrap="nowrap" gap="xs">
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" truncate>
+                        {process.definition_name || process.definition_key}
+                      </Text>
+                      {process.steps?.length ? (
+                        <Text size="xs" c="dimmed" truncate>
+                          at {process.steps.join(', ')}
+                        </Text>
+                      ) : null}
+                    </div>
+                    {process.running_instances > 0 && (
+                      <Badge size="xs" variant="light" color="orange" style={{ flexShrink: 0 }}>
+                        {process.running_instances} running
+                      </Badge>
+                    )}
+                  </Group>
+                ))}
+                {impact.running_instances > 0 && (
+                  <Text size="xs" c="dimmed">
+                    {impact.running_instances} process{impact.running_instances === 1 ? '' : 'es'} started under the
+                    current version and not yet finished.
+                  </Text>
+                )}
+              </Stack>
+            </Paper>
+          )}
 
           <Paper radius="md" withBorder p="md">
             <Stack gap="sm">

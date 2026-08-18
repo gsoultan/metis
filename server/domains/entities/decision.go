@@ -107,3 +107,35 @@ type DecisionResult struct {
 	// that produced it; an ID survives the table being edited.
 	MatchedRuleIDs []string `json:"matched_rule_ids,omitzero"`
 }
+
+// DecisionImpact answers "what breaks if I change this?".
+//
+// A decision table is a policy several processes can share, and the person
+// about to edit one is usually the person least able to see who else depends on
+// it. Changing a threshold with three hundred instances part-way through the
+// process that reads it is a different act from changing one nothing uses, and
+// the difference should be visible before the change, not after.
+type DecisionImpact struct {
+	DecisionKey string `json:"decision_key"`
+
+	// Processes that can reach this decision.
+	Processes []DecisionUsage `json:"processes,omitzero"`
+
+	// RunningInstances is the total across those processes — the number of
+	// business commitments already in flight under the current policy.
+	RunningInstances int `json:"running_instances"`
+}
+
+// DecisionUsage is one process that consults a decision.
+type DecisionUsage struct {
+	DefinitionID   uuid.UUID `json:"definition_id"`
+	DefinitionKey  string    `json:"definition_key"`
+	DefinitionName string    `json:"definition_name,omitzero"`
+	Version        int       `json:"version"`
+
+	// Steps names the steps that consult it — "Score the applicant" tells
+	// somebody where the policy is used; a count does not.
+	Steps []string `json:"steps,omitzero"`
+
+	RunningInstances int `json:"running_instances"`
+}

@@ -104,4 +104,23 @@ export const decisionService = {
       err: data.err,
     };
   },
+
+  /** What depends on a decision, before somebody changes it. */
+  async decisionImpact(id: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ impact?: ApiDecisionImpact; err?: string }>(`/decisions/${id}/impact`, { signal });
+    return data.impact;
+  },
 };
+/** Mirrors entities.DecisionImpact. */
+export interface ApiDecisionImpact {
+  decision_key: string;
+  running_instances: number;
+  processes?: Array<{
+    definition_id: string;
+    definition_key: string;
+    definition_name?: string;
+    version: number;
+    steps?: string[];
+    running_instances: number;
+  }>;
+}

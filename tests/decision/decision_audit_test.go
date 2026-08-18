@@ -499,3 +499,113 @@ func (h *businessRuleHarness) taskOn(t *testing.T, instanceID uuid.UUID) entitie
 	}
 	return adapters.TaskEntityAdapter{Model: tasks[0]}.ToEntity()
 }
+
+// A decision table is a policy several processes can share, and the person
+// about to edit one is usually the person least able to see who else depends on
+// it. Changing a threshold with instances part-way through is a different act
+// from changing one nothing uses.
+func TestTheImpactViewSaysWhatDependsOnADecision(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	table := entities.DecisionDefinition{
+		Key:       "risk",
+		Name:      "Risk band",
+		HitPolicy: entities.HitPolicyFirst,
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "amount", Type: "number"}},
+		Outputs:   []entities.DecisionOutput{{ID: "o1", Name: "band", Type: "string"}},
+		Rules:     []entities.DecisionRule{{ID: "r1", Inputs: []string{"-"}, Outputs: []any{"HIGH"}}},
+	}
+	instance := h.runDecisionThenWait(t, table, map[string]any{"amount": 500.0})
+	stored := h.decisionByKey(t, table.Key)
+
+	impact, err := h.decisions.DecisionImpact(ctx, stored.ID)
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+
+	if len(impact.Processes) != 1 {
+		t.Fatalf("the impact names %d processes, want one", len(impact.Processes))
+	}
+	process := impact.Processes[0]
+	if process.DefinitionKey != "decide-and-wait-risk" {
+		t.Errorf("definition = %q, want the process that consults it", process.DefinitionKey)
+	}
+	// Named steps, not a count: "Decide" tells somebody where the policy is used.
+	if len(process.Steps) != 1 || process.Steps[0] != "Decide" {
+		t.Errorf("steps = %v, want the step named", process.Steps)
+	}
+	if impact.RunningInstances != 1 {
+		t.Errorf("running instances = %d, want the one still in flight", impact.RunningInstances)
+	}
+
+	// Once it finishes, the commitment is no longer in flight.
+	h.completeEveryTask(t, instance.ID)
+	after, err := h.decisions.DecisionImpact(ctx, stored.ID)
+	if err != nil {
+		t.Fatalf("impact after completion: %v", err)
+	}
+	if after.RunningInstances != 0 {
+		t.Errorf("running instances = %d after the process finished, want none", after.RunningInstances)
+	}
+	if len(after.Processes) != 1 {
+		t.Error("the process stopped being listed once its instances finished; it still consults the decision")
+	}
+}
+
+// A decision used only to decide who does the work counts too — the impact view
+// would otherwise say "nothing uses this" about a live approval matrix.
+func TestTheImpactViewSeesAssignmentTables(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	matrix := entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "who-approves",
+		Name:      "Who approves",
+		HitPolicy: entities.HitPolicyFirst,
+		Outputs:   []entities.DecisionOutput{{ID: "o1", Name: "assignee", Type: "string"}},
+		Rules:     []entities.DecisionRule{{ID: "r1", Inputs: []string{}, Outputs: []any{"cfo"}}},
+	}
+	if _, err := h.decisions.CreateDecision(ctx, matrix); err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	def := &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projectID},
+		Key:     "approval",
+		Name:    "Approval",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve",
+				Properties: map[string]any{handlersimpl.AssignmentDecisionKey: "who-approves"}},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "end"},
+		},
+	}
+	if _, err := serviceimpl.NewDefinitionService(h.repo).CreateDefinition(ctx, def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	stored := h.decisionByKey(t, "who-approves")
+	impact, err := h.decisions.DecisionImpact(ctx, stored.ID)
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if len(impact.Processes) != 1 || impact.Processes[0].DefinitionKey != "approval" {
+		t.Errorf("impact = %+v, want the approval process listed", impact.Processes)
+	}
+}
+
+// The service duplicates the assignment property name rather than importing the
+// handlers package, because services must not depend on handlers. If the two
+// ever drift, the impact view goes quietly blind to assignment tables.
+func TestTheAssignmentPropertyNameIsTheSameOnBothSides(t *testing.T) {
+	if serviceimpl.AssignmentDecisionKeyForTest != handlersimpl.AssignmentDecisionKey {
+		t.Errorf("the service says %q and the handler says %q",
+			serviceimpl.AssignmentDecisionKeyForTest, handlersimpl.AssignmentDecisionKey)
+	}
+}

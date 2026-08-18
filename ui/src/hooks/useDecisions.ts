@@ -74,3 +74,18 @@ export const useEvaluateDecision = () => {
       processService.evaluateDecision(key, variables, version),
   });
 };
+
+/**
+ * What depends on a decision.
+ *
+ * Only fetched when an editor is open on a saved table — it walks every process
+ * definition in the project, which is fine for a deliberate question and wrong
+ * for a list view.
+ */
+export const useDecisionImpact = (decisionId: string | null) => {
+  return useQuery({
+    queryKey: ['decision-impact', decisionId],
+    queryFn: ({ signal }) => (decisionId ? processService.decisionImpact(decisionId, signal) : Promise.resolve(undefined)),
+    enabled: !!decisionId,
+  });
+};
