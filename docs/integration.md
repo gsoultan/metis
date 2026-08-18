@@ -371,6 +371,31 @@ Manifests are consulted before the built-in connectors, so one can replace a
 built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
 stream, anything stateful — keep the Go interface.
 
+## Importing a connector from an OpenAPI document
+
+Most APIs worth integrating with publish one, and a manifest is close enough to
+one operation in that document that the translation is mechanical. Point the
+importer at a spec and it produces one connector per operation:
+
+- `/pets/{petId}` becomes `{{input.petId}}` in the URL, using the name the spec
+  already uses;
+- query and header parameters become templates, and every parameter joins the
+  connector's input schema — which is what a form can be drawn from;
+- a JSON request body becomes a body template, one level deep (a nested shape is
+  left to you: guessing at it produces a template that looks right and is wrong);
+- the success response's fields become outputs;
+- the first security scheme becomes the auth;
+- and both failures every API has — `AUTH_FAILED` and `RATE_LIMITED`, the second
+  honouring `Retry-After` — are added as catchable BPMN errors.
+
+The server URL becomes `{{config.base_url}}` when the spec gives none or gives
+one with placeholders of its own, because the same spec is used against
+production and a sandbox.
+
+What comes out is a starting point, not a finished connector: you will rename
+things and delete the nine operations in ten you do not want. But it already
+calls the right endpoint with the right shape.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces
