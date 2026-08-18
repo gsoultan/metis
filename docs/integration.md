@@ -224,6 +224,22 @@ that failed against the same outage do not all come back at the same moment.
 When the attempts run out the job raises an incident, which is visible in the UI
 and resolvable there.
 
+## Holding to your rate limit
+
+Set `rate_limit_per_minute` on a connector instance's configuration — or on a
+service task's properties, for a plain HTTP call — and the engine will not exceed
+it. The limit is a token bucket: a minute's worth of burst, refilling steadily,
+which is the shape API quotas are usually written in.
+
+A call held back by the limit is **deferred, not failed**. The job is put back
+with a time on it and its retry count is untouched, because being over a quota is
+compliance rather than an error — counting it as a failure would exhaust an
+instance's three attempts for the crime of being popular.
+
+A connector instance's setting covers every node that uses that connection, so a
+limit agreed with a partner is set once. Leave it unset — the default — and
+nothing is limited.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

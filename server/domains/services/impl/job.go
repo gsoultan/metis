@@ -2,8 +2,10 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/internal/pkg/circuit"
 	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
+	"github.com/gsoultan/gobpm/internal/pkg/ratelimit"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	contracts2 "github.com/gsoultan/gobpm/server/domains/services/contracts"
@@ -32,7 +35,10 @@ type jobService struct {
 	repo repositories.Repository
 	// breakers stop the job pool filling with calls to a downstream that is
 	// already down — see internal/pkg/circuit.
-	breakers     *circuit.Group
+	breakers *circuit.Group
+	// limits keep one process from spending a partner's whole quota — see
+	// internal/pkg/ratelimit.
+	limits       *ratelimit.Group
 	engine       contracts2.ExecutionEngine
 	connectorSvc contracts2.ConnectorService
 	locker       contracts2.DistributedLocker
@@ -54,6 +60,7 @@ func NewJobService(
 	return &jobService{
 		repo:         repo,
 		breakers:     circuit.NewGroup(circuit.DefaultSettings()),
+		limits:       ratelimit.NewGroup(ratelimit.DefaultSettings()),
 		engine:       engine,
 		connectorSvc: connectorSvc,
 		locker:       locker,
@@ -208,7 +215,17 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		err = s.executeTimerBoundary(ctx, job)
 	}
 
-	if err != nil {
+	if deferred, isDeferral := deferralOf(err); isDeferral {
+		// Not a failure: put it back with a time on it and leave the attempt
+		// count alone. An error boundary must not catch this either — a rate
+		// limit is not something a process models a path for.
+		log.Info().
+			Str("jobId", job.ID.String()).
+			Dur("retryIn", deferred.after).
+			Msg(deferred.reason)
+		job.Status = entities.JobPending
+		job.NextRunAt = time.Now().Add(deferred.after)
+	} else if err != nil {
 		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Job execution failed")
 		if s.tryErrorBoundaryRoute(ctx, job, err) {
 			job.Status = entities.JobCompleted
@@ -406,6 +423,30 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 	})
 }
 
+// deferredError says the work is still wanted, just not yet.
+//
+// It is not a failure and must not be counted as one. A quota is a normal
+// condition — the partner has told us how fast we may go, and going slower is
+// compliance, not an error. Counting it against the job's retries would fail an
+// instance in three attempts for the crime of being popular.
+type deferredError struct {
+	after  time.Duration
+	reason string
+}
+
+func (e *deferredError) Error() string {
+	return fmt.Sprintf("%s; retrying in %s", e.reason, e.after.Round(time.Second))
+}
+
+// deferralOf returns the deferral in err, if it is one.
+func deferralOf(err error) (*deferredError, bool) {
+	var deferred *deferredError
+	if errors.As(err, &deferred) {
+		return deferred, true
+	}
+	return nil, false
+}
+
 // callOnce makes the node's outbound call, at most once per unit of work.
 //
 // The call cannot share a transaction with the token advance that follows it:
@@ -435,10 +476,23 @@ func (s *jobService) callOnce(
 	def *entities.ProcessDefinition,
 	node entities.Node,
 ) (map[string]any, error) {
-	// Ask the breaker before recording anything: a call refused here was never
+	target := serviceCallTarget(node)
+
+	// The quota first, because being over one is not a failure and must not
+	// spend an attempt. A call held back here has not been made, has not been
+	// recorded, and comes back when the partner says it may.
+	if limit := s.rateLimitFor(ctx, def, node); limit > 0 {
+		if allowed, wait := s.limits.Take(target, limit); !allowed {
+			return nil, &deferredError{
+				after:  wait,
+				reason: fmt.Sprintf("service task %q is at its configured limit of %g calls a minute for %s", job.Node.ID, limit, target),
+			}
+		}
+	}
+
+	// Then the breaker, before recording anything: a call refused here was never
 	// made, and inflating the recorded attempt count with calls that did not
 	// happen would mislead whoever reads that table during the incident.
-	target := serviceCallTarget(node)
 	if allowed, state := s.breakers.Allow(target); !allowed {
 		log.Warn().
 			Str("instance", job.Instance.ID.String()).
@@ -504,6 +558,46 @@ func (s *jobService) callOnce(
 			Msg("Could not record a completed service call; a retry would repeat it")
 	}
 	return responseData, nil
+}
+
+// rateLimitFor reads the calls-a-minute a target is allowed.
+//
+// It is read on every call rather than cached: an operator lowering a limit
+// because a partner complained should see it take effect on the next request,
+// not after a restart. A connector instance's configuration wins, so a limit set
+// once on a shared connection covers every node that uses it; a node's own
+// property is the fallback for a plain HTTP task, which has no connection to
+// hang it on. Zero — the default everywhere — means no limit.
+func (s *jobService) rateLimitFor(ctx context.Context, def *entities.ProcessDefinition, node entities.Node) float64 {
+	if instance, found, err := s.findConnectorInstance(ctx, def, node); err == nil && found {
+		if limit, ok := numericSetting(instance.Config[rateLimitSetting]); ok {
+			return limit
+		}
+	}
+	if limit, ok := numericSetting(node.Properties[rateLimitSetting]); ok {
+		return limit
+	}
+	return 0
+}
+
+// rateLimitSetting is the name of the calls-a-minute setting, on a connector
+// instance's configuration or on a node's properties.
+const rateLimitSetting = "rate_limit_per_minute"
+
+// numericSetting reads a number that arrived through JSON, where it may be a
+// float, an int or the text an operator typed into a form.
+func numericSetting(raw any) (float64, bool) {
+	switch v := raw.(type) {
+	case float64:
+		return v, v > 0
+	case int:
+		return float64(v), v > 0
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return parsed, err == nil && parsed > 0
+	default:
+		return 0, false
+	}
 }
 
 // serviceCallTarget names the thing a breaker is about: the downstream, not the
