@@ -122,6 +122,9 @@ func (m *MockRepository) Organization() contracts.OrganizationRepository { retur
 func (m *MockRepository) Process() contracts.ProcessRepository           { return nil }
 func (m *MockRepository) ServiceCall() contracts.ServiceCallRepository   { return nil }
 func (m *MockRepository) Webhook() contracts.WebhookRepository           { return nil }
+func (m *MockRepository) ConnectorManifest() contracts.ConnectorManifestRepository {
+	return nil
+}
 func (m *MockRepository) Project() contracts.ProjectRepository           { return nil }
 func (m *MockRepository) Subscription() contracts.SubscriptionRepository { return nil }
 func (m *MockRepository) Task() contracts.TaskRepository                 { return nil }

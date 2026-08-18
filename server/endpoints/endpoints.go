@@ -80,6 +80,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectorEndpoints.DeleteConnectorInstance = adminOnly("DeleteConnectorInstance")(connectorEndpoints.DeleteConnectorInstance)
 	connectorEndpoints.ExecuteConnector = protected("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
 
+	// Installing a connector adds an address this engine will call with the
+	// tenant's credentials attached, which is an administrator's decision.
+	// Reading the catalogue is not.
+	connectorEndpoints.InstallManifest = adminOnly("InstallConnectorManifest")(connectorEndpoints.InstallManifest)
+	connectorEndpoints.SetManifestEnabled = adminOnly("SetConnectorManifestEnabled")(connectorEndpoints.SetManifestEnabled)
+	connectorEndpoints.DeleteManifest = adminOnly("DeleteConnectorManifest")(connectorEndpoints.DeleteManifest)
+	connectorEndpoints.ListManifests = protected("ListConnectorManifests")(connectorEndpoints.ListManifests)
+	connectorEndpoints.GetManifest = protected("GetConnectorManifest")(connectorEndpoints.GetManifest)
+
 	decisionEndpoints := decision.MakeEndpoints(s)
 	decisionEndpoints.ListDecisions = protected("ListDecisions")(decisionEndpoints.ListDecisions)
 	decisionEndpoints.GetDecision = protected("GetDecision")(decisionEndpoints.GetDecision)

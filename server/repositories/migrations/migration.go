@@ -135,6 +135,27 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 7,
+			Name:    "connectors described by a document",
+			// A connector can now be a manifest rather than a Go function, and
+			// the manifests have to survive a restart — an in-memory registry
+			// means a connector installed on one replica is unknown to the
+			// others and gone on the next deploy.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "connector_manifests")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasTable(model) {
+					return nil
+				}
+				if err := db.AutoMigrate(model); err != nil {
+					return fmt.Errorf("create connector_manifests: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 

@@ -65,3 +65,65 @@ func TestEveryDeclaredModelGetsATable(t *testing.T) {
 		}
 	}
 }
+
+// The upgrade path, which the test above cannot see.
+//
+// On a *fresh* database migration 1 auto-migrates the whole model list, so every
+// declared table exists no matter which migration was supposed to create it. An
+// installation that is already at the current version gets no such safety net:
+// a model added afterwards has no migration creating its table, and the first
+// request that touches it fails with "no such table" — in production, on the
+// feature nobody could test because it had never run anywhere else.
+//
+// This reproduces that installation exactly: migrate a database with the model
+// list and migrations as they were *released*, then upgrade it to the current
+// ones. Anything the new release declares must exist afterwards.
+//
+// Dropping a table and re-running is not the same test and does not work:
+// migrations are recorded once by design, so nothing re-runs and every table
+// stays missing. That is how versioned migrations behave, not a defect.
+func TestAModelAddedAfterTheBaselineStillGetsItsTable(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_upgrade=1"), gorms.Config())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// The installation as it was before this release: the model list without
+	// whatever this release adds, and only the migrations that had shipped.
+	released := migrations.Schema(previouslyReleasedModels())
+	if _, err := migrations.Run(context.Background(), db, released); err != nil {
+		t.Fatalf("migrate the released version: %v", err)
+	}
+
+	// Now upgrade it.
+	if _, err := migrations.Run(context.Background(), db, migrations.Schema(models.MigrationModels())); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+
+	for _, model := range models.MigrationModels() {
+		if !db.Migrator().HasTable(model) {
+			t.Errorf("%T has no table after upgrading an existing installation: "+
+				"it was added to the model list without a migration that creates it", model)
+		}
+	}
+}
+
+// previouslyReleasedModels is the model list as of the last release.
+//
+// Kept as an explicit subtraction rather than a copied list, so adding a model
+// is one edit and forgetting to update this is impossible — the new model is
+// simply absent from the "before" picture, which is what the test needs.
+func previouslyReleasedModels() []any {
+	added := map[string]bool{
+		// Declared in this release. Everything before it shipped already.
+		"connector_manifests": true,
+	}
+	var before []any
+	for _, model := range models.MigrationModels() {
+		if named, ok := model.(interface{ TableName() string }); ok && added[named.TableName()] {
+			continue
+		}
+		before = append(before, model)
+	}
+	return before
+}

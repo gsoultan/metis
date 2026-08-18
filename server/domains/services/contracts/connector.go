@@ -50,6 +50,30 @@ type ConnectorService interface {
 	ConnectorWriter
 	ConnectorInstanceManager
 	ConnectorRegistry
+	ConnectorManifestManager
+}
+
+// ConnectorManifestManager installs connectors described by a document rather
+// than compiled in.
+//
+// On the interface rather than only on the implementation, which is where these
+// began: a method that exists only on the concrete type is a method nothing
+// holding the interface can call, and everything here holds the interface.
+type ConnectorManifestManager interface {
+	// InstallManifest validates and stores a manifest. Installing an existing
+	// key replaces it, because installing again is how an author fixes one.
+	InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error)
+
+	// ImportOpenAPI turns a specification into manifests and installs them all.
+	ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error)
+
+	ListManifests(ctx context.Context) ([]entities.ConnectorManifest, error)
+
+	// GetManifestDocument returns a manifest as its author wrote it.
+	GetManifestDocument(ctx context.Context, key string) (string, error)
+
+	SetManifestEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
+	DeleteManifest(ctx context.Context, id uuid.UUID) error
 }
 
 // ConnectorExecutor defines the Strategy interface for a specific connector's execution logic.

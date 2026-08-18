@@ -21,6 +21,7 @@ type gormRepository struct {
 	process               contracts.ProcessRepository
 	serviceCall           contracts.ServiceCallRepository
 	webhook               contracts.WebhookRepository
+	connectorManifest     contracts.ConnectorManifestRepository
 	project               contracts.ProjectRepository
 	subscription          contracts.SubscriptionRepository
 	task                  contracts.TaskRepository
@@ -49,6 +50,7 @@ func NewRepository(db *gorm.DB) Repository {
 		process:               gorms.NewProcessRepository(db),
 		serviceCall:           gorms.NewServiceCallRepository(db),
 		webhook:               gorms.NewWebhookRepository(db),
+		connectorManifest:     gorms.NewConnectorManifestRepository(db),
 		project:               gorms.NewProjectRepository(db),
 		subscription:          gorms.NewSubscriptionRepository(db),
 		task:                  gorms.NewTaskRepository(db),
@@ -77,6 +79,9 @@ func (r *gormRepository) Organization() contracts.OrganizationRepository { retur
 func (r *gormRepository) Process() contracts.ProcessRepository           { return r.process }
 func (r *gormRepository) ServiceCall() contracts.ServiceCallRepository   { return r.serviceCall }
 func (r *gormRepository) Webhook() contracts.WebhookRepository           { return r.webhook }
+func (r *gormRepository) ConnectorManifest() contracts.ConnectorManifestRepository {
+	return r.connectorManifest
+}
 func (r *gormRepository) Project() contracts.ProjectRepository           { return r.project }
 func (r *gormRepository) Subscription() contracts.SubscriptionRepository { return r.subscription }
 func (r *gormRepository) Task() contracts.TaskRepository                 { return r.task }

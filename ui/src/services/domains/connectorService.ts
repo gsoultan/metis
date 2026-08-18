@@ -127,4 +127,49 @@ export const connectorService = {
 
     return data.variables;
   },
+
+  /** The connectors installed as documents rather than compiled in. */
+  async listConnectorManifests(signal?: AbortSignal) {
+    const data = await requestJSON<{ manifests?: ApiConnectorManifest[]; err?: string }>(
+      "/connector-manifests",
+      { signal },
+    );
+    return data.manifests ?? [];
+  },
+
+  /**
+   * Installs one.
+   *
+   * `format` is "manifest" or "openapi" — one endpoint for both, because what a
+   * person has in front of them is "a file the vendor published" and being asked
+   * which upload button it belongs to is a question about our implementation.
+   */
+  async installConnectorManifest(document: string, format: "manifest" | "openapi", signal?: AbortSignal) {
+    const data = await requestJSON<{ manifests?: ApiConnectorManifest[]; err?: string }>(
+      "/connector-manifests",
+      { method: "POST", body: JSON.stringify({ document, format }), signal },
+    );
+    return data.manifests ?? [];
+  },
+
+  async setConnectorManifestEnabled(id: string, enabled: boolean, signal?: AbortSignal) {
+    return requestJSON<{ err?: string }>(`/connector-manifests/${id}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+      signal,
+    });
+  },
+
+  async deleteConnectorManifest(id: string, signal?: AbortSignal) {
+    return requestJSON<{ err?: string }>(`/connector-manifests/${id}`, { method: "DELETE", signal });
+  },
 };
+
+/** Mirrors entities.ConnectorManifest. */
+export interface ApiConnectorManifest {
+  id: string;
+  key: string;
+  name?: string;
+  version?: number;
+  enabled: boolean;
+}

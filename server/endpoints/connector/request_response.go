@@ -89,3 +89,68 @@ type ExecuteConnectorResponse struct {
 }
 
 func (r ExecuteConnectorResponse) Failed() error { return r.Err }
+
+// InstallManifestRequest installs a connector described by a document.
+type InstallManifestRequest struct {
+	Document string `json:"document"`
+	// Format is "manifest" or "openapi". An OpenAPI document yields one
+	// connector per operation; a manifest yields exactly one.
+	Format string `json:"format,omitzero"`
+}
+
+// InstallManifestResponse names what was installed.
+type InstallManifestResponse struct {
+	Manifests []entities.ConnectorManifest `json:"manifests,omitzero"`
+	Err       error                        `json:"err,omitzero"`
+}
+
+func (r InstallManifestResponse) Failed() error { return r.Err }
+
+// ListManifestsRequest asks for the installed catalogue.
+type ListManifestsRequest struct{}
+
+// ListManifestsResponse carries it, without the documents.
+type ListManifestsResponse struct {
+	Manifests []entities.ConnectorManifest `json:"manifests,omitzero"`
+	Err       error                        `json:"err,omitzero"`
+}
+
+func (r ListManifestsResponse) Failed() error { return r.Err }
+
+// GetManifestRequest asks for one manifest's document.
+type GetManifestRequest struct {
+	Key string `json:"key"`
+}
+
+// GetManifestResponse carries it as its author wrote it.
+type GetManifestResponse struct {
+	Document string `json:"document,omitzero"`
+	Err      error  `json:"err,omitzero"`
+}
+
+func (r GetManifestResponse) Failed() error { return r.Err }
+
+// SetManifestEnabledRequest switches one on or off.
+type SetManifestEnabledRequest struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SetManifestEnabledResponse reports the outcome.
+type SetManifestEnabledResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r SetManifestEnabledResponse) Failed() error { return r.Err }
+
+// DeleteManifestRequest removes one.
+type DeleteManifestRequest struct {
+	ID string `json:"id"`
+}
+
+// DeleteManifestResponse reports the outcome.
+type DeleteManifestResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r DeleteManifestResponse) Failed() error { return r.Err }

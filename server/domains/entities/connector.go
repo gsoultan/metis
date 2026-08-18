@@ -39,3 +39,14 @@ type ConnectorInstance struct {
 	CreatedAt time.Time      `json:"created_at,omitzero"`
 	UpdatedAt time.Time      `json:"updated_at,omitzero"`
 }
+
+// ConnectorManifest is a connector described by a document, as a catalogue
+// lists it. The document itself is fetched separately — a list of forty
+// connectors does not need forty YAML documents in it.
+type ConnectorManifest struct {
+	ID      uuid.UUID `json:"id,omitzero"`
+	Key     string    `json:"key"`
+	Name    string    `json:"name,omitzero"`
+	Version int       `json:"version,omitzero"`
+	Enabled bool      `json:"enabled"`
+}
