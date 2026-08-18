@@ -89,4 +89,21 @@ type DecisionResult struct {
 	//
 	// Under FIRST this holds one entry; under COLLECT, every line that matched.
 	MatchedRules []int `json:"matched_rules,omitzero"`
+
+	// The identity of what decided, carried on the result rather than looked up
+	// again by whoever wants to record it.
+	//
+	// An audit entry naming only the outputs answers "what was decided" and not
+	// "by what, and on what grounds" — and the second is the question asked six
+	// months later, by someone who needs to know which version of the policy was
+	// in force. The table it came from is versioned and immutable, so these four
+	// fields are enough to reconstruct the reasoning exactly.
+	DecisionKey     string `json:"decision_key,omitzero"`
+	DecisionName    string `json:"decision_name,omitzero"`
+	DecisionVersion int    `json:"decision_version,omitzero"`
+
+	// MatchedRuleIDs are the same lines as MatchedRules, named rather than
+	// numbered. A position is only meaningful against the version of the table
+	// that produced it; an ID survives the table being edited.
+	MatchedRuleIDs []string `json:"matched_rule_ids,omitzero"`
 }

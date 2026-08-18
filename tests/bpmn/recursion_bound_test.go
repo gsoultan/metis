@@ -42,7 +42,7 @@ func TestUnboundedLoopIsRejectedNotStackOverflow(t *testing.T) {
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
 			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc,
-			repo.Subscription(),
+			repo.Subscription(), serviceimpl.NewAuditWriter(repo.Audit()),
 		)),
 		serviceimpl.WithJobService(jobSvc),
 	)

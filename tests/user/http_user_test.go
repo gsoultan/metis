@@ -70,7 +70,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl.NewCollaborationService(sse)
 
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription())
+	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), service_impl.NewAuditWriter(repo.Audit()))
 	engine.Apply(
 		service_impl.WithHandlerFactory(handlerFactory),
 		service_impl.WithJobService(jobSvc),

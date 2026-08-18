@@ -15,6 +15,7 @@ type nodeHandlerFactory struct {
 	decisionService     servicecontracts.DecisionService
 	connectorService    servicecontracts.ConnectorService
 	subRepo             contracts.SubscriptionRepository
+	auditWriter         servicecontracts.AuditWriter
 }
 
 // NewNodeHandlerFactory creates a new NodeHandlerFactory implementation.
@@ -34,6 +35,7 @@ func NewNodeHandlerFactory(
 	decisionService servicecontracts.DecisionService,
 	connectorService servicecontracts.ConnectorService,
 	subRepo contracts.SubscriptionRepository,
+	auditWriter servicecontracts.AuditWriter,
 ) handlercontracts.NodeHandlerFactory {
 	return &nodeHandlerFactory{
 		engine:              engine,
@@ -43,6 +45,7 @@ func NewNodeHandlerFactory(
 		decisionService:     decisionService,
 		connectorService:    connectorService,
 		subRepo:             subRepo,
+		auditWriter:         auditWriter,
 	}
 }
 
@@ -94,7 +97,7 @@ func (f *nodeHandlerFactory) GetHandler(nodeType entities.NodeType) (handlercont
 	case entities.ManualTask:
 		internal = &ManualTaskHandler{f.taskService}
 	case entities.BusinessRuleTask:
-		internal = &BusinessRuleTaskHandler{f.engine, f.decisionService}
+		internal = &BusinessRuleTaskHandler{f.engine, f.decisionService, f.auditWriter}
 	default:
 		return &NullNodeHandler{}, nil
 	}

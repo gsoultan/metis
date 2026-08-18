@@ -161,6 +161,108 @@ func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d en
 	return s.repo.Decision().Update(ctx, id, adapters.DecisionModelAdapter{Decision: d}.ToModel())
 }
 
+// DeleteDecision removes a decision table, unless something still needs it.
+//
+// A decision is a business policy, and a running instance is a commitment made
+// under it. Deleting a table an instance is still going to consult turns that
+// instance into one that fails at a step which worked yesterday, with an error
+// naming a key that no longer exists — and by then nobody remembers what the
+// table said. So the deletion is refused and the message names what is in the
+// way.
+//
+// Completed instances do not count: they have already made their decisions, and
+// what those were is recorded on their timelines rather than read back from the
+// table.
 func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) error {
+	decision, err := s.GetDecision(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	blocking, err := s.instancesNeeding(ctx, decision)
+	if err != nil {
+		return err
+	}
+	if blocking > 0 {
+		return fmt.Errorf(
+			"cannot delete the decision %q: %d running process %s still reach it; complete or cancel them first",
+			decision.Key, blocking, pluralInstances(blocking))
+	}
+
 	return s.repo.Decision().Delete(ctx, id)
+}
+
+// instancesNeeding counts the running instances whose process can still consult
+// this decision.
+//
+// It works from the definitions rather than from the instances: an instance
+// reaches a decision through a business rule task in the process it is running,
+// so the question is which running processes contain such a task. Definitions
+// are few and cached by the database; instances are many.
+func (s *decisionService) instancesNeeding(ctx context.Context, decision entities.DecisionDefinition) (int, error) {
+	var projectID uuid.UUID
+	if decision.Project != nil {
+		projectID = decision.Project.ID
+	}
+
+	definitions, err := s.repo.Definition().ListByProject(ctx, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("could not check which processes use the decision: %w", err)
+	}
+
+	blocking := 0
+	for _, listed := range definitions {
+		// The list query selects a few columns and deliberately leaves the BPMN
+		// out — it feeds a picker, not an analysis — so the nodes have to be
+		// fetched. That is a full read per definition, which is why this is only
+		// ever done on a delete: a rare, deliberate act by an administrator, not
+		// something on any request path.
+		m, err := s.repo.Definition().Get(ctx, uuid.UUID(listed.ID))
+		if err != nil {
+			return 0, fmt.Errorf("could not read the process %q while checking the decision: %w", listed.Key, err)
+		}
+		if !definitionUsesDecision(m, decision.Key) {
+			continue
+		}
+		instances, err := s.repo.Process().ListByDefinition(ctx, uuid.UUID(m.ID))
+		if err != nil {
+			return 0, fmt.Errorf("could not check which instances use the decision: %w", err)
+		}
+		for _, instance := range instances {
+			// Suspended counts as running: it is stopped, not finished, and
+			// resuming it must not fail on a missing table.
+			if instance.Status == models.ProcessActive || instance.Status == models.ProcessSuspended {
+				blocking++
+			}
+		}
+	}
+	return blocking, nil
+}
+
+// definitionUsesDecision reports whether any step of a process consults this
+// decision, including steps nested inside sub-processes.
+func definitionUsesDecision(m models.ProcessDefinitionModel, key string) bool {
+	var walk func(nodes []models.FlowNode) bool
+	walk = func(nodes []models.FlowNode) bool {
+		for _, node := range nodes {
+			if node.Type == models.BusinessRuleTask {
+				configured, isText := node.Properties["decision_key"].(string)
+				if isText && configured == key {
+					return true
+				}
+			}
+			if walk(node.Nodes) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(m.Nodes)
+}
+
+func pluralInstances(n int) string {
+	if n == 1 {
+		return "instance"
+	}
+	return "instances"
 }
