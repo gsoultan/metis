@@ -449,7 +449,14 @@ func isRetryableDispatchError(err error) bool {
 
 func (s *messagingService) StopAll() {
 	s.cancels.Range(func(key, value any) bool {
-		cancel := value.(context.CancelFunc)
+		// Shutdown is the worst moment to panic: the consumers after this one
+		// in the range would never be stopped, and the process would hang
+		// waiting for them.
+		cancel, isCancel := value.(context.CancelFunc)
+		if !isCancel {
+			log.Error().Interface("key", key).Msg("A consumer's stored cancel was not a cancel function")
+			return true
+		}
 		cancel()
 		return true
 	})

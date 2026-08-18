@@ -534,8 +534,8 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 type HttpJsonExecutor struct{}
 
 func (e *HttpJsonExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	url, _ := config["url"].(string)
-	method, _ := config["method"].(string)
+	url, _ := connectors.TextSetting(config, "url")
+	method, _ := connectors.TextSetting(config, "method")
 	if method == "" {
 		method = "POST"
 	}
@@ -618,10 +618,14 @@ func readResponse(resp *http.Response, connector string) ([]byte, error) {
 type DiscordMessageExecutor struct{}
 
 func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := config["webhook_url"].(string)
-	content, _ := payload["content"].(string)
+	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
+	// "text" is the alternative spelling of "content". Reading it with a
+	// single-value assertion panicked whenever it was absent — which is every
+	// payload that spells it "content" — and whenever a mapping produced a
+	// number rather than a string.
+	content, _ := connectors.TextSetting(payload, "content")
 	if content == "" {
-		content = payload["text"].(string)
+		content, _ = connectors.TextSetting(payload, "text")
 	}
 	if content == "" {
 		content = "No content provided"
@@ -638,7 +642,7 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	if err != nil {
 		return nil, fmt.Errorf("discord-message: could not encode the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -651,7 +655,7 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	defer closeResponse(resp.Body, "discord-message")
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Discord API error: %s", resp.Status)
+		return nil, fmt.Errorf("discord-message: the Discord API returned %s", resp.Status)
 	}
 
 	return map[string]any{"status": "sent"}, nil
@@ -660,21 +664,21 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 type SendGridEmailExecutor struct{}
 
 func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	apiKey, _ := config["api_key"].(string)
-	fromEmail, _ := config["from_email"].(string)
-	fromName, _ := config["from_name"].(string)
+	apiKey, _ := connectors.TextSetting(config, "api_key")
+	fromEmail, _ := connectors.TextSetting(config, "from_email")
+	fromName, _ := connectors.TextSetting(config, "from_name")
 
-	toEmail, _ := payload["to_email"].(string)
+	toEmail, _ := connectors.TextSetting(payload, "to_email")
 	if toEmail == "" {
-		toEmail, _ = config["to_email"].(string)
+		toEmail, _ = connectors.TextSetting(config, "to_email")
 	}
-	subject, _ := payload["subject"].(string)
+	subject, _ := connectors.TextSetting(payload, "subject")
 	if subject == "" {
-		subject, _ = config["subject"].(string)
+		subject, _ = connectors.TextSetting(config, "subject")
 	}
-	content, _ := payload["content"].(string)
+	content, _ := connectors.TextSetting(payload, "content")
 	if content == "" {
-		content, _ = config["content"].(string)
+		content, _ = connectors.TextSetting(config, "content")
 	}
 
 	sgPayload := map[string]any{
@@ -694,7 +698,7 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	if err != nil {
 		return nil, fmt.Errorf("sendgrid-email: could not encode the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -721,8 +725,8 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 type MSTeamsMessageExecutor struct{}
 
 func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := config["webhook_url"].(string)
-	text, _ := payload["text"].(string)
+	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
+	text, _ := connectors.TextSetting(payload, "text")
 	if text == "" {
 		text = "No message text provided"
 	}
@@ -735,7 +739,7 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 	if err != nil {
 		return nil, fmt.Errorf("ms-teams-message: could not encode the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -757,8 +761,8 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 type SlackMessageExecutor struct{}
 
 func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := config["webhook_url"].(string)
-	text, _ := payload["text"].(string)
+	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
+	text, _ := connectors.TextSetting(payload, "text")
 	if text == "" {
 		text = "No message text provided"
 	}
@@ -774,7 +778,7 @@ func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]an
 	if err != nil {
 		return nil, fmt.Errorf("slack-message: could not encode the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +791,7 @@ func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]an
 	defer closeResponse(resp.Body, "slack-message")
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Slack error: %s", resp.Status)
+		return nil, fmt.Errorf("slack-message: Slack returned %s", resp.Status)
 	}
 
 	return map[string]any{"status": "ok"}, nil
@@ -796,15 +800,15 @@ func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]an
 type EmailSmtpExecutor struct{}
 
 func (e *EmailSmtpExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	host, _ := config["host"].(string)
-	portStr, _ := config["port"].(string)
-	username, _ := config["username"].(string)
-	password, _ := config["password"].(string)
-	from, _ := config["from"].(string)
+	host, _ := connectors.TextSetting(config, "host")
+	portStr := connectors.PortSetting(config, "port")
+	username, _ := connectors.TextSetting(config, "username")
+	password, _ := connectors.TextSetting(config, "password")
+	from, _ := connectors.TextSetting(config, "from")
 
-	to, _ := payload["to"].(string)
-	subject, _ := payload["subject"].(string)
-	body, _ := payload["body"].(string)
+	to, _ := connectors.TextSetting(payload, "to")
+	subject, _ := connectors.TextSetting(payload, "subject")
+	body, _ := connectors.TextSetting(payload, "body")
 
 	if host == "" || portStr == "" || username == "" || password == "" {
 		return nil, fmt.Errorf("SMTP configuration is incomplete")
@@ -844,10 +848,10 @@ func NewRabbitMQExecutor() *RabbitMQExecutor {
 }
 
 func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	url, _ := config["url"].(string)
-	exchange, _ := config["exchange"].(string)
-	routingKey, _ := config["routing_key"].(string)
-	queue, _ := config["queue"].(string)
+	url, _ := connectors.TextSetting(config, "url")
+	exchange, _ := connectors.TextSetting(config, "exchange")
+	routingKey, _ := connectors.TextSetting(config, "routing_key")
+	queue, _ := connectors.TextSetting(config, "queue")
 
 	if url == "" {
 		return nil, fmt.Errorf("RabbitMQ URL is required")
@@ -855,10 +859,14 @@ func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, p
 
 	var conn *amqp.Connection
 	if v, ok := e.conns.Load(url); ok {
-		conn = v.(*amqp.Connection)
-		if conn.IsClosed() {
+		// The pool is keyed by URL and only this executor writes to it, so the
+		// stored type is ours — but a sync.Map is untyped, and a bare assertion
+		// here would take the worker down rather than reconnecting.
+		pooled, isConnection := v.(*amqp.Connection)
+		if !isConnection || pooled.IsClosed() {
 			e.conns.Delete(url)
-			conn = nil
+		} else {
+			conn = pooled
 		}
 	}
 
@@ -916,4 +924,21 @@ func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, p
 	}
 
 	return map[string]any{"status": "published"}, nil
+}
+
+// BuiltInConnectorKeys names every executor compiled into the binary.
+//
+// It exists so a test can exercise all of them rather than whichever ones
+// somebody remembered — a payload of the wrong type used to take the worker
+// down through the one executor nobody had written a test for.
+func BuiltInConnectorKeys() []string {
+	return []string{
+		"http-json",
+		"slack-message",
+		"email-smtp",
+		"rabbitmq-publish",
+		"discord-message",
+		"sendgrid-email",
+		"ms-teams-message",
+	}
 }

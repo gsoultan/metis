@@ -47,7 +47,7 @@ func extractSMTPConfig(config map[string]any) (smtpConfig, error) {
 	if host == "" {
 		return smtpConfig{}, fmt.Errorf("email connector: missing required config key 'host'")
 	}
-	port, _ := textSetting(config, "port")
+	port := PortSetting(config, "port")
 	if port == "" {
 		port = "587"
 	}
@@ -69,7 +69,7 @@ func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]byte, error) {
 	if subject == "" {
 		return nil, fmt.Errorf("email connector: missing required payload key 'subject'")
 	}
-	body, _ := payload["body"].(string)
+	body, _ := textSetting(payload, "body")
 
 	var sb strings.Builder
 	sb.WriteString("From: " + cfg.from + "\r\n")

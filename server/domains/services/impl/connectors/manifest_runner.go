@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -350,12 +351,50 @@ func closeQuietly(body io.Closer, key string) {
 	}
 }
 
-// textSetting reads a configured string.
+// TextSetting reads a string out of a configuration or payload map.
 //
-// A setting that is present but not a string is the same as absent as far as
-// signing a request goes — and reporting "no token configured" is more useful
-// than reporting that a token was a number.
-func textSetting(config map[string]any, key string) (string, bool) {
+// Both are built from process variables, so neither can be assumed to hold the
+// type a connector wants: an arithmetic expression yields a number, a gateway
+// yields a boolean, an unset variable yields nothing at all. A setting that is
+// present but not a string is treated the same as absent, because "no token
+// configured" is a more useful thing to report than that a token was a number —
+// and far more useful than the panic a single-value assertion produced.
+func TextSetting(config map[string]any, key string) (string, bool) {
 	text, isText := config[key].(string)
 	return text, isText
+}
+
+// PortSetting reads a port, which an operator will write as a number.
+//
+// YAML and JSON both turn `port: 587` into a number, so reading it as a string
+// gave "" — and the SMTP connector answered "configuration is incomplete" to
+// somebody who had configured it correctly.
+func PortSetting(config map[string]any, key string) string {
+	switch value := config[key].(type) {
+	case string:
+		return value
+	case int:
+		return portOrEmpty(float64(value))
+	case int64:
+		return portOrEmpty(float64(value))
+	case float64:
+		// JSON has no integers; a port arrives here as a float.
+		return portOrEmpty(value)
+	}
+	return ""
+}
+
+// portOrEmpty renders a number as a port, or as absent if it is not one. A
+// number outside the range is a configuration mistake, and reporting "no port
+// configured" points at it better than dialling port 70000 does.
+func portOrEmpty(value float64) string {
+	if value != math.Trunc(value) || value < 1 || value > 65535 {
+		return ""
+	}
+	return strconv.Itoa(int(value))
+}
+
+// textSetting is TextSetting under the name this package already used.
+func textSetting(config map[string]any, key string) (string, bool) {
+	return TextSetting(config, key)
 }
