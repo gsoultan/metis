@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
@@ -10,6 +11,7 @@ type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
 export const useDecisions = (page = 1, pageSize = 25) => {
   const { currentProjectId } = useAppStore();
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['decisions', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
       currentProjectId
@@ -22,6 +24,7 @@ export const useDecisions = (page = 1, pageSize = 25) => {
 
 export const useDecision = (id: string | null) => {
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['decision', id],
     queryFn: ({ signal }) =>
       id
@@ -84,6 +87,7 @@ export const useEvaluateDecision = () => {
  */
 export const useDecisionImpact = (decisionId: string | null) => {
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['decision-impact', decisionId],
     queryFn: ({ signal }) => (decisionId ? processService.decisionImpact(decisionId, signal) : Promise.resolve(undefined)),
     enabled: !!decisionId,

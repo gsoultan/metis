@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 
 import { processService } from '../services/api';
 import type { CreateWebhookPayload } from '../services/domains/webhookService';
@@ -7,6 +8,7 @@ import { useAppStore } from '../store/useAppStore';
 export const useWebhooks = () => {
   const { currentProjectId } = useAppStore();
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['webhooks', currentProjectId],
     queryFn: ({ signal }) =>
       currentProjectId
