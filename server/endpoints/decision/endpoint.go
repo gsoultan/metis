@@ -18,6 +18,7 @@ type Endpoints struct {
 	UpdateDecision   endpoint.Endpoint
 	EvaluateDecision endpoint.Endpoint
 	DecisionImpact   endpoint.Endpoint
+	RunTests         endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -29,6 +30,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		UpdateDecision:   MakeUpdateDecisionEndpoint(s),
 		EvaluateDecision: MakeEvaluateDecisionEndpoint(s),
 		DecisionImpact:   MakeDecisionImpactEndpoint(s),
+		RunTests:         MakeRunDecisionTestsEndpoint(s),
 	}
 }
 
@@ -133,3 +135,18 @@ func MakeDecisionImpactEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 // through the handlers here, and asserting without checking would turn a future
 // mis-wiring into a panic in a request goroutine.
 var errWrongDecisionRequest = errors.New("decision: the request was not of the expected type")
+
+func MakeRunDecisionTestsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(RunDecisionTestsRequest)
+		if !ok {
+			return RunDecisionTestsResponse{Err: errWrongDecisionRequest}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return RunDecisionTestsResponse{Err: err}, nil
+		}
+		results, err := s.RunDecisionTests(ctx, id)
+		return RunDecisionTestsResponse{Results: results, Err: err}, nil
+	}
+}

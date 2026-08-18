@@ -105,6 +105,15 @@ export const decisionService = {
     };
   },
 
+  /** Runs a table against the examples stored with it. */
+  async runDecisionTests(id: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ results?: ApiDecisionTestResult[]; err?: string }>(
+      `/decisions/${id}/tests/run`,
+      { method: "POST", signal },
+    );
+    return data.results ?? [];
+  },
+
   /** What depends on a decision, before somebody changes it. */
   async decisionImpact(id: string, signal?: AbortSignal) {
     const data = await requestJSON<{ impact?: ApiDecisionImpact; err?: string }>(`/decisions/${id}/impact`, { signal });
@@ -123,4 +132,23 @@ export interface ApiDecisionImpact {
     steps?: string[];
     running_instances: number;
   }>;
+}
+
+/** Mirrors entities.DecisionTest. */
+export interface ApiDecisionTest {
+  id: string;
+  name: string;
+  inputs?: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+}
+
+/** Mirrors entities.DecisionTestResult. */
+export interface ApiDecisionTestResult {
+  id: string;
+  name: string;
+  passed: boolean;
+  actual?: Record<string, unknown>;
+  mismatches?: string[];
+  matched_rules?: number[];
+  err?: string;
 }

@@ -87,6 +87,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
 	decisionEndpoints.DecisionImpact = protected("DecisionImpact")(decisionEndpoints.DecisionImpact)
+	decisionEndpoints.RunTests = protected("RunDecisionTests")(decisionEndpoints.RunTests)
 
 	// Registering a webhook creates a public address into this installation, so
 	// it takes the same authority as changing a process: designer, not viewer.

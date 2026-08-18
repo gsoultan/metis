@@ -609,3 +609,163 @@ func TestTheAssignmentPropertyNameIsTheSameOnBothSides(t *testing.T) {
 			serviceimpl.AssignmentDecisionKeyForTest, handlersimpl.AssignmentDecisionKey)
 	}
 }
+
+// A decision table nobody can test is a spreadsheet with extra steps.
+//
+// The table is business policy, it changes often, and the person changing it is
+// rarely the person who knows every case it was written for — so the cases live
+// beside it and are re-run whenever somebody looks.
+func TestATableIsRunAgainstItsOwnExamples(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "risk",
+		Name:      "Risk band",
+		HitPolicy: entities.HitPolicyFirst,
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "amount", Type: "number"}},
+		Outputs:   []entities.DecisionOutput{{ID: "o1", Name: "band", Type: "string"}},
+		Rules: []entities.DecisionRule{
+			{ID: "high", Inputs: []string{">= 1000"}, Outputs: []any{"HIGH"}},
+			{ID: "low", Inputs: []string{"-"}, Outputs: []any{"LOW"}},
+		},
+		Tests: []entities.DecisionTest{
+			{ID: "t1", Name: "a large order is high risk",
+				Inputs: map[string]any{"amount": 5000.0}, Expected: map[string]any{"band": "HIGH"}},
+			{ID: "t2", Name: "a small order is not",
+				Inputs: map[string]any{"amount": 5.0}, Expected: map[string]any{"band": "LOW"}},
+			{ID: "t3", Name: "somebody's mistaken belief about the threshold",
+				Inputs: map[string]any{"amount": 500.0}, Expected: map[string]any{"band": "HIGH"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	results, err := h.decisions.RunDecisionTests(ctx, id)
+	if err != nil {
+		t.Fatalf("run tests: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("ran %d examples, want 3 — the examples must survive being saved", len(results))
+	}
+
+	if !results[0].Passed || !results[1].Passed {
+		t.Errorf("the two correct examples did not pass: %+v", results[:2])
+	}
+
+	failing := results[2]
+	if failing.Passed {
+		t.Fatal("an example expecting the wrong answer passed")
+	}
+	// A failure has to show both sides, or the author cannot tell whether the
+	// table is wrong or the expectation is.
+	if len(failing.Mismatches) != 1 || !strings.Contains(failing.Mismatches[0], "HIGH") || !strings.Contains(failing.Mismatches[0], "LOW") {
+		t.Errorf("mismatch = %v, want it to name both what was expected and what happened", failing.Mismatches)
+	}
+	// And which line decided, which is the first thing anyone looks at.
+	if len(failing.MatchedRules) != 1 || failing.MatchedRules[0] != 1 {
+		t.Errorf("matched rules = %v, want the catch-all line", failing.MatchedRules)
+	}
+}
+
+// An example pins the one value it cares about. That is what lets a table grow a
+// column without invalidating every example written before it.
+func TestAnExampleOnlyChecksWhatItNames(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "risk",
+		HitPolicy: entities.HitPolicyFirst,
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "amount", Type: "number"}},
+		Outputs: []entities.DecisionOutput{
+			{ID: "o1", Name: "band", Type: "string"},
+			{ID: "o2", Name: "reviewer", Type: "string"},
+		},
+		Rules: []entities.DecisionRule{{ID: "r1", Inputs: []string{"-"}, Outputs: []any{"HIGH", "compliance"}}},
+		Tests: []entities.DecisionTest{
+			{ID: "t1", Name: "only the band matters here",
+				Inputs: map[string]any{"amount": 1.0}, Expected: map[string]any{"band": "HIGH"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	results, err := h.decisions.RunDecisionTests(ctx, id)
+	if err != nil {
+		t.Fatalf("run tests: %v", err)
+	}
+	if !results[0].Passed {
+		t.Errorf("an example that named one output failed over another: %v", results[0].Mismatches)
+	}
+}
+
+// A number typed into a form arrives as a float; a hand-written table may hold
+// an int. Comparing those as values rather than as types is the difference
+// between a passing test and somebody hunting a bug in their policy.
+func TestANumericExpectationIsComparedAsANumber(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "fee",
+		HitPolicy: entities.HitPolicyFirst,
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "weight", Type: "number"}},
+		Outputs:   []entities.DecisionOutput{{ID: "o1", Name: "fee", Type: "number"}},
+		Rules:     []entities.DecisionRule{{ID: "r1", Inputs: []string{"-"}, Outputs: []any{25}}},
+		Tests: []entities.DecisionTest{
+			{ID: "t1", Name: "the fee is 25",
+				Inputs: map[string]any{"weight": 1.0}, Expected: map[string]any{"fee": 25.0}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	results, err := h.decisions.RunDecisionTests(ctx, id)
+	if err != nil {
+		t.Fatalf("run tests: %v", err)
+	}
+	if !results[0].Passed {
+		t.Errorf("25 did not equal 25.0: %v", results[0].Mismatches)
+	}
+}
+
+// A table that cannot be evaluated is a different failure from one that decides
+// the wrong thing: the first is broken, the second is a disagreement about
+// policy, and they are fixed in different places.
+func TestABrokenTableIsReportedAsBrokenNotAsWrong(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "broken",
+		HitPolicy: entities.HitPolicyPriority, // ranks by a value list that is not there
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "amount", Type: "number"}},
+		Outputs:   []entities.DecisionOutput{{ID: "o1", Name: "band", Type: "string"}},
+		Rules:     []entities.DecisionRule{{ID: "r1", Inputs: []string{"-"}, Outputs: []any{"HIGH"}}},
+		Tests: []entities.DecisionTest{
+			{ID: "t1", Name: "anything", Inputs: map[string]any{"amount": 1.0}, Expected: map[string]any{"band": "HIGH"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	results, err := h.decisions.RunDecisionTests(ctx, id)
+	if err != nil {
+		t.Fatalf("run tests: %v", err)
+	}
+	if results[0].Passed {
+		t.Fatal("a table that could not be evaluated reported a passing example")
+	}
+	if results[0].Err == "" {
+		t.Error("a broken table was reported as a wrong answer rather than as broken")
+	}
+}

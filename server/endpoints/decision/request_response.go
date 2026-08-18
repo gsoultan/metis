@@ -98,3 +98,16 @@ type DecisionImpactResponse struct {
 }
 
 func (r DecisionImpactResponse) Failed() error { return r.Err }
+
+// RunDecisionTestsRequest runs a table against its stored examples.
+type RunDecisionTestsRequest struct {
+	ID string `json:"id"`
+}
+
+// RunDecisionTestsResponse carries one result per example.
+type RunDecisionTestsResponse struct {
+	Results []entities.DecisionTestResult `json:"results,omitzero"`
+	Err     error                         `json:"err,omitzero"`
+}
+
+func (r RunDecisionTestsResponse) Failed() error { return r.Err }

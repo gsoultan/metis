@@ -27,6 +27,10 @@ type DecisionManager interface {
 	// visible before it is made.
 	DecisionImpact(ctx context.Context, id uuid.UUID) (entities.DecisionImpact, error)
 
+	// RunDecisionTests evaluates a table against the examples stored with it.
+	// A decision table nobody can test is a spreadsheet with extra steps.
+	RunDecisionTests(ctx context.Context, id uuid.UUID) ([]entities.DecisionTestResult, error)
+
 	DeleteDecision(ctx context.Context, id uuid.UUID) error
 }
 

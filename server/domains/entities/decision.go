@@ -40,7 +40,11 @@ type DecisionDefinition struct {
 	Inputs            []DecisionInput  `json:"inputs,omitzero"`
 	Outputs           []DecisionOutput `json:"outputs,omitzero"`
 	Rules             []DecisionRule   `json:"rules,omitzero"`
-	CreatedAt         time.Time        `json:"created_at,omitzero"`
+
+	// Tests are the examples this table is expected to get right. Stored with
+	// the table because they are part of the policy, not of a test harness.
+	Tests     []DecisionTest `json:"tests,omitzero"`
+	CreatedAt time.Time      `json:"created_at,omitzero"`
 }
 
 // DecisionInput represents an input column in a decision table.
@@ -138,4 +142,43 @@ type DecisionUsage struct {
 	Steps []string `json:"steps,omitzero"`
 
 	RunningInstances int `json:"running_instances"`
+}
+
+// DecisionTest is an example somebody expects a table to get right.
+//
+// A decision table nobody can test is a spreadsheet with extra steps. The table
+// is business policy, it changes often, and the person changing it is rarely the
+// person who knows every case it was written for — so the cases are written
+// down beside it and re-run on every edit.
+type DecisionTest struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+
+	// Inputs are the process variables the table would see.
+	Inputs map[string]any `json:"inputs,omitzero"`
+
+	// Expected is what it should decide. Only the named outputs are checked, so
+	// a test can pin the one value it cares about and ignore the rest.
+	Expected map[string]any `json:"expected,omitzero"`
+}
+
+// DecisionTestResult is one example, run.
+type DecisionTestResult struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+
+	// Actual is what the table decided, so a failure shows both sides.
+	Actual map[string]any `json:"actual,omitzero"`
+
+	// Mismatches names the outputs that came back wrong, in words.
+	Mismatches []string `json:"mismatches,omitzero"`
+
+	// MatchedRules is which lines produced the answer — the first thing anyone
+	// looks at when a test fails.
+	MatchedRules []int `json:"matched_rules,omitzero"`
+
+	// Err is set when the table could not be evaluated at all, which is a
+	// different failure from deciding the wrong thing.
+	Err string `json:"err,omitzero"`
 }

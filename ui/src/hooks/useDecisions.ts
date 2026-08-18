@@ -89,3 +89,10 @@ export const useDecisionImpact = (decisionId: string | null) => {
     enabled: !!decisionId,
   });
 };
+
+/** Runs a saved table against the examples stored with it. */
+export const useRunDecisionTests = () => {
+  return useMutation({
+    mutationFn: (id: string) => processService.runDecisionTests(id),
+  });
+};
