@@ -34,6 +34,7 @@ export type NodeKind =
   | 'scriptTask'
   | 'manualTask'
   | 'businessRuleTask'
+  | 'decideGroup'
   | 'callActivity'
   | 'exclusiveGateway'
   | 'parallelGateway'
@@ -95,6 +96,14 @@ export const NODE_VOCABULARY: Record<NodeKind, NodeVocabulary> = {
     whatItDoes: 'Sends or fetches information from another system automatically.',
     example: 'Create the invoice in the accounting system.',
     group: 'Steps',
+  },
+  decideGroup: {
+    plainName: 'Decide, then take the right path',
+    bpmnName: 'Business Rule Task + Exclusive Gateway',
+    whatItDoes:
+      'Looks up the answer in a decision table and branches on it. This is the recommended shape: the policy lives in a table somebody can version and test, and each path just compares against what it returned.',
+    example: 'Decide the approval level, then send it to whoever that level names.',
+    group: 'Decisions and branching',
   },
   businessRuleTask: {
     plainName: 'Apply a business rule',
