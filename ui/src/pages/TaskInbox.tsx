@@ -58,6 +58,7 @@ import { TableLoadingState, EmptyState } from '../components/state';
 import type { Task } from '../services/types';
 import type { JsonObject } from '@bufbuild/protobuf';
 import { StatusBadge } from '../components/StatusBadge';
+import { urgencyOf } from '../domain/taskUrgency';
 import { statusLabel } from '../components/statusVocabulary';
 
 function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
@@ -136,9 +137,9 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
       </Table.Td>
       <Table.Td>
         <Group gap="sm">
-          <ThemeIcon 
-            color={task.priority > 50 ? "red" : "blue"} 
-            variant="light" 
+          <ThemeIcon
+            color={urgencyOf(task).color}
+            variant="light"
             radius="md" 
             size="lg"
           >
@@ -163,9 +164,9 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
                   <ExternalLink size={12} />
                 </ActionIcon>
               </Tooltip>
-              {task.priority > 0 && (
-                <Badge size="xs" color={task.priority > 50 ? "red" : "orange"} variant="light">
-                  Priority: {task.priority}
+              {urgencyOf(task).label && (
+                <Badge size="xs" color={urgencyOf(task).color} variant="light">
+                  {urgencyOf(task).label}
                 </Badge>
               )}
               {task.formKey && (
@@ -313,11 +314,16 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
 }
 
 function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate }: TaskCardProps) {
-  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
-  
+  // How urgent this is, decided in one place rather than by three different
+  // inline thresholds — which is what was here, and they had already drifted.
+  const urgency = urgencyOf(task);
+  const isOverdue = urgency.level === 'overdue';
+
   return (
-    <Card withBorder padding="md" radius="md" shadow="sm" style={{ 
-      borderLeft: `4px solid ${task.priority > 50 ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-blue-6)'}`,
+    <Card withBorder padding="md" radius="md" shadow="sm" style={{
+      // The stripe is the urgency, so a late task reads as late from across the
+      // room rather than from a number somebody has to interpret.
+      borderLeft: `4px solid var(--mantine-color-${urgency.color}-6)`,
       backgroundColor: isSelected ? 'var(--mantine-color-blue-0)' : undefined
     }}>
       <Group justify="space-between" mb="xs">
@@ -355,9 +361,12 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
       <Text fw={700} size="sm" mb={4} lineClamp={1}>{task.name}</Text>
       
       <Group gap={4} mb="md">
-        {task.priority > 0 && (
-          <Badge size="xs" color={task.priority > 50 ? "red" : "orange"} variant="light">
-            Priority: {task.priority}
+        {/* What it is, not what number it scored. "Overdue by 3 days" is
+            actionable; "Priority: 70" is a value somebody has to remember the
+            scale for. */}
+        {urgency.label && (
+          <Badge size="xs" color={urgency.color} variant="light">
+            {urgency.label}
           </Badge>
         )}
         {task.formKey && (

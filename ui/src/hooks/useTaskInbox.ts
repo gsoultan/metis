@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { byUrgency } from '../domain/taskUrgency';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   useTasksByAssignee, 
@@ -203,6 +204,11 @@ export function useTaskInbox() {
         const result = aVal > bVal ? 1 : -1;
         return reverseSortDirection ? -result : result;
       });
+    } else {
+      // No column chosen: the list opens on what to do next rather than on
+      // whatever the database returned first. Every task is rated against one
+      // instant, so a boundary crossing mid-sort cannot shuffle the list.
+      filtered.sort(byUrgency(new Date()));
     }
     return filtered;
   }, [searchQuery, sortBy, reverseSortDirection]);
