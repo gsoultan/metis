@@ -18,6 +18,13 @@ type DecisionRepository interface {
 	// ListByProjectPaged returns one page of a project's decisions, for the
 	// same reason definitions have one.
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.DecisionDefinitionModel], error)
+
+	// NextVersion proposes the version a new deployment of key should claim,
+	// counted over the rows the (project_id, key, version) unique index covers.
+	// It is a proposal: concurrent callers get the same number and the index
+	// decides which one keeps it.
+	NextVersion(ctx context.Context, projectID uuid.UUID, key string) (int, error)
+
 	Create(ctx context.Context, definition models.DecisionDefinitionModel) error
 	Update(ctx context.Context, id uuid.UUID, definition models.DecisionDefinitionModel) error
 	Delete(ctx context.Context, id uuid.UUID) error

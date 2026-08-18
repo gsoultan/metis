@@ -28,5 +28,21 @@ func MigrationModels() []any {
 		// It was previously omitted from setup.go's migrateTargetDatabase,
 		// causing runtime failures the first time a notification was written.
 		new(NotificationModel),
+
+		// These five were declared, given repositories and used by the
+		// application, and left out of this list — so on a fresh installation
+		// their tables were never created and the first deployment, form or
+		// compensation failed with "no such table". Every test harness built its
+		// schema from a fuller list of its own, which is why nothing caught it.
+		// Migration 5 creates them on installations that started without them.
+		new(DeploymentModel),
+		new(ResourceModel),
+		new(FormModel),
+		new(VariableSnapshotModel),
+		new(CompensatableActivityModel),
+
+		// A service task's outbound call, recorded so a retry after a failed
+		// commit does not make it a second time.
+		new(ServiceCallModel),
 	}
 }

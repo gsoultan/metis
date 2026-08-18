@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/gobpm/server/repositories/gorms"
+
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -35,7 +37,7 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 		t.Fatalf("failed to configure test encryption key: %v", err)
 	}
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), gorms.Config())
 	if err != nil {
 		t.Fatalf("failed to open mysql: %v", err)
 	}
@@ -68,7 +70,7 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 		_ = db.Exec("DROP DATABASE IF EXISTS " + testDB).Error
 	})
 
-	scoped, err := gorm.Open(mysql.Open(mysqlDSNForDatabase(dsn, testDB)), &gorm.Config{})
+	scoped, err := gorm.Open(mysql.Open(mysqlDSNForDatabase(dsn, testDB)), gorms.Config())
 	if err != nil {
 		t.Fatalf("failed to open the test database: %v", err)
 	}
@@ -99,6 +101,7 @@ func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 		}
 		t.Fatalf("failed to migrate mysql schema: %v", err)
 	}
+	ensureVersionIndexes(t, db)
 	return db
 }
 

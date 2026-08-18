@@ -52,6 +52,33 @@ func (r *gormDecisionRepository) GetByKeyAndVersion(ctx context.Context, key str
 	return m, nil
 }
 
+// NextVersion returns the version number a new deployment of key should claim.
+//
+// It counts over the same rows the unique index covers — one project, one key,
+// soft-deleted rows included. Including them is the point of Unscoped: a version
+// number that has been used once must never be reused, or the deletion of a
+// decision would let its successor quietly inherit its number, and the unique
+// index would refuse the write anyway.
+//
+// The answer is a proposal, not a reservation. Two callers asking at the same
+// moment get the same number, and the unique index settles it — see
+// decisionService.CreateDecision.
+func (r *gormDecisionRepository) NextVersion(ctx context.Context, projectID uuid.UUID, key string) (int, error) {
+	db := tenantScopeDB(ctx,
+		GetTx(ctx, r.db).Unscoped().Model(&models.DecisionDefinitionModel{}),
+		tableDecisionDefinitions)
+
+	var highest int
+	if err := db.
+		Where(QualifiedByProjectID(tableDecisionDefinitions), projectID).
+		Where(ByKey(key)).
+		Select(QueryHighestVersion(tableDecisionDefinitions)).
+		Scan(&highest).Error; err != nil {
+		return 0, fmt.Errorf("could not read the highest decision version: %w", err)
+	}
+	return highest + 1, nil
+}
+
 func (r *gormDecisionRepository) List(ctx context.Context) ([]models.DecisionDefinitionModel, error) {
 	var modelsList []models.DecisionDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "decision_definitions")

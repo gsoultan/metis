@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -12,10 +13,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/circuit"
+	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	contracts2 "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/gobpm/server/repositories/models"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/semaphore"
 )
@@ -25,7 +29,10 @@ import (
 const maxConcurrentJobs = 5
 
 type jobService struct {
-	repo         repositories.Repository
+	repo repositories.Repository
+	// breakers stop the job pool filling with calls to a downstream that is
+	// already down — see internal/pkg/circuit.
+	breakers     *circuit.Group
 	engine       contracts2.ExecutionEngine
 	connectorSvc contracts2.ConnectorService
 	locker       contracts2.DistributedLocker
@@ -46,6 +53,7 @@ func NewJobService(
 	workerID, _ := uuid.NewV7()
 	return &jobService{
 		repo:         repo,
+		breakers:     circuit.NewGroup(circuit.DefaultSettings()),
 		engine:       engine,
 		connectorSvc: connectorSvc,
 		locker:       locker,
@@ -257,7 +265,9 @@ func (s *jobService) handleJobFailure(ctx context.Context, job *entities.Job, jo
 	job.LastError = jobErr.Error()
 	if job.Retries < job.MaxRetries {
 		job.Status = entities.JobPending
-		job.NextRunAt = time.Now().Add(time.Duration(job.Retries) * time.Minute)
+		// Exponential with jitter — see backoff.go for why the linear schedule
+		// this replaces made an outage worse rather than better.
+		job.NextRunAt = time.Now().Add(retryDelay(job.Retries))
 		return
 	}
 	job.Status = entities.JobFailed
@@ -362,16 +372,9 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		return fmt.Errorf("node %s not found", job.Node.ID)
 	}
 
-	responseData, err := s.resolveAndExecuteConnector(ctx, def, *node, job.Payload)
+	responseData, err := s.callOnce(ctx, job, def, *node)
 	if err != nil {
 		return err
-	}
-	if responseData == nil {
-		// No connector matched — try the HTTP runner.
-		responseData, err = s.httpRunner.Run(ctx, *node, job.Payload)
-		if err != nil {
-			return err
-		}
 	}
 
 	// The row lock is taken for the whole read-modify-write, not just the read.
@@ -401,6 +404,137 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		// retire and the process never moves past it.
 		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
 	})
+}
+
+// callOnce makes the node's outbound call, at most once per unit of work.
+//
+// The call cannot share a transaction with the token advance that follows it:
+// the call is network I/O and the advance takes a row lock on the instance, and
+// holding that lock across a call to someone else's API is how one slow partner
+// stops a whole engine. So they are separate — and that separation is precisely
+// the defect this closes. A call that succeeded and then failed to commit was
+// retried, and the second attempt called again. For an endpoint that charges a
+// card, that is a second charge.
+//
+// Three steps, each committed on its own:
+//
+//  1. Record the call in flight. If a previous attempt already recorded it as
+//     completed, return that response and make no call at all.
+//  2. Make the call, carrying an idempotency key derived from the unit of work
+//     rather than from the attempt.
+//  3. Record the response. Only after this does the caller advance the token, so
+//     a failure there costs a repeated advance, not a repeated call.
+//
+// The window that remains — the call succeeded and step 3 did not — is the one
+// no client can close, because a request that never arrived and a response that
+// was lost look identical from here. The key is what makes that window safe: the
+// downstream sees it twice and answers once.
+func (s *jobService) callOnce(
+	ctx context.Context,
+	job entities.Job,
+	def *entities.ProcessDefinition,
+	node entities.Node,
+) (map[string]any, error) {
+	// Ask the breaker before recording anything: a call refused here was never
+	// made, and inflating the recorded attempt count with calls that did not
+	// happen would mislead whoever reads that table during the incident.
+	target := serviceCallTarget(node)
+	if allowed, state := s.breakers.Allow(target); !allowed {
+		log.Warn().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Str("target", target).
+			Str("breaker", state.String()).
+			Msg("Refusing a service call: the downstream is failing and the retry will come back with backoff")
+		return nil, fmt.Errorf("service task %q: not calling %s, its circuit breaker is %s",
+			job.Node.ID, target, state)
+	}
+
+	key := idempotency.ForServiceCall(job.Instance.ID, job.Node.ID, job.IterationID)
+
+	record, err := s.repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
+		InstanceID:     models.UUID(job.Instance.ID),
+		NodeID:         job.Node.ID,
+		IterationID:    job.IterationID,
+		ProjectID:      projectIDOf(def),
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if record.Status == models.ServiceCallCompleted {
+		log.Info().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Msg("Service call already completed on an earlier attempt; reusing its response")
+		return record.Response, nil
+	}
+	if record.Attempts > 1 {
+		// Worth saying out loud: the call is about to be made a second time, and
+		// whether that is safe now rests entirely on the downstream honouring
+		// the key.
+		log.Warn().
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Int("attempts", record.Attempts).
+			Str("idempotency_key", key).
+			Msg("Repeating a service call that did not record a response")
+	}
+
+	callCtx := idempotency.WithKey(ctx, key)
+	responseData, err := s.resolveAndExecuteConnector(callCtx, def, node, job.Payload)
+	if err == nil && responseData == nil {
+		// No connector matched — try the HTTP runner.
+		responseData, err = s.httpRunner.Run(callCtx, node, job.Payload)
+	}
+	if err != nil {
+		s.breakers.Failed(target)
+		return nil, err
+	}
+	s.breakers.Succeeded(target)
+
+	if err := s.repo.ServiceCall().Complete(ctx, uuid.UUID(record.ID), responseData); err != nil {
+		// The call landed. Failing here would retry it, which is the thing this
+		// function exists to prevent, so the work goes on and the gap is logged:
+		// the next attempt will repeat the call carrying the same key.
+		log.Error().Err(err).
+			Str("instance", job.Instance.ID.String()).
+			Str("node", job.Node.ID).
+			Msg("Could not record a completed service call; a retry would repeat it")
+	}
+	return responseData, nil
+}
+
+// serviceCallTarget names the thing a breaker is about: the downstream, not the
+// process step.
+//
+// A connector instance is the better key when there is one — several nodes can
+// share a Salesforce connection, and it is the connection that is unhealthy. For
+// a plain HTTP task it is the host, so two tasks calling different paths on the
+// same failing API trip one breaker between them rather than one each.
+func serviceCallTarget(node entities.Node) string {
+	if id := node.GetStringProperty("connector_instance_id"); id != "" {
+		return "connector:" + id
+	}
+	if raw := node.GetStringProperty("http_url"); raw != "" {
+		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
+			return "host:" + parsed.Host
+		}
+		return "url:" + raw
+	}
+	// Nothing to call, so nothing to break. An empty key is a no-op everywhere
+	// in the group.
+	return ""
+}
+
+// projectIDOf reads the tenant off a definition, so a recorded call scopes like
+// every other row.
+func projectIDOf(def *entities.ProcessDefinition) models.UUID {
+	if def == nil || def.Project == nil {
+		return models.NilUUID
+	}
+	return models.UUID(def.Project.ID)
 }
 
 // resolveAndExecuteConnector finds a connector instance for the node and executes

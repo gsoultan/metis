@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
@@ -68,32 +69,183 @@ func (e *DecisionTableEvaluatorImpl) ruleMatches(ctx context.Context, def entiti
 	return true, nil
 }
 
-// applyHitPolicy applies the table's hit policy to the matched rules.
+// applyHitPolicy applies the table's hit policy to the matched lines.
+//
+// The set is now complete. PRIORITY and OUTPUT ORDER used to fall through to
+// "take the first line", and RULE ORDER was not recognised at all — so a table
+// exported from another tool using any of them answered with one value where
+// its author had asked for the most important one, or for all of them.
 func (e *DecisionTableEvaluatorImpl) applyHitPolicy(def entities.DecisionDefinition, matched []matchedRule) (entities.DecisionResult, error) {
 	if len(matched) == 0 {
+		// No line matched. An empty result rather than an error: a table is
+		// allowed not to have an opinion, and the caller can tell the
+		// difference by the empty MatchedRules.
 		return entities.DecisionResult{Values: map[string]any{}}, nil
 	}
+
 	switch def.HitPolicy {
 	case entities.HitPolicyFirst:
 		return e.buildResult(def, matched[:1]), nil
-	case entities.HitPolicyCollect:
-		return e.applyCollect(def, matched), nil
-	case entities.HitPolicyUnique, entities.HitPolicyAny, entities.HitPolicyPriority, "":
-		if len(matched) > 1 && def.HitPolicy == entities.HitPolicyUnique {
-			return entities.DecisionResult{}, fmt.Errorf("UNIQUE hit policy violated: %d rules matched", len(matched))
+
+	case entities.HitPolicyUnique:
+		if len(matched) > 1 {
+			return entities.DecisionResult{}, fmt.Errorf(
+				"UNIQUE hit policy violated: lines %v all matched, but UNIQUE promises exactly one",
+				ruleNumbers(matched))
+		}
+		return e.buildResult(def, matched), nil
+
+	case entities.HitPolicyAny:
+		// ANY means the author asserts every matching line agrees. When they
+		// disagree the table contradicts itself, and picking one silently is
+		// how a decision table starts lying about what it decided.
+		if err := e.assertOutputsAgree(def, matched); err != nil {
+			return entities.DecisionResult{}, err
 		}
 		return e.buildResult(def, matched[:1]), nil
-	default:
+
+	case entities.HitPolicyPriority:
+		ordered, err := e.orderByOutputPriority(def, matched)
+		if err != nil {
+			return entities.DecisionResult{}, err
+		}
+		return e.buildResult(def, ordered[:1]), nil
+
+	case entities.HitPolicyOutputOrder:
+		ordered, err := e.orderByOutputPriority(def, matched)
+		if err != nil {
+			return entities.DecisionResult{}, err
+		}
+		return e.collectAll(def, ordered), nil
+
+	case entities.HitPolicyRuleOrder:
+		return e.collectAll(def, matched), nil
+
+	case entities.HitPolicyCollect:
+		return e.applyCollect(def, matched), nil
+
+	case "":
+		// An unset hit policy is UNIQUE per the specification, but tables in
+		// the wild leave it blank and rely on first-match. Treating it as FIRST
+		// keeps those working; treating it as UNIQUE would turn them into
+		// errors on the first row that overlaps.
 		return e.buildResult(def, matched[:1]), nil
+
+	default:
+		return entities.DecisionResult{}, fmt.Errorf(
+			"unknown hit policy %q: expected UNIQUE, FIRST, PRIORITY, ANY, COLLECT, OUTPUT ORDER or RULE ORDER",
+			def.HitPolicy)
 	}
+}
+
+// ruleNumbers renders matched lines as the 1-based numbers an author sees in
+// the editor, so an error names the rows rather than array offsets.
+func ruleNumbers(matched []matchedRule) []int {
+	numbers := make([]int, len(matched))
+	for i, m := range matched {
+		numbers[i] = m.index + 1
+	}
+	return numbers
+}
+
+// assertOutputsAgree checks that every matched line produces the same outputs.
+func (e *DecisionTableEvaluatorImpl) assertOutputsAgree(def entities.DecisionDefinition, matched []matchedRule) error {
+	first := matched[0]
+	for _, m := range matched[1:] {
+		for i := range def.Outputs {
+			if outputAt(first.rule, i) != outputAt(m.rule, i) {
+				return fmt.Errorf(
+					"ANY hit policy violated: lines %d and %d both matched but disagree on %q (%v vs %v)",
+					first.index+1, m.index+1, def.Outputs[i].Name, outputAt(first.rule, i), outputAt(m.rule, i))
+			}
+		}
+	}
+	return nil
+}
+
+// orderByOutputPriority sorts matched lines by their first output's position in
+// that column's declared value list, most important first.
+//
+// The ordering is stable, so lines of equal priority keep their table order —
+// which is what makes OUTPUT ORDER deterministic rather than merely sorted.
+func (e *DecisionTableEvaluatorImpl) orderByOutputPriority(def entities.DecisionDefinition, matched []matchedRule) ([]matchedRule, error) {
+	if len(def.Outputs) == 0 {
+		return matched, nil
+	}
+	priorities := def.Outputs[0].Values
+	if len(priorities) == 0 {
+		return nil, fmt.Errorf(
+			"hit policy %s needs the output column %q to list its values in priority order; without that list there is nothing to rank by",
+			def.HitPolicy, def.Outputs[0].Name)
+	}
+
+	rank := make(map[string]int, len(priorities))
+	for i, value := range priorities {
+		rank[value] = i
+	}
+
+	ordered := append([]matchedRule(nil), matched...)
+	sort.SliceStable(ordered, func(a, b int) bool {
+		return priorityOf(ordered[a], rank) < priorityOf(ordered[b], rank)
+	})
+	return ordered, nil
+}
+
+// priorityOf ranks one line's output. A value missing from the declared list
+// sorts last rather than failing the evaluation: the table still has an answer,
+// and an unlisted value is an authoring gap to fix, not a reason to stall an
+// instance mid-flight.
+func priorityOf(m matchedRule, rank map[string]int) int {
+	value := fmt.Sprintf("%v", outputAt(m.rule, 0))
+	if position, ok := rank[value]; ok {
+		return position
+	}
+	return len(rank)
+}
+
+// outputAt returns a line's output for a column, or nil when the line is short.
+func outputAt(rule entities.DecisionRule, i int) any {
+	if i < len(rule.Outputs) {
+		return rule.Outputs[i]
+	}
+	return nil
+}
+
+// collectAll returns every matched line's outputs as a list per column.
+//
+// This is what multi-hit means, and what buildResult could not express: it
+// writes one value per column, so each line overwrote the one before and a
+// policy that promised every match returned only the last.
+func (e *DecisionTableEvaluatorImpl) collectAll(def entities.DecisionDefinition, matched []matchedRule) entities.DecisionResult {
+	values := make(map[string]any, len(def.Outputs))
+	for i, output := range def.Outputs {
+		column := make([]any, 0, len(matched))
+		for _, m := range matched {
+			column = append(column, outputAt(m.rule, i))
+		}
+		values[output.Name] = column
+	}
+	return entities.DecisionResult{Values: values, MatchedRules: ruleIndexes(matched)}
+}
+
+func ruleIndexes(matched []matchedRule) []int {
+	indexes := make([]int, len(matched))
+	for i, m := range matched {
+		indexes[i] = m.index
+	}
+	return indexes
 }
 
 // applyCollect aggregates all matched rule outputs according to the aggregation function.
 func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinition, matched []matchedRule) entities.DecisionResult {
-	result := e.buildResult(def, matched)
 	if def.Aggregation == "" {
-		return result
+		// COLLECT with no aggregator is a list of every match. It used to run
+		// through buildResult, which writes one value per column — so each
+		// matching line overwrote the previous one and a table asking for all
+		// of them received only the last.
+		return e.collectAll(def, matched)
 	}
+	result := e.buildResult(def, matched)
 	aggregated := make(map[string]any)
 	for i, output := range def.Outputs {
 		var nums []float64

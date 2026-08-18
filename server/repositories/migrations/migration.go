@@ -15,8 +15,12 @@ package migrations
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Migration is one ordered, recorded change to the database.
@@ -63,5 +67,215 @@ func Schema(models []any) []Migration {
 				return db.AutoMigrate(models...)
 			},
 		},
+		{
+			// 2 and 3 are the data migrations App.migrationList appends. A
+			// schema migration cannot take a number a shipped migration already
+			// has: the runner refuses the whole list, and the server does not
+			// start.
+			Version: 4,
+			Name:    "unique version per definition key",
+			// Deliberately not transactional: the DDL half commits implicitly on
+			// MySQL and SQL Server anyway, so a transaction here would only
+			// disguise how much of this is recoverable. The repair half is
+			// idempotent — re-running it on an already-repaired table changes
+			// nothing — so an interrupted run is safe to retry.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				for _, table := range versionedDefinitionTables {
+					model, err := modelForTable(db, models, table.name)
+					if err != nil {
+						return err
+					}
+					if err := renumberDuplicateVersions(ctx, db, model, table.name); err != nil {
+						return err
+					}
+					if err := createUniqueVersionIndex(db, model, table.name, table.index); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			Version: 5,
+			Name:    "create the tables the baseline list omitted",
+			// Five models — deployments, deployment resources, forms, variable
+			// snapshots and compensatable activities — were declared, given
+			// repositories and used, but left out of the model list the baseline
+			// migrates. Every test harness built its schema from a fuller list of
+			// its own, so nothing noticed: on a fresh installation the first
+			// deployment failed with "no such table".
+			//
+			// AutoMigrate over the corrected list rather than five explicit
+			// creates: it is a no-op for the tables that already exist, which is
+			// what makes this safe to run against an installation that somehow
+			// has them.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				return db.AutoMigrate(models...)
+			},
+		},
 	}
+}
+
+// versionedDefinitionTables are the tables whose (project_id, key, version) must
+// be unique. Named by table rather than by type because this package takes its
+// models as an injected list — see the note on Schema.
+var versionedDefinitionTables = []struct{ name, index string }{
+	{name: "process_definitions", index: "ux_process_definitions_version"},
+	{name: "decision_definitions", index: "ux_decision_definitions_version"},
+}
+
+// modelForTable resolves a table name back to the model behind it.
+//
+// The model is needed rather than the bare name because a query built from one
+// quotes its columns — `key` is a reserved word on MySQL and a raw reference to
+// it is rejected outright.
+func modelForTable(db *gorm.DB, models []any, table string) (any, error) {
+	for _, model := range models {
+		statement, err := parseModel(db, model)
+		if err != nil {
+			return nil, err
+		}
+		if statement.Table == table {
+			return model, nil
+		}
+	}
+	return nil, fmt.Errorf("no model is registered for table %q", table)
+}
+
+// definitionVersionRow is the subset of a definition this migration reads.
+//
+// The `key` column needs quoting on MySQL, where it is a reserved word, so every
+// reference to it goes through GORM's column handling rather than a raw string.
+type definitionVersionRow struct {
+	ID        string    `gorm:"column:id"`
+	ProjectID string    `gorm:"column:project_id"`
+	Key       string    `gorm:"column:key"`
+	Version   int       `gorm:"column:version"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+// renumberDuplicateVersions gives every row its own version number.
+//
+// An installation that ran the racy allocator may already hold two rows claiming
+// the same version, and the unique index would refuse to build over them. The
+// repair moves the later arrivals to fresh numbers rather than deleting them: a
+// process definition is a business artifact, running instances point at it by
+// ID, and a duplicate version is a labelling mistake, not a reason to destroy
+// one of the two. The earliest row keeps the contested number, so whichever
+// version a definition was deployed as first is the one that keeps its name.
+//
+// Soft-deleted rows are included. They still occupy a number as far as the
+// unique index is concerned, and a version number that has been used once should
+// never be reused — history that renumbers itself is not history.
+func renumberDuplicateVersions(ctx context.Context, db *gorm.DB, model any, table string) error {
+	var rows []definitionVersionRow
+	err := db.WithContext(ctx).Unscoped().Model(model).
+		Select([]string{"id", "project_id", "key", "version", "created_at"}).
+		Order(clause.OrderBy{Columns: []clause.OrderByColumn{
+			{Column: clause.Column{Name: "project_id"}},
+			{Column: clause.Column{Name: "key"}},
+			{Column: clause.Column{Name: "version"}},
+			{Column: clause.Column{Name: "created_at"}},
+			{Column: clause.Column{Name: "id"}},
+		}}).
+		Find(&rows).Error
+	if err != nil {
+		return fmt.Errorf("read %s versions: %w", table, err)
+	}
+
+	type series struct{ project, key string }
+
+	// The highest number each series already uses, computed before anything is
+	// assigned. Allocating as we go would hand a duplicate the next number up
+	// from where we had read to — which a row further down the table already
+	// holds, so the collision moves along the series instead of ending, and
+	// versions nobody deployed twice get renumbered.
+	highest := map[series]int{}
+	for _, row := range rows {
+		s := series{project: row.ProjectID, key: row.Key}
+		if row.Version > highest[s] {
+			highest[s] = row.Version
+		}
+	}
+
+	taken := map[series]map[int]bool{}
+	for _, row := range rows {
+		s := series{project: row.ProjectID, key: row.Key}
+		if taken[s] == nil {
+			taken[s] = map[int]bool{}
+		}
+		if !taken[s][row.Version] {
+			taken[s][row.Version] = true
+			continue
+		}
+
+		highest[s]++
+		next := highest[s]
+		taken[s][next] = true
+
+		// Table rather than Model so the repair does not touch updated_at, and
+		// so soft-deleted rows are renumbered too — they hold a number as far as
+		// the unique index is concerned.
+		if err := db.WithContext(ctx).Table(table).
+			Where("id = ?", row.ID).
+			Update("version", next).Error; err != nil {
+			return fmt.Errorf("renumber %s %s to version %d: %w", table, row.ID, next, err)
+		}
+	}
+	return nil
+}
+
+// createUniqueVersionIndex adds the constraint, unless it is already there.
+//
+// A fresh database gets it from the baseline AutoMigrate, which reads the same
+// tag on the model; an existing one has never seen it. Both paths run this
+// migration, so it has to tolerate finding its own work already done.
+func createUniqueVersionIndex(db *gorm.DB, model any, table, index string) error {
+	if db.Migrator().HasIndex(model, index) {
+		return nil
+	}
+
+	// Hand-written DDL rather than Migrator.CreateIndex, which reads the index
+	// off a struct tag — and a tag would put this index in the baseline
+	// AutoMigrate, which runs before the repair above. Quoting comes from the
+	// dialector so `key`, a reserved word on MySQL, is spelled correctly on each
+	// engine.
+	statement, err := parseModel(db, model)
+	if err != nil {
+		return err
+	}
+	columns := make([]string, 0, len(versionSeriesColumns))
+	for _, name := range versionSeriesColumns {
+		columns = append(columns, statement.Quote(clause.Column{Name: name}))
+	}
+
+	ddl := fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s)",
+		statement.Quote(index), statement.Quote(table), strings.Join(columns, ", "))
+	if err := db.Exec(ddl).Error; err != nil {
+		return fmt.Errorf("create %s on %s: %w", index, table, err)
+	}
+	return nil
+}
+
+// versionSeriesColumns is what makes a definition's version unique: one series
+// per key per project.
+var versionSeriesColumns = []string{"project_id", "key", "version"}
+
+// EnsureVersionIndexes adds the unique version constraints to a database built
+// by AutoMigrate rather than by the migration runner.
+//
+// Test harnesses build their schema that way, and a constraint the tests do not
+// have is a constraint the tests cannot check — the version allocator's whole
+// behaviour under contention depends on this index existing.
+func EnsureVersionIndexes(db *gorm.DB, models []any) error {
+	for _, table := range versionedDefinitionTables {
+		model, err := modelForTable(db, models, table.name)
+		if err != nil {
+			return err
+		}
+		if err := createUniqueVersionIndex(db, model, table.name, table.index); err != nil {
+			return err
+		}
+	}
+	return nil
 }

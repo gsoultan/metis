@@ -1,6 +1,8 @@
 package testutils
 
 import (
+	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/gobpm/server/repositories/migrations"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -22,7 +24,7 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to configure test encryption key: %v", err)
 	}
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), gorms.Config())
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -37,5 +39,21 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(migrationModels()...); err != nil {
 		t.Fatalf("failed to migrate db: %v", err)
 	}
+	ensureVersionIndexes(t, db)
 	return db
+}
+
+// ensureVersionIndexes adds the constraints the migration runner installs but
+// AutoMigrate does not.
+//
+// The unique index on a definition's (project_id, key, version) is declared by a
+// migration rather than a struct tag — see ProcessDefinitionModel for why — so a
+// schema built straight from the models is missing it. A test database without
+// it would accept two definitions claiming the same version and quietly prove
+// the opposite of what the version allocator tests assert.
+func ensureVersionIndexes(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := migrations.EnsureVersionIndexes(db, migrationModels()); err != nil {
+		t.Fatalf("failed to create version indexes: %v", err)
+	}
 }

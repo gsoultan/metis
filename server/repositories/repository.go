@@ -19,6 +19,7 @@ type gormRepository struct {
 	job                   contracts.JobRepository
 	organization          contracts.OrganizationRepository
 	process               contracts.ProcessRepository
+	serviceCall           contracts.ServiceCallRepository
 	project               contracts.ProjectRepository
 	subscription          contracts.SubscriptionRepository
 	task                  contracts.TaskRepository
@@ -45,6 +46,7 @@ func NewRepository(db *gorm.DB) Repository {
 		job:                   gorms.NewJobRepository(db),
 		organization:          gorms.NewOrganizationRepository(db),
 		process:               gorms.NewProcessRepository(db),
+		serviceCall:           gorms.NewServiceCallRepository(db),
 		project:               gorms.NewProjectRepository(db),
 		subscription:          gorms.NewSubscriptionRepository(db),
 		task:                  gorms.NewTaskRepository(db),
@@ -71,6 +73,7 @@ func (r *gormRepository) Incident() contracts.IncidentRepository         { retur
 func (r *gormRepository) Job() contracts.JobRepository                   { return r.job }
 func (r *gormRepository) Organization() contracts.OrganizationRepository { return r.organization }
 func (r *gormRepository) Process() contracts.ProcessRepository           { return r.process }
+func (r *gormRepository) ServiceCall() contracts.ServiceCallRepository   { return r.serviceCall }
 func (r *gormRepository) Project() contracts.ProjectRepository           { return r.project }
 func (r *gormRepository) Subscription() contracts.SubscriptionRepository { return r.subscription }
 func (r *gormRepository) Task() contracts.TaskRepository                 { return r.task }

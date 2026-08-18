@@ -250,6 +250,21 @@ func TestRanges(t *testing.T) {
 		{"10 in [1..10)", "false"}, // open high
 		{"11 in [1..10]", "false"},
 		{"5 between 1 and 10", "true"},
+
+		// The DMN spelling of an open end: a reversed square bracket. It is what
+		// Camunda exports and what this product's own cell menu offers, and the
+		// parser used to reject both — `]1..10]` because `]` could not start an
+		// expression, and `[1..10[` because the closing `[` was read as the
+		// start of an index.
+		{"1 in ]1..10]", "false"},
+		{"2 in ]1..10]", "true"},
+		{"10 in [1..10[", "false"},
+		{"9 in [1..10[", "true"},
+		{"1 in ]1..10[", "false"},
+		{"5 in ]1..10[", "true"},
+
+		// Indexing still works where it is not a range bound.
+		{"[10, 20, 30][2]", "20"},
 	}
 
 	for _, tc := range tests {
