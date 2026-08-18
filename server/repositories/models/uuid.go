@@ -32,9 +32,16 @@ func (u UUID) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
 		return "uuid"
 	}
 	switch db.Name() {
-	case "mysql":
-		// MySQL has no uuid type. char(36) holds the canonical hyphenated form
+	case "mysql", "sqlserver":
+		// Neither has a uuid type. char(36) holds the canonical hyphenated form
 		// that Value below writes, and compares as a fixed-width string.
+		//
+		// SQL Server does have uniqueidentifier, and it is deliberately not used
+		// here: it stores the first three groups little-endian, so the bytes it
+		// hands back are not the bytes that went in unless every reader agrees
+		// on the swap. Value writes text and Scan reads text, so char(36) keeps
+		// the question from arising at all — and it is the same column MySQL has
+		// been running on.
 		return "char(36)"
 	default:
 		// postgres, sqlite and anything else that understood the previous tag.

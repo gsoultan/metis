@@ -112,6 +112,95 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck $(go list ./... | grep -v '/node_modules/')
 
+  dialects:
+    name: Databases (postgres, mysql, sqlserver)
+    needs: ui
+    runs-on: ubuntu-latest
+
+    # Every dialect-specific test in this repository skips when its DSN is
+    # unset, and none of the three DSNs was ever set anywhere. So the tests that
+    # exist to catch "this query behaves differently on MySQL" — and the schema
+    # tests that exist to catch "this column type does not exist on that engine"
+    # — have never run outside a developer's own machine, which is how SQL
+    # Server came to declare `uuid` columns it has no word for.
+    #
+    # These runners are amd64, which is the other half of the reason: the
+    # official SQL Server image has no arm64 build and segfaults under emulation
+    # on Apple silicon, so this is the only place it can run at all.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: gobpm
+          POSTGRES_DB: gobpm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: gobpm
+          MYSQL_DATABASE: gobpm
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ugobpm -pgobpm --silent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Gobpm_Str0ngPass1' -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      GOBPM_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
+      GOBPM_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
+      GOBPM_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download UI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      # A skip here means a DSN did not reach the tests, which is the failure
+      # this job exists to prevent — so the count is asserted rather than eyeballed.
+      - name: Run the dialect suites
+        run: |
+          set -o pipefail
+          go test -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... ./tests/tenant/... \
+            2>&1 | tee /tmp/dialects.log
+          if grep -q -- "--- SKIP" /tmp/dialects.log; then
+            echo "::error::A dialect test skipped, which means its DSN did not reach it:"
+            grep -- "--- SKIP" /tmp/dialects.log
+            exit 1
+          fi
+
   golangci-lint:
     name: golangci-lint
     needs: ui
