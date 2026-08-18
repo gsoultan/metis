@@ -1,8 +1,9 @@
 package adapters
 
 import (
-	"github.com/rs/zerolog/log"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
 	"github.com/gsoultan/gobpm/server/domains/entities"

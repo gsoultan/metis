@@ -2,6 +2,8 @@ package processes
 
 import (
 	"context"
+	"fmt"
+
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
 	"github.com/gsoultan/gobpm/api/proto/entities"
@@ -49,7 +51,11 @@ func (s *Server) StartProcess(ctx context.Context, req *endpoints.StartProcessRe
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.StartProcessResponse), nil
+	typed, ok := resp.(*endpoints.StartProcessResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.StartProcessResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) GetInstance(ctx context.Context, req *endpoints.GetInstanceRequest) (*endpoints.GetInstanceResponse, error) {
@@ -57,7 +63,11 @@ func (s *Server) GetInstance(ctx context.Context, req *endpoints.GetInstanceRequ
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetInstanceResponse), nil
+	typed, ok := resp.(*endpoints.GetInstanceResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.GetInstanceResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListInstances(ctx context.Context, req *endpoints.ListInstancesRequest) (*endpoints.ListInstancesResponse, error) {
@@ -65,7 +75,11 @@ func (s *Server) ListInstances(ctx context.Context, req *endpoints.ListInstances
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListInstancesResponse), nil
+	typed, ok := resp.(*endpoints.ListInstancesResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.ListInstancesResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) GetExecutionPath(ctx context.Context, req *endpoints.GetExecutionPathRequest) (*endpoints.GetExecutionPathResponse, error) {
@@ -73,11 +87,18 @@ func (s *Server) GetExecutionPath(ctx context.Context, req *endpoints.GetExecuti
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetExecutionPathResponse), nil
+	typed, ok := resp.(*endpoints.GetExecutionPathResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.GetExecutionPathResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCStartProcessRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.StartProcessRequest)
+	req, ok := grpcReq.(*endpoints.StartProcessRequest)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.StartProcessRequest, got %T", grpcReq)
+	}
 	vars := make(map[string]any)
 	if req.Variables != nil {
 		vars = req.Variables.AsMap()
@@ -90,17 +111,26 @@ func decodeGRPCStartProcessRequest(_ context.Context, grpcReq any) (any, error) 
 }
 
 func encodeGRPCStartProcessResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.StartProcessResponse)
+	resp, ok := response.(process.StartProcessResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.StartProcessResponse, got %T", response)
+	}
 	return &endpoints.StartProcessResponse{InstanceId: resp.InstanceID.String(), Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCGetInstanceRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetInstanceRequest)
+	req, ok := grpcReq.(*endpoints.GetInstanceRequest)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.GetInstanceRequest, got %T", grpcReq)
+	}
 	return process.GetInstanceRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCGetInstanceResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.GetInstanceResponse)
+	resp, ok := response.(process.GetInstanceResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.GetInstanceResponse, got %T", response)
+	}
 	return &endpoints.GetInstanceResponse{
 		Instance: adapters.ProcessInstancePBAdapter{Instance: resp.Instance}.ToProto(),
 		Error:    common.ErrString(resp.Err),
@@ -108,12 +138,18 @@ func encodeGRPCGetInstanceResponse(_ context.Context, response any) (any, error)
 }
 
 func decodeGRPCListInstancesRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ListInstancesRequest)
+	req, ok := grpcReq.(*endpoints.ListInstancesRequest)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.ListInstancesRequest, got %T", grpcReq)
+	}
 	return process.ListInstancesRequest{ProjectID: req.ProjectId}, nil
 }
 
 func encodeGRPCListInstancesResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.ListInstancesResponse)
+	resp, ok := response.(process.ListInstancesResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.ListInstancesResponse, got %T", response)
+	}
 	var instances []*entities.ProcessInstance
 	if len(resp.Instances) > 0 {
 		instances = make([]*entities.ProcessInstance, 0, len(resp.Instances))
@@ -125,12 +161,18 @@ func encodeGRPCListInstancesResponse(_ context.Context, response any) (any, erro
 }
 
 func decodeGRPCGetExecutionPathRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetExecutionPathRequest)
+	req, ok := grpcReq.(*endpoints.GetExecutionPathRequest)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a *endpoints.GetExecutionPathRequest, got %T", grpcReq)
+	}
 	return process.GetExecutionPathRequest{InstanceID: req.InstanceId}, nil
 }
 
 func encodeGRPCGetExecutionPathResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.GetExecutionPathResponse)
+	resp, ok := response.(process.GetExecutionPathResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.GetExecutionPathResponse, got %T", response)
+	}
 	freqs := make(map[string]int32, len(resp.Frequencies))
 	for k, v := range resp.Frequencies {
 		freqs[k] = int32(v)

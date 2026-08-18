@@ -44,7 +44,10 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(definition.CreateDefinitionResponse)
+	resp, ok := response.(definition.CreateDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.CreateDefinitionResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.CreateDefinitionResponse{
 		Id:    resp.ID.String(),
 		Error: common.ErrString(resp.Err),
@@ -60,7 +63,10 @@ func (h *DefinitionHandler) ListDefinitions(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(definition.ListDefinitionsResponse)
+	resp, ok := response.(definition.ListDefinitionsResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.ListDefinitionsResponse, got %T", response)
+	}
 	pbDefs := make([]*pbentities.ProcessDefinition, len(resp.Definitions))
 	for i, d := range resp.Definitions {
 		pbDefs[i] = adapters.ProcessDefinitionPBAdapter{Definition: d}.ToProtoSummary()
@@ -87,7 +93,10 @@ func (h *DefinitionHandler) GetDefinition(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(definition.GetDefinitionResponse)
+	resp, ok := response.(definition.GetDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.GetDefinitionResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetDefinitionResponse{
 		Definition: adapters.ProcessDefinitionPBAdapter{Definition: resp.Definition}.ToProto(),
 		Error:      common.ErrString(resp.Err),
@@ -101,7 +110,10 @@ func (h *DefinitionHandler) DeleteDefinition(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(definition.DeleteDefinitionResponse)
+	resp, ok := response.(definition.DeleteDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.DeleteDefinitionResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.DeleteDefinitionResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil

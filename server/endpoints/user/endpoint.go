@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/gobpm/server/domains/services"
@@ -29,7 +30,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeGetUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetUserRequest)
+		req, ok := request.(GetUserRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a GetUserRequest, got %T", request)
+		}
 		u, err := s.GetUser(ctx, req.ID)
 		return GetUserResponse{User: u, Err: err}, nil
 	}
@@ -37,7 +41,10 @@ func MakeGetUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeCreateUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateUserRequest)
+		req, ok := request.(CreateUserRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a CreateUserRequest, got %T", request)
+		}
 		err := s.CreateUser(ctx, req.User, req.Password)
 		return CreateUserResponse{Err: err}, nil
 	}
@@ -45,7 +52,10 @@ func MakeCreateUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeLoginEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(LoginRequest)
+		req, ok := request.(LoginRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a LoginRequest, got %T", request)
+		}
 		u, token, err := s.Login(ctx, req.Username, req.Password)
 		if err != nil {
 			return LoginResponse{Err: err}, nil
@@ -64,7 +74,10 @@ func MakeLoginEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListUsersEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListUsersRequest)
+		req, ok := request.(ListUsersRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a ListUsersRequest, got %T", request)
+		}
 		users, err := s.ListUsers(ctx, req.OrganizationID)
 		return ListUsersResponse{Users: users, Err: err}, nil
 	}
@@ -72,7 +85,10 @@ func MakeListUsersEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateUserRequest)
+		req, ok := request.(UpdateUserRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a UpdateUserRequest, got %T", request)
+		}
 		err := s.UpdateUser(ctx, req.User)
 		return UpdateUserResponse{Err: err}, nil
 	}
@@ -80,7 +96,10 @@ func MakeUpdateUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteUserRequest)
+		req, ok := request.(DeleteUserRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a DeleteUserRequest, got %T", request)
+		}
 		err := s.DeleteUser(ctx, req.ID)
 		return DeleteUserResponse{Err: err}, nil
 	}

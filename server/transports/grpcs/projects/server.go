@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -56,7 +57,11 @@ func (s *Server) CreateProject(ctx context.Context, req *endpoints.CreateProject
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.CreateProjectResponse), nil
+	typed, ok := resp.(*endpoints.CreateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.CreateProjectResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) GetProject(ctx context.Context, req *endpoints.GetProjectRequest) (*endpoints.GetProjectResponse, error) {
@@ -64,7 +69,11 @@ func (s *Server) GetProject(ctx context.Context, req *endpoints.GetProjectReques
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetProjectResponse), nil
+	typed, ok := resp.(*endpoints.GetProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.GetProjectResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListProjects(ctx context.Context, req *endpoints.ListProjectsRequest) (*endpoints.ListProjectsResponse, error) {
@@ -72,7 +81,11 @@ func (s *Server) ListProjects(ctx context.Context, req *endpoints.ListProjectsRe
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListProjectsResponse), nil
+	typed, ok := resp.(*endpoints.ListProjectsResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.ListProjectsResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) UpdateProject(ctx context.Context, req *endpoints.UpdateProjectRequest) (*endpoints.UpdateProjectResponse, error) {
@@ -80,7 +93,11 @@ func (s *Server) UpdateProject(ctx context.Context, req *endpoints.UpdateProject
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.UpdateProjectResponse), nil
+	typed, ok := resp.(*endpoints.UpdateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.UpdateProjectResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) DeleteProject(ctx context.Context, req *endpoints.DeleteProjectRequest) (*endpoints.DeleteProjectResponse, error) {
@@ -88,11 +105,18 @@ func (s *Server) DeleteProject(ctx context.Context, req *endpoints.DeleteProject
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.DeleteProjectResponse), nil
+	typed, ok := resp.(*endpoints.DeleteProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.DeleteProjectResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCCreateProjectRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.CreateProjectRequest)
+	req, ok := grpcReq.(*endpoints.CreateProjectRequest)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.CreateProjectRequest, got %T", grpcReq)
+	}
 	return project.CreateProjectRequest{
 		OrganizationID: req.OrganizationId,
 		Name:           req.Name,
@@ -101,7 +125,10 @@ func decodeGRPCCreateProjectRequest(_ context.Context, grpcReq any) (any, error)
 }
 
 func encodeGRPCCreateProjectResponse(_ context.Context, response any) (any, error) {
-	resp := response.(project.CreateProjectResponse)
+	resp, ok := response.(project.CreateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.CreateProjectResponse, got %T", response)
+	}
 	return &endpoints.CreateProjectResponse{
 		Project: adapters.ProjectPBAdapter{Project: resp.Project}.ToProto(),
 		Error:   common.ErrString(resp.Err),
@@ -109,12 +136,18 @@ func encodeGRPCCreateProjectResponse(_ context.Context, response any) (any, erro
 }
 
 func decodeGRPCGetProjectRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetProjectRequest)
+	req, ok := grpcReq.(*endpoints.GetProjectRequest)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.GetProjectRequest, got %T", grpcReq)
+	}
 	return project.GetProjectRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCGetProjectResponse(_ context.Context, response any) (any, error) {
-	resp := response.(project.GetProjectResponse)
+	resp, ok := response.(project.GetProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.GetProjectResponse, got %T", response)
+	}
 	return &endpoints.GetProjectResponse{
 		Project: adapters.ProjectPBAdapter{Project: resp.Project}.ToProto(),
 		Error:   common.ErrString(resp.Err),
@@ -126,7 +159,10 @@ func decodeGRPCListProjectsRequest(_ context.Context, _ any) (any, error) {
 }
 
 func encodeGRPCListProjectsResponse(_ context.Context, response any) (any, error) {
-	resp := response.(project.ListProjectsResponse)
+	resp, ok := response.(project.ListProjectsResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.ListProjectsResponse, got %T", response)
+	}
 	var projects []*entities.Project
 	if len(resp.Projects) > 0 {
 		projects = make([]*entities.Project, 0, len(resp.Projects))
@@ -138,7 +174,10 @@ func encodeGRPCListProjectsResponse(_ context.Context, response any) (any, error
 }
 
 func decodeGRPCUpdateProjectRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.UpdateProjectRequest)
+	req, ok := grpcReq.(*endpoints.UpdateProjectRequest)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.UpdateProjectRequest, got %T", grpcReq)
+	}
 	return project.UpdateProjectRequest{
 		ID:             req.Id,
 		OrganizationID: req.OrganizationId,
@@ -148,16 +187,25 @@ func decodeGRPCUpdateProjectRequest(_ context.Context, grpcReq any) (any, error)
 }
 
 func encodeGRPCUpdateProjectResponse(_ context.Context, response any) (any, error) {
-	resp := response.(project.UpdateProjectResponse)
+	resp, ok := response.(project.UpdateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.UpdateProjectResponse, got %T", response)
+	}
 	return &endpoints.UpdateProjectResponse{Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCDeleteProjectRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.DeleteProjectRequest)
+	req, ok := grpcReq.(*endpoints.DeleteProjectRequest)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a *endpoints.DeleteProjectRequest, got %T", grpcReq)
+	}
 	return project.DeleteProjectRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCDeleteProjectResponse(_ context.Context, response any) (any, error) {
-	resp := response.(project.DeleteProjectResponse)
+	resp, ok := response.(project.DeleteProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.DeleteProjectResponse, got %T", response)
+	}
 	return &endpoints.DeleteProjectResponse{Error: common.ErrString(resp.Err)}, nil
 }

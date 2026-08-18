@@ -2,6 +2,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+
 	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 
 	"github.com/go-kit/kit/endpoint"
@@ -40,7 +42,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeGetTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetTaskRequest)
+		req, ok := request.(GetTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a GetTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetTaskResponse{Err: err}, nil
@@ -52,7 +57,10 @@ func MakeGetTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListTasksByAssigneeEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListTasksByAssigneeRequest)
+		req, ok := request.(ListTasksByAssigneeRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ListTasksByAssigneeRequest, got %T", request)
+		}
 
 		page, err := s.ListTasksByAssigneePaged(ctx, req.Assignee, repocontracts.Pagination{
 			Page:     req.Page,
@@ -75,7 +83,10 @@ func MakeListTasksByAssigneeEndpoint(s services.ServiceFacade) endpoint.Endpoint
 
 func MakeListTasksByCandidatesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListTasksByCandidatesRequest)
+		req, ok := request.(ListTasksByCandidatesRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ListTasksByCandidatesRequest, got %T", request)
+		}
 
 		page, err := s.ListTasksByCandidatesPaged(ctx, req.UserID, req.Groups, repocontracts.Pagination{
 			Page:     req.Page,
@@ -98,7 +109,10 @@ func MakeListTasksByCandidatesEndpoint(s services.ServiceFacade) endpoint.Endpoi
 
 func MakeClaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ClaimTaskRequest)
+		req, ok := request.(ClaimTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ClaimTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
@@ -110,7 +124,10 @@ func MakeClaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UnclaimTaskRequest)
+		req, ok := request.(UnclaimTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a UnclaimTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
@@ -122,7 +139,10 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDelegateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DelegateTaskRequest)
+		req, ok := request.(DelegateTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a DelegateTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
@@ -134,7 +154,10 @@ func MakeDelegateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListTasksRequest)
+		req, ok := request.(ListTasksRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ListTasksRequest, got %T", request)
+		}
 		var projectID uuid.UUID
 		var err error
 		if req.ProjectID != "" {
@@ -164,7 +187,10 @@ func MakeListTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeCompleteTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CompleteTaskRequest)
+		req, ok := request.(CompleteTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a CompleteTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
@@ -176,7 +202,10 @@ func MakeCompleteTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateTaskRequest)
+		req, ok := request.(UpdateTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a UpdateTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return UpdateTaskResponse{Err: err}, nil
@@ -194,7 +223,10 @@ func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(AssignTaskRequest)
+		req, ok := request.(AssignTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a AssignTaskRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return AssignTaskResponse{Err: err}, nil

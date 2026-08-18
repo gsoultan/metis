@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -26,7 +27,10 @@ func (h *TaskHandler) GetTask(ctx context.Context, req *connect.Request[pbendpoi
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.GetTaskResponse)
+	resp, ok := response.(task.GetTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.GetTaskResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetTaskResponse{
 		Task:  adapters.TaskPBAdapter{Task: resp.Task}.ToProto(),
 		Error: common.ErrString(resp.Err),
@@ -42,7 +46,10 @@ func (h *TaskHandler) ListTasks(ctx context.Context, req *connect.Request[pbendp
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.ListTasksResponse)
+	resp, ok := response.(task.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.ListTasksResponse, got %T", response)
+	}
 	pbTasks := make([]*pbentities.Task, len(resp.Tasks))
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
@@ -71,7 +78,10 @@ func (h *TaskHandler) ListTasksByAssignee(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.ListTasksResponse)
+	resp, ok := response.(task.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.ListTasksResponse, got %T", response)
+	}
 	pbTasks := make([]*pbentities.Task, len(resp.Tasks))
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
@@ -101,7 +111,10 @@ func (h *TaskHandler) ListTasksByCandidates(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.ListTasksResponse)
+	resp, ok := response.(task.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.ListTasksResponse, got %T", response)
+	}
 	pbTasks := make([]*pbentities.Task, len(resp.Tasks))
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.TaskPBAdapter{Task: t}.ToProto()
@@ -129,7 +142,10 @@ func (h *TaskHandler) ClaimTask(ctx context.Context, req *connect.Request[pbendp
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.ClaimTaskResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil
@@ -142,7 +158,10 @@ func (h *TaskHandler) UnclaimTask(ctx context.Context, req *connect.Request[pben
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.UnclaimTaskResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil
@@ -161,7 +180,10 @@ func (h *TaskHandler) CompleteTask(ctx context.Context, req *connect.Request[pbe
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.CompleteTaskResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil

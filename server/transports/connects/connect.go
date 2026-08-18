@@ -2,8 +2,9 @@ package connects
 
 import (
 	"encoding/json"
-	"github.com/rs/zerolog/log"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/gobpm/api/proto/services/servicesconnect"
 	"github.com/gsoultan/gobpm/server/endpoints"

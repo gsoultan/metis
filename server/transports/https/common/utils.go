@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
@@ -18,9 +19,8 @@ func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) er
 	if f, ok := response.(endpoints.Failer); ok && f.Failed() != nil {
 		// EncodeError has written the failure to the caller. Returning it again
 		// here would have go-kit write a second reply over the first.
-		//nolint:nilerr // the error is reported to the caller by EncodeError
 		EncodeError(ctx, f.Failed(), w)
-		return nil
+		return nil //nolint:nilerr // the error is reported to the caller by EncodeError, not swallowed
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	return json.NewEncoder(w).Encode(response)

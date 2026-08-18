@@ -29,7 +29,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeCreateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateProjectRequest)
+		req, ok := request.(CreateProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a CreateProjectRequest, got %T", request)
+		}
 		orgID, err := uuid.Parse(req.OrganizationID)
 		if err != nil {
 			return CreateProjectResponse{Err: err}, nil
@@ -41,7 +44,10 @@ func MakeCreateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetProjectRequest)
+		req, ok := request.(GetProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a GetProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetProjectResponse{Err: err}, nil
@@ -53,7 +59,10 @@ func MakeGetProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListProjectsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListProjectsRequest)
+		req, ok := request.(ListProjectsRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a ListProjectsRequest, got %T", request)
+		}
 		orgID, err := optionalUUID(req.OrganizationID)
 		if err != nil {
 			return ListProjectsResponse{Err: err}, nil
@@ -65,7 +74,10 @@ func MakeListProjectsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateProjectRequest)
+		req, ok := request.(UpdateProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a UpdateProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return UpdateProjectResponse{Err: err}, nil
@@ -83,7 +95,10 @@ func MakeUpdateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteProjectRequest)
+		req, ok := request.(DeleteProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a DeleteProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteProjectResponse{Err: err}, nil

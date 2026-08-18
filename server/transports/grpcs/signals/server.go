@@ -2,6 +2,7 @@ package signals
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -36,7 +37,11 @@ func (s *Server) BroadcastSignal(ctx context.Context, req *endpoints.BroadcastSi
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.BroadcastSignalResponse), nil
+	typed, ok := resp.(*endpoints.BroadcastSignalResponse)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a *endpoints.BroadcastSignalResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) SendMessage(ctx context.Context, req *endpoints.SendMessageRequest) (*endpoints.SendMessageResponse, error) {
@@ -44,11 +49,18 @@ func (s *Server) SendMessage(ctx context.Context, req *endpoints.SendMessageRequ
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.SendMessageResponse), nil
+	typed, ok := resp.(*endpoints.SendMessageResponse)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a *endpoints.SendMessageResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCBroadcastSignalRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.BroadcastSignalRequest)
+	req, ok := grpcReq.(*endpoints.BroadcastSignalRequest)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a *endpoints.BroadcastSignalRequest, got %T", grpcReq)
+	}
 	return process.BroadcastSignalRequest{
 		ProjectID:  req.ProjectId,
 		SignalName: req.SignalName,
@@ -57,14 +69,20 @@ func decodeGRPCBroadcastSignalRequest(_ context.Context, grpcReq any) (any, erro
 }
 
 func encodeGRPCBroadcastSignalResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.BroadcastSignalResponse)
+	resp, ok := response.(process.BroadcastSignalResponse)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a process.BroadcastSignalResponse, got %T", response)
+	}
 	return &endpoints.BroadcastSignalResponse{
 		Error: common.ErrString(resp.Err),
 	}, nil
 }
 
 func decodeGRPCSendMessageRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.SendMessageRequest)
+	req, ok := grpcReq.(*endpoints.SendMessageRequest)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a *endpoints.SendMessageRequest, got %T", grpcReq)
+	}
 	return process.SendMessageRequest{
 		ProjectID:      req.ProjectId,
 		MessageName:    req.MessageName,
@@ -74,7 +92,10 @@ func decodeGRPCSendMessageRequest(_ context.Context, grpcReq any) (any, error) {
 }
 
 func encodeGRPCSendMessageResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.SendMessageResponse)
+	resp, ok := response.(process.SendMessageResponse)
+	if !ok {
+		return nil, fmt.Errorf("signals: expected a process.SendMessageResponse, got %T", response)
+	}
 	return &endpoints.SendMessageResponse{
 		Error: common.ErrString(resp.Err),
 	}, nil
