@@ -182,10 +182,20 @@
         503 from `/readyz`, and full recovery afterwards (parked external task completes,
         the instance finishes, fresh work starts). Broker reconnect is covered at the unit
         level in `messaging_test.go`; the network dimension is the proxy itself.
-  - [ ] Feature-flag/canary rollout mechanism defined and integrated.
+  - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
+        used by the strict tenant scope and the system-identity work. **Canary
+        rollout is not built**: there is no traffic-splitting or staged-cohort
+        mechanism, so a flag is on or off for the whole installation.
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).
-  - [ ] Task Inbox UX overhaul: priority badges, overdue countdown, bulk actions.
+  - [x] Task Inbox UX overhaul: priority badges, overdue countdown, bulk actions.
+        Urgency is computed once in `ui/src/domain/taskUrgency.ts` from the two
+        things that make a task urgent — late, or important — and rendered as
+        colour, order and a word. Bulk actions run through
+        `ui/src/domain/bulkAction.ts`: six requests in flight rather than one per
+        selected row, one summary notification rather than forty, and whatever
+        failed stays selected so it can be retried. Claiming is a race the engine
+        allows, so a partial failure is normal and had to be reportable.
   - [ ] Medium-priority UX items (5-8) delivered.
   - [ ] Lower-priority UX items (9-12) delivered.
 - [ ] 8. 90-Day Execution Plan
@@ -754,3 +764,37 @@ FEEL expression layer**. `feel_evaluator.go` is string matching, not the parser 
 `execution-plan.md` §2.1, and the script-sandbox measurement above is the argument for it —
 gateway conditions accepting arbitrary JavaScript is a memory-exhaustion vector no sandbox
 setting can close.
+
+---
+
+### Verification coverage (2026-08-19)
+
+Two gaps closed, both of the same shape — a test existed and had never run:
+
+- **Every dialect suite skipped everywhere.** `tests/postgres`, `tests/mysqldb`
+  and `tests/tenant` skip when their DSN is unset, and no DSN was set in CI,
+  which had no database service containers at all. The `dialects` job now runs
+  all four against real PostgreSQL, MySQL and SQL Server, and fails if any test
+  *skips* — a skip is the failure the job exists to prevent.
+- **SQL Server had never created a table.** It is offered in the config and the
+  setup wizard; `models.UUID` answered `uuid`, which it has no word for. Fixed to
+  `char(36)`, the column MySQL already runs on.
+
+**Known blocker:** GitHub Actions is not running — every job on PR #9 reports
+*"The job was not started because recent account payments have failed or your
+spending limit needs to be increased."* Until that is resolved, the `dialects`
+job cannot prove the SQL Server fix. The column-type decision is unit-tested
+locally per dialect (`server/repositories/models/uuid_dialect_test.go`), and the
+schema test needs an amd64 machine — the official SQL Server image has no arm64
+build and segfaults under emulation.
+
+**Still open, and why:**
+
+- **`golangci-lint` runs clean** as of this date, measured with the caps off:
+  `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0` → 0 issues.
+  The defaults collapse identical messages to three per linter and reported "87
+  findings" for 344; measure with the caps off or the number is fiction.
+- **PWA, the React compiler and i18n** (§7 lower-priority) need a browser to
+  verify and are not attempted blind.
+- **Architecture audits** (§2) are documentation of the code as it stands, not
+  changes to it.
