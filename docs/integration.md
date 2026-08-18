@@ -316,6 +316,61 @@ The choice lands on the instance timeline, naming the table, its version and the
 line that applied — "why did this land on the CFO's desk?" is the question asked
 about approvals more than any other.
 
+## Writing a connector without writing Go
+
+A connector is a document. It says what to call, how to authenticate, what goes
+in, what comes back, and which failures are which:
+
+```yaml
+key: salesforce.create-lead
+version: 2
+name: Salesforce — Create Lead
+auth:
+  type: bearer
+request:
+  method: POST
+  url: "{{config.instance_url}}/services/data/v60.0/sobjects/Lead"
+  body:
+    LastName: "{{input.last_name}}"
+    Company:  "{{input.company}}"
+response:
+  success: "status >= 200 and status < 300"
+  outputs:
+    lead_id: "body.id"
+errors:
+  - when: "status = 401"
+    bpmn_error: AUTH_FAILED
+    retryable: false
+  - when: "status = 429"
+    bpmn_error: RATE_LIMITED
+    retryable: true
+    retry_after: "headers['Retry-After']"
+```
+
+`{{ … }}` is the only syntax this adds. Everything inside is FEEL — the same
+language gateway conditions, input mappings and decision cells use.
+
+**`config` is the tenant's, `input` is the node's.** Credentials come from
+config and are unreachable from input, so a modeller cannot read one by mapping
+it into a variable.
+
+**A template that is entirely one expression keeps its type.** `{{input.amount}}`
+is the number 500, not the text "500" — a body field arriving as a string is
+rejected by most APIs that care. A template that resolves to nothing is omitted
+rather than sent as null, because most APIs read an explicit null as "clear this
+field".
+
+**`errors[]` turns an HTTP failure into a BPMN error** a boundary event can
+catch, so an integration failing becomes a modelled path rather than an incident
+somebody has to read a stack trace to understand. Rules are checked before the
+success condition, so a failure that arrives with a 200 and a body saying so is
+still caught. `retry_after` is honoured — being asked to wait two minutes and
+waiting two minutes is the difference between backing off and being blocked.
+
+Manifests are consulted before the built-in connectors, so one can replace a
+built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
+stream, anything stateful — keep the Go interface.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

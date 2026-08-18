@@ -606,3 +606,45 @@ func TestSingleQuotedStrings(t *testing.T) {
 		t.Errorf("mixed quoting = %q, want ab", value)
 	}
 }
+
+// A context indexed by a string.
+//
+// `headers['Retry-After']` has no accessor form — `headers.Retry-After` parses
+// as a subtraction — and strict FEEL offers no way to reach such a key at all.
+// HTTP header names are full of them, and a connector manifest reading a
+// response has nothing else to use.
+func TestAContextCanBeIndexedByName(t *testing.T) {
+	vars := map[string]any{
+		"headers": map[string]any{
+			"Retry-After":  "120",
+			"Content-Type": "application/json",
+		},
+	}
+
+	tests := []struct {
+		expr string
+		want string
+	}{
+		{`headers['Retry-After']`, "120"},
+		{`headers["Content-Type"]`, "application/json"},
+		{`headers['Nothing-Here']`, "null"},
+	}
+	for _, tc := range tests {
+		got, err := Evaluate(tc.expr, vars)
+		if err != nil {
+			t.Errorf("%s: %v", tc.expr, err)
+			continue
+		}
+		if got.String() != tc.want {
+			t.Errorf("%s = %q, want %q", tc.expr, got.String(), tc.want)
+		}
+	}
+
+	// The ordinary accessor still works, and a list is still indexed by number.
+	if got, err := Evaluate("headers.Retry", vars); err != nil || got.String() != "null" {
+		t.Errorf("headers.Retry = %v, %v", got, err)
+	}
+	if got, err := Evaluate("[10, 20, 30][2]", nil); err != nil || got.String() != "20" {
+		t.Errorf("list indexing broke: %v, %v", got, err)
+	}
+}

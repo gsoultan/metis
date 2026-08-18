@@ -194,6 +194,17 @@ func (e *evaluator) evalIndex(n *Index) (Value, error) {
 	if err != nil {
 		return Null, err
 	}
+	// A context indexed by a string is how a name that is not an identifier gets
+	// read: `headers['Retry-After']` has no accessor form, because
+	// `headers.Retry-After` parses as a subtraction. Strict FEEL offers no way
+	// to reach such a key at all, and HTTP header names are full of them.
+	if target.Kind == KindContext && index.Kind == KindString {
+		if value, present := target.Context[index.Str]; present {
+			return value, nil
+		}
+		return Null, nil
+	}
+
 	if target.Kind != KindList {
 		return Null, fmt.Errorf("feel: cannot index a %s", target.Kind)
 	}
