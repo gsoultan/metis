@@ -314,7 +314,17 @@ func (s *connectorService) DeleteConnectorInstance(ctx context.Context, id uuid.
 // absent, which lets an operator stop a connector without deleting the document
 // that defines it.
 func (s *connectorService) manifestFor(ctx context.Context, key string) (connectors.Manifest, bool) {
-	m, err := s.repo.ConnectorManifest().GetByKey(ctx, key)
+	// A repository that supplies no manifest store has no manifests, which is
+	// the same answer as "none installed". Guarded rather than assumed: this is
+	// on the path every service task takes, and a nil dereference here kills the
+	// job goroutine rather than failing one call — which is exactly what it did
+	// the first time a test passed a repository without one.
+	store := s.repo.ConnectorManifest()
+	if store == nil {
+		return connectors.Manifest{}, false
+	}
+
+	m, err := store.GetByKey(ctx, key)
 	if err != nil || !m.Enabled {
 		return connectors.Manifest{}, false
 	}
