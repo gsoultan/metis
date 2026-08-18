@@ -1,4 +1,5 @@
 import { requestJSON } from "../shared/rest";
+import { raiseIfRefused } from "../raise";
 
 /** A designer presence or edit event, relayed to everyone else on the diagram. */
 export interface CollaborationBroadcast {
@@ -20,6 +21,6 @@ export const collaborationService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 };

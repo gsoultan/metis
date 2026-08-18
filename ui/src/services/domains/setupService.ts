@@ -1,5 +1,6 @@
 import { requestJSON } from "../shared/rest";
 import type { SetupRequest } from "../types";
+import { raiseIfRefused } from "../raise";
 
 /**
  * Mirrors contracts.SetupStatus on the server, which serialises as
@@ -35,7 +36,7 @@ export const setupService = {
       auth: false,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async testConnection(req: Pick<SetupRequest, 'database_driver' | 'db_host' | 'db_port' | 'db_username' | 'db_password' | 'db_name' | 'db_ssl_enabled'>, signal?: AbortSignal) {
