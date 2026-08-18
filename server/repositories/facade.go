@@ -20,6 +20,10 @@ type Repository interface {
 	// ServiceCall remembers a service task's outbound call across job attempts,
 	// so a retry after a failed commit does not make it a second time.
 	ServiceCall() contracts.ServiceCallRepository
+
+	// Webhook stores the public addresses partners post events to, and the
+	// deliveries already acted on.
+	Webhook() contracts.WebhookRepository
 	Project() contracts.ProjectRepository
 	Subscription() contracts.SubscriptionRepository
 	Task() contracts.TaskRepository

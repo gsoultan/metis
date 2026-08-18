@@ -24,6 +24,7 @@ import { useConnectors } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 import { NODE_VOCABULARY, type NodeKind } from '../domain/bpmnVocabulary';
 import type { LucideIcon } from 'lucide-react';
+import { DECIDE_GROUP_KIND } from '../domain/decideGroup';
 import type { BPMNNodeData } from '../types/bpmn';
 
 /** One draggable entry in the palette, after the vocabulary has named it. */
@@ -78,6 +79,8 @@ const paletteItems: Array<{
   { kind: 'manualTask', type: 'manualTask', icon: Hand, color: 'orange' },
   { kind: 'callActivity', type: 'callActivity', icon: ExternalLink, color: 'cyan' },
 
+  // The recommended shape, made the easy one — see domain/decideGroup.ts.
+  { kind: 'decideGroup', type: DECIDE_GROUP_KIND, icon: GitBranch, color: 'indigo' },
   { kind: 'exclusiveGateway', type: 'exclusiveGateway', icon: GitBranch, color: 'orange' },
   { kind: 'parallelGateway', type: 'parallelGateway', icon: Plus, color: 'orange' },
   { kind: 'inclusiveGateway', type: 'inclusiveGateway', icon: Circle, color: 'orange' },

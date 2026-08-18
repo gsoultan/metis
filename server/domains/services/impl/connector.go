@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"io"
@@ -32,6 +33,25 @@ import (
 type connectorService struct {
 	repo      repositories.Repository
 	executors map[string]servicecontracts.ConnectorExecutor
+
+	// manifests are connectors written as data rather than compiled in — see
+	// connectors.Manifest. Held by key, and consulted before the built-ins so an
+	// installed manifest can replace one without editing Go.
+	manifests map[string]connectors.Manifest
+}
+
+// InstallManifest registers a connector described by a document.
+//
+// The manifest is validated at install rather than at call time: it is installed
+// once and called thousands of times, and the moment to discover it names no URL
+// is when somebody installs it, not when an instance reaches it at 3am.
+func (s *connectorService) InstallManifest(document []byte) error {
+	manifest, err := connectors.ParseManifest(document)
+	if err != nil {
+		return err
+	}
+	s.manifests[manifest.Key] = manifest
+	return nil
 }
 
 func NewConnectorService(
@@ -40,6 +60,7 @@ func NewConnectorService(
 	s := &connectorService{
 		repo:      repo,
 		executors: make(map[string]servicecontracts.ConnectorExecutor),
+		manifests: make(map[string]connectors.Manifest),
 	}
 
 	// Register built-in executors
@@ -215,6 +236,21 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 		trace.WithAttributes(tracing.AttrConnectorKey.String(connectorKey)),
 	)
 	defer span.End()
+
+	// A manifest first: a connector written as data beats one compiled in, so an
+	// installed manifest may replace a built-in without editing Go. When none is
+	// installed under this key, the built-in executors answer as they always
+	// have.
+	if manifest, found := s.manifests[connectorKey]; found {
+		result, err := connectors.RunManifest(ctx, manifest, config, payload, nil)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "connector call failed")
+			return nil, err
+		}
+		span.SetStatus(codes.Ok, "")
+		return result, nil
+	}
 
 	executor, ok := s.executors[connectorKey]
 	if !ok {

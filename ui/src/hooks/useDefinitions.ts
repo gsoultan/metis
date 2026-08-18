@@ -1,4 +1,5 @@
 import { notifications } from '@mantine/notifications';
+import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
@@ -15,6 +16,7 @@ type DefinitionResult = Awaited<ReturnType<typeof processService.getDefinition>>
 export const useDefinitions = (page = 1, pageSize = 25) => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     // The page is part of the key, so stepping back to a page already seen is
     // a cache hit rather than a refetch.
     queryKey: ['definitions', currentProjectId, page, pageSize],
@@ -32,6 +34,7 @@ export const useDefinitions = (page = 1, pageSize = 25) => {
 export const useDefinition = (id: string | null) => {
   const { currentProjectId, token } = useAppStore();
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['definition', currentProjectId, id],
     queryFn: ({ signal }) =>
       (currentProjectId && id && token)

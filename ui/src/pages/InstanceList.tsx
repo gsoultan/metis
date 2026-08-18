@@ -12,10 +12,12 @@ import {
   Center,
   Pagination,
   Select,
+  Drawer,
 } from '@mantine/core';
-import {    
-  Eye, 
+import {
+  Eye,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useInstances } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
@@ -23,6 +25,7 @@ import { ErrorState } from '../components/state';
 import {useState} from 'react';
 import { useDefinitions } from '../hooks/useDefinitions';
 import { StatusBadge } from '../components/StatusBadge';
+import { IncidentInbox } from '../components/IncidentInbox';
 
 /**
  * Turns a node identifier into something readable.
@@ -54,6 +57,8 @@ function humanizeNodeId(nodeId: string): string {
 }
 
 export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: string, definitionId: string) => void }) {
+  // Which instance's failures are on screen, if any.
+  const [inspecting, setInspecting] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const { data, isLoading, error, refetch } = useInstances(page, pageSize);
@@ -77,7 +82,17 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
     return (
       <Stack gap="xl">
         <Skeleton height={40} radius="md" />
-        <Card withBorder radius="lg" p={0}>
+        <Drawer
+        opened={inspecting !== null}
+        onClose={() => setInspecting(null)}
+        position="right"
+        size="lg"
+        title="What went wrong"
+      >
+        {inspecting && <IncidentInbox instanceId={inspecting} />}
+      </Drawer>
+
+      <Card withBorder radius="lg" p={0}>
           <Table verticalSpacing="md">
             <thead>
               <tr>
@@ -181,15 +196,30 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
                     </Group>
                   </td>
                   <td>
-                    <Tooltip label="View Execution Path">
-                      <ActionIcon aria-label="View instance" 
-                        variant="light" 
-                        color="blue" 
-                        onClick={() => onViewInstance(inst.id, inst.definition?.id ?? '')}
-                      >
-                        <Eye size={16} />
-                      </ActionIcon>
-                    </Tooltip>
+                    <Group gap={6} wrap="nowrap">
+                      <Tooltip label="View Execution Path">
+                        <ActionIcon aria-label="View instance"
+                          variant="light"
+                          color="blue"
+                          onClick={() => onViewInstance(inst.id, inst.definition?.id ?? '')}
+                        >
+                          <Eye size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                      {/* A failed instance used to sit here looking stuck with
+                          nothing to click. The engine could always put the step
+                          back on the queue; nothing in the interface asked it
+                          to. */}
+                      <Tooltip label="What went wrong, and try again">
+                        <ActionIcon aria-label="Show what failed"
+                          variant="light"
+                          color={inst.status === 'failed' ? 'red' : 'gray'}
+                          onClick={() => setInspecting(inst.id)}
+                        >
+                          <AlertTriangle size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
                   </td>
                 </tr>
               ))

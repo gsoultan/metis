@@ -396,6 +396,13 @@ export interface ApiDecision {
   inputs?: ApiDecisionInput[];
   outputs?: ApiDecisionOutput[];
   rules?: ApiDecisionRule[];
+  /** Examples this table is expected to get right. */
+  tests?: Array<{
+    id: string;
+    name: string;
+    inputs?: Record<string, unknown>;
+    expected?: Record<string, unknown>;
+  }>;
   created_at?: string;
 }
 

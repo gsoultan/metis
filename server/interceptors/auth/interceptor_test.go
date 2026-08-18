@@ -247,3 +247,42 @@ func TestMandatoryHTTPAuthInterceptor(t *testing.T) {
 		})
 	}
 }
+
+// The webhook endpoint is public by design, and that exemption is a prefix
+// rather than an exact path because the token is a path segment. A prefix is
+// exactly the shape that opens more than intended if it is written carelessly,
+// so what it does and does not cover is pinned here.
+func TestPublicPathPrefixes(t *testing.T) {
+	interceptor := NewMandatoryHTTPAuthInterceptor(strategyFunc(func(context.Context, string) (any, error) { return nil, nil }), nil)
+	inner, ok := interceptor.(*mandatoryHTTPAuthInterceptor)
+	if !ok {
+		t.Fatalf("unexpected interceptor type %T", interceptor)
+	}
+
+	public := []string{
+		"/api/v1/hooks/abc123",
+		"/api/v1/hooks/a",
+		"/api/v1/hooks/abc123/anything-beneath",
+	}
+	for _, path := range public {
+		if !inner.isPublicPath(path) {
+			t.Errorf("%q is not public; a webhook delivery would be refused before its signature was checked", path)
+		}
+	}
+
+	// The dangerous half. Every one of these starts with the same characters as
+	// the prefix and must still require a token.
+	protected := []string{
+		"/api/v1/hooks",         // the collection itself: listing webhooks is not public
+		"/api/v1/hooks/",        // the bare prefix addresses no webhook
+		"/api/v1/hooksecrets",   // merely starts with the same characters
+		"/api/v1/hooks-admin/x", // ditto, with a plausible name
+		"/api/v1/tasks",
+		"/api/v1/definitions",
+	}
+	for _, path := range protected {
+		if inner.isPublicPath(path) {
+			t.Errorf("%q was treated as public", path)
+		}
+	}
+}

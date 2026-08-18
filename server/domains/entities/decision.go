@@ -40,7 +40,11 @@ type DecisionDefinition struct {
 	Inputs            []DecisionInput  `json:"inputs,omitzero"`
 	Outputs           []DecisionOutput `json:"outputs,omitzero"`
 	Rules             []DecisionRule   `json:"rules,omitzero"`
-	CreatedAt         time.Time        `json:"created_at,omitzero"`
+
+	// Tests are the examples this table is expected to get right. Stored with
+	// the table because they are part of the policy, not of a test harness.
+	Tests     []DecisionTest `json:"tests,omitzero"`
+	CreatedAt time.Time      `json:"created_at,omitzero"`
 }
 
 // DecisionInput represents an input column in a decision table.
@@ -89,4 +93,92 @@ type DecisionResult struct {
 	//
 	// Under FIRST this holds one entry; under COLLECT, every line that matched.
 	MatchedRules []int `json:"matched_rules,omitzero"`
+
+	// The identity of what decided, carried on the result rather than looked up
+	// again by whoever wants to record it.
+	//
+	// An audit entry naming only the outputs answers "what was decided" and not
+	// "by what, and on what grounds" — and the second is the question asked six
+	// months later, by someone who needs to know which version of the policy was
+	// in force. The table it came from is versioned and immutable, so these four
+	// fields are enough to reconstruct the reasoning exactly.
+	DecisionKey     string `json:"decision_key,omitzero"`
+	DecisionName    string `json:"decision_name,omitzero"`
+	DecisionVersion int    `json:"decision_version,omitzero"`
+
+	// MatchedRuleIDs are the same lines as MatchedRules, named rather than
+	// numbered. A position is only meaningful against the version of the table
+	// that produced it; an ID survives the table being edited.
+	MatchedRuleIDs []string `json:"matched_rule_ids,omitzero"`
+}
+
+// DecisionImpact answers "what breaks if I change this?".
+//
+// A decision table is a policy several processes can share, and the person
+// about to edit one is usually the person least able to see who else depends on
+// it. Changing a threshold with three hundred instances part-way through the
+// process that reads it is a different act from changing one nothing uses, and
+// the difference should be visible before the change, not after.
+type DecisionImpact struct {
+	DecisionKey string `json:"decision_key"`
+
+	// Processes that can reach this decision.
+	Processes []DecisionUsage `json:"processes,omitzero"`
+
+	// RunningInstances is the total across those processes — the number of
+	// business commitments already in flight under the current policy.
+	RunningInstances int `json:"running_instances"`
+}
+
+// DecisionUsage is one process that consults a decision.
+type DecisionUsage struct {
+	DefinitionID   uuid.UUID `json:"definition_id"`
+	DefinitionKey  string    `json:"definition_key"`
+	DefinitionName string    `json:"definition_name,omitzero"`
+	Version        int       `json:"version"`
+
+	// Steps names the steps that consult it — "Score the applicant" tells
+	// somebody where the policy is used; a count does not.
+	Steps []string `json:"steps,omitzero"`
+
+	RunningInstances int `json:"running_instances"`
+}
+
+// DecisionTest is an example somebody expects a table to get right.
+//
+// A decision table nobody can test is a spreadsheet with extra steps. The table
+// is business policy, it changes often, and the person changing it is rarely the
+// person who knows every case it was written for — so the cases are written
+// down beside it and re-run on every edit.
+type DecisionTest struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+
+	// Inputs are the process variables the table would see.
+	Inputs map[string]any `json:"inputs,omitzero"`
+
+	// Expected is what it should decide. Only the named outputs are checked, so
+	// a test can pin the one value it cares about and ignore the rest.
+	Expected map[string]any `json:"expected,omitzero"`
+}
+
+// DecisionTestResult is one example, run.
+type DecisionTestResult struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+
+	// Actual is what the table decided, so a failure shows both sides.
+	Actual map[string]any `json:"actual,omitzero"`
+
+	// Mismatches names the outputs that came back wrong, in words.
+	Mismatches []string `json:"mismatches,omitzero"`
+
+	// MatchedRules is which lines produced the answer — the first thing anyone
+	// looks at when a test fails.
+	MatchedRules []int `json:"matched_rules,omitzero"`
+
+	// Err is set when the table could not be evaluated at all, which is a
+	// different failure from deciding the wrong thing.
+	Err string `json:"err,omitzero"`
 }

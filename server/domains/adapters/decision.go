@@ -58,6 +58,7 @@ func (a DecisionModelAdapter) ToModel() models.DecisionDefinitionModel {
 		Inputs:            inputs,
 		Outputs:           outputs,
 		Rules:             rules,
+		Tests:             testsToModel(a.Decision.Tests),
 	}
 }
 
@@ -106,6 +107,35 @@ func (a DecisionEntityAdapter) ToEntity() entities.DecisionDefinition {
 		Inputs:            inputs,
 		Outputs:           outputs,
 		Rules:             rules,
+		Tests:             testsToEntity(a.Model.Tests),
 		CreatedAt:         a.Model.CreatedAt,
 	}
+}
+
+// testsToModel and testsToEntity carry a table's examples across the boundary.
+//
+// Written out rather than shared through a common type: the two layers are
+// allowed to diverge, and the last field that crossed by being the same struct
+// — an output's ranking list — was silently dropped for exactly as long as
+// nobody looked.
+func testsToModel(in []entities.DecisionTest) []models.DecisionTest {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]models.DecisionTest, len(in))
+	for i, t := range in {
+		out[i] = models.DecisionTest{ID: t.ID, Name: t.Name, Inputs: t.Inputs, Expected: t.Expected}
+	}
+	return out
+}
+
+func testsToEntity(in []models.DecisionTest) []entities.DecisionTest {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]entities.DecisionTest, len(in))
+	for i, t := range in {
+		out[i] = entities.DecisionTest{ID: t.ID, Name: t.Name, Inputs: t.Inputs, Expected: t.Expected}
+	}
+	return out
 }

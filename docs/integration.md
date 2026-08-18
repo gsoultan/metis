@@ -224,6 +224,178 @@ that failed against the same outage do not all come back at the same moment.
 When the attempts run out the job raises an incident, which is visible in the UI
 and resolvable there.
 
+## Holding to your rate limit
+
+Set `rate_limit_per_minute` on a connector instance's configuration — or on a
+service task's properties, for a plain HTTP call — and the engine will not exceed
+it. The limit is a token bucket: a minute's worth of burst, refilling steadily,
+which is the shape API quotas are usually written in.
+
+A call held back by the limit is **deferred, not failed**. The job is put back
+with a time on it and its retry count is untouched, because being over a quota is
+compliance rather than an error — counting it as a failure would exhaust an
+instance's three attempts for the crime of being popular.
+
+A connector instance's setting covers every node that uses that connection, so a
+limit agreed with a partner is set once. Leave it unset — the default — and
+nothing is limited.
+
+## Receiving events: webhooks
+
+A partner announcing that something happened — a payment cleared, a ticket
+closed — posts to an address you register:
+
+```
+POST /api/v1/hooks/<token>
+X-Signature-256: sha256=<hmac>
+X-Delivery-Id: <the sender's id for this event>
+
+{"order": {"id": "ORD-1"}}
+```
+
+The endpoint is public, because a partner's configuration screen has nowhere to
+put a token this engine would recognise. What authenticates a delivery is the
+signature: **HMAC-SHA256 over the exact bytes of the body**, hex-encoded, using
+the secret you were given when the webhook was created.
+
+```
+signature = hex(hmac_sha256(secret, raw_request_body))
+```
+
+An `sha256=` prefix is accepted and ignored — the algorithm is ours, not the
+caller's to declare. The header name is configurable per webhook, because there
+is no standard: GitHub uses `X-Hub-Signature-256`, Stripe uses
+`Stripe-Signature`.
+
+**The secret is shown once**, when the webhook is created. It is encrypted at
+rest and no read path returns it.
+
+**Send a delivery ID.** Any of `X-Delivery-Id`, `X-GitHub-Delivery`,
+`X-Request-Id` or `Idempotency-Key`. A delivery carrying an ID already seen is
+answered `202` and not acted on again — senders retry, and without an ID a retry
+cannot be told from a new event and will move the process twice. IDs are
+remembered for 48 hours.
+
+Each webhook names the BPMN message a delivery becomes, and optionally a FEEL
+expression over the payload — `order.id` — picking the value that says which
+waiting instance it concerns. Leave that empty and every delivery starts a
+process instead of moving one.
+
+Responses: `202` accepted, `401` for anything about who sent it (an unknown
+address and a bad signature are deliberately indistinguishable), `400` for a
+body that could not be used.
+
+## Letting a decision table say who approves
+
+An approval matrix — "under 10k the team lead, over 10k the CFO, anything from a
+new supplier goes to compliance" — changes when the organisation changes, which
+is far more often than the process does. Written into a diagram, moving a
+threshold takes a modeller and a redeploy.
+
+Give a user task an `assignment_decision_key` property naming a decision table,
+and its outputs set who does the work:
+
+| Output column | Sets |
+| :-- | :-- |
+| `assignee` | the person it goes to |
+| `candidate_users` | who may claim it — a list, or one comma-separated cell |
+| `candidate_groups` | which groups may claim it |
+| `priority` | a number |
+| `due_date` | an instant, or an ISO-8601 duration such as `PT4H` from when the task appears |
+
+Only what the table actually returns is applied — a table that decides the group
+and not the priority leaves the priority as the diagram set it, and a task whose
+table decides nothing behaves exactly as before. An empty output is a table with
+nothing to say, not an instruction to unassign.
+
+If the table cannot be evaluated the diagram's own assignment stands and the
+failure is logged: a process that stops because an approval matrix could not be
+read is worse than one that routes to the default approver.
+
+The choice lands on the instance timeline, naming the table, its version and the
+line that applied — "why did this land on the CFO's desk?" is the question asked
+about approvals more than any other.
+
+## Writing a connector without writing Go
+
+A connector is a document. It says what to call, how to authenticate, what goes
+in, what comes back, and which failures are which:
+
+```yaml
+key: salesforce.create-lead
+version: 2
+name: Salesforce — Create Lead
+auth:
+  type: bearer
+request:
+  method: POST
+  url: "{{config.instance_url}}/services/data/v60.0/sobjects/Lead"
+  body:
+    LastName: "{{input.last_name}}"
+    Company:  "{{input.company}}"
+response:
+  success: "status >= 200 and status < 300"
+  outputs:
+    lead_id: "body.id"
+errors:
+  - when: "status = 401"
+    bpmn_error: AUTH_FAILED
+    retryable: false
+  - when: "status = 429"
+    bpmn_error: RATE_LIMITED
+    retryable: true
+    retry_after: "headers['Retry-After']"
+```
+
+`{{ … }}` is the only syntax this adds. Everything inside is FEEL — the same
+language gateway conditions, input mappings and decision cells use.
+
+**`config` is the tenant's, `input` is the node's.** Credentials come from
+config and are unreachable from input, so a modeller cannot read one by mapping
+it into a variable.
+
+**A template that is entirely one expression keeps its type.** `{{input.amount}}`
+is the number 500, not the text "500" — a body field arriving as a string is
+rejected by most APIs that care. A template that resolves to nothing is omitted
+rather than sent as null, because most APIs read an explicit null as "clear this
+field".
+
+**`errors[]` turns an HTTP failure into a BPMN error** a boundary event can
+catch, so an integration failing becomes a modelled path rather than an incident
+somebody has to read a stack trace to understand. Rules are checked before the
+success condition, so a failure that arrives with a 200 and a body saying so is
+still caught. `retry_after` is honoured — being asked to wait two minutes and
+waiting two minutes is the difference between backing off and being blocked.
+
+Manifests are consulted before the built-in connectors, so one can replace a
+built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
+stream, anything stateful — keep the Go interface.
+
+## Importing a connector from an OpenAPI document
+
+Most APIs worth integrating with publish one, and a manifest is close enough to
+one operation in that document that the translation is mechanical. Point the
+importer at a spec and it produces one connector per operation:
+
+- `/pets/{petId}` becomes `{{input.petId}}` in the URL, using the name the spec
+  already uses;
+- query and header parameters become templates, and every parameter joins the
+  connector's input schema — which is what a form can be drawn from;
+- a JSON request body becomes a body template, one level deep (a nested shape is
+  left to you: guessing at it produces a template that looks right and is wrong);
+- the success response's fields become outputs;
+- the first security scheme becomes the auth;
+- and both failures every API has — `AUTH_FAILED` and `RATE_LIMITED`, the second
+  honouring `Retry-After` — are added as catchable BPMN errors.
+
+The server URL becomes `{{config.base_url}}` when the spec gives none or gives
+one with placeholders of its own, because the same spec is used against
+production and a sandbox.
+
+What comes out is a starting point, not a finished connector: you will rename
+things and delete the nine operations in ten you do not want. But it already
+calls the right endpoint with the right shape.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

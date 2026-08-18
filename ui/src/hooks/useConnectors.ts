@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ApiConnector, ApiConnectorInstance, CreateConnectorInstancePayload, CreateConnectorPayload } from '../services/types';
 
 export const useConnectors = () => {
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['connectors'],
     queryFn: ({ signal }) => processService.listConnectors(signal),
   });
@@ -43,6 +45,7 @@ export const useDeleteConnector = () => {
 export const useConnectorInstances = () => {
   const { currentProjectId } = useAppStore();
   return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
     queryKey: ['connector-instances', currentProjectId],
     queryFn: ({ signal }) =>
       currentProjectId ? processService.listConnectorInstances(currentProjectId, signal) : Promise.resolve({ instances: [], err: "" }),

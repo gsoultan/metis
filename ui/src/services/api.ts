@@ -10,6 +10,7 @@ import {
   processRuntimeService,
   projectService,
   setupService,
+  webhookService,
   signalService,
   taskService,
 } from "./domains";
@@ -37,4 +38,5 @@ export const processService = {
   ...identityService,
   ...notificationService,
   ...setupService,
+  ...webhookService,
 };

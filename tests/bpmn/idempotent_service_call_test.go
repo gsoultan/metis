@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
@@ -194,5 +195,90 @@ func TestServiceTask_StopsCallingADownstreamThatKeepsFailing(t *testing.T) {
 	if got >= instances {
 		t.Errorf("the endpoint was called %d times for %d instances — the breaker never opened",
 			got, instances)
+	}
+}
+
+// A process that starts a thousand instances at once calls the same endpoint a
+// thousand times as fast as the job pool allows. Most APIs answer that with 429s
+// for everyone using that account — including other processes, and including
+// whatever else in the business depends on the same integration.
+//
+// A configured limit holds the calls back. Crucially it holds them back without
+// spending an attempt: being over a quota is compliance, not failure, and
+// counting it against the job's retries would fail an instance in three tries
+// for the crime of being popular.
+func TestServiceTask_RespectsAConfiguredRateLimit(t *testing.T) {
+	var calls atomic.Int64
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer api.Close()
+
+	h := newServiceTaskHarness(t)
+	node := entities.Node{
+		ID:   "charge",
+		Type: entities.ServiceTask,
+		Properties: map[string]any{
+			"http_url":    api.URL,
+			"http_method": "POST",
+			// Two an hour: the first instance gets a token, the rest wait.
+			"rate_limit_per_minute": 2.0 / 60,
+		},
+	}
+
+	const instances = 5
+	var ids []uuid.UUID
+	for i := range instances {
+		ids = append(ids, h.run(t, node, map[string]any{"amount": float64(i)}).ID)
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("the endpoint was called %d times against a two-an-hour limit, want once", got)
+	}
+
+	// The held-back work is still outstanding, not failed, and no attempt was
+	// spent on it — the retry count is what would fail the instance.
+	held := 0
+	for _, id := range ids[1:] {
+		job := h.lastJob(t, id)
+		if job.Status == entities.JobFailed {
+			t.Errorf("a job failed because of a rate limit; being over a quota is not a failure")
+		}
+		if job.Retries != 0 {
+			t.Errorf("a rate-limited job has spent %d retries; a quota must not consume them", job.Retries)
+		}
+		if job.NextRunAt.After(time.Now()) {
+			held++
+		}
+	}
+	if held == 0 {
+		t.Error("no job was rescheduled for later; the work was dropped rather than deferred")
+	}
+}
+
+// No limit configured is what every existing installation has, and it must mean
+// exactly what it did before.
+func TestServiceTask_WithoutALimitIsNotLimited(t *testing.T) {
+	var calls atomic.Int64
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer api.Close()
+
+	h := newServiceTaskHarness(t)
+	node := entities.Node{
+		ID:         "charge",
+		Type:       entities.ServiceTask,
+		Properties: map[string]any{"http_url": api.URL, "http_method": "POST"},
+	}
+	for i := range 4 {
+		h.run(t, node, map[string]any{"amount": float64(i)})
+	}
+	if got := calls.Load(); got != 4 {
+		t.Errorf("the endpoint was called %d times with no limit configured, want 4", got)
 	}
 }

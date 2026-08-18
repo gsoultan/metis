@@ -17,6 +17,10 @@ type DecisionDefinitionModel struct {
 	Inputs            []DecisionInput  `gorm:"type:text;serializer:json" json:"inputs,omitzero"`
 	Outputs           []DecisionOutput `gorm:"type:text;serializer:json" json:"outputs,omitzero"`
 	Rules             []DecisionRule   `gorm:"type:text;serializer:json" json:"rules,omitzero"`
+
+	// Tests are the examples this table is expected to get right — see
+	// entities.DecisionTest. Added by migration 6.
+	Tests []DecisionTest `gorm:"type:text;serializer:json" json:"tests,omitzero"`
 }
 
 // DecisionInput represents an input column in a decision table in the database.
@@ -52,4 +56,12 @@ type DecisionRule struct {
 // TableName overrides the table name for DecisionDefinitionModel.
 func (DecisionDefinitionModel) TableName() string {
 	return "decision_definitions"
+}
+
+// DecisionTest is an example the table is expected to get right.
+type DecisionTest struct {
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Inputs   map[string]any `json:"inputs,omitzero"`
+	Expected map[string]any `json:"expected,omitzero"`
 }

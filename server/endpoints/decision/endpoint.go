@@ -2,6 +2,7 @@ package decision
 
 import (
 	"context"
+	"errors"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -16,6 +17,8 @@ type Endpoints struct {
 	DeleteDecision   endpoint.Endpoint
 	UpdateDecision   endpoint.Endpoint
 	EvaluateDecision endpoint.Endpoint
+	DecisionImpact   endpoint.Endpoint
+	RunTests         endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -26,6 +29,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		DeleteDecision:   MakeDeleteDecisionEndpoint(s),
 		UpdateDecision:   MakeUpdateDecisionEndpoint(s),
 		EvaluateDecision: MakeEvaluateDecisionEndpoint(s),
+		DecisionImpact:   MakeDecisionImpactEndpoint(s),
+		RunTests:         MakeRunDecisionTestsEndpoint(s),
 	}
 }
 
@@ -108,5 +113,40 @@ func MakeEvaluateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		req := request.(EvaluateDecisionRequest)
 		res, err := s.Evaluate(ctx, req.Key, req.Version, req.Variables)
 		return EvaluateDecisionResponse{Result: res, Err: err}, nil
+	}
+}
+
+func MakeDecisionImpactEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(DecisionImpactRequest)
+		if !ok {
+			return DecisionImpactResponse{Err: errWrongDecisionRequest}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return DecisionImpactResponse{Err: err}, nil
+		}
+		impact, err := s.DecisionImpact(ctx, id)
+		return DecisionImpactResponse{Impact: impact, Err: err}, nil
+	}
+}
+
+// errWrongDecisionRequest guards the type assertion above. It cannot happen
+// through the handlers here, and asserting without checking would turn a future
+// mis-wiring into a panic in a request goroutine.
+var errWrongDecisionRequest = errors.New("decision: the request was not of the expected type")
+
+func MakeRunDecisionTestsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(RunDecisionTestsRequest)
+		if !ok {
+			return RunDecisionTestsResponse{Err: errWrongDecisionRequest}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return RunDecisionTestsResponse{Err: err}, nil
+		}
+		results, err := s.RunDecisionTests(ctx, id)
+		return RunDecisionTestsResponse{Results: results, Err: err}, nil
 	}
 }

@@ -85,3 +85,29 @@ type EvaluateDecisionResponse struct {
 }
 
 func (r EvaluateDecisionResponse) Failed() error { return r.Err }
+
+// DecisionImpactRequest asks what depends on a decision.
+type DecisionImpactRequest struct {
+	ID string `json:"id"`
+}
+
+// DecisionImpactResponse carries the processes that consult it.
+type DecisionImpactResponse struct {
+	Impact entities.DecisionImpact `json:"impact,omitzero"`
+	Err    error                   `json:"err,omitzero"`
+}
+
+func (r DecisionImpactResponse) Failed() error { return r.Err }
+
+// RunDecisionTestsRequest runs a table against its stored examples.
+type RunDecisionTestsRequest struct {
+	ID string `json:"id"`
+}
+
+// RunDecisionTestsResponse carries one result per example.
+type RunDecisionTestsResponse struct {
+	Results []entities.DecisionTestResult `json:"results,omitzero"`
+	Err     error                         `json:"err,omitzero"`
+}
+
+func (r RunDecisionTestsResponse) Failed() error { return r.Err }

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useDecisions } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
+import { DecisionGraphSection } from '../components/DecisionGraphView';
 import { CreationWizard } from '../components/CreationWizard';
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
@@ -95,6 +96,19 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
           }
         />
       )}
+
+      {/* Before the list, because the list is alphabetical and says nothing
+          about which decision is made first — or that two of them depend on
+          each other and neither can run. */}
+      <DecisionGraphSection
+        decisions={decisions.map((def) => ({
+          id: def.id,
+          key: def.key,
+          name: def.name,
+          required_decisions: def.required_decisions,
+        }))}
+        onOpen={(id) => navigate({ to: '/decision-editor', search: { id } })}
+      />
 
       <Card shadow="sm" radius="lg" withBorder p={0}>
         <Box p="md">

@@ -113,6 +113,28 @@ func Schema(models []any) []Migration {
 				return db.AutoMigrate(models...)
 			},
 		},
+		{
+			Version: 6,
+			Name:    "decision tables carry their examples",
+			// A decision table nobody can test is a spreadsheet with extra
+			// steps, so the examples it is expected to get right are stored
+			// beside it. One column, added explicitly rather than by running
+			// AutoMigrate again: a migration that says which change it makes is
+			// one somebody can review.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "decision_definitions")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasColumn(model, "tests") {
+					return nil
+				}
+				if err := db.Migrator().AddColumn(model, "Tests"); err != nil {
+					return fmt.Errorf("add decision_definitions.tests: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 

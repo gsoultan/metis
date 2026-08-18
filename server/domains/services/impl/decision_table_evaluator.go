@@ -79,8 +79,15 @@ func (e *DecisionTableEvaluatorImpl) applyHitPolicy(def entities.DecisionDefinit
 	if len(matched) == 0 {
 		// No line matched. An empty result rather than an error: a table is
 		// allowed not to have an opinion, and the caller can tell the
-		// difference by the empty MatchedRules.
-		return entities.DecisionResult{Values: map[string]any{}}, nil
+		// difference by the empty MatchedRules. It still says which table had
+		// no opinion, because "the policy did not cover this" is itself an
+		// audit answer.
+		return entities.DecisionResult{
+			Values:          map[string]any{},
+			DecisionKey:     def.Key,
+			DecisionName:    def.Name,
+			DecisionVersion: def.Version,
+		}, nil
 	}
 
 	switch def.HitPolicy {
@@ -225,7 +232,9 @@ func (e *DecisionTableEvaluatorImpl) collectAll(def entities.DecisionDefinition,
 		}
 		values[output.Name] = column
 	}
-	return entities.DecisionResult{Values: values, MatchedRules: ruleIndexes(matched)}
+	result := e.buildResult(def, matched)
+	result.Values = values
+	return result
 }
 
 func ruleIndexes(matched []matchedRule) []int {
@@ -259,22 +268,34 @@ func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinitio
 		aggregated[output.Name] = aggregate(def.Aggregation, nums)
 	}
 	// An aggregate still comes from lines, and which ones is the explanation.
-	return entities.DecisionResult{Values: aggregated, MatchedRules: result.MatchedRules}
+	result.Values = aggregated
+	return result
 }
 
 // buildResult maps output values from the first (or all) matched rules into the result.
 func (e *DecisionTableEvaluatorImpl) buildResult(def entities.DecisionDefinition, rules []matchedRule) entities.DecisionResult {
 	values := make(map[string]any)
 	indexes := make([]int, 0, len(rules))
+	ruleIDs := make([]string, 0, len(rules))
 	for _, m := range rules {
 		indexes = append(indexes, m.index)
+		if m.rule.ID != "" {
+			ruleIDs = append(ruleIDs, m.rule.ID)
+		}
 		for i, output := range def.Outputs {
 			if i < len(m.rule.Outputs) {
 				values[output.Name] = m.rule.Outputs[i]
 			}
 		}
 	}
-	return entities.DecisionResult{Values: values, MatchedRules: indexes}
+	return entities.DecisionResult{
+		Values:          values,
+		MatchedRules:    indexes,
+		MatchedRuleIDs:  ruleIDs,
+		DecisionKey:     def.Key,
+		DecisionName:    def.Name,
+		DecisionVersion: def.Version,
+	}
 }
 
 // aggregate applies the aggregation function over a slice of numbers.

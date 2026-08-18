@@ -13,6 +13,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
+import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
 import {
   useCreateDefinition,
   useDefinition,
@@ -388,6 +389,29 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
         y: event.clientY,
       });
 
+      // One palette item that lands two steps already wired — the recommended
+      // way to route a process, made no harder than the unrecommended one.
+      // See domain/decideGroup.ts.
+      if (type === DECIDE_GROUP_KIND) {
+        const group = buildDecideGroup(position, uuidv7);
+        const groupNodes = group.nodes as unknown as Node<BPMNNodeData>[];
+        const groupEdges = group.edges as unknown as Edge<BPMNEdgeData>[];
+
+        setNodes((currentNodes) => {
+          const nextNodes = currentNodes.concat(groupNodes);
+          setEdges((currentEdges) => {
+            const nextEdges = currentEdges.concat(groupEdges);
+            pushToHistory(nextNodes, nextEdges);
+            return nextEdges;
+          });
+          return nextNodes;
+        });
+        // The table is what the author has to choose; select it so the property
+        // panel opens on the one decision they still have to make.
+        setSelectedNode(groupNodes.find((node) => node.id === group.focusId) ?? null);
+        return;
+      }
+
       const newNode: Node<BPMNNodeData> = {
         id: uuidv7(),
         type,
@@ -406,7 +430,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
         return nextNodes;
       });
     },
-    [edges, pushToHistory, reactFlowInstance],
+    [edges, pushToHistory, reactFlowInstance, setEdges, setSelectedNode],
   );
 
   const onNodeClick = useCallback((_: MouseEvent, node: Node<BPMNNodeData>) => {

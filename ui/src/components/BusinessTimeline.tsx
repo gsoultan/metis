@@ -1,5 +1,5 @@
 import { Timeline, Text, Group, Badge, Stack, ScrollArea, ThemeIcon, Box } from '@mantine/core';
-import { Check, Clock, User, AlertCircle, Play, Square, FastForward } from 'lucide-react';
+import { Check, Clock, User, AlertCircle, Play, Square, FastForward, Scale } from 'lucide-react';
 import { useAuditLogs } from '../hooks/useProcess';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -25,6 +25,8 @@ const getEventIcon = (type: string) => {
       return <Check size={14} />;
     case 'ProcessCompleted':
       return <Square size={14} />;
+    case 'decision_evaluated':
+      return <Scale size={14} />;
     default:
       return <AlertCircle size={14} />;
   }
@@ -44,6 +46,8 @@ const getEventColor = (type: string) => {
       return 'teal';
     case 'IncidentCreated':
       return 'red';
+    case 'decision_evaluated':
+      return 'grape';
     default:
       return 'gray';
   }
@@ -93,6 +97,28 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
                   <Text size="xs" c="dimmed">
                     Step: {entry.node.name}
                   </Text>
+                )}
+                {/* A decision is the one entry where "what changed" is not the
+                    interesting part. Which table decided, which version of it
+                    was in force, and which line applied are what somebody comes
+                    back to this timeline for. */}
+                {entry.type === 'decision_evaluated' && (
+                  <Group gap={6} wrap="wrap">
+                    <Badge size="xs" variant="light" color="grape">
+                      {asText(entry.data?.decision_key)} v{asText(entry.data?.decision_version)}
+                    </Badge>
+                    {Array.isArray(entry.data?.matched_rule_ids) && entry.data.matched_rule_ids.length > 0 && (
+                      <Badge size="xs" variant="outline" color="grape">
+                        {entry.data.matched_rule_ids.length === 1 ? 'rule' : 'rules'}{' '}
+                        {entry.data.matched_rule_ids.map((id) => asText(id)).join(', ')}
+                      </Badge>
+                    )}
+                    {entry.data?.outputs != null && (
+                      <Text size="xs" c="dimmed" ff="monospace">
+                        {JSON.stringify(entry.data.outputs)}
+                      </Text>
+                    )}
+                  </Group>
                 )}
                 {entry.type === 'TaskClaimed' && Boolean(entry.data?.assignee) && (
                   <Badge size="xs" variant="light" color="indigo">

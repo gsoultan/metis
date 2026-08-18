@@ -23,6 +23,20 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 		common.EncodeResponse,
 		options...,
 	))
+	// The table run against its own examples.
+	m.Handle("POST /api/v1/decisions/{id}/tests/run", httptransport.NewServer(
+		eps.RunTests,
+		decodeRunDecisionTestsRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	// What depends on this decision, before somebody changes it.
+	m.Handle("GET /api/v1/decisions/{id}/impact", httptransport.NewServer(
+		eps.DecisionImpact,
+		decodeDecisionImpactRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("GET /api/v1/decisions/{id}", httptransport.NewServer(
 		eps.GetDecision,
 		decodeGetDecisionRequest,
@@ -89,4 +103,12 @@ func decodeEvaluateDecisionRequest(_ context.Context, r *http.Request) (any, err
 		return nil, err
 	}
 	return req, nil
+}
+
+func decodeDecisionImpactRequest(_ context.Context, r *http.Request) (any, error) {
+	return decision.DecisionImpactRequest{ID: r.PathValue("id")}, nil
+}
+
+func decodeRunDecisionTestsRequest(_ context.Context, r *http.Request) (any, error) {
+	return decision.RunDecisionTestsRequest{ID: r.PathValue("id")}, nil
 }

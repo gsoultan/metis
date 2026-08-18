@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DIRECTORY_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 
@@ -6,6 +7,7 @@ export const useProjects = (organizationId: string | null) => {
   const { token } = useAppStore();
 
   return useQuery({
+    staleTime: DIRECTORY_STALE_TIME,
     queryKey: ['projects', organizationId],
     queryFn: ({ signal }) =>
       (organizationId && token) ? processService.listProjects(organizationId, signal) : Promise.resolve({ projects: [], err: "" }),
