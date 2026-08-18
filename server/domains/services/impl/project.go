@@ -12,6 +12,7 @@ import (
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
 	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/rs/zerolog/log"
 )
 
 type projectService struct {
@@ -94,17 +95,43 @@ func (s *projectService) DeleteProject(ctx context.Context, id uuid.UUID) error 
 	return s.repo.Project().Delete(ctx, id)
 }
 
+// GetProcessStatistics is what the dashboard shows.
+//
+// Every count here used to discard its error, so a query that failed reported
+// zero — and a dashboard displays zero as confidently as any other number.
+// "No failed processes" and "I could not find out" look identical on a tile and
+// mean opposite things.
 func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uuid.UUID) (entities.ProcessStatistics, error) {
-	active, _ := s.repo.Process().CountByStatus(ctx, projectID, models.ProcessActive)
-	completed, _ := s.repo.Process().CountByStatus(ctx, projectID, models.ProcessCompleted)
-	failed, _ := s.repo.Process().CountByStatus(ctx, projectID, models.ProcessFailed)
-
-	totalTasks, _ := s.repo.Task().CountByStatus(ctx, projectID, "")
-	pendingTasks, _ := s.repo.Task().CountByStatus(ctx, projectID, models.TaskUnclaimed)
+	counts := map[string]int64{}
+	for _, wanted := range []struct {
+		label string
+		read  func() (int64, error)
+	}{
+		{"active", func() (int64, error) { return s.repo.Process().CountByStatus(ctx, projectID, models.ProcessActive) }},
+		{"completed", func() (int64, error) {
+			return s.repo.Process().CountByStatus(ctx, projectID, models.ProcessCompleted)
+		}},
+		{"failed", func() (int64, error) { return s.repo.Process().CountByStatus(ctx, projectID, models.ProcessFailed) }},
+		{"tasks", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, "") }},
+		{"unclaimed", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, models.TaskUnclaimed) }},
+	} {
+		value, err := wanted.read()
+		if err != nil {
+			return entities.ProcessStatistics{}, fmt.Errorf("could not count %s: %w", wanted.label, err)
+		}
+		counts[wanted.label] = value
+	}
+	active, completed, failed := counts["active"], counts["completed"], counts["failed"]
+	totalTasks, pendingTasks := counts["tasks"], counts["unclaimed"]
 
 	nodeFreqs := make(map[string]int)
 	if projectID != uuid.Nil {
-		ms, _ := s.repo.Audit().ListByProject(ctx, projectID)
+		// The step heat map is decoration on top of the counts. Losing it is
+		// worth a log line rather than a failed dashboard.
+		ms, auditErr := s.repo.Audit().ListByProject(ctx, projectID)
+		if auditErr != nil {
+			log.Warn().Err(auditErr).Msg("Could not read the audit trail for the step heat map")
+		}
 		for _, m := range ms {
 			if m.NodeID != "" {
 				nodeFreqs[m.NodeID]++

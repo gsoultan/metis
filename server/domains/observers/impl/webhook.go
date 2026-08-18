@@ -57,7 +57,11 @@ func (o *WebhookObserver) sendWebhook(url string, payload []byte) {
 		log.Error().Err(err).Str("url", url).Msg("failed to send webhook")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Debug().Err(err).Str("url", url).Msg("Could not close the webhook response")
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		log.Warn().Int("status", resp.StatusCode).Str("url", url).Msg("webhook returned error status")

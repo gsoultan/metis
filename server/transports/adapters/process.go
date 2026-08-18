@@ -3,6 +3,7 @@ package adapters
 import (
 	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
 	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -11,7 +12,12 @@ type ProcessInstancePBAdapter struct {
 }
 
 func (a ProcessInstancePBAdapter) ToProto() *pbentities.ProcessInstance {
-	variables, _ := structpb.NewStruct(a.Instance.Variables)
+	variables, err := structpb.NewStruct(a.Instance.Variables)
+	if err != nil {
+		// Dropping these silently gave a gRPC caller an object with no
+		// variables at all, while the same object over HTTP had them.
+		log.Warn().Err(err).Msg("Variables could not be represented in protobuf and were omitted")
+	}
 	activeNodes := make([]string, len(a.Instance.Tokens))
 	for i, t := range a.Instance.Tokens {
 		if t.Node != nil {

@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"time"
 
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -42,11 +43,9 @@ func (o *AuditLogObserver) OnEvent(ctx context.Context, event entities.ProcessEv
 			id = event.Node.ID
 		}
 		entry.Message = "Reached node: " + id
-		nodeName := ""
+		nodeName := id
 		if event.Node != nil && event.Node.Name != "" {
 			nodeName = event.Node.Name
-		} else {
-			nodeName = id
 		}
 		entry.Narrative = fmt.Sprintf("Process reached the '%s' step.", nodeName)
 	case entities.EventTaskCreated:
@@ -123,5 +122,12 @@ func (o *AuditLogObserver) OnEvent(ctx context.Context, event entities.ProcessEv
 		entry.Narrative = entry.Message
 	}
 
-	_ = o.repo.Create(ctx, adapters.AuditModelAdapter{Entry: entry}.ToModel())
+	// An audit trail with silent holes in it is worse than no audit trail: it
+	// reads as complete. The write cannot fail the business transaction it is
+	// describing, so the only honest thing left is to say so loudly.
+	if err := o.repo.Create(ctx, adapters.AuditModelAdapter{Entry: entry}.ToModel()); err != nil {
+		log.Error().Err(err).
+			Str("eventType", event.Type).
+			Msg("An audit entry was lost; the trail is incomplete from here")
+	}
 }

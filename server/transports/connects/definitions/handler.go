@@ -2,6 +2,7 @@ package definitions
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -24,7 +25,13 @@ func NewHandler(eps definition.Endpoints) *DefinitionHandler {
 func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.Request[pbendpoints.CreateDefinitionRequest]) (*connect.Response[pbendpoints.CreateDefinitionResponse], error) {
 	nodes := adapters.NodesFromProto(req.Msg.Nodes)
 	flows := adapters.FlowsFromProto(req.Msg.Flows)
-	projectID, _ := uuid.Parse(req.Msg.ProjectId)
+	projectID, err := uuid.Parse(req.Msg.ProjectId)
+	if err != nil {
+		// Discarding this planted the definition under uuid.Nil — a project
+		// nobody owns — instead of telling the caller their id was wrong.
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("project id %q is not a valid id: %w", req.Msg.ProjectId, err))
+	}
 	response, err := h.eps.CreateDefinition(ctx, definition.CreateDefinitionRequest{
 		Definition: &entities.ProcessDefinition{
 			Project: &entities.Project{ID: projectID},

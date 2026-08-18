@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"github.com/rs/zerolog/log"
 	"time"
 
 	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
@@ -13,7 +14,12 @@ type TaskPBAdapter struct {
 }
 
 func (a TaskPBAdapter) ToProto() *pbentities.Task {
-	variables, _ := structpb.NewStruct(a.Task.Variables)
+	variables, err := structpb.NewStruct(a.Task.Variables)
+	if err != nil {
+		// Dropping these silently gave a gRPC caller an object with no
+		// variables at all, while the same object over HTTP had them.
+		log.Warn().Err(err).Msg("Variables could not be represented in protobuf and were omitted")
+	}
 	dueDate := ""
 	if a.Task.DueDate != nil {
 		dueDate = a.Task.DueDate.Format(time.RFC3339)

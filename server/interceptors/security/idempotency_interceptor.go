@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/rs/zerolog/log"
 	"io"
 	"maps"
 	"net/http"
@@ -243,7 +244,9 @@ func writeIdempotencyResult(w http.ResponseWriter, result *idempotencyResult, re
 		return
 	}
 
-	_, _ = w.Write(result.body)
+	if _, err := w.Write(result.body); err != nil {
+		log.Debug().Err(err).Msg("The caller went away before the replayed reply could be written")
+	}
 }
 
 type responseCaptureWriter struct {

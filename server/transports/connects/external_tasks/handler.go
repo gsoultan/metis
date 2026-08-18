@@ -43,6 +43,7 @@ func (h *ExternalTaskHandler) FetchAndLockExternalTasks(ctx context.Context, req
 func (h *ExternalTaskHandler) CompleteExternalTask(ctx context.Context, req *connect.Request[pbendpoints.CompleteExternalTaskRequest]) (*connect.Response[pbendpoints.CompleteExternalTaskResponse], error) {
 	id, err := uuid.Parse(req.Msg.TaskId)
 	if err != nil {
+		//nolint:nilerr // the error is reported in-band, in this API's Error field, not swallowed
 		return connect.NewResponse(&pbendpoints.CompleteExternalTaskResponse{Error: err.Error()}), nil
 	}
 	vars := make(map[string]any)
@@ -66,6 +67,7 @@ func (h *ExternalTaskHandler) CompleteExternalTask(ctx context.Context, req *con
 func (h *ExternalTaskHandler) HandleExternalTaskFailure(ctx context.Context, req *connect.Request[pbendpoints.HandleExternalTaskFailureRequest]) (*connect.Response[pbendpoints.HandleExternalTaskFailureResponse], error) {
 	id, err := uuid.Parse(req.Msg.TaskId)
 	if err != nil {
+		//nolint:nilerr // the error is reported in-band, in this API's Error field, not swallowed
 		return connect.NewResponse(&pbendpoints.HandleExternalTaskFailureResponse{Error: err.Error()}), nil
 	}
 	response, err := h.eps.HandleExternalFailure(ctx, external_task.HandleExternalFailureRequest{

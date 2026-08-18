@@ -68,7 +68,11 @@ func (r *HTTPServiceTaskRunner) Run(ctx context.Context, node entities.Node, pay
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Debug().Err(err).Msg("Could not close the service task response")
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("HTTP error: %s (status %d)", resp.Status, resp.StatusCode)
@@ -96,7 +100,13 @@ func (r *HTTPServiceTaskRunner) buildRequestBody(method string, node entities.No
 	if len(mapped) == 0 {
 		mapped = payload
 	}
-	data, _ := json.Marshal(mapped)
+	data, err := json.Marshal(mapped)
+	if err != nil {
+		// A body that cannot be encoded is a broken request, not an empty one.
+		// Discarding the error sent "null" and left the endpoint to decide.
+		log.Error().Err(err).Msg("A service task's request body could not be encoded")
+		return nil
+	}
 	return bytes.NewReader(data)
 }
 
@@ -130,12 +140,18 @@ func (r *HTTPServiceTaskRunner) applyAuth(req *http.Request, node entities.Node)
 // parseResponse reads the response body and applies output mapping.
 func (r *HTTPServiceTaskRunner) parseResponse(body io.Reader, node entities.Node) (map[string]any, error) {
 	raw, err := io.ReadAll(body)
-	if err != nil || len(raw) == 0 {
-		return nil, nil //nolint:nilerr
+	if err != nil {
+		return nil, fmt.Errorf("the service task's reply was cut short after %d bytes: %w", len(raw), err)
+	}
+	if len(raw) == 0 {
+		// An empty body is a legitimate reply — there is simply nothing to map.
+		return nil, nil
 	}
 
 	var jsonMap map[string]any
 	if err := json.Unmarshal(raw, &jsonMap); err != nil {
+		// Same as the HTTP connector: a non-JSON body is handed on as text.
+		//nolint:nilerr // a non-JSON body is a result, not a failure
 		return map[string]any{"response": string(raw)}, nil
 	}
 

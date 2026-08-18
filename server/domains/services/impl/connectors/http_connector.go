@@ -54,7 +54,7 @@ func (c *HTTPConnector) Execute(ctx context.Context, config map[string]any, payl
 	if err != nil {
 		return nil, fmt.Errorf("http connector: execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeQuietly(resp.Body, "http")
 
 	return parseJSONResponse(resp)
 }
@@ -111,6 +111,9 @@ func parseJSONResponse(resp *http.Response) (map[string]any, error) {
 	}
 	var result map[string]any
 	if err := json.Unmarshal(raw, &result); err != nil {
+		// Not every 200 is JSON. A plain-text or XML body is handed on as text
+		// rather than treated as an error, so a process can still read it.
+		//nolint:nilerr // a non-JSON body is a result, not a failure
 		return map[string]any{"body": string(raw), "status_code": resp.StatusCode}, nil
 	}
 	result["status_code"] = resp.StatusCode

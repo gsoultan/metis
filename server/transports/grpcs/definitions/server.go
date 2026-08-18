@@ -2,6 +2,7 @@ package definitions
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -84,7 +85,10 @@ func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, err
 	req := grpcReq.(*endpoints.CreateDefinitionRequest)
 	nodes := adapters.NodesFromProto(req.Nodes)
 	flows := adapters.FlowsFromProto(req.Flows)
-	projectID, _ := uuid.Parse(req.ProjectId)
+	projectID, err := uuid.Parse(req.ProjectId)
+	if err != nil {
+		return nil, fmt.Errorf("project id %q is not a valid id: %w", req.ProjectId, err)
+	}
 	return definition.CreateDefinitionRequest{
 		Definition: &entities2.ProcessDefinition{
 			Project: &entities2.Project{ID: projectID},

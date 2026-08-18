@@ -43,17 +43,17 @@ type smtpConfig struct {
 }
 
 func extractSMTPConfig(config map[string]any) (smtpConfig, error) {
-	host, _ := config["host"].(string)
+	host, _ := textSetting(config, "host")
 	if host == "" {
 		return smtpConfig{}, fmt.Errorf("email connector: missing required config key 'host'")
 	}
-	port, _ := config["port"].(string)
+	port, _ := textSetting(config, "port")
 	if port == "" {
 		port = "587"
 	}
-	username, _ := config["username"].(string)
-	password, _ := config["password"].(string)
-	from, _ := config["from"].(string)
+	username, _ := textSetting(config, "username")
+	password, _ := textSetting(config, "password")
+	from, _ := textSetting(config, "from")
 	if from == "" {
 		from = username
 	}
@@ -61,11 +61,11 @@ func extractSMTPConfig(config map[string]any) (smtpConfig, error) {
 }
 
 func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]byte, error) {
-	to, _ := payload["to"].(string)
+	to, _ := textSetting(payload, "to")
 	if to == "" {
 		return nil, fmt.Errorf("email connector: missing required payload key 'to'")
 	}
-	subject, _ := payload["subject"].(string)
+	subject, _ := textSetting(payload, "subject")
 	if subject == "" {
 		return nil, fmt.Errorf("email connector: missing required payload key 'subject'")
 	}

@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"github.com/rs/zerolog/log"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
@@ -30,8 +31,8 @@ func (o *notificationObserver) handleTaskEvent(ctx context.Context, event entiti
 		return
 	}
 
-	assignee, _ := event.Variables["assignee"].(string)
-	if assignee == "" {
+	assignee, ok := event.Variables["assignee"].(string)
+	if !ok || assignee == "" {
 		return
 	}
 
@@ -55,5 +56,10 @@ func (o *notificationObserver) handleTaskEvent(ctx context.Context, event entiti
 		Instance: event.Instance,
 	}
 
-	_ = o.notificationService.Send(ctx, notification)
+	// Nobody is waiting on this call, but somebody is waiting on the task it is
+	// about — a notification that never arrives looks like a task that was never
+	// assigned.
+	if err := o.notificationService.Send(ctx, notification); err != nil {
+		log.Warn().Err(err).Str("assignee", assignee).Msg("Could not notify the assignee about their task")
+	}
 }

@@ -27,9 +27,8 @@ type Token struct {
 }
 
 func NewToken(instance *ProcessInstance, node *Node) Token {
-	id, _ := uuid.NewV7()
 	return Token{
-		ID:        id,
+		ID:        mustID(),
 		Instance:  instance,
 		Node:      node,
 		Status:    TokenActive,

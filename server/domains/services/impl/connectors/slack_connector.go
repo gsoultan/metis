@@ -75,7 +75,7 @@ func postToSlack(ctx context.Context, webhookURL string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("slack connector: send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeQuietly(resp.Body, "slack")
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack connector: unexpected status %d", resp.StatusCode)
 	}

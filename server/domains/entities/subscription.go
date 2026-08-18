@@ -25,9 +25,8 @@ type EventSubscription struct {
 }
 
 func NewSignalSubscription(project *Project, instance *ProcessInstance, node *Node, signalName string) EventSubscription {
-	id, _ := uuid.NewV7()
 	return EventSubscription{
-		ID:        id,
+		ID:        mustID(),
 		Project:   project,
 		Instance:  instance,
 		Node:      node,
@@ -38,9 +37,8 @@ func NewSignalSubscription(project *Project, instance *ProcessInstance, node *No
 }
 
 func NewMessageSubscription(project *Project, instance *ProcessInstance, node *Node, messageName, correlationKey string) EventSubscription {
-	id, _ := uuid.NewV7()
 	return EventSubscription{
-		ID:             id,
+		ID:             mustID(),
 		Project:        project,
 		Instance:       instance,
 		Node:           node,

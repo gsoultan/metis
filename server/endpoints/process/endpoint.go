@@ -147,9 +147,9 @@ func MakeListSubProcessesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 func MakeGetProcessStatisticsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req := request.(GetProcessStatisticsRequest)
-		var projectID uuid.UUID
-		if req.ProjectID != "" {
-			projectID, _ = uuid.Parse(req.ProjectID)
+		projectID, err := optionalUUID(req.ProjectID)
+		if err != nil {
+			return GetProcessStatisticsResponse{Err: err}, nil
 		}
 		stats, err := s.GetProcessStatistics(ctx, projectID)
 		if err != nil {
@@ -222,4 +222,22 @@ func MakeExecuteScriptEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		vars, err := s.ExecuteScript(ctx, req.Script, req.ScriptFormat, req.Variables)
 		return ExecuteScriptResponse{Variables: vars, Err: err}, nil
 	}
+}
+
+// optionalUUID parses an id that a caller may legitimately omit.
+//
+// Empty means "not given" and yields uuid.Nil, which the repositories read as
+// "do not filter on this". Anything else must be a real id: discarding the parse
+// error mapped a typo onto uuid.Nil too, so a malformed organization id quietly
+// widened the query to every organization the caller can see instead of being
+// refused.
+func optionalUUID(raw string) (uuid.UUID, error) {
+	if raw == "" {
+		return uuid.Nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%q is not a valid id: %w", raw, err)
+	}
+	return id, nil
 }

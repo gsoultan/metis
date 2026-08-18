@@ -56,7 +56,13 @@ func NewJobService(
 	locker contracts2.DistributedLocker,
 	errorMatcher contracts2.ErrorBoundaryMatcher,
 ) contracts2.JobService {
-	workerID, _ := uuid.NewV7()
+	// A worker with no id cannot hold a lock that anybody can attribute, so a
+	// failure here is worth knowing about even though the engine can carry on
+	// with the zero value.
+	workerID, err := uuid.NewV7()
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not generate a worker id; job locks will be harder to attribute")
+	}
 	return &jobService{
 		repo:         repo,
 		breakers:     circuit.NewGroup(circuit.DefaultSettings()),
@@ -203,7 +209,13 @@ func (s *jobService) tryAcquireJobLock(ctx context.Context, jobID uuid.UUID) boo
 
 func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 	log.Info().Str("jobId", job.ID.String()).Str("type", string(job.Type)).Msg("Running job")
-	defer func() { _ = s.locker.Release(ctx, "job:"+job.ID.String()) }()
+	defer func() {
+		// A lock that will not release is held until it expires, and every
+		// worker that wanted this job waits behind it.
+		if err := s.locker.Release(ctx, "job:"+job.ID.String()); err != nil {
+			log.Warn().Err(err).Str("jobId", job.ID.String()).Msg("Could not release the job lock")
+		}
+	}()
 
 	var err error
 	switch job.Type {
@@ -293,7 +305,11 @@ func (s *jobService) handleJobFailure(ctx context.Context, job *entities.Job, jo
 
 // createIncident persists an open incident record for a permanently failed job.
 func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobErr error) {
-	incID, _ := uuid.NewV7()
+	incID, err := uuid.NewV7()
+	if err != nil {
+		log.Error().Err(err).Msg("Could not generate an incident id; the incident was not recorded")
+		return
+	}
 	incident := entities.Incident{
 		ID:         incID,
 		Job:        job,

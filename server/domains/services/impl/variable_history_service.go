@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,10 @@ func NewVariableHistoryService(repo repocont.VariableSnapshotRepository) contrac
 // CaptureSnapshot persists a new variable snapshot for audit purposes.
 func (s *variableHistoryService) CaptureSnapshot(ctx context.Context, snapshot entities.VariableSnapshot) error {
 	if snapshot.ID == (uuid.UUID{}) {
-		id, _ := uuid.NewV7()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("could not generate a snapshot id: %w", err)
+		}
 		snapshot.ID = id
 	}
 	if snapshot.CapturedAt.IsZero() {

@@ -2,6 +2,7 @@ package connects
 
 import (
 	"encoding/json"
+	"github.com/rs/zerolog/log"
 	"net/http"
 
 	"github.com/gsoultan/gobpm/api/proto/services/servicesconnect"
@@ -36,7 +37,9 @@ func NewConnectHandler(eps endpoints.Endpoints) (string, http.Handler) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "not found"}); err != nil {
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Could not write the not-found reply")
+		}
 	})
 
 	return "/", mux

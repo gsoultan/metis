@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"time"
 
 	"github.com/gsoultan/gobpm/server/domains/adapters"
@@ -308,7 +309,10 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 
 func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		idObj, _ := uuid.NewV7()
+		idObj, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("could not generate an id for the %q task: %w", node.Name, err)
+		}
 		status := entities.TaskUnclaimed
 		var assignee *entities.User
 		if node.Assignee != "" {
@@ -451,13 +455,17 @@ func (s *taskService) recordAuditEvent(ctx context.Context, task entities.Task, 
 	if s.auditWriter == nil {
 		return
 	}
-	_ = s.auditWriter.RecordEvent(ctx, entities.AuditEntry{
+	if err := s.auditWriter.RecordEvent(ctx, entities.AuditEntry{
 		Type:     eventType,
 		Project:  task.Project,
 		Instance: task.Instance,
 		Node:     namedNode(task),
 		Data:     map[string]any{"actor": actor},
-	})
+	}); err != nil {
+		// Who did what to a task is exactly what an audit is asked for later.
+		log.Error().Err(err).Str("event", eventType).Str("actor", actor).
+			Msg("A task audit event was lost; the trail is incomplete from here")
+	}
 }
 
 // ListTasksByAssigneePaged returns one page of a user's tasks with the total.

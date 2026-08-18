@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"strings"
 	"time"
 
@@ -119,7 +120,13 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 	if err != nil {
 		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Failed to get database handle: %s", redaction.RedactError(err))}
 	}
-	defer sqlDB.Close()
+	defer func() {
+		// A connection test that leaks its own pool is a connection test that
+		// exhausts the server it was checking.
+		if err := sqlDB.Close(); err != nil {
+			log.Warn().Err(err).Msg("Could not close the connection opened to test the database")
+		}
+	}()
 
 	pingCtx, cancel := context.WithTimeout(ctx, testConnectionTimeout)
 	defer cancel()
@@ -238,8 +245,13 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 	}
 
 	cleanup := func() {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.Close()
+		sqlDB, err := db.DB()
+		if err != nil {
+			log.Warn().Err(err).Msg("Could not reach the database handle to close it")
+			return
+		}
+		if err := sqlDB.Close(); err != nil {
+			log.Warn().Err(err).Msg("Could not close the database connection pool")
 		}
 	}
 
