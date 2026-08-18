@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	handlersimpl "github.com/gsoultan/gobpm/server/domains/handlers/impl"
 	observersimpl "github.com/gsoultan/gobpm/server/domains/observers/impl"
@@ -399,4 +400,102 @@ func (h *businessRuleHarness) completeEveryTask(t *testing.T, instanceID uuid.UU
 			t.Fatalf("complete task: %v", err)
 		}
 	}
+}
+
+// Pattern 3 from the plan: the decision decides who does the work.
+//
+// An approval matrix is business policy — it changes when the org changes, which
+// is far more often than the process does. Written into the diagram, moving the
+// threshold from 10k to 25k takes a modeller and a redeploy.
+func TestADecisionDecidesWhoApproves(t *testing.T) {
+	h := newBusinessRuleHarness(t)
+	ctx := t.Context()
+
+	matrix := entities.DecisionDefinition{
+		Project:   &entities.Project{ID: h.projectID},
+		Key:       "approval-matrix",
+		Name:      "Who approves",
+		HitPolicy: entities.HitPolicyFirst,
+		Inputs:    []entities.DecisionInput{{ID: "i1", Expression: "amount", Type: "number"}},
+		Outputs: []entities.DecisionOutput{
+			{ID: "o1", Name: "assignee", Type: "string"},
+			{ID: "o2", Name: "priority", Type: "number"},
+		},
+		Rules: []entities.DecisionRule{
+			{ID: "big", Inputs: []string{">= 10000"}, Outputs: []any{"cfo", 9}},
+			{ID: "small", Inputs: []string{"-"}, Outputs: []any{"team.lead", 1}},
+		},
+	}
+	if _, err := h.decisions.CreateDecision(ctx, matrix); err != nil {
+		t.Fatalf("create decision: %v", err)
+	}
+
+	def := &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projectID},
+		Key:     "expense",
+		Name:    "Expense approval",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{
+				ID:   "approve",
+				Type: entities.UserTask,
+				Name: "Approve the expense",
+				// The diagram says somebody approves; the table says who.
+				Assignee:   "team.lead",
+				Properties: map[string]any{handlersimpl.AssignmentDecisionKey: "approval-matrix"},
+			},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "end"},
+		},
+	}
+	if _, err := serviceimpl.NewDefinitionService(h.repo).CreateDefinition(ctx, def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	// A large expense goes to the CFO, not to the diagram's default.
+	big, err := h.engine.StartProcess(ctx, h.projectID, "expense", map[string]any{"amount": 25000.0})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	task := h.taskOn(t, big)
+	if task.Assignee == nil || task.Assignee.Username != "cfo" {
+		t.Errorf("assignee = %+v, want cfo — the table decided, not the diagram", task.Assignee)
+	}
+	if task.Priority != 9 {
+		t.Errorf("priority = %d, want 9", task.Priority)
+	}
+
+	// A small one goes where the table says, which happens to match the default.
+	small, err := h.engine.StartProcess(ctx, h.projectID, "expense", map[string]any{"amount": 100.0})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	if got := h.taskOn(t, small); got.Assignee == nil || got.Assignee.Username != "team.lead" {
+		t.Errorf("assignee = %+v, want team.lead", got.Assignee)
+	}
+
+	// And the choice is on the timeline, because "why did this land on the CFO's
+	// desk?" is asked about approvals more than about anything else.
+	entry := h.decisionEntry(t, big)
+	if entry.Data["decided"] != "assignment" {
+		t.Errorf("the timeline entry does not say it decided the assignment: %v", entry.Data)
+	}
+	if !strings.Contains(entry.Message, "cfo") {
+		t.Errorf("message = %q, want it to name who it chose", entry.Message)
+	}
+}
+
+func (h *businessRuleHarness) taskOn(t *testing.T, instanceID uuid.UUID) entities.Task {
+	t.Helper()
+	tasks, err := h.repo.Task().ListByInstance(t.Context(), instanceID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("the instance has %d tasks, want one", len(tasks))
+	}
+	return adapters.TaskEntityAdapter{Model: tasks[0]}.ToEntity()
 }

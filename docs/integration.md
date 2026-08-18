@@ -285,6 +285,37 @@ Responses: `202` accepted, `401` for anything about who sent it (an unknown
 address and a bad signature are deliberately indistinguishable), `400` for a
 body that could not be used.
 
+## Letting a decision table say who approves
+
+An approval matrix — "under 10k the team lead, over 10k the CFO, anything from a
+new supplier goes to compliance" — changes when the organisation changes, which
+is far more often than the process does. Written into a diagram, moving a
+threshold takes a modeller and a redeploy.
+
+Give a user task an `assignment_decision_key` property naming a decision table,
+and its outputs set who does the work:
+
+| Output column | Sets |
+| :-- | :-- |
+| `assignee` | the person it goes to |
+| `candidate_users` | who may claim it — a list, or one comma-separated cell |
+| `candidate_groups` | which groups may claim it |
+| `priority` | a number |
+| `due_date` | an instant, or an ISO-8601 duration such as `PT4H` from when the task appears |
+
+Only what the table actually returns is applied — a table that decides the group
+and not the priority leaves the priority as the diagram set it, and a task whose
+table decides nothing behaves exactly as before. An empty output is a table with
+nothing to say, not an instruction to unassign.
+
+If the table cannot be evaluated the diagram's own assignment stands and the
+failure is logged: a process that stops because an approval matrix could not be
+read is worse than one that routes to the default approver.
+
+The choice lands on the instance timeline, naming the table, its version and the
+line that applied — "why did this land on the CFO's desk?" is the question asked
+about approvals more than any other.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces
