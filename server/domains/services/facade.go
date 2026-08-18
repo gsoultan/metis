@@ -18,6 +18,9 @@ type ServiceFacade interface {
 	serviceContracts.ConnectorService
 	serviceContracts.CollaborationService
 	serviceContracts.MessagingService
+
+	// WebhookService receives events partners post to the public hook endpoint.
+	serviceContracts.WebhookService
 	serviceContracts.AdHocActivator
 	serviceContracts.UserService
 	serviceContracts.GroupService

@@ -240,6 +240,51 @@ A connector instance's setting covers every node that uses that connection, so a
 limit agreed with a partner is set once. Leave it unset — the default — and
 nothing is limited.
 
+## Receiving events: webhooks
+
+A partner announcing that something happened — a payment cleared, a ticket
+closed — posts to an address you register:
+
+```
+POST /api/v1/hooks/<token>
+X-Signature-256: sha256=<hmac>
+X-Delivery-Id: <the sender's id for this event>
+
+{"order": {"id": "ORD-1"}}
+```
+
+The endpoint is public, because a partner's configuration screen has nowhere to
+put a token this engine would recognise. What authenticates a delivery is the
+signature: **HMAC-SHA256 over the exact bytes of the body**, hex-encoded, using
+the secret you were given when the webhook was created.
+
+```
+signature = hex(hmac_sha256(secret, raw_request_body))
+```
+
+An `sha256=` prefix is accepted and ignored — the algorithm is ours, not the
+caller's to declare. The header name is configurable per webhook, because there
+is no standard: GitHub uses `X-Hub-Signature-256`, Stripe uses
+`Stripe-Signature`.
+
+**The secret is shown once**, when the webhook is created. It is encrypted at
+rest and no read path returns it.
+
+**Send a delivery ID.** Any of `X-Delivery-Id`, `X-GitHub-Delivery`,
+`X-Request-Id` or `Idempotency-Key`. A delivery carrying an ID already seen is
+answered `202` and not acted on again — senders retry, and without an ID a retry
+cannot be told from a new event and will move the process twice. IDs are
+remembered for 48 hours.
+
+Each webhook names the BPMN message a delivery becomes, and optionally a FEEL
+expression over the payload — `order.id` — picking the value that says which
+waiting instance it concerns. Leave that empty and every delivery starts a
+process instead of moving one.
+
+Responses: `202` accepted, `401` for anything about who sent it (an unknown
+address and a bad signature are deliberately indistinguishable), `400` for a
+body that could not be used.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

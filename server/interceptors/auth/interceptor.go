@@ -67,6 +67,23 @@ type mandatoryHTTPAuthInterceptor struct {
 	publicPathSet map[string]struct{}
 }
 
+// publicPathPrefixes are the API paths that are public along with everything
+// beneath them.
+//
+// Kept here rather than accepted as a parameter, and deliberately short: an
+// exact-match list cannot go wrong, whereas a prefix that someone adds casually
+// can open a whole subtree. Every entry must be justified in a comment and must
+// end in a slash — without the slash, "/api/v1/hooks" would also make
+// "/api/v1/hooksecrets" public.
+var publicPathPrefixes = []string{
+	// Webhook deliveries. A partner's webhook configuration screen has nowhere
+	// to put a bearer token this engine would recognise; the token in the path
+	// identifies the webhook and an HMAC signature over the body authenticates
+	// it. Everything beneath this prefix is a single handler that verifies that
+	// signature before it looks at anything.
+	"/api/v1/hooks/",
+}
+
 func NewMandatoryHTTPAuthInterceptor(strategy SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
 	publicPathSet := make(map[string]struct{}, len(publicPaths))
 	for _, publicPath := range publicPaths {
@@ -117,8 +134,18 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 }
 
 func (i *mandatoryHTTPAuthInterceptor) isPublicPath(path string) bool {
-	_, ok := i.publicPathSet[path]
-	return ok
+	if _, ok := i.publicPathSet[path]; ok {
+		return true
+	}
+	for _, prefix := range publicPathPrefixes {
+		// A bare prefix match is not enough: the path must go *beneath* it, so
+		// that "/api/v1/hooks/" opening up does not also open "/api/v1/hooks"
+		// itself or anything that merely starts with those characters.
+		if strings.HasPrefix(path, prefix) && len(path) > len(prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func bearerTokenFromHeader(authHeader string) (string, bool) {

@@ -44,5 +44,10 @@ func MigrationModels() []any {
 		// A service task's outbound call, recorded so a retry after a failed
 		// commit does not make it a second time.
 		new(ServiceCallModel),
+
+		// The public inbound surface: an address a partner posts to, and the
+		// deliveries already acted on so its retries do not act twice.
+		new(WebhookModel),
+		new(WebhookDeliveryModel),
 	}
 }
