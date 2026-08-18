@@ -371,6 +371,22 @@ Manifests are consulted before the built-in connectors, so one can replace a
 built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
 stream, anything stateful — keep the Go interface.
 
+## Installing a connector
+
+`POST /api/v1/connector-manifests` with `{"document": "...", "format": "manifest"}`
+installs one; `"format": "openapi"` installs one per operation in a
+specification. Both are in the UI, on the Connectors page.
+
+A manifest is stored as its author wrote it and read back the same way, comments
+and all. Installing an existing key **replaces** it, because installing again is
+how a manifest is fixed. A manifest can carry the key of a built-in connector,
+which is how one is replaced without a redeploy.
+
+Manifests are read from the database on every call rather than cached, so a
+connector installed on one replica is live on all of them immediately, and a
+switched-off one stops being used everywhere at once. Switching off leaves the
+document in place — deleting loses it.
+
 ## Importing a connector from an OpenAPI document
 
 Most APIs worth integrating with publish one, and a manifest is close enough to

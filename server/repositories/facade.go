@@ -24,6 +24,10 @@ type Repository interface {
 	// Webhook stores the public addresses partners post events to, and the
 	// deliveries already acted on.
 	Webhook() contracts.WebhookRepository
+
+	// ConnectorManifest stores connectors described by a document rather than
+	// by Go.
+	ConnectorManifest() contracts.ConnectorManifestRepository
 	Project() contracts.ProjectRepository
 	Subscription() contracts.SubscriptionRepository
 	Task() contracts.TaskRepository

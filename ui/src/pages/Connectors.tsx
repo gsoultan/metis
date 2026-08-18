@@ -57,6 +57,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { WebhookSettings } from '../components/WebhookSettings';
+import { ConnectorManifests } from '../components/ConnectorManifests';
 import { notifications } from '@mantine/notifications';
 import { useForm } from '@mantine/form';
 import type { LucideIcon } from 'lucide-react';
@@ -334,6 +335,8 @@ export function Connectors() {
 
       {/* Outbound and inbound belong together: to whoever is wiring a system
           up, calling a partner and being called by one are the same job. */}
+      <ConnectorManifests />
+
       <WebhookSettings />
 
       <Paper p="xl" radius="lg" withBorder shadow="sm">

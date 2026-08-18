@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gsoultan/gobpm/internal/pkg/tracing"
-	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	"io"
 	"net/http"
+
+	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
+	"github.com/gsoultan/gobpm/server/repositories/models"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"gopkg.in/yaml.v3"
 
 	"sync"
 	"time"
@@ -33,25 +36,106 @@ import (
 type connectorService struct {
 	repo      repositories.Repository
 	executors map[string]servicecontracts.ConnectorExecutor
-
-	// manifests are connectors written as data rather than compiled in — see
-	// connectors.Manifest. Held by key, and consulted before the built-ins so an
-	// installed manifest can replace one without editing Go.
-	manifests map[string]connectors.Manifest
 }
 
 // InstallManifest registers a connector described by a document.
 //
-// The manifest is validated at install rather than at call time: it is installed
-// once and called thousands of times, and the moment to discover it names no URL
-// is when somebody installs it, not when an instance reaches it at 3am.
-func (s *connectorService) InstallManifest(document []byte) error {
+// Validated here rather than at call time: a manifest is installed once and
+// called thousands of times, and the moment to discover it names no URL is when
+// somebody installs it, not when an instance reaches it at 3am.
+//
+// Installing an existing key replaces it, because installing again is how an
+// author fixes a manifest.
+func (s *connectorService) InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error) {
 	manifest, err := connectors.ParseManifest(document)
 	if err != nil {
-		return err
+		return entities.ConnectorManifest{}, err
 	}
-	s.manifests[manifest.Key] = manifest
-	return nil
+
+	m := models.ConnectorManifestModel{
+		Key:      manifest.Key,
+		Name:     manifest.Name,
+		Version:  manifest.Version,
+		Document: string(document),
+		Enabled:  true,
+	}
+	if err := s.repo.ConnectorManifest().Upsert(ctx, m); err != nil {
+		return entities.ConnectorManifest{}, err
+	}
+
+	// Read back rather than returning what was sent. Installing an existing key
+	// keeps that row's id, so the id the caller needs — to switch this
+	// connector off, or delete it — is the stored one and not the one this
+	// function might have generated.
+	stored, err := s.repo.ConnectorManifest().GetByKey(ctx, manifest.Key)
+	if err != nil {
+		return entities.ConnectorManifest{}, err
+	}
+	return entities.ConnectorManifest{
+		ID:      uuid.UUID(stored.ID),
+		Key:     stored.Key,
+		Name:    stored.Name,
+		Version: stored.Version,
+		Enabled: stored.Enabled,
+	}, nil
+}
+
+// ListManifests returns the installed manifests, without their documents.
+func (s *connectorService) ListManifests(ctx context.Context) ([]entities.ConnectorManifest, error) {
+	list, err := s.repo.ConnectorManifest().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entities.ConnectorManifest, len(list))
+	for i, m := range list {
+		out[i] = entities.ConnectorManifest{
+			ID: uuid.UUID(m.ID), Key: m.Key, Name: m.Name, Version: m.Version, Enabled: m.Enabled,
+		}
+	}
+	return out, nil
+}
+
+// GetManifestDocument returns a manifest exactly as its author wrote it.
+func (s *connectorService) GetManifestDocument(ctx context.Context, key string) (string, error) {
+	m, err := s.repo.ConnectorManifest().GetByKey(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	return m.Document, nil
+}
+
+func (s *connectorService) SetManifestEnabled(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled)
+}
+
+func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) error {
+	return s.repo.ConnectorManifest().Delete(ctx, id)
+}
+
+// ImportOpenAPI turns a specification into manifests and installs every one.
+//
+// All or nothing would be the wrong shape here: a document of forty operations
+// with one this importer cannot read should yield thirty-nine connectors, not a
+// refusal. The count of what was installed is the answer.
+func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error) {
+	manifests, err := connectors.ImportOpenAPI(document)
+	if err != nil {
+		return nil, err
+	}
+
+	installed := make([]entities.ConnectorManifest, 0, len(manifests))
+	for _, manifest := range manifests {
+		encoded, marshalErr := yaml.Marshal(manifest)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("could not write the generated manifest for %q: %w", manifest.Key, marshalErr)
+		}
+		one, installErr := s.InstallManifest(ctx, encoded)
+		if installErr != nil {
+			return nil, installErr
+		}
+		installed = append(installed, one)
+	}
+	return installed, nil
 }
 
 func NewConnectorService(
@@ -60,7 +144,6 @@ func NewConnectorService(
 	s := &connectorService{
 		repo:      repo,
 		executors: make(map[string]servicecontracts.ConnectorExecutor),
-		manifests: make(map[string]connectors.Manifest),
 	}
 
 	// Register built-in executors
@@ -224,6 +307,30 @@ func (s *connectorService) DeleteConnectorInstance(ctx context.Context, id uuid.
 	return s.repo.ConnectorInstance().Delete(ctx, id)
 }
 
+// manifestFor loads the manifest a connector key names, if one is installed.
+//
+// A miss is the ordinary case — most connectors are still built in — so it is
+// not an error and is not logged. A manifest that is switched off is treated as
+// absent, which lets an operator stop a connector without deleting the document
+// that defines it.
+func (s *connectorService) manifestFor(ctx context.Context, key string) (connectors.Manifest, bool) {
+	m, err := s.repo.ConnectorManifest().GetByKey(ctx, key)
+	if err != nil || !m.Enabled {
+		return connectors.Manifest{}, false
+	}
+
+	manifest, err := connectors.ParseManifest([]byte(m.Document))
+	if err != nil {
+		// Installed manifests are validated on the way in, so this means the
+		// row was edited outside the application or the format has moved on.
+		// Falling through to the built-ins would silently call the wrong thing.
+		log.Error().Err(err).Str("connector", key).
+			Msg("An installed connector manifest can no longer be read; reinstall it")
+		return connectors.Manifest{}, false
+	}
+	return manifest, true
+}
+
 // ExecuteConnector runs one outbound integration call.
 //
 // This is the span execution-plan.md §3.4 asks for. It is the boundary where
@@ -241,7 +348,12 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 	// installed manifest may replace a built-in without editing Go. When none is
 	// installed under this key, the built-in executors answer as they always
 	// have.
-	if manifest, found := s.manifests[connectorKey]; found {
+	//
+	// Read from the store on every call rather than cached. A cache would have
+	// to be invalidated across replicas — install a connector on one and the
+	// others would keep calling the old one until they restarted — and this is
+	// one indexed read against a function that is about to make a network call.
+	if manifest, found := s.manifestFor(ctx, connectorKey); found {
 		result, err := connectors.RunManifest(ctx, manifest, config, payload, nil)
 		if err != nil {
 			span.RecordError(err)

@@ -49,5 +49,8 @@ func MigrationModels() []any {
 		// deliveries already acted on so its retries do not act twice.
 		new(WebhookModel),
 		new(WebhookDeliveryModel),
+
+		// A connector described by a document rather than by Go.
+		new(ConnectorManifestModel),
 	}
 }
