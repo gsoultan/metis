@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/rs/zerolog/log"
 	"io"
 	"maps"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/gobpm/server/interceptors/contracts"
 )

@@ -58,7 +58,7 @@ func TestRateLimitInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -75,7 +75,7 @@ func TestRateLimitInterceptor(t *testing.T) {
 			for requestIndex, request := range testCase.requests {
 				now = now.Add(request.advance)
 
-				req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/tasks", nil)
 				req.RemoteAddr = request.remoteAddr
 				if request.xForwardedFor != "" {
 					req.Header.Set("X-Forwarded-For", request.xForwardedFor)
@@ -168,11 +168,11 @@ func TestClientKeyFromRequest(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			req.RemoteAddr = testCase.remote
 			if testCase.forwarded != "" {
 				req.Header.Set("X-Forwarded-For", testCase.forwarded)

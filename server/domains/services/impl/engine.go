@@ -676,22 +676,6 @@ func (e *Engine) followOutgoingFlows(ctx context.Context, instance *entities.Pro
 	return nil
 }
 
-// extractInt reads an integer process variable that may be stored as float64 (JSON default) or int.
-func extractInt(vars map[string]any, key string) int {
-	val, ok := vars[key]
-	if !ok {
-		return 0
-	}
-	switch v := val.(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	default:
-		return 0
-	}
-}
-
 // activateEventNode registers the signal/message subscriptions and timer job
 // that let a catching event node fire later.
 //

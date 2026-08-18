@@ -75,7 +75,7 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 	instance.RemoveTokenByNode(&node)
 
 	if node.MultiInstanceType == "parallel" {
-		for i := 0; i < total; i++ {
+		for i := range total {
 			instance.AddTokenWithIteration(&node, fmt.Sprintf("%d", i))
 		}
 
@@ -87,7 +87,7 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 		// another on this goroutine, and a task takes its own copy of the
 		// variables as it starts — a service task snapshots them into its job —
 		// so each one leaves with its own item.
-		for i := 0; i < total; i++ {
+		for i := range total {
 			entities.BindMultiInstanceElement(instance, node, collection, i)
 			if err := t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, fmt.Sprintf("%d", i)); err != nil {
 				return err

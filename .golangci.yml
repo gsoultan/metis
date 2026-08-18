@@ -1,24 +1,44 @@
 version: "2"
 
 # ---------------------------------------------------------------------------
-# Adoption note (Phase 0)
+# Adoption note
 #
-# This config was introduced against an existing codebase with 799 findings.
-# They are NOT suppressed — CI runs golangci-lint-action with
-# `only-new-issues: true`, so the linter blocks every *new* violation from day
-# one while the existing backlog is burned down by area.
+# This config was introduced against an existing codebase with a large backlog,
+# and CI runs it with `only-new-issues: true` so the linter blocks every *new*
+# violation while the backlog is burned down by area.
 #
-# Do not "fix" the errcheck backlog by inserting `_ =`. Those 348 findings are
-# the actual defect class: in a BPMN engine a discarded error is a process
-# instance that hangs forever with no incident raised. Each one needs a real
-# decision — propagate, log with context, or raise an incident.
+# Do not "fix" errcheck by inserting `_ =`. A discarded error in a BPMN engine
+# is a process instance that hangs forever with no incident raised. Each one
+# needs a real decision — propagate, log with context, or raise an incident.
 #
-# Burn-down order (highest business risk first):
-#   1. server/domains/services/impl/engine.go        (token/subscription loss)
-#   2. server/domains/handlers/impl/                 (node execution)
-#   3. server/domains/services/impl/job.go           (job/incident handling)
-#   4. server/domains/services/impl/connector*.go    (external side effects)
-#   5. everything else
+# Status: **the backlog is closed — this config now runs clean.** The findings
+# that were doing real damage are worth naming, because they are the shapes to
+# watch for:
+#
+#   - uuid.Parse discarded → uuid.Nil, which the repositories read as "no
+#     filter". A typo'd organization id listed every project the caller could
+#     see; a typo'd project id created a definition under a project nobody owns.
+#   - uuid.NewV7 discarded → uuid.Nil, which is not "no id" but *the same id
+#     every time*: every token colliding on one primary key.
+#   - An SSE write error ignored → a goroutine spinning on a dead socket for as
+#     long as events kept arriving, one leaked per client disconnect.
+#   - Audit writes dropped in silence → a trail with holes that reads complete.
+#   - `payload["text"].(string)` on a connector payload → a panic that took the
+#     worker down on any payload spelling the field differently, and process
+#     variables are untrusted input. check-type-assertions stays on for this.
+#
+# The wiring layer's `request.(T)` assertions are now comma-ok with a real
+# error. go-kit guarantees the type in practice — a decoder, an endpoint and an
+# encoder are wired as one triple — but an error at a boundary beats a panic
+# inside a request handler, and it is what makes the check usable everywhere
+# else, where the asserted value did come from outside.
+#
+# Measure the backlog with the caps off, or the numbers lie:
+#
+#   golangci-lint run --max-issues-per-linter=0 --max-same-issues=0
+#
+# The defaults collapse identical messages to three per linter, which reports a
+# few dozen findings for a few hundred.
 # ---------------------------------------------------------------------------
 
 run:

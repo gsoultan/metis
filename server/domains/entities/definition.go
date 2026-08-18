@@ -54,18 +54,6 @@ func (pd *ProcessDefinition) FindNode(id string) *Node {
 	return pd.nodeMap[id]
 }
 
-func findNodeRecursively(nodes []*Node, id string) *Node {
-	for i := range nodes {
-		if nodes[i].ID == id {
-			return nodes[i]
-		}
-		if res := findNodeRecursively(nodes[i].Nodes, id); res != nil {
-			return res
-		}
-	}
-	return nil
-}
-
 func (pd *ProcessDefinition) GetStartNode() *Node {
 	return getStartNodeRecursively(pd.Nodes)
 }

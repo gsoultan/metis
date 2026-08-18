@@ -54,7 +54,7 @@ func TestBearerTokenFromHeader(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -111,7 +111,7 @@ func TestHTTPAuthInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -131,7 +131,7 @@ func TestHTTPAuthInterceptor(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/setup/status", nil)
 			if testCase.authorizationHeader != "" {
 				req.Header.Set("Authorization", testCase.authorizationHeader)
 			}
@@ -214,7 +214,7 @@ func TestMandatoryHTTPAuthInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -229,7 +229,7 @@ func TestMandatoryHTTPAuthInterceptor(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, testCase.requestPath, nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testCase.requestPath, nil)
 			if testCase.authorizationHeader != "" {
 				req.Header.Set("Authorization", testCase.authorizationHeader)
 			}

@@ -35,7 +35,7 @@ func TestNewBackpressureInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -62,7 +62,7 @@ func TestBackpressureInterceptorAllowsRequestWhenCapacityAvailable(t *testing.T)
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/setup/status", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -94,7 +94,7 @@ func TestBackpressureInterceptorRejectsWhenQueueIsFull(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/setup/status", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
@@ -119,7 +119,7 @@ func TestBackpressureInterceptorWaitsForInFlightSlot(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/setup/status", nil)
 	res := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -167,7 +167,7 @@ func TestBackpressureInterceptorReturnsTimeoutWhenContextCanceledInQueue(t *test
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 	defer cancel()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil).WithContext(ctx)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/setup/status", nil).WithContext(ctx)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 

@@ -63,32 +63,32 @@ func (w *auditWriter) RecordEvent(ctx context.Context, entry entities.AuditEntry
 func narrativeFor(eventType, subject, actor string) string {
 	switch eventType {
 	case EventTaskClaimed:
-		return fmt.Sprintf("%s claimed task \"%s\"", actor, subject)
+		return fmt.Sprintf("%s claimed task %q", actor, subject)
 	case EventTaskUnclaimed:
-		return fmt.Sprintf("Task \"%s\" was released back to the queue", subject)
+		return fmt.Sprintf("Task %q was released back to the queue", subject)
 	case EventTaskCompleted:
-		return fmt.Sprintf("%s completed task \"%s\"", actor, subject)
+		return fmt.Sprintf("%s completed task %q", actor, subject)
 	case EventTaskAssigned:
-		return fmt.Sprintf("Task \"%s\" was assigned to %s", subject, actor)
+		return fmt.Sprintf("Task %q was assigned to %s", subject, actor)
 	case EventTaskDelegated:
-		return fmt.Sprintf("Task \"%s\" was delegated to %s", subject, actor)
+		return fmt.Sprintf("Task %q was delegated to %s", subject, actor)
 	case EventTaskEscalated:
-		return fmt.Sprintf("Task \"%s\" was escalated to %s", subject, actor)
+		return fmt.Sprintf("Task %q was escalated to %s", subject, actor)
 	case EventTaskCreated:
-		return fmt.Sprintf("Task \"%s\" became available", subject)
+		return fmt.Sprintf("Task %q became available", subject)
 	case EventProcessStarted:
-		return fmt.Sprintf("Process \"%s\" was started", subject)
+		return fmt.Sprintf("Process %q was started", subject)
 	case EventProcessEnded:
-		return fmt.Sprintf("Process \"%s\" completed successfully", subject)
+		return fmt.Sprintf("Process %q completed successfully", subject)
 	case EventProcessFailed:
-		return fmt.Sprintf("Process \"%s\" failed", subject)
+		return fmt.Sprintf("Process %q failed", subject)
 	case EventNodeReached:
-		return fmt.Sprintf("Step \"%s\" started", subject)
+		return fmt.Sprintf("Step %q started", subject)
 	case EventNodeCompleted:
-		return fmt.Sprintf("Step \"%s\" finished", subject)
+		return fmt.Sprintf("Step %q finished", subject)
 	default:
 		if subject != "" {
-			return fmt.Sprintf("Event %q occurred on \"%s\"", eventType, subject)
+			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)
 		}
 		return fmt.Sprintf("Event %q occurred", eventType)
 	}
@@ -126,9 +126,9 @@ func toAuditModel(e entities.AuditEntry) models.AuditModel {
 	if m.ID == models.NilUUID {
 		m.ID = models.UUID(uuid.New())
 	}
-	m.Base.CreatedAt = e.Timestamp
-	if m.Base.CreatedAt.IsZero() {
-		m.Base.CreatedAt = time.Now()
+	m.CreatedAt = e.Timestamp
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now()
 	}
 	if e.Project != nil {
 		m.ProjectID = models.UUID(e.Project.ID)

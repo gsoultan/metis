@@ -1,9 +1,10 @@
 package testutils
 
 import (
+	"testing"
+
 	"github.com/gsoultan/gobpm/server/repositories/gorms"
 	"github.com/gsoultan/gobpm/server/repositories/migrations"
-	"testing"
 
 	"github.com/glebarez/sqlite"
 	"github.com/gsoultan/gobpm/internal/pkg/crypto"

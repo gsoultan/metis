@@ -123,7 +123,7 @@ func TestMessagingServiceSendMessageWithRetry(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
+
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -223,7 +223,7 @@ func TestMessagingServiceDispatchInboundMessageHonorsDispatchTimeout(t *testing.
 	}
 
 	for _, tc := range tests {
-		tc := tc
+
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -412,7 +412,7 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
+
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

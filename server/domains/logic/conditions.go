@@ -3,11 +3,12 @@ package logic
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+
 	"github.com/gsoultan/gobpm/internal/pkg/features"
 	"github.com/gsoultan/gobpm/server/domains/logic/feel"
 	"github.com/rs/zerolog/log"
-	"strings"
-	"sync"
 
 	"github.com/dop251/goja"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
