@@ -11,3 +11,4 @@ export { projectService } from "./projectService";
 export { setupService } from "./setupService";
 export { signalService } from "./signalService";
 export { taskService } from "./taskService";
+export { webhookService } from "./webhookService";

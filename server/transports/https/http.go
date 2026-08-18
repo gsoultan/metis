@@ -30,6 +30,7 @@ import (
 	"github.com/gsoultan/gobpm/server/transports/https/setup"
 	"github.com/gsoultan/gobpm/server/transports/https/tasks"
 	"github.com/gsoultan/gobpm/server/transports/https/users"
+	"github.com/gsoultan/gobpm/server/transports/https/webhookadmin"
 	"github.com/gsoultan/gobpm/server/transports/https/webhooks"
 	"github.com/gsoultan/gobpm/ui"
 
@@ -95,6 +96,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	decisions.RegisterHandlers(m, eps.Decision, options)
 	connectors.RegisterHandlers(m, eps.Connector, options)
 	collaboration.RegisterHandlers(m, eps.Collaboration, options)
+	webhookadmin.RegisterHandlers(m, eps.Webhook, options)
 
 	// The public delivery endpoint. Registered straight onto the mux rather than
 	// through an endpoint: the signature is over the exact bytes delivered, so

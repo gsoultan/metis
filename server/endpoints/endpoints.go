@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/gobpm/server/endpoints/setup"
 	"github.com/gsoultan/gobpm/server/endpoints/task"
 	"github.com/gsoultan/gobpm/server/endpoints/user"
+	"github.com/gsoultan/gobpm/server/endpoints/webhook"
 	"github.com/gsoultan/gobpm/server/interceptors"
 )
 
@@ -25,6 +26,7 @@ type Endpoints struct {
 	Collaboration collaboration.Endpoints
 	Connector     connector.Endpoints
 	Decision      decision.Endpoints
+	Webhook       webhook.Endpoints
 	Definition    definition.Endpoints
 	ExternalTask  external_task.Endpoints
 	Incident      incident.Endpoints
@@ -84,6 +86,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	decisionEndpoints.CreateDecision = designer("CreateDecision")(decisionEndpoints.CreateDecision)
 	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
+
+	// Registering a webhook creates a public address into this installation, so
+	// it takes the same authority as changing a process: designer, not viewer.
+	webhookEndpoints := webhook.MakeEndpoints(s)
+	webhookEndpoints.ListWebhooks = protected("ListWebhooks")(webhookEndpoints.ListWebhooks)
+	webhookEndpoints.CreateWebhook = designer("CreateWebhook")(webhookEndpoints.CreateWebhook)
+	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
+	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
 
 	definitionEndpoints := definition.MakeEndpoints(s)
 	definitionEndpoints.ListDefinitions = protected("ListDefinitions")(definitionEndpoints.ListDefinitions)
@@ -183,6 +193,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Collaboration: collaborationEndpoints,
 		Connector:     connectorEndpoints,
 		Decision:      decisionEndpoints,
+		Webhook:       webhookEndpoints,
 		Definition:    definitionEndpoints,
 		ExternalTask:  externalTaskEndpoints,
 		Incident:      incidentEndpoints,
