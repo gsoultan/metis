@@ -80,10 +80,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # cache: false on every setup-go in this file. The action caches
+      # GOMODCACHE and GOCACHE by default, which is right for a hosted runner
+      # that is destroyed after the job and starts cold. This runner is a
+      # developer's own machine: those directories are 23 GB and 47 GB, they
+      # already persist between runs, and re-uploading them buys nothing.
+      #
+      # It also cost every job. The post-step tarred ~14 GB, was refused for
+      # being over the 10 GB cache limit, and saturated the runner long enough
+      # that four jobs died with "the self-hosted runner lost communication
+      # with the server" — after all of their real steps had passed.
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Download UI dist
         uses: actions/download-artifact@v4
@@ -161,6 +172,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Download UI dist
         uses: actions/download-artifact@v4
@@ -272,6 +284,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Download UI dist
         uses: actions/download-artifact@v4
@@ -311,6 +324,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       # Installed from source at a pinned version rather than through
       # bufbuild/buf-action, for the same two reasons golangci-lint is:
@@ -376,6 +390,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       # Installed from source at the same pinned version rather than pulled as
       # a container image. The image needed a Docker daemon, which the
