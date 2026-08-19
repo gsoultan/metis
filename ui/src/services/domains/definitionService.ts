@@ -10,6 +10,7 @@ import type {
   ExportDefinitionResponse,
   ImportDefinitionResponse,
 } from "../types";
+import { raiseIfRefused } from "../raise";
 
 /**
  * The designer works in the shapes a person edits — an assignee is a username,
@@ -175,7 +176,7 @@ export const definitionService = {
 
   async deleteDefinition(id: string, signal?: AbortSignal) {
     const response = await definitionClient.deleteDefinition({ id }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 
   async exportDefinition(id: string, signal?: AbortSignal) {

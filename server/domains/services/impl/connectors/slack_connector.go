@@ -45,7 +45,7 @@ func (c *SlackConnector) Execute(ctx context.Context, config map[string]any, pay
 }
 
 func extractWebhookURL(config map[string]any) (string, error) {
-	url, _ := config["webhook_url"].(string)
+	url, _ := TextSetting(config, "webhook_url")
 	if url == "" {
 		return "", fmt.Errorf("slack connector: missing required config key 'webhook_url'")
 	}
@@ -53,11 +53,11 @@ func extractWebhookURL(config map[string]any) (string, error) {
 }
 
 func buildSlackBody(payload map[string]any) ([]byte, error) {
-	text, _ := payload["text"].(string)
+	text, _ := TextSetting(payload, "text")
 	if text == "" {
 		return nil, fmt.Errorf("slack connector: missing required payload key 'text'")
 	}
-	channel, _ := payload["channel"].(string)
+	channel, _ := TextSetting(payload, "channel")
 	data, err := json.Marshal(slackPayload{Text: text, Channel: channel})
 	if err != nil {
 		return nil, fmt.Errorf("slack connector: marshal payload: %w", err)
@@ -75,7 +75,7 @@ func postToSlack(ctx context.Context, webhookURL string, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("slack connector: send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeQuietly(resp.Body, "slack")
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack connector: unexpected status %d", resp.StatusCode)
 	}

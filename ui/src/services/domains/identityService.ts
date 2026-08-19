@@ -1,6 +1,7 @@
 import { userClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
 import type { ApiOrganizationUser, ApiGroup, CreateUserPayload } from "../types";
+import { raiseIfRefused } from "../raise";
 
 export const identityService = {
   async getUser(id: string, signal?: AbortSignal) {
@@ -54,7 +55,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async deleteUser(id: string, signal?: AbortSignal) {
@@ -63,7 +64,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async listGroups(organizationId: string, signal?: AbortSignal) {
@@ -100,7 +101,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async deleteGroup(id: string, signal?: AbortSignal) {
@@ -109,7 +110,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async listGroupMembers(groupId: string, signal?: AbortSignal) {
@@ -123,7 +124,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async removeMembership(groupId: string, userId: string, signal?: AbortSignal) {
@@ -132,7 +133,7 @@ export const identityService = {
       signal,
     });
 
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async listUserGroups(userId: string, signal?: AbortSignal) {

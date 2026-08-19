@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -56,7 +57,11 @@ func (s *Server) CreateOrganization(ctx context.Context, req *endpoints.CreateOr
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.CreateOrganizationResponse), nil
+	typed, ok := resp.(*endpoints.CreateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.CreateOrganizationResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) GetOrganization(ctx context.Context, req *endpoints.GetOrganizationRequest) (*endpoints.GetOrganizationResponse, error) {
@@ -64,7 +69,11 @@ func (s *Server) GetOrganization(ctx context.Context, req *endpoints.GetOrganiza
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetOrganizationResponse), nil
+	typed, ok := resp.(*endpoints.GetOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.GetOrganizationResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListOrganizations(ctx context.Context, req *endpoints.ListOrganizationsRequest) (*endpoints.ListOrganizationsResponse, error) {
@@ -72,7 +81,11 @@ func (s *Server) ListOrganizations(ctx context.Context, req *endpoints.ListOrgan
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListOrganizationsResponse), nil
+	typed, ok := resp.(*endpoints.ListOrganizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.ListOrganizationsResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) UpdateOrganization(ctx context.Context, req *endpoints.UpdateOrganizationRequest) (*endpoints.UpdateOrganizationResponse, error) {
@@ -80,7 +93,11 @@ func (s *Server) UpdateOrganization(ctx context.Context, req *endpoints.UpdateOr
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.UpdateOrganizationResponse), nil
+	typed, ok := resp.(*endpoints.UpdateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.UpdateOrganizationResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) DeleteOrganization(ctx context.Context, req *endpoints.DeleteOrganizationRequest) (*endpoints.DeleteOrganizationResponse, error) {
@@ -88,16 +105,26 @@ func (s *Server) DeleteOrganization(ctx context.Context, req *endpoints.DeleteOr
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.DeleteOrganizationResponse), nil
+	typed, ok := resp.(*endpoints.DeleteOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.DeleteOrganizationResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCCreateOrganizationRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.CreateOrganizationRequest)
+	req, ok := grpcReq.(*endpoints.CreateOrganizationRequest)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.CreateOrganizationRequest, got %T", grpcReq)
+	}
 	return organization.CreateOrganizationRequest{Name: req.Name, Description: req.Description}, nil
 }
 
 func encodeGRPCCreateOrganizationResponse(_ context.Context, response any) (any, error) {
-	resp := response.(organization.CreateOrganizationResponse)
+	resp, ok := response.(organization.CreateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.CreateOrganizationResponse, got %T", response)
+	}
 	return &endpoints.CreateOrganizationResponse{
 		Organization: adapters.OrganizationPBAdapter{Organization: resp.Organization}.ToProto(),
 		Error:        common.ErrString(resp.Err),
@@ -105,12 +132,18 @@ func encodeGRPCCreateOrganizationResponse(_ context.Context, response any) (any,
 }
 
 func decodeGRPCGetOrganizationRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetOrganizationRequest)
+	req, ok := grpcReq.(*endpoints.GetOrganizationRequest)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.GetOrganizationRequest, got %T", grpcReq)
+	}
 	return organization.GetOrganizationRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCGetOrganizationResponse(_ context.Context, response any) (any, error) {
-	resp := response.(organization.GetOrganizationResponse)
+	resp, ok := response.(organization.GetOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.GetOrganizationResponse, got %T", response)
+	}
 	return &endpoints.GetOrganizationResponse{
 		Organization: adapters.OrganizationPBAdapter{Organization: resp.Organization}.ToProto(),
 		Error:        common.ErrString(resp.Err),
@@ -122,7 +155,10 @@ func decodeGRPCListOrganizationsRequest(_ context.Context, _ any) (any, error) {
 }
 
 func encodeGRPCListOrganizationsResponse(_ context.Context, response any) (any, error) {
-	resp := response.(organization.ListOrganizationsResponse)
+	resp, ok := response.(organization.ListOrganizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.ListOrganizationsResponse, got %T", response)
+	}
 	var orgs []*entities.Organization
 	if len(resp.Organizations) > 0 {
 		orgs = make([]*entities.Organization, 0, len(resp.Organizations))
@@ -134,21 +170,33 @@ func encodeGRPCListOrganizationsResponse(_ context.Context, response any) (any, 
 }
 
 func decodeGRPCUpdateOrganizationRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.UpdateOrganizationRequest)
+	req, ok := grpcReq.(*endpoints.UpdateOrganizationRequest)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.UpdateOrganizationRequest, got %T", grpcReq)
+	}
 	return organization.UpdateOrganizationRequest{ID: req.Id, Name: req.Name, Description: req.Description}, nil
 }
 
 func encodeGRPCUpdateOrganizationResponse(_ context.Context, response any) (any, error) {
-	resp := response.(organization.UpdateOrganizationResponse)
+	resp, ok := response.(organization.UpdateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.UpdateOrganizationResponse, got %T", response)
+	}
 	return &endpoints.UpdateOrganizationResponse{Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCDeleteOrganizationRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.DeleteOrganizationRequest)
+	req, ok := grpcReq.(*endpoints.DeleteOrganizationRequest)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a *endpoints.DeleteOrganizationRequest, got %T", grpcReq)
+	}
 	return organization.DeleteOrganizationRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCDeleteOrganizationResponse(_ context.Context, response any) (any, error) {
-	resp := response.(organization.DeleteOrganizationResponse)
+	resp, ok := response.(organization.DeleteOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.DeleteOrganizationResponse, got %T", response)
+	}
 	return &endpoints.DeleteOrganizationResponse{Error: common.ErrString(resp.Err)}, nil
 }

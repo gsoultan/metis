@@ -18,13 +18,25 @@ env:
 jobs:
   ui:
     name: UI (typecheck, lint, build)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+
+      # scripts/check-bundle-budget.mjs is invoked as `node ...`, and its budgets
+      # are tuned to within a kilobyte of the current measurement. When no node
+      # is on PATH, `bun run` answers that call with its own node shim, whose
+      # zlib compresses about 0.8% worse than node's — enough to fail the
+      # first-paint budget on a bundle whose bytes are identical. The hosted
+      # runner had node preinstalled and hid this; a self-hosted one need not,
+      # so the job asks for the runtime its budgets were measured with.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -63,15 +75,26 @@ jobs:
   go-security-reliability:
     name: Go (build, vet, race, vuln)
     needs: ui
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # cache: false on every setup-go in this file. The action caches
+      # GOMODCACHE and GOCACHE by default, which is right for a hosted runner
+      # that is destroyed after the job and starts cold. This runner is a
+      # developer's own machine: those directories are 23 GB and 47 GB, they
+      # already persist between runs, and re-uploading them buys nothing.
+      #
+      # It also cost every job. The post-step tarred ~14 GB, was refused for
+      # being over the 10 GB cache limit, and saturated the runner long enough
+      # that four jobs died with "the self-hosted runner lost communication
+      # with the server" — after all of their real steps had passed.
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Download UI dist
         uses: actions/download-artifact@v4
@@ -112,10 +135,143 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck $(go list ./... | grep -v '/node_modules/')
 
+  dialects:
+    name: Databases (postgres, mysql, sqlserver)
+    needs: ui
+    runs-on: self-hosted
+
+    # Every dialect-specific test in this repository skips when its DSN is
+    # unset, and none of the three DSNs was ever set anywhere. So the tests that
+    # exist to catch "this query behaves differently on MySQL" — and the schema
+    # tests that exist to catch "this column type does not exist on that engine"
+    # — have never run outside a developer's own machine, which is how SQL
+    # Server came to declare `uuid` columns it has no word for.
+    #
+    # `services:` cannot express this job on this runner. Service containers
+    # require a Linux runner with a Docker daemon; this runner is macOS with
+    # Apple's `container`. The three databases are therefore ordinary steps.
+    #
+    # The note this comment used to carry — that SQL Server has no arm64 build
+    # and segfaults under emulation, so only an amd64 Linux runner could host
+    # it — was true of QEMU under Docker Desktop, and is not true here. Apple's
+    # `container` runs the amd64 image under Rosetta: measured on this runner,
+    # the server reaches "SQL Server is now ready for client connections" and
+    # ./tests/mssql passes. All three dialects keep their coverage.
+
+    env:
+      GOBPM_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
+      GOBPM_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
+      GOBPM_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
+      MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download UI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      # The runner inherits whatever environment it was launched with, which
+      # need not include Homebrew's bin. Resolving `container` once here — and
+      # failing loudly if it is genuinely absent — keeps the later steps from
+      # failing as an unreadable "command not found" three steps in.
+      - name: Locate the container CLI
+        run: |
+          if ! command -v container >/dev/null 2>&1; then
+            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+            export PATH="/opt/homebrew/bin:$PATH"
+          fi
+          command -v container >/dev/null 2>&1 || {
+            echo "::error::Apple container CLI not found on the runner (brew install container)"
+            exit 1
+          }
+          container --version
+
+      # Named containers on a runner whose state survives between jobs: a run
+      # that was cancelled leaves its databases behind and the next run's
+      # `container run` fails on the name. Forcing them away first makes this
+      # step idempotent rather than dependent on the last run having exited
+      # cleanly. Ports are published on 127.0.0.1 so the DSNs above are the
+      # same strings a developer uses locally.
+      - name: Start the databases
+        run: |
+          container system start >/dev/null 2>&1 || true
+          container rm -f gobpm-ci-pg gobpm-ci-mysql gobpm-ci-mssql >/dev/null 2>&1 || true
+
+          container run -d --name gobpm-ci-pg -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_PASSWORD=gobpm -e POSTGRES_DB=gobpm \
+            postgres:17-alpine
+
+          container run -d --name gobpm-ci-mysql -p 127.0.0.1:3306:3306 \
+            -e MYSQL_ROOT_PASSWORD=gobpm -e MYSQL_DATABASE=gobpm \
+            mysql:8
+
+          container run -d --name gobpm-ci-mssql --arch amd64 --rosetta --memory 4g \
+            -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$MSSQL_SA_PASSWORD" -e MSSQL_PID=Developer \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+      # `container run -d` returns once the VM is up, which is well before the
+      # server inside it will answer a query. Each one is polled with the command
+      # its `--health-cmd` used to be, and a timeout fails the job with that
+      # database's own log — otherwise a slow start surfaces as a connection
+      # error inside a test, which reads like a code bug.
+      - name: Wait for the databases
+        run: |
+          wait_for() {
+            name="$1"; tries="$2"; shift 2
+            i=1
+            while [ "$i" -le "$tries" ]; do
+              if container exec "$name" "$@" >/dev/null 2>&1; then
+                echo "ready: $name"
+                return 0
+              fi
+              sleep 5
+              i=$((i + 1))
+            done
+            echo "::error::$name never became ready; last 40 lines of its log:"
+            container logs "$name" 2>&1 | tail -40
+            return 1
+          }
+
+          wait_for gobpm-ci-pg    24 pg_isready -U postgres -d gobpm
+          wait_for gobpm-ci-mysql 36 mysqladmin ping -h 127.0.0.1 -uroot -pgobpm --silent
+          wait_for gobpm-ci-mssql 48 /opt/mssql-tools18/bin/sqlcmd -C -S localhost \
+            -U sa -P "$MSSQL_SA_PASSWORD" -Q 'SELECT 1'
+
+      # A skip here means a DSN did not reach the tests, which is the failure
+      # this job exists to prevent — so the count is asserted rather than eyeballed.
+      - name: Run the dialect suites
+        run: |
+          set -o pipefail
+          go test -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... ./tests/tenant/... \
+            2>&1 | tee /tmp/dialects.log
+          if grep -q -- "--- SKIP" /tmp/dialects.log; then
+            echo "::error::A dialect test skipped, which means its DSN did not reach it:"
+            grep -- "--- SKIP" /tmp/dialects.log
+            exit 1
+          fi
+
+      # The runner is someone's own Mac. Three database VMs left running after
+      # every CI run is not an acceptable thing to leave on it, and `--rm` does
+      # not fire when a job is cancelled.
+      - name: Stop the databases
+        if: always()
+        run: container rm -f gobpm-ci-pg gobpm-ci-mysql gobpm-ci-mssql >/dev/null 2>&1 || true
+
   golangci-lint:
     name: golangci-lint
     needs: ui
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -128,6 +284,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       - name: Download UI dist
         uses: actions/download-artifact@v4
@@ -158,7 +315,7 @@ jobs:
 
   proto-generated:
     name: Generated code matches protos
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -167,6 +324,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
 
       # Installed from source at a pinned version rather than through
       # bufbuild/buf-action, for the same two reasons golangci-lint is:
@@ -207,7 +365,7 @@ jobs:
 
   secret-scan:
     name: Secret Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -228,8 +386,19 @@ jobs:
       # request's commits, this looks at every file in the repository. The
       # version is pinned so a scanner release cannot turn a green branch red
       # without a commit here.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      # Installed from source at the same pinned version rather than pulled as
+      # a container image. The image needed a Docker daemon, which the
+      # self-hosted runner does not have; the module proxy is already this
+      # file's install channel for golangci-lint and buf, and setup-go puts
+      # GOPATH/bin on PATH the same way it does for those two.
+      - name: Install gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
       - name: Gitleaks scan
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo \
-            ghcr.io/gitleaks/gitleaks:v8.30.1 \
-            dir . --redact --no-banner --exit-code 1
+        run: gitleaks dir . --redact --no-banner --exit-code 1

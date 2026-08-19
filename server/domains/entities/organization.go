@@ -1,8 +1,9 @@
 package entities
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Organization represents a top-level entity that can contain multiple projects.

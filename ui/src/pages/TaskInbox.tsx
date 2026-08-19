@@ -511,6 +511,7 @@ export function TaskInbox() {
     viewMode,
     setViewMode,
     selectedTaskIds,
+    bulkInFlight,
     setSelectedTaskIds,
     toggleSelection,
     handleBulkClaim,
@@ -607,7 +608,9 @@ export function TaskInbox() {
             <Group justify="space-between" wrap="nowrap">
               <Group gap="md">
                 <Badge color="white" variant="white" circle size="lg">{selectedTaskIds.length}</Badge>
-                <Text fw={700} c="white">Tasks Selected</Text>
+                <Text fw={700} c="white">
+                  {selectedTaskIds.length === 1 ? 'task selected' : 'tasks selected'}
+                </Text>
               </Group>
               <Group gap="sm">
                 {activeTab === 'available' ? (
@@ -617,8 +620,9 @@ export function TaskInbox() {
                     size="xs" 
                     leftSection={<UserPlus size={14} />}
                     onClick={handleBulkClaim}
+                    loading={bulkInFlight}
                   >
-                    Bulk Claim
+                    Claim selected
                   </Button>
                 ) : (
                   <Button 
@@ -627,8 +631,9 @@ export function TaskInbox() {
                     size="xs" 
                     leftSection={<ArrowDownLeft size={14} />}
                     onClick={handleBulkUnclaim}
+                    loading={bulkInFlight}
                   >
-                    Bulk Release
+                    Release selected
                   </Button>
                 )}
                 <Button 

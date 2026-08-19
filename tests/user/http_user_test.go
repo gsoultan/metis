@@ -146,7 +146,7 @@ func TestHTTPCreateUser(t *testing.T) {
 		"password": "testpass123",
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/users", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -196,7 +196,7 @@ func TestHTTPCreateGroup(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/v1/organizations/"+org.ID.String()+"/groups", bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/organizations/"+org.ID.String()+"/groups", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -252,7 +252,7 @@ func TestHTTPUpdateUser(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest("PUT", "/api/v1/users/"+adminUser.ID.String(), bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/users/"+adminUser.ID.String(), bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -296,7 +296,7 @@ func TestConnectRPCListUsers(t *testing.T) {
 
 	// Simulate Connect RPC call to ListUsers (what the frontend Connect client sends)
 	connectBody := `{"organizationId":"` + org.ID.String() + `"}`
-	req := httptest.NewRequest("POST", "/api/v1/process.UserService/ListUsers", bytes.NewReader([]byte(connectBody)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/process.UserService/ListUsers", bytes.NewReader([]byte(connectBody)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -351,7 +351,7 @@ func TestConnectRPCListGroups(t *testing.T) {
 
 	// 3. Simulate Connect RPC call to ListGroups
 	connectBody := `{"organizationId":"` + org.ID.String() + `"}`
-	req := httptest.NewRequest("POST", "/api/v1/process.GroupService/ListGroups", bytes.NewReader([]byte(connectBody)))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/process.GroupService/ListGroups", bytes.NewReader([]byte(connectBody)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -416,7 +416,7 @@ func TestHTTPUpdateGroup(t *testing.T) {
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
-	req := httptest.NewRequest("PUT", "/api/v1/groups/"+group.ID.String(), bytes.NewReader(bodyBytes))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/groups/"+group.ID.String(), bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()

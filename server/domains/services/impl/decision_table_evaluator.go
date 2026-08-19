@@ -237,14 +237,6 @@ func (e *DecisionTableEvaluatorImpl) collectAll(def entities.DecisionDefinition,
 	return result
 }
 
-func ruleIndexes(matched []matchedRule) []int {
-	indexes := make([]int, len(matched))
-	for i, m := range matched {
-		indexes[i] = m.index
-	}
-	return indexes
-}
-
 // applyCollect aggregates all matched rule outputs according to the aggregation function.
 func (e *DecisionTableEvaluatorImpl) applyCollect(def entities.DecisionDefinition, matched []matchedRule) entities.DecisionResult {
 	if def.Aggregation == "" {

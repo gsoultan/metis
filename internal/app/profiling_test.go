@@ -54,7 +54,7 @@ func TestNewPprofHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
 			rr := httptest.NewRecorder()
 
 			handler.ServeHTTP(rr, req)

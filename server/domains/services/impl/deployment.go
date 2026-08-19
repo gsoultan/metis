@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/adapters"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
 	"github.com/gsoultan/gobpm/server/repositories"
-	"time"
 )
 
 type deploymentService struct {
@@ -27,7 +28,10 @@ func NewDeploymentService(repo repositories.Repository, defService servicecontra
 func (s *deploymentService) Deploy(ctx context.Context, projectID uuid.UUID, name string, resources []entities.Resource) (entities.Deployment, error) {
 	var deployment entities.Deployment
 	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		deploymentID, _ := uuid.NewV7()
+		deploymentID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("could not generate a deployment id: %w", err)
+		}
 		deployment = entities.Deployment{
 			ID:        deploymentID,
 			Project:   &entities.Project{ID: projectID},
@@ -38,7 +42,11 @@ func (s *deploymentService) Deploy(ctx context.Context, projectID uuid.UUID, nam
 
 		for i := range deployment.Resources {
 			if deployment.Resources[i].ID == uuid.Nil {
-				deployment.Resources[i].ID, _ = uuid.NewV7()
+				resourceID, err := uuid.NewV7()
+				if err != nil {
+					return fmt.Errorf("could not generate an id for resource %q: %w", deployment.Resources[i].Name, err)
+				}
+				deployment.Resources[i].ID = resourceID
 			}
 			deployment.Resources[i].Deployment = &deployment
 		}
@@ -59,7 +67,11 @@ func (s *deploymentService) Deploy(ctx context.Context, projectID uuid.UUID, nam
 				def.Project = deployment.Project
 				// Ensure it has an ID if missing
 				if def.ID == uuid.Nil {
-					def.ID, _ = uuid.NewV7()
+					definitionID, err := uuid.NewV7()
+					if err != nil {
+						return fmt.Errorf("could not generate an id for the definition in %q: %w", res.Name, err)
+					}
+					def.ID = definitionID
 				}
 				if _, err := s.defService.CreateDefinition(txCtx, def); err != nil {
 					return fmt.Errorf("failed to create definition from resource %s: %w", res.Name, err)

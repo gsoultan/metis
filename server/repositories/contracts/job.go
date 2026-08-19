@@ -2,9 +2,10 @@ package contracts
 
 import (
 	"context"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/repositories/models"
-	"time"
 )
 
 type JobRepository interface {

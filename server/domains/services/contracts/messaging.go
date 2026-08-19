@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 )
 

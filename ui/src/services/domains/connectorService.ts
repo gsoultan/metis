@@ -5,6 +5,7 @@ import type {
   CreateConnectorInstancePayload,
   CreateConnectorPayload,
 } from "../types";
+import { raiseIfRefused } from "../raise";
 
 type ConnectorListResponse = {
   connectors?: ApiConnector[];
@@ -48,7 +49,7 @@ export const connectorService = {
       body: { connector },
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async deleteConnector(id: string, signal?: AbortSignal) {
@@ -56,7 +57,7 @@ export const connectorService = {
       method: "DELETE",
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async listConnectorInstances(projectId: string, signal?: AbortSignal) {
@@ -79,7 +80,7 @@ export const connectorService = {
       body: { instance },
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async deleteConnectorInstance(id: string, signal?: AbortSignal) {
@@ -87,7 +88,7 @@ export const connectorService = {
       method: "DELETE",
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async executeConnector(

@@ -1,4 +1,5 @@
 import { organizationClient } from "../shared/connect";
+import { raiseIfRefused } from "../raise";
 
 export const organizationService = {
   async listOrganizations(signal?: AbortSignal) {
@@ -13,11 +14,11 @@ export const organizationService = {
 
   async updateOrganization(id: string, name: string, description: string, signal?: AbortSignal) {
     const response = await organizationClient.updateOrganization({ id, name, description }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 
   async deleteOrganization(id: string, signal?: AbortSignal) {
     const response = await organizationClient.deleteOrganization({ id }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 };

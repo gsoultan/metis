@@ -32,7 +32,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeListDefinitionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListDefinitionsRequest)
+		req, ok := request.(ListDefinitionsRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a ListDefinitionsRequest, got %T", request)
+		}
 		var projectID uuid.UUID
 		var err error
 		if req.ProjectID != "" {
@@ -65,7 +68,10 @@ func MakeListDefinitionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetDefinitionRequest)
+		req, ok := request.(GetDefinitionRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a GetDefinitionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetDefinitionResponse{Err: err}, nil
@@ -77,7 +83,10 @@ func MakeGetDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeCreateDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateDefinitionRequest)
+		req, ok := request.(CreateDefinitionRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a CreateDefinitionRequest, got %T", request)
+		}
 		id, err := s.CreateDefinition(ctx, req.Definition)
 		return CreateDefinitionResponse{ID: id, Err: err}, nil
 	}
@@ -85,7 +94,10 @@ func MakeCreateDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteDefinitionRequest)
+		req, ok := request.(DeleteDefinitionRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a DeleteDefinitionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteDefinitionResponse{Err: err}, nil
@@ -97,7 +109,10 @@ func MakeDeleteDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeExportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ExportDefinitionRequest)
+		req, ok := request.(ExportDefinitionRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a ExportDefinitionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return ExportDefinitionResponse{Err: err}, nil
@@ -109,7 +124,10 @@ func MakeExportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeImportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ImportDefinitionRequest)
+		req, ok := request.(ImportDefinitionRequest)
+		if !ok {
+			return nil, fmt.Errorf("definition: expected a ImportDefinitionRequest, got %T", request)
+		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return ImportDefinitionResponse{Err: fmt.Errorf("project_id must be a UUID: %w", err)}, nil

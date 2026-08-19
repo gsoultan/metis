@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -24,7 +25,10 @@ func (h *StatsHandler) GetProcessStatistics(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(process.GetProcessStatisticsResponse)
+	resp, ok := response.(process.GetProcessStatisticsResponse)
+	if !ok {
+		return nil, fmt.Errorf("stats: expected a process.GetProcessStatisticsResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetProcessStatisticsResponse{
 		ActiveInstances:    int32(resp.ActiveInstances),
 		CompletedInstances: int32(resp.CompletedInstances),

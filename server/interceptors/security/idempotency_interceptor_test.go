@@ -32,7 +32,7 @@ func TestNewIdempotencyInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -51,14 +51,14 @@ func TestIdempotencyInterceptorPassThroughWithoutKey(t *testing.T) {
 	handler := NewIdempotencyInterceptor(time.Minute).Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		sequence := calls.Add(1)
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(fmt.Sprintf("call-%d", sequence)))
+		_, _ = fmt.Fprintf(w, "call-%d", sequence)
 	}))
 
-	requestOne := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader([]byte(`{"task":"a"}`)))
+	requestOne := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/tasks", bytes.NewReader([]byte(`{"task":"a"}`)))
 	responseOne := httptest.NewRecorder()
 	handler.ServeHTTP(responseOne, requestOne)
 
-	requestTwo := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader([]byte(`{"task":"a"}`)))
+	requestTwo := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/tasks", bytes.NewReader([]byte(`{"task":"a"}`)))
 	responseTwo := httptest.NewRecorder()
 	handler.ServeHTTP(responseTwo, requestTwo)
 
@@ -79,16 +79,16 @@ func TestIdempotencyInterceptorReplaysSuccessfulResponse(t *testing.T) {
 		sequence := calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"call":%d}`, sequence)))
+		_, _ = fmt.Fprintf(w, `{"call":%d}`, sequence)
 	}))
 
-	requestOne := httptest.NewRequest(http.MethodPost, "/api/v1/processes", bytes.NewReader([]byte(`{"name":"demo"}`)))
+	requestOne := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/processes", bytes.NewReader([]byte(`{"name":"demo"}`)))
 	requestOne.Header.Set(idempotencyKeyHeader, "create-process-1")
 	requestOne.Header.Set("Content-Type", "application/json")
 	responseOne := httptest.NewRecorder()
 	handler.ServeHTTP(responseOne, requestOne)
 
-	requestTwo := httptest.NewRequest(http.MethodPost, "/api/v1/processes", bytes.NewReader([]byte(`{"name":"demo"}`)))
+	requestTwo := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/processes", bytes.NewReader([]byte(`{"name":"demo"}`)))
 	requestTwo.Header.Set(idempotencyKeyHeader, "create-process-1")
 	requestTwo.Header.Set("Content-Type", "application/json")
 	responseTwo := httptest.NewRecorder()
@@ -120,12 +120,12 @@ func TestIdempotencyInterceptorRejectsKeyReuseForDifferentRequest(t *testing.T) 
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	requestOne := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/claim", bytes.NewReader([]byte(`{"taskId":"a"}`)))
+	requestOne := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/tasks/claim", bytes.NewReader([]byte(`{"taskId":"a"}`)))
 	requestOne.Header.Set(idempotencyKeyHeader, "claim-task")
 	responseOne := httptest.NewRecorder()
 	handler.ServeHTTP(responseOne, requestOne)
 
-	requestTwo := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/claim", bytes.NewReader([]byte(`{"taskId":"b"}`)))
+	requestTwo := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/tasks/claim", bytes.NewReader([]byte(`{"taskId":"b"}`)))
 	requestTwo.Header.Set(idempotencyKeyHeader, "claim-task")
 	responseTwo := httptest.NewRecorder()
 	handler.ServeHTTP(responseTwo, requestTwo)
@@ -154,7 +154,7 @@ func TestIdempotencyInterceptorReturnsTimeoutWhenWaitingRequestIsCanceled(t *tes
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		first := httptest.NewRequest(http.MethodPost, "/api/v1/processes/execute", bytes.NewReader([]byte(`{"id":"1"}`)))
+		first := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/processes/execute", bytes.NewReader([]byte(`{"id":"1"}`)))
 		first.Header.Set(idempotencyKeyHeader, "run-process-1")
 		handler.ServeHTTP(httptest.NewRecorder(), first)
 	}()
@@ -168,7 +168,7 @@ func TestIdempotencyInterceptorReturnsTimeoutWhenWaitingRequestIsCanceled(t *tes
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 
-	second := httptest.NewRequest(http.MethodPost, "/api/v1/processes/execute", bytes.NewReader([]byte(`{"id":"1"}`))).WithContext(ctx)
+	second := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/processes/execute", bytes.NewReader([]byte(`{"id":"1"}`))).WithContext(ctx)
 	second.Header.Set(idempotencyKeyHeader, "run-process-1")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, second)

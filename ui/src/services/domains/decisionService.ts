@@ -5,6 +5,7 @@ import type {
   DecisionResult,
   ProcessVariables,
 } from "../types";
+import { raiseIfRefused } from "../raise";
 
 type DecisionListResponse = {
   decisions?: ApiDecision[];
@@ -75,14 +76,14 @@ export const decisionService = {
       method: "PUT",
       body: { decision: params },
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async deleteDecision(id: string) {
     const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
       method: "DELETE",
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async evaluateDecision(

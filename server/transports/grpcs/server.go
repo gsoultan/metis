@@ -13,6 +13,15 @@ import (
 	"github.com/gsoultan/gobpm/server/transports/grpcs/tasks"
 )
 
+// Server is every gRPC service in one value.
+//
+// It is exported and concrete rather than returned as `any` so that "this
+// implements all eight service interfaces" is a fact the compiler checks. It
+// used to be `any`, which pushed the question to eight runtime type assertions
+// at registration — a mis-wire would have panicked during startup rather than
+// failing to build.
+type Server = grpcServer
+
 type grpcServer struct {
 	services.OrganizationServiceServer
 	services.ProjectServiceServer
@@ -24,7 +33,7 @@ type grpcServer struct {
 	services.SignalServiceServer
 }
 
-func NewGRPCServer(eps endpoints.Endpoints) any {
+func NewGRPCServer(eps endpoints.Endpoints) *Server {
 	return &grpcServer{
 		OrganizationServiceServer: organizations.NewServer(eps.Organization),
 		ProjectServiceServer:      projects.NewServer(eps.Project),

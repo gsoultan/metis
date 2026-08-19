@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -30,7 +31,10 @@ func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[pbendpoi
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(user.GetUserResponse)
+	resp, ok := response.(user.GetUserResponse)
+	if !ok {
+		return nil, fmt.Errorf("users: expected a user.GetUserResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetUserResponse{
 		User: adapters.UserPBAdapter{User: resp.User}.ToProto(),
 	}), nil
@@ -51,7 +55,10 @@ func (h *UserHandler) ListUsers(ctx context.Context, req *connect.Request[pbendp
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(user.ListUsersResponse)
+	resp, ok := response.(user.ListUsersResponse)
+	if !ok {
+		return nil, fmt.Errorf("users: expected a user.ListUsersResponse, got %T", response)
+	}
 	pbUsers := make([]*pbentities.User, len(resp.Users))
 	for i, u := range resp.Users {
 		pbUsers[i] = adapters.UserPBAdapter{User: u}.ToProto()

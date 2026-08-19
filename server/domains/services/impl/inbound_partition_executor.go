@@ -50,6 +50,7 @@ func newInboundPartitionExecutor(partitionCount int, queueSize int) *inboundPart
 	return executor
 }
 
+//nolint:contextcheck // the nil guard has no context to inherit; every other path threads ctx through
 func (e *inboundPartitionExecutor) Execute(ctx context.Context, key string, execute func(context.Context) error) error {
 	if execute == nil {
 		return errInboundPartitionTaskRequired

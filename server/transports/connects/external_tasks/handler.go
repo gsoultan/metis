@@ -2,6 +2,7 @@ package external_tasks
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -29,7 +30,10 @@ func (h *ExternalTaskHandler) FetchAndLockExternalTasks(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(external_task.FetchAndLockExternalResponse)
+	resp, ok := response.(external_task.FetchAndLockExternalResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.FetchAndLockExternalResponse, got %T", response)
+	}
 	pbTasks := make([]*pbentities.ExternalTask, len(resp.Tasks))
 	for i, t := range resp.Tasks {
 		pbTasks[i] = adapters.ExternalTaskPBAdapter{Task: *t}.ToProto()
@@ -43,6 +47,7 @@ func (h *ExternalTaskHandler) FetchAndLockExternalTasks(ctx context.Context, req
 func (h *ExternalTaskHandler) CompleteExternalTask(ctx context.Context, req *connect.Request[pbendpoints.CompleteExternalTaskRequest]) (*connect.Response[pbendpoints.CompleteExternalTaskResponse], error) {
 	id, err := uuid.Parse(req.Msg.TaskId)
 	if err != nil {
+		//nolint:nilerr // the error is reported in-band, in this API's Error field, not swallowed
 		return connect.NewResponse(&pbendpoints.CompleteExternalTaskResponse{Error: err.Error()}), nil
 	}
 	vars := make(map[string]any)
@@ -57,7 +62,10 @@ func (h *ExternalTaskHandler) CompleteExternalTask(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(external_task.CompleteExternalResponse)
+	resp, ok := response.(external_task.CompleteExternalResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.CompleteExternalResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.CompleteExternalTaskResponse{
 		Error: resp.Error,
 	}), nil
@@ -66,6 +74,7 @@ func (h *ExternalTaskHandler) CompleteExternalTask(ctx context.Context, req *con
 func (h *ExternalTaskHandler) HandleExternalTaskFailure(ctx context.Context, req *connect.Request[pbendpoints.HandleExternalTaskFailureRequest]) (*connect.Response[pbendpoints.HandleExternalTaskFailureResponse], error) {
 	id, err := uuid.Parse(req.Msg.TaskId)
 	if err != nil {
+		//nolint:nilerr // the error is reported in-band, in this API's Error field, not swallowed
 		return connect.NewResponse(&pbendpoints.HandleExternalTaskFailureResponse{Error: err.Error()}), nil
 	}
 	response, err := h.eps.HandleExternalFailure(ctx, external_task.HandleExternalFailureRequest{
@@ -79,7 +88,10 @@ func (h *ExternalTaskHandler) HandleExternalTaskFailure(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(external_task.HandleExternalFailureResponse)
+	resp, ok := response.(external_task.HandleExternalFailureResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.HandleExternalFailureResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.HandleExternalTaskFailureResponse{
 		Error: resp.Error,
 	}), nil

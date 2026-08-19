@@ -69,7 +69,6 @@ import (
 var version = "dev"
 
 type App struct {
-	config     *config.Config
 	db         *gorm.DB
 	repo       repositories.Repository
 	svc        services.ServiceFacade
@@ -250,7 +249,7 @@ func (a *App) Run() error {
 	flag.Parse()
 
 	if *buildUI {
-		return a.handleBuildUI()
+		return a.handleBuildUI(ctx)
 	}
 
 	// 0. Initialize Logger
@@ -346,12 +345,14 @@ func generatePassword() (string, error) {
 	return string(out), nil
 }
 
-func (a *App) handleBuildUI() error {
+func (a *App) handleBuildUI(ctx context.Context) error {
 	fmt.Println("Building UI...")
 	if _, err := exec.LookPath("bun"); err != nil {
 		return fmt.Errorf("'bun' not found in PATH. Please install Bun to build the UI")
 	}
-	cmd := exec.Command("bun", "run", "build")
+	// Bound by the signal context, so Ctrl-C stops the build rather than
+	// leaving bun running after this process has gone.
+	cmd := exec.CommandContext(ctx, "bun", "run", "build")
 	cmd.Dir = "ui"
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -715,6 +716,7 @@ func (a *App) runServers(ctx context.Context) error {
 				)
 				defer cancel()
 
+				//nolint:contextcheck // shutdown is what ctx being cancelled triggers; inheriting it would cancel the shutdown itself
 				if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					log.Error().Err(err).Msg("pprof server shutdown failed")
 				}
@@ -741,6 +743,7 @@ func (a *App) runServers(ctx context.Context) error {
 			)
 			defer cancel()
 
+			//nolint:contextcheck // shutdown is what ctx being cancelled triggers; inheriting it would cancel the shutdown itself
 			if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Error().Err(err).Msg("HTTP server shutdown failed")
 			}
@@ -777,15 +780,15 @@ func (a *App) runServers(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer any) {
-	pbservices.RegisterOrganizationServiceServer(baseServer, grpcServer.(pbservices.OrganizationServiceServer))
-	pbservices.RegisterProjectServiceServer(baseServer, grpcServer.(pbservices.ProjectServiceServer))
-	pbservices.RegisterProcessServiceServer(baseServer, grpcServer.(pbservices.ProcessServiceServer))
-	pbservices.RegisterTaskServiceServer(baseServer, grpcServer.(pbservices.TaskServiceServer))
-	pbservices.RegisterDefinitionServiceServer(baseServer, grpcServer.(pbservices.DefinitionServiceServer))
-	pbservices.RegisterStatsServiceServer(baseServer, grpcServer.(pbservices.StatsServiceServer))
-	pbservices.RegisterExternalTaskServiceServer(baseServer, grpcServer.(pbservices.ExternalTaskServiceServer))
-	pbservices.RegisterSignalServiceServer(baseServer, grpcServer.(pbservices.SignalServiceServer))
+func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Server) {
+	pbservices.RegisterOrganizationServiceServer(baseServer, grpcServer)
+	pbservices.RegisterProjectServiceServer(baseServer, grpcServer)
+	pbservices.RegisterProcessServiceServer(baseServer, grpcServer)
+	pbservices.RegisterTaskServiceServer(baseServer, grpcServer)
+	pbservices.RegisterDefinitionServiceServer(baseServer, grpcServer)
+	pbservices.RegisterStatsServiceServer(baseServer, grpcServer)
+	pbservices.RegisterExternalTaskServiceServer(baseServer, grpcServer)
+	pbservices.RegisterSignalServiceServer(baseServer, grpcServer)
 }
 
 // resolveJWTSecret determines the JWT signing secret.

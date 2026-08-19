@@ -2,6 +2,7 @@ package incident
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -22,7 +23,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeListIncidentsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListIncidentsRequest)
+		req, ok := request.(ListIncidentsRequest)
+		if !ok {
+			return nil, fmt.Errorf("incident: expected a ListIncidentsRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.InstanceID)
 		if err != nil {
 			return ListIncidentsResponse{Err: err}, nil
@@ -34,7 +38,10 @@ func MakeListIncidentsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeResolveIncidentEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ResolveIncidentRequest)
+		req, ok := request.(ResolveIncidentRequest)
+		if !ok {
+			return nil, fmt.Errorf("incident: expected a ResolveIncidentRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return ResolveIncidentResponse{Err: err}, nil

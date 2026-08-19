@@ -2,6 +2,7 @@ package processes
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -32,7 +33,10 @@ func (h *ProcessHandler) StartProcess(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(process.StartProcessResponse)
+	resp, ok := response.(process.StartProcessResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.StartProcessResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.StartProcessResponse{
 		InstanceId: resp.InstanceID.String(),
 		Error:      common.ErrString(resp.Err),
@@ -46,7 +50,10 @@ func (h *ProcessHandler) GetInstance(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(process.GetInstanceResponse)
+	resp, ok := response.(process.GetInstanceResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.GetInstanceResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetInstanceResponse{
 		Instance: adapters.ProcessInstancePBAdapter{Instance: resp.Instance}.ToProto(),
 		Error:    common.ErrString(resp.Err),
@@ -62,7 +69,10 @@ func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(process.ListInstancesResponse)
+	resp, ok := response.(process.ListInstancesResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.ListInstancesResponse, got %T", response)
+	}
 	pbInstances := make([]*pbentities.ProcessInstance, len(resp.Instances))
 	for i, inst := range resp.Instances {
 		pbInstances[i] = adapters.ProcessInstancePBAdapter{Instance: inst}.ToProto()
@@ -89,7 +99,10 @@ func (h *ProcessHandler) GetExecutionPath(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(process.GetExecutionPathResponse)
+	resp, ok := response.(process.GetExecutionPathResponse)
+	if !ok {
+		return nil, fmt.Errorf("processes: expected a process.GetExecutionPathResponse, got %T", response)
+	}
 	freqs := make(map[string]int32)
 	for k, v := range resp.Frequencies {
 		freqs[k] = int32(v)

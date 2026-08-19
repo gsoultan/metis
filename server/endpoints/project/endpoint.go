@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -28,7 +29,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeCreateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateProjectRequest)
+		req, ok := request.(CreateProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a CreateProjectRequest, got %T", request)
+		}
 		orgID, err := uuid.Parse(req.OrganizationID)
 		if err != nil {
 			return CreateProjectResponse{Err: err}, nil
@@ -40,7 +44,10 @@ func MakeCreateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetProjectRequest)
+		req, ok := request.(GetProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a GetProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetProjectResponse{Err: err}, nil
@@ -52,8 +59,14 @@ func MakeGetProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListProjectsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListProjectsRequest)
-		orgID, _ := uuid.Parse(req.OrganizationID)
+		req, ok := request.(ListProjectsRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a ListProjectsRequest, got %T", request)
+		}
+		orgID, err := optionalUUID(req.OrganizationID)
+		if err != nil {
+			return ListProjectsResponse{Err: err}, nil
+		}
 		projects, err := s.ListProjects(ctx, orgID)
 		return ListProjectsResponse{Projects: projects, Err: err}, nil
 	}
@@ -61,12 +74,20 @@ func MakeListProjectsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateProjectRequest)
+		req, ok := request.(UpdateProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a UpdateProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return UpdateProjectResponse{Err: err}, nil
 		}
-		orgID, _ := uuid.Parse(req.OrganizationID) // optional or could be Nil
+		// An organization is optional here — omitting it leaves the project where
+		// it is — but a malformed one is a mistake, not an omission.
+		orgID, err := optionalUUID(req.OrganizationID)
+		if err != nil {
+			return UpdateProjectResponse{Err: err}, nil
+		}
 		err = s.UpdateProject(ctx, id, orgID, req.Name, req.Description)
 		return UpdateProjectResponse{Err: err}, nil
 	}
@@ -74,7 +95,10 @@ func MakeUpdateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteProjectRequest)
+		req, ok := request.(DeleteProjectRequest)
+		if !ok {
+			return nil, fmt.Errorf("project: expected a DeleteProjectRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteProjectResponse{Err: err}, nil
@@ -82,4 +106,22 @@ func MakeDeleteProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		err = s.DeleteProject(ctx, id)
 		return DeleteProjectResponse{Err: err}, nil
 	}
+}
+
+// optionalUUID parses an id that a caller may legitimately omit.
+//
+// Empty means "not given" and yields uuid.Nil, which the repositories read as
+// "do not filter on this". Anything else must be a real id: discarding the parse
+// error mapped a typo onto uuid.Nil too, so a malformed organization id quietly
+// widened the query to every organization the caller can see instead of being
+// refused.
+func optionalUUID(raw string) (uuid.UUID, error) {
+	if raw == "" {
+		return uuid.Nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%q is not a valid id: %w", raw, err)
+	}
+	return id, nil
 }

@@ -2,6 +2,8 @@ package external_tasks
 
 import (
 	"context"
+	"fmt"
+
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/google/uuid"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -43,7 +45,11 @@ func (s *Server) FetchAndLockExternalTasks(ctx context.Context, req *pbendpoints
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*pbendpoints.FetchAndLockExternalTasksResponse), nil
+	typed, ok := resp.(*pbendpoints.FetchAndLockExternalTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.FetchAndLockExternalTasksResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) CompleteExternalTask(ctx context.Context, req *pbendpoints.CompleteExternalTaskRequest) (*pbendpoints.CompleteExternalTaskResponse, error) {
@@ -51,7 +57,11 @@ func (s *Server) CompleteExternalTask(ctx context.Context, req *pbendpoints.Comp
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*pbendpoints.CompleteExternalTaskResponse), nil
+	typed, ok := resp.(*pbendpoints.CompleteExternalTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.CompleteExternalTaskResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) HandleExternalTaskFailure(ctx context.Context, req *pbendpoints.HandleExternalTaskFailureRequest) (*pbendpoints.HandleExternalTaskFailureResponse, error) {
@@ -59,11 +69,18 @@ func (s *Server) HandleExternalTaskFailure(ctx context.Context, req *pbendpoints
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*pbendpoints.HandleExternalTaskFailureResponse), nil
+	typed, ok := resp.(*pbendpoints.HandleExternalTaskFailureResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.HandleExternalTaskFailureResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCFetchAndLockExternalRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*pbendpoints.FetchAndLockExternalTasksRequest)
+	req, ok := grpcReq.(*pbendpoints.FetchAndLockExternalTasksRequest)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.FetchAndLockExternalTasksRequest, got %T", grpcReq)
+	}
 	return external_task.FetchAndLockExternalRequest{
 		Topic:        req.Topic,
 		WorkerID:     req.WorkerId,
@@ -73,7 +90,10 @@ func decodeGRPCFetchAndLockExternalRequest(_ context.Context, grpcReq any) (any,
 }
 
 func encodeGRPCFetchAndLockExternalResponse(_ context.Context, response any) (any, error) {
-	resp := response.(external_task.FetchAndLockExternalResponse)
+	resp, ok := response.(external_task.FetchAndLockExternalResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.FetchAndLockExternalResponse, got %T", response)
+	}
 	tasks := make([]*pbentities.ExternalTask, len(resp.Tasks))
 	for i, t := range resp.Tasks {
 		tasks[i] = adapters.ExternalTaskPBAdapter{Task: *t}.ToProto()
@@ -85,7 +105,10 @@ func encodeGRPCFetchAndLockExternalResponse(_ context.Context, response any) (an
 }
 
 func decodeGRPCCompleteExternalRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*pbendpoints.CompleteExternalTaskRequest)
+	req, ok := grpcReq.(*pbendpoints.CompleteExternalTaskRequest)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.CompleteExternalTaskRequest, got %T", grpcReq)
+	}
 	id, err := uuid.Parse(req.TaskId)
 	if err != nil {
 		return nil, err
@@ -98,14 +121,20 @@ func decodeGRPCCompleteExternalRequest(_ context.Context, grpcReq any) (any, err
 }
 
 func encodeGRPCCompleteExternalResponse(_ context.Context, response any) (any, error) {
-	resp := response.(external_task.CompleteExternalResponse)
+	resp, ok := response.(external_task.CompleteExternalResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.CompleteExternalResponse, got %T", response)
+	}
 	return &pbendpoints.CompleteExternalTaskResponse{
 		Error: resp.Error,
 	}, nil
 }
 
 func decodeGRPCHandleExternalFailureRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*pbendpoints.HandleExternalTaskFailureRequest)
+	req, ok := grpcReq.(*pbendpoints.HandleExternalTaskFailureRequest)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a *pbendpoints.HandleExternalTaskFailureRequest, got %T", grpcReq)
+	}
 	id, err := uuid.Parse(req.TaskId)
 	if err != nil {
 		return nil, err
@@ -121,7 +150,10 @@ func decodeGRPCHandleExternalFailureRequest(_ context.Context, grpcReq any) (any
 }
 
 func encodeGRPCHandleExternalFailureResponse(_ context.Context, response any) (any, error) {
-	resp := response.(external_task.HandleExternalFailureResponse)
+	resp, ok := response.(external_task.HandleExternalFailureResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected a external_task.HandleExternalFailureResponse, got %T", response)
+	}
 	return &pbendpoints.HandleExternalTaskFailureResponse{
 		Error: resp.Error,
 	}, nil

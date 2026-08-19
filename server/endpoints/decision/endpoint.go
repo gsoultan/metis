@@ -3,6 +3,7 @@ package decision
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -36,7 +37,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListDecisionsRequest)
+		req, ok := request.(ListDecisionsRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a ListDecisionsRequest, got %T", request)
+		}
 		var projectID uuid.UUID
 		var err error
 		if req.ProjectID != "" {
@@ -66,7 +70,10 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetDecisionRequest)
+		req, ok := request.(GetDecisionRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a GetDecisionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetDecisionResponse{Err: err}, nil
@@ -78,7 +85,10 @@ func MakeGetDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeCreateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateDecisionRequest)
+		req, ok := request.(CreateDecisionRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a CreateDecisionRequest, got %T", request)
+		}
 		id, err := s.CreateDecision(ctx, req.Decision)
 		return CreateDecisionResponse{ID: id, Err: err}, nil
 	}
@@ -86,7 +96,10 @@ func MakeCreateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteDecisionRequest)
+		req, ok := request.(DeleteDecisionRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a DeleteDecisionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteDecisionResponse{Err: err}, nil
@@ -98,7 +111,10 @@ func MakeDeleteDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateDecisionRequest)
+		req, ok := request.(UpdateDecisionRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a UpdateDecisionRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return UpdateDecisionResponse{Err: err}, nil
@@ -110,7 +126,10 @@ func MakeUpdateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeEvaluateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(EvaluateDecisionRequest)
+		req, ok := request.(EvaluateDecisionRequest)
+		if !ok {
+			return nil, fmt.Errorf("decision: expected a EvaluateDecisionRequest, got %T", request)
+		}
 		res, err := s.Evaluate(ctx, req.Key, req.Version, req.Variables)
 		return EvaluateDecisionResponse{Result: res, Err: err}, nil
 	}

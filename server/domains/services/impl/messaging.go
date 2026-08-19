@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -100,10 +101,10 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 
 	cleanup := func() {
 		if ch != nil {
-			ch.Close()
+			closeQuietly(ch, "AMQP channel")
 		}
 		if conn != nil {
-			conn.Close()
+			closeQuietly(conn, "AMQP connection")
 		}
 		ch = nil
 		conn = nil
@@ -138,7 +139,14 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 			}
 
 			for _, task := range tasks {
-				body, _ := json.Marshal(task)
+				body, err := json.Marshal(task)
+				if err != nil {
+					// Publishing "null" onto a work queue hands a worker a
+					// message it cannot act on and loses the task.
+					log.Error().Err(err).Str("taskId", task.ID.String()).
+						Msg("A task could not be encoded and was not published")
+					continue
+				}
 				err = ch.PublishWithContext(ctx, exchange, routingKey, false, false, amqp.Publishing{
 					ContentType: "application/json",
 					Body:        body,
@@ -198,13 +206,13 @@ func (s *messagingService) consumeOnce(ctx context.Context, projectID uuid.UUID,
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer closeQuietly(conn, "AMQP connection")
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
+	defer closeQuietly(ch, "AMQP channel")
 
 	q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
 	if err != nil {
@@ -441,7 +449,14 @@ func isRetryableDispatchError(err error) bool {
 
 func (s *messagingService) StopAll() {
 	s.cancels.Range(func(key, value any) bool {
-		cancel := value.(context.CancelFunc)
+		// Shutdown is the worst moment to panic: the consumers after this one
+		// in the range would never be stopped, and the process would hang
+		// waiting for them.
+		cancel, isCancel := value.(context.CancelFunc)
+		if !isCancel {
+			log.Error().Interface("key", key).Msg("A consumer's stored cancel was not a cancel function")
+			return true
+		}
 		cancel()
 		return true
 	})
@@ -451,4 +466,15 @@ func (s *messagingService) StopAll() {
 	}
 
 	s.wg.Wait()
+}
+
+// closeQuietly closes an AMQP handle and says so when it will not close.
+//
+// A channel or connection that fails to close is one the broker still holds —
+// they are finite per connection, and a service that leaks them stops being able
+// to open new ones with no clue as to why.
+func closeQuietly(handle io.Closer, what string) {
+	if err := handle.Close(); err != nil {
+		log.Warn().Err(err).Msgf("Could not close the %s", what)
+	}
 }

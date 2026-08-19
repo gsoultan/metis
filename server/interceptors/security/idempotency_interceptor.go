@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/gsoultan/gobpm/server/interceptors/contracts"
 )
 
@@ -243,7 +245,9 @@ func writeIdempotencyResult(w http.ResponseWriter, result *idempotencyResult, re
 		return
 	}
 
-	_, _ = w.Write(result.body)
+	if _, err := w.Write(result.body); err != nil {
+		log.Debug().Err(err).Msg("The caller went away before the replayed reply could be written")
+	}
 }
 
 type responseCaptureWriter struct {

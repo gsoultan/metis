@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -26,7 +27,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeListNotificationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListNotificationsRequest)
+		req, ok := request.(ListNotificationsRequest)
+		if !ok {
+			return nil, fmt.Errorf("notification: expected a ListNotificationsRequest, got %T", request)
+		}
 		ns, err := s.ListByUser(ctx, req.UserID)
 		if err != nil {
 			return ListNotificationsResponse{Error: err.Error()}, nil
@@ -37,7 +41,10 @@ func MakeListNotificationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeMarkAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(MarkAsReadRequest)
+		req, ok := request.(MarkAsReadRequest)
+		if !ok {
+			return nil, fmt.Errorf("notification: expected a MarkAsReadRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return MarkAsReadResponse{Error: err.Error()}, nil
@@ -52,7 +59,10 @@ func MakeMarkAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeMarkAllAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(MarkAllAsReadRequest)
+		req, ok := request.(MarkAllAsReadRequest)
+		if !ok {
+			return nil, fmt.Errorf("notification: expected a MarkAllAsReadRequest, got %T", request)
+		}
 		err := s.MarkAllAsRead(ctx, req.UserID)
 		if err != nil {
 			return MarkAllAsReadResponse{Error: err.Error()}, nil
@@ -63,7 +73,10 @@ func MakeMarkAllAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteNotificationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteNotificationRequest)
+		req, ok := request.(DeleteNotificationRequest)
+		if !ok {
+			return nil, fmt.Errorf("notification: expected a DeleteNotificationRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteNotificationResponse{Error: err.Error()}, nil

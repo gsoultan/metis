@@ -36,3 +36,18 @@ id = "generic-api-key"
   paths = ['''^tests/config/config_test\.go$''']
   regexTarget = "match"
   regexes = ['''my-encryption-key-16ch''']
+
+  [[rules.allowlists]]
+  description = """
+  The SA password for the SQL Server container the dialect job starts.
+
+  It exists so that the container and the DSN the tests connect with agree on
+  a string, and the container is created and destroyed inside a single CI job
+  — there is nothing it protects that outlives that job. SQL Server refuses to
+  start without one, and it must be a literal in the workflow because the DSN
+  next to it is also a literal; a repository secret would hide one half of a
+  pair that has to match, and make a failure to match unreadable.
+  """
+  paths = ['''^\.github/workflows/security_reliability_ci\.yml$''']
+  regexTarget = "match"
+  regexes = ['''Gobpm_Str0ngPass1''']

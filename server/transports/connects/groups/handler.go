@@ -2,6 +2,7 @@ package groups
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -30,7 +31,10 @@ func (h *GroupHandler) ListGroups(ctx context.Context, req *connect.Request[pben
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(group.ListGroupsResponse)
+	resp, ok := response.(group.ListGroupsResponse)
+	if !ok {
+		return nil, fmt.Errorf("groups: expected a group.ListGroupsResponse, got %T", response)
+	}
 	pbGroups := make([]*pbentities.Group, len(resp.Groups))
 	for i, g := range resp.Groups {
 		pbGroups[i] = adapters.GroupPBAdapter{Group: g}.ToProto()
@@ -51,7 +55,10 @@ func (h *GroupHandler) ListUserGroups(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(group.ListUserGroupsResponse)
+	resp, ok := response.(group.ListUserGroupsResponse)
+	if !ok {
+		return nil, fmt.Errorf("groups: expected a group.ListUserGroupsResponse, got %T", response)
+	}
 	pbGroups := make([]*pbentities.Group, len(resp.Groups))
 	for i, g := range resp.Groups {
 		pbGroups[i] = adapters.GroupPBAdapter{Group: g}.ToProto()

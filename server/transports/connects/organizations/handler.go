@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -27,7 +28,10 @@ func (h *OrganizationHandler) CreateOrganization(ctx context.Context, req *conne
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(organization.CreateOrganizationResponse)
+	resp, ok := response.(organization.CreateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.CreateOrganizationResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.CreateOrganizationResponse{
 		Organization: adapters.OrganizationPBAdapter{Organization: resp.Organization}.ToProto(),
 		Error:        common.ErrString(resp.Err),
@@ -41,7 +45,10 @@ func (h *OrganizationHandler) GetOrganization(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(organization.GetOrganizationResponse)
+	resp, ok := response.(organization.GetOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.GetOrganizationResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetOrganizationResponse{
 		Organization: adapters.OrganizationPBAdapter{Organization: resp.Organization}.ToProto(),
 		Error:        common.ErrString(resp.Err),
@@ -53,7 +60,10 @@ func (h *OrganizationHandler) ListOrganizations(ctx context.Context, _ *connect.
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(organization.ListOrganizationsResponse)
+	resp, ok := response.(organization.ListOrganizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.ListOrganizationsResponse, got %T", response)
+	}
 	pbOrgs := make([]*pbentities.Organization, len(resp.Organizations))
 	for i, o := range resp.Organizations {
 		pbOrgs[i] = adapters.OrganizationPBAdapter{Organization: o}.ToProto()
@@ -73,7 +83,10 @@ func (h *OrganizationHandler) UpdateOrganization(ctx context.Context, req *conne
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(organization.UpdateOrganizationResponse)
+	resp, ok := response.(organization.UpdateOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.UpdateOrganizationResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.UpdateOrganizationResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil
@@ -86,7 +99,10 @@ func (h *OrganizationHandler) DeleteOrganization(ctx context.Context, req *conne
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(organization.DeleteOrganizationResponse)
+	resp, ok := response.(organization.DeleteOrganizationResponse)
+	if !ok {
+		return nil, fmt.Errorf("organizations: expected a organization.DeleteOrganizationResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.DeleteOrganizationResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil

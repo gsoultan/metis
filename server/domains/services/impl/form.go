@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,7 +21,10 @@ func NewFormService(repo repositories.Repository) servicecontracts.FormService {
 }
 
 func (s *formService) CreateForm(ctx context.Context, projectID uuid.UUID, key, name string, schema map[string]any) (entities.Form, error) {
-	id, _ := uuid.NewV7()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return entities.Form{}, fmt.Errorf("could not generate a form id: %w", err)
+	}
 	form := entities.Form{
 		ID:        id,
 		Project:   &entities.Project{ID: projectID},

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/gobpm/server/domains/services/contracts"
@@ -30,7 +31,13 @@ func MakeGetSetupStatusEndpoint(s contracts.SetupService) endpoint.Endpoint {
 
 func MakeSetupEndpoint(s contracts.SetupService) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(SetupRequest)
+		req, ok := request.(SetupRequest)
+		if !ok {
+			// go-kit hands the endpoint whatever the transport decoded. A
+			// mismatch is a wiring mistake, and an error names it where a
+			// panic only produces a stack.
+			return SetupResponse{Err: fmt.Errorf("setup: expected a SetupRequest, got %T", request)}, nil
+		}
 		err := s.Setup(ctx, contracts.SetupRequest{
 			AdminUsername:    req.AdminUsername,
 			AdminPassword:    req.AdminPassword,
@@ -55,7 +62,16 @@ func MakeSetupEndpoint(s contracts.SetupService) endpoint.Endpoint {
 
 func MakeTestConnectionEndpoint(s contracts.SetupService) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(TestConnectionRequest)
+		req, ok := request.(TestConnectionRequest)
+		if !ok {
+			// go-kit hands the endpoint whatever the transport decoded. A
+			// mismatch is a wiring mistake, and an error names it where a
+			// panic only produces a stack.
+			return TestConnectionResponse{
+				Success: false,
+				Message: fmt.Sprintf("setup: expected a TestConnectionRequest, got %T", request),
+			}, nil
+		}
 		result := s.TestConnection(ctx, contracts.TestConnectionRequest{
 			DatabaseDriver: req.DatabaseDriver,
 			DBHost:         req.DBHost,

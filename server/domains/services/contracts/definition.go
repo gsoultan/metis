@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"

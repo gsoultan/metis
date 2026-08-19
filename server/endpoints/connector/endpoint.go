@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/gsoultan/gobpm/server/domains/entities"
 
@@ -56,7 +57,10 @@ func MakeListConnectorsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeCreateConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateConnectorRequest)
+		req, ok := request.(CreateConnectorRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a CreateConnectorRequest, got %T", request)
+		}
 		res, err := s.CreateConnector(ctx, req.Connector)
 		return CreateConnectorResponse{Connector: res, Err: err}, nil
 	}
@@ -64,7 +68,10 @@ func MakeCreateConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateConnectorRequest)
+		req, ok := request.(UpdateConnectorRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a UpdateConnectorRequest, got %T", request)
+		}
 		err := s.UpdateConnector(ctx, req.Connector)
 		return UpdateConnectorResponse{Err: err}, nil
 	}
@@ -72,7 +79,10 @@ func MakeUpdateConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeDeleteConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteConnectorRequest)
+		req, ok := request.(DeleteConnectorRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a DeleteConnectorRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteConnectorResponse{Err: err}, nil
@@ -84,7 +94,10 @@ func MakeDeleteConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListConnectorInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListConnectorInstancesRequest)
+		req, ok := request.(ListConnectorInstancesRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a ListConnectorInstancesRequest, got %T", request)
+		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return ListConnectorInstancesResponse{Err: err}, nil
@@ -96,7 +109,10 @@ func MakeListConnectorInstancesEndpoint(s services.ServiceFacade) endpoint.Endpo
 
 func MakeCreateConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateConnectorInstanceRequest)
+		req, ok := request.(CreateConnectorInstanceRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a CreateConnectorInstanceRequest, got %T", request)
+		}
 		res, err := s.CreateConnectorInstance(ctx, req.Instance)
 		return CreateConnectorInstanceResponse{Instance: res, Err: err}, nil
 	}
@@ -104,7 +120,10 @@ func MakeCreateConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endp
 
 func MakeUpdateConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateConnectorInstanceRequest)
+		req, ok := request.(UpdateConnectorInstanceRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a UpdateConnectorInstanceRequest, got %T", request)
+		}
 		err := s.UpdateConnectorInstance(ctx, req.Instance)
 		return UpdateConnectorInstanceResponse{Err: err}, nil
 	}
@@ -112,7 +131,10 @@ func MakeUpdateConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endp
 
 func MakeDeleteConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteConnectorInstanceRequest)
+		req, ok := request.(DeleteConnectorInstanceRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a DeleteConnectorInstanceRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteConnectorInstanceResponse{Err: err}, nil
@@ -124,7 +146,10 @@ func MakeDeleteConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endp
 
 func MakeExecuteConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ExecuteConnectorRequest)
+		req, ok := request.(ExecuteConnectorRequest)
+		if !ok {
+			return nil, fmt.Errorf("connector: expected a ExecuteConnectorRequest, got %T", request)
+		}
 		res, err := s.ExecuteConnector(ctx, req.ConnectorKey, req.Config, req.Payload)
 		return ExecuteConnectorResponse{Result: res, Err: err}, nil
 	}

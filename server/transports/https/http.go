@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/rs/zerolog/log"
+
 	"os"
 	"strings"
 
@@ -68,7 +70,13 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 				case <-ctx.Done():
 					return
 				case msg := <-ch:
-					fmt.Fprint(w, msg)
+					// A failed write means the client is gone. Carrying on would
+					// spin this goroutine against a dead connection for as long
+					// as events keep arriving — one leaked per disconnect.
+					if _, err := fmt.Fprint(w, msg); err != nil {
+						log.Debug().Err(err).Msg("An event stream client went away mid-write")
+						return
+					}
 					if flusher, ok := w.(http.Flusher); ok {
 						flusher.Flush()
 					}

@@ -43,7 +43,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(StartProcessRequest)
+		req, ok := request.(StartProcessRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a StartProcessRequest, got %T", request)
+		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return StartProcessResponse{Err: err}, nil
@@ -92,7 +95,10 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetExecutionPathEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetExecutionPathRequest)
+		req, ok := request.(GetExecutionPathRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a GetExecutionPathRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.InstanceID)
 		if err != nil {
 			return GetExecutionPathResponse{Error: err.Error()}, nil
@@ -110,7 +116,10 @@ func MakeGetExecutionPathEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetAuditLogsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetAuditLogsRequest)
+		req, ok := request.(GetAuditLogsRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a GetAuditLogsRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.InstanceID)
 		if err != nil {
 			return GetAuditLogsResponse{Err: err}, nil
@@ -122,7 +131,10 @@ func MakeGetAuditLogsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetInstanceRequest)
+		req, ok := request.(GetInstanceRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a GetInstanceRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetInstanceResponse{Err: err}, nil
@@ -134,7 +146,10 @@ func MakeGetInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeListSubProcessesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ListSubProcessesRequest)
+		req, ok := request.(ListSubProcessesRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a ListSubProcessesRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ParentInstanceID)
 		if err != nil {
 			return ListSubProcessesResponse{Err: err}, nil
@@ -146,10 +161,13 @@ func MakeListSubProcessesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeGetProcessStatisticsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetProcessStatisticsRequest)
-		var projectID uuid.UUID
-		if req.ProjectID != "" {
-			projectID, _ = uuid.Parse(req.ProjectID)
+		req, ok := request.(GetProcessStatisticsRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a GetProcessStatisticsRequest, got %T", request)
+		}
+		projectID, err := optionalUUID(req.ProjectID)
+		if err != nil {
+			return GetProcessStatisticsResponse{Err: err}, nil
 		}
 		stats, err := s.GetProcessStatistics(ctx, projectID)
 		if err != nil {
@@ -194,7 +212,10 @@ func activateAdHocTask(ctx context.Context, s services.ServiceFacade, req Activa
 
 func MakeBroadcastSignalEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(BroadcastSignalRequest)
+		req, ok := request.(BroadcastSignalRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a BroadcastSignalRequest, got %T", request)
+		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return BroadcastSignalResponse{Err: err}, nil
@@ -206,7 +227,10 @@ func MakeBroadcastSignalEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeSendMessageEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(SendMessageRequest)
+		req, ok := request.(SendMessageRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a SendMessageRequest, got %T", request)
+		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return SendMessageResponse{Err: err}, nil
@@ -218,8 +242,29 @@ func MakeSendMessageEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeExecuteScriptEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(ExecuteScriptRequest)
+		req, ok := request.(ExecuteScriptRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a ExecuteScriptRequest, got %T", request)
+		}
 		vars, err := s.ExecuteScript(ctx, req.Script, req.ScriptFormat, req.Variables)
 		return ExecuteScriptResponse{Variables: vars, Err: err}, nil
 	}
+}
+
+// optionalUUID parses an id that a caller may legitimately omit.
+//
+// Empty means "not given" and yields uuid.Nil, which the repositories read as
+// "do not filter on this". Anything else must be a real id: discarding the parse
+// error mapped a typo onto uuid.Nil too, so a malformed organization id quietly
+// widened the query to every organization the caller can see instead of being
+// refused.
+func optionalUUID(raw string) (uuid.UUID, error) {
+	if raw == "" {
+		return uuid.Nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%q is not a valid id: %w", raw, err)
+	}
+	return id, nil
 }

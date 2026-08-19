@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -68,7 +69,11 @@ func (s *Server) GetTask(ctx context.Context, req *endpoints.GetTaskRequest) (*e
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetTaskResponse), nil
+	typed, ok := resp.(*endpoints.GetTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.GetTaskResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListTasks(ctx context.Context, req *endpoints.ListTasksRequest) (*endpoints.ListTasksResponse, error) {
@@ -76,7 +81,11 @@ func (s *Server) ListTasks(ctx context.Context, req *endpoints.ListTasksRequest)
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListTasksResponse), nil
+	typed, ok := resp.(*endpoints.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) CompleteTask(ctx context.Context, req *endpoints.CompleteTaskRequest) (*endpoints.CompleteTaskResponse, error) {
@@ -84,7 +93,11 @@ func (s *Server) CompleteTask(ctx context.Context, req *endpoints.CompleteTaskRe
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.CompleteTaskResponse), nil
+	typed, ok := resp.(*endpoints.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.CompleteTaskResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ClaimTask(ctx context.Context, req *endpoints.ClaimTaskRequest) (*endpoints.ClaimTaskResponse, error) {
@@ -92,7 +105,11 @@ func (s *Server) ClaimTask(ctx context.Context, req *endpoints.ClaimTaskRequest)
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ClaimTaskResponse), nil
+	typed, ok := resp.(*endpoints.ClaimTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ClaimTaskResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) UnclaimTask(ctx context.Context, req *endpoints.UnclaimTaskRequest) (*endpoints.UnclaimTaskResponse, error) {
@@ -100,7 +117,11 @@ func (s *Server) UnclaimTask(ctx context.Context, req *endpoints.UnclaimTaskRequ
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.UnclaimTaskResponse), nil
+	typed, ok := resp.(*endpoints.UnclaimTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.UnclaimTaskResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListTasksByAssignee(ctx context.Context, req *endpoints.ListTasksByAssigneeRequest) (*endpoints.ListTasksResponse, error) {
@@ -108,7 +129,11 @@ func (s *Server) ListTasksByAssignee(ctx context.Context, req *endpoints.ListTas
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListTasksResponse), nil
+	typed, ok := resp.(*endpoints.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListTasksByCandidates(ctx context.Context, req *endpoints.ListTasksByCandidatesRequest) (*endpoints.ListTasksResponse, error) {
@@ -116,16 +141,26 @@ func (s *Server) ListTasksByCandidates(ctx context.Context, req *endpoints.ListT
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListTasksResponse), nil
+	typed, ok := resp.(*endpoints.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCGetTaskRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetTaskRequest)
+	req, ok := grpcReq.(*endpoints.GetTaskRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.GetTaskRequest, got %T", grpcReq)
+	}
 	return task.GetTaskRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCGetTaskResponse(_ context.Context, response any) (any, error) {
-	resp := response.(task.GetTaskResponse)
+	resp, ok := response.(task.GetTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.GetTaskResponse, got %T", response)
+	}
 	return &endpoints.GetTaskResponse{
 		Task:  adapters.TaskPBAdapter{Task: resp.Task}.ToProto(),
 		Error: common.ErrString(resp.Err),
@@ -133,12 +168,18 @@ func encodeGRPCGetTaskResponse(_ context.Context, response any) (any, error) {
 }
 
 func decodeGRPCListTasksRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ListTasksRequest)
+	req, ok := grpcReq.(*endpoints.ListTasksRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksRequest, got %T", grpcReq)
+	}
 	return task.ListTasksRequest{ProjectID: req.ProjectId}, nil
 }
 
 func encodeGRPCListTasksResponse(_ context.Context, response any) (any, error) {
-	resp := response.(task.ListTasksResponse)
+	resp, ok := response.(task.ListTasksResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.ListTasksResponse, got %T", response)
+	}
 	var tasks []*entities.Task
 	if len(resp.Tasks) > 0 {
 		tasks = make([]*entities.Task, 0, len(resp.Tasks))
@@ -150,7 +191,10 @@ func encodeGRPCListTasksResponse(_ context.Context, response any) (any, error) {
 }
 
 func decodeGRPCCompleteTaskRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.CompleteTaskRequest)
+	req, ok := grpcReq.(*endpoints.CompleteTaskRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.CompleteTaskRequest, got %T", grpcReq)
+	}
 	vars := make(map[string]any)
 	if req.Variables != nil {
 		vars = req.Variables.AsMap()
@@ -159,36 +203,57 @@ func decodeGRPCCompleteTaskRequest(_ context.Context, grpcReq any) (any, error) 
 }
 
 func encodeGRPCCompleteTaskResponse(_ context.Context, response any) (any, error) {
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return &endpoints.CompleteTaskResponse{Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCClaimTaskRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ClaimTaskRequest)
+	req, ok := grpcReq.(*endpoints.ClaimTaskRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ClaimTaskRequest, got %T", grpcReq)
+	}
 	return task.ClaimTaskRequest{ID: req.Id, UserID: req.UserId}, nil
 }
 
 func encodeGRPCClaimTaskResponse(_ context.Context, response any) (any, error) {
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return &endpoints.ClaimTaskResponse{Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCUnclaimTaskRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.UnclaimTaskRequest)
+	req, ok := grpcReq.(*endpoints.UnclaimTaskRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.UnclaimTaskRequest, got %T", grpcReq)
+	}
 	return task.UnclaimTaskRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCUnclaimTaskResponse(_ context.Context, response any) (any, error) {
-	resp := response.(task.CompleteTaskResponse)
+	resp, ok := response.(task.CompleteTaskResponse)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a task.CompleteTaskResponse, got %T", response)
+	}
 	return &endpoints.UnclaimTaskResponse{Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCListTasksByAssigneeRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ListTasksByAssigneeRequest)
+	req, ok := grpcReq.(*endpoints.ListTasksByAssigneeRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksByAssigneeRequest, got %T", grpcReq)
+	}
 	return task.ListTasksByAssigneeRequest{Assignee: req.Assignee}, nil
 }
 
 func decodeGRPCListTasksByCandidatesRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ListTasksByCandidatesRequest)
+	req, ok := grpcReq.(*endpoints.ListTasksByCandidatesRequest)
+	if !ok {
+		return nil, fmt.Errorf("tasks: expected a *endpoints.ListTasksByCandidatesRequest, got %T", grpcReq)
+	}
 	return task.ListTasksByCandidatesRequest{UserID: req.UserId, Groups: req.Groups}, nil
 }

@@ -2,6 +2,7 @@ package organization
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -28,7 +29,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeCreateOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(CreateOrganizationRequest)
+		req, ok := request.(CreateOrganizationRequest)
+		if !ok {
+			return nil, fmt.Errorf("organization: expected a CreateOrganizationRequest, got %T", request)
+		}
 		o, err := s.CreateOrganization(ctx, req.Name, req.Description)
 		return CreateOrganizationResponse{Organization: o, Err: err}, nil
 	}
@@ -36,7 +40,10 @@ func MakeCreateOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 
 func MakeGetOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(GetOrganizationRequest)
+		req, ok := request.(GetOrganizationRequest)
+		if !ok {
+			return nil, fmt.Errorf("organization: expected a GetOrganizationRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return GetOrganizationResponse{Err: err}, nil
@@ -55,7 +62,10 @@ func MakeListOrganizationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 func MakeUpdateOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(UpdateOrganizationRequest)
+		req, ok := request.(UpdateOrganizationRequest)
+		if !ok {
+			return nil, fmt.Errorf("organization: expected a UpdateOrganizationRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return UpdateOrganizationResponse{Err: err}, nil
@@ -67,7 +77,10 @@ func MakeUpdateOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 
 func MakeDeleteOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(DeleteOrganizationRequest)
+		req, ok := request.(DeleteOrganizationRequest)
+		if !ok {
+			return nil, fmt.Errorf("organization: expected a DeleteOrganizationRequest, got %T", request)
+		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
 			return DeleteOrganizationResponse{Err: err}, nil

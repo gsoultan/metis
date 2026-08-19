@@ -2,6 +2,8 @@ package stats
 
 import (
 	"context"
+	"fmt"
+
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
 	"github.com/gsoultan/gobpm/api/proto/services"
@@ -29,16 +31,26 @@ func (s *Server) GetProcessStatistics(ctx context.Context, req *endpoints.GetPro
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetProcessStatisticsResponse), nil
+	typed, ok := resp.(*endpoints.GetProcessStatisticsResponse)
+	if !ok {
+		return nil, fmt.Errorf("stats: expected a *endpoints.GetProcessStatisticsResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCGetStatsRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetProcessStatisticsRequest)
+	req, ok := grpcReq.(*endpoints.GetProcessStatisticsRequest)
+	if !ok {
+		return nil, fmt.Errorf("stats: expected a *endpoints.GetProcessStatisticsRequest, got %T", grpcReq)
+	}
 	return process.GetProcessStatisticsRequest{ProjectID: req.ProjectId}, nil
 }
 
 func encodeGRPCGetStatsResponse(_ context.Context, response any) (any, error) {
-	resp := response.(process.GetProcessStatisticsResponse)
+	resp, ok := response.(process.GetProcessStatisticsResponse)
+	if !ok {
+		return nil, fmt.Errorf("stats: expected a process.GetProcessStatisticsResponse, got %T", response)
+	}
 	return &endpoints.GetProcessStatisticsResponse{
 		ActiveInstances:    int32(resp.ActiveInstances),
 		CompletedInstances: int32(resp.CompletedInstances),

@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -28,7 +29,10 @@ func (h *ProjectHandler) CreateProject(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(project.CreateProjectResponse)
+	resp, ok := response.(project.CreateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.CreateProjectResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.CreateProjectResponse{
 		Project: adapters.ProjectPBAdapter{Project: resp.Project}.ToProto(),
 		Error:   common.ErrString(resp.Err),
@@ -42,7 +46,10 @@ func (h *ProjectHandler) GetProject(ctx context.Context, req *connect.Request[pb
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(project.GetProjectResponse)
+	resp, ok := response.(project.GetProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.GetProjectResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.GetProjectResponse{
 		Project: adapters.ProjectPBAdapter{Project: resp.Project}.ToProto(),
 		Error:   common.ErrString(resp.Err),
@@ -56,7 +63,10 @@ func (h *ProjectHandler) ListProjects(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(project.ListProjectsResponse)
+	resp, ok := response.(project.ListProjectsResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.ListProjectsResponse, got %T", response)
+	}
 	pbProjects := make([]*pbentities.Project, len(resp.Projects))
 	for i, p := range resp.Projects {
 		pbProjects[i] = adapters.ProjectPBAdapter{Project: p}.ToProto()
@@ -77,7 +87,10 @@ func (h *ProjectHandler) UpdateProject(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(project.UpdateProjectResponse)
+	resp, ok := response.(project.UpdateProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.UpdateProjectResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.UpdateProjectResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil
@@ -90,7 +103,10 @@ func (h *ProjectHandler) DeleteProject(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	resp := response.(project.DeleteProjectResponse)
+	resp, ok := response.(project.DeleteProjectResponse)
+	if !ok {
+		return nil, fmt.Errorf("projects: expected a project.DeleteProjectResponse, got %T", response)
+	}
 	return connect.NewResponse(&pbendpoints.DeleteProjectResponse{
 		Error: common.ErrString(resp.Err),
 	}), nil

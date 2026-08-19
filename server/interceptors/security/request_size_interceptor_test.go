@@ -77,7 +77,7 @@ func TestRequestSizeInterceptor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
+
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -87,7 +87,7 @@ func TestRequestSizeInterceptor(t *testing.T) {
 				testCase.handler(w, r)
 			}))
 
-			req := httptest.NewRequest(testCase.method, "/api/v1/test", bytes.NewReader(testCase.body))
+			req := httptest.NewRequestWithContext(t.Context(), testCase.method, "/api/v1/test", bytes.NewReader(testCase.body))
 			req.ContentLength = testCase.contentLength
 
 			res := httptest.NewRecorder()

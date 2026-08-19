@@ -2,6 +2,7 @@ package definitions
 
 import (
 	"context"
+	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/gobpm/api/proto/endpoints"
@@ -53,7 +54,11 @@ func (s *Server) CreateDefinition(ctx context.Context, req *endpoints.CreateDefi
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.CreateDefinitionResponse), nil
+	typed, ok := resp.(*endpoints.CreateDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.CreateDefinitionResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) ListDefinitions(ctx context.Context, req *endpoints.ListDefinitionsRequest) (*endpoints.ListDefinitionsResponse, error) {
@@ -61,7 +66,11 @@ func (s *Server) ListDefinitions(ctx context.Context, req *endpoints.ListDefinit
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.ListDefinitionsResponse), nil
+	typed, ok := resp.(*endpoints.ListDefinitionsResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.ListDefinitionsResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) GetDefinition(ctx context.Context, req *endpoints.GetDefinitionRequest) (*endpoints.GetDefinitionResponse, error) {
@@ -69,7 +78,11 @@ func (s *Server) GetDefinition(ctx context.Context, req *endpoints.GetDefinition
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.GetDefinitionResponse), nil
+	typed, ok := resp.(*endpoints.GetDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.GetDefinitionResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func (s *Server) DeleteDefinition(ctx context.Context, req *endpoints.DeleteDefinitionRequest) (*endpoints.DeleteDefinitionResponse, error) {
@@ -77,14 +90,24 @@ func (s *Server) DeleteDefinition(ctx context.Context, req *endpoints.DeleteDefi
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*endpoints.DeleteDefinitionResponse), nil
+	typed, ok := resp.(*endpoints.DeleteDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.DeleteDefinitionResponse, got %T", resp)
+	}
+	return typed, nil
 }
 
 func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.CreateDefinitionRequest)
+	req, ok := grpcReq.(*endpoints.CreateDefinitionRequest)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.CreateDefinitionRequest, got %T", grpcReq)
+	}
 	nodes := adapters.NodesFromProto(req.Nodes)
 	flows := adapters.FlowsFromProto(req.Flows)
-	projectID, _ := uuid.Parse(req.ProjectId)
+	projectID, err := uuid.Parse(req.ProjectId)
+	if err != nil {
+		return nil, fmt.Errorf("project id %q is not a valid id: %w", req.ProjectId, err)
+	}
 	return definition.CreateDefinitionRequest{
 		Definition: &entities2.ProcessDefinition{
 			Project: &entities2.Project{ID: projectID},
@@ -97,17 +120,26 @@ func decodeGRPCCreateDefinitionRequest(_ context.Context, grpcReq any) (any, err
 }
 
 func encodeGRPCCreateDefinitionResponse(_ context.Context, response any) (any, error) {
-	resp := response.(definition.CreateDefinitionResponse)
+	resp, ok := response.(definition.CreateDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.CreateDefinitionResponse, got %T", response)
+	}
 	return &endpoints.CreateDefinitionResponse{Id: resp.ID.String(), Error: common.ErrString(resp.Err)}, nil
 }
 
 func decodeGRPCListDefinitionsRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.ListDefinitionsRequest)
+	req, ok := grpcReq.(*endpoints.ListDefinitionsRequest)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.ListDefinitionsRequest, got %T", grpcReq)
+	}
 	return definition.ListDefinitionsRequest{ProjectID: req.ProjectId}, nil
 }
 
 func encodeGRPCListDefinitionsResponse(_ context.Context, response any) (any, error) {
-	resp := response.(definition.ListDefinitionsResponse)
+	resp, ok := response.(definition.ListDefinitionsResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.ListDefinitionsResponse, got %T", response)
+	}
 	var defs []*entities.ProcessDefinition
 	if len(resp.Definitions) > 0 {
 		defs = make([]*entities.ProcessDefinition, 0, len(resp.Definitions))
@@ -119,12 +151,18 @@ func encodeGRPCListDefinitionsResponse(_ context.Context, response any) (any, er
 }
 
 func decodeGRPCGetDefinitionRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.GetDefinitionRequest)
+	req, ok := grpcReq.(*endpoints.GetDefinitionRequest)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.GetDefinitionRequest, got %T", grpcReq)
+	}
 	return definition.GetDefinitionRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCGetDefinitionResponse(_ context.Context, response any) (any, error) {
-	resp := response.(definition.GetDefinitionResponse)
+	resp, ok := response.(definition.GetDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.GetDefinitionResponse, got %T", response)
+	}
 	return &endpoints.GetDefinitionResponse{
 		Definition: adapters.ProcessDefinitionPBAdapter{Definition: resp.Definition}.ToProto(),
 		Error:      common.ErrString(resp.Err),
@@ -132,11 +170,17 @@ func encodeGRPCGetDefinitionResponse(_ context.Context, response any) (any, erro
 }
 
 func decodeGRPCDeleteDefinitionRequest(_ context.Context, grpcReq any) (any, error) {
-	req := grpcReq.(*endpoints.DeleteDefinitionRequest)
+	req, ok := grpcReq.(*endpoints.DeleteDefinitionRequest)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a *endpoints.DeleteDefinitionRequest, got %T", grpcReq)
+	}
 	return definition.DeleteDefinitionRequest{ID: req.Id}, nil
 }
 
 func encodeGRPCDeleteDefinitionResponse(_ context.Context, response any) (any, error) {
-	resp := response.(definition.DeleteDefinitionResponse)
+	resp, ok := response.(definition.DeleteDefinitionResponse)
+	if !ok {
+		return nil, fmt.Errorf("definitions: expected a definition.DeleteDefinitionResponse, got %T", response)
+	}
 	return &endpoints.DeleteDefinitionResponse{Error: common.ErrString(resp.Err)}, nil
 }

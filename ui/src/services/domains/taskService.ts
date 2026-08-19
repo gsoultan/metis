@@ -1,6 +1,7 @@
 import { taskClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
 import type { ProcessVariables } from "../types";
+import { raiseIfRefused } from "../raise";
 
 type ListIncidentsResponse = {
   incidents?: unknown[];
@@ -23,17 +24,17 @@ export const taskService = {
 
   async completeTask(id: string, userId: string, variables: ProcessVariables = {}, signal?: AbortSignal) {
     const response = await taskClient.completeTask({ id, userId, variables }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 
   async claimTask(id: string, userId: string, signal?: AbortSignal) {
     const response = await taskClient.claimTask({ id, userId }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 
   async unclaimTask(id: string, signal?: AbortSignal) {
     const response = await taskClient.unclaimTask({ id }, { signal });
-    return { err: response.error };
+    return { err: raiseIfRefused(response).error };
   },
 
   async delegateTask(id: string, userId: string, signal?: AbortSignal) {
@@ -42,7 +43,7 @@ export const taskService = {
       body: { user_id: userId },
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async updateTask(id: string, name: string, priority: number, dueDate?: string, signal?: AbortSignal) {
@@ -51,7 +52,7 @@ export const taskService = {
       body: { name, priority, due_date: dueDate },
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   async assignTask(id: string, userId: string, signal?: AbortSignal) {
@@ -60,7 +61,7 @@ export const taskService = {
       body: { user_id: userId },
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 
   /** One page of the unclaimed tasks this user could take. */
@@ -130,6 +131,6 @@ export const taskService = {
       method: "POST",
       signal,
     });
-    return { err: data.err };
+    return { err: raiseIfRefused(data).err };
   },
 };

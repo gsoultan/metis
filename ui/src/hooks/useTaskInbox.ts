@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { notifications } from '@mantine/notifications';
 import { byUrgency } from '../domain/taskUrgency';
+import { runBulk, summarise } from '../domain/bulkAction';
+import { processService } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   useTasksByAssignee, 
@@ -69,6 +72,7 @@ export function useTaskInbox() {
   const [activeTab, setActiveTab] = useState<string | null>('assigned');
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [bulkInFlight, setBulkInFlight] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -222,17 +226,54 @@ export function useTaskInbox() {
     setSelectedTaskIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   }, []);
 
-  const handleBulkClaim = useCallback(() => {
-    selectedTaskIds.forEach(id => claimTaskMutation.mutate({ id, userId: currentUser }));
-    setSelectedTaskIds([]);
-  }, [selectedTaskIds, claimTaskMutation, currentUser]);
+  /**
+   * Runs one action over the selection and says what happened.
+   *
+   * The service is called directly rather than through the mutation, because
+   * the mutation shows a toast per row: forty selected tasks meant forty
+   * notifications and forty cache invalidations. One summary and one refetch
+   * is what somebody doing this actually wants to see.
+   *
+   * Whatever failed stays selected. Claiming is a race the engine allows —
+   * two people can select the same task and one of them loses — so a partial
+   * failure is normal, and having lost five of forty there has to be a way to
+   * try those five again without finding them by eye.
+   */
+  const runBulkAction = useCallback(async (
+    act: (id: string) => Promise<unknown>,
+    noun: string,
+    verb: string,
+  ) => {
+    const ids = selectedTaskIds;
+    if (ids.length === 0) return;
 
-  const handleBulkUnclaim = useCallback(() => {
-    selectedTaskIds.forEach(id => unclaimTaskMutation.mutate(id));
-    setSelectedTaskIds([]);
-  }, [selectedTaskIds, unclaimTaskMutation]);
+    setBulkInFlight(true);
+    try {
+      const result = await runBulk(ids, act);
+      setSelectedTaskIds(result.failed.map(outcome => outcome.id));
+      notifications.show({
+        title: result.failed.length === 0 ? 'Done' : 'Partly done',
+        message: summarise(result, noun, verb),
+        color: result.failed.length === 0 ? 'green' : 'orange',
+      });
+    } finally {
+      setBulkInFlight(false);
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    }
+  }, [selectedTaskIds, queryClient]);
+
+  const handleBulkClaim = useCallback(
+    () => runBulkAction(id => processService.claimTask(id, currentUser), 'task', 'claimed'),
+    [runBulkAction, currentUser],
+  );
+
+  const handleBulkUnclaim = useCallback(
+    () => runBulkAction(id => processService.unclaimTask(id), 'task', 'released'),
+    [runBulkAction],
+  );
 
   return {
+    bulkInFlight,
     currentUser,
     setCurrentUser,
     activeTab,

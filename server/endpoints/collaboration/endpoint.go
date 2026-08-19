@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/gobpm/server/domains/services"
@@ -19,7 +20,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 func MakeBroadcastCollaborationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
-		req := request.(BroadcastCollaborationRequest)
+		req, ok := request.(BroadcastCollaborationRequest)
+		if !ok {
+			return nil, fmt.Errorf("collaboration: expected a BroadcastCollaborationRequest, got %T", request)
+		}
 		err := s.Broadcast(ctx, req.Event)
 		return BroadcastCollaborationResponse{Err: err}, nil
 	}

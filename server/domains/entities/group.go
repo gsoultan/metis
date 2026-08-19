@@ -1,8 +1,9 @@
 package entities
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Group represents a user group for task assignment.

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/endpoints"
@@ -15,8 +17,10 @@ import (
 
 func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) error {
 	if f, ok := response.(endpoints.Failer); ok && f.Failed() != nil {
+		// EncodeError has written the failure to the caller. Returning it again
+		// here would have go-kit write a second reply over the first.
 		EncodeError(ctx, f.Failed(), w)
-		return nil
+		return nil //nolint:nilerr // the error is reported to the caller by EncodeError, not swallowed
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	return json.NewEncoder(w).Encode(response)
@@ -28,9 +32,13 @@ func EncodeError(_ context.Context, err error, w http.ResponseWriter) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(CodeFrom(err))
-	json.NewEncoder(w).Encode(map[string]any{
+	// The reply itself failing leaves nothing to fall back on — the status is
+	// already sent — so this only records that the caller never heard why.
+	if writeErr := json.NewEncoder(w).Encode(map[string]any{
 		"error": redaction.RedactError(err),
-	})
+	}); writeErr != nil {
+		log.Debug().Err(writeErr).Msg("Could not write the error reply to the caller")
+	}
 }
 
 func CodeFrom(err error) int {

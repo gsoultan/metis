@@ -150,22 +150,6 @@ func (h *ParallelGatewayHandler) fork(ctx context.Context, instance *entities.Pr
 	return nil
 }
 
-// extractIntVar reads a numeric variable that may be float64 (JSON default) or int.
-func extractIntVar(vars map[string]any, key string) int {
-	val, ok := vars[key]
-	if !ok {
-		return 0
-	}
-	switch v := val.(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	default:
-		return 0
-	}
-}
-
 // InclusiveGatewayHandler handles decision points where one or more paths can be followed.
 type InclusiveGatewayHandler struct {
 	engine servicecontracts.EngineRunner
