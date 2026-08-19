@@ -26,6 +26,18 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
+      # scripts/check-bundle-budget.mjs is invoked as `node ...`, and its budgets
+      # are tuned to within a kilobyte of the current measurement. When no node
+      # is on PATH, `bun run` answers that call with its own node shim, whose
+      # zlib compresses about 0.8% worse than node's — enough to fail the
+      # first-paint budget on a bundle whose bytes are identical. The hosted
+      # runner had node preinstalled and hid this; a self-hosted one need not,
+      # so the job asks for the runtime its budgets were measured with.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: ui
