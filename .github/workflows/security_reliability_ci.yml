@@ -18,7 +18,7 @@ env:
 jobs:
   ui:
     name: UI (typecheck, lint, build)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
   go-security-reliability:
     name: Go (build, vet, race, vuln)
     needs: ui
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,7 +115,7 @@ jobs:
   dialects:
     name: Databases (postgres, mysql, sqlserver)
     needs: ui
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     # Every dialect-specific test in this repository skips when its DSN is
     # unset, and none of the three DSNs was ever set anywhere. So the tests that
@@ -124,54 +124,22 @@ jobs:
     # — have never run outside a developer's own machine, which is how SQL
     # Server came to declare `uuid` columns it has no word for.
     #
-    # These runners are amd64, which is the other half of the reason: the
-    # official SQL Server image has no arm64 build and segfaults under emulation
-    # on Apple silicon, so this is the only place it can run at all.
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: gobpm
-          POSTGRES_DB: gobpm
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
-      mysql:
-        image: mysql:8
-        env:
-          MYSQL_ROOT_PASSWORD: gobpm
-          MYSQL_DATABASE: gobpm
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -ugobpm -pgobpm --silent"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
-          MSSQL_PID: Developer
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Gobpm_Str0ngPass1' -Q 'SELECT 1'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 20
+    # `services:` cannot express this job on this runner. Service containers
+    # require a Linux runner with a Docker daemon; this runner is macOS with
+    # Apple's `container`. The three databases are therefore ordinary steps.
+    #
+    # The note this comment used to carry — that SQL Server has no arm64 build
+    # and segfaults under emulation, so only an amd64 Linux runner could host
+    # it — was true of QEMU under Docker Desktop, and is not true here. Apple's
+    # `container` runs the amd64 image under Rosetta: measured on this runner,
+    # the server reaches "SQL Server is now ready for client connections" and
+    # ./tests/mssql passes. All three dialects keep their coverage.
 
     env:
       GOBPM_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
       GOBPM_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
       GOBPM_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
+      MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
 
     steps:
       - name: Checkout
@@ -188,6 +156,74 @@ jobs:
           name: ui-dist
           path: ui/dist
 
+      # The runner inherits whatever environment it was launched with, which
+      # need not include Homebrew's bin. Resolving `container` once here — and
+      # failing loudly if it is genuinely absent — keeps the later steps from
+      # failing as an unreadable "command not found" three steps in.
+      - name: Locate the container CLI
+        run: |
+          if ! command -v container >/dev/null 2>&1; then
+            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+            export PATH="/opt/homebrew/bin:$PATH"
+          fi
+          command -v container >/dev/null 2>&1 || {
+            echo "::error::Apple container CLI not found on the runner (brew install container)"
+            exit 1
+          }
+          container --version
+
+      # Named containers on a runner whose state survives between jobs: a run
+      # that was cancelled leaves its databases behind and the next run's
+      # `container run` fails on the name. Forcing them away first makes this
+      # step idempotent rather than dependent on the last run having exited
+      # cleanly. Ports are published on 127.0.0.1 so the DSNs above are the
+      # same strings a developer uses locally.
+      - name: Start the databases
+        run: |
+          container system start >/dev/null 2>&1 || true
+          container rm -f gobpm-ci-pg gobpm-ci-mysql gobpm-ci-mssql >/dev/null 2>&1 || true
+
+          container run -d --name gobpm-ci-pg -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_PASSWORD=gobpm -e POSTGRES_DB=gobpm \
+            postgres:17-alpine
+
+          container run -d --name gobpm-ci-mysql -p 127.0.0.1:3306:3306 \
+            -e MYSQL_ROOT_PASSWORD=gobpm -e MYSQL_DATABASE=gobpm \
+            mysql:8
+
+          container run -d --name gobpm-ci-mssql --arch amd64 --rosetta --memory 4g \
+            -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$MSSQL_SA_PASSWORD" -e MSSQL_PID=Developer \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+      # `container run -d` returns once the VM is up, which is well before the
+      # server inside it will answer a query. Each one is polled with the command
+      # its `--health-cmd` used to be, and a timeout fails the job with that
+      # database's own log — otherwise a slow start surfaces as a connection
+      # error inside a test, which reads like a code bug.
+      - name: Wait for the databases
+        run: |
+          wait_for() {
+            name="$1"; tries="$2"; shift 2
+            i=1
+            while [ "$i" -le "$tries" ]; do
+              if container exec "$name" "$@" >/dev/null 2>&1; then
+                echo "ready: $name"
+                return 0
+              fi
+              sleep 5
+              i=$((i + 1))
+            done
+            echo "::error::$name never became ready; last 40 lines of its log:"
+            container logs "$name" 2>&1 | tail -40
+            return 1
+          }
+
+          wait_for gobpm-ci-pg    24 pg_isready -U postgres -d gobpm
+          wait_for gobpm-ci-mysql 36 mysqladmin ping -h 127.0.0.1 -uroot -pgobpm --silent
+          wait_for gobpm-ci-mssql 48 /opt/mssql-tools18/bin/sqlcmd -C -S localhost \
+            -U sa -P "$MSSQL_SA_PASSWORD" -Q 'SELECT 1'
+
       # A skip here means a DSN did not reach the tests, which is the failure
       # this job exists to prevent — so the count is asserted rather than eyeballed.
       - name: Run the dialect suites
@@ -201,10 +237,17 @@ jobs:
             exit 1
           fi
 
+      # The runner is someone's own Mac. Three database VMs left running after
+      # every CI run is not an acceptable thing to leave on it, and `--rm` does
+      # not fire when a job is cancelled.
+      - name: Stop the databases
+        if: always()
+        run: container rm -f gobpm-ci-pg gobpm-ci-mysql gobpm-ci-mssql >/dev/null 2>&1 || true
+
   golangci-lint:
     name: golangci-lint
     needs: ui
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -247,7 +290,7 @@ jobs:
 
   proto-generated:
     name: Generated code matches protos
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -296,7 +339,7 @@ jobs:
 
   secret-scan:
     name: Secret Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -317,8 +360,18 @@ jobs:
       # request's commits, this looks at every file in the repository. The
       # version is pinned so a scanner release cannot turn a green branch red
       # without a commit here.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Installed from source at the same pinned version rather than pulled as
+      # a container image. The image needed a Docker daemon, which the
+      # self-hosted runner does not have; the module proxy is already this
+      # file's install channel for golangci-lint and buf, and setup-go puts
+      # GOPATH/bin on PATH the same way it does for those two.
+      - name: Install gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
       - name: Gitleaks scan
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo \
-            ghcr.io/gitleaks/gitleaks:v8.30.1 \
-            dir . --redact --no-banner --exit-code 1
+        run: gitleaks dir . --redact --no-banner --exit-code 1
