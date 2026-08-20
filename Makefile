@@ -5,6 +5,13 @@ SHELL := /bin/bash
 # drops under ui/node_modules (e.g. flatted/golang).
 GO_PKGS = $(shell go list ./... | grep -v '/node_modules/')
 
+# Extra flags for the test targets. Empty by default, so a developer re-running
+# the gate keeps Go's test cache and the fast second run that comes with it.
+# CI passes -count=1: its runner keeps GOCACHE between jobs, and a cached suite
+# reports "ok (cached)" without executing anything — which is indistinguishable
+# from a suite that ran and passed.
+GO_TEST_FLAGS ?=
+
 .PHONY: help
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -67,7 +74,7 @@ vet: ## Run go vet across the whole module
 
 .PHONY: test
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
-	go test $(GO_PKGS)
+	go test $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: test-db
 test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4
@@ -79,7 +86,7 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
-	go test -race $(GO_PKGS)
+	go test -race $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: lint
 lint: ## Run golangci-lint
@@ -93,7 +100,7 @@ vuln: ## Scan for known vulnerabilities
 
 .PHONY: sdk
 sdk: ## Build and test the Go client SDK (its own module — the main gate skips it)
-	cd sdk && go vet ./... && go test -race ./...
+	cd sdk && go vet ./... && go test -race $(GO_TEST_FLAGS) ./...
 
 .PHONY: gate
 gate: ui-build build vet test race sdk ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
