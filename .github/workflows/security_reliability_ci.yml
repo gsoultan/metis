@@ -115,11 +115,23 @@ jobs:
       - name: Static analysis (go vet)
         run: make vet
 
+      # -count=1 on both, and on the SDK below. This runner keeps GOCACHE
+      # between jobs — 47 GB of it — so an unchanged tree returns "ok (cached)"
+      # for every package and executes nothing. Measured on the run that added
+      # this: all 93 packages cached, the whole suite and the race detector
+      # "passed" in 33 seconds having run no tests. A hosted runner started
+      # cold each time and could never do this, which is why it went unnoticed.
+      #
+      # The race detector has a second reason: it observes one interleaving per
+      # run, so re-running is how it finds what the last run missed. A cached
+      # race pass is not a race pass at all.
+      #
+      # The default stays cached for local runs; only CI opts out.
       - name: Tests
-        run: make test
+        run: make test GO_TEST_FLAGS=-count=1
 
       - name: Race detector
-        run: make race
+        run: make race GO_TEST_FLAGS=-count=1
 
       # The SDK is its own zero-dependency module, so the module-wide commands
       # above never see it. Untested here, it would only break in a consumer's
@@ -128,7 +140,7 @@ jobs:
         working-directory: sdk
         run: |
           go vet ./...
-          go test -race ./...
+          go test -race -count=1 ./...
 
       - name: Vulnerability scan (govulncheck)
         run: |
@@ -250,14 +262,29 @@ jobs:
 
       # A skip here means a DSN did not reach the tests, which is the failure
       # this job exists to prevent — so the count is asserted rather than eyeballed.
+      #
+      # -count=1 for the same reason. Go's test cache is content-addressed over
+      # the code, and models nothing about which database answered: on a runner
+      # whose GOCACHE survives between runs, an unchanged tree returns
+      # "ok ... (cached)" without opening a connection. That is not a hypothesis
+      # — it is what this job did on the run that added it, going green in 34s
+      # having started three databases and talked to none of them. Worse, a
+      # cached run prints no test lines at all, so the skip assertion below
+      # passes by having nothing to read. Both checks are asserted here because
+      # both failures look exactly like success.
       - name: Run the dialect suites
         run: |
           set -o pipefail
-          go test -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... ./tests/tenant/... \
+          go test -count=1 -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... ./tests/tenant/... \
             2>&1 | tee /tmp/dialects.log
           if grep -q -- "--- SKIP" /tmp/dialects.log; then
             echo "::error::A dialect test skipped, which means its DSN did not reach it:"
             grep -- "--- SKIP" /tmp/dialects.log
+            exit 1
+          fi
+          if grep -q -- "(cached)" /tmp/dialects.log; then
+            echo "::error::A dialect suite was served from the test cache, so no database was contacted:"
+            grep -- "(cached)" /tmp/dialects.log
             exit 1
           fi
 
