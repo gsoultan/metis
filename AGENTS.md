@@ -326,6 +326,7 @@ go build ./...
 go vet ./...                    # must not regress; module-wide, not a package allowlist
 go test ./...                   # module-wide — ./server/... alone SKIPS the entire tests/ tree
 go test -race ./...             # required for anything touching the engine or workers
+make strict-scope               # the production paths under GOBPM_FEATURE_STRICT_TENANT_SCOPE=true
 ```
 
 Frontend:
@@ -353,6 +354,7 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `bunx tsc --noEmit` | green |
 | `bun run build` | green |
 | `bun run lint` | green — was 231 errors (Phase 0.6, cleared) |
+| `make strict-scope` | green — the HTTP chain and job worker under the strict tenant scope, which ships off |
 | `golangci-lint` | **baselined** — 799 pre-existing findings; CI blocks new ones via `only-new-issues`. Burn-down order is in `.golangci.yml`; the engine's slice is done. |
 
 `make gate` runs everything. Do not narrow it — narrow the code instead.

@@ -133,6 +133,21 @@ jobs:
       - name: Race detector
         run: make race GO_TEST_FLAGS=-count=1
 
+      # The strict tenant scope is the security default we cannot flip yet:
+      # it ships off because 106 existing test call sites enter the engine
+      # directly and bypass the entry points where system identity is marked.
+      # This suite is the evidence that the production paths — the real HTTP
+      # chain and the job worker — do carry identity, so the flag can be turned
+      # on in a staging environment without stranding work.
+      #
+      # Set through the environment rather than the test override, because that
+      # is how an operator turns it on: it proves the variable name and the
+      # resolution path, not just the in-process switch.
+      - name: Strict tenant scope (production paths, flag on)
+        env:
+          GOBPM_FEATURE_STRICT_TENANT_SCOPE: "true"
+        run: go test -count=1 ./tests/strictscope/...
+
       # The SDK is its own zero-dependency module, so the module-wide commands
       # above never see it. Untested here, it would only break in a consumer's
       # build — the one place we cannot fix it from.

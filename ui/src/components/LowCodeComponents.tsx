@@ -1,21 +1,21 @@
 import { useState } from 'react';
-import { 
-  Paper, 
-  Stack, 
-  Group, 
-  Text, 
-  SegmentedControl, 
-  Grid, 
-  Select, 
-  TextInput, 
-  Box, 
-  Autocomplete, 
-  Tooltip, 
+import {
+  Paper,
+  Stack,
+  Group,
+  Text,
+  Grid,
+  Select,
+  TextInput,
+  Box,
+  Autocomplete,
+  Tooltip,
   ActionIcon,
   Button,
-  Code as MantineCode 
+  Code as MantineCode
 } from '@mantine/core';
 import { Variable, HelpCircle, Zap, Plus, Trash2 } from 'lucide-react';
+import { buildCondition, isTooRichForBuilder, parseCondition, type ComparisonOperator } from '../domain/conditionExpression';
 
 /** One row of a mapping table: this variable goes out as that field. */
 export interface DataMapping {
@@ -86,60 +86,74 @@ export function VariablePicker({
   );
 }
 
-export function VisualConditionBuilder({ 
-  condition = '', 
+export function VisualConditionBuilder({
+  condition = '',
   onChange,
   title = "CONDITION BUILDER"
-}: { 
-  condition?: string, 
+}: {
+  condition?: string,
   onChange: (c: string) => void,
   title?: string
 }) {
-  const isJS = condition?.startsWith('js:');
-  const raw = isJS ? condition.substring(3) : condition;
-  
-  const parts = raw?.split(/\s*(==|!=|>|<|>=|<=|=)\s*/) || [];
-  const initialVar = parts[0] || '';
-  const initialOp = parts[1] || '==';
-  const initialVal = parts[2] || '';
+  // The builder emits FEEL, never JavaScript — the server refuses `js:`
+  // conditions by default. Legacy stored conditions (js: or bare var=value)
+  // still open for editing; saving rewrites them in FEEL.
+  const parsed = parseCondition(condition);
 
-  const [variable, setVariable] = useState(initialVar);
-  const [operator, setOperator] = useState(initialOp === '=' ? '==' : initialOp);
-  const [value, setValue] = useState(initialVal);
-  const [mode, setMode] = useState(isJS ? 'js' : 'simple');
+  // A condition that exists but is more than three fields can hold — a
+  // compound expression, or JavaScript doing real work. Editing it here would
+  // replace it with whatever the empty fields happened to build, so the
+  // builder shows it instead and asks before discarding it.
+  const tooRichToEdit = isTooRichForBuilder(condition);
 
-  const update = (v: string, o: string, val: string, m: string) => {
-    if (m === 'simple' && o === '==') {
-       onChange(`${v}=${val}`);
-    } else {
-       onChange(`js:${v} ${o} ${val}`);
-    }
+  const [variable, setVariable] = useState(parsed?.variable || '');
+  const [operator, setOperator] = useState<ComparisonOperator>(parsed?.operator || '==');
+  const [value, setValue] = useState(parsed?.value || '');
+
+  const update = (v: string, o: ComparisonOperator, val: string) => {
+    onChange(buildCondition({ variable: v, operator: o, value: val }));
   };
 
   return (
     <Paper withBorder p="md" bg="gray.0" radius="md">
       <Stack gap="sm">
-        <Group justify="space-between">
-          <Text size="xs" fw={700} c="dimmed">{title}</Text>
-          <SegmentedControl 
-            size="xs" 
-            data={[{label: 'Basic', value: 'simple'}, {label: 'Advanced (JS)', value: 'js'}]} 
-            value={mode}
-            onChange={(v) => {
-              setMode(v as string);
-              update(variable, operator, value, v as string);
-            }}
-          />
-        </Group>
-        
+        <Text size="xs" fw={700} c="dimmed">{title}</Text>
+
+        {tooRichToEdit && (
+          <Box p="xs" bg="white" style={{ border: '1px solid var(--mantine-color-yellow-4)', borderRadius: '4px' }}>
+            <Stack gap={6}>
+              <Text size="xs" fw={600}>This condition is too detailed for the simple editor</Text>
+              <MantineCode block>{condition}</MantineCode>
+              <Text size="xs" c="dimmed">
+                It is kept exactly as written. Replacing it starts a simple
+                comparison from scratch, and this expression is lost.
+              </Text>
+              <Button
+                variant="light"
+                color="yellow"
+                size="xs"
+                onClick={() => {
+                  setVariable('');
+                  setOperator('==');
+                  setValue('');
+                  onChange('');
+                }}
+              >
+                Replace with a simple comparison
+              </Button>
+            </Stack>
+          </Box>
+        )}
+
+        {!tooRichToEdit && (
         <Grid gap="xs" align="flex-end">
           <Grid.Col span={5}>
-            <VariablePicker 
-              label="Variable" 
-              value={variable} 
+            <VariablePicker
+              label="Variable"
+              value={variable}
               onChange={(v) => {
                 setVariable(v);
-                update(v, operator, value, mode);
+                update(v, operator, value);
               }}
             />
           </Grid.Col>
@@ -156,28 +170,32 @@ export function VisualConditionBuilder({
               ]}
               value={operator}
               onChange={(v) => {
-                setOperator(v || '==');
-                update(variable, v || '==', value, mode);
+                const next = (v as ComparisonOperator) || '==';
+                setOperator(next);
+                update(variable, next, value);
               }}
             />
           </Grid.Col>
           <Grid.Col span={4}>
             <TextInput
               label="Value"
-              placeholder="e.g. 1000 or 'approved'"
+              placeholder="e.g. 1000 or approved"
               value={value}
               onChange={(e) => {
                 setValue(e.target.value);
-                update(variable, operator, e.target.value, mode);
+                update(variable, operator, e.target.value);
               }}
             />
           </Grid.Col>
         </Grid>
-        
-        <Box p="xs" bg="white" style={{ border: '1px dashed var(--mantine-color-gray-3)', borderRadius: '4px' }}>
-          <Text size="xs" c="dimmed">Resulting expression:</Text>
-          <MantineCode block>{condition || '(empty)'}</MantineCode>
-        </Box>
+        )}
+
+        {!tooRichToEdit && (
+          <Box p="xs" bg="white" style={{ border: '1px dashed var(--mantine-color-gray-3)', borderRadius: '4px' }}>
+            <Text size="xs" c="dimmed">Resulting expression:</Text>
+            <MantineCode block>{condition || '(empty)'}</MantineCode>
+          </Box>
+        )}
       </Stack>
     </Paper>
   );

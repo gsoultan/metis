@@ -48,8 +48,8 @@ func (h *AdHocSubProcessHandler) DoExecute(ctx context.Context, instance *entiti
 
 // isCompletionConditionMet evaluates the node's CompletionCondition with the
 // same chain gateways use for sequence-flow conditions, so an ad-hoc condition
-// is written the same way as every other process condition ("js:done >= 2",
-// "status=approved", or a plain boolean variable name).
+// is written the same way as every other process condition ("done >= 2" in
+// FEEL, "status=approved", or a plain boolean variable name).
 //
 // It previously went through the DMN FEEL evaluator, which is a decision-table
 // cell matcher: it compares against variables["_input"] and ignores the rest of

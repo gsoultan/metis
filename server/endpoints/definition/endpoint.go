@@ -11,22 +11,24 @@ import (
 )
 
 type Endpoints struct {
-	ListDefinitions  endpoint.Endpoint
-	CreateDefinition endpoint.Endpoint
-	GetDefinition    endpoint.Endpoint
-	DeleteDefinition endpoint.Endpoint
-	ExportDefinition endpoint.Endpoint
-	ImportDefinition endpoint.Endpoint
+	ListDefinitions          endpoint.Endpoint
+	CreateDefinition         endpoint.Endpoint
+	GetDefinition            endpoint.Endpoint
+	DeleteDefinition         endpoint.Endpoint
+	ExportDefinition         endpoint.Endpoint
+	ImportDefinition         endpoint.Endpoint
+	ListJavaScriptConditions endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListDefinitions:  MakeListDefinitionsEndpoint(s),
-		CreateDefinition: MakeCreateDefinitionEndpoint(s),
-		GetDefinition:    MakeGetDefinitionEndpoint(s),
-		DeleteDefinition: MakeDeleteDefinitionEndpoint(s),
-		ExportDefinition: MakeExportDefinitionEndpoint(s),
-		ImportDefinition: MakeImportDefinitionEndpoint(s),
+		ListDefinitions:          MakeListDefinitionsEndpoint(s),
+		CreateDefinition:         MakeCreateDefinitionEndpoint(s),
+		GetDefinition:            MakeGetDefinitionEndpoint(s),
+		DeleteDefinition:         MakeDeleteDefinitionEndpoint(s),
+		ExportDefinition:         MakeExportDefinitionEndpoint(s),
+		ImportDefinition:         MakeImportDefinitionEndpoint(s),
+		ListJavaScriptConditions: MakeListJavaScriptConditionsEndpoint(s),
 	}
 }
 
@@ -119,6 +121,20 @@ func MakeExportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		xml, err := s.ExportDefinition(ctx, id)
 		return ExportDefinitionResponse{XML: xml, Err: err}, nil
+	}
+}
+
+// MakeListJavaScriptConditionsEndpoint serves the javascript-conditions
+// worklist: every stored `js:` condition the caller's tenant can see. The flag
+// ships off, so this list is what stands between an installation and turning
+// the flag's refusals into rewritten FEEL.
+func MakeListJavaScriptConditionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		if _, ok := request.(ListJavaScriptConditionsRequest); !ok {
+			return nil, fmt.Errorf("definition: expected a ListJavaScriptConditionsRequest, got %T", request)
+		}
+		usages, err := s.ListJavaScriptConditions(ctx)
+		return ListJavaScriptConditionsResponse{Usages: usages, Err: err}, nil
 	}
 }
 

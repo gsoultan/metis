@@ -106,17 +106,38 @@ Outstanding:
    (`GOBPM_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
    marker return nothing instead of everything.
 
-   **It ships off**, and turning it on is not yet safe. Running the suite with it enabled
-   fails 10 packages: `tests/bpmn`, `connector`, `decision`, `handlers`, `pagination`,
-   `project`, `postgres`, `mysqldb`, plus `server/domains/services/impl`. Those are tests
-   calling engine internals directly with `t.Context()`, which bypasses the entry points
-   where the markers live — 106 call sites.
+   **It ships off**, and turning it on is not yet safe *for the test suite*. Running the
+   whole suite with it enabled fails 10 packages: `tests/bpmn`, `connector`, `decision`,
+   `handlers`, `pagination`, `project`, `postgres`, `mysqldb`, plus
+   `server/domains/services/impl`. Those are tests calling engine internals directly with
+   `t.Context()`, which bypasses the entry points where the markers live — 106 call sites.
 
    Blanket-marking them as system work was rejected: it would make the suite pass without
    proving anything about production, since the tests would no longer traverse the paths
-   the markers are on. What is actually needed before the flag can be flipped is either
-   integration coverage that enters through the real entry points, or a staged rollout —
-   staging first, watching for queries that suddenly return nothing.
+   the markers are on.
+
+   **The integration coverage that was the precondition now exists** —
+   `tests/strictscope`, run with the flag on by `make strict-scope` and by its own CI step.
+   It enters the way production traffic does: the HTTP chain assembled by
+   `app.BuildAPIHandler` (extracted from `runServers` so the test and the server cannot
+   drift), real logins, real tokens, and the job worker started by `StartWorkers`. A
+   process deploys, waits on a timer the background worker fires, and completes through
+   the task inbox — all under the strict scope. If any background path lost its system
+   marker the timer would never fire, and the suite says so.
+
+   Every test in it asserts the flag actually took effect before asserting anything else.
+   They all pass with the flag off too — a permissive scope permits everything — so
+   without that guard the suite would keep passing while proving nothing, which is the
+   failure this repository has already shipped twice.
+
+   It found one real thing: `CreateProject` reads its organization to validate it, so
+   under the strict scope a create with no identity fails as `record not found` on an
+   organization that plainly exists. Production carries the tenant the resolver derived,
+   so this is a test-fixture correction rather than a product defect — but it is exactly
+   the quiet shape the flag was feared for, and it is now written down.
+
+   What remains before the default can flip is the staged rollout itself: staging first,
+   watching for queries that suddenly return nothing.
 
    The failure mode is quiet by nature: a background path that forgets to mark itself does
    not error, it reads nothing, and an engine reading nothing looks like an engine with no

@@ -75,7 +75,7 @@ func TestAdHocSubProcessRunsStepsOnDemand(t *testing.T) {
 	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Activation Project")
 
-	def := adHocDefinition("claim-research", "js:reviewsDone >= 2")
+	def := adHocDefinition("claim-research", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
 		t.Fatalf("create definition: %v", err)
@@ -126,7 +126,7 @@ func TestAdHocActivationRefusesWhatIsNotThere(t *testing.T) {
 	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Refusal Project")
 
-	def := adHocDefinition("claim-research-guard", "js:reviewsDone >= 2")
+	def := adHocDefinition("claim-research-guard", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
 		t.Fatalf("create definition: %v", err)
@@ -213,7 +213,7 @@ func TestAdHocSubProcessWithSatisfiedConditionProceeds(t *testing.T) {
 	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Satisfied Project")
 
-	def := adHocDefinition("claim-research-done", "js:reviewsDone >= 2")
+	def := adHocDefinition("claim-research-done", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
 		t.Fatalf("create definition: %v", err)

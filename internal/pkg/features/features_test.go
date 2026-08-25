@@ -51,6 +51,19 @@ func TestEnvName(t *testing.T) {
 	}
 }
 
+// TestSecurityDefaults locks the shipped posture. Changing either default is a
+// security decision with a rollout plan (the flag comments say what has to be
+// true first), so it must cost a deliberate edit here, not slip through as a
+// tweak.
+func TestSecurityDefaults(t *testing.T) {
+	if JavaScriptConditions.Default {
+		t.Error("javascript-conditions must default off: goja cannot be memory-bounded, and a default install must not be one definition away from that")
+	}
+	if StrictTenantScope.Default {
+		t.Error("strict-tenant-scope must stay opt-in until every background entry point provably carries an identity; flipping it is a staged rollout, not a default change")
+	}
+}
+
 // TestResolutionIsStable pins the once-only read. A flag that could change under
 // a running process would let one request take the old path and the next the
 // new one — and for a security control, that makes "was this query scoped"

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/gobpm/internal/pkg/features"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/logic"
 	"github.com/gsoultan/gobpm/server/domains/logic/feel"
@@ -137,6 +138,12 @@ func FuzzConditionEvaluator(f *testing.F) {
 	}
 
 	chain := logic.GetConditionEvaluatorChain()
+
+	// The sandbox is this fuzzer's highest-value target, and the
+	// javascript-conditions flag ships off. Force it on here: with the flag
+	// refusing `js:` at the door, the while(true) and allocation-bomb seeds
+	// would stop exercising the interrupt they exist to regression-test.
+	defer features.OverrideForTest(features.JavaScriptConditions, true)()
 
 	f.Fuzz(func(t *testing.T, condition string) {
 		// Bound the input: the fuzzer will otherwise spend its budget on

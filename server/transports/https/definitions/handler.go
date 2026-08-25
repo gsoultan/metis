@@ -36,6 +36,14 @@ func RegisterHandlers(m *http.ServeMux, eps definition.Endpoints, options []http
 		common.EncodeResponse,
 		options...,
 	))
+	// The javascript-conditions worklist: which stored conditions the flag
+	// still gates. A literal segment, so it cannot collide with {id} routes.
+	m.Handle("GET /api/v1/definitions/javascript-conditions", httptransport.NewServer(
+		eps.ListJavaScriptConditions,
+		decodeListJavaScriptConditionsRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/definitions/import", httptransport.NewServer(
 		eps.ImportDefinition,
 		decodeImportDefinitionRequest,
@@ -67,6 +75,10 @@ func decodeDeleteDefinitionRequest(_ context.Context, r *http.Request) (any, err
 
 func decodeExportDefinitionRequest(_ context.Context, r *http.Request) (any, error) {
 	return definition.ExportDefinitionRequest{ID: r.PathValue("id")}, nil
+}
+
+func decodeListJavaScriptConditionsRequest(_ context.Context, _ *http.Request) (any, error) {
+	return definition.ListJavaScriptConditionsRequest{}, nil
 }
 
 func decodeImportDefinitionRequest(_ context.Context, r *http.Request) (any, error) {

@@ -185,7 +185,10 @@
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
-        mechanism, so a flag is on or off for the whole installation.
+        mechanism, so a flag is on or off for the whole installation. The shipped
+        defaults are pinned by test (`TestSecurityDefaults`), because changing
+        either one is a security decision with a rollout plan behind it rather
+        than a tweak.
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).
   - [x] Task Inbox UX overhaul: priority badges, overdue countdown, bulk actions.
@@ -751,7 +754,10 @@
    `TenantContext` is present, which is what lets the engine and its workers run. That is
    defence in depth rather than a live hole (both protected chains resolve tenant,
    unresolvable principals are refused, and the public chain's membership is asserted by
-   test), but closing it properly means giving system work an explicit system identity.
+   test). The integration coverage that had to exist before the flag could be flipped now
+   does — `tests/strictscope`, entering through the real HTTP chain and the job worker —
+   so what is left is the staged rollout: staging with the flag on, watching for queries
+   that suddenly return nothing, then production, then the default.
 2. **P0 Reliability remainder** — §6:
    - Full test-pyramid baseline: contract tests for connectors are the missing tier.
    (Outage simulation and feature flags both landed.)
@@ -759,11 +765,14 @@
 4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
    backend fields. Business Timeline is already complete.
 
-The one item that is *not* on this list and arguably outranks all of it: **Phase 2, the
-FEEL expression layer**. `feel_evaluator.go` is string matching, not the parser in
-`execution-plan.md` §2.1, and the script-sandbox measurement above is the argument for it —
-gateway conditions accepting arbitrary JavaScript is a memory-exhaustion vector no sandbox
-setting can close.
+**Closed since this list was written:** Phase 2 landed the real FEEL parser, and the
+memory-exhaustion vector it existed to remove is now off by default —
+`javascript-conditions` ships `false`, so a default installation refuses `js:` conditions
+outright rather than handing authored content to a runtime no sandbox setting can bound.
+A gateway whose conditions are all refused raises an incident naming the gateway; it does
+not guess a branch (`tests/bpmn/refused_js_condition_test.go`). Installations still
+migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`, and
+`GET /api/v1/definitions/javascript-conditions` gives them the worklist.
 
 ---
 

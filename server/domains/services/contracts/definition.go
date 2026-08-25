@@ -20,4 +20,9 @@ type DefinitionService interface {
 	DeleteDefinition(ctx context.Context, id uuid.UUID) error
 	ExportDefinition(ctx context.Context, id uuid.UUID) ([]byte, error)
 	ImportDefinition(ctx context.Context, projectID uuid.UUID, xml []byte) (uuid.UUID, error)
+
+	// ListJavaScriptConditions reports every stored `js:` condition the caller
+	// can see — the worklist for the javascript-conditions flag, which refuses
+	// them by default.
+	ListJavaScriptConditions(ctx context.Context) ([]entities.JavaScriptConditionUsage, error)
 }

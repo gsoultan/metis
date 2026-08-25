@@ -113,6 +113,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	definitionEndpoints.DeleteDefinition = designer("DeleteDefinition")(definitionEndpoints.DeleteDefinition)
 	definitionEndpoints.ExportDefinition = protected("ExportDefinition")(definitionEndpoints.ExportDefinition)
 	definitionEndpoints.ImportDefinition = designer("ImportDefinition")(definitionEndpoints.ImportDefinition)
+	definitionEndpoints.ListJavaScriptConditions = protected("ListJavaScriptConditions")(definitionEndpoints.ListJavaScriptConditions)
 
 	externalTaskEndpoints := external_task.MakeEndpoints(s)
 	externalTaskEndpoints.FetchAndLockExternal = protected("FetchAndLockExternal")(externalTaskEndpoints.FetchAndLockExternal)

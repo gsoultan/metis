@@ -73,17 +73,19 @@ var StrictTenantScope = Flag{
 // time. FEEL, which now handles conditions natively, has no construct that can
 // do that.
 //
-// It defaults ON because turning it off strands every definition that still
-// uses a `js:` condition, and a stranded gateway is a process that stops
-// without saying why. Every evaluation logs a warning naming the condition, so
-// the migration has a worklist. Turn it off once that list is empty; the
-// default is expected to flip once FEEL has been the documented language for a
-// release.
+// It defaults OFF: a default install must not be one deployed definition away
+// from memory exhaustion no sandbox setting can bound. The cost of off is that
+// a definition still using `js:` has a decision point that refuses to route —
+// loudly, with an error log naming this flag — rather than a silent wrong
+// answer. GET /api/v1/definitions/javascript-conditions lists every stored
+// condition the flag gates, so an installation that must turn this on can see
+// exactly what it is buying time for, and when the worklist is empty enough to
+// turn it back off.
 var JavaScriptConditions = Flag{
 	Name:    "javascript-conditions",
-	Default: true,
+	Default: false,
 	Why:     "allow js: gateway conditions, which FEEL has replaced",
-	Retire:  "delete once the default has been off for a release and no definition uses js: conditions",
+	Retire:  "delete once no supported installation still turns it on; then drop the JS evaluator from the condition chain",
 }
 
 // all is the registry, used to report configuration at startup.

@@ -604,14 +604,29 @@ func (a *App) readinessCheckers() map[string]health.Checker {
 	}
 }
 
-func (a *App) runServers(ctx context.Context) error {
-	endpts := endpoints.MakeEndpoints(a.svc)
-	httpHandler := https.NewHTTPHandler(a.svc, endpts, a.sse)
+// BuildAPIHandler assembles the HTTP request path exactly as production serves
+// it: the Go Kit handler inside the interceptor chain, with metrics, tracing
+// and the health probes wrapped outside. runServers is its only production
+// caller.
+//
+// It is exported for integration tests that must enter through the real front
+// door — the strict-tenant-scope suite drives a process through this chain end
+// to end, which is the coverage rbac_wiring_test.go cannot give by reading the
+// wiring source. A nil validator selects the JWT strategy, as it does in
+// production when OIDC is not configured.
+func BuildAPIHandler(
+	svc services.ServiceFacade,
+	endpts endpoints.Endpoints,
+	sse *impl.SSEObserver,
+	validator *auth.TokenValidator,
+	readiness map[string]health.Checker,
+) (http.Handler, *metrics.Collector) {
+	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
-	f := interceptors.NewInterceptorFactory(a.svc)
+	f := interceptors.NewInterceptorFactory(svc)
 	var strategy authinterceptor.SecurityStrategy
-	if a.validator != nil {
-		strategy = f.NewOIDCStrategy(a.validator)
+	if validator != nil {
+		strategy = f.NewOIDCStrategy(validator)
 	} else {
 		strategy = f.NewJWTStrategy()
 	}
@@ -661,7 +676,14 @@ func (a *App) runServers(ctx context.Context) error {
 	// probe shed by the backpressure limiter would report a merely busy process
 	// as an unhealthy one — getting it restarted or pulled from rotation at the
 	// moment it was recovering.
-	httpHandler = health.Wrap(httpHandler, a.readinessCheckers())
+	httpHandler = health.Wrap(httpHandler, readiness)
+
+	return httpHandler, metricsCollector
+}
+
+func (a *App) runServers(ctx context.Context) error {
+	endpts := endpoints.MakeEndpoints(a.svc)
+	httpHandler, metricsCollector := BuildAPIHandler(a.svc, endpts, a.sse, a.validator, a.readinessCheckers())
 
 	grpcServer := grpcs.NewGRPCServer(endpts)
 

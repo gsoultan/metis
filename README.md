@@ -21,9 +21,9 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Reliability**: Persistent job storage and execution.
   - **Error Handling**: Automatic retries with exponential backoff and jitter, then an incident when the attempts run out.
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
-- **Scripting Engine**: Integrated **Goja** (JavaScript engine) for:
-  - **Script Tasks**: Complex data transformations within workflows.
-  - **Dynamic Conditions**: JavaScript-based evaluation for Gateway logic.
+- **Expressions**: **FEEL** (the DMN expression language) evaluates gateway conditions, completion conditions, input/output mappings and decision-table cells.
+  - Legacy `js:` gateway conditions are **refused by default** — the JavaScript runtime cannot be memory-bounded. Installations still migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`; `GET /api/v1/definitions/javascript-conditions` lists every stored condition that still needs rewriting.
+- **Scripting Engine**: Integrated **Goja** (JavaScript engine) for **Script Tasks** — complex data transformations within workflows, under a wall-clock budget and interrupt.
 - **Task Inbox**: A dedicated view for users to manage, claim, and complete their assigned tasks.
 - **Enterprise Persistence**:
   - **Audit Logging**: Comprehensive, persistent audit trail for every state change and node transition.
@@ -115,6 +115,8 @@ Open the UI and the first run walks through the setup wizard.
 | `GOBPM_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
 | `GOBPM_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
 | `GOBPM_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
+| `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
+| `GOBPM_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout; the production paths are proven under it by `make strict-scope`. |
 | `GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
 | `GOBPM_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
 
