@@ -188,23 +188,46 @@ func (s *jobService) dispatchPendingJobs(ctx context.Context, wait bool) error {
 	return nil
 }
 
-// tryAcquireJobLock acquires both the DB row-lock and the distributed advisory lock
-// so that multiple engine replicas cannot process the same job simultaneously.
+// tryAcquireJobLock claims a job for this worker, and only this worker.
+//
+// The **row update is what makes claiming exactly-once**: it moves the job to
+// running only `WHERE status = pending OR lock_expires < now`, so of N replicas
+// issuing it concurrently exactly one reports a row affected. That holds on
+// every supported dialect and needs no coordination outside the database.
+//
+// The distributed lock is a second, optional gate for deployments that want one
+// (Strategy; the default is NoOpLocker, a Null Object). It is taken **first**,
+// before the row update, and that order is the point: the row update is durable
+// state with a five-minute lease on it, so claiming the row and then failing to
+// take the lock would leave a job marked running that nobody is running — idle
+// until the lease expired. Reversing the order means a refusal costs nothing,
+// because nothing has been written yet.
 func (s *jobService) tryAcquireJobLock(ctx context.Context, jobID uuid.UUID) bool {
+	lockKey := "job:" + jobID.String()
+
+	distLocked, err := s.locker.TryAcquire(ctx, lockKey, 5*time.Minute)
+	if err != nil {
+		log.Error().Err(err).Str("jobId", jobID.String()).Msg("failed to acquire distributed job lock")
+		return false
+	}
+	if !distLocked {
+		return false
+	}
+
 	locked, err := s.repo.Job().Lock(ctx, jobID, 5*time.Minute, s.workerID)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to acquire DB job lock")
+	if err != nil || !locked {
+		// Another replica claimed the row, or the claim failed. Either way this
+		// worker is not running the job, so it must not keep the lock — holding
+		// it would block whichever replica did win from ever releasing.
+		if releaseErr := s.locker.Release(ctx, lockKey); releaseErr != nil {
+			log.Warn().Err(releaseErr).Str("jobId", jobID.String()).Msg("Could not release the job lock after a lost claim")
+		}
+		if err != nil {
+			log.Error().Err(err).Str("jobId", jobID.String()).Msg("failed to acquire DB job lock")
+		}
 		return false
 	}
-	if !locked {
-		return false
-	}
-	distLocked, err := s.locker.TryAcquire(ctx, "job:"+jobID.String(), 5*time.Minute)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to acquire distributed job lock")
-		return false
-	}
-	return distLocked
+	return true
 }
 
 func (s *jobService) runJob(ctx context.Context, job entities.Job) {

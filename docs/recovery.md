@@ -58,8 +58,44 @@ not serving, so timers do not fire and SLAs silently slip. It is not chosen beca
 is comfortable.
 
 **These are targets for the data.** Availability during a *non*-destructive outage is a
-different mechanism — run more than one replica, which the schema migration lock already
-supports.
+different mechanism — running more than one replica — and that is **not supported today**.
+See §2.1 before planning around it.
+
+### 2.1 Replica count: one
+
+The supported topology is **a single engine replica**. This is a limitation of the product
+as it stands, not a recommendation, and it is written down here because the rest of this
+document is useless if it is wrong about what you are recovering *to*.
+
+What already works across replicas:
+
+- **Job claiming.** The claim is a conditional update (`WHERE status = pending OR
+  lock_expires < now`), so exactly one replica wins a given job on every supported dialect.
+- **Schema migrations.** Replicas contend for a lock row and one applies; the others wait.
+- **External task fetch-and-lock**, which takes `SELECT ... FOR UPDATE` inside a transaction.
+- **Message and signal correlation**, which is database-backed.
+- **Outbound connector calls**, which are recorded before they are made and carry a stable
+  idempotency key, so a retry from any replica reuses the recorded response.
+
+What does not, and what each one costs:
+
+| Component | With two replicas |
+| :-- | :-- |
+| Idempotency interceptor (`Idempotency-Key`) | Per-process cache. **A client retry landing on the other replica re-executes the write.** This is the one that can charge a card twice. |
+| SSE event delivery | Per-process client registry. A browser connected to replica A never sees events produced on replica B, so the UI silently stops updating. |
+| HTTP rate limiting | Per-process windows, so the effective limit is N × the configured one. |
+| Connector rate limits and circuit breakers | Per-process, so a partner's quota is exceeded N-fold and breakers trip independently. |
+| AMQP bridge | Per-process registry of running bridges, so each replica starts its own consumer. |
+| Timer polling | Every replica polls on the same interval with no leader election. Correct — the row claim arbitrates — but N replicas contend for the same N jobs each tick. |
+
+`PostgresLocker` (advisory locks, correct as of the fix that pinned its session) exists for
+work that must have exactly one owner, and is the intended mechanism for the AMQP bridge.
+It is **not wired in by default**: the shipped `DistributedLocker` is `NoOpLocker`, a Null
+Object, because job claiming does not need it and it would add a round trip per job to a
+hot path.
+
+Until the table above is empty, run one replica and accept the availability that implies —
+the RTO in §1 is the honest number for this deployment shape.
 
 ---
 
@@ -100,11 +136,13 @@ Order matters, and step 1 is the one that gets skipped.
    recovery into a reconciliation problem.
 2. Restore the base backup, then replay WAL to the chosen point in time.
 3. Restore `ENCRYPTION_KEY` and `config.yaml`.
-4. Start **one** replica. Watch the log for `Database migrations complete`. A restored
+4. Start the engine. Watch the log for `Database migrations complete`. A restored
    database may be at an older schema version; the runner brings it forward.
 5. Check `/readyz` returns 200.
 6. Confirm the engine is working, not merely up — see §4.
-7. Start the remaining replicas.
+
+   (Step 1 says "every replica" because an operator may have more than one running despite
+   §2.1. If you are on the supported single-replica topology, it is the one process.)
 
 ### 3.3 After a restore: what to expect
 
