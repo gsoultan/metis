@@ -85,7 +85,7 @@ What does not, and what each one costs:
 | SSE event delivery | Per-process client registry. A browser connected to replica A never sees events produced on replica B, so the UI silently stops updating. |
 | HTTP rate limiting | Per-process windows, so the effective limit is N × the configured one. |
 | Connector rate limits and circuit breakers | Per-process, so a partner's quota is exceeded N-fold and breakers trip independently. |
-| AMQP bridge | Per-process registry of running bridges, so each replica starts its own consumer. |
+| ~~AMQP bridge~~ | **Not a problem, on inspection.** Two replicas consuming one queue are competing consumers — each message is delivered to exactly one — and the external-task bridge polls `FetchAndLock`, which takes `FOR UPDATE`. The per-process registry correctly answers "is this bridge running *here*". The cost is duplicated polling, not duplicated work. |
 | Timer polling | Every replica polls on the same interval with no leader election. Correct — the row claim arbitrates — but N replicas contend for the same N jobs each tick. |
 
 `PostgresLocker` (advisory locks, correct as of the fix that pinned its session) exists for

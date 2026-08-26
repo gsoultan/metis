@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
@@ -79,7 +80,7 @@ func RunManifest(
 
 	scope := map[string]any{"config": config, "input": input}
 
-	request, err := buildRequest(ctx, manifest, scope)
+	request, err := buildRequest(ctx, manifest, scope, sharedTokenCache())
 	if err != nil {
 		return nil, err
 	}
@@ -98,8 +99,24 @@ func RunManifest(
 	return interpret(manifest, response, body)
 }
 
+// sharedTokenCache is the process-wide OAuth token cache.
+//
+// One per process, not one per call: a cache rebuilt per call caches nothing,
+// which is the failure this exists to avoid. It uses the same guarded HTTP
+// client as connector calls, so a token endpoint is subject to the same egress
+// policy as any other outbound address.
+var (
+	tokenCacheOnce sync.Once
+	tokenCache     *TokenCache
+)
+
+func sharedTokenCache() *TokenCache {
+	tokenCacheOnce.Do(func() { tokenCache = NewTokenCache(httpclient.Shared()) })
+	return tokenCache
+}
+
 // buildRequest fills in the templates and signs the call.
-func buildRequest(ctx context.Context, manifest Manifest, scope map[string]any) (*http.Request, error) {
+func buildRequest(ctx context.Context, manifest Manifest, scope map[string]any, tokens *TokenCache) (*http.Request, error) {
 	rendered, err := renderString(manifest.Request.URL, scope)
 	if err != nil {
 		return nil, err
@@ -158,7 +175,7 @@ func buildRequest(ctx context.Context, manifest Manifest, scope map[string]any) 
 		request.Header.Set(key, value)
 	}
 
-	if err := applyAuth(request, manifest.Auth, configOf(scope)); err != nil {
+	if err := applyAuth(ctx, request, manifest.Auth, configOf(scope), tokens); err != nil {
 		return nil, fmt.Errorf("connector %q: %w", manifest.Key, err)
 	}
 
@@ -176,7 +193,7 @@ func buildRequest(ctx context.Context, manifest Manifest, scope map[string]any) 
 // administrator, input by whoever models a process, and the two must not be
 // interchangeable or a modeller could read a credential by mapping it into a
 // variable.
-func applyAuth(request *http.Request, auth Auth, config map[string]any) error {
+func applyAuth(ctx context.Context, request *http.Request, auth Auth, config map[string]any, tokens *TokenCache) error {
 	switch auth.Type {
 	case "", authNone:
 		return nil
@@ -212,12 +229,22 @@ func applyAuth(request *http.Request, auth Auth, config map[string]any) error {
 		return nil
 
 	case authOAuth2ClientCredentials:
-		// Deliberately not implemented here. A token has to be fetched, cached
-		// until it expires, and refreshed under concurrency — that is a piece of
-		// state, and putting it in the middle of a stateless request builder is
-		// how it ends up fetched once per call. It belongs beside the connector
-		// instance, which is where the credentials already live.
-		return fmt.Errorf("OAuth client credentials are not supported yet; use a bearer token for now")
+		// The token itself is state — issued for minutes or hours, and shared by
+		// every call this connector makes — so it lives in the cache rather than
+		// here. This function stays a request builder and asks for one.
+		if tokens == nil {
+			return fmt.Errorf("this connector authenticates with OAuth, and no token cache is configured")
+		}
+		creds, err := credentialsFrom(auth, config)
+		if err != nil {
+			return err
+		}
+		token, err := tokens.Token(ctx, creds)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		return nil
 
 	default:
 		return fmt.Errorf("%q is not a kind of authentication this understands", auth.Type)

@@ -374,6 +374,26 @@ errors:
     retry_after: "headers['Retry-After']"
 ```
 
+**Authentication** is one of `none`, `basic`, `bearer`, `api_key` or
+`oauth2_client_credentials`. The first four read what the tenant configured on
+the connector instance (`username`/`password`, `token`, `api_key`). OAuth takes
+its token URL from the manifest and its credentials from the instance:
+
+```yaml
+auth:
+  type: oauth2_client_credentials
+  token_url: "https://login.example.com/oauth2/token"
+  scopes: [read, write]
+```
+
+with `client_id` and `client_secret` — plus `audience` for providers that need
+one, and `scope` to narrow what the manifest asks for — configured on the
+instance. Tokens are fetched once and reused until shortly before they expire,
+and callers arriving during a refresh wait for it rather than each starting
+their own. The token URL is deliberately not configurable: it is the connector
+author describing the API, and letting an instance override it would let whoever
+configures one redirect the credentials elsewhere.
+
 `{{ … }}` is the only syntax this adds. Everything inside is FEEL — the same
 language gateway conditions, input mappings and decision cells use.
 

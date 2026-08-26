@@ -63,6 +63,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Connector manifests can authenticate with OAuth client credentials.** The
+  schema accepted `oauth2_client_credentials` and the runtime then refused it,
+  so a manifest could be written, validated and installed and would fail on its
+  first call. Tokens are fetched once and reused until shortly before expiry;
+  concurrent callers share one fetch rather than each starting their own.
+
 - **A production image.** Three stages (bun builds the UI, Go builds a static
   binary, distroless runs it as non-root on a read-only root filesystem), plus
   a compose file for evaluation. `make docker`, `make docker-run`.
