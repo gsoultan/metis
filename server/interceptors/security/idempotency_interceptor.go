@@ -2,6 +2,7 @@ package security
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,8 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/rs/zerolog/log"
 
+	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
+	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/interceptors/contracts"
 )
 
@@ -193,8 +198,68 @@ func entryExpired(entry *idempotencyEntry, now time.Time, ttl time.Duration) boo
 	return now.Sub(entry.createdAt) > ttl
 }
 
+// idempotencyStorageKey identifies one caller's one request.
+//
+// **The principal is part of the key, and has to be.** The value of the header
+// is chosen by the client, and clients choose obvious things — an order number,
+// a business reference, "1". Keyed on method, path and header alone, two
+// tenants picking the same value meet in the same cache entry, and the second
+// one is handed the first one's response body while their own write never runs
+// at all. That is a cross-tenant disclosure and a silently dropped command in
+// the same exchange, which is why AGENTS §2.3 states that a cache ignoring who
+// asked is a data leak.
+//
+// Scoping is by tenant *and* user: two people in one organization retrying with
+// the same key are still two different commands.
 func idempotencyStorageKey(r *http.Request, idempotencyKey string) string {
-	return r.Method + "\n" + r.URL.Path + "\n" + idempotencyKey
+	tenant, principal := callerIdentity(r.Context())
+	return r.Method + "\n" + r.URL.Path + "\n" + tenant + "\n" + principal + "\n" + idempotencyKey
+}
+
+// callerIdentity returns the tenant and principal this request is acting as.
+//
+// Both are best-effort by design: this interceptor also sits in front of
+// requests that carry no principal yet, and an unauthenticated caller is not a
+// reason to refuse a write the chain below is happy to serve. What matters is
+// that two *different* callers never produce the same string — an empty
+// identity is its own bucket, not a shared one.
+func callerIdentity(ctx context.Context) (tenant, principal string) {
+	if tc, ok := entities.TenantContextFrom(ctx); ok {
+		tenant = tc.TenantID
+	}
+
+	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
+	case entities.User:
+		principal = principalOf(u)
+	case *entities.User:
+		if u != nil {
+			principal = principalOf(*u)
+		}
+	case pkgauth.UserClaims:
+		principal = claimsPrincipal(u)
+	case *pkgauth.UserClaims:
+		if u != nil {
+			principal = claimsPrincipal(*u)
+		}
+	}
+	return tenant, principal
+}
+
+// principalOf prefers the stable id over the username, which is editable.
+func principalOf(u entities.User) string {
+	if u.ID != uuid.Nil {
+		return u.ID.String()
+	}
+	return u.Username
+}
+
+// claimsPrincipal prefers the token subject, the one field an OIDC provider
+// guarantees is stable and unique.
+func claimsPrincipal(c pkgauth.UserClaims) string {
+	if c.Subject != "" {
+		return c.Subject
+	}
+	return c.Username
 }
 
 func hashRequest(r *http.Request) (string, error) {

@@ -123,6 +123,33 @@ Open the UI and the first run walks through the setup wizard.
 
 ### Production build
 
+The image is the supported artifact. It builds the UI, compiles a static binary
+and ships it on a distroless base with no shell — one file plus certificates,
+running as a non-root user against a read-only root filesystem.
+
+```bash
+make docker                # stamps the image with `git describe`
+```
+
+Try it, with a PostgreSQL alongside:
+
+```bash
+make docker-run            # http://localhost:8080
+```
+
+`docker-compose.yml` is for evaluation: the secrets in it are literals. Generate
+real ones for anything else, and back `ENCRYPTION_KEY` up separately from the
+database — a backup without it restores unreadable rows
+([`docs/recovery.md`](docs/recovery.md)).
+
+Ask a running server which build it is:
+
+```bash
+curl -s localhost:8080/healthz     # {"status":"ok","version":"v1.2.3"}
+```
+
+Building without Docker, which is also what CI does:
+
 ```bash
 make ui-build              # required: ui/embed.go embeds ui/dist
 go build ./cmd/gobpm

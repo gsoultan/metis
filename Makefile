@@ -110,6 +110,14 @@ sdk: ## Build and test the Go client SDK (its own module — the main gate skips
 gate: ui-build build vet test race strict-scope sdk ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
 	@echo "✅ gate green"
 
+.PHONY: docker
+docker: ## Build the production image, stamped with the current git describe
+	docker build --build-arg VERSION=$$(git describe --tags --always --dirty) -t gobpm:$$(git describe --tags --always --dirty) -t gobpm:latest .
+
+.PHONY: docker-run
+docker-run: ## Bring up the evaluation stack (engine + PostgreSQL) on :8080
+	docker compose up --build
+
 .PHONY: graph
 graph: ## Refresh the graphify knowledge graph
 	rtk graphify update .

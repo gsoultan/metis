@@ -51,6 +51,30 @@ func (f CheckerFunc) Check(ctx context.Context) error { return f(ctx) }
 type response struct {
 	Status string `json:"status"`
 	Detail string `json:"detail,omitzero"`
+
+	// Version is the build serving this probe. "Which version is actually
+	// running" is the first question of any incident and the last question of
+	// any deploy, and until this existed the only way to answer it was to read
+	// a startup log that may have rotated away. Reported on liveness only:
+	// readiness is polled every few seconds by every replica, and it is the
+	// answer to a different question.
+	Version string `json:"version,omitzero"`
+}
+
+// buildVersion is stamped at link time; see internal/app.version, which is set
+// by the same -X flag. It is duplicated rather than imported because internal/app
+// imports this package, and the reverse would be a cycle.
+//
+// "dev" rather than a plausible-looking number: a probe reporting a version that
+// was never released is worse than one admitting it does not know.
+var buildVersion = "dev"
+
+// SetBuildVersion records the running build for the liveness probe. The
+// composition root calls it once at startup, before any server is listening.
+func SetBuildVersion(v string) {
+	if v != "" {
+		buildVersion = v
+	}
 }
 
 // Wrap serves the probe endpoints ahead of next.
@@ -64,7 +88,7 @@ func Wrap(next http.Handler, readiness map[string]Checker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case LivenessPath:
-			writeResponse(w, http.StatusOK, response{Status: "ok"})
+			writeResponse(w, http.StatusOK, response{Status: "ok", Version: buildVersion})
 		case ReadinessPath:
 			serveReadiness(w, r, readiness)
 		default:

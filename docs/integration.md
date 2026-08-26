@@ -170,6 +170,33 @@ curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/path   # exec
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.
 
+## Retrying your own calls safely
+
+The write endpoints accept an `Idempotency-Key` header, so a client that loses a
+response can retry without wondering whether the first attempt landed.
+
+```
+POST /api/v1/process/start
+Idempotency-Key: order-4471-start
+```
+
+Send any value that identifies *the command you are issuing*, not the attempt: a
+retry must carry the same one. A repeated request returns the original response
+with `Idempotency-Replayed: true` and does not execute again. Reusing one key
+with a *different* body is refused with `409 Conflict` — that is almost always a
+client bug, and executing it would make the key meaningless.
+
+Records are kept for 15 minutes, which is a retry window rather than a
+deduplication guarantee; a retry an hour later is a new command.
+
+**Keys are scoped to you.** They are namespaced by tenant and user, so choosing
+an obvious value — an order number, `1` — cannot collide with another customer's
+key. Only reads are exempt: `GET` and `HEAD` ignore the header entirely.
+
+**One caveat:** these records live in the serving process, not the database, so
+they hold for a single engine replica — the supported topology today. See
+[`recovery.md` §2.1](recovery.md).
+
 ## Your endpoint will be called twice, eventually
 
 A service task's call and the transaction that records its result cannot share a

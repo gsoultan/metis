@@ -258,6 +258,10 @@ func (a *App) Run() error {
 	// Tracing before anything that might be worth tracing. It is off unless an
 	// OTLP endpoint is configured, and the shutdown function is safe to call
 	// either way, so there is no conditional cleanup to get wrong.
+	// The liveness probe reports the build, so "which version is running" has an
+	// answer that does not depend on finding the startup log.
+	health.SetBuildVersion(version)
+
 	shutdownTracing, err := tracing.Init(ctx, version)
 	if err != nil {
 		return fmt.Errorf("failed to start tracing: %w", err)

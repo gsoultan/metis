@@ -103,10 +103,22 @@ the RTO in §1 is the honest number for this deployment shape.
 
 ### 3.1 Backup
 
+Run [`scripts/backup.sh`](../scripts/backup.sh) on a schedule — it is this procedure, so it
+can be executed rather than transcribed under pressure:
+
+```bash
+ENCRYPTION_KEY=... GOBPM_BACKUP_GPG_RECIPIENT=ops@example.com scripts/backup.sh /backup
+```
+
+It refuses to run without `ENCRYPTION_KEY`, because a backup that looks complete and
+restores unreadable rows is worse than one that visibly failed. It uses
+`--single-transaction` for MySQL, and writes a manifest so a restore knows what it holds.
+
+Continuous archiving is configured on the server itself, and is what buys the 5-minute RPO.
 PostgreSQL (the reference deployment):
 
 ```bash
-# Base backup, nightly.
+# Base backup, nightly — or scripts/backup.sh, above.
 pg_basebackup -h "$PGHOST" -U "$PGUSER" -D /backup/base-$(date +%F) -Ft -z -P
 
 # Continuous archiving — this is what buys the 5-minute RPO.
@@ -128,6 +140,13 @@ matters — without it the dump is not a consistent snapshot, and a process inst
 captured in a state its own tokens contradict.
 
 ### 3.2 Restore
+
+[`scripts/restore.sh`](../scripts/restore.sh) performs steps 2 and 4, and refuses to start
+until you confirm step 1:
+
+```bash
+DATABASE_URL=... scripts/restore.sh /backup/20260826T035909Z
+```
 
 Order matters, and step 1 is the one that gets skipped.
 
