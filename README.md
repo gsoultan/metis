@@ -102,6 +102,8 @@ go install github.com/air-verse/air@latest
 
 Open the UI and the first run walks through the setup wizard.
 
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
+
 ### Configuration
 
 | Variable | Purpose |

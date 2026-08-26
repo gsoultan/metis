@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
 
@@ -29,7 +30,7 @@ func MakeListIncidentsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.InstanceID)
 		if err != nil {
-			return ListIncidentsResponse{Err: err}, nil
+			return ListIncidentsResponse{Err: apierr.Invalidf("instance_id %q is not a valid identifier: %v", req.InstanceID, err)}, nil
 		}
 		incidents, err := s.ListIncidents(ctx, id)
 		return ListIncidentsResponse{Incidents: incidents, Err: err}, nil
@@ -44,7 +45,7 @@ func MakeResolveIncidentEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return ResolveIncidentResponse{Err: err}, nil
+			return ResolveIncidentResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.ResolveIncident(ctx, id)
 		return ResolveIncidentResponse{Err: err}, nil

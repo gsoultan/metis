@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
 
@@ -46,7 +47,7 @@ func MakeGetOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetOrganizationResponse{Err: err}, nil
+			return GetOrganizationResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		o, err := s.GetOrganization(ctx, id)
 		return GetOrganizationResponse{Organization: o, Err: err}, nil
@@ -68,7 +69,7 @@ func MakeUpdateOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return UpdateOrganizationResponse{Err: err}, nil
+			return UpdateOrganizationResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.UpdateOrganization(ctx, id, req.Name, req.Description)
 		return UpdateOrganizationResponse{Err: err}, nil
@@ -83,7 +84,7 @@ func MakeDeleteOrganizationEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteOrganizationResponse{Err: err}, nil
+			return DeleteOrganizationResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteOrganization(ctx, id)
 		return DeleteOrganizationResponse{Err: err}, nil

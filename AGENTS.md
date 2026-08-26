@@ -355,6 +355,7 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `bun run build` | green |
 | `bun run lint` | green — was 231 errors (Phase 0.6, cleared) |
 | `make strict-scope` | green — the HTTP chain and job worker under the strict tenant scope, which ships off |
+| `tests/slo` | green — the §1 targets are asserted, not assumed. Reads p95 11.1ms/150ms, actions 13.8ms/500ms, 0.000% 5xx, 170k starts/min on PostgreSQL 17 |
 | `golangci-lint` | **baselined** — 799 pre-existing findings; CI blocks new ones via `only-new-issues`. Burn-down order is in `.golangci.yml`; the engine's slice is done. |
 
 `make gate` runs everything. Do not narrow it — narrow the code instead.

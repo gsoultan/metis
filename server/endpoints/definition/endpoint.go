@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 )
@@ -43,7 +44,7 @@ func MakeListDefinitionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if req.ProjectID != "" {
 			projectID, err = uuid.Parse(req.ProjectID)
 			if err != nil {
-				return ListDefinitionsResponse{Err: err}, nil
+				return ListDefinitionsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 			}
 		}
 		// A project keeps every version of every process it has ever had, so
@@ -76,7 +77,7 @@ func MakeGetDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetDefinitionResponse{Err: err}, nil
+			return GetDefinitionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		def, err := s.GetDefinition(ctx, id)
 		return GetDefinitionResponse{Definition: def, Err: err}, nil
@@ -102,7 +103,7 @@ func MakeDeleteDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteDefinitionResponse{Err: err}, nil
+			return DeleteDefinitionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteDefinition(ctx, id)
 		return DeleteDefinitionResponse{Err: err}, nil
@@ -117,7 +118,7 @@ func MakeExportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return ExportDefinitionResponse{Err: err}, nil
+			return ExportDefinitionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		xml, err := s.ExportDefinition(ctx, id)
 		return ExportDefinitionResponse{XML: xml, Err: err}, nil
@@ -146,7 +147,7 @@ func MakeImportDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return ImportDefinitionResponse{Err: fmt.Errorf("project_id must be a UUID: %w", err)}, nil
+			return ImportDefinitionResponse{Err: apierr.Invalidf("project_id must be a UUID: %v", err)}, nil
 		}
 		id, err := s.ImportDefinition(ctx, projectID, req.XML)
 		return ImportDefinitionResponse{ID: id, Err: err}, nil

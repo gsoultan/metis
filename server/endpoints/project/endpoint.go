@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
 
@@ -35,7 +36,7 @@ func MakeCreateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		orgID, err := uuid.Parse(req.OrganizationID)
 		if err != nil {
-			return CreateProjectResponse{Err: err}, nil
+			return CreateProjectResponse{Err: apierr.Invalidf("organization_id %q is not a valid identifier: %v", req.OrganizationID, err)}, nil
 		}
 		p, err := s.CreateProject(ctx, orgID, req.Name, req.Description)
 		return CreateProjectResponse{Project: p, Err: err}, nil
@@ -50,7 +51,7 @@ func MakeGetProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetProjectResponse{Err: err}, nil
+			return GetProjectResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		p, err := s.GetProject(ctx, id)
 		return GetProjectResponse{Project: p, Err: err}, nil
@@ -80,7 +81,7 @@ func MakeUpdateProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return UpdateProjectResponse{Err: err}, nil
+			return UpdateProjectResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		// An organization is optional here — omitting it leaves the project where
 		// it is — but a malformed one is a mistake, not an omission.
@@ -101,7 +102,7 @@ func MakeDeleteProjectEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteProjectResponse{Err: err}, nil
+			return DeleteProjectResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteProject(ctx, id)
 		return DeleteProjectResponse{Err: err}, nil

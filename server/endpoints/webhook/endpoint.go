@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
@@ -43,7 +44,7 @@ func MakeListWebhooksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return ListWebhooksResponse{Err: err}, nil
+			return ListWebhooksResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		hooks, err := s.ListWebhooks(ctx, projectID)
 		return ListWebhooksResponse{Webhooks: hooks, Err: err}, nil
@@ -58,7 +59,7 @@ func MakeCreateWebhookEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return CreateWebhookResponse{Err: err}, nil
+			return CreateWebhookResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		hook, err := s.CreateWebhook(ctx, entities.Webhook{
 			Project:               &entities.Project{ID: projectID},
@@ -79,7 +80,7 @@ func MakeSetWebhookEnabledEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return SetWebhookEnabledResponse{Err: err}, nil
+			return SetWebhookEnabledResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return SetWebhookEnabledResponse{Err: s.SetWebhookEnabled(ctx, id, req.Enabled)}, nil
 	}
@@ -93,7 +94,7 @@ func MakeDeleteWebhookEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteWebhookResponse{Err: err}, nil
+			return DeleteWebhookResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return DeleteWebhookResponse{Err: s.DeleteWebhook(ctx, id)}, nil
 	}

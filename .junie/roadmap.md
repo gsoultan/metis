@@ -130,9 +130,18 @@
 #### 9. Roadmap Completion Checklist (Option 1 Tracker)
 
 - [x] 1. Production SLO Targets (Non-Negotiable)
-  - [x] API latency targets defined.
-  - [x] Throughput target defined.
-  - [x] Reliability target defined.
+  - [x] API latency targets defined **and measured** — `tests/slo` drives the real
+        HTTP handler and fails if a target is missed. Measured 2026-08-26 against
+        live PostgreSQL 17: reads p95 **11.1ms** against the 150ms target,
+        workflow actions p95 **13.8ms** against 500ms, 5xx rate **0.000%**
+        against the 0.1% budget. Asserting production numbers in-process is not
+        flaky because it leaves one to two orders of magnitude of headroom; what
+        it catches is the regression that eats an order of magnitude.
+  - [x] Throughput target defined **and measured** — 170,569 process starts/min
+        on PostgreSQL, 369,049/min on SQLite, against the 10k/min target. Reported
+        rather than asserted: throughput is a property of the hardware, and a
+        threshold would either prove nothing or fail on a busy machine.
+  - [x] Reliability target defined and measured (0.000% 5xx over the runs above).
   - [x] Recovery target finalized with explicit per-environment `RTO`/`RPO` values —
         see [`docs/recovery.md`](../docs/recovery.md). Production RPO 5min / RTO 1h,
         with the backup, restore and quarterly rehearsal procedures behind them.
