@@ -52,5 +52,10 @@ func MigrationModels() []any {
 
 		// A connector described by a document rather than by Go.
 		new(ConnectorManifestModel),
+
+		// What a caller's Idempotency-Key already produced. In the database
+		// rather than in the process, so a retry landing on another replica
+		// gets the original answer instead of executing the write again.
+		new(IdempotencyRecordModel),
 	}
 }

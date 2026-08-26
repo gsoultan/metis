@@ -56,7 +56,7 @@ func newHarness(t *testing.T) *harness {
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, dispatcher, sse, "strict-scope-test-secret", func(*gorm.DB) {})
 
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{})
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

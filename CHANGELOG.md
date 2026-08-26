@@ -36,6 +36,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A client retry landing on another replica no longer re-executes the write.**
+  Idempotency records were held in the serving process, so a second replica
+  found an empty cache and ran the work again — a duplicate business action,
+  which is what the header exists to prevent. Records now live in
+  `idempotency_records` (migration 8), claimed with a single conditional insert
+  so exactly one replica executes and the rest replay its answer. Proven across
+  SQLite, PostgreSQL and MySQL.
+
+  This closes the only multi-replica gap that could corrupt data. Four remain
+  and are degradations rather than corruption — see `docs/recovery.md` §2.1.
+
 - **The PostgreSQL advisory lock never released.** Advisory locks are
   session-scoped and the locker held a connection *pool*, so the release ran on
   a session that held nothing, reported success, and left the lock held on an

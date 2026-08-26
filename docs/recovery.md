@@ -81,7 +81,7 @@ What does not, and what each one costs:
 
 | Component | With two replicas |
 | :-- | :-- |
-| Idempotency interceptor (`Idempotency-Key`) | Per-process cache. **A client retry landing on the other replica re-executes the write.** This is the one that can charge a card twice. |
+| ~~Idempotency interceptor~~ | **Fixed.** Records live in `idempotency_records`, claimed with a single conditional insert, so exactly one replica executes and the others replay its answer. Proven across SQLite, PostgreSQL and MySQL by `tests/replicas`. |
 | SSE event delivery | Per-process client registry. A browser connected to replica A never sees events produced on replica B, so the UI silently stops updating. |
 | HTTP rate limiting | Per-process windows, so the effective limit is N × the configured one. |
 | Connector rate limits and circuit breakers | Per-process, so a partner's quota is exceeded N-fold and breakers trip independently. |
@@ -94,8 +94,15 @@ It is **not wired in by default**: the shipped `DistributedLocker` is `NoOpLocke
 Object, because job claiming does not need it and it would add a round trip per job to a
 hot path.
 
-Until the table above is empty, run one replica and accept the availability that implies —
-the RTO in §1 is the honest number for this deployment shape.
+The remaining four are **degradations, not corruption**: a limit applied twice, an event a
+browser misses, a consumer started twice. The one that could produce a duplicate business
+action — the idempotency cache — is closed. That changes the risk of running two replicas
+from "may charge a card twice" to "may exceed a partner's quota and will not push live
+updates to every browser", which is a different conversation.
+
+It does not make two replicas *supported*. Until the table above is empty, run one and
+accept the availability that implies — the RTO in §1 is the honest number for this
+deployment shape.
 
 ---
 

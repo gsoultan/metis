@@ -624,6 +624,7 @@ func BuildAPIHandler(
 	sse *impl.SSEObserver,
 	validator *auth.TokenValidator,
 	readiness map[string]health.Checker,
+	db *gorm.DB,
 ) (http.Handler, *metrics.Collector) {
 	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
@@ -650,7 +651,13 @@ func BuildAPIHandler(
 					// the endpoint tenant resolver validates it against their
 					// actual memberships.
 					tenant.NewHTTPOrganizationSelector().Wrap(
-						f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+						// Records go in the database rather than in this
+						// process: a client retry that reaches another replica
+						// must find the original answer, not an empty cache and
+						// a second execution of the write. Before setup has run
+						// there is no database yet, and the factory falls back
+						// to the in-process store for that window.
+						f.NewIdempotencyOver(db, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
 					),
 				),
 			),
@@ -687,7 +694,7 @@ func BuildAPIHandler(
 
 func (a *App) runServers(ctx context.Context) error {
 	endpts := endpoints.MakeEndpoints(a.svc)
-	httpHandler, metricsCollector := BuildAPIHandler(a.svc, endpts, a.sse, a.validator, a.readinessCheckers())
+	httpHandler, metricsCollector := BuildAPIHandler(a.svc, endpts, a.sse, a.validator, a.readinessCheckers(), a.db)
 
 	grpcServer := grpcs.NewGRPCServer(endpts)
 

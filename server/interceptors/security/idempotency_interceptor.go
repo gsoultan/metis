@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,38 +29,30 @@ const (
 	idempotencyConflictStatusCode = http.StatusConflict
 )
 
-type idempotencyResult struct {
-	statusCode int
-	header     http.Header
-	body       []byte
-}
-
-type idempotencyEntry struct {
-	requestHash string
-	createdAt   time.Time
-	done        chan struct{}
-	result      *idempotencyResult
-}
-
 type idempotencyInterceptor struct {
-	ttl time.Duration
-	now func() time.Time
-
-	mu           sync.Mutex
-	entries      map[string]*idempotencyEntry
-	requestCount int
+	store IdempotencyStore
+	ttl   time.Duration
 }
 
+// NewIdempotencyInterceptor keeps records in this process.
+//
+// Correct for a single replica, which is the supported topology; a deployment
+// running more than one wants NewIdempotencyInterceptorWithStore over the
+// database, or a retry reaching another replica executes the write again.
 func NewIdempotencyInterceptor(ttl time.Duration) contracts.TransportInterceptor {
 	if ttl <= 0 {
 		ttl = defaultIdempotencyTTL
 	}
+	return NewIdempotencyInterceptorWithStore(NewMemoryIdempotencyStore(ttl), ttl)
+}
 
-	return &idempotencyInterceptor{
-		ttl:     ttl,
-		now:     time.Now,
-		entries: make(map[string]*idempotencyEntry, idempotencyCleanupEvery),
+// NewIdempotencyInterceptorWithStore lets the composition root decide where
+// records live.
+func NewIdempotencyInterceptorWithStore(store IdempotencyStore, ttl time.Duration) contracts.TransportInterceptor {
+	if ttl <= 0 {
+		ttl = defaultIdempotencyTTL
 	}
+	return &idempotencyInterceptor{store: store, ttl: ttl}
 }
 
 func (i *idempotencyInterceptor) Wrap(next http.Handler) http.Handler {
@@ -78,22 +69,77 @@ func (i *idempotencyInterceptor) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		ctx := r.Context()
 		storageKey := idempotencyStorageKey(r, idempotencyKey)
-		entry, created, conflict := i.getOrCreateEntry(storageKey, requestHash)
-		if conflict {
+
+		outcome, err := i.store.Claim(ctx, storageKey, requestHash)
+		if err != nil {
+			// The store is how this endpoint knows whether the work has already
+			// been done. Guessing "probably not" would execute a duplicate,
+			// which is the one outcome the header exists to prevent, so the
+			// caller is told to retry instead.
+			log.Error().Err(err).Msg("Could not claim an idempotency key; refusing rather than risking a duplicate")
+			http.Error(w, "Idempotency store unavailable; retry this request", http.StatusServiceUnavailable)
+			return
+		}
+
+		switch {
+		case outcome.Conflict:
 			http.Error(w, "Idempotency key already used with a different request", idempotencyConflictStatusCode)
 			return
-		}
-
-		if !created {
-			i.waitAndReplay(w, r, entry)
+		case outcome.Response != nil:
+			writeIdempotencyResult(w, resultFrom(outcome.Response), true)
+			return
+		case outcome.InFlight():
+			i.waitAndReplay(w, r, storageKey)
 			return
 		}
 
-		result := i.captureResponse(next, r)
-		i.completeEntry(storageKey, result)
-		writeIdempotencyResult(w, result, false)
+		i.executeAndRecord(w, r, next, storageKey)
 	})
+}
+
+// executeAndRecord runs the handler and stores what it produced.
+func (i *idempotencyInterceptor) executeAndRecord(w http.ResponseWriter, r *http.Request, next http.Handler, storageKey string) {
+	// Derived once, and deliberately detached from the request: the record is
+	// what makes a retry safe, so a client that hangs up mid-flight must not
+	// prevent it being written or released.
+	recordCtx := context.WithoutCancel(r.Context())
+
+	recorded := false
+	// A handler that panics still holds the claim. Releasing it on the way out
+	// means the client's retry runs the work rather than waiting out the budget
+	// for an answer nobody is going to write.
+	defer func() {
+		if !recorded {
+			if err := i.store.Abandon(recordCtx, storageKey); err != nil {
+				log.Warn().Err(err).Msg("Could not release an abandoned idempotency claim")
+			}
+		}
+	}()
+
+	result := i.captureResponse(next, r)
+
+	if err := i.store.Complete(recordCtx, storageKey, StoredResponse{
+		StatusCode: result.statusCode,
+		Header:     result.header,
+		Body:       result.body,
+	}); err != nil {
+		log.Error().Err(err).Msg("Could not record an idempotent response; a retry of this request will execute again")
+	}
+	recorded = true
+
+	writeIdempotencyResult(w, result, false)
+}
+
+func resultFrom(response *StoredResponse) *idempotencyResult {
+	return &idempotencyResult{statusCode: response.StatusCode, header: response.Header, body: response.Body}
+}
+
+type idempotencyResult struct {
+	statusCode int
+	header     http.Header
+	body       []byte
 }
 
 func (i *idempotencyInterceptor) writeRequestHashError(w http.ResponseWriter, err error) {
@@ -106,16 +152,19 @@ func (i *idempotencyInterceptor) writeRequestHashError(w http.ResponseWriter, er
 	http.Error(w, "Failed to read request body", http.StatusBadRequest)
 }
 
-func (i *idempotencyInterceptor) waitAndReplay(w http.ResponseWriter, r *http.Request, entry *idempotencyEntry) {
-	select {
-	case <-entry.done:
-		if entry.result == nil {
-			http.Error(w, "Idempotent response unavailable", http.StatusInternalServerError)
-			return
-		}
-		writeIdempotencyResult(w, entry.result, true)
-	case <-r.Context().Done():
-		http.Error(w, "Request canceled while waiting for idempotent response", http.StatusRequestTimeout)
+// waitAndReplay blocks on the caller already running this exact request.
+func (i *idempotencyInterceptor) waitAndReplay(w http.ResponseWriter, r *http.Request, storageKey string) {
+	response, err := i.store.Await(r.Context(), storageKey)
+	switch {
+	case err != nil:
+		// Either the client gave up or the wait budget expired. Both are "no
+		// answer yet", and a retry is safe because the key is what makes it so.
+		http.Error(w, "Still processing the original request; retry with the same Idempotency-Key", http.StatusRequestTimeout)
+	case response == nil:
+		// The holder abandoned the claim without recording anything.
+		http.Error(w, "The original request did not complete; retry with the same Idempotency-Key", http.StatusServiceUnavailable)
+	default:
+		writeIdempotencyResult(w, resultFrom(response), true)
 	}
 }
 
@@ -125,92 +174,6 @@ func (i *idempotencyInterceptor) captureResponse(next http.Handler, r *http.Requ
 	return capture.result()
 }
 
-func (i *idempotencyInterceptor) getOrCreateEntry(storageKey, requestHash string) (*idempotencyEntry, bool, bool) {
-	now := i.now()
-
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
-	i.requestCount++
-	if i.requestCount%idempotencyCleanupEvery == 0 {
-		staleBefore := now.Add(-i.ttl)
-		i.cleanupStaleEntries(staleBefore)
-	}
-
-	if existing, ok := i.entries[storageKey]; ok {
-		if entryExpired(existing, now, i.ttl) {
-			delete(i.entries, storageKey)
-		} else {
-			if existing.requestHash != requestHash {
-				return nil, false, true
-			}
-			return existing, false, false
-		}
-	}
-
-	entry := &idempotencyEntry{
-		requestHash: requestHash,
-		createdAt:   now,
-		done:        make(chan struct{}),
-	}
-	i.entries[storageKey] = entry
-	return entry, true, false
-}
-
-func (i *idempotencyInterceptor) completeEntry(storageKey string, result *idempotencyResult) {
-	now := i.now()
-
-	i.mu.Lock()
-	defer i.mu.Unlock()
-
-	entry, ok := i.entries[storageKey]
-	if !ok {
-		return
-	}
-
-	entry.result = result
-	entry.createdAt = now
-	close(entry.done)
-}
-
-func (i *idempotencyInterceptor) cleanupStaleEntries(staleBefore time.Time) {
-	for key, entry := range i.entries {
-		if entry.createdAt.Before(staleBefore) && entryCompleted(entry) {
-			delete(i.entries, key)
-		}
-	}
-}
-
-func entryCompleted(entry *idempotencyEntry) bool {
-	select {
-	case <-entry.done:
-		return true
-	default:
-		return false
-	}
-}
-
-func entryExpired(entry *idempotencyEntry, now time.Time, ttl time.Duration) bool {
-	if !entryCompleted(entry) {
-		return false
-	}
-
-	return now.Sub(entry.createdAt) > ttl
-}
-
-// idempotencyStorageKey identifies one caller's one request.
-//
-// **The principal is part of the key, and has to be.** The value of the header
-// is chosen by the client, and clients choose obvious things — an order number,
-// a business reference, "1". Keyed on method, path and header alone, two
-// tenants picking the same value meet in the same cache entry, and the second
-// one is handed the first one's response body while their own write never runs
-// at all. That is a cross-tenant disclosure and a silently dropped command in
-// the same exchange, which is why AGENTS §2.3 states that a cache ignoring who
-// asked is a data leak.
-//
-// Scoping is by tenant *and* user: two people in one organization retrying with
-// the same key are still two different commands.
 func idempotencyStorageKey(r *http.Request, idempotencyKey string) string {
 	tenant, principal := callerIdentity(r.Context())
 	return r.Method + "\n" + r.URL.Path + "\n" + tenant + "\n" + principal + "\n" + idempotencyKey
