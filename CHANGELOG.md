@@ -81,6 +81,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   without `ENCRYPTION_KEY`; the restore refuses to start until the operator
   confirms the engine is stopped.
 
+- **Connector contract tests** (`tests/connector/contract_test.go`) — the test
+  pyramid's last missing tier. They pin what each connector puts on the wire and
+  how it reads what comes back, including that a manifest's error rules decide
+  before its success condition, and that the outbound egress policy refuses a
+  private address by default.
+
 - **SLO tests** (`tests/slo`). The roadmap's targets now fail a build when
   missed. Measured against PostgreSQL 17: reads p95 11.1ms (target 150ms),
   workflow actions p95 13.8ms (target 500ms), 0.000% 5xx (budget 0.1%),

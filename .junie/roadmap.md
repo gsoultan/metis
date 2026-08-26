@@ -181,7 +181,16 @@
   - [x] API abuse controls implemented (request-size limit + rate limit interceptors).
   - [x] Security/reliability CI scanning baseline implemented (`go vet`, `go test -race`, `govulncheck`, `gitleaks`).
 - [ ] 6. Reliability & Bug Reduction
-  - [ ] Full test-pyramid baseline complete (unit + integration + contract + E2E).
+  - [x] Full test-pyramid baseline complete (unit + integration + contract + E2E).
+        The contract tier is `tests/connector/contract_test.go`: what each
+        connector puts on the wire and how it reads what comes back — a GET
+        carrying no body, a non-JSON 200 being a result rather than a failure, a
+        manifest's error rules deciding before its success condition (plenty of
+        APIs report failure with a 200), and the BPMN error code and
+        retryability a boundary event acts on. It also pins the egress policy,
+        which is the promise most easily lost: a connector URL can come from an
+        installed manifest, and without the policy that is a request forger
+        pointed at the private network.
   - [x] `go test -race` enabled in CI workflow.
   - [x] Fuzz tests added for parsers/forms/expressions — `tests/fuzz`, five targets
         over the BPMN XML parser, its round trip, the condition chain and FEEL.
@@ -767,9 +776,9 @@
    does — `tests/strictscope`, entering through the real HTTP chain and the job worker —
    so what is left is the staged rollout: staging with the flag on, watching for queries
    that suddenly return nothing, then production, then the default.
-2. **P0 Reliability remainder** — §6:
-   - Full test-pyramid baseline: contract tests for connectors are the missing tier.
-   (Outage simulation and feature flags both landed.)
+2. ~~**P0 Reliability remainder**~~ — the connector contract tier landed
+   (`tests/connector/contract_test.go`), which was the last missing tier. Outage
+   simulation and feature flags had already landed.
 3. **P1** — `golangci-lint` backlog burn-down; order is in `.golangci.yml`.
 4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
    backend fields. Business Timeline is already complete.
