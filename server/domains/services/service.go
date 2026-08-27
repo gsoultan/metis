@@ -116,6 +116,14 @@ func NewServiceFacade(
 
 	// Resolve circular collaborators via functional options so the wiring is
 	// grouped in one explicit call instead of scattered Set* method calls.
+	//
+	// NoOpLocker is a deliberate choice, not a placeholder. Job claiming is made
+	// exactly-once by the conditional row update in jobRepository.Lock, which
+	// holds on every supported dialect; a distributed lock on top would add a
+	// round trip per job to the poll loop and decide nothing the row update has
+	// not already decided. serviceimpl.PostgresLocker exists for work that has
+	// no such row to arbitrate it — a single-owner background consumer — and is
+	// the intended mechanism there. See docs/recovery.md §2.1.
 	jobSvc := serviceimpl.NewJobService(repo, engine, connectorSvc, serviceimpl.NewNoOpLocker(), impl.NewErrorBoundaryMatcher())
 	handlerFactory := impl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), auditWriter)
 	engine.Apply(

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
 
@@ -85,7 +86,7 @@ func MakeDeleteConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteConnectorResponse{Err: err}, nil
+			return DeleteConnectorResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteConnector(ctx, id)
 		return DeleteConnectorResponse{Err: err}, nil
@@ -100,7 +101,7 @@ func MakeListConnectorInstancesEndpoint(s services.ServiceFacade) endpoint.Endpo
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return ListConnectorInstancesResponse{Err: err}, nil
+			return ListConnectorInstancesResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		res, err := s.ListConnectorInstances(ctx, projectID)
 		return ListConnectorInstancesResponse{Instances: res, Err: err}, nil
@@ -137,7 +138,7 @@ func MakeDeleteConnectorInstanceEndpoint(s services.ServiceFacade) endpoint.Endp
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteConnectorInstanceResponse{Err: err}, nil
+			return DeleteConnectorInstanceResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteConnectorInstance(ctx, id)
 		return DeleteConnectorInstanceResponse{Err: err}, nil
@@ -209,7 +210,7 @@ func MakeSetManifestEnabledEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return SetManifestEnabledResponse{Err: err}, nil
+			return SetManifestEnabledResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return SetManifestEnabledResponse{Err: s.SetManifestEnabled(ctx, id, req.Enabled)}, nil
 	}
@@ -223,7 +224,7 @@ func MakeDeleteManifestEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteManifestResponse{Err: err}, nil
+			return DeleteManifestResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return DeleteManifestResponse{Err: s.DeleteManifest(ctx, id)}, nil
 	}

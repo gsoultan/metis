@@ -106,21 +106,55 @@ Outstanding:
    (`GOBPM_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
    marker return nothing instead of everything.
 
-   **It ships off**, and turning it on is not yet safe. Running the suite with it enabled
-   fails 10 packages: `tests/bpmn`, `connector`, `decision`, `handlers`, `pagination`,
-   `project`, `postgres`, `mysqldb`, plus `server/domains/services/impl`. Those are tests
-   calling engine internals directly with `t.Context()`, which bypasses the entry points
-   where the markers live — 106 call sites.
+   **It ships off**, and turning it on is not yet safe *for the test suite*. Running the
+   whole suite with it enabled fails 10 packages: `tests/bpmn`, `connector`, `decision`,
+   `handlers`, `pagination`, `project`, `postgres`, `mysqldb`, plus
+   `server/domains/services/impl`. Those are tests calling engine internals directly with
+   `t.Context()`, which bypasses the entry points where the markers live — 106 call sites.
 
    Blanket-marking them as system work was rejected: it would make the suite pass without
    proving anything about production, since the tests would no longer traverse the paths
-   the markers are on. What is actually needed before the flag can be flipped is either
-   integration coverage that enters through the real entry points, or a staged rollout —
-   staging first, watching for queries that suddenly return nothing.
+   the markers are on.
+
+   **The integration coverage that was the precondition now exists** —
+   `tests/strictscope`, run with the flag on by `make strict-scope` and by its own CI step.
+   It enters the way production traffic does: the HTTP chain assembled by
+   `app.BuildAPIHandler` (extracted from `runServers` so the test and the server cannot
+   drift), real logins, real tokens, and the job worker started by `StartWorkers`. A
+   process deploys, waits on a timer the background worker fires, and completes through
+   the task inbox — all under the strict scope. If any background path lost its system
+   marker the timer would never fire, and the suite says so.
+
+   Every test in it asserts the flag actually took effect before asserting anything else.
+   They all pass with the flag off too — a permissive scope permits everything — so
+   without that guard the suite would keep passing while proving nothing, which is the
+   failure this repository has already shipped twice.
+
+   It found one real thing: `CreateProject` reads its organization to validate it, so
+   under the strict scope a create with no identity fails as `record not found` on an
+   organization that plainly exists. Production carries the tenant the resolver derived,
+   so this is a test-fixture correction rather than a product defect — but it is exactly
+   the quiet shape the flag was feared for, and it is now written down.
+
+   What remains before the default can flip is the staged rollout itself: staging first,
+   watching for queries that suddenly return nothing.
 
    The failure mode is quiet by nature: a background path that forgets to mark itself does
    not error, it reads nothing, and an engine reading nothing looks like an engine with no
    work to do. That is precisely why this is behind a flag rather than simply switched on.
+
+   **That quiet is now broken.** Every denial logs a warning naming the repository method
+   and the caller that reached it without an identity — once per site, because these sit on
+   poll loops and the useful output is the list of paths to fix, not a count. The staging
+   step is therefore reading a list rather than watching for something that stops happening.
+   `tests/strictscope` proves the production paths already carry identity; the warnings
+   would name anything it does not reach.
+
+   The module-wide suite still fails with the flag on, and deliberately so: roughly 130
+   tests construct fixtures with a bare `t.Context()`, which no production path does.
+   Rewriting them to carry a tenant would be accurate but is a large change to what those
+   tests assert, and it is not what gates the rollout — the flag is evaluated in staging
+   against real traffic, not by the unit suite.
 
    `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
    carries a comment saying why — it is the installation-wide background sweep.
@@ -538,7 +572,7 @@ finding.
 
 | Package | Now | Target | Type | Notes |
 | :-- | :-- | :-- | :-- | :-- |
-| Go | 1.25.0 (mod) | **1.26.5** | patch-align | toolchain already 1.26.5; align mod + CI + README |
+| Go | ~~1.25.0 (mod)~~ | **1.27.0** | done | mod, sdk/mod, CI, Dockerfile and README all on 1.27.0. Superseded the 1.26.5 target this row originally carried. |
 | TypeScript | 5.9.3 | **7.0.2** | major ×2 | native Go compiler. **Gate: verify `typescript-eslint` 8.67 + `@vitejs/plugin-react` compatibility on a spike branch before committing.** |
 | React | 19.2.0 | **19.2.8** | patch | already current major |
 | Mantine | 8.3.16 | **9.5.1** | major | 7.x is now `legacy` tag |

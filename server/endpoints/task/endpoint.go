@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
@@ -48,7 +49,7 @@ func MakeGetTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetTaskResponse{Err: err}, nil
+			return GetTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		task, err := s.GetTask(ctx, id)
 		return GetTaskResponse{Task: task, Err: err}, nil
@@ -115,7 +116,7 @@ func MakeClaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return CompleteTaskResponse{Err: err}, nil
+			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.ClaimTask(ctx, id, req.UserID)
 		return CompleteTaskResponse{Err: err}, nil
@@ -130,7 +131,7 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return CompleteTaskResponse{Err: err}, nil
+			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.UnclaimTask(ctx, id)
 		return CompleteTaskResponse{Err: err}, nil
@@ -145,7 +146,7 @@ func MakeDelegateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return CompleteTaskResponse{Err: err}, nil
+			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DelegateTask(ctx, id, req.UserID)
 		return CompleteTaskResponse{Err: err}, nil
@@ -163,7 +164,7 @@ func MakeListTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if req.ProjectID != "" {
 			projectID, err = uuid.Parse(req.ProjectID)
 			if err != nil {
-				return ListTasksResponse{Err: err}, nil
+				return ListTasksResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 			}
 		}
 		page, err := s.ListTasksPaged(ctx, projectID, repocontracts.Pagination{
@@ -193,7 +194,7 @@ func MakeCompleteTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return CompleteTaskResponse{Err: err}, nil
+			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.CompleteTask(ctx, id, req.UserID, req.Variables)
 		return CompleteTaskResponse{Err: err}, nil
@@ -208,7 +209,7 @@ func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return UpdateTaskResponse{Err: err}, nil
+			return UpdateTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		task := entities.Task{
 			ID:       id,
@@ -229,7 +230,7 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return AssignTaskResponse{Err: err}, nil
+			return AssignTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.AssignTask(ctx, id, req.UserID)
 		return AssignTaskResponse{Err: err}, nil

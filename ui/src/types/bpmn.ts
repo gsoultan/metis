@@ -101,6 +101,9 @@ export interface EventData extends BaseBPMNNodeData {
     | 'intermediateCatchEvent'
     | 'intermediateThrowEvent'
     | 'boundaryEvent'
+    | 'errorEndEvent'
+    | 'escalationThrowEvent'
+    | 'compensationThrowEvent'
     | 'signalEvent'
     | 'messageEvent'
     | 'timerEvent';

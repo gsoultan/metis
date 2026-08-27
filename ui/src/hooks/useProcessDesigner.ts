@@ -14,6 +14,7 @@ import { notifications } from '@mantine/notifications';
 import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
 import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
+import { isEndingNode } from '../domain/bpmnVocabulary';
 import {
   useCreateDefinition,
   useDefinition,
@@ -46,7 +47,7 @@ function validateProcessModel(nodes: Node<BPMNNodeData>[], edges: Edge<BPMNEdgeD
 
   const issues: ValidationIssue[] = [];
   const hasStart = nodes.some((node) => node.type === 'startEvent');
-  const hasEnd = nodes.some((node) => node.type === 'endEvent');
+  const hasEnd = nodes.some((node) => isEndingNode(node.type));
 
   if (!hasStart) {
     issues.push({ message: 'Missing Start Event', severity: 'error' });
@@ -64,7 +65,7 @@ function validateProcessModel(nodes: Node<BPMNNodeData>[], edges: Edge<BPMNEdgeD
       issues.push({ message: `Node "${node.data.label}" has no incoming flows`, severity: 'warning', id: node.id });
     }
 
-    if (node.type !== 'endEvent' && outgoing.length === 0) {
+    if (!isEndingNode(node.type) && outgoing.length === 0) {
       issues.push({ message: `Node "${node.data.label}" has no outgoing flows`, severity: 'warning', id: node.id });
     }
 

@@ -21,14 +21,15 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Reliability**: Persistent job storage and execution.
   - **Error Handling**: Automatic retries with exponential backoff and jitter, then an incident when the attempts run out.
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
-- **Scripting Engine**: Integrated **Goja** (JavaScript engine) for:
-  - **Script Tasks**: Complex data transformations within workflows.
-  - **Dynamic Conditions**: JavaScript-based evaluation for Gateway logic.
+- **Expressions**: **FEEL** (the DMN expression language) evaluates gateway conditions, completion conditions, input/output mappings and decision-table cells.
+  - Legacy `js:` gateway conditions are **refused by default** — the JavaScript runtime cannot be memory-bounded. Installations still migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`; `GET /api/v1/definitions/javascript-conditions` lists every stored condition that still needs rewriting.
+- **Scripting Engine**: Integrated **Goja** (JavaScript engine) for **Script Tasks** — complex data transformations within workflows, under a wall-clock budget and interrupt.
 - **Task Inbox**: A dedicated view for users to manage, claim, and complete their assigned tasks.
 - **Enterprise Persistence**:
   - **Audit Logging**: Comprehensive, persistent audit trail for every state change and node transition.
   - **Security**: **AES-256-GCM encryption** for process and task variables at rest. Requires `ENCRYPTION_KEY`; the server refuses to start without it once configured.
-  - **Dual DB Support**: Supports **SQLite** for development and **PostgreSQL** for high-availability production.
+  - **Dual DB Support**: Supports **SQLite** for development and **PostgreSQL** for production.
+- **Topology**: a **single engine replica** is the supported deployment today. Job claiming, migrations, correlation and idempotency are safe across replicas; rate limiting, SSE delivery, connector breakers and the AMQP bridge still hold per-process state — see [`docs/recovery.md` §2.1](docs/recovery.md) for the full table and what each one costs.
 
 ## 🏗️ Architecture & Design Patterns
 
@@ -40,7 +41,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ## 🛠️ Technology Stack
 
-- **Backend**: Go (1.26.5+), Go Kit, GORM, Connect RPC (gRPC-compatible).
+- **Backend**: Go (1.27.0+), Go Kit, GORM, Connect RPC (gRPC-compatible).
 - **Frontend**: React (19+), Vite, Mantine UI, React Flow, Zustand, TanStack Query, TanStack Router.
 - **Integrations**: Goja (JS Runtime), Protobuf, AES-GCM Encryption.
 
@@ -67,7 +68,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ### Prerequisites
 
-- **Go**: 1.26.5 or higher
+- **Go**: 1.27.0 or higher
 - **Bun**: https://bun.sh
 - **PostgreSQL**: (Optional) For production-grade persistence
 
@@ -101,6 +102,8 @@ go install github.com/air-verse/air@latest
 
 Open the UI and the first run walks through the setup wizard.
 
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
+
 ### Configuration
 
 | Variable | Purpose |
@@ -115,10 +118,39 @@ Open the UI and the first run walks through the setup wizard.
 | `GOBPM_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
 | `GOBPM_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
 | `GOBPM_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
+| `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
+| `GOBPM_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout; the production paths are proven under it by `make strict-scope`. |
 | `GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
 | `GOBPM_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
 
 ### Production build
+
+The image is the supported artifact. It builds the UI, compiles a static binary
+and ships it on a distroless base with no shell — one file plus certificates,
+running as a non-root user against a read-only root filesystem.
+
+```bash
+make docker                # stamps the image with `git describe`
+```
+
+Try it, with a PostgreSQL alongside:
+
+```bash
+make docker-run            # http://localhost:8080
+```
+
+`docker-compose.yml` is for evaluation: the secrets in it are literals. Generate
+real ones for anything else, and back `ENCRYPTION_KEY` up separately from the
+database — a backup without it restores unreadable rows
+([`docs/recovery.md`](docs/recovery.md)).
+
+Ask a running server which build it is:
+
+```bash
+curl -s localhost:8080/healthz     # {"status":"ok","version":"v1.2.3"}
+```
+
+Building without Docker, which is also what CI does:
 
 ```bash
 make ui-build              # required: ui/embed.go embeds ui/dist

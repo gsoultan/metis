@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/internal/pkg/auth"
 	"github.com/gsoultan/gobpm/internal/pkg/redaction"
 	"github.com/gsoultan/gobpm/server/endpoints"
@@ -47,6 +48,13 @@ func CodeFrom(err error) int {
 		return http.StatusUnauthorized
 	case errors.Is(err, auth.ErrAuthenticationFailed):
 		return http.StatusUnauthorized
+	// A caller's own mistake is not a server failure. Reporting it as one
+	// spends the 0.1% 5xx error budget the engine is measured against, and
+	// pages whoever is on call for a request that was answered correctly.
+	case errors.Is(err, apierr.ErrInvalidArgument):
+		return http.StatusBadRequest
+	case errors.Is(err, apierr.ErrNotFound):
+		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
 	}

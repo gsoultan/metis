@@ -258,6 +258,10 @@ func (a *App) Run() error {
 	// Tracing before anything that might be worth tracing. It is off unless an
 	// OTLP endpoint is configured, and the shutdown function is safe to call
 	// either way, so there is no conditional cleanup to get wrong.
+	// The liveness probe reports the build, so "which version is running" has an
+	// answer that does not depend on finding the startup log.
+	health.SetBuildVersion(version)
+
 	shutdownTracing, err := tracing.Init(ctx, version)
 	if err != nil {
 		return fmt.Errorf("failed to start tracing: %w", err)
@@ -604,14 +608,30 @@ func (a *App) readinessCheckers() map[string]health.Checker {
 	}
 }
 
-func (a *App) runServers(ctx context.Context) error {
-	endpts := endpoints.MakeEndpoints(a.svc)
-	httpHandler := https.NewHTTPHandler(a.svc, endpts, a.sse)
+// BuildAPIHandler assembles the HTTP request path exactly as production serves
+// it: the Go Kit handler inside the interceptor chain, with metrics, tracing
+// and the health probes wrapped outside. runServers is its only production
+// caller.
+//
+// It is exported for integration tests that must enter through the real front
+// door — the strict-tenant-scope suite drives a process through this chain end
+// to end, which is the coverage rbac_wiring_test.go cannot give by reading the
+// wiring source. A nil validator selects the JWT strategy, as it does in
+// production when OIDC is not configured.
+func BuildAPIHandler(
+	svc services.ServiceFacade,
+	endpts endpoints.Endpoints,
+	sse *impl.SSEObserver,
+	validator *auth.TokenValidator,
+	readiness map[string]health.Checker,
+	db *gorm.DB,
+) (http.Handler, *metrics.Collector) {
+	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
-	f := interceptors.NewInterceptorFactory(a.svc)
+	f := interceptors.NewInterceptorFactory(svc)
 	var strategy authinterceptor.SecurityStrategy
-	if a.validator != nil {
-		strategy = f.NewOIDCStrategy(a.validator)
+	if validator != nil {
+		strategy = f.NewOIDCStrategy(validator)
 	} else {
 		strategy = f.NewJWTStrategy()
 	}
@@ -631,7 +651,13 @@ func (a *App) runServers(ctx context.Context) error {
 					// the endpoint tenant resolver validates it against their
 					// actual memberships.
 					tenant.NewHTTPOrganizationSelector().Wrap(
-						f.NewIdempotency(defaultHTTPIdempotencyTTL).Wrap(httpHandler),
+						// Records go in the database rather than in this
+						// process: a client retry that reaches another replica
+						// must find the original answer, not an empty cache and
+						// a second execution of the write. Before setup has run
+						// there is no database yet, and the factory falls back
+						// to the in-process store for that window.
+						f.NewIdempotencyOver(db, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
 					),
 				),
 			),
@@ -661,7 +687,14 @@ func (a *App) runServers(ctx context.Context) error {
 	// probe shed by the backpressure limiter would report a merely busy process
 	// as an unhealthy one — getting it restarted or pulled from rotation at the
 	// moment it was recovering.
-	httpHandler = health.Wrap(httpHandler, a.readinessCheckers())
+	httpHandler = health.Wrap(httpHandler, readiness)
+
+	return httpHandler, metricsCollector
+}
+
+func (a *App) runServers(ctx context.Context) error {
+	endpts := endpoints.MakeEndpoints(a.svc)
+	httpHandler, metricsCollector := BuildAPIHandler(a.svc, endpts, a.sse, a.validator, a.readinessCheckers(), a.db)
 
 	grpcServer := grpcs.NewGRPCServer(endpts)
 

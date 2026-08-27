@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
 )
@@ -46,7 +47,7 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if req.ProjectID != "" {
 			projectID, err = uuid.Parse(req.ProjectID)
 			if err != nil {
-				return ListDecisionsResponse{Err: err}, nil
+				return ListDecisionsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 			}
 		}
 		page, err := s.ListDecisionsPaged(ctx, projectID, repocontracts.Pagination{
@@ -76,7 +77,7 @@ func MakeGetDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetDecisionResponse{Err: err}, nil
+			return GetDecisionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		dec, err := s.GetDecision(ctx, id)
 		return GetDecisionResponse{Decision: dec, Err: err}, nil
@@ -102,7 +103,7 @@ func MakeDeleteDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteDecisionResponse{Err: err}, nil
+			return DeleteDecisionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.DeleteDecision(ctx, id)
 		return DeleteDecisionResponse{Err: err}, nil
@@ -117,7 +118,7 @@ func MakeUpdateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return UpdateDecisionResponse{Err: err}, nil
+			return UpdateDecisionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		err = s.UpdateDecision(ctx, id, req.Decision)
 		return UpdateDecisionResponse{Err: err}, nil
@@ -143,7 +144,7 @@ func MakeDecisionImpactEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DecisionImpactResponse{Err: err}, nil
+			return DecisionImpactResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		impact, err := s.DecisionImpact(ctx, id)
 		return DecisionImpactResponse{Impact: impact, Err: err}, nil
@@ -163,7 +164,7 @@ func MakeRunDecisionTestsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return RunDecisionTestsResponse{Err: err}, nil
+			return RunDecisionTestsResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		results, err := s.RunDecisionTests(ctx, id)
 		return RunDecisionTestsResponse{Results: results, Err: err}, nil

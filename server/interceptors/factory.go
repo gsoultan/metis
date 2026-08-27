@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/gobpm/server/interceptors/logging"
 	"github.com/gsoultan/gobpm/server/interceptors/security"
 	"github.com/gsoultan/gobpm/server/interceptors/tenant"
+	"gorm.io/gorm"
 )
 
 // InterceptorFactory creates various interceptors.
@@ -51,8 +52,22 @@ func (f *InterceptorFactory) NewBackpressure(maxInFlightRequests, maxQueuedReque
 	return security.NewBackpressureInterceptor(maxInFlightRequests, maxQueuedRequests)
 }
 
+// NewIdempotency keeps idempotency records in the serving process.
+//
+// Correct for one replica, which is the supported topology. More than one wants
+// NewIdempotencyOver, or a client retry landing on a different replica finds an
+// empty cache and executes the write a second time.
 func (f *InterceptorFactory) NewIdempotency(ttl time.Duration) contracts.TransportInterceptor {
 	return security.NewIdempotencyInterceptor(ttl)
+}
+
+// NewIdempotencyOver keeps idempotency records in the database, so every
+// replica gives the same answer to "has this already been done?".
+func (f *InterceptorFactory) NewIdempotencyOver(db *gorm.DB, ttl time.Duration) contracts.TransportInterceptor {
+	if db == nil {
+		return f.NewIdempotency(ttl)
+	}
+	return security.NewIdempotencyInterceptorWithStore(security.NewDBIdempotencyStore(db, ttl), ttl)
 }
 
 func (f *InterceptorFactory) NewJWTStrategy() authinterceptor.SecurityStrategy {

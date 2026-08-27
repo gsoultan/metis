@@ -73,6 +73,20 @@ type ExportDefinitionResponse struct {
 
 func (r ExportDefinitionResponse) Failed() error { return r.Err }
 
+// ListJavaScriptConditionsRequest asks for the javascript-conditions worklist.
+// It carries nothing: the scope is the caller's tenant, resolved from context.
+type ListJavaScriptConditionsRequest struct{}
+
+// ListJavaScriptConditionsResponse is the worklist. Usages is always present —
+// an empty list is the answer an operator is working toward, and `[]` says that
+// where an omitted field would leave them guessing.
+type ListJavaScriptConditionsResponse struct {
+	Usages []entities.JavaScriptConditionUsage `json:"usages"`
+	Err    error                               `json:"err,omitzero"`
+}
+
+func (r ListJavaScriptConditionsResponse) Failed() error { return r.Err }
+
 type ImportDefinitionRequest struct {
 	ProjectID string `json:"project_id"`
 	XML       []byte `json:"xml"`

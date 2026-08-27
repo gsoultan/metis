@@ -1,0 +1,63 @@
+# Evaluation stack: the engine and a PostgreSQL to point it at.
+#
+# This is for trying Metis BPM out and for local integration work. It is not a
+# production deployment: secrets are literals in this file, and there is exactly
+# one engine replica — which is the supported topology anyway (docs/recovery.md
+# §2.1), so the shape is honest, only the secrets are not.
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: gobpm
+      POSTGRES_PASSWORD: gobpm
+      POSTGRES_DB: gobpm
+    volumes:
+      - gobpm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready, not a TCP probe: the port accepts connections a good while
+      # before the server will answer a query, and the engine's first act is to
+      # run migrations.
+      test: ["CMD-SHELL", "pg_isready -U gobpm -d gobpm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Not published by default. Uncomment to inspect the database from the host;
+    # leaving it closed keeps an evaluation stack off the network.
+    # ports:
+    #   - "5432:5432"
+
+  gobpm:
+    build:
+      context: .
+      args:
+        VERSION: ${GOBPM_VERSION:-dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "host=postgres user=gobpm password=gobpm dbname=gobpm port=5432 sslmode=disable"
+
+      # Both are required once configured, and the server refuses to start
+      # without them. These are throwaway values for evaluation — generate real
+      # ones for anything else, and back ENCRYPTION_KEY up separately from the
+      # database, because a backup without it restores unreadable rows.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-evaluation-only-change-me}
+
+      # Off by default in the product; stated here so the file documents the
+      # decision rather than leaving it to a reader to wonder.
+      GOBPM_FEATURE_JAVASCRIPT_CONDITIONS: "false"
+    ports:
+      - "8080:8080"   # API and the embedded UI
+      - "8081:8081"   # gRPC
+    # The image has no shell, so the healthcheck cannot be a CMD-SHELL string.
+    # Compose has no HTTP probe of its own, and adding curl to a distroless
+    # image to satisfy one would be a worse trade than letting depends_on and
+    # /readyz do their jobs separately.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  gobpm-postgres:

@@ -4,4 +4,4 @@
 // costs that much to import does not get imported.
 module github.com/gsoultan/gobpm/sdk
 
-go 1.26.5
+go 1.27.0

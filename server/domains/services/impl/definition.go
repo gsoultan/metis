@@ -147,3 +147,79 @@ func (s *definitionService) ImportDefinition(ctx context.Context, projectID uuid
 	def.Project = &entities.Project{ID: projectID}
 	return s.CreateDefinition(ctx, def)
 }
+
+// ListJavaScriptConditions walks every definition the caller can see and
+// reports each condition the evaluator chain would hand to JavaScript. This is
+// the worklist for the javascript-conditions flag: it ships off, so anything
+// reported here is a decision point that will refuse to route until rewritten
+// in FEEL. It is deliberately complete rather than paged — a truncated worklist
+// reads as "migration done" when it is not — so the scan is batched instead,
+// holding one batch of graphs at a time rather than the whole installation.
+func (s *definitionService) ListJavaScriptConditions(ctx context.Context) ([]entities.JavaScriptConditionUsage, error) {
+	usages := make([]entities.JavaScriptConditionUsage, 0)
+	err := s.repo.Definition().ScanWithGraphs(ctx, func(batch []models.ProcessDefinitionModel) error {
+		for _, m := range batch {
+			def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
+			usages = append(usages, collectJavaScriptConditions(def)...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return usages, nil
+}
+
+// collectJavaScriptConditions finds the `js:` conditions in one definition.
+//
+// The prefix check mirrors JSExpressionEvaluator exactly — HasPrefix, no
+// trimming — because this report is a promise about what that evaluator will
+// refuse. A condition it would not treat as JavaScript must not appear here.
+func collectJavaScriptConditions(def *entities.ProcessDefinition) []entities.JavaScriptConditionUsage {
+	c := &jsConditionCollector{def: def}
+	def.Accept(c)
+	return c.usages
+}
+
+// jsConditionCollector is the DefinitionVisitor behind
+// collectJavaScriptConditions. It inspects the two fields the condition chain
+// evaluates: sequence-flow conditions and completion conditions. Node.Condition
+// is deliberately ignored — it carries timer expressions and script bodies,
+// which the javascript-conditions flag does not gate, and reporting them would
+// make the worklist lie about what turning the flag on or off changes.
+type jsConditionCollector struct {
+	def    *entities.ProcessDefinition
+	usages []entities.JavaScriptConditionUsage
+}
+
+func (c *jsConditionCollector) VisitDefinition(*entities.ProcessDefinition) {}
+
+func (c *jsConditionCollector) VisitFlowNode(n *entities.Node) {
+	if n == nil {
+		return
+	}
+	c.record(n.ID, n.Name, "completion condition", n.CompletionCondition)
+}
+
+func (c *jsConditionCollector) VisitSequenceFlow(sf *entities.SequenceFlow) {
+	if sf == nil {
+		return
+	}
+	c.record(sf.ID, "", "flow condition", sf.Condition)
+}
+
+func (c *jsConditionCollector) record(elementID, elementName, where, condition string) {
+	if !strings.HasPrefix(condition, "js:") {
+		return
+	}
+	c.usages = append(c.usages, entities.JavaScriptConditionUsage{
+		DefinitionID:   c.def.ID,
+		DefinitionKey:  c.def.Key,
+		DefinitionName: c.def.Name,
+		Version:        c.def.Version,
+		ElementID:      elementID,
+		ElementName:    elementName,
+		Where:          where,
+		Condition:      condition,
+	})
+}

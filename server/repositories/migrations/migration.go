@@ -156,6 +156,28 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 8,
+			Name:    "idempotency records survive the process",
+			// The Idempotency-Key cache lived in the serving process, so a
+			// client retry that reached a different replica found nothing and
+			// executed the write a second time. For an engine that moves money
+			// that is a duplicate business action, which is what the header
+			// exists to prevent.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "idempotency_records")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasTable(model) {
+					return nil
+				}
+				if err := db.AutoMigrate(model); err != nil {
+					return fmt.Errorf("create idempotency_records: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 

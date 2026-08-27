@@ -1,0 +1,31 @@
+# The Docker build context. Everything here either does not belong in an image
+# or is rebuilt inside it.
+
+.git
+.github
+.serena
+graphify-out
+
+# Rebuilt by the ui stage. Copying a developer's node_modules in would be slow
+# and, on a different architecture, wrong.
+ui/node_modules
+ui/dist
+
+# Local state and secrets — a config.yaml or a SQLite database baked into an
+# image is both a leak and a surprise at first boot.
+*.db
+*.db-shm
+*.db-wal
+config.yaml
+.env
+.env.*
+
+# Build output and test artifacts.
+/gobpm
+bin/
+tests/performance/artifacts
+
+# Documentation and tooling that no build step reads.
+docs
+*.md
+!README.md

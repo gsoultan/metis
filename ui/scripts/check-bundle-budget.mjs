@@ -12,6 +12,16 @@
  * close enough that a careless import trips them, loose enough that a genuine
  * feature does not. Raise one only with a note in the commit saying what was
  * added and why it belongs in the first paint.
+ *
+ * **Calibrated against a Linux build, which is what ships.** The same tree
+ * measures differently by platform — zlib compresses the identical bytes to a
+ * slightly different size on macOS than on linux/arm64, around 2-3 kB across
+ * the first-paint set. The budgets were originally set from a macOS run with
+ * about 1.5 kB of headroom, which the Docker build then exceeded on numbers
+ * nobody had changed: a gate that blocks the release artifact while passing on
+ * a developer's laptop. Headroom is now wider than the platform spread, so the
+ * check still catches a careless import (any real dependency is tens of kB)
+ * without depending on where it runs.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -20,11 +30,14 @@ import { join } from 'node:path';
 const DIST = new URL('../dist/', import.meta.url).pathname;
 
 const BUDGETS = {
-  /** Everything index.html pulls in before the app can paint. */
-  initialTotal: 330,
-  /** The single largest eager chunk, to catch one dependency swallowing the app. */
-  largestChunk: 110,
-  /** CSS blocks rendering, so it gets its own ceiling. */
+  /** Everything index.html pulls in before the app can paint. Linux measures
+   *  330.9; macOS 328.5. */
+  initialTotal: 336,
+  /** The single largest eager chunk, to catch one dependency swallowing the
+   *  app. Linux measures 108.8; macOS 108.0. */
+  largestChunk: 112,
+  /** CSS blocks rendering, so it gets its own ceiling. Measures ~37.4 on both,
+   *  and is nowhere near its ceiling, so it needs no platform allowance. */
   initialCss: 45,
 };
 

@@ -86,6 +86,35 @@ func (r *gormDefinitionRepository) List(ctx context.Context) ([]models.ProcessDe
 	return modelsList, nil
 }
 
+// definitionGraphBatchSize bounds how many definition graphs are held at once
+// while scanning. A project keeps every version of every process it has ever
+// had, and a graph is the whole BPMN document, so the unbatched form grows
+// with installation age — the shape that made BackfillEngineBookkeeping load
+// every process instance ever created into memory on every boot.
+const definitionGraphBatchSize = 200
+
+// ScanWithGraphs walks the caller's definitions with their node and flow
+// graphs hydrated, handing them to visit one batch at a time.
+//
+// List deliberately projects those columns away, because a list page does not
+// need them. A caller that reads what definitions *contain* must ask for them,
+// and gets a callback rather than a slice so peak memory is one batch rather
+// than the whole installation. Returning an error from visit stops the scan.
+func (r *gormDefinitionRepository) ScanWithGraphs(ctx context.Context, visit func([]models.ProcessDefinitionModel) error) error {
+	var batch []models.ProcessDefinitionModel
+	db := tenantScopeDB(ctx, GetTx(ctx, r.db), "process_definitions")
+
+	// FindInBatches orders by primary key and pages internally, so the scan is
+	// stable and never materializes the full set.
+	result := db.FindInBatches(&batch, definitionGraphBatchSize, func(*gorm.DB, int) error {
+		return visit(batch)
+	})
+	if result.Error != nil {
+		return fmt.Errorf("could not scan definitions with graphs: %w", result.Error)
+	}
+	return nil
+}
+
 // ListByProjectPaged returns one page of a project's definitions, newest first.
 //
 // The order is table-qualified: tenant scoping joins the projects table, which

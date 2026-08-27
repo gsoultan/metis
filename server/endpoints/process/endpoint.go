@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/gobpm/internal/pkg/apierr"
 	"github.com/gsoultan/gobpm/server/domains/services"
 )
 
@@ -49,7 +50,7 @@ func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return StartProcessResponse{Err: err}, nil
+			return StartProcessResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		id, err := s.StartProcess(ctx, projectID, req.DefinitionKey, req.Variables)
 		return StartProcessResponse{InstanceID: id, Err: err}, nil
@@ -70,7 +71,7 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return ListInstancesResponse{
-				Err: fmt.Errorf("project id %q is not a valid identifier: %w", req.ProjectID, err),
+				Err: apierr.Invalidf("project id %q is not a valid identifier: %v", req.ProjectID, err),
 			}, nil
 		}
 
@@ -122,7 +123,7 @@ func MakeGetAuditLogsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.InstanceID)
 		if err != nil {
-			return GetAuditLogsResponse{Err: err}, nil
+			return GetAuditLogsResponse{Err: apierr.Invalidf("instance_id %q is not a valid identifier: %v", req.InstanceID, err)}, nil
 		}
 		entries, err := s.GetAuditLogs(ctx, id)
 		return GetAuditLogsResponse{Entries: entries, Err: err}, nil
@@ -137,7 +138,7 @@ func MakeGetInstanceEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return GetInstanceResponse{Err: err}, nil
+			return GetInstanceResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		inst, err := s.GetInstance(ctx, id)
 		return GetInstanceResponse{Instance: inst, Err: err}, nil
@@ -152,7 +153,7 @@ func MakeListSubProcessesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ParentInstanceID)
 		if err != nil {
-			return ListSubProcessesResponse{Err: err}, nil
+			return ListSubProcessesResponse{Err: apierr.Invalidf("parent_instance_id %q is not a valid identifier: %v", req.ParentInstanceID, err)}, nil
 		}
 		instances, err := s.ListSubProcesses(ctx, id)
 		return ListSubProcessesResponse{Instances: instances, Err: err}, nil
@@ -205,7 +206,7 @@ func MakeActivateAdHocTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 func activateAdHocTask(ctx context.Context, s services.ServiceFacade, req ActivateAdHocTaskRequest) error {
 	instanceID, err := uuid.Parse(req.InstanceID)
 	if err != nil {
-		return fmt.Errorf("instance id %q is not a valid identifier: %w", req.InstanceID, err)
+		return apierr.Invalidf("instance id %q is not a valid identifier: %v", req.InstanceID, err)
 	}
 	return s.ActivateTask(ctx, instanceID, req.SubProcessNodeID, req.TaskNodeID)
 }
@@ -218,7 +219,7 @@ func MakeBroadcastSignalEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return BroadcastSignalResponse{Err: err}, nil
+			return BroadcastSignalResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		err = s.BroadcastSignal(ctx, projectID, req.SignalName, req.Variables)
 		return BroadcastSignalResponse{Err: err}, nil
@@ -233,7 +234,7 @@ func MakeSendMessageEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
-			return SendMessageResponse{Err: err}, nil
+			return SendMessageResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 		err = s.SendMessage(ctx, projectID, req.MessageName, req.CorrelationKey, req.Variables)
 		return SendMessageResponse{Err: err}, nil

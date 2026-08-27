@@ -265,7 +265,10 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
         overflowY: 'auto',
       }}
     >
-      <Container size="md" w="100%">
+      {/* lg, not md: five steps with a label and a description need about
+          1100px, and md left them ~900 — so they wrapped, stranding the
+          connector after the fourth pointing at nothing. */}
+      <Container size="lg" w="100%">
         <Paper shadow="xl" radius="lg" p={40} withBorder>
           <Stack gap="xl">
             <Center>

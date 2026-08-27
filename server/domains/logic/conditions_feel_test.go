@@ -129,26 +129,32 @@ func TestNonBooleanConditionIsRefused(t *testing.T) {
 	}
 }
 
-// TestJavaScriptConditionsCanBeRefused covers the security control: the flag
-// exists so an operator can stop accepting a language whose runtime cannot be
-// fully bounded.
-func TestJavaScriptConditionsCanBeRefused(t *testing.T) {
+// TestJavaScriptConditionsAreRefusedUnlessEnabled covers the security control:
+// `js:` hands authored content to a runtime that cannot be fully bounded, so
+// the flag ships off and running JavaScript is the explicit, logged exception.
+// Both directions use an override so the test pins behaviour under each flag
+// state rather than whatever the process environment happens to say.
+func TestJavaScriptConditionsAreRefusedUnlessEnabled(t *testing.T) {
 	chain := GetConditionEvaluatorChain()
 	vars := map[string]any{"amount": 900.0}
 
-	// On by default, so existing definitions keep working.
-	if !chain.Evaluate("js:900 > 500", vars) {
-		t.Fatal("a JavaScript condition did not run with the flag at its default")
-	}
-
-	defer features.OverrideForTest(features.JavaScriptConditions, false)()
-
+	restore := features.OverrideForTest(features.JavaScriptConditions, false)
 	if chain.Evaluate("js:900 > 500", vars) {
-		t.Error("a JavaScript condition ran while the flag refused it")
+		restore()
+		t.Fatal("a JavaScript condition ran while the flag refused it")
 	}
-	// FEEL is unaffected — that is the point of turning JavaScript off.
+	// FEEL is unaffected — that is the point of refusing JavaScript.
 	if !chain.Evaluate("amount > 500", vars) {
-		t.Error("refusing JavaScript also broke FEEL conditions")
+		restore()
+		t.Fatal("refusing JavaScript also broke FEEL conditions")
+	}
+	restore()
+
+	// An installation still migrating can turn it on, and the sandbox is the
+	// budget that then applies.
+	defer features.OverrideForTest(features.JavaScriptConditions, true)()
+	if !chain.Evaluate("js:900 > 500", vars) {
+		t.Error("a JavaScript condition did not run with the flag explicitly on")
 	}
 }
 

@@ -28,6 +28,8 @@ export type NodeKind =
   | 'errorEndEvent'
   | 'intermediateCatchEvent'
   | 'intermediateThrowEvent'
+  | 'escalationThrowEvent'
+  | 'compensationThrowEvent'
   | 'boundaryEvent'
   | 'userTask'
   | 'serviceTask'
@@ -177,6 +179,20 @@ export const NODE_VOCABULARY: Record<NodeKind, NodeVocabulary> = {
     example: 'Tell the shipping process that payment has cleared.',
     group: 'Waiting',
   },
+  escalationThrowEvent: {
+    plainName: 'Raise it to someone',
+    bpmnName: 'Escalation Throw Event',
+    whatItDoes: 'Tells the surrounding process that something needs attention, without stopping this work.',
+    example: 'The claim is larger than this team can approve, so a manager is brought in.',
+    group: 'Waiting',
+  },
+  compensationThrowEvent: {
+    plainName: 'Undo earlier steps',
+    bpmnName: 'Compensation Throw Event',
+    whatItDoes: 'Runs the undo for steps that already finished, newest first.',
+    example: 'The order fell through, so release the stock and refund the deposit.',
+    group: 'Waiting',
+  },
   boundaryEvent: {
     plainName: 'If this goes wrong',
     bpmnName: 'Boundary Event',
@@ -230,4 +246,20 @@ export function nodeSubLabel(kind: string, expertMode: boolean): string | undefi
   const entry = vocabularyFor(kind);
   if (!entry) return undefined;
   return expertMode ? entry.plainName : entry.bpmnName;
+}
+
+/**
+ * The node types that end a path.
+ *
+ * All three are endings and only the plain one was ever recognised, so a
+ * process finishing with "Stop everything" or "Finish with a problem" was
+ * reported as having no end event *and* as having a step with no outgoing
+ * flows — two errors for a diagram that was correct. That mattered less while
+ * neither could be placed from the palette; both can now.
+ */
+export const ENDING_NODE_TYPES = ['endEvent', 'terminateEndEvent', 'errorEndEvent'] as const;
+
+/** Whether a node type ends the path it sits on. */
+export function isEndingNode(nodeType: string | undefined): boolean {
+  return ENDING_NODE_TYPES.includes(nodeType as (typeof ENDING_NODE_TYPES)[number]);
 }

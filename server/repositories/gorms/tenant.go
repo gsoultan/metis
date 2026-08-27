@@ -3,12 +3,15 @@ package gorms
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/gobpm/internal/pkg/features"
 	"github.com/gsoultan/gobpm/server/domains/entities"
 	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -32,12 +35,102 @@ func unscopedAccessAllowed(ctx context.Context) bool {
 	if entities.IsSystemContext(ctx) {
 		return true
 	}
-	return !features.Enabled(features.StrictTenantScope)
+	if !features.Enabled(features.StrictTenantScope) {
+		return true
+	}
+	reportUnidentifiedAccess()
+	return false
+}
+
+// reportedSites remembers which call sites have already been named.
+//
+// Keyed by program counter, so it is bounded by the amount of code that can
+// reach here rather than by traffic — this is not a map keyed on anything a
+// caller supplies.
+var reportedSites sync.Map
+
+// reportUnidentifiedAccess names the code path that reached a repository with
+// neither a tenant nor a system identity.
+//
+// **The strict scope's failure mode is silence.** A background entry point that
+// forgets to mark itself does not error — it reads nothing, and an engine that
+// reads nothing looks like an engine with no work to do. That is precisely what
+// makes turning this flag on hard to evaluate: an operator watching a staging
+// environment has to notice an *absence*, and absences are what people miss.
+//
+// So each distinct site says so. Once, not every time: these sit on poll loops
+// that run every couple of seconds, and the useful output is the list of paths
+// that still need an identity — not a count of how often they ran. Turning a
+// rollout from "watch for something that stops happening" into "read this list"
+// is the whole point.
+//
+// Nothing is logged while the flag is off, because this is unreachable then.
+func reportUnidentifiedAccess() {
+	site, from, ok := deniedCallSite()
+	if !ok {
+		return
+	}
+	if _, seen := reportedSites.LoadOrStore(site.PC, struct{}{}); seen {
+		return
+	}
+	event := log.Warn().
+		Str("repository", site.Function).
+		Str("at", fmt.Sprintf("%s:%d", site.File, site.Line)).
+		Str("flag", features.EnvName(features.StrictTenantScope))
+	if from != "" {
+		// The repository method says *what* was denied; its caller says which
+		// path forgot an identity, which is the thing that has to change.
+		event = event.Str("called_from", from)
+	}
+	event.Msg("A repository query carried neither a tenant nor a system identity, so it was answered with nothing. " +
+		"This path needs entities.WithSystemContext if it is background work, or a resolved tenant if it serves a request.")
 }
 
 // denyAll returns a query guaranteed to match nothing.
+//
+// An empty result rather than an error, because a repository's contract is rows
+// and every caller already handles finding none. What makes that safe to do
+// quietly is reportUnidentifiedAccess above, which names the path that got here
+// without an identity.
 func denyAll(db *gorm.DB) *gorm.DB {
 	return db.Where(QueryDenyAll)
+}
+
+// scopeHelperFile is where the tenant-scope helpers live. Frames from it are
+// skipped when naming a denial: they are the same three functions every time
+// and identify nothing.
+const scopeHelperFile = "/gorms/tenant.go"
+
+// deniedCallSite returns the repository method that was denied and, when it can
+// be told, the caller outside this package that invoked it.
+//
+// Both, because they answer different questions. The repository method says
+// what came back empty; its caller is the path that failed to carry an identity
+// and therefore the code that has to change.
+func deniedCallSite() (site runtime.Frame, calledFrom string, ok bool) {
+	pc := make([]uintptr, 24)
+	// Skip runtime.Callers, this function and reportUnidentifiedAccess.
+	n := runtime.Callers(3, pc)
+	if n == 0 {
+		return runtime.Frame{}, "", false
+	}
+
+	frames := runtime.CallersFrames(pc[:n])
+	const gormsPackage = "/server/repositories/gorms."
+	for {
+		frame, more := frames.Next()
+		switch {
+		case strings.HasSuffix(frame.File, scopeHelperFile):
+			// A scope helper — keep looking for the repository method.
+		case site.PC == 0:
+			site = frame
+		case !strings.Contains(frame.Function, gormsPackage):
+			return site, frame.Function, true
+		}
+		if !more {
+			return site, calledFrom, site.PC != 0
+		}
+	}
 }
 
 // tenantScopeDB returns a *gorm.DB scoped to the active tenant (organization)

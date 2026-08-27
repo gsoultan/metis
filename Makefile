@@ -88,6 +88,10 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 race: ## Run the full Go test suite under the race detector
 	go test -race $(GO_TEST_FLAGS) $(GO_PKGS)
 
+.PHONY: strict-scope
+strict-scope: ## Run the strict-tenant-scope suite with the flag on, as production would set it
+	GOBPM_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 ./tests/strictscope/...
+
 .PHONY: lint
 lint: ## Run golangci-lint
 	golangci-lint run
@@ -103,8 +107,16 @@ sdk: ## Build and test the Go client SDK (its own module — the main gate skips
 	cd sdk && go vet ./... && go test -race $(GO_TEST_FLAGS) ./...
 
 .PHONY: gate
-gate: ui-build build vet test race sdk ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
+gate: ui-build build vet test race strict-scope sdk ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
 	@echo "✅ gate green"
+
+.PHONY: docker
+docker: ## Build the production image, stamped with the current git describe
+	docker build --build-arg VERSION=$$(git describe --tags --always --dirty) -t gobpm:$$(git describe --tags --always --dirty) -t gobpm:latest .
+
+.PHONY: docker-run
+docker-run: ## Bring up the evaluation stack (engine + PostgreSQL) on :8080
+	docker compose up --build
 
 .PHONY: graph
 graph: ## Refresh the graphify knowledge graph

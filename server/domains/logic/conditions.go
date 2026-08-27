@@ -131,7 +131,7 @@ func (e *JSExpressionEvaluator) Evaluate(condition string, vars map[string]any) 
 		log.Error().
 			Str("condition", condition).
 			Str("flag", features.EnvName(features.JavaScriptConditions)).
-			Msg("A JavaScript condition was refused: this definition needs rewriting in FEEL")
+			Msg("A JavaScript condition was refused: rewrite it in FEEL — GET /api/v1/definitions/javascript-conditions lists every affected definition")
 		return false
 	}
 

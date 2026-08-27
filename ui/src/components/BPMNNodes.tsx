@@ -152,8 +152,8 @@ export const StartNode = ({ data, selected }: NodeProps) => (
 );
 
 export const EndNode = ({ data, selected }: NodeProps) => {
-  const isTerminate = data.type === 'terminateEndEvent';
-  const isError = data.type === 'errorEndEvent';
+  const isTerminate = data.nodeType === 'terminateEndEvent';
+  const isError = data.nodeType === 'errorEndEvent';
 
   return (
     <Stack align="center" gap={4} style={{ position: 'relative', ...getStatusStyles(data.status as string, data.heatmapValue as number) }}>
@@ -228,11 +228,17 @@ export const IntermediateNode = ({ data, selected }: NodeProps) => {
 };
 
 export const TaskNode = ({ data, selected }: NodeProps) => {
-  const isUserTask = data.type === 'userTask';
-  const isScriptTask = data.type === 'scriptTask';
-  const isManualTask = data.type === 'manualTask';
-  const isBusinessRuleTask = data.type === 'businessRuleTask';
-  const isCallActivity = data.type === 'callActivity';
+  // data.nodeType, not data.type. Nothing has ever set data.type — the mapper
+  // that loads a definition and the handler that drops a new node both write
+  // nodeType — so every one of these comparisons was false and every fallback
+  // won. The visible effect was that every task rendered as "Call another
+  // system" with a service-task gear, and every gateway as exclusive,
+  // whichever kind it actually was.
+  const isUserTask = data.nodeType === 'userTask';
+  const isScriptTask = data.nodeType === 'scriptTask';
+  const isManualTask = data.nodeType === 'manualTask';
+  const isBusinessRuleTask = data.nodeType === 'businessRuleTask';
+  const isCallActivity = data.nodeType === 'callActivity';
   
   let Icon = Settings;
   let accentColor = 'teal';
@@ -258,7 +264,7 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
   // Someone reading the diagram to understand the process needs to know what
   // the step does, so it now reads "Calls another system" unless expert mode
   // is on. Both names appear on hover, so the notation stays learnable.
-  const typeLabel = useNodeCaption(String(data.type ?? 'serviceTask'));
+  const typeLabel = useNodeCaption(String(data.nodeType ?? 'serviceTask'));
 
   return (
     <Paper 
@@ -280,7 +286,7 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
       <Stack gap={4}>
         <Group gap={6} align="center" justify="space-between">
           <Group gap={4}>
-            <NodeHelp nodeType={String(data.type ?? 'serviceTask')}>
+            <NodeHelp nodeType={String(data.nodeType ?? 'serviceTask')}>
               <Icon size={14} color={`var(--mantine-color-${accentColor}-6)`} />
             </NodeHelp>
             <Text size="10px" c="dimmed">
@@ -339,11 +345,11 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
 };
 
 export const GatewayNode = ({ data, selected }: NodeProps) => {
-  const gatewayCaption = useNodeCaption(String(data.type ?? 'exclusiveGateway'));
-  const isExclusive = data.type === 'exclusiveGateway';
-  const isParallel = data.type === 'parallelGateway';
-  const isInclusive = data.type === 'inclusiveGateway';
-  const isEventBased = data.type === 'eventBasedGateway';
+  const gatewayCaption = useNodeCaption(String(data.nodeType ?? 'exclusiveGateway'));
+  const isExclusive = data.nodeType === 'exclusiveGateway';
+  const isParallel = data.nodeType === 'parallelGateway';
+  const isInclusive = data.nodeType === 'inclusiveGateway';
+  const isEventBased = data.nodeType === 'eventBasedGateway';
   
   let iconElement = null;
   if (isExclusive) {
@@ -408,7 +414,7 @@ export const GatewayNode = ({ data, selected }: NodeProps) => {
             transition: 'all 0.2s ease'
           }}
         />
-        <NodeHelp nodeType={String(data.type ?? 'exclusiveGateway')}>
+        <NodeHelp nodeType={String(data.nodeType ?? 'exclusiveGateway')}>
           <Box style={{ zIndex: 1, position: 'relative' }}>
             {iconElement}
           </Box>

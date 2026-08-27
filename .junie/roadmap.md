@@ -130,9 +130,18 @@
 #### 9. Roadmap Completion Checklist (Option 1 Tracker)
 
 - [x] 1. Production SLO Targets (Non-Negotiable)
-  - [x] API latency targets defined.
-  - [x] Throughput target defined.
-  - [x] Reliability target defined.
+  - [x] API latency targets defined **and measured** — `tests/slo` drives the real
+        HTTP handler and fails if a target is missed. Measured 2026-08-26 against
+        live PostgreSQL 17: reads p95 **11.1ms** against the 150ms target,
+        workflow actions p95 **13.8ms** against 500ms, 5xx rate **0.000%**
+        against the 0.1% budget. Asserting production numbers in-process is not
+        flaky because it leaves one to two orders of magnitude of headroom; what
+        it catches is the regression that eats an order of magnitude.
+  - [x] Throughput target defined **and measured** — 170,569 process starts/min
+        on PostgreSQL, 369,049/min on SQLite, against the 10k/min target. Reported
+        rather than asserted: throughput is a property of the hardware, and a
+        threshold would either prove nothing or fail on a busy machine.
+  - [x] Reliability target defined and measured (0.000% 5xx over the runs above).
   - [x] Recovery target finalized with explicit per-environment `RTO`/`RPO` values —
         see [`docs/recovery.md`](../docs/recovery.md). Production RPO 5min / RTO 1h,
         with the backup, restore and quarterly rehearsal procedures behind them.
@@ -172,7 +181,16 @@
   - [x] API abuse controls implemented (request-size limit + rate limit interceptors).
   - [x] Security/reliability CI scanning baseline implemented (`go vet`, `go test -race`, `govulncheck`, `gitleaks`).
 - [ ] 6. Reliability & Bug Reduction
-  - [ ] Full test-pyramid baseline complete (unit + integration + contract + E2E).
+  - [x] Full test-pyramid baseline complete (unit + integration + contract + E2E).
+        The contract tier is `tests/connector/contract_test.go`: what each
+        connector puts on the wire and how it reads what comes back — a GET
+        carrying no body, a non-JSON 200 being a result rather than a failure, a
+        manifest's error rules deciding before its success condition (plenty of
+        APIs report failure with a 200), and the BPMN error code and
+        retryability a boundary event acts on. It also pins the egress policy,
+        which is the promise most easily lost: a connector URL can come from an
+        installed manifest, and without the policy that is a request forger
+        pointed at the private network.
   - [x] `go test -race` enabled in CI workflow.
   - [x] Fuzz tests added for parsers/forms/expressions — `tests/fuzz`, five targets
         over the BPMN XML parser, its round trip, the condition chain and FEEL.
@@ -185,7 +203,10 @@
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
-        mechanism, so a flag is on or off for the whole installation.
+        mechanism, so a flag is on or off for the whole installation. The shipped
+        defaults are pinned by test (`TestSecurityDefaults`), because changing
+        either one is a security decision with a rollout plan behind it rather
+        than a tweak.
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).
   - [x] Task Inbox UX overhaul: priority badges, overdue countdown, bulk actions.
@@ -751,19 +772,25 @@
    `TenantContext` is present, which is what lets the engine and its workers run. That is
    defence in depth rather than a live hole (both protected chains resolve tenant,
    unresolvable principals are refused, and the public chain's membership is asserted by
-   test), but closing it properly means giving system work an explicit system identity.
-2. **P0 Reliability remainder** — §6:
-   - Full test-pyramid baseline: contract tests for connectors are the missing tier.
-   (Outage simulation and feature flags both landed.)
+   test). The integration coverage that had to exist before the flag could be flipped now
+   does — `tests/strictscope`, entering through the real HTTP chain and the job worker —
+   so what is left is the staged rollout: staging with the flag on, watching for queries
+   that suddenly return nothing, then production, then the default.
+2. ~~**P0 Reliability remainder**~~ — the connector contract tier landed
+   (`tests/connector/contract_test.go`), which was the last missing tier. Outage
+   simulation and feature flags had already landed.
 3. **P1** — `golangci-lint` backlog burn-down; order is in `.golangci.yml`.
 4. **P2 UX Delight** — Task Inbox SLA fields: overdue countdown and priority badge
    backend fields. Business Timeline is already complete.
 
-The one item that is *not* on this list and arguably outranks all of it: **Phase 2, the
-FEEL expression layer**. `feel_evaluator.go` is string matching, not the parser in
-`execution-plan.md` §2.1, and the script-sandbox measurement above is the argument for it —
-gateway conditions accepting arbitrary JavaScript is a memory-exhaustion vector no sandbox
-setting can close.
+**Closed since this list was written:** Phase 2 landed the real FEEL parser, and the
+memory-exhaustion vector it existed to remove is now off by default —
+`javascript-conditions` ships `false`, so a default installation refuses `js:` conditions
+outright rather than handing authored content to a runtime no sandbox setting can bound.
+A gateway whose conditions are all refused raises an incident naming the gateway; it does
+not guess a branch (`tests/bpmn/refused_js_condition_test.go`). Installations still
+migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`, and
+`GET /api/v1/definitions/javascript-conditions` gives them the worklist.
 
 ---
 
