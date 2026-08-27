@@ -28,6 +28,8 @@ export type NodeKind =
   | 'errorEndEvent'
   | 'intermediateCatchEvent'
   | 'intermediateThrowEvent'
+  | 'escalationThrowEvent'
+  | 'compensationThrowEvent'
   | 'boundaryEvent'
   | 'userTask'
   | 'serviceTask'
@@ -175,6 +177,20 @@ export const NODE_VOCABULARY: Record<NodeKind, NodeVocabulary> = {
     bpmnName: 'Intermediate Throw Event',
     whatItDoes: 'Sends a message or signal that other processes can be waiting for.',
     example: 'Tell the shipping process that payment has cleared.',
+    group: 'Waiting',
+  },
+  escalationThrowEvent: {
+    plainName: 'Raise it to someone',
+    bpmnName: 'Escalation Throw Event',
+    whatItDoes: 'Tells the surrounding process that something needs attention, without stopping this work.',
+    example: 'The claim is larger than this team can approve, so a manager is brought in.',
+    group: 'Waiting',
+  },
+  compensationThrowEvent: {
+    plainName: 'Undo earlier steps',
+    bpmnName: 'Compensation Throw Event',
+    whatItDoes: 'Runs the undo for steps that already finished, newest first.',
+    example: 'The order fell through, so release the stock and refund the deposit.',
     group: 'Waiting',
   },
   boundaryEvent: {

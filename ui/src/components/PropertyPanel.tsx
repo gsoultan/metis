@@ -43,6 +43,7 @@ import { BusinessRuleTaskConfig } from './properties/BusinessRuleTaskConfig';
 import { CallActivityConfig } from './properties/CallActivityConfig';
 import { ServiceTaskConfig } from './properties/ServiceTaskConfig';
 import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
+import { ThrowEventConfig } from './properties/ThrowEventConfig';
 import { EventConfig } from './properties/EventConfig';
 import { StartEventConfig } from './properties/StartEventConfig';
 import { DataFlowPanel } from './properties/DataFlowPanel';
@@ -85,7 +86,12 @@ const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
   serviceTask: ServiceTaskConfig,
   scriptTask: ScriptTaskConfig,
   intermediateCatchEvent: EventConfig,
-  intermediateThrowEvent: EventConfig,
+  // The throwing events get their own panel: EventConfig asks what a step
+  // *waits for*, which is the wrong question for one that announces something.
+  intermediateThrowEvent: ThrowEventConfig,
+  errorEndEvent: ThrowEventConfig,
+  escalationThrowEvent: ThrowEventConfig,
+  compensationThrowEvent: ThrowEventConfig,
   boundaryEvent: EventConfig,
   signalEvent: EventConfig,
   messageEvent: EventConfig,
@@ -470,7 +476,7 @@ function NodeConfigSection({
     />
   ) : (
     <Box py="xl" style={{ textAlign: 'center' }}>
-       {['terminateEndEvent', 'errorEndEvent'].includes(type) ? (
+       {['terminateEndEvent'].includes(type) ? (
           <>
             <Text size="sm" fw={700} c="indigo">This is a specialized end event.</Text>
             <Text size="xs" c="dimmed">No additional configuration required for this element.</Text>

@@ -226,3 +226,45 @@ describe('boundary events', () => {
     });
   });
 });
+
+/**
+ * The throwing events reach the engine under the names it actually reads.
+ *
+ * These were drawable nowhere until the palette gained them, so nothing had
+ * ever checked that what the property panel writes arrives where the handler
+ * looks. The handlers read `error_code` as a column, and `escalation_code`,
+ * `activity_ref`, `signal_name`, `message_name` and `correlation_key` out of
+ * the settings bag — a field saved under the editor's camelCase name would be
+ * silently ignored, and the step would throw an empty code that every handler
+ * catches.
+ */
+describe('what the throwing events save', () => {
+  it('puts an error end event’s code in the column the engine reads', () => {
+    const saved = payloadFor({ errorCode: 'PAYMENT_DECLINED' }, 'errorEndEvent');
+    expect(saved.error_code).toBe('PAYMENT_DECLINED');
+  });
+
+  it('saves an escalation’s code where TriggerEscalation looks for it', () => {
+    const saved = payloadFor({ escalationCode: 'NEEDS_MANAGER' }, 'escalationThrowEvent');
+    expect(saved.properties?.escalation_code).toBe('NEEDS_MANAGER');
+  });
+
+  it('saves which step to undo where TriggerCompensation looks for it', () => {
+    const saved = payloadFor({ activityRef: 'reserve_stock' }, 'compensationThrowEvent');
+    expect(saved.properties?.activity_ref).toBe('reserve_stock');
+  });
+
+  it('saves a broadcast under signal_name', () => {
+    const saved = payloadFor({ signalName: 'PAYMENT_CLEARED' }, 'intermediateThrowEvent');
+    expect(saved.properties?.signal_name).toBe('PAYMENT_CLEARED');
+  });
+
+  it('saves a directed message with the value that picks one process', () => {
+    const saved = payloadFor(
+      { messageName: 'ORDER_READY', correlationKey: '${orderId}' },
+      'intermediateThrowEvent',
+    );
+    expect(saved.properties?.message_name).toBe('ORDER_READY');
+    expect(saved.properties?.correlation_key).toBe('${orderId}');
+  });
+});

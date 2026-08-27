@@ -17,7 +17,12 @@ import {
   Search,
   X,
   GripVertical,
-  Zap
+  Zap,
+  AlertTriangle,
+  Radio,
+  Send,
+  TrendingUp,
+  Undo2
 } from 'lucide-react';
 import classes from './DesignerSidebar.module.css';
 import { useConnectors } from '../hooks/useProcess';
@@ -71,6 +76,7 @@ const paletteItems: Array<{
   { kind: 'startEvent', type: 'startEvent', icon: Play, color: 'green' },
   { kind: 'endEvent', type: 'endEvent', icon: Square, color: 'gray' },
   { kind: 'terminateEndEvent', type: 'terminateEndEvent', icon: Zap, color: 'red' },
+  { kind: 'errorEndEvent', type: 'errorEndEvent', icon: AlertTriangle, color: 'red' },
 
   { kind: 'userTask', type: 'userTask', icon: User, color: 'blue' },
   { kind: 'serviceTask', type: 'serviceTask', icon: Settings, color: 'teal' },
@@ -98,6 +104,26 @@ const paletteItems: Array<{
     variantName: 'Wait for a message',
     variantExample: 'Wait until the payment system confirms the transfer.',
   },
+  // The throwing half of the same conversation. The engine has run these since
+  // boundary events landed — an error end event is how a path reports a named
+  // problem for a boundary to catch — but none of them were reachable from
+  // here, so the only way to author one was to hand-write BPMN XML and import
+  // it. Two variants, as with the catch event above, because "announce" means
+  // a broadcast or a directed message depending on which field is filled in.
+  {
+    kind: 'intermediateThrowEvent', type: 'intermediateThrowEvent', icon: Radio, color: 'blue',
+    data: { icon: 'signal' },
+    variantName: 'Announce to anyone listening',
+    variantExample: 'Tell every process watching that payment has cleared.',
+  },
+  {
+    kind: 'intermediateThrowEvent', type: 'intermediateThrowEvent', icon: Send, color: 'blue',
+    data: { icon: 'message' },
+    variantName: 'Send a message to one process',
+    variantExample: 'Tell the shipping process for this order that it can proceed.',
+  },
+  { kind: 'escalationThrowEvent', type: 'escalationThrowEvent', icon: TrendingUp, color: 'orange' },
+  { kind: 'compensationThrowEvent', type: 'compensationThrowEvent', icon: Undo2, color: 'orange' },
   { kind: 'boundaryEvent', type: 'boundaryEvent', icon: Circle, color: 'orange', data: { icon: 'timer' } },
 
   { kind: 'subProcess', type: 'subProcess', icon: Plus, color: 'indigo' },
