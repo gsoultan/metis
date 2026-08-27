@@ -271,6 +271,34 @@ func drive(t *testing.T, name string, workers, count int, op func(worker int) sa
 	return r
 }
 
+// assertLatency checks a measured percentile against its target, unless the
+// race detector is on.
+//
+// **The race detector is not a slow machine, it is a different measurement.**
+// It instruments every memory access, costing five to twenty times the runtime,
+// so a wall-clock percentile taken under it describes the instrumentation
+// rather than the code — and `make race` runs this suite. Measured here: reads
+// p95 of 373ms under -race against 11ms without, on the same commit.
+//
+// The work still runs, because that is what gives the race detector something
+// to inspect, and the error-budget assertions still hold because they are not
+// timing-dependent. Only the wall-clock claim is set aside, and the numbers are
+// still logged so a race run is not silently measuring nothing.
+func assertLatency(t *testing.T, r report, target time.Duration, what string) {
+	t.Helper()
+
+	p95 := r.percentile(0.95).Round(time.Microsecond)
+	if raceEnabled {
+		t.Logf("%s p95 is %v against a %v target; not asserted because the race detector's "+
+			"instrumentation, not this code, is what a timing measurement under -race describes", what, p95, target)
+		return
+	}
+	if p95 > target {
+		t.Errorf("%s p95 is %v, over the %v target — in-process this has one to two orders of "+
+			"magnitude of headroom, so exceeding it means a real regression", what, p95, target)
+	}
+}
+
 // TestReadLatencyMeetsItsTarget covers "common reads": the list endpoints an
 // operator's screen refreshes against.
 func TestReadLatencyMeetsItsTarget(t *testing.T) {
@@ -310,10 +338,7 @@ func TestReadLatencyMeetsItsTarget(t *testing.T) {
 		return sample{elapsed: time.Since(began), status: status}
 	})
 
-	if p95 := r.percentile(0.95); p95 > readP95Target {
-		t.Errorf("read p95 is %v, over the %v target — in-process this has two orders of magnitude of headroom, so exceeding it means a real regression",
-			p95.Round(time.Microsecond), readP95Target)
-	}
+	assertLatency(t, r, readP95Target, "read")
 	if rate := r.serverErrorRate(); rate > errorBudget {
 		t.Errorf("read 5xx rate is %.3f%%, over the %.1f%% budget", rate*100, errorBudget*100)
 	}
@@ -335,9 +360,7 @@ func TestWorkflowActionLatencyMeetsItsTarget(t *testing.T) {
 		return sample{elapsed: time.Since(began), status: status}
 	})
 
-	if p95 := r.percentile(0.95); p95 > actionP95Target {
-		t.Errorf("workflow action p95 is %v, over the %v target", p95.Round(time.Microsecond), actionP95Target)
-	}
+	assertLatency(t, r, actionP95Target, "workflow action")
 	if rate := r.serverErrorRate(); rate > errorBudget {
 		t.Errorf("action 5xx rate is %.3f%%, over the %.1f%% budget", rate*100, errorBudget*100)
 	}

@@ -10,10 +10,11 @@ permissions:
   contents: read
 
 env:
-  # 1.26.6 carries the fix for GO-2026-6218 (quadratic resolvePath in net/url).
-  # govulncheck reports it against the standard library itself, so the version
-  # here is the fix — there is nothing to change in this repository's code.
-  GO_VERSION: '1.26.6'
+  # Kept at or above 1.26.6, which carries the fix for GO-2026-6218 (quadratic
+  # resolvePath in net/url). govulncheck reports that against the standard
+  # library itself, so the version here is the fix — there is nothing to change
+  # in this repository's code. 1.27.0 supersedes it.
+  GO_VERSION: '1.27.0'
 
 jobs:
   ui:

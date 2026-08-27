@@ -32,7 +32,7 @@ COPY ui/ ./
 RUN bun run build
 
 # ---- stage 2: the server ------------------------------------------------
-FROM golang:1.26.6-alpine AS build
+FROM golang:1.27.0-alpine AS build
 
 # git: the Go toolchain wants it for VCS stamping. ca-certificates: outbound
 # connector calls are TLS, and scratch-adjacent bases carry no roots.

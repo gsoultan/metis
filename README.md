@@ -41,7 +41,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ## 🛠️ Technology Stack
 
-- **Backend**: Go (1.26.5+), Go Kit, GORM, Connect RPC (gRPC-compatible).
+- **Backend**: Go (1.27.0+), Go Kit, GORM, Connect RPC (gRPC-compatible).
 - **Frontend**: React (19+), Vite, Mantine UI, React Flow, Zustand, TanStack Query, TanStack Router.
 - **Integrations**: Goja (JS Runtime), Protobuf, AES-GCM Encryption.
 
@@ -68,7 +68,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ### Prerequisites
 
-- **Go**: 1.26.5 or higher
+- **Go**: 1.27.0 or higher
 - **Bun**: https://bun.sh
 - **PostgreSQL**: (Optional) For production-grade persistence
 

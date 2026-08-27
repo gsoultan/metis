@@ -572,7 +572,7 @@ finding.
 
 | Package | Now | Target | Type | Notes |
 | :-- | :-- | :-- | :-- | :-- |
-| Go | 1.25.0 (mod) | **1.26.5** | patch-align | toolchain already 1.26.5; align mod + CI + README |
+| Go | ~~1.25.0 (mod)~~ | **1.27.0** | done | mod, sdk/mod, CI, Dockerfile and README all on 1.27.0. Superseded the 1.26.5 target this row originally carried. |
 | TypeScript | 5.9.3 | **7.0.2** | major ×2 | native Go compiler. **Gate: verify `typescript-eslint` 8.67 + `@vitejs/plugin-react` compatibility on a spike branch before committing.** |
 | React | 19.2.0 | **19.2.8** | patch | already current major |
 | Mantine | 8.3.16 | **9.5.1** | major | 7.x is now `legacy` tag |
