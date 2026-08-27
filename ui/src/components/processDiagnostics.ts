@@ -6,6 +6,7 @@
  * reload the designer and lose the diagram in progress.
  */
 import type { Edge, Node } from '@xyflow/react';
+import { isEndingNode } from '../domain/bpmnVocabulary';
 import type { BPMNEdgeData, BPMNNodeData } from '../types/bpmn';
 
 export interface DiagnosticResult {
@@ -18,7 +19,7 @@ export interface DiagnosticResult {
 export function validateProcess(nodes: Node<BPMNNodeData>[], edges: Edge<BPMNEdgeData>[]): DiagnosticResult[] {
   const diagnostics: DiagnosticResult[] = [];
   const startEvents = nodes.filter(n => n.type === 'startEvent');
-  const endEvents = nodes.filter(n => n.type === 'endEvent');
+  const endEvents = nodes.filter(n => isEndingNode(n.type));
 
   if (nodes.length > 0 && startEvents.length === 0) {
     diagnostics.push({

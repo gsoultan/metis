@@ -247,3 +247,19 @@ export function nodeSubLabel(kind: string, expertMode: boolean): string | undefi
   if (!entry) return undefined;
   return expertMode ? entry.plainName : entry.bpmnName;
 }
+
+/**
+ * The node types that end a path.
+ *
+ * All three are endings and only the plain one was ever recognised, so a
+ * process finishing with "Stop everything" or "Finish with a problem" was
+ * reported as having no end event *and* as having a step with no outgoing
+ * flows — two errors for a diagram that was correct. That mattered less while
+ * neither could be placed from the palette; both can now.
+ */
+export const ENDING_NODE_TYPES = ['endEvent', 'terminateEndEvent', 'errorEndEvent'] as const;
+
+/** Whether a node type ends the path it sits on. */
+export function isEndingNode(nodeType: string | undefined): boolean {
+  return ENDING_NODE_TYPES.includes(nodeType as (typeof ENDING_NODE_TYPES)[number]);
+}

@@ -58,7 +58,12 @@ export const useAppStore = create<AppState>()(
       toggleTheme: () => set((state) => ({
         theme: state.theme === 'light' ? 'dark' : 'light',
       })),
-      sidebarExpanded: false,
+      // Expanded by default: collapsed, the navigation is eleven unlabelled
+      // icons, and the primary persona for this product is a non-technical
+      // business user who has never seen them before. The collapse is still
+      // there for people who know where things are and want the width back,
+      // and the choice is remembered.
+      sidebarExpanded: true,
       toggleSidebar: () => set((state) => ({
         sidebarExpanded: !state.sidebarExpanded,
       })),

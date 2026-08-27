@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { NODE_VOCABULARY, type NodeKind } from './bpmnVocabulary';
+import { NODE_VOCABULARY, isEndingNode, type NodeKind } from './bpmnVocabulary';
 
 /**
  * Every node has to explain itself.
@@ -66,6 +66,36 @@ describe('NODE_VOCABULARY', () => {
       const already = seen.get(description);
       expect(already, `${kind} and ${already} share a description, so neither is explained`).toBeUndefined();
       seen.set(description, kind);
+    }
+  });
+});
+
+describe('isEndingNode', () => {
+  it('recognises every kind of ending, not just the plain one', () => {
+    // Only 'endEvent' was ever checked, so a process finishing with "Stop
+    // everything" or "Finish with a problem" was reported as missing an end
+    // event and as having a step with no outgoing flows — two errors for a
+    // diagram that was correct.
+    expect(isEndingNode('endEvent')).toBe(true);
+    expect(isEndingNode('terminateEndEvent')).toBe(true);
+    expect(isEndingNode('errorEndEvent')).toBe(true);
+  });
+
+  it('does not treat ordinary steps as endings', () => {
+    for (const type of ['userTask', 'serviceTask', 'exclusiveGateway', 'startEvent', undefined]) {
+      expect(isEndingNode(type)).toBe(false);
+    }
+  });
+
+  it('covers every ending the palette can place', () => {
+    // The palette offers three endings; if a fourth is added, this fails until
+    // the validators have been told about it.
+    const paletteEndings = Object.entries(NODE_VOCABULARY)
+      .filter(([, v]) => v.group === 'Start and finish')
+      .map(([kind]) => kind)
+      .filter((kind) => kind !== 'startEvent');
+    for (const kind of paletteEndings) {
+      expect(isEndingNode(kind)).toBe(true);
     }
   });
 });

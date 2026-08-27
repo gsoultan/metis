@@ -185,7 +185,15 @@ export function ProcessDesigner({
         >
           <Background />
           <Controls showInteractive={false} />
-          <MiniMap 
+          {/* Only once there is something to navigate. On an empty canvas the
+              minimap is a blank white rectangle with no border, floating over
+              the grid — it reads as a rendering fault rather than as an empty
+              map, which is the first thing a new user sees. */}
+          {nodes.length > 0 && (
+          <MiniMap
+            // A border, so it reads as a panel sitting above the canvas rather
+            // than as a hole punched in it.
+            style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 4 }}
             nodeStrokeColor={(n) => {
               if (n.type === 'startEvent') return '#40c057';
               if (n.type === 'endEvent') return '#fa5252';
@@ -197,6 +205,7 @@ export function ProcessDesigner({
               return '#fff';
             }}
           />
+          )}
           
           {/* Remote Cursors Overlay */}
           {Object.entries(remoteCursors).map(([id, cursor]) => (

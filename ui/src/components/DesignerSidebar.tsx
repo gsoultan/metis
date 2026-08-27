@@ -244,7 +244,12 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
         ) : (
           <Accordion 
             multiple 
-            defaultValue={['Events', 'Tasks', 'Gateways', 'Connectors']}
+            // These are the group names the vocabulary actually produces. The
+            // previous list — Events, Tasks, Gateways — was left behind by the
+            // rename to business language, so only 'Connectors' still matched
+            // and the palette opened with everything collapsed except the one
+            // section a beginner wants last.
+            defaultValue={['Start and finish', 'Steps', 'Decisions and branching']}
             variant="separated"
             classNames={{
               item: classes.accordionItem,
