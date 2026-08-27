@@ -38,7 +38,26 @@
   gap: 8px;
   height: 34px;
   padding-inline: 10px;
-  max-width: 220px;
+  /* Never wider than the space actually left over.
+     
+     The actions to the right of this — notifications, theme, help, the avatar —
+     are four fixed-width controls and do not shrink, so what remains for the
+     project name is the viewport minus the burger, the padding, the gaps and
+     those actions. Measured on a 375px viewport: the burger ends at 44, this
+     button starts at 56, and the actions occupy 160px ending 16px from the
+     right edge — so 232px is spoken for and 240 leaves a small gap rather than
+     meeting exactly. Expressing that as one fluid cap rather than a set of
+     breakpoints is deliberate: stepped max-widths were tried first and left a
+     hole at 360px, where the viewport had grown past one step's media query
+     while the space had not grown enough for its cap. A continuous constraint
+     cannot have holes between steps because it has no steps.
+
+     min-width and flex-shrink go with it because a flex item will not shrink
+     below its own content unless told it may — without them the `truncate` on
+     the label inside can never take effect. */
+  max-width: min(220px, calc(100vw - 240px));
+  min-width: 0;
+  flex-shrink: 1;
   border-radius: var(--mantine-radius-md);
   border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
   color: var(--mantine-color-text);
