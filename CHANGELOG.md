@@ -81,6 +81,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   without `ENCRYPTION_KEY`; the restore refuses to start until the operator
   confirms the engine is stopped.
 
+- **The strict tenant scope says which path forgot an identity.** It answers an
+  unidentified query with nothing rather than an error, which is the right
+  contract but made the flag hard to adopt: a background path that forgets to
+  mark itself does not fail, it goes quiet, and an operator evaluating it in
+  staging had to notice an absence. Each denial now logs the repository method
+  and its caller, once per site, so the rollout is reading a list instead.
+
 - **CI now runs every dialect-gated suite, and a guard keeps it that way.**
   `tests/migrations`, `tests/replicas` and `tests/outage` need a real database
   but were absent from the dialects job, so they skipped for want of a DSN,

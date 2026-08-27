@@ -57,6 +57,14 @@ type Flag struct {
 // itself as system work. Missing one does not fail loudly — it makes queries
 // return nothing — so this ships off, gets switched on in a staging environment
 // first, and only then in production.
+//
+// **The staging step is now readable rather than a vigil.** Every denial logs a
+// warning naming the repository method and the path that called it without an
+// identity, once per site. So the rollout is: turn it on in staging, exercise
+// the product, and read the warnings — each one is a path that needs
+// entities.WithSystemContext or a resolved tenant. When none appear, the flag
+// is safe to carry to production. Before that diagnostic existed an operator
+// had to notice an absence, which is the thing people miss.
 var StrictTenantScope = Flag{
 	Name:    "strict-tenant-scope",
 	Default: false,

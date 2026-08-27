@@ -143,6 +143,19 @@ Outstanding:
    not error, it reads nothing, and an engine reading nothing looks like an engine with no
    work to do. That is precisely why this is behind a flag rather than simply switched on.
 
+   **That quiet is now broken.** Every denial logs a warning naming the repository method
+   and the caller that reached it without an identity — once per site, because these sit on
+   poll loops and the useful output is the list of paths to fix, not a count. The staging
+   step is therefore reading a list rather than watching for something that stops happening.
+   `tests/strictscope` proves the production paths already carry identity; the warnings
+   would name anything it does not reach.
+
+   The module-wide suite still fails with the flag on, and deliberately so: roughly 130
+   tests construct fixtures with a bare `t.Context()`, which no production path does.
+   Rewriting them to carry a tenant would be accurate but is a large change to what those
+   tests assert, and it is not what gates the rollout — the flag is evaluated in staging
+   against real traffic, not by the unit suite.
+
    `FetchAndLock` is now scoped. `ListTemplatedMessageSubscriptions` stays unscoped and
    carries a comment saying why — it is the installation-wide background sweep.
 
