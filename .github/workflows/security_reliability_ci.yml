@@ -318,7 +318,18 @@ jobs:
       # deliberate commit rather than something that lands overnight, and the
       # module path carries the /v2 that matches this repository's config schema.
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+        # v2.13.1, not v2.12.2. The older pin bundles honnef.co/go/tools 0.7.0,
+        # whose IR builder panics on Go 1.27's own standard library —
+        # `buildir: package "poll" ... unexpected expr: *ast.KeyValueExpr` —
+        # and takes the whole run down with exit 3. v2.13.1 carries
+        # staticcheck 0.8.0, which understands it.
+        #
+        # It is a Linux-only failure and a cold-cache-only one: internal/poll
+        # has per-platform sources, and analysis facts for the standard library
+        # are cached, so a warm macOS run reports a clean 0 issues while CI
+        # panics on the same commit. That is why the Go 1.27 upgrade looked
+        # green locally.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
 
       - name: golangci-lint
         run: golangci-lint run --new-from-merge-base=origin/${{ github.base_ref || 'main' }}
