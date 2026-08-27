@@ -81,6 +81,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   without `ENCRYPTION_KEY`; the restore refuses to start until the operator
   confirms the engine is stopped.
 
+- **CI now runs every dialect-gated suite, and a guard keeps it that way.**
+  `tests/migrations`, `tests/replicas` and `tests/outage` need a real database
+  but were absent from the dialects job, so they skipped for want of a DSN,
+  reported ok, and were never run against PostgreSQL or MySQL by anything —
+  including the conditional-insert claim that had a MySQL-only bug when it
+  landed. `tests/ci` now fails when a dialect-gated package is missing from that
+  job, so the next one cannot be forgotten silently.
+
 - **Connector contract tests** (`tests/connector/contract_test.go`) — the test
   pyramid's last missing tier. They pin what each connector puts on the wire and
   how it reads what comes back, including that a manifest's error rules decide

@@ -290,7 +290,8 @@ jobs:
       - name: Run the dialect suites
         run: |
           set -o pipefail
-          go test -count=1 -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... ./tests/tenant/... \
+          go test -count=1 -v ./tests/postgres/... ./tests/mysqldb/... ./tests/mssql/... \
+            ./tests/tenant/... ./tests/migrations/... ./tests/replicas/... ./tests/outage/... \
             2>&1 | tee /tmp/dialects.log
           if grep -q -- "--- SKIP" /tmp/dialects.log; then
             echo "::error::A dialect test skipped, which means its DSN did not reach it:"
