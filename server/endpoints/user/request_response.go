@@ -40,6 +40,20 @@ type LoginResponse struct {
 
 func (r LoginResponse) Failed() error { return r.Err }
 
+// ChangePasswordRequest carries only the two passwords. Who is changing theirs
+// comes from the session, never from the body: accepting a username here would
+// let any signed-in user change anybody's password.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type ChangePasswordResponse struct {
+	Err error `json:"err,omitempty"`
+}
+
+func (r ChangePasswordResponse) Failed() error { return r.Err }
+
 type ListUsersRequest struct {
 	OrganizationID uuid.UUID `json:"organization_id"`
 }

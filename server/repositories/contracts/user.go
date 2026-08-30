@@ -12,6 +12,12 @@ type UserRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (models.UserModel, error)
 	GetByUsername(ctx context.Context, username string) (models.UserModel, error)
 	GetWithPasswordByUsername(ctx context.Context, username string) (models.UserModel, string, error)
+
+	// GetWithPasswordByID is the same lookup keyed by ID, for when the caller
+	// is already authenticated and the session says who they are. Changing
+	// one's own password uses this: taking the username from the request body
+	// instead would let any signed-in user name somebody else.
+	GetWithPasswordByID(ctx context.Context, id uuid.UUID) (models.UserModel, string, error)
 	ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error)
 	Create(ctx context.Context, u models.UserModel, passwordHash string) error
 

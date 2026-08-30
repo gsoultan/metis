@@ -357,9 +357,25 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `make strict-scope` | green — the HTTP chain and job worker under the strict tenant scope, which ships off |
 | `tests/ci` | green — asserts every dialect-gated package is actually run by the dialects job. A new one added to `tests/` otherwise skips for want of a DSN, reports ok, and is never run against a real database by anything |
 | `tests/slo` | green — the §1 targets are asserted, not assumed. Reads p95 11.1ms/150ms, actions 13.8ms/500ms, 0.000% 5xx, 170k starts/min on PostgreSQL 17 |
+| `image` (CI only) | green — builds the Dockerfile and boots it against PostgreSQL with a read-only root, waiting on `/readyz`. Nothing built the image before this; the README calls it the supported artifact |
 | `golangci-lint` | **baselined** — 799 pre-existing findings; CI blocks new ones via `only-new-issues`. Burn-down order is in `.golangci.yml`; the engine's slice is done. |
 
-`make gate` runs everything. Do not narrow it — narrow the code instead.
+`make gate` runs everything **that can run on a developer machine**. Do not narrow it —
+narrow the code instead.
+
+Two things only CI proves, so a green local gate is not the whole story:
+
+- **The image builds and boots.** `make docker` needs a Docker daemon, which the Apple
+  `container` CLI is not. The `image` job builds the Dockerfile and starts it against a
+  real PostgreSQL with a read-only root, then waits on `/readyz`. The image is distroless,
+  so a dynamically linked binary or a moved entrypoint builds cleanly and fails only on
+  first run — which is why the job runs it rather than just building it.
+- **Linux, on a cold cache.** golangci-lint v2.12.2 panicked on Go 1.27's standard library
+  there while a warm macOS run reported 0 issues, and the first-paint bundle budget —
+  calibrated on macOS zlib — failed on Linux by ~2.4 kB. Neither is reproducible locally.
+
+CI also passes `-count=1`: with a warm `GOCACHE` an unchanged tree replays `ok (cached)`
+for every package, and the suite and race detector "pass" having executed nothing.
 
 ---
 

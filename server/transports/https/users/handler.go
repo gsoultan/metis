@@ -7,6 +7,7 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/user"
 	"github.com/gsoultan/metis/server/transports/https/common"
 )
@@ -15,6 +16,15 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 	m.Handle("POST /api/v1/login", httptransport.NewServer(
 		eps.Login,
 		decodeLoginRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	// Not PUT /users/{id}: this changes the caller's own password and nobody
+	// else's, so there is no id to name. It sits under the auth chain, so the
+	// session is what says who "me" is.
+	m.Handle("POST /api/v1/users/me/password", httptransport.NewServer(
+		eps.ChangePassword,
+		decodeChangePasswordRequest,
 		common.EncodeResponse,
 		options...,
 	))
@@ -101,4 +111,12 @@ func decodeDeleteUserRequest(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	return user.DeleteUserRequest{ID: id}, nil
+}
+
+func decodeChangePasswordRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("could not read the request body: %v", err)
+	}
+	return req, nil
 }

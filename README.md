@@ -188,7 +188,12 @@ There is no default account. The administrator username and password are the
 ones typed into the setup wizard on first run — `admin/admin` works only if that
 is what you chose.
 
-If nobody can sign in, reset a password from the machine running the server:
+Signed-in users change their own password from **Profile → Change Password**,
+which asks for the current one — a session alone is not enough, so a stolen
+token cannot lock the owner out of their own account. Accounts that sign in
+through OIDC have no password here; theirs lives at the identity provider.
+
+If nobody can sign in at all, reset one from the machine running the server:
 
 ```bash
 ./metis --reset-password admin
