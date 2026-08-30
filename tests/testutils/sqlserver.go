@@ -1,10 +1,11 @@
 package testutils
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 
 	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"github.com/gsoultan/metis/server/repositories/gorms"
@@ -24,15 +25,15 @@ import (
 // fails on the first table.
 //
 // So this runs where the machine is amd64, which is every CI runner.
-const SQLServerDSNEnv = "GOBPM_TEST_SQLSERVER_DSN"
+const SQLServerDSNEnv = "METIS_TEST_SQLSERVER_DSN"
 
 // SetupSQLServerDB opens the SQL Server instance named by
-// GOBPM_TEST_SQLSERVER_DSN and migrates a schema into it, skipping the test when
+// METIS_TEST_SQLSERVER_DSN and migrates a schema into it, skipping the test when
 // no DSN is configured.
 func SetupSQLServerDB(t *testing.T, maxConns int) *gorm.DB {
 	t.Helper()
 
-	dsn := os.Getenv(SQLServerDSNEnv)
+	dsn := envvar.Get(SQLServerDSNEnv)
 	if dsn == "" {
 		t.Skipf("set %s to run this against a live SQL Server instance", SQLServerDSNEnv)
 	}

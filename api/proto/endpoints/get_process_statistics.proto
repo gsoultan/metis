@@ -3,6 +3,6 @@ syntax = "proto3";
 package process;
 
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message GetProcessStatisticsRequest { string project_id = 1; } message GetProcessStatisticsResponse { int32 active_instances = 1; int32 completed_instances = 2; int32 failed_instances = 3; int32 total_tasks = 4; int32 pending_tasks = 5; string error = 6; }

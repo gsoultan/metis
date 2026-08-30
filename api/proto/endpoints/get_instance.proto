@@ -4,6 +4,6 @@ package process;
 
 import "entities/process_instance.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message GetInstanceRequest { string id = 1; } message GetInstanceResponse { ProcessInstance instance = 1; string error = 2; }

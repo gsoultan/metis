@@ -9,7 +9,7 @@ import "entities/group.proto";
 import "entities/project.proto";
 import "entities/process_instance.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
+option go_package = "github.com/gsoultan/metis/api/proto/entities;entities";
 
 message Task {
   string id = 1;

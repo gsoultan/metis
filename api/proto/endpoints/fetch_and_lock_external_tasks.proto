@@ -4,6 +4,6 @@ package process;
 
 import "entities/external_task.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message FetchAndLockExternalTasksRequest { string topic = 1; string worker_id = 2; int32 max_tasks = 3; int64 lock_duration_ms = 4; } message FetchAndLockExternalTasksResponse { repeated ExternalTask tasks = 1; string error = 2; }

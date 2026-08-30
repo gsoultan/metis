@@ -3,6 +3,6 @@ syntax = "proto3";
 package process;
 
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message DeleteProjectRequest { string id = 1; } message DeleteProjectResponse { string error = 1; }

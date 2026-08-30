@@ -7,6 +7,6 @@ import "endpoints/list_definitions.proto";
 import "endpoints/get_definition.proto";
 import "endpoints/delete_definition.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service DefinitionService { rpc CreateDefinition(CreateDefinitionRequest) returns (CreateDefinitionResponse) {} rpc ListDefinitions(ListDefinitionsRequest) returns (ListDefinitionsResponse) {} rpc GetDefinition(GetDefinitionRequest) returns (GetDefinitionResponse) {} rpc DeleteDefinition(DeleteDefinitionRequest) returns (DeleteDefinitionResponse) {} }

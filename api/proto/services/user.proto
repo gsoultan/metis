@@ -4,7 +4,7 @@ package process;
 
 import "endpoints/user.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service UserService {
   rpc GetUser(GetUserRequest) returns (GetUserResponse) {}

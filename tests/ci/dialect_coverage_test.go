@@ -19,6 +19,7 @@ package ci
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -163,4 +164,97 @@ func TestTheSkipAndCacheAssertionsAreStillThere(t *testing.T) {
 			t.Errorf("the dialects job no longer checks for %q: %s", required.needle, required.why)
 		}
 	}
+}
+
+// TestTheWorkflowExportsTheDSNNamesTheHelpersRead cross-checks the two halves of
+// the DSN handshake: the name a helper reads, and the name the workflow exports.
+//
+// These are declared in different files, in different languages, and nothing
+// connected them. Renaming the project moved the workflow to METIS_TEST_* while
+// the helpers still read GOBPM_TEST_*, so every dialect test skipped for want of
+// a DSN that was sitting right there under another name. The suite reported ok;
+// only the skip guard caught it, and only after a push.
+//
+// The value is not checked — only the name. Where the database lives is the
+// workflow's business; agreeing on what to call it is shared.
+func TestTheWorkflowExportsTheDSNNamesTheHelpersRead(t *testing.T) {
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read the CI workflow: %v", err)
+	}
+	job := dialectsJobBlock(t, string(workflow))
+
+	for _, helper := range dsnHelpers() {
+		name := dsnEnvName(t, helper)
+		if !strings.Contains(job, name+":") {
+			t.Errorf(""+
+				"%s reads %s, which the Dialects job never exports.\n"+
+				"Every test gated on it will skip, and the suite will still report ok.\n"+
+				"Export %s in the Dialects job, or point the helper at the name that is.",
+				helper, name, name)
+		}
+	}
+}
+
+// dsnHelpers lists the helper sources that gate a dialect behind a DSN.
+func dsnHelpers() []string {
+	return []string{
+		"../testutils/postgres.go",
+		"../testutils/mysql.go",
+		"../testutils/sqlserver.go",
+	}
+}
+
+// dsnEnvName reads the environment variable name a helper is gated on, out of
+// the source rather than by importing it — the point is to catch a rename that
+// compiles perfectly well on both sides.
+func dsnEnvName(t *testing.T, path string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	m := dsnConstPattern.FindSubmatch(src)
+	if m == nil {
+		t.Fatalf("%s declares no `const ...DSNEnv = \"...\"`; this guard is reading for something that moved", path)
+	}
+	return string(m[1])
+}
+
+var dsnConstPattern = regexp.MustCompile(`const \w*DSNEnv = "([^"]+)"`)
+
+// dialectsJobBlock returns the whole `dialects:` job, not just the step that
+// runs the suites. The DSNs are exported at job level — sibling to `steps:` —
+// so the narrower scope dialectsJob uses for package names cannot see them.
+func dialectsJobBlock(t *testing.T, workflow string) string {
+	t.Helper()
+
+	const marker = "\n  dialects:\n"
+	start := strings.Index(workflow, marker)
+	if start < 0 {
+		t.Fatalf("the workflow has no `dialects:` job; this guard is reading for something that moved")
+	}
+	rest := workflow[start+1:]
+	// The job ends where the next one begins: a key at two-space indentation.
+	if end := nextJobKey(rest); end > 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// nextJobKey finds the start of the following job, skipping the one we are in.
+func nextJobKey(block string) int {
+	for i := 1; i < len(block); i++ {
+		if block[i-1] != '\n' {
+			continue
+		}
+		line := block[i:]
+		if end := strings.IndexByte(line, '\n'); end >= 0 {
+			line = line[:end]
+		}
+		if len(line) > 2 && line[0] == ' ' && line[1] == ' ' && line[2] != ' ' && strings.HasSuffix(strings.TrimRight(line, " "), ":") {
+			return i
+		}
+	}
+	return -1
 }

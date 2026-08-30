@@ -1,10 +1,11 @@
 package testutils
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 
 	"github.com/gsoultan/metis/server/repositories/gorms"
 
@@ -21,14 +22,14 @@ import (
 // correlation keys is built on a LIKE pattern. A query that behaves one way on
 // PostgreSQL and another on MySQL is exactly the kind of thing that only shows
 // up against the real engine.
-const MySQLDSNEnv = "GOBPM_TEST_MYSQL_DSN"
+const MySQLDSNEnv = "METIS_TEST_MYSQL_DSN"
 
-// SetupMySQLDB opens the MySQL instance named by GOBPM_TEST_MYSQL_DSN and
+// SetupMySQLDB opens the MySQL instance named by METIS_TEST_MYSQL_DSN and
 // migrates a schema into it, skipping the test when no DSN is configured.
 func SetupMySQLDB(t *testing.T, maxConns int) *gorm.DB {
 	t.Helper()
 
-	dsn := os.Getenv(MySQLDSNEnv)
+	dsn := envvar.Get(MySQLDSNEnv)
 	if dsn == "" {
 		t.Skipf("set %s to run this against a live MySQL instance", MySQLDSNEnv)
 	}

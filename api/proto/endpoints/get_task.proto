@@ -4,6 +4,6 @@ package process;
 
 import "entities/task.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message GetTaskRequest { string id = 1; } message GetTaskResponse { Task task = 1; string error = 2; }

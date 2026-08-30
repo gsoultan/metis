@@ -4,7 +4,7 @@ package process;
 
 import "endpoints/group.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service GroupService {
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse) {}
