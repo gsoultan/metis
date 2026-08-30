@@ -6,18 +6,18 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/gobpm/api/proto/services/servicesconnect"
-	"github.com/gsoultan/gobpm/server/endpoints"
-	"github.com/gsoultan/gobpm/server/transports/connects/definitions"
-	"github.com/gsoultan/gobpm/server/transports/connects/external_tasks"
-	"github.com/gsoultan/gobpm/server/transports/connects/groups"
-	"github.com/gsoultan/gobpm/server/transports/connects/organizations"
-	"github.com/gsoultan/gobpm/server/transports/connects/processes"
-	"github.com/gsoultan/gobpm/server/transports/connects/projects"
-	"github.com/gsoultan/gobpm/server/transports/connects/signals"
-	"github.com/gsoultan/gobpm/server/transports/connects/stats"
-	"github.com/gsoultan/gobpm/server/transports/connects/tasks"
-	"github.com/gsoultan/gobpm/server/transports/connects/users"
+	"github.com/gsoultan/metis/api/proto/services/servicesconnect"
+	"github.com/gsoultan/metis/server/endpoints"
+	"github.com/gsoultan/metis/server/transports/connects/definitions"
+	"github.com/gsoultan/metis/server/transports/connects/external_tasks"
+	"github.com/gsoultan/metis/server/transports/connects/groups"
+	"github.com/gsoultan/metis/server/transports/connects/organizations"
+	"github.com/gsoultan/metis/server/transports/connects/processes"
+	"github.com/gsoultan/metis/server/transports/connects/projects"
+	"github.com/gsoultan/metis/server/transports/connects/signals"
+	"github.com/gsoultan/metis/server/transports/connects/stats"
+	"github.com/gsoultan/metis/server/transports/connects/tasks"
+	"github.com/gsoultan/metis/server/transports/connects/users"
 )
 
 func NewConnectHandler(eps endpoints.Endpoints) (string, http.Handler) {

@@ -7,7 +7,7 @@
 package endpoints
 
 import (
-	entities "github.com/gsoultan/gobpm/api/proto/entities"
+	entities "github.com/gsoultan/metis/api/proto/entities"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -128,7 +128,7 @@ const file_endpoints_get_task_proto_rawDesc = "" +
 	"\x0fGetTaskResponse\x12!\n" +
 	"\x04task\x18\x01 \x01(\v2\r.process.TaskR\x04task\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05errorB\x90\x01\n" +
-	"\vcom.processB\fGetTaskProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\fGetTaskProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_get_task_proto_rawDescOnce sync.Once

@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/server/repositories/models"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // ScanWithGraphs is batched, because a definition graph is a whole BPMN

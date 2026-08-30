@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 )
 
 type strategyFunc func(ctx context.Context, token string) (any, error)

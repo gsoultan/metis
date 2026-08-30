@@ -46,8 +46,24 @@ func TestEnabled(t *testing.T) {
 }
 
 func TestEnvName(t *testing.T) {
-	if got := EnvName(StrictTenantScope); got != "GOBPM_FEATURE_STRICT_TENANT_SCOPE" {
-		t.Errorf("EnvName = %q, want GOBPM_FEATURE_STRICT_TENANT_SCOPE", got)
+	if got := EnvName(StrictTenantScope); got != "METIS_FEATURE_STRICT_TENANT_SCOPE" {
+		t.Errorf("EnvName = %q, want METIS_FEATURE_STRICT_TENANT_SCOPE", got)
+	}
+}
+
+// A flag set under the pre-rename name must keep working. Getting this wrong is
+// how an upgrade silently turns a security control off: an installation with
+// GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true would come back with the flag at its
+// default, and every gateway routing on a `js:` condition would stop.
+func TestAFlagSetUnderItsOldNameIsStillRead(t *testing.T) {
+	resetForTest()
+	t.Cleanup(resetForTest)
+
+	unsetForTest(t, EnvName(JavaScriptConditions))
+	t.Setenv("GOBPM_FEATURE_JAVASCRIPT_CONDITIONS", "true")
+
+	if !Enabled(JavaScriptConditions) {
+		t.Fatal("a flag set under GOBPM_FEATURE_ was ignored; upgrading would silently change behaviour")
 	}
 }
 

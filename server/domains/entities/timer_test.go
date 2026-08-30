@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // BPMN timers are ISO-8601. The designer says so in its own help text —

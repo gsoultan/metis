@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

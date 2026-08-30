@@ -1,7 +1,7 @@
 package incident
 
 import (
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 type ListIncidentsRequest struct {

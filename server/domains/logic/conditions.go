@@ -6,12 +6,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gsoultan/gobpm/internal/pkg/features"
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
+	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
 	"github.com/rs/zerolog/log"
 
 	"github.com/dop251/goja"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 // BaseEvaluator provides common functionality for condition evaluators.

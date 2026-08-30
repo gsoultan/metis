@@ -127,7 +127,7 @@ const file_entities_external_task_proto_rawDesc = "" +
 	"\x05topic\x18\x05 \x01(\tR\x05topic\x125\n" +
 	"\tvariables\x18\x06 \x01(\v2\x17.google.protobuf.StructR\tvariables\x12\x18\n" +
 	"\aretries\x18\a \x01(\x05R\aretriesB\x93\x01\n" +
-	"\vcom.processB\x11ExternalTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x11ExternalTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_external_task_proto_rawDescOnce sync.Once

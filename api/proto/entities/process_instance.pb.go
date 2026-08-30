@@ -120,7 +120,7 @@ const file_entities_process_instance_proto_rawDesc = "" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x125\n" +
 	"\tvariables\x18\x05 \x01(\v2\x17.google.protobuf.StructR\tvariables\x120\n" +
 	"\factive_nodes\x18\x06 \x03(\v2\r.process.NodeR\vactiveNodesB\x96\x01\n" +
-	"\vcom.processB\x14ProcessInstanceProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x14ProcessInstanceProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_process_instance_proto_rawDescOnce sync.Once

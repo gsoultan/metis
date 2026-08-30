@@ -144,7 +144,7 @@ jobs:
       # resolution path, not just the in-process switch.
       - name: Strict tenant scope (production paths, flag on)
         env:
-          GOBPM_FEATURE_STRICT_TENANT_SCOPE: "true"
+          METIS_FEATURE_STRICT_TENANT_SCOPE: "true"
         run: go test -count=1 ./tests/strictscope/...
 
       # The SDK is its own zero-dependency module, so the module-wide commands
@@ -185,9 +185,9 @@ jobs:
     # because it opened a connection a second too early.
 
     env:
-      GOBPM_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
-      GOBPM_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
-      GOBPM_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
+      METIS_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
+      METIS_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
+      METIS_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
       MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
 
     services:

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // reached records whether the wrapped endpoint ran, and with what tenant.

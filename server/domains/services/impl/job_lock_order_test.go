@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	handlersimpl "github.com/gsoultan/gobpm/server/domains/handlers/impl"
-	observerimpl "github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/server/repositories/models"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
+	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The row update is what claims a job, and it carries a five-minute lease. The

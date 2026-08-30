@@ -6,11 +6,11 @@ import (
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/google/uuid"
-	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/api/proto/services"
-	"github.com/gsoultan/gobpm/server/endpoints/external_task"
-	"github.com/gsoultan/gobpm/server/transports/adapters"
+	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/api/proto/services"
+	"github.com/gsoultan/metis/server/endpoints/external_task"
+	"github.com/gsoultan/metis/server/transports/adapters"
 )
 
 type Server struct {

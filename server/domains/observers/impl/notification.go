@@ -7,9 +7,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/observers/contracts"
-	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/observers/contracts"
+	serviceContracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 type notificationObserver struct {

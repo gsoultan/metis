@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // "Do this once for each item in a list."

@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/services"
-	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
-	"github.com/gsoultan/gobpm/server/interceptors/logging"
-	"github.com/gsoultan/gobpm/server/interceptors/security"
-	"github.com/gsoultan/gobpm/server/interceptors/tenant"
+	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/services"
+	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/logging"
+	"github.com/gsoultan/metis/server/interceptors/security"
+	"github.com/gsoultan/metis/server/interceptors/tenant"
 	"gorm.io/gorm"
 )
 

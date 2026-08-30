@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/server/domains/services"
+	"github.com/gsoultan/metis/server/domains/services"
 )
 
 type Endpoints struct {

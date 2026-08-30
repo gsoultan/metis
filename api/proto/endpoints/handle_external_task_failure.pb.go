@@ -163,7 +163,7 @@ const file_endpoints_handle_external_task_failure_proto_rawDesc = "" +
 	"\x10retry_timeout_ms\x18\x06 \x01(\x03R\x0eretryTimeoutMs\"9\n" +
 	"!HandleExternalTaskFailureResponse\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05errorB\xa2\x01\n" +
-	"\vcom.processB\x1eHandleExternalTaskFailureProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x1eHandleExternalTaskFailureProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_handle_external_task_failure_proto_rawDescOnce sync.Once

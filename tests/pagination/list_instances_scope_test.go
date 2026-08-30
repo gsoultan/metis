@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/endpoints/process"
+	"github.com/gsoultan/metis/server/endpoints/process"
 )
 
 // A project id that does not parse must not widen the query.

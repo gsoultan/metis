@@ -1,13 +1,13 @@
 package services
 
 import (
-	"github.com/gsoultan/gobpm/server/domains/handlers/impl"
-	observercontracts "github.com/gsoultan/gobpm/server/domains/observers/contracts"
-	observerimpl "github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
-	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
-	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/metis/server/domains/handlers/impl"
+	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
+	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
+	"github.com/gsoultan/metis/server/repositories"
 	"gorm.io/gorm"
 )
 

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/models"
 
 	"github.com/google/uuid"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
 )
 
 type migrationService struct {

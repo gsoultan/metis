@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 const (

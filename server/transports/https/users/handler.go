@@ -7,8 +7,8 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/endpoints/user"
-	"github.com/gsoultan/gobpm/server/transports/https/common"
+	"github.com/gsoultan/metis/server/endpoints/user"
+	"github.com/gsoultan/metis/server/transports/https/common"
 )
 
 func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransport.ServerOption) {

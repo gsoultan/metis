@@ -1,4 +1,4 @@
-package gobpm
+package metis
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 // running instances keep the version they started with.
 func (c *Client) ImportDefinition(ctx context.Context, projectID string, xml []byte) (string, error) {
 	if projectID == "" {
-		return "", errors.New("gobpm: ImportDefinition needs a project ID — a definition without a project is invisible to its own organization")
+		return "", errors.New("metis: ImportDefinition needs a project ID — a definition without a project is invisible to its own organization")
 	}
 	var out struct {
 		ID string `json:"id"`

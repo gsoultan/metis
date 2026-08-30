@@ -3,7 +3,7 @@ package impl
 import (
 	"errors"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // ErrorBoundaryMatcherImpl implements the ErrorBoundaryMatcher contract using

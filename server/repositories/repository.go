@@ -1,8 +1,8 @@
 package repositories
 
 import (
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/gorms"
 	"gorm.io/gorm"
 )
 

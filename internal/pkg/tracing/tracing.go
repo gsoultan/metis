@@ -13,9 +13,10 @@ package tracing
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
@@ -31,11 +32,11 @@ import (
 const (
 	// envEndpoint turns tracing on by naming a collector, e.g.
 	// "localhost:4318". Empty means tracing stays off.
-	envEndpoint = "GOBPM_OTLP_ENDPOINT"
+	envEndpoint = "METIS_OTLP_ENDPOINT"
 
 	// envInsecure sends to the collector over plain HTTP. Default is TLS,
 	// because traces carry instance identifiers and node names.
-	envInsecure = "GOBPM_OTLP_INSECURE"
+	envInsecure = "METIS_OTLP_INSECURE"
 
 	// envSampleRatio is the fraction of traces to keep, 0.0 to 1.0.
 	//
@@ -43,7 +44,7 @@ const (
 	// nodes a minute produces spans faster than most collectors will accept, and
 	// the first thing an unconfigured deployment would notice is the trace
 	// exporter becoming its own outage.
-	envSampleRatio = "GOBPM_OTLP_SAMPLE_RATIO"
+	envSampleRatio = "METIS_OTLP_SAMPLE_RATIO"
 
 	defaultSampleRatio = 0.05
 
@@ -55,7 +56,7 @@ const (
 )
 
 // tracerName identifies this instrumentation in the trace data.
-const tracerName = "github.com/gsoultan/gobpm"
+const tracerName = "github.com/gsoultan/metis"
 
 // Tracer returns the tracer everything in this codebase should use. When
 // tracing is off this is a no-op tracer, so callers never need to check.
@@ -68,7 +69,7 @@ func Tracer() trace.Tracer {
 // The shutdown function is always safe to call, including when tracing is off,
 // so callers need no conditional cleanup.
 func Init(ctx context.Context, version string) (func(context.Context), error) {
-	endpoint := strings.TrimSpace(os.Getenv(envEndpoint))
+	endpoint := strings.TrimSpace(envvar.Get(envEndpoint))
 	if endpoint == "" {
 		log.Debug().Msg("Tracing is off; set " + envEndpoint + " to enable it")
 		return func(context.Context) {}, nil
@@ -121,12 +122,12 @@ func Init(ctx context.Context, version string) (func(context.Context), error) {
 }
 
 func insecureExport() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv(envInsecure)), "true")
+	return strings.EqualFold(strings.TrimSpace(envvar.Get(envInsecure)), "true")
 }
 
 // sampleRatio reads the configured sampling fraction, clamped to [0,1].
 func sampleRatio() float64 {
-	raw := strings.TrimSpace(os.Getenv(envSampleRatio))
+	raw := strings.TrimSpace(envvar.Get(envSampleRatio))
 	if raw == "" {
 		return defaultSampleRatio
 	}

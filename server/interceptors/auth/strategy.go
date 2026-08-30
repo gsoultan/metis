@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // SecurityStrategy defines the contract for different authentication strategies.

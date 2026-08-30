@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	service_impl2 "github.com/gsoultan/gobpm/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/domains/entities"
+	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 // A node that runs once per item, advanced by the job worker.

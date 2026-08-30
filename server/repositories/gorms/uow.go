@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/contracts"
 
 	"gorm.io/gorm"
 )

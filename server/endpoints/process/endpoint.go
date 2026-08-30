@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/apierr"
-	"github.com/gsoultan/gobpm/server/domains/services"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/services"
 )
 
 type Endpoints struct {

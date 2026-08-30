@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -29,7 +29,7 @@ const file_services_signal_proto_rawDesc = "" +
 	"\rSignalService\x12V\n" +
 	"\x0fBroadcastSignal\x12\x1f.process.BroadcastSignalRequest\x1a .process.BroadcastSignalResponse\"\x00\x12J\n" +
 	"\vSendMessage\x12\x1b.process.SendMessageRequest\x1a\x1c.process.SendMessageResponse\"\x00B\x8d\x01\n" +
-	"\vcom.processB\vSignalProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\vSignalProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_signal_proto_goTypes = []any{
 	(*endpoints.BroadcastSignalRequest)(nil),  // 0: process.BroadcastSignalRequest

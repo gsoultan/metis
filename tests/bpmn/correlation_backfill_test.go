@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	service_impl2 "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/domains/entities"
+	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // The upgrade path for a process that is already waiting.

@@ -1,16 +1,16 @@
 package grpcs
 
 import (
-	"github.com/gsoultan/gobpm/api/proto/services"
-	"github.com/gsoultan/gobpm/server/endpoints"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/definitions"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/external_tasks"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/organizations"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/processes"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/projects"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/signals"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/stats"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/tasks"
+	"github.com/gsoultan/metis/api/proto/services"
+	"github.com/gsoultan/metis/server/endpoints"
+	"github.com/gsoultan/metis/server/transports/grpcs/definitions"
+	"github.com/gsoultan/metis/server/transports/grpcs/external_tasks"
+	"github.com/gsoultan/metis/server/transports/grpcs/organizations"
+	"github.com/gsoultan/metis/server/transports/grpcs/processes"
+	"github.com/gsoultan/metis/server/transports/grpcs/projects"
+	"github.com/gsoultan/metis/server/transports/grpcs/signals"
+	"github.com/gsoultan/metis/server/transports/grpcs/stats"
+	"github.com/gsoultan/metis/server/transports/grpcs/tasks"
 )
 
 // Server is every gRPC service in one value.

@@ -9,9 +9,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 // EventDecisionEvaluated is the timeline entry for a decision the process made.

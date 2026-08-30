@@ -1,4 +1,4 @@
-# Integrating with gobpm
+# Integrating with Metis
 
 Everything below is the real wire contract: each call is exercised end to end
 by `sdk/examples/quickstart`, which runs the whole journey against a live
@@ -10,9 +10,9 @@ compose:
 
 | You want to | Mechanism |
 | :-- | :-- |
-| Start work in gobpm from your app | deploy a definition, start instances |
+| Start work in Metis from your app | deploy a definition, start instances |
 | Tell a running process something happened | messages and signals |
-| Show gobpm's human tasks in your own UI | the task API |
+| Show Metis's human tasks in your own UI | the task API |
 | Have *your* service do a process step | external-task workers |
 
 ## Authentication
@@ -33,7 +33,7 @@ caller's actual memberships — it is a selection, never an assertion.
 ## The Go SDK
 
 ```bash
-go get github.com/gsoultan/gobpm/sdk
+go get github.com/gsoultan/metis/sdk
 ```
 
 The SDK is a separate module with **no dependencies outside the standard
@@ -41,10 +41,10 @@ library** — importing it does not pull the engine's dependency graph into
 your build.
 
 ```go
-client := gobpm.NewClient("https://bpm.example.com")
+client := metis.NewClient("https://bpm.example.com")
 if err := client.Login(ctx, "admin", password); err != nil { … }
 // or, when the token comes from a secret store:
-client = gobpm.NewClient(url, gobpm.WithToken(token))
+client = metis.NewClient(url, metis.WithToken(token))
 ```
 
 ## Deploy and start a process
@@ -53,7 +53,7 @@ client = gobpm.NewClient(url, gobpm.WithToken(token))
 projects, _ := client.ListProjects(ctx)                       // find the project ID
 defID, _ := client.ImportDefinition(ctx, projectID, bpmnXML)  // BPMN 2.0 XML
 instanceID, _ := client.StartProcess(ctx, projectID, "refund",
-    gobpm.Variables{"amount": 42.50})
+    metis.Variables{"amount": 42.50})
 ```
 
 ```bash
@@ -79,7 +79,7 @@ waiting on it.
 
 ```go
 err := client.SendMessage(ctx, projectID, "payment.received", orderID,
-    gobpm.Variables{"paid": true})
+    metis.Variables{"paid": true})
 err = client.BroadcastSignal(ctx, projectID, "quarter.closed", nil)
 ```
 
@@ -90,9 +90,9 @@ unambiguous.
 ## Human tasks in your own UI
 
 ```go
-tasks, page, _ := client.ListTasks(ctx, gobpm.ListTasksOptions{PageSize: 50})
+tasks, page, _ := client.ListTasks(ctx, metis.ListTasksOptions{PageSize: 50})
 err := client.ClaimTask(ctx, task.ID, "alice")        // so nobody works it twice
-err = client.CompleteTask(ctx, task.ID, "alice", gobpm.Variables{"approved": true})
+err = client.CompleteTask(ctx, task.ID, "alice", metis.Variables{"approved": true})
 ```
 
 Completing writes the variables back into the process and the instance moves
@@ -117,12 +117,12 @@ to your workers — they can live behind any firewall that can reach the
 server.
 
 ```go
-worker := gobpm.NewWorker(client, "reverse-charge", "billing-service-1",
-    gobpm.WorkerOptions{},          // sensible defaults; see WorkerOptions
-    func(ctx context.Context, task *gobpm.ExternalTask) (gobpm.Variables, error) {
+worker := metis.NewWorker(client, "reverse-charge", "billing-service-1",
+    metis.WorkerOptions{},          // sensible defaults; see WorkerOptions
+    func(ctx context.Context, task *metis.ExternalTask) (metis.Variables, error) {
         amount := task.Variables["amount"]
         // … call your payment provider …
-        return gobpm.Variables{"reversed": true}, nil
+        return metis.Variables{"reversed": true}, nil
     })
 log.Fatal(worker.Run(ctx))          // polls until ctx is cancelled
 ```
@@ -216,7 +216,7 @@ entirely on our side.
 **It sends a key.** Every call carries an `Idempotency-Key` header:
 
 ```
-Idempotency-Key: gobpm-<32 characters>
+Idempotency-Key: Metis-<32 characters>
 ```
 
 The key is derived from the unit of work — the process instance, the node, and
@@ -462,16 +462,16 @@ calls the right endpoint with the right shape.
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces
-them as `*gobpm.APIError` with `IsNotFound` / `IsUnauthorized` helpers. Under
+them as `*metis.APIError` with `IsNotFound` / `IsUnauthorized` helpers. Under
 tenant scoping, another organization's resource answers **404, not 403** —
 "not yours" and "does not exist" are deliberately indistinguishable.
 
 ## Run the whole journey
 
 ```bash
-GOBPM_URL=http://localhost:8080 GOBPM_USERNAME=admin \
-GOBPM_PASSWORD=… GOBPM_PROJECT="Default Project" \
-  go run github.com/gsoultan/gobpm/sdk/examples/quickstart
+METIS_URL=http://localhost:8080 METIS_USERNAME=admin \
+METIS_PASSWORD=… METIS_PROJECT="Default Project" \
+  go run github.com/gsoultan/metis/sdk/examples/quickstart
 ```
 
 It deploys a definition, starts an instance, serves its external task with a

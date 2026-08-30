@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
+	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 )
 
 // Contract tests: what a connector puts on the wire, and how it reads what

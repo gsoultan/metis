@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	"github.com/gsoultan/gobpm/server/endpoints/process"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/common"
+	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	"github.com/gsoultan/metis/server/endpoints/process"
+	"github.com/gsoultan/metis/server/transports/grpcs/common"
 )
 
 type StatsHandler struct {

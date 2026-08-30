@@ -103,7 +103,7 @@ Outstanding:
    **The fail-open default now has a way out.** `entities.WithSystemContext` marks work
    that legitimately spans tenants — the job worker, inbound message dispatch, migrations,
    connector bootstrap — and the feature flag `strict-tenant-scope`
-   (`GOBPM_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
+   (`METIS_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
    marker return nothing instead of everything.
 
    **It ships off**, and turning it on is not yet safe *for the test suite*. Running the

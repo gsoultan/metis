@@ -22,7 +22,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Error Handling**: Automatic retries with exponential backoff and jitter, then an incident when the attempts run out.
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
 - **Expressions**: **FEEL** (the DMN expression language) evaluates gateway conditions, completion conditions, input/output mappings and decision-table cells.
-  - Legacy `js:` gateway conditions are **refused by default** — the JavaScript runtime cannot be memory-bounded. Installations still migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`; `GET /api/v1/definitions/javascript-conditions` lists every stored condition that still needs rewriting.
+  - Legacy `js:` gateway conditions are **refused by default** — the JavaScript runtime cannot be memory-bounded. Installations still migrating can set `METIS_FEATURE_JAVASCRIPT_CONDITIONS=true`; `GET /api/v1/definitions/javascript-conditions` lists every stored condition that still needs rewriting.
 - **Scripting Engine**: Integrated **Goja** (JavaScript engine) for **Script Tasks** — complex data transformations within workflows, under a wall-clock budget and interrupt.
 - **Task Inbox**: A dedicated view for users to manage, claim, and complete their assigned tasks.
 - **Enterprise Persistence**:
@@ -49,7 +49,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 
 ```text
 ├── api/              # Protocol Buffer definitions and generated code
-├── cmd/gobpm/        # Main entry point (Server)
+├── cmd/metis/        # Main entry point (Server)
 ├── internal/pkg/     # Shared internal packages (Crypto, Logger)
 ├── server/           # Backend Implementation
 │   ├── domains/      # Core entities and business logic
@@ -102,7 +102,7 @@ go install github.com/air-verse/air@latest
 
 Open the UI and the first run walks through the setup wizard.
 
-Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`docs/upgrading.md`](docs/upgrading.md).
 
 ### Configuration
 
@@ -111,17 +111,17 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md).
 | `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured. Rotating it makes existing variables unreadable. |
 | `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. |
 | `DATABASE_URL` | PostgreSQL DSN. Defaults to a local SQLite file. |
-| `GOBPM_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
-| `GOBPM_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
-| `GOBPM_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
-| `GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
-| `GOBPM_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
-| `GOBPM_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
-| `GOBPM_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
-| `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
-| `GOBPM_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout; the production paths are proven under it by `make strict-scope`. |
-| `GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
-| `GOBPM_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
+| `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
+| `METIS_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
+| `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
+| `METIS_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
+| `METIS_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
+| `METIS_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
+| `METIS_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
+| `METIS_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
+| `METIS_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout; the production paths are proven under it by `make strict-scope`. |
+| `METIS_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
+| `METIS_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
 
 ### Production build
 
@@ -154,8 +154,8 @@ Building without Docker, which is also what CI does:
 
 ```bash
 make ui-build              # required: ui/embed.go embeds ui/dist
-go build ./cmd/gobpm
-ENCRYPTION_KEY=... JWT_SECRET=... ./gobpm
+go build ./cmd/metis
+ENCRYPTION_KEY=... JWT_SECRET=... ./metis
 ```
 
 ### Something to look at
@@ -191,7 +191,7 @@ is what you chose.
 If nobody can sign in, reset a password from the machine running the server:
 
 ```bash
-./gobpm --reset-password admin
+./metis --reset-password admin
 # Password updated for "admin".
 # New password: M6vY8yCdp879cTsmmWxp
 ```
@@ -200,7 +200,7 @@ It generates one and prints it. To choose your own without leaving it in the
 shell history, pass it in the environment instead — nothing is printed then:
 
 ```bash
-GOBPM_NEW_PASSWORD='...' ./gobpm --reset-password admin
+METIS_NEW_PASSWORD='...' ./metis --reset-password admin
 ```
 
 This runs against the configured database and exits without starting a server,
@@ -209,12 +209,12 @@ machine and the database, which is the same access a backup restore would.
 
 ## 🔌 Integrating from your application
 
-gobpm is built to be driven by other systems: deploy definitions, start
+Metis is built to be driven by other systems: deploy definitions, start
 instances, correlate messages, work human tasks from your own UI, and serve
 process steps with external workers — over plain HTTP or the Go SDK:
 
 ```bash
-go get github.com/gsoultan/gobpm/sdk
+go get github.com/gsoultan/metis/sdk
 ```
 
 The SDK has no dependencies outside the Go standard library. Start with

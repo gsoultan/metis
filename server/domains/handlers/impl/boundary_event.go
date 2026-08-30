@@ -3,8 +3,8 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 // BoundaryEventHandler handles the execution of boundary events when they are triggered.

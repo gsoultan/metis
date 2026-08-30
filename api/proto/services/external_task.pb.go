@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -30,7 +30,7 @@ const file_services_external_task_proto_rawDesc = "" +
 	"\x19FetchAndLockExternalTasks\x12).process.FetchAndLockExternalTasksRequest\x1a*.process.FetchAndLockExternalTasksResponse\"\x00\x12e\n" +
 	"\x14CompleteExternalTask\x12$.process.CompleteExternalTaskRequest\x1a%.process.CompleteExternalTaskResponse\"\x00\x12t\n" +
 	"\x19HandleExternalTaskFailure\x12).process.HandleExternalTaskFailureRequest\x1a*.process.HandleExternalTaskFailureResponse\"\x00B\x93\x01\n" +
-	"\vcom.processB\x11ExternalTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x11ExternalTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_external_task_proto_goTypes = []any{
 	(*endpoints.FetchAndLockExternalTasksRequest)(nil),  // 0: process.FetchAndLockExternalTasksRequest

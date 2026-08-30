@@ -8,11 +8,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
+	"github.com/gsoultan/metis/internal/pkg/idempotency"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 )
 

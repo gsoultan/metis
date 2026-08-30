@@ -147,7 +147,7 @@ const file_endpoints_send_message_proto_rawDesc = "" +
 	"\tvariables\x18\x04 \x01(\v2\x17.google.protobuf.StructR\tvariables\"+\n" +
 	"\x13SendMessageResponse\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05errorB\x94\x01\n" +
-	"\vcom.processB\x10SendMessageProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x10SendMessageProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_send_message_proto_rawDescOnce sync.Once

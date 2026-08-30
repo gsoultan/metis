@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	contracts2 "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	repocont "github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	contracts2 "github.com/gsoultan/metis/server/domains/services/contracts"
+	repocont "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // sagaCoordinator implements SagaCoordinator using the Repository pattern for

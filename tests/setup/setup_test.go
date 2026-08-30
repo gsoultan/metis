@@ -3,8 +3,8 @@ package setup_test
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 func TestTestConnection_SQLiteSuccess(t *testing.T) {
@@ -61,7 +61,8 @@ func TestTestConnection_InvalidHost(t *testing.T) {
 func TestTestConnection_SQLiteDefaultPath(t *testing.T) {
 	svc := impl.NewSetupService(nil)
 
-	// SQLite with empty DBName should use default "gobpm.db"
+	// SQLite with empty DBName should use the default file (metis.db, or an
+	// existing gobpm.db from before the rename).
 	result := svc.TestConnection(t.Context(), contracts.TestConnectionRequest{
 		DatabaseDriver: "sqlite",
 	})

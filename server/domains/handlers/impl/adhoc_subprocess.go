@@ -3,9 +3,9 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/logic"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 // AdHocSubProcessHandler handles ad-hoc subprocesses where tasks can be activated

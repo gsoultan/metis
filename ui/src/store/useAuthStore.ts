@@ -2,10 +2,11 @@
  * useAuthStore — manages authentication state (user, JWT token).
  *
  * FE-ARCH-2: Separated from the monolithic useAppStore to satisfy SRP.
- * Persisted to localStorage under the key 'gobpm-auth-storage'.
+ * Persisted to localStorage under the key 'metis-auth-storage'.
  */
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import { renamedStorage } from './persistedStorage';
 
 export interface AuthUser {
   id: string;
@@ -32,8 +33,8 @@ export const useAuthStore = create<AuthState>()(
       clearAuth: () => set({ user: null, token: null }),
     }),
     {
-      name: 'gobpm-auth-storage',
-      storage: createJSONStorage(() => localStorage),
+      name: 'metis-auth-storage',
+      storage: renamedStorage('metis-auth-storage'),
     },
   ),
 );

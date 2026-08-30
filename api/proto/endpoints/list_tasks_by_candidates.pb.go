@@ -91,7 +91,7 @@ const file_endpoints_list_tasks_by_candidates_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06groups\x18\x02 \x03(\tR\x06groups\x12(\n" +
 	"\x04page\x18\x03 \x01(\v2\x14.process.PageRequestR\x04pageB\x9e\x01\n" +
-	"\vcom.processB\x1aListTasksByCandidatesProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x1aListTasksByCandidatesProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_list_tasks_by_candidates_proto_rawDescOnce sync.Once

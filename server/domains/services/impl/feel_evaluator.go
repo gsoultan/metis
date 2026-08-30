@@ -3,7 +3,7 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
 )
 
 // FEELEvaluator adapts the FEEL engine to the ExpressionEvaluator contract.

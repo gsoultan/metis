@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gsoultan/gobpm/internal/pkg/features"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 )
@@ -62,7 +62,7 @@ func TestADeniedQueryNamesTheCallerThatNeedsAnIdentity(t *testing.T) {
 	if !strings.Contains(entry["message"].(string), "WithSystemContext") {
 		t.Error("the warning does not say how to fix it")
 	}
-	if entry["flag"] != "GOBPM_FEATURE_STRICT_TENANT_SCOPE" {
+	if entry["flag"] != "METIS_FEATURE_STRICT_TENANT_SCOPE" {
 		t.Errorf("flag = %v, want the variable an operator would look for", entry["flag"])
 	}
 }

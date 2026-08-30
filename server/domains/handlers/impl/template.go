@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	handlercontracts "github.com/gsoultan/gobpm/server/domains/handlers/contracts"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	handlercontracts "github.com/gsoultan/metis/server/domains/handlers/contracts"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/rs/zerolog/log"
 )
 

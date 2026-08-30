@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // An approval matrix — "under 10k the team lead, over 10k the CFO" — is

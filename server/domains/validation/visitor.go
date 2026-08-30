@@ -3,7 +3,7 @@ package validation
 import (
 	"fmt"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // Visitor implements the entities.DefinitionVisitor interface to validate BPMN definitions.

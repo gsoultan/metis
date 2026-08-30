@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 )
 

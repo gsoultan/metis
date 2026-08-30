@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
+	"github.com/gsoultan/metis/internal/pkg/idempotency"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
 )
 
 const HTTPConnectorKey = "http-json"

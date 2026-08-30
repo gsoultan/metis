@@ -1,4 +1,4 @@
-module github.com/gsoultan/gobpm
+module github.com/gsoultan/metis
 
 go 1.27.0
 

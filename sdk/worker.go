@@ -1,4 +1,4 @@
-package gobpm
+package metis
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func (c *Client) FetchAndLock(ctx context.Context, topic, workerID string, maxTa
 		return nil, err
 	}
 	if out.Error != "" {
-		return nil, fmt.Errorf("gobpm: fetch-and-lock: %s", out.Error)
+		return nil, fmt.Errorf("metis: fetch-and-lock: %s", out.Error)
 	}
 	return out.Tasks, nil
 }
@@ -47,7 +47,7 @@ func (c *Client) CompleteExternalTask(ctx context.Context, taskID, workerID stri
 		return err
 	}
 	if out.Error != "" {
-		return fmt.Errorf("gobpm: complete external task: %s", out.Error)
+		return fmt.Errorf("metis: complete external task: %s", out.Error)
 	}
 	return nil
 }
@@ -70,7 +70,7 @@ func (c *Client) FailExternalTask(ctx context.Context, taskID, workerID, message
 		return err
 	}
 	if out.Error != "" {
-		return fmt.Errorf("gobpm: fail external task: %s", out.Error)
+		return fmt.Errorf("metis: fail external task: %s", out.Error)
 	}
 	return nil
 }
@@ -235,4 +235,4 @@ func sleep(ctx context.Context, d time.Duration) error {
 
 // ErrStopped is a convenience sentinel a caller can use to distinguish a
 // deliberate shutdown from a failure when wrapping Run.
-var ErrStopped = errors.New("gobpm: worker stopped")
+var ErrStopped = errors.New("metis: worker stopped")

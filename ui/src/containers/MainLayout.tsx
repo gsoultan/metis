@@ -171,7 +171,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             <Button
               variant="light"
               component="a"
-              href="https://github.com/gsoultan/gobpm"
+              href="https://github.com/gsoultan/metis"
               target="_blank"
               rel="noreferrer noopener"
               leftSection={<BookOpen size={16} />}

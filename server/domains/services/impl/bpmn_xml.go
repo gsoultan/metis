@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // ErrNoProcessInDefinition is returned for BPMN that parses cleanly but declares

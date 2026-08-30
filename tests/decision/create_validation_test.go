@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/domains/entities"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A decision with no key must be rejected rather than stored.

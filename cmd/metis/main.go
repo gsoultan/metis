@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/gsoultan/gobpm/internal/app"
+	"github.com/gsoultan/metis/internal/app"
 	"github.com/rs/zerolog/log"
 )
 

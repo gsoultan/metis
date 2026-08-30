@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/apierr"
-	"github.com/gsoultan/gobpm/server/domains/services"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/services"
 )
 
 type Endpoints struct {

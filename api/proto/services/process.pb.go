@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -31,7 +31,7 @@ const file_services_process_proto_rawDesc = "" +
 	"\vGetInstance\x12\x1b.process.GetInstanceRequest\x1a\x1c.process.GetInstanceResponse\"\x00\x12P\n" +
 	"\rListInstances\x12\x1d.process.ListInstancesRequest\x1a\x1e.process.ListInstancesResponse\"\x00\x12Y\n" +
 	"\x10GetExecutionPath\x12 .process.GetExecutionPathRequest\x1a!.process.GetExecutionPathResponse\"\x00B\x8e\x01\n" +
-	"\vcom.processB\fProcessProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\fProcessProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_process_proto_goTypes = []any{
 	(*endpoints.StartProcessRequest)(nil),      // 0: process.StartProcessRequest

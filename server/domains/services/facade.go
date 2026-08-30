@@ -1,7 +1,7 @@
 package services
 
 import (
-	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	serviceContracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 // ServiceFacade is the main interface for the Metis system, aggregating all sub-services.

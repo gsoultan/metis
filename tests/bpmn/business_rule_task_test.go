@@ -3,7 +3,7 @@ package bpmn_test
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // A process consulting a decision table, and routing on the answer.

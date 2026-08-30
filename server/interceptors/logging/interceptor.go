@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 	"github.com/rs/zerolog/log"
 )
 

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/repositories/migrations"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/migrations"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 )
 

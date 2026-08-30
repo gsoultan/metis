@@ -22,7 +22,7 @@
   `AGENTS.md` governs *what must be proven*; `.junie/guidelines.md` governs *how to write it*.
 - **Roadmap priority is fixed**: `P0 Security & Reliability` → `P1 Scalability & Performance`
   → `P2 UX Delight`. See [`.junie/roadmap.md`](.junie/roadmap.md).
-- **`go run ./cmd/gobpm --build-ui` must run before `go build ./...`** on a fresh clone —
+- **`go run ./cmd/metis --build-ui` must run before `go build ./...`** on a fresh clone —
   `ui/embed.go` embeds `ui/dist`, which is gitignored.
 - **`go test ./server/...` is not the test suite.** It skips the entire `tests/` tree.
   Use `make test` (or `go test ./...`). `make gate` runs the whole verification gate.

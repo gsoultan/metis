@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"gorm.io/gorm"
 )
 

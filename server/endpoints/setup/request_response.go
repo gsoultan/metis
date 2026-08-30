@@ -1,7 +1,7 @@
 package setup
 
 import (
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 type GetSetupStatusRequest struct{}

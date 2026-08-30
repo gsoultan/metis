@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -31,7 +31,7 @@ const file_services_definition_proto_rawDesc = "" +
 	"\x0fListDefinitions\x12\x1f.process.ListDefinitionsRequest\x1a .process.ListDefinitionsResponse\"\x00\x12P\n" +
 	"\rGetDefinition\x12\x1d.process.GetDefinitionRequest\x1a\x1e.process.GetDefinitionResponse\"\x00\x12Y\n" +
 	"\x10DeleteDefinition\x12 .process.DeleteDefinitionRequest\x1a!.process.DeleteDefinitionResponse\"\x00B\x91\x01\n" +
-	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_definition_proto_goTypes = []any{
 	(*endpoints.CreateDefinitionRequest)(nil),  // 0: process.CreateDefinitionRequest
