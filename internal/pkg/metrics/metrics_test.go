@@ -91,9 +91,9 @@ func TestWrapRecordsOutcome(t *testing.T) {
 
 	body := scrape(t, c)
 	for _, want := range []string{
-		`gobpm_http_requests_total{method="POST",route="/api/v1/tasks/:id/claim",status_class="5xx"} 1`,
+		`metis_http_requests_total{method="POST",route="/api/v1/tasks/:id/claim",status_class="5xx"} 1`,
 		`route="/api/v1/tasks/:id/claim"`,
-		`gobpm_http_request_duration_seconds_bucket`,
+		`metis_http_request_duration_seconds_bucket`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape output missing %q\n---\n%s", want, body)

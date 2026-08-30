@@ -65,6 +65,34 @@ project, theme and sidebar state come across with the session.
   stack starts empty** — it is throwaway by design, but if you were relying on
   it, rename the volume or point the compose file back at the old credentials.
 
+- **Metrics and traces are renamed, and nothing forwards the old names.** The
+  Prometheus metrics are `metis_http_requests_total`,
+  `metis_http_request_duration_seconds` and `metis_http_requests_in_flight`; the
+  OpenTelemetry service is `metis`, its span is `metis.http`, and its attributes
+  are `metis.instance.id`, `metis.node.id`, `metis.definition.id`,
+  `metis.connector.key` and `metis.attempt`.
+
+  **A dashboard or alert rule written against the `gobpm_` names goes blank
+  rather than failing.** A blank panel is easy to notice; a paging alert whose
+  query matches nothing simply stops firing, which is not. Grep your alerting
+  rules for `gobpm_` before upgrading, not after.
+
+- Webhook deliveries send `User-Agent: Metis-Webhook/1.0`. Only relevant if a
+  receiver matches on it.
+
+### What deliberately did not change
+
+The `Idempotency-Key` Metis sends on outbound service calls still begins with
+`gobpm-`, and that is not an oversight.
+
+The key is derived fresh on every retry rather than read back from storage, so
+it is the only thing that identifies a retry to the receiving system as the same
+request it already saw. Renaming it would mean a job that happened to be
+between retries during the upgrade arrives looking new — and a service task
+exists to have an effect out in the world, so "new" means charging the card a
+second time. `TestTheServiceCallKeyIsFrozenAcrossTheRename` fails if anyone
+finishes the job.
+
 ### Checking
 
 The server tells you what it is reading. Start it and look for any line

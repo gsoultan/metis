@@ -5,9 +5,9 @@
 // It doubles as the SDK's end-to-end proof — everything it prints was really
 // answered by a running engine, not a mock.
 //
-//	GOBPM_URL=http://localhost:8080 \
-//	GOBPM_USERNAME=admin GOBPM_PASSWORD=secret \
-//	GOBPM_PROJECT="Default Project" go run ./examples/quickstart
+//	METIS_URL=http://localhost:8080 \
+//	METIS_USERNAME=admin METIS_PASSWORD=secret \
+//	METIS_PROJECT="Default Project" go run ./examples/quickstart
 package main
 
 import (
@@ -46,10 +46,10 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	baseURL := cmp.Or(os.Getenv("GOBPM_URL"), "http://localhost:8080")
-	username := cmp.Or(os.Getenv("GOBPM_USERNAME"), "admin")
-	password := os.Getenv("GOBPM_PASSWORD")
-	projectName := cmp.Or(os.Getenv("GOBPM_PROJECT"), "Default Project")
+	baseURL := cmp.Or(env("URL"), "http://localhost:8080")
+	username := cmp.Or(env("USERNAME"), "admin")
+	password := env("PASSWORD")
+	projectName := cmp.Or(env("PROJECT"), "Default Project")
 
 	client := metis.NewClient(baseURL)
 
@@ -173,4 +173,13 @@ func waitForStatus(ctx context.Context, client *metis.Client, instanceID, want s
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
+}
+
+// env reads a setting under its Metis name, falling back to the GoBPM spelling
+// an existing script would still be exporting. The server does this through
+// internal/pkg/envvar, which the SDK deliberately cannot import: this example
+// is what someone copies into their own repository, and it has to keep the
+// promise the SDK makes of depending on nothing outside the standard library.
+func env(name string) string {
+	return cmp.Or(os.Getenv("METIS_"+name), os.Getenv("GOBPM_"+name))
 }

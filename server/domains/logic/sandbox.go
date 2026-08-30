@@ -45,7 +45,7 @@ const (
 )
 
 // ScriptTimeout returns the wall-clock budget for a single script, gateway
-// condition or DMN cell evaluation. Override with GOBPM_SCRIPT_TIMEOUT (a Go
+// condition or DMN cell evaluation. Override with METIS_SCRIPT_TIMEOUT (a Go
 // duration such as "2s").
 func ScriptTimeout() time.Duration {
 	raw := envvar.Get(envScriptTimeout)

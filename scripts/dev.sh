@@ -126,7 +126,7 @@ JWT_SECRET=$(random_secret)
 METIS_HTTP_ALLOW_PRIVATE_NETWORKS=true
 
 # Uncomment to run against PostgreSQL instead of the default SQLite file.
-# DATABASE_URL=postgres://gobpm:gobpm@localhost:5432/gobpm?sslmode=disable
+# DATABASE_URL=postgres://metis:metis@localhost:5432/metis?sslmode=disable
 
 # Uncomment to keep the pre-existing gateway fallback while migrating
 # definitions that relied on it.

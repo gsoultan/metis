@@ -52,7 +52,7 @@ const (
 	// trailing spans is better than delaying shutdown.
 	shutdownTimeout = 5 * time.Second
 
-	serviceName = "gobpm"
+	serviceName = "metis"
 )
 
 // tracerName identifies this instrumentation in the trace data.
@@ -145,9 +145,9 @@ func sampleRatio() float64 {
 // external call. They are constants because a span attribute that is spelled
 // two ways is two attributes, and neither can be queried reliably.
 const (
-	AttrConnectorKey = attribute.Key("gobpm.connector.key")
-	AttrInstanceID   = attribute.Key("gobpm.instance.id")
-	AttrNodeID       = attribute.Key("gobpm.node.id")
-	AttrAttempt      = attribute.Key("gobpm.attempt")
-	AttrDefinitionID = attribute.Key("gobpm.definition.id")
+	AttrConnectorKey = attribute.Key("metis.connector.key")
+	AttrInstanceID   = attribute.Key("metis.instance.id")
+	AttrNodeID       = attribute.Key("metis.node.id")
+	AttrAttempt      = attribute.Key("metis.attempt")
+	AttrDefinitionID = attribute.Key("metis.definition.id")
 )

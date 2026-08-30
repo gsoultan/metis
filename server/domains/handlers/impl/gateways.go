@@ -57,7 +57,7 @@ func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 				"BPMN_ERROR:no outgoing sequence flow could be selected at exclusive gateway %q: "+
 					"no condition evaluated true and no default flow is declared", node.ID)
 		}
-		// Legacy behaviour, retained only behind GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW.
+		// Legacy behaviour, retained only behind METIS_ALLOW_IMPLICIT_DEFAULT_FLOW.
 		selectedFlow = flows[0]
 		logImplicitDefaultFlow(node.ID, selectedFlow.ID)
 	}

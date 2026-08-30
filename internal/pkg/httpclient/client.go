@@ -41,7 +41,7 @@ const (
 var ErrBlockedAddress = errors.New("httpclient: destination address is blocked by egress policy")
 
 // Timeout returns the per-request wall-clock budget for outbound calls.
-// Override with GOBPM_HTTP_TIMEOUT (a Go duration such as "10s").
+// Override with METIS_HTTP_TIMEOUT (a Go duration such as "10s").
 func Timeout() time.Duration {
 	if raw := envvar.Get(envTimeout); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
@@ -64,7 +64,7 @@ func allowPrivateNetworks() bool {
 }
 
 // allowedHosts returns the explicit egress allowlist, if one is configured.
-// GOBPM_HTTP_ALLOWED_HOSTS is a comma-separated list of hostnames; when set,
+// METIS_HTTP_ALLOWED_HOSTS is a comma-separated list of hostnames; when set,
 // only these hosts may be contacted.
 func allowedHosts() map[string]struct{} {
 	raw := strings.TrimSpace(envvar.Get(envAllowHosts))

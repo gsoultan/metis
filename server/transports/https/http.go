@@ -154,7 +154,7 @@ const envCORSOrigins = "METIS_CORS_ORIGINS"
 // `Access-Control-Allow-Origin: *` therefore bought nothing and let any site
 // on the internet call this API with a token it had obtained.
 //
-// Set GOBPM_CORS_ORIGINS when a separately hosted front end genuinely needs
+// Set METIS_CORS_ORIGINS when a separately hosted front end genuinely needs
 // access.
 func withCORS(next http.Handler) http.Handler {
 	allowed := parseCORSOrigins(envvar.Get(envCORSOrigins))

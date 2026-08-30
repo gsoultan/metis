@@ -678,7 +678,7 @@ func BuildAPIHandler(
 	// exactly the time a caller complains about and the handler never sees.
 	// otelhttp also reads any incoming traceparent, so a request arriving from
 	// another service joins that trace instead of starting a new one.
-	httpHandler = otelhttp.NewHandler(httpHandler, "gobpm.http")
+	httpHandler = otelhttp.NewHandler(httpHandler, "metis.http")
 
 	// Health wraps outside metrics, so probe traffic is served without being
 	// counted. Probes run every few seconds per replica and would otherwise
