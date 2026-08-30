@@ -137,7 +137,7 @@ const file_endpoints_complete_external_task_proto_rawDesc = "" +
 	"\tvariables\x18\x03 \x01(\v2\x17.google.protobuf.StructR\tvariables\"4\n" +
 	"\x1cCompleteExternalTaskResponse\x12\x14\n" +
 	"\x05error\x18\x01 \x01(\tR\x05errorB\x9d\x01\n" +
-	"\vcom.processB\x19CompleteExternalTaskProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x19CompleteExternalTaskProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_complete_external_task_proto_rawDescOnce sync.Once

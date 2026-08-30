@@ -10,10 +10,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/gobpm/internal/pkg/apierr"
-	"github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/internal/pkg/redaction"
-	"github.com/gsoultan/gobpm/server/endpoints"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/server/endpoints"
 )
 
 func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) error {

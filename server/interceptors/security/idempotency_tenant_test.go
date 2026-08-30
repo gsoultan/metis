@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // An Idempotency-Key is chosen by the client, and clients choose obvious

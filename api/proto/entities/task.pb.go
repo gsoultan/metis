@@ -222,7 +222,7 @@ const file_entities_task_proto_rawDesc = "" +
 	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinition\x12\x12\n" +
 	"\x04type\x18\x10 \x01(\tR\x04type\x12 \n" +
 	"\vdescription\x18\x11 \x01(\tR\vdescriptionB\x8b\x01\n" +
-	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_task_proto_rawDescOnce sync.Once

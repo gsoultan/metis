@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	contracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	repcontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/domains/entities"
+	contracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	repcontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // Business Timeline event type constants. These are the human-friendly keys

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
 )
 
 // Filling in a manifest's templates.

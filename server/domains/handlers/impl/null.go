@@ -3,7 +3,7 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 )
 

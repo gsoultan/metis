@@ -15,11 +15,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 )
 
 const (
@@ -30,9 +31,9 @@ const (
 	defaultMaxIdleConns  = 100
 	defaultIdleConnTimeo = 90 * time.Second
 
-	envTimeout      = "GOBPM_HTTP_TIMEOUT"
-	envAllowPrivate = "GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS"
-	envAllowHosts   = "GOBPM_HTTP_ALLOWED_HOSTS"
+	envTimeout      = "METIS_HTTP_TIMEOUT"
+	envAllowPrivate = "METIS_HTTP_ALLOW_PRIVATE_NETWORKS"
+	envAllowHosts   = "METIS_HTTP_ALLOWED_HOSTS"
 )
 
 // ErrBlockedAddress is returned when a request targets an address that egress
@@ -42,7 +43,7 @@ var ErrBlockedAddress = errors.New("httpclient: destination address is blocked b
 // Timeout returns the per-request wall-clock budget for outbound calls.
 // Override with GOBPM_HTTP_TIMEOUT (a Go duration such as "10s").
 func Timeout() time.Duration {
-	if raw := os.Getenv(envTimeout); raw != "" {
+	if raw := envvar.Get(envTimeout); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
 			return d
 		}
@@ -58,7 +59,7 @@ func Timeout() time.Duration {
 // 169.254.169.254 and read cloud instance credentials, or sweep internal
 // services the engine can reach but they cannot.
 func allowPrivateNetworks() bool {
-	v, err := strconv.ParseBool(os.Getenv(envAllowPrivate))
+	v, err := strconv.ParseBool(envvar.Get(envAllowPrivate))
 	return err == nil && v
 }
 
@@ -66,7 +67,7 @@ func allowPrivateNetworks() bool {
 // GOBPM_HTTP_ALLOWED_HOSTS is a comma-separated list of hostnames; when set,
 // only these hosts may be contacted.
 func allowedHosts() map[string]struct{} {
-	raw := strings.TrimSpace(os.Getenv(envAllowHosts))
+	raw := strings.TrimSpace(envvar.Get(envAllowHosts))
 	if raw == "" {
 		return nil
 	}

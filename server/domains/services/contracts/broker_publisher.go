@@ -3,7 +3,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // BrokerPublisher defines the write side of the message broker Strategy.

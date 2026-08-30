@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
-	"github.com/gsoultan/gobpm/internal/pkg/idempotency"
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/idempotency"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
 	"github.com/rs/zerolog/log"
 )
 

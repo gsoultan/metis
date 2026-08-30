@@ -35,7 +35,7 @@ note() { printf 'backup: %s\n' "$1"; }
 mkdir -p "$TARGET"
 chmod 700 "$TARGET"
 
-case "${GOBPM_BACKUP_ENGINE:-postgres}" in
+case "${METIS_BACKUP_ENGINE:-postgres}" in
   postgres)
     command -v pg_dump >/dev/null || die "pg_dump not found"
     # --format=custom so the restore can be parallel and selective; plain SQL
@@ -53,7 +53,7 @@ case "${GOBPM_BACKUP_ENGINE:-postgres}" in
       > "${TARGET}/database.sql"
     ;;
   *)
-    die "unsupported GOBPM_BACKUP_ENGINE '${GOBPM_BACKUP_ENGINE}'; expected postgres or mysql"
+    die "unsupported METIS_BACKUP_ENGINE '${METIS_BACKUP_ENGINE}'; expected postgres or mysql"
     ;;
 esac
 
@@ -61,15 +61,15 @@ esac
 # unavailable this stops rather than falling back to plaintext: a key sitting
 # beside its database in a backup directory is worse than no backup, because it
 # looks like one.
-KEY_RECIPIENT="${GOBPM_BACKUP_GPG_RECIPIENT:-}"
+KEY_RECIPIENT="${METIS_BACKUP_GPG_RECIPIENT:-}"
 if [ -n "$KEY_RECIPIENT" ]; then
-  command -v gpg >/dev/null || die "GOBPM_BACKUP_GPG_RECIPIENT is set but gpg is not installed"
+  command -v gpg >/dev/null || die "METIS_BACKUP_GPG_RECIPIENT is set but gpg is not installed"
   printf '%s' "$ENCRYPTION_KEY" | gpg --batch --yes --encrypt --recipient "$KEY_RECIPIENT" \
     --output "${TARGET}/encryption-key.gpg"
   chmod 600 "${TARGET}/encryption-key.gpg"
   note "encryption key written encrypted to ${KEY_RECIPIENT}"
 else
-  note "WARNING: GOBPM_BACKUP_GPG_RECIPIENT is not set, so the encryption key was NOT included."
+  note "WARNING: METIS_BACKUP_GPG_RECIPIENT is not set, so the encryption key was NOT included."
   note "         Store it yourself, in a different system from this backup, or the restore will fail."
 fi
 
@@ -85,7 +85,7 @@ fi
 # binary being restored onto can read it at all.
 cat > "${TARGET}/manifest.txt" <<MANIFEST
 taken_at=${STAMP}
-engine=${GOBPM_BACKUP_ENGINE:-postgres}
+engine=${METIS_BACKUP_ENGINE:-postgres}
 encryption_key_included=$([ -n "$KEY_RECIPIENT" ] && echo yes || echo no)
 config_included=$([ -f "${TARGET}/config.yaml" ] && echo yes || echo no)
 MANIFEST

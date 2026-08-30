@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/gorms"
 
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
-	models2 "github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
+	models2 "github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

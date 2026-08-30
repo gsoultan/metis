@@ -83,7 +83,7 @@ const file_endpoints_list_tasks_by_assignee_proto_rawDesc = "" +
 	"\x1aListTasksByAssigneeRequest\x12\x1a\n" +
 	"\bassignee\x18\x01 \x01(\tR\bassignee\x12(\n" +
 	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04pageB\x9c\x01\n" +
-	"\vcom.processB\x18ListTasksByAssigneeProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x18ListTasksByAssigneeProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_list_tasks_by_assignee_proto_rawDescOnce sync.Once

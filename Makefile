@@ -78,10 +78,10 @@ test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
 
 .PHONY: test-db
 test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4
-	@echo "Postgres and MySQL tests skip unless GOBPM_TEST_POSTGRES_DSN / GOBPM_TEST_MYSQL_DSN are set."
+	@echo "Postgres and MySQL tests skip unless METIS_TEST_POSTGRES_DSN / METIS_TEST_MYSQL_DSN are set."
 	@echo "Apple container:"
-	@echo "  container run -d --rm --name gobpm-pg -e POSTGRES_PASSWORD=gobpm -e POSTGRES_USER=gobpm -e POSTGRES_DB=gobpm docker.io/library/postgres:17"
-	@echo "  export GOBPM_TEST_POSTGRES_DSN=\"host=<ip> user=gobpm password=gobpm dbname=gobpm port=5432 sslmode=disable\""
+	@echo "  container run -d --rm --name metis-pg -e POSTGRES_PASSWORD=metis -e POSTGRES_USER=metis -e POSTGRES_DB=metis docker.io/library/postgres:17"
+	@echo "  export METIS_TEST_POSTGRES_DSN=\"host=<ip> user=metis password=metis dbname=metis port=5432 sslmode=disable\""
 	go test ./tests/postgres/... ./tests/mysqldb/... -v
 
 .PHONY: race
@@ -90,7 +90,7 @@ race: ## Run the full Go test suite under the race detector
 
 .PHONY: strict-scope
 strict-scope: ## Run the strict-tenant-scope suite with the flag on, as production would set it
-	GOBPM_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 ./tests/strictscope/...
+	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 ./tests/strictscope/...
 
 .PHONY: lint
 lint: ## Run golangci-lint
@@ -112,7 +112,7 @@ gate: ui-build build vet test race strict-scope sdk ui-typecheck ui-lint ui-test
 
 .PHONY: docker
 docker: ## Build the production image, stamped with the current git describe
-	docker build --build-arg VERSION=$$(git describe --tags --always --dirty) -t gobpm:$$(git describe --tags --always --dirty) -t gobpm:latest .
+	docker build --build-arg VERSION=$$(git describe --tags --always --dirty) -t metis:$$(git describe --tags --always --dirty) -t metis:latest .
 
 .PHONY: docker-run
 docker-run: ## Bring up the evaluation stack (engine + PostgreSQL) on :8080

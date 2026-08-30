@@ -2,7 +2,7 @@ package interceptors
 
 import (
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 // InterceptorChain manages a collection of interceptors and applies them to an endpoint.

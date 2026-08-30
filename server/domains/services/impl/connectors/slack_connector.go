@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
 )
 
 const SlackConnectorKey = "slack-message"

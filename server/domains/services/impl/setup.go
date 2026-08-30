@@ -9,16 +9,16 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/gorms"
 
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/config"
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
-	"github.com/gsoultan/gobpm/internal/pkg/redaction"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/migrations"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/internal/pkg/config"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories/migrations"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"

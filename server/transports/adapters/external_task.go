@@ -1,8 +1,8 @@
 package adapters
 
 import (
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/structpb"
 )

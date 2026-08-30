@@ -1,6 +1,6 @@
 package webhook
 
-import "github.com/gsoultan/gobpm/server/domains/entities"
+import "github.com/gsoultan/metis/server/domains/entities"
 
 // ListWebhooksRequest asks for a project's registered addresses.
 type ListWebhooksRequest struct {

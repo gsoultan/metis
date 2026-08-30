@@ -3,7 +3,7 @@ package postgres_test
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The dialect-aware UUID type must not change PostgreSQL's schema.

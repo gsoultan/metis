@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 // ErrMissingTenant is returned when a request arrives without a resolvable tenant.

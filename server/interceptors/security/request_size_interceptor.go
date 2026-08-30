@@ -3,7 +3,7 @@ package security
 import (
 	"net/http"
 
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 const defaultMaxBodyBytes int64 = 2 << 20

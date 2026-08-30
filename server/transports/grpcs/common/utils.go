@@ -1,7 +1,7 @@
 package common
 
 import (
-	"github.com/gsoultan/gobpm/internal/pkg/redaction"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 

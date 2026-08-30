@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 )
 
 func TestDeriveKey(t *testing.T) {

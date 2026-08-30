@@ -7,10 +7,10 @@ package contracts
 import (
 	"context"
 
-	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // EngineRunner advances process instances through the BPMN graph.

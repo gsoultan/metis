@@ -23,7 +23,7 @@ note() { printf 'restore: %s\n' "$1"; }
 note "restoring from:"
 sed 's/^/  /' "${SOURCE}/manifest.txt"
 
-if [ "${GOBPM_RESTORE_ASSUME_STOPPED:-}" != "true" ]; then
+if [ "${METIS_RESTORE_ASSUME_STOPPED:-}" != "true" ]; then
   printf '\nrestore: is every engine replica stopped? A running engine will overwrite this restore. [type "stopped" to continue] '
   read -r answer
   [ "$answer" = "stopped" ] || die "aborted. Stop the engine, then run again."

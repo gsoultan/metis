@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gsoultan/gobpm/internal/pkg/tracing"
-	"github.com/gsoultan/gobpm/server/domains/services/impl/connectors"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/internal/pkg/tracing"
+	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
@@ -18,17 +18,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/gobpm/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
 
 	"net"
 	"net/smtp"
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
 )

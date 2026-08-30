@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	domainadapters "github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/transports/adapters"
+	domainadapters "github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/transports/adapters"
 )
 
 // A node must survive the trip to protobuf and back with everything it carries.

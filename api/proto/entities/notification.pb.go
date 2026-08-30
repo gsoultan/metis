@@ -156,7 +156,7 @@ const file_entities_notification_proto_rawDesc = "" +
 	"\aproject\x18\t \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
 	"\binstance\x18\n" +
 	" \x01(\v2\x18.process.ProcessInstanceR\binstanceB\x93\x01\n" +
-	"\vcom.processB\x11NotificationProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x11NotificationProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_notification_proto_rawDescOnce sync.Once

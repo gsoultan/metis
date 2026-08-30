@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -34,7 +34,7 @@ const file_services_task_proto_rawDesc = "" +
 	"\vUnclaimTask\x12\x1b.process.UnclaimTaskRequest\x1a\x1c.process.UnclaimTaskResponse\"\x00\x12X\n" +
 	"\x13ListTasksByAssignee\x12#.process.ListTasksByAssigneeRequest\x1a\x1a.process.ListTasksResponse\"\x00\x12\\\n" +
 	"\x15ListTasksByCandidates\x12%.process.ListTasksByCandidatesRequest\x1a\x1a.process.ListTasksResponse\"\x00B\x8b\x01\n" +
-	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_task_proto_goTypes = []any{
 	(*endpoints.GetTaskRequest)(nil),               // 0: process.GetTaskRequest

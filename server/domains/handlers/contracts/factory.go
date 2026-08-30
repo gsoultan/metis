@@ -1,7 +1,7 @@
 package contracts
 
 import (
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // NodeHandlerFactory defines the interface for creating node handlers.

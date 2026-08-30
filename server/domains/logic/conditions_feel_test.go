@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/internal/pkg/features"
+	"github.com/gsoultan/metis/internal/pkg/features"
 )
 
 // TestChainIsAdditive is the safety property of the Phase 2.2 integration:

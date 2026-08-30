@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/gorms"
 
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )

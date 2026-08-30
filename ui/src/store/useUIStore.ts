@@ -2,10 +2,11 @@
  * useUIStore — manages visual presentation state (theme, sidebar, expertMode).
  *
  * FE-ARCH-2: Separated from the monolithic useAppStore to satisfy SRP.
- * Persisted to localStorage under the key 'gobpm-ui-storage'.
+ * Persisted to localStorage under the key 'metis-ui-storage'.
  */
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import { renamedStorage } from './persistedStorage';
 
 interface UIState {
   theme: 'light' | 'dark';
@@ -37,8 +38,8 @@ export const useUIStore = create<UIState>()(
       setExpertMode: (val) => set({ expertMode: val }),
     }),
     {
-      name: 'gobpm-ui-storage',
-      storage: createJSONStorage(() => localStorage),
+      name: 'metis-ui-storage',
+      storage: renamedStorage('metis-ui-storage'),
     },
   ),
 );

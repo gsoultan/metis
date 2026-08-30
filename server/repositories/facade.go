@@ -1,6 +1,6 @@
 package repositories
 
-import "github.com/gsoultan/gobpm/server/repositories/contracts"
+import "github.com/gsoultan/metis/server/repositories/contracts"
 
 // Repository defines the composite repository interface.
 type Repository interface {

@@ -9,16 +9,16 @@ services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_USER: gobpm
-      POSTGRES_PASSWORD: gobpm
-      POSTGRES_DB: gobpm
+      POSTGRES_USER: metis
+      POSTGRES_PASSWORD: metis
+      POSTGRES_DB: metis
     volumes:
-      - gobpm-postgres:/var/lib/postgresql/data
+      - metis-postgres:/var/lib/postgresql/data
     healthcheck:
       # pg_isready, not a TCP probe: the port accepts connections a good while
       # before the server will answer a query, and the engine's first act is to
       # run migrations.
-      test: ["CMD-SHELL", "pg_isready -U gobpm -d gobpm"]
+      test: ["CMD-SHELL", "pg_isready -U metis -d metis"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -27,16 +27,16 @@ services:
     # ports:
     #   - "5432:5432"
 
-  gobpm:
+  metis:
     build:
       context: .
       args:
-        VERSION: ${GOBPM_VERSION:-dev}
+        VERSION: ${METIS_VERSION:-dev}
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "host=postgres user=gobpm password=gobpm dbname=gobpm port=5432 sslmode=disable"
+      DATABASE_URL: "host=postgres user=metis password=metis dbname=metis port=5432 sslmode=disable"
 
       # Both are required once configured, and the server refuses to start
       # without them. These are throwaway values for evaluation — generate real
@@ -47,7 +47,7 @@ services:
 
       # Off by default in the product; stated here so the file documents the
       # decision rather than leaving it to a reader to wonder.
-      GOBPM_FEATURE_JAVASCRIPT_CONDITIONS: "false"
+      METIS_FEATURE_JAVASCRIPT_CONDITIONS: "false"
     ports:
       - "8080:8080"   # API and the embedded UI
       - "8081:8081"   # gRPC
@@ -60,4 +60,4 @@ services:
       - no-new-privileges:true
 
 volumes:
-  gobpm-postgres:
+  metis-postgres:

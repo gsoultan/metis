@@ -3,7 +3,7 @@ package entities_test
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // MarkCompleted and MarkCompensated dedupe on node identity, and a node's

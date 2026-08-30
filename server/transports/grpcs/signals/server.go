@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
-	"github.com/gsoultan/gobpm/api/proto/endpoints"
-	"github.com/gsoultan/gobpm/api/proto/services"
-	"github.com/gsoultan/gobpm/server/endpoints/process"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/common"
+	"github.com/gsoultan/metis/api/proto/endpoints"
+	"github.com/gsoultan/metis/api/proto/services"
+	"github.com/gsoultan/metis/server/endpoints/process"
+	"github.com/gsoultan/metis/server/transports/grpcs/common"
 )
 
 type Server struct {

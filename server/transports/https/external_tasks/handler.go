@@ -18,8 +18,8 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/endpoints/external_task"
-	"github.com/gsoultan/gobpm/server/transports/https/common"
+	"github.com/gsoultan/metis/server/endpoints/external_task"
+	"github.com/gsoultan/metis/server/transports/https/common"
 )
 
 // defaultLockDurationMS is used when a fetch request does not say how long it

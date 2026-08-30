@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/server/endpoints/process"
-	"github.com/gsoultan/gobpm/server/transports/adapters"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/common"
+	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/server/endpoints/process"
+	"github.com/gsoultan/metis/server/transports/adapters"
+	"github.com/gsoultan/metis/server/transports/grpcs/common"
 )
 
 type ProcessHandler struct {

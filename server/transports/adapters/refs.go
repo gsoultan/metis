@@ -1,7 +1,7 @@
 package adapters
 
 import (
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
 )
 
 // The protobuf entities model relationships as nested messages, matching the

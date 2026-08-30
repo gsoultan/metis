@@ -152,7 +152,7 @@ const file_entities_definition_proto_rawDesc = "" +
 	"\x05flows\x18\b \x03(\v2\r.process.FlowR\x05flows\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\t \x01(\tR\tcreatedAtB\x91\x01\n" +
-	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x0fDefinitionProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_definition_proto_rawDescOnce sync.Once

@@ -635,7 +635,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     const timer = setTimeout(() => {
       setIsAutosaving(true);
       const draft = { nodes, edges, processName, processKey, timestamp: new Date().toISOString() };
-      localStorage.setItem(`gobpm_draft_${definitionId ?? 'new'}`, JSON.stringify(draft));
+      localStorage.setItem(`metis_draft_${definitionId ?? 'new'}`, JSON.stringify(draft));
       setLastSaved(new Date());
       setIsAutosaving(false);
     }, 3000);

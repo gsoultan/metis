@@ -296,7 +296,7 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 | Path | Contents | Owning profile |
 | :-- | :-- | :-- |
 | `api/proto/` | Protobuf contracts + generated code (do not hand-edit) | `arch` |
-| `cmd/gobpm/` | Entry point | `arch` |
+| `cmd/metis/` | Entry point | `arch` |
 | `internal/app/` | Composition root, server wiring, middleware chain | `arch` |
 | `internal/pkg/` | `auth`, `config`, `crypto`, `logger`, `redaction` | `sec` |
 | `server/domains/entities/` | Domain entities (no ORM tags, object refs not IDs) | `arch` |
@@ -320,13 +320,13 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 
 Backend:
 ```bash
-go run ./cmd/gobpm --build-ui   # REQUIRED FIRST — ui/embed.go embeds ui/dist;
+go run ./cmd/metis --build-ui   # REQUIRED FIRST — ui/embed.go embeds ui/dist;
                                 # without it `go build ./...` fails on a fresh clone
 go build ./...
 go vet ./...                    # must not regress; module-wide, not a package allowlist
 go test ./...                   # module-wide — ./server/... alone SKIPS the entire tests/ tree
 go test -race ./...             # required for anything touching the engine or workers
-make strict-scope               # the production paths under GOBPM_FEATURE_STRICT_TENANT_SCOPE=true
+make strict-scope               # the production paths under METIS_FEATURE_STRICT_TENANT_SCOPE=true
 ```
 
 Frontend:

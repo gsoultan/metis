@@ -3,8 +3,8 @@ package decision_test
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/domains/entities"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 // An evaluation should say which line of the table produced it.

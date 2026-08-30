@@ -8,8 +8,8 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	services "github.com/gsoultan/gobpm/api/proto/services"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	services "github.com/gsoultan/metis/api/proto/services"
 	http "net/http"
 	strings "strings"
 )
