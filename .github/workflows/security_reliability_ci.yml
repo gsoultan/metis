@@ -512,3 +512,10 @@ jobs:
       - name: Stop it
         if: always()
         run: docker rm -f metis-ci || true
+
+      # The manifest is a deployment people apply, so a typo in it is an
+      # outage on their cluster rather than a red build here. Validated
+      # against the real Kubernetes schemas, in the job that already proves
+      # the image the manifest refers to.
+      - name: Validate the Kubernetes manifest
+        run: go run github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0 -strict -summary deploy/kubernetes/metis.yaml

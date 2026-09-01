@@ -140,6 +140,10 @@ Try it, with a PostgreSQL alongside:
 make docker-run            # http://localhost:8080
 ```
 
+For Kubernetes, [`deploy/kubernetes/`](deploy/kubernetes/) is a complete
+deployment rather than a skeleton — read-only root, non-root user, the right
+probe on the right endpoint, and comments saying what each field prevents.
+
 `docker-compose.yml` is for evaluation: the secrets in it are literals. Generate
 real ones for anything else, and back `ENCRYPTION_KEY` up separately from the
 database — a backup without it restores unreadable rows

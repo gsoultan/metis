@@ -1,0 +1,77 @@
+# Publishes the image for a tagged release.
+#
+# Deliberately tag-triggered and nothing else. Publishing on every push to main
+# would mean the registry's newest tag is whatever merged last, which is a
+# rollback target nobody chose — and an image is the one artifact people deploy
+# without reading first.
+#
+# Nothing has been tagged yet, so this workflow has never run. The first `git
+# tag vX.Y.Z && git push --tags` is what makes ghcr.io/<owner>/metis real.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: Publish the image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # `git describe` stamps the version into the binary, and a shallow
+          # clone has no tags to describe against — including the one that
+          # triggered this run.
+          fetch-depth: 0
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: tags
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/metis"
+          # `latest` only moves for a final release. A pre-release that quietly
+          # became the default pull is how someone ends up running a release
+          # candidate in production without having chosen to.
+          if [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tags=${image}:${version},${image}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${image}:${version}" >> "$GITHUB_OUTPUT"
+            echo "::notice::${version} is a pre-release, so 'latest' was left where it was."
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+          # Attest what this image was built from, so a deployed digest can be
+          # traced back to a commit without trusting the tag.
+          provenance: true
+
+      - name: Say what to pull
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
