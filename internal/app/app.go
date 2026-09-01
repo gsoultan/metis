@@ -571,7 +571,46 @@ func (a *App) setupService(ctx context.Context) error {
 	dispatcher.Register(impl.NewNotificationObserver(a.svc))
 
 	a.svc.StartWorkers(ctx)
+	a.startSSEFanout(ctx)
 	return nil
+}
+
+// startSSEFanout connects this replica's SSE observer to the shared bus, so a
+// browser here sees events produced anywhere.
+//
+// Without it the client registry is per-process and correct only for a single
+// replica: a browser connected to one process never learns about work done in
+// another, and its lists stop updating with nothing in any log to say why.
+//
+// A failure here is not fatal. Local delivery works either way, so the cost of
+// starting without the bus is the behaviour that shipped before it existed —
+// which is worth logging loudly and not worth refusing to boot over.
+func (a *App) startSSEFanout(ctx context.Context) {
+	origin := replicaOrigin()
+	fanout := impl.NewSSEFanout(a.repo.Broadcast(), a.sse, origin)
+	if err := fanout.Start(ctx); err != nil {
+		log.Error().Err(err).Str("replica", origin).
+			Msg("The SSE bus did not start. Live updates will only reach browsers connected to this replica; every other browser will see stale lists until it refetches.")
+		return
+	}
+	log.Info().Str("replica", origin).Msg("SSE fan-out started")
+}
+
+// replicaOrigin names this process on the shared bus.
+//
+// Only two properties matter: it is stable for the life of the process, and two
+// replicas do not share one. A hostname gives both under every orchestrator
+// that matters — Kubernetes gives each pod its own — and the PID disambiguates
+// two processes on one host, which is how the tests run them. The random
+// fallback keeps the guarantee when a hostname cannot be read; sharing an
+// origin would make two replicas skip each other's events as their own, which
+// is precisely the bug this exists to fix.
+func replicaOrigin() string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		return fmt.Sprintf("replica-%s", uuid.NewString())
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
 }
 
 func (a *App) setupAuth(ctx context.Context) {

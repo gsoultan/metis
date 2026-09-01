@@ -29,6 +29,10 @@ func MigrationModels() []any {
 		// causing runtime failures the first time a notification was written.
 		new(NotificationModel),
 
+		// The SSE fan-out bus. Without it a browser only sees events produced
+		// by the replica it happens to be connected to.
+		new(BroadcastEventModel),
+
 		// These five were declared, given repositories and used by the
 		// application, and left out of this list — so on a fresh installation
 		// their tables were never created and the first deployment, form or

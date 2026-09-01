@@ -8,6 +8,7 @@ import (
 
 type gormRepository struct {
 	audit                 contracts.AuditRepository
+	broadcast             contracts.BroadcastRepository
 	connector             contracts.ConnectorRepository
 	connectorInstance     contracts.ConnectorInstanceRepository
 	decision              contracts.DecisionRepository
@@ -37,6 +38,7 @@ type gormRepository struct {
 func NewRepository(db *gorm.DB) Repository {
 	return &gormRepository{
 		audit:                 gorms.NewAuditRepository(db),
+		broadcast:             gorms.NewBroadcastRepository(db),
 		connector:             gorms.NewConnectorRepository(db),
 		connectorInstance:     gorms.NewConnectorInstanceRepository(db),
 		decision:              gorms.NewDecisionRepository(db),
@@ -64,6 +66,7 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *gormRepository) Audit() contracts.AuditRepository         { return r.audit }
+func (r *gormRepository) Broadcast() contracts.BroadcastRepository { return r.broadcast }
 func (r *gormRepository) Connector() contracts.ConnectorRepository { return r.connector }
 func (r *gormRepository) ConnectorInstance() contracts.ConnectorInstanceRepository {
 	return r.connectorInstance
