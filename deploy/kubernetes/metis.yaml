@@ -124,6 +124,16 @@ spec:
             - name: METIS_TRUSTED_PROXIES
               value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
+            # Multi-tenant installations should work towards turning this on:
+            # with it off, a query that fails to resolve a tenant sees every
+            # organization rather than none. It is off by default because its
+            # failure mode is silence — a background path that loses its
+            # identity reads nothing and looks idle rather than erroring — so
+            # it goes on in staging first. docs/strict-tenant-scope.md is the
+            # procedure, and it is short.
+            # - name: METIS_FEATURE_STRICT_TENANT_SCOPE
+            #   value: "true"
+
             # Unset means no CORS headers, which is correct: the Go server
             # serves the UI, so the browser is already same-origin. Set this
             # only for a separately hosted front end.

@@ -70,7 +70,11 @@ func reportUnidentifiedAccess() {
 	if !ok {
 		return
 	}
-	if _, seen := reportedSites.LoadOrStore(site.PC, struct{}{}); seen {
+	denial := fmt.Sprintf("%s (%s:%d)", site.Function, site.File, site.Line)
+	if from != "" {
+		denial += " called from " + from
+	}
+	if _, seen := reportedSites.LoadOrStore(site.PC, denial); seen {
 		return
 	}
 	event := log.Warn().
@@ -348,4 +352,41 @@ func tenantScopeDeploymentResources(ctx context.Context, db *gorm.DB) *gorm.DB {
 	}
 
 	return db.Joins(QueryTenantScopeViaDeployment, tc.TenantID)
+}
+
+// DeniedSites returns the distinct paths the strict scope has refused so far,
+// in no particular order.
+//
+// This exists because the flag's failure mode is silence. Turning it on and
+// watching a staging environment means noticing an *absence* — work that quietly
+// stops happening — and absences are what people miss. The warning log names
+// each site, but reading it means grepping, and a log line cannot be asserted
+// on. This is the same information as a value: a rollout becomes "run the
+// product, then check this is empty", and a test can make that a build failure
+// rather than a judgement call.
+//
+// Empty is the goal. Anything in here is a path that needs
+// entities.WithSystemContext if it is background work, or a resolved tenant if
+// it serves a request.
+func DeniedSites() []string {
+	var sites []string
+	reportedSites.Range(func(_, value any) bool {
+		if denial, ok := value.(string); ok {
+			sites = append(sites, denial)
+		}
+		return true
+	})
+	return sites
+}
+
+// ResetDeniedSites forgets what has been reported.
+//
+// Only useful to a test that wants to attribute denials to one specific
+// exercise: the deduplication is per process, so without a reset the second
+// test to run sees whatever the first provoked and cannot tell them apart.
+func ResetDeniedSites() {
+	reportedSites.Range(func(key, _ any) bool {
+		reportedSites.Delete(key)
+		return true
+	})
 }
