@@ -1,0 +1,191 @@
+# Metis BPM — a production Kubernetes deployment.
+#
+# This is not a starting point to be hardened later. Every field below is here
+# because leaving it out breaks something specific, and each one says which.
+#
+#   kubectl create namespace metis
+#   # create the secret first — the server will not start without it
+#   kubectl -n metis create secret generic metis-secrets \
+#     --from-literal=ENCRYPTION_KEY="$(openssl rand -hex 16)" \
+#     --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
+#     --from-literal=DATABASE_URL="host=... user=... password=... dbname=metis sslmode=require"
+#   kubectl -n metis apply -f metis.yaml
+#
+# BACK UP ENCRYPTION_KEY SEPARATELY FROM THE DATABASE. Process and task
+# variables are encrypted with it; a database backup restored without it gives
+# you unreadable rows and no way to recover them. See docs/recovery.md.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: metis
+  labels:
+    app.kubernetes.io/name: metis
+spec:
+  selector:
+    app.kubernetes.io/name: metis
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: grpc
+      port: 8081
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metis
+  labels:
+    app.kubernetes.io/name: metis
+spec:
+  # ONE REPLICA IS THE SUPPORTED TOPOLOGY. Read docs/recovery.md §2.1 before
+  # changing this. Job claiming, migrations, correlation, idempotency and live
+  # UI updates are all safe across replicas; what is not is rate limiting and
+  # connector limits/circuit breakers, which are per-process — so with N
+  # replicas each of those limits is applied N times over. That is a
+  # degradation, not corruption, but it is a decision to make deliberately.
+  replicas: 1
+
+  # Recreate, not RollingUpdate. A rolling update briefly runs two replicas,
+  # which is the topology above — and during a schema migration it means an old
+  # pod serving against a schema the new one is changing. Recreate accepts a few
+  # seconds of downtime instead.
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metis
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metis
+      annotations:
+        # Metrics bind to loopback by default and are exposed here on their own
+        # port, so scraping does not require opening them to the world.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: "/metrics"
+
+    spec:
+      # The 5s HTTP shutdown timeout is what the process uses to drain. 30s
+      # gives it room and leaves margin for the pod to be removed from
+      # endpoints first. Long-lived SSE streams never finish on their own, so
+      # shutdown always runs to its timeout — that is expected, not a hang.
+      terminationGracePeriodSeconds: 30
+
+      securityContext:
+        # The image's own user. Named explicitly so a cluster policy that
+        # requires runAsNonRoot can verify it without inspecting the image.
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: metis
+          # THIS IMAGE EXISTS ONLY ONCE A v* TAG HAS BEEN PUSHED — the
+          # release workflow builds and publishes it, and nothing has been
+          # tagged yet. Until then, build it yourself and push it to your own
+          # registry:
+          #
+          #   make docker
+          #   docker tag metis:latest <your-registry>/metis:<version>
+          #   docker push <your-registry>/metis:<version>
+          #
+          # Pin a digest in a real deployment. A moving tag makes a rollback
+          # ambiguous, which is the one moment it needs not to be.
+          image: ghcr.io/gsoultan/metis:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 8081
+            - name: metrics
+              containerPort: 9464
+
+          env:
+            # Metrics default to 127.0.0.1:9464, which nothing outside the pod
+            # can reach. Bind them to the pod IP so Prometheus can scrape.
+            - name: METIS_METRICS_ADDRESS
+              value: "0.0.0.0:9464"
+
+            # WITHOUT THIS, EVERY CLIENT BEHIND YOUR INGRESS SHARES ONE RATE
+            # LIMIT BUCKET. X-Forwarded-For is only believed from peers named
+            # here, because it is a client-set header — believing it
+            # unconditionally let one address take 30 requests through a limit
+            # of 3. The default covers RFC1918, which is where an in-cluster
+            # ingress connects from; widen it only if yours does not.
+            - name: METIS_TRUSTED_PROXIES
+              value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+            # Unset means no CORS headers, which is correct: the Go server
+            # serves the UI, so the browser is already same-origin. Set this
+            # only for a separately hosted front end.
+            # - name: METIS_CORS_ORIGINS
+            #   value: "https://metis.example.com"
+
+          envFrom:
+            - secretRef:
+                name: metis-secrets
+
+          # /readyz checks the database; /healthz deliberately does not.
+          # Liveness on /readyz would restart a healthy pod every time the
+          # database blinked, turning a brief outage into a crash loop.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          # Migrations run at boot and a cold start is not instant. A startup
+          # probe means slow-but-fine is not mistaken for dead: up to 60s here,
+          # without loosening the liveness probe afterwards.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # The root filesystem is read-only, so /tmp has to come from
+          # somewhere. The engine keeps its state in the database; this is
+          # scratch space, and losing it on restart costs nothing.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              # No CPU limit on purpose: throttling an orchestrator mid-
+              # transaction turns a slow tick into a lock held longer, and the
+              # request above already reserves what it needs. Memory is limited
+              # because a runaway script task should kill one pod rather than
+              # the node — script tasks have a wall-clock budget but goja
+              # cannot be pre-empted inside a native call, so memory is the
+              # backstop.
+              memory: "1Gi"
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
