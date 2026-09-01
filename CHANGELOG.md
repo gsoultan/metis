@@ -119,6 +119,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **FEEL's `matches()` was not a regular expression.** It matched literally, so
+  a decision table written with `matches(code, "^ERR-[0-9]+$")` did not error
+  and did not warn — it answered false for every input and the process took the
+  other branch. A rule that never fires is a wrong answer delivered
+  confidently, not a missing feature.
+
+  It matched literally to avoid catastrophic backtracking on a pattern taken
+  from a deployed definition. That reasoning does not apply to Go, whose
+  `regexp` is RE2 and does not backtrack: the textbook `^(a+)+$` case measures
+  119µs rather than hanging.
+
+  **Patterns containing no metacharacters behave exactly as before** — Go's
+  matching is unanchored, so a literal pattern is still a substring test. A
+  definition using a real pattern starts working, which is a behaviour change if
+  you were relying on the rule never firing. An uncompilable pattern is now an
+  error rather than a silent false.
+
+
 - **A client retry landing on another replica no longer re-executes the write.**
   Idempotency records were held in the serving process, so a second replica
   found an empty cache and ran the work again — a duplicate business action,
