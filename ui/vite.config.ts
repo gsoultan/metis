@@ -4,9 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 
 // https://vite.dev/config/
-// The backend the dev server proxies to. Override with GOBPM_BACKEND when the
+// The backend the dev server proxies to. Override with METIS_BACKEND when the
 // Go server runs on a different port.
-const backend = process.env.GOBPM_BACKEND ?? 'http://localhost:8080'
+const backend = process.env.METIS_BACKEND ?? 'http://localhost:8080'
 
 // Deliberately not Vite's default 5173: every other Vite project claims it, so
 // two checkouts open at once would fight over the port. Override with UI_PORT.

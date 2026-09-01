@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 
 	"github.com/dop251/goja"
 	"github.com/rs/zerolog/log"
@@ -23,7 +24,7 @@ var ErrScriptAbandoned = errors.New("script ignored its interrupt and was abando
 
 const (
 	defaultScriptTimeout = 5 * time.Second
-	envScriptTimeout     = "GOBPM_SCRIPT_TIMEOUT"
+	envScriptTimeout     = "METIS_SCRIPT_TIMEOUT"
 
 	// interruptGrace is how long to keep waiting after the interrupt fires,
 	// before giving up on the script entirely.
@@ -44,10 +45,10 @@ const (
 )
 
 // ScriptTimeout returns the wall-clock budget for a single script, gateway
-// condition or DMN cell evaluation. Override with GOBPM_SCRIPT_TIMEOUT (a Go
+// condition or DMN cell evaluation. Override with METIS_SCRIPT_TIMEOUT (a Go
 // duration such as "2s").
 func ScriptTimeout() time.Duration {
-	raw := os.Getenv(envScriptTimeout)
+	raw := envvar.Get(envScriptTimeout)
 	if raw == "" {
 		return defaultScriptTimeout
 	}

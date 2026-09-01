@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
+
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	handlercontracts "github.com/gsoultan/gobpm/server/domains/handlers/contracts"
-	"github.com/gsoultan/gobpm/server/domains/logic"
-	observerContracts "github.com/gsoultan/gobpm/server/domains/observers/contracts"
-	serviceContracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories"
-	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	handlercontracts "github.com/gsoultan/metis/server/domains/handlers/contracts"
+	"github.com/gsoultan/metis/server/domains/logic"
+	observerContracts "github.com/gsoultan/metis/server/domains/observers/contracts"
+	serviceContracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
 )
 
@@ -303,13 +304,13 @@ const maxExecutionDepth = 200
 
 // envMaxExecutionDepth overrides maxExecutionDepth for deployments with
 // legitimately deep synchronous processes.
-const envMaxExecutionDepth = "GOBPM_MAX_EXECUTION_DEPTH"
+const envMaxExecutionDepth = "METIS_MAX_EXECUTION_DEPTH"
 
 type executionDepthKey struct{}
 
 // executionDepthLimit returns the configured traversal bound.
 func executionDepthLimit() int {
-	if raw := os.Getenv(envMaxExecutionDepth); raw != "" {
+	if raw := envvar.Get(envMaxExecutionDepth); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
 			return n
 		}

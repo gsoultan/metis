@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

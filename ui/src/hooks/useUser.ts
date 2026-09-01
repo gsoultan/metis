@@ -34,6 +34,16 @@ export const useUpdateUser = () => {
   });
 };
 
+// Nothing is invalidated on success: a password is not part of any cached
+// query, and re-fetching the user list after one changes theirs would be
+// noise.
+export const useChangeOwnPassword = () => {
+  return useMutation({
+    mutationFn: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+      processService.changeOwnPassword(currentPassword, newPassword),
+  });
+};
+
 export const useDeleteUser = () => {
   const queryClient = useQueryClient();
   return useMutation({

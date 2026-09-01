@@ -127,7 +127,7 @@
     - MUST use dynamic `import()` to code-split the application.
     - MUST use `build.rollupOptions.output.manualChunks` in `vite.config.ts` to improve chunking.
     - MUST adjust chunk size limit for warnings via `build.chunkSizeWarningLimit` in `vite.config.ts`.
-- **Verification**: MUST ensure `go run ./cmd/gobpm --build-ui` (which runs `bun run build` in the `ui` directory) passes successfully after any UI changes.
+- **Verification**: MUST ensure `go run ./cmd/metis --build-ui` (which runs `bun run build` in the `ui` directory) passes successfully after any UI changes.
 - **CI/CD Readiness**: NEVER submit changes that break the UI build or the main Go entry point's ability to build the UI.
 
 #### 5. Low-Code & Non-Expert Friendliness

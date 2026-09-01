@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -31,7 +31,7 @@ const file_services_group_proto_rawDesc = "" +
 	"ListGroups\x12\x1a.process.ListGroupsRequest\x1a\x1b.process.ListGroupsResponse\"\x00\x12S\n" +
 	"\x0eListUserGroups\x12\x1e.process.ListUserGroupsRequest\x1a\x1f.process.ListUserGroupsResponse\"\x00B\x8c\x01\n" +
 	"\vcom.processB\n" +
-	"GroupProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"GroupProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_group_proto_goTypes = []any{
 	(*endpoints.ListGroupsRequest)(nil),      // 0: process.ListGroupsRequest

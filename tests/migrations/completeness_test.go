@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
-	"github.com/gsoultan/gobpm/server/repositories/migrations"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/migrations"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 )
 

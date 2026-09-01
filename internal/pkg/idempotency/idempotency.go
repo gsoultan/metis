@@ -52,10 +52,20 @@ func KeyFrom(ctx context.Context) (string, bool) {
 // header value cannot. The hash is truncated to 32 characters: this identifies a
 // request within one deployment's traffic, not a document within a corpus, and
 // 160 bits is far past any collision that matters here.
+// The "gobpm-" prefix is deliberately not renamed to match the project, and
+// must not be: this key is regenerated from scratch on every retry (job.go),
+// not read back from service_calls, so it is the only thing tying a retry to
+// the attempt it repeats. Change the prefix and a job that was mid-retry across
+// an upgrade presents a key the downstream has never seen — which is not a
+// cosmetic inconsistency but a second charge, shipment or payment. The name is
+// a wire value, and the wire does not care what the project is called.
 func ForServiceCall(instanceID uuid.UUID, nodeID, iterationID string) string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s", instanceID, nodeID, iterationID))
-	return "gobpm-" + base64.RawURLEncoding.EncodeToString(sum[:])[:32]
+	return keyPrefix + base64.RawURLEncoding.EncodeToString(sum[:])[:32]
 }
+
+// keyPrefix is frozen. See ForServiceCall.
+const keyPrefix = "gobpm-"
 
 // Header is the name an idempotent HTTP API is expected to read. Stripe made it
 // the convention and the industry followed; there is no standard, and this is

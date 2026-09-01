@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gsoultan/gobpm/internal/pkg/config"
+	"github.com/gsoultan/metis/internal/pkg/config"
 )
 
 func TestNewConfig_EncryptsConnectionString(t *testing.T) {
@@ -214,10 +214,14 @@ func TestBuildConnectionString(t *testing.T) {
 			want:   "custom.db",
 		},
 		{
+			// A fresh install. An existing gobpm.db from before the rename is
+			// still opened instead — see DefaultSQLitePath and its own tests,
+			// which run in a temp directory so this table stays about the
+			// connection string rather than about what is on disk.
 			name:   "sqlite default",
 			driver: config.DriverSQLite,
 			fields: config.DatabaseFields{},
-			want:   "gobpm.db",
+			want:   "metis.db",
 		},
 	}
 

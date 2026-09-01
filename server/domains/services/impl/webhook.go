@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/webhooksig"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/internal/pkg/webhooksig"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
 )
 

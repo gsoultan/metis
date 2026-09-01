@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // Running a table against its own examples.

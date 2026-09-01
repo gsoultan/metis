@@ -353,32 +353,32 @@ export function ApiExample({ type, data }: { type: string, id: string, data: BPM
       title = 'Start this process from your application';
       description = 'Deploy once, then every call starts a fresh instance with its own variables.';
       snippet = `# curl
-curl -X POST $GOBPM/api/v1/process/start \
+curl -X POST $METIS/api/v1/process/start \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"project_id":"<project-uuid>","definition_key":"<process-key>",
        "variables":{"amount":42.5}}'
 
-// Go SDK  (go get github.com/gsoultan/gobpm/sdk)
+// Go SDK  (go get github.com/gsoultan/metis/sdk)
 instanceID, err := client.StartProcess(ctx, projectID, "<process-key>",
-    gobpm.Variables{"amount": 42.5})`;
+    metis.Variables{"amount": 42.5})`;
       break;
 
     case 'userTask':
       title = 'Work this task from your own inbox UI';
       description = 'List, claim so nobody works it twice, then complete with the decision.';
       snippet = `# curl
-curl -H "Authorization: Bearer $TOKEN" "$GOBPM/api/v1/tasks?page_size=50"
-curl -X POST $GOBPM/api/v1/tasks/<task-id>/claim \
+curl -H "Authorization: Bearer $TOKEN" "$METIS/api/v1/tasks?page_size=50"
+curl -X POST $METIS/api/v1/tasks/<task-id>/claim \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"user_id":"alice"}'
-curl -X POST $GOBPM/api/v1/tasks/<task-id>/complete \
+curl -X POST $METIS/api/v1/tasks/<task-id>/complete \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"user_id":"alice","variables":{"approved":true}}'
 
 // Go SDK
-tasks, _, err := client.ListTasks(ctx, gobpm.ListTasksOptions{})
+tasks, _, err := client.ListTasks(ctx, metis.ListTasksOptions{})
 err = client.ClaimTask(ctx, task.ID, "alice")
-err = client.CompleteTask(ctx, task.ID, "alice", gobpm.Variables{"approved": true})`;
+err = client.CompleteTask(ctx, task.ID, "alice", metis.Variables{"approved": true})`;
       break;
 
     case 'serviceTask':
@@ -386,26 +386,26 @@ err = client.CompleteTask(ctx, task.ID, "alice", gobpm.Variables{"approved": tru
         title = `Serve topic "${topic}" with a worker`;
         description = 'The engine publishes this step as work; your service pulls it, does the job in your own runtime, and reports back.';
         snippet = `// Go SDK — a long-polling worker
-worker := gobpm.NewWorker(client, "${topic}", "my-worker",
-    gobpm.WorkerOptions{},
-    func(ctx context.Context, task *gobpm.ExternalTask) (gobpm.Variables, error) {
+worker := metis.NewWorker(client, "${topic}", "my-worker",
+    metis.WorkerOptions{},
+    func(ctx context.Context, task *metis.ExternalTask) (metis.Variables, error) {
         // your integration logic; task.Variables carries the process data
-        return gobpm.Variables{"done": true}, nil
+        return metis.Variables{"done": true}, nil
     })
 go worker.Run(ctx)
 
 # or raw HTTP
-curl -X POST $GOBPM/api/v1/external-tasks/fetch-and-lock \
+curl -X POST $METIS/api/v1/external-tasks/fetch-and-lock \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"topic":"${topic}","worker_id":"my-worker","max_tasks":5,"lock_duration_ms":60000}'
-curl -X POST $GOBPM/api/v1/external-tasks/<task-id>/complete \
+curl -X POST $METIS/api/v1/external-tasks/<task-id>/complete \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"worker_id":"my-worker","variables":{"done":true}}'`;
       } else {
         title = 'This step calls out by itself';
         description = 'A connector or HTTP call configured here runs inside the engine — nothing to integrate. Set an external topic instead if your own service should do the work.';
         snippet = `# Watch it run: the instance timeline shows the call and its outcome
-curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>/audit`;
+curl -H "Authorization: Bearer $TOKEN" $METIS/api/v1/instances/<instance-id>/audit`;
       }
       break;
 
@@ -414,21 +414,21 @@ curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>/aud
       title = `Deliver "${message}" from your application`;
       description = 'The instance waits here until your system sends the message; the correlation key picks which instance.';
       snippet = `# curl
-curl -X POST $GOBPM/api/v1/processes/message \
+curl -X POST $METIS/api/v1/processes/message \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"project_id":"<project-uuid>","message_name":"${message}",
        "correlation_key":"<order-id>","variables":{"paid":true}}'
 
 // Go SDK
 err := client.SendMessage(ctx, projectID, "${message}", "<order-id>",
-    gobpm.Variables{"paid": true})`;
+    metis.Variables{"paid": true})`;
       break;
 
     case 'intermediateThrowEvent':
       title = `Broadcast "${signal}" from your application`;
       description = 'A signal reaches every instance in the project waiting on it — no single addressee.';
       snippet = `# curl
-curl -X POST $GOBPM/api/v1/processes/signal \
+curl -X POST $METIS/api/v1/processes/signal \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"project_id":"<project-uuid>","signal_name":"${signal}","variables":{}}'
 
@@ -440,7 +440,7 @@ err := client.BroadcastSignal(ctx, projectID, "${signal}", nil)`;
       title = 'Try the decision this step consults';
       description = 'Evaluate the decision table directly with sample inputs before running the whole process.';
       snippet = `# curl
-curl -X POST $GOBPM/api/v1/decisions/evaluate \
+curl -X POST $METIS/api/v1/decisions/evaluate \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"key":"<decision-key>","variables":{"amount":900}}'`;
       break;
@@ -449,8 +449,8 @@ curl -X POST $GOBPM/api/v1/decisions/evaluate \
       title = 'Watch this step from your application';
       description = 'Every step lands in the instance audit trail as it happens.';
       snippet = `# curl
-curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>
-curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/<instance-id>/audit
+curl -H "Authorization: Bearer $TOKEN" $METIS/api/v1/instances/<instance-id>
+curl -H "Authorization: Bearer $TOKEN" $METIS/api/v1/instances/<instance-id>/audit
 
 // Go SDK
 instance, err := client.GetInstance(ctx, instanceID)

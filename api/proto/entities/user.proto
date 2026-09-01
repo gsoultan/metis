@@ -5,7 +5,7 @@ package process;
 import "google/protobuf/timestamp.proto";
 import "entities/organization.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
+option go_package = "github.com/gsoultan/metis/api/proto/entities;entities";
 
 message UserOrganization {
   string id = 1;

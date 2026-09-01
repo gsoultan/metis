@@ -7,7 +7,7 @@ import "entities/user.proto";
 import "entities/project.proto";
 import "entities/process_instance.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
+option go_package = "github.com/gsoultan/metis/api/proto/entities;entities";
 
 message Notification {
   string id = 1;

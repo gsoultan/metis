@@ -1,4 +1,4 @@
-package gobpm
+package metis
 
 import "time"
 

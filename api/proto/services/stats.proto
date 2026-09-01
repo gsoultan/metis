@@ -4,6 +4,6 @@ package process;
 
 import "endpoints/get_process_statistics.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service StatsService { rpc GetProcessStatistics(GetProcessStatisticsRequest) returns (GetProcessStatisticsResponse) {} }

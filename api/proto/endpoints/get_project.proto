@@ -4,6 +4,6 @@ package process;
 
 import "entities/project.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message GetProjectRequest { string id = 1; } message GetProjectResponse { Project project = 1; string error = 2; }

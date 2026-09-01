@@ -57,7 +57,7 @@ func New() *Collector {
 		registry: prometheus.NewRegistry(),
 		routes:   make(map[string]struct{}, maxTrackedRoutes),
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "gobpm_http_request_duration_seconds",
+			Name: "metis_http_request_duration_seconds",
 			Help: "Request latency. Buckets straddle the roadmap's 150ms read and 500ms action targets.",
 			// The two SLO thresholds are bucket boundaries on purpose: a
 			// quantile interpolated across a bucket that spans the threshold
@@ -65,11 +65,11 @@ func New() *Collector {
 			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5, 5, 10},
 		}, []string{"method", "route", "status"}),
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gobpm_http_requests_total",
+			Name: "metis_http_requests_total",
 			Help: "Requests by outcome. status_class carries the 5xx error budget.",
 		}, []string{"method", "route", "status_class"}),
 		inFlight: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "gobpm_http_requests_in_flight",
+			Name: "metis_http_requests_in_flight",
 			Help: "Requests currently being served, for saturation against the backpressure limits.",
 		}),
 	}

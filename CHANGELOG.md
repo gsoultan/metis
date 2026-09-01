@@ -10,6 +10,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **GoBPM is now Metis.** The module path is `github.com/gsoultan/metis`, the
+  binary and container entrypoint are `metis`, and the repository moved with
+  them. Existing installations keep running without reconfiguration: `GOBPM_*`
+  environment variables are still read (with a warning naming the replacement),
+  an existing `gobpm.db` is still opened, and browser sessions are migrated
+  rather than dropped. See [`docs/upgrading.md`](docs/upgrading.md) for what to
+  change and when the fallbacks go.
+
+  The one thing that does need editing is the import path, and the Go client's
+  package name along with it — `gobpm.NewClient` is now `metis.NewClient`.
+
 ### Security
 
 - **`js:` gateway conditions are refused by default.** The JavaScript runtime
@@ -20,7 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
   **Upgrading:** a definition still using `js:` will refuse to route, loudly,
   with an error naming the condition. `GET /api/v1/definitions/javascript-conditions`
-  lists every affected definition. Set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`
+  lists every affected definition. Set `METIS_FEATURE_JAVASCRIPT_CONDITIONS=true`
   to keep the old behaviour while migrating.
 
 - **Idempotency keys are scoped to the caller.** The cache was keyed on method,

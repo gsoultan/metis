@@ -8,6 +8,6 @@ import "endpoints/list_projects.proto";
 import "endpoints/update_project.proto";
 import "endpoints/delete_project.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service ProjectService { rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse) {} rpc GetProject(GetProjectRequest) returns (GetProjectResponse) {} rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {} rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse) {} rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse) {} }

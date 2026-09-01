@@ -16,10 +16,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gsoultan/gobpm/internal/pkg/webhooksig"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/domains/services/impl"
+	"github.com/gsoultan/metis/internal/pkg/webhooksig"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/rs/zerolog/log"
 )
 

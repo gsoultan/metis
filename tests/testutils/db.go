@@ -3,11 +3,11 @@ package testutils
 import (
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
-	"github.com/gsoultan/gobpm/server/repositories/migrations"
+	"github.com/gsoultan/metis/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/migrations"
 
 	"github.com/glebarez/sqlite"
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"gorm.io/gorm"
 )
 

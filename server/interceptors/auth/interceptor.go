@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 // endpointAuthInterceptor verifies the JWT token from context (extracted in transport).

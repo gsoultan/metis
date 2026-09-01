@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/features"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // The javascript-conditions flag ships off, which means a gateway routed

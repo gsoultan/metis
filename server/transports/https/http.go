@@ -5,36 +5,37 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
+
 	"github.com/rs/zerolog/log"
 
-	"os"
 	"strings"
 
-	"github.com/gsoultan/gobpm/server/interceptors/tenant"
+	"github.com/gsoultan/metis/server/interceptors/tenant"
 
-	"github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/domains/services"
-	"github.com/gsoultan/gobpm/server/endpoints"
-	"github.com/gsoultan/gobpm/server/interceptors"
-	"github.com/gsoultan/gobpm/server/transports/connects"
-	"github.com/gsoultan/gobpm/server/transports/https/collaboration"
-	"github.com/gsoultan/gobpm/server/transports/https/common"
-	"github.com/gsoultan/gobpm/server/transports/https/connectors"
-	"github.com/gsoultan/gobpm/server/transports/https/decisions"
-	"github.com/gsoultan/gobpm/server/transports/https/definitions"
-	"github.com/gsoultan/gobpm/server/transports/https/external_tasks"
-	"github.com/gsoultan/gobpm/server/transports/https/group"
-	"github.com/gsoultan/gobpm/server/transports/https/incidents"
-	"github.com/gsoultan/gobpm/server/transports/https/notification"
-	"github.com/gsoultan/gobpm/server/transports/https/organizations"
-	"github.com/gsoultan/gobpm/server/transports/https/processes"
-	"github.com/gsoultan/gobpm/server/transports/https/projects"
-	"github.com/gsoultan/gobpm/server/transports/https/setup"
-	"github.com/gsoultan/gobpm/server/transports/https/tasks"
-	"github.com/gsoultan/gobpm/server/transports/https/users"
-	"github.com/gsoultan/gobpm/server/transports/https/webhookadmin"
-	"github.com/gsoultan/gobpm/server/transports/https/webhooks"
-	"github.com/gsoultan/gobpm/ui"
+	"github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/endpoints"
+	"github.com/gsoultan/metis/server/interceptors"
+	"github.com/gsoultan/metis/server/transports/connects"
+	"github.com/gsoultan/metis/server/transports/https/collaboration"
+	"github.com/gsoultan/metis/server/transports/https/common"
+	"github.com/gsoultan/metis/server/transports/https/connectors"
+	"github.com/gsoultan/metis/server/transports/https/decisions"
+	"github.com/gsoultan/metis/server/transports/https/definitions"
+	"github.com/gsoultan/metis/server/transports/https/external_tasks"
+	"github.com/gsoultan/metis/server/transports/https/group"
+	"github.com/gsoultan/metis/server/transports/https/incidents"
+	"github.com/gsoultan/metis/server/transports/https/notification"
+	"github.com/gsoultan/metis/server/transports/https/organizations"
+	"github.com/gsoultan/metis/server/transports/https/processes"
+	"github.com/gsoultan/metis/server/transports/https/projects"
+	"github.com/gsoultan/metis/server/transports/https/setup"
+	"github.com/gsoultan/metis/server/transports/https/tasks"
+	"github.com/gsoultan/metis/server/transports/https/users"
+	"github.com/gsoultan/metis/server/transports/https/webhookadmin"
+	"github.com/gsoultan/metis/server/transports/https/webhooks"
+	"github.com/gsoultan/metis/ui"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 )
@@ -56,7 +57,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			if origin := corsOrigin(parseCORSOrigins(os.Getenv(envCORSOrigins)), r.Header.Get("Origin")); origin != "" {
+			if origin := corsOrigin(parseCORSOrigins(envvar.Get(envCORSOrigins)), r.Header.Get("Origin")); origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 			}
@@ -143,7 +144,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 
 // envCORSOrigins configures cross-origin access as a comma-separated list of
 // allowed origins, or "*" to allow any.
-const envCORSOrigins = "GOBPM_CORS_ORIGINS"
+const envCORSOrigins = "METIS_CORS_ORIGINS"
 
 // withCORS applies cross-origin headers.
 //
@@ -153,10 +154,10 @@ const envCORSOrigins = "GOBPM_CORS_ORIGINS"
 // `Access-Control-Allow-Origin: *` therefore bought nothing and let any site
 // on the internet call this API with a token it had obtained.
 //
-// Set GOBPM_CORS_ORIGINS when a separately hosted front end genuinely needs
+// Set METIS_CORS_ORIGINS when a separately hosted front end genuinely needs
 // access.
 func withCORS(next http.Handler) http.Handler {
-	allowed := parseCORSOrigins(os.Getenv(envCORSOrigins))
+	allowed := parseCORSOrigins(envvar.Get(envCORSOrigins))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := corsOrigin(allowed, r.Header.Get("Origin")); origin != "" {

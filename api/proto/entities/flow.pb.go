@@ -117,7 +117,7 @@ const file_entities_flow_proto_rawDesc = "" +
 	"target_ref\x18\x03 \x01(\tR\ttargetRef\x12\x1c\n" +
 	"\tcondition\x18\x04 \x01(\tR\tcondition\x12$\n" +
 	"\rdocumentation\x18\x05 \x01(\tR\rdocumentationB\x8b\x01\n" +
-	"\vcom.processB\tFlowProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tFlowProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_flow_proto_rawDescOnce sync.Once

@@ -5,6 +5,6 @@ package process;
 import "entities/node.proto";
 import "entities/flow.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message CreateDefinitionRequest { string project_id = 1; string key = 2; string name = 3; repeated Node nodes = 4; repeated Flow flows = 5; } message CreateDefinitionResponse { string id = 1; string error = 2; }

@@ -4,7 +4,7 @@ package process;
 
 import "entities/project.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message CreateProjectRequest { 
   string organization_id = 1;

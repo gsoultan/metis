@@ -114,7 +114,7 @@ Run [`scripts/backup.sh`](../scripts/backup.sh) on a schedule — it is this pro
 can be executed rather than transcribed under pressure:
 
 ```bash
-ENCRYPTION_KEY=... GOBPM_BACKUP_GPG_RECIPIENT=ops@example.com scripts/backup.sh /backup
+ENCRYPTION_KEY=... METIS_BACKUP_GPG_RECIPIENT=ops@example.com scripts/backup.sh /backup
 ```
 
 It refuses to run without `ENCRYPTION_KEY`, because a backup that looks complete and
@@ -139,7 +139,7 @@ Alongside it, and **into a different store**:
 
 ```bash
 # The encryption key. Without this the restored database is unreadable.
-printf '%s' "$ENCRYPTION_KEY" | gpg --encrypt --recipient ops@example.com > /secrets/gobpm-encryption-key.gpg
+printf '%s' "$ENCRYPTION_KEY" | gpg --encrypt --recipient ops@example.com > /secrets/metis-encryption-key.gpg
 ```
 
 MySQL: `mysqldump --single-transaction --routines` plus binlog archiving. `--single-transaction`

@@ -5,7 +5,7 @@
 # also why the tree ships a placeholder there and .gitignore keeps the real
 # output out — a clone has the file but not the assets.
 #
-# The UI is built by bun directly rather than by `gobpm --build-ui`, which
+# The UI is built by bun directly rather than by `metis --build-ui`, which
 # shells out to bun itself: using the binary here would mean building the binary
 # to build the UI to build the binary.
 
@@ -54,8 +54,8 @@ ARG VERSION=dev
 # every driver in use is pure Go.
 ENV CGO_ENABLED=0
 RUN go build -trimpath \
-      -ldflags "-s -w -X github.com/gsoultan/gobpm/internal/app.version=${VERSION}" \
-      -o /out/gobpm ./cmd/gobpm
+      -ldflags "-s -w -X github.com/gsoultan/metis/internal/app.version=${VERSION}" \
+      -o /out/metis ./cmd/metis
 
 # ---- stage 3: what actually ships ---------------------------------------
 # distroless static: no shell, no package manager, nothing to exec if the
@@ -63,7 +63,7 @@ RUN go build -trimpath \
 # binary, so the image is one file plus certificates.
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/gobpm /usr/local/bin/gobpm
+COPY --from=build /out/metis /usr/local/bin/metis
 
 # nonroot (uid 65532) is the base image's own user. The engine writes nothing to
 # its filesystem in a server deployment — state is the database — so the root
@@ -72,10 +72,10 @@ USER nonroot:nonroot
 
 # 8080 HTTP (API + embedded UI), 8081 gRPC. Metrics default to loopback :9464
 # and are deliberately not exposed; publish them explicitly via
-# GOBPM_METRICS_ADDRESS if something needs to scrape across a pod network.
+# METIS_METRICS_ADDRESS if something needs to scrape across a pod network.
 EXPOSE 8080 8081
 
 # No HEALTHCHECK: the image has no shell or curl to run one with, and every
 # orchestrator that matters prefers its own probe. Point it at /readyz — which
 # checks the database — rather than /healthz, which deliberately does not.
-ENTRYPOINT ["/usr/local/bin/gobpm"]
+ENTRYPOINT ["/usr/local/bin/metis"]

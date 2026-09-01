@@ -2,7 +2,7 @@ package group
 
 import (
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 type ListGroupsRequest struct {

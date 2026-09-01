@@ -165,7 +165,7 @@ const file_endpoints_get_process_statistics_proto_rawDesc = "" +
 	"totalTasks\x12#\n" +
 	"\rpending_tasks\x18\x05 \x01(\x05R\fpendingTasks\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05errorB\x9d\x01\n" +
-	"\vcom.processB\x19GetProcessStatisticsProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x19GetProcessStatisticsProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_get_process_statistics_proto_rawDescOnce sync.Once

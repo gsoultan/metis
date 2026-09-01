@@ -8,7 +8,7 @@ import "endpoints/list_organizations.proto";
 import "endpoints/update_organization.proto";
 import "endpoints/delete_organization.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/services;services";
+option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
 service OrganizationService {
   rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse) {}

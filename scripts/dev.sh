@@ -27,7 +27,7 @@ readonly API_PORT="${API_PORT:-8080}"
 STARTED_PORTS=()
 readonly GRPC_PORT="${GRPC_PORT:-8081}"
 readonly ENV_FILE="$ROOT/.env.development"
-readonly DB_FILE="$ROOT/gobpm.db"
+readonly DB_FILE="$ROOT/metis.db"
 
 # --- output ----------------------------------------------------------------
 
@@ -123,14 +123,14 @@ JWT_SECRET=$(random_secret)
 
 # Egress policy blocks private addresses by default, which would also block a
 # service task pointed at a mock API on localhost.
-GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS=true
+METIS_HTTP_ALLOW_PRIVATE_NETWORKS=true
 
 # Uncomment to run against PostgreSQL instead of the default SQLite file.
-# DATABASE_URL=postgres://gobpm:gobpm@localhost:5432/gobpm?sslmode=disable
+# DATABASE_URL=postgres://metis:metis@localhost:5432/metis?sslmode=disable
 
 # Uncomment to keep the pre-existing gateway fallback while migrating
 # definitions that relied on it.
-# GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW=true
+# METIS_ALLOW_IMPLICIT_DEFAULT_FLOW=true
 EOF
   ok "wrote $ENV_FILE"
 }
@@ -232,15 +232,15 @@ run_prefixed() {
 }
 
 start_backend() {
-  export GOBPM_HTTP_ADDRESS=":${API_PORT}"
-  export GOBPM_GRPC_ADDRESS=":${GRPC_PORT}"
+  export METIS_HTTP_ADDRESS=":${API_PORT}"
+  export METIS_GRPC_ADDRESS=":${GRPC_PORT}"
   info "Backend  → http://localhost:${API_PORT}  (gRPC :${GRPC_PORT})"
   if command -v air >/dev/null 2>&1; then
     ok "air detected — backend will hot-reload on save"
     run_prefixed "api" "$C_GREEN" air
   else
     printf '%s       install air for backend hot reload: go install github.com/air-verse/air@latest%s\n' "$C_DIM" "$C_RESET"
-    run_prefixed "api" "$C_GREEN" go run ./cmd/gobpm
+    run_prefixed "api" "$C_GREEN" go run ./cmd/metis
   fi
 }
 
@@ -256,7 +256,7 @@ start_sample() {
 start_ui() {
   # Tells the Vite proxy where the backend actually is, so a non-default
   # API_PORT still works end to end.
-  export GOBPM_BACKEND="http://localhost:${API_PORT}"
+  export METIS_BACKEND="http://localhost:${API_PORT}"
   [[ -d ui/node_modules ]] || { info "Installing UI dependencies"; (cd ui && bun install); }
   info "UI       → http://localhost:${UI_PORT}"
   # `bun --cwd` is not accepted by all bun versions, so cd in a subshell and

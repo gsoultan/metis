@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	httptransport "github.com/go-kit/kit/transport/http"
-	"github.com/gsoultan/gobpm/server/endpoints/setup"
-	"github.com/gsoultan/gobpm/server/transports/https/common"
+	"github.com/gsoultan/metis/server/endpoints/setup"
+	"github.com/gsoultan/metis/server/transports/https/common"
 )
 
 func RegisterHandlers(m *http.ServeMux, eps setup.Endpoints, options []httptransport.ServerOption) {

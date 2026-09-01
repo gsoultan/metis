@@ -7,7 +7,7 @@
 package services
 
 import (
-	entities "github.com/gsoultan/gobpm/api/proto/entities"
+	entities "github.com/gsoultan/metis/api/proto/entities"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -410,7 +410,7 @@ const file_services_notification_proto_rawDesc = "" +
 	"MarkAsRead\x12\x1a.process.MarkAsReadRequest\x1a\x1b.process.MarkAsReadResponse\x12N\n" +
 	"\rMarkAllAsRead\x12\x1d.process.MarkAllAsReadRequest\x1a\x1e.process.MarkAllAsReadResponse\x12]\n" +
 	"\x12DeleteNotification\x12\".process.DeleteNotificationRequest\x1a#.process.DeleteNotificationResponseB\x93\x01\n" +
-	"\vcom.processB\x11NotificationProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x11NotificationProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_services_notification_proto_rawDescOnce sync.Once

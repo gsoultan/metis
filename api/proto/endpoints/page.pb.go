@@ -170,7 +170,7 @@ const file_endpoints_page_proto_rawDesc = "" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x19\n" +
 	"\bhas_more\x18\x04 \x01(\bR\ahasMoreB\x8d\x01\n" +
-	"\vcom.processB\tPageProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tPageProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_page_proto_rawDescOnce sync.Once

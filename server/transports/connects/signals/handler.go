@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	"github.com/gsoultan/gobpm/server/endpoints/process"
+	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	"github.com/gsoultan/metis/server/endpoints/process"
 )
 
 type SignalHandler struct {

@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Definitions and decisions returned every row.

@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/internal/pkg/features"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/logic"
-	"github.com/gsoultan/gobpm/server/domains/logic/feel"
-	"github.com/gsoultan/gobpm/server/domains/services/impl"
+	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
+	"github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 // TestMain shortens the script budget for this package.

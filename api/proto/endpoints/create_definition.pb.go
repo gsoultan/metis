@@ -7,7 +7,7 @@
 package endpoints
 
 import (
-	entities "github.com/gsoultan/gobpm/api/proto/entities"
+	entities "github.com/gsoultan/metis/api/proto/entities"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -165,7 +165,7 @@ const file_endpoints_create_definition_proto_rawDesc = "" +
 	"\x18CreateDefinitionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05errorB\x99\x01\n" +
-	"\vcom.processB\x15CreateDefinitionProtoP\x01Z7github.com/gsoultan/gobpm/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x15CreateDefinitionProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_endpoints_create_definition_proto_rawDescOnce sync.Once

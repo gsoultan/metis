@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

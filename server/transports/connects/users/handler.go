@@ -6,10 +6,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
-	pbendpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/server/endpoints/user"
-	"github.com/gsoultan/gobpm/server/transports/adapters"
+	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/server/endpoints/user"
+	"github.com/gsoultan/metis/server/transports/adapters"
 )
 
 type UserHandler struct {

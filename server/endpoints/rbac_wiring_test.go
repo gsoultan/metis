@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/go-kit/kit/endpoint"
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
+	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 )
 
 // The RBAC interceptor was written, unit-tested and then referenced nowhere:

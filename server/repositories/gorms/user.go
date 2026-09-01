@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -39,6 +39,14 @@ func (r *gormUserRepository) GetByUsername(ctx context.Context, username string)
 func (r *gormUserRepository) GetWithPasswordByUsername(ctx context.Context, username string) (models.UserModel, string, error) {
 	var m models.UserModel
 	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").Where(QueryByUsername, username).First(&m).Error; err != nil {
+		return models.UserModel{}, "", fmt.Errorf("could not get user: %w", err)
+	}
+	return m, m.PasswordHash, nil
+}
+
+func (r *gormUserRepository) GetWithPasswordByID(ctx context.Context, id uuid.UUID) (models.UserModel, string, error) {
+	var m models.UserModel
+	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").First(&m, QueryByID, id).Error; err != nil {
 		return models.UserModel{}, "", fmt.Errorf("could not get user: %w", err)
 	}
 	return m, m.PasswordHash, nil

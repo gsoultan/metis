@@ -8,11 +8,12 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
-	"github.com/gsoultan/gobpm/server/repositories"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -215,6 +216,47 @@ const MinPasswordLength = 8
 // Create. A forgotten password therefore had no answer for the person who
 // forgot it or for an administrator, and since there is no default account by
 // design, an installation with one administrator became unreachable for good.
+// ChangePassword rotates one account's password after checking the current one.
+//
+// The current-password check is the whole point, and it is why this does not
+// simply call SetPassword: without it, a stolen session token is not a
+// temporary compromise but a permanent one, because the attacker can lock the
+// owner out of their own account. Session theft should cost the attacker
+// access until the token expires, not the account.
+//
+// The user is identified by ID rather than username: the ID comes from the
+// authenticated session, while a username comes from the request body. Taking
+// the name from the caller would let any signed-in user change anybody's
+// password by naming them.
+func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
+	if len(strings.TrimSpace(newPassword)) < MinPasswordLength {
+		return apierr.Invalidf("password must be at least %d characters", MinPasswordLength)
+	}
+	// Rotating to the same value reads as success but changes nothing, which is
+	// exactly wrong after a suspected compromise: the user believes they have
+	// locked the attacker out.
+	if currentPassword == newPassword {
+		return apierr.Invalidf("the new password must be different from the current one")
+	}
+
+	mu, hash, err := s.repo.User().GetWithPasswordByID(ctx, userID)
+	if err != nil {
+		// The ID came from a validated session, so this is a deleted account
+		// rather than a guess. Nothing to disclose, and nothing to equalise.
+		return fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(currentPassword)); err != nil {
+		return fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("could not hash the new password: %w", err)
+	}
+	return s.repo.User().SetPasswordHash(ctx, uuid.UUID(mu.ID), string(newHash))
+}
+
 func (s *userService) SetPassword(ctx context.Context, username, newPassword string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {

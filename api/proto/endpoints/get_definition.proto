@@ -4,6 +4,6 @@ package process;
 
 import "entities/definition.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message GetDefinitionRequest { string id = 1; } message GetDefinitionResponse { ProcessDefinition definition = 1; string error = 2; }

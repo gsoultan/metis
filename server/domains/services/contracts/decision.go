@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	repocontracts "github.com/gsoultan/gobpm/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // DecisionEvaluator handles decision evaluation by key and version.

@@ -7,9 +7,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/gobpm/server/domains/adapters"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/domains/adapters"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 type AuditLogObserver struct {

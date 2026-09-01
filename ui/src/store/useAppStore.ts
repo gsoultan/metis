@@ -7,7 +7,8 @@
  * works in route guards and other non-React contexts.
  */
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
+import { renamedStorage } from './persistedStorage';
 
 export { useUIStore } from './useUIStore';
 export { useAuthStore } from './useAuthStore';
@@ -92,8 +93,8 @@ export const useAppStore = create<AppState>()(
       }),
     }),
     {
-      name: 'gobpm-app-storage',
-      storage: createJSONStorage(() => localStorage),
+      name: 'metis-app-storage',
+      storage: renamedStorage('metis-app-storage'),
     },
   ),
 );

@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	handlersimpl "github.com/gsoultan/gobpm/server/domains/handlers/impl"
-	observersimpl "github.com/gsoultan/gobpm/server/domains/observers/impl"
-	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/domains/entities"
+	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
+	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/tests/testutils"
 	"gorm.io/gorm"
 )
 

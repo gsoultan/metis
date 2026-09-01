@@ -3,13 +3,14 @@ package impl
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
+
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/logic"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/rs/zerolog/log"
 )
 
@@ -56,7 +57,7 @@ func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 				"BPMN_ERROR:no outgoing sequence flow could be selected at exclusive gateway %q: "+
 					"no condition evaluated true and no default flow is declared", node.ID)
 		}
-		// Legacy behaviour, retained only behind GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW.
+		// Legacy behaviour, retained only behind METIS_ALLOW_IMPLICIT_DEFAULT_FLOW.
 		selectedFlow = flows[0]
 		logImplicitDefaultFlow(node.ID, selectedFlow.ID)
 	}
@@ -267,10 +268,10 @@ func (h *EventBasedGatewayHandler) DoExecute(ctx context.Context, instance *enti
 // It is a behaviour change for existing definitions, so the old path remains
 // available for one migration window. Deployments that set this should use the
 // logged warnings to find and fix the affected definitions.
-const envAllowImplicitDefaultFlow = "GOBPM_ALLOW_IMPLICIT_DEFAULT_FLOW"
+const envAllowImplicitDefaultFlow = "METIS_ALLOW_IMPLICIT_DEFAULT_FLOW"
 
 func allowImplicitDefaultFlow() bool {
-	v, err := strconv.ParseBool(os.Getenv(envAllowImplicitDefaultFlow))
+	v, err := strconv.ParseBool(envvar.Get(envAllowImplicitDefaultFlow))
 	return err == nil && v
 }
 

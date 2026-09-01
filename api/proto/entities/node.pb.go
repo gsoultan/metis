@@ -385,7 +385,7 @@ const file_entities_node_proto_rawDesc = "" +
 	"\x01y\x18\x1f \x01(\x05R\x01y\x12#\n" +
 	"\x05nodes\x18  \x03(\v2\r.process.NodeR\x05nodes\x12#\n" +
 	"\x05flows\x18! \x03(\v2\r.process.FlowR\x05flowsB\x8b\x01\n" +
-	"\vcom.processB\tNodeProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tNodeProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
 	file_entities_node_proto_rawDescOnce sync.Once

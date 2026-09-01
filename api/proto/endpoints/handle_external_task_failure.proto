@@ -3,6 +3,6 @@ syntax = "proto3";
 package process;
 
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message HandleExternalTaskFailureRequest { string task_id = 1; string worker_id = 2; string error_message = 3; string error_details = 4; int32 retries = 5; int64 retry_timeout_ms = 6; } message HandleExternalTaskFailureResponse { string error = 1; }

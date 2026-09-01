@@ -3,8 +3,8 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/observers/contracts"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/observers/contracts"
 )
 
 // NullProcessObserver is a Null Object implementation of the ProcessObserver interface.

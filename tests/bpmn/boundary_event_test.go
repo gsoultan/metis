@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // What happens when a step goes wrong.

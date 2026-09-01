@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package process;
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/entities;entities";
+option go_package = "github.com/gsoultan/metis/api/proto/entities;entities";
 
 import "entities/organization.proto";
 

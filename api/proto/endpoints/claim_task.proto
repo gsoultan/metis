@@ -3,6 +3,6 @@ syntax = "proto3";
 package process;
 
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message ClaimTaskRequest { string id = 1; string user_id = 2; } message ClaimTaskResponse { string error = 1; }

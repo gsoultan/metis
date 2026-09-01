@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -29,7 +29,7 @@ const file_services_user_proto_rawDesc = "" +
 	"\vUserService\x12>\n" +
 	"\aGetUser\x12\x17.process.GetUserRequest\x1a\x18.process.GetUserResponse\"\x00\x12D\n" +
 	"\tListUsers\x12\x19.process.ListUsersRequest\x1a\x1a.process.ListUsersResponse\"\x00B\x8b\x01\n" +
-	"\vcom.processB\tUserProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\tUserProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_user_proto_goTypes = []any{
 	(*endpoints.GetUserRequest)(nil),    // 0: process.GetUserRequest

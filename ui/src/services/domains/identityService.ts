@@ -39,6 +39,19 @@ export const identityService = {
     return { user: data.user, err: data.err };
   },
 
+  // The caller is not named: the server takes the account from the session.
+  // Sending an id here would be asking it to trust the browser about whose
+  // password is being changed.
+  async changeOwnPassword(currentPassword: string, newPassword: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>("/users/me/password", {
+      method: "POST",
+      body: { current_password: currentPassword, new_password: newPassword },
+      signal,
+    });
+
+    return { err: raiseIfRefused(data).err };
+  },
+
   async updateUser(id: string, user: { full_name: string; display_name: string; organization: string; email: string; roles: string[] }, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>(`/users/${id}`, {
       method: "PUT",

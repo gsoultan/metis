@@ -3,7 +3,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/models"
 
 	"github.com/google/uuid"
 )

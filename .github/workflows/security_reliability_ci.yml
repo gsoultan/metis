@@ -144,7 +144,7 @@ jobs:
       # resolution path, not just the in-process switch.
       - name: Strict tenant scope (production paths, flag on)
         env:
-          GOBPM_FEATURE_STRICT_TENANT_SCOPE: "true"
+          METIS_FEATURE_STRICT_TENANT_SCOPE: "true"
         run: go test -count=1 ./tests/strictscope/...
 
       # The SDK is its own zero-dependency module, so the module-wide commands
@@ -185,9 +185,9 @@ jobs:
     # because it opened a connection a second too early.
 
     env:
-      GOBPM_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
-      GOBPM_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
-      GOBPM_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
+      METIS_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
+      METIS_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/gobpm?charset=utf8mb4&parseTime=True&loc=Local"
+      METIS_TEST_SQLSERVER_DSN: "sqlserver://sa:Gobpm_Str0ngPass1@127.0.0.1:1433?database=master&encrypt=disable"
       MSSQL_SA_PASSWORD: "Gobpm_Str0ngPass1"
 
     services:
@@ -422,3 +422,93 @@ jobs:
 
       - name: Gitleaks scan
         run: gitleaks dir . --redact --no-banner --exit-code 1
+
+  image:
+    name: Image (build and boot)
+    runs-on: ubuntu-latest
+
+    # The README calls the image the supported artifact, and until this job
+    # existed nothing built it. A Dockerfile that no longer compiled — a renamed
+    # entrypoint, a UI stage that stopped producing ui/dist — would have been
+    # found by whoever deployed it, which is the wrong person to find it.
+    #
+    # Building is not enough on its own. The image is distroless: no shell, no
+    # package manager. The usual mistakes — a dynamically linked binary against
+    # a libc that is not there, a missing CA bundle, an entrypoint path that no
+    # longer exists — all produce an image that builds perfectly and then exits
+    # immediately. So it is started too, against a real PostgreSQL rather than
+    # SQLite: the runtime stage sets no WORKDIR and is meant to be run with a
+    # read-only root, so there is nowhere for a SQLite file to go. That is the
+    # deployment shape docker-compose.yml describes, and it is the one worth
+    # proving.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: metis
+          POSTGRES_PASSWORD: metis
+          POSTGRES_DB: metis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U metis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # `git describe` stamps the version into the binary, and a shallow
+          # clone has no tags to describe against.
+          fetch-depth: 0
+
+      - name: Build the image
+        run: |
+          docker build \
+            --build-arg VERSION="$(git describe --tags --always --dirty)" \
+            -t metis:ci .
+
+      - name: Boot it and ask what it is
+        run: |
+          set -euo pipefail
+          # --network host so the container reaches the service container's
+          # published port, and so :8080 lands where curl is looking.
+          # Read-only root and the non-root user are how the image is meant to
+          # be run, so they are how it is tested; /tmp is the only concession.
+          docker run -d --name metis-ci \
+            --network host \
+            --read-only \
+            --tmpfs /tmp \
+            -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef \
+            -e JWT_SECRET=ci-only-not-a-real-secret \
+            -e DATABASE_URL="host=127.0.0.1 user=metis password=metis dbname=metis port=5432 sslmode=disable" \
+            metis:ci
+
+          # /readyz rather than /healthz: it checks the database, so it proves
+          # the image migrated and connected rather than merely started a
+          # listener. Polled rather than slept on — a fixed wait is either
+          # flaky or slow, and this way a failure prints the container's log.
+          for i in $(seq 1 60); do
+            if curl -fsS localhost:8080/readyz >/dev/null 2>&1; then
+              echo "ready after ${i}s"
+              curl -fsS localhost:8080/healthz; echo
+              exit 0
+            fi
+            if ! docker ps -q --filter name=metis-ci --filter status=running | grep -q .; then
+              echo "::error::The container exited instead of serving. Its log:"
+              docker logs metis-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "::error::/readyz never answered within 60s. The container log:"
+          docker logs metis-ci
+          exit 1
+
+      - name: Stop it
+        if: always()
+        run: docker rm -f metis-ci || true

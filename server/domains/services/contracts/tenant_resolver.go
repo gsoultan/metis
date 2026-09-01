@@ -3,7 +3,7 @@ package contracts
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // TenantResolver extracts and validates the tenant identity from an inbound

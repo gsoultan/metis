@@ -18,18 +18,19 @@
 package features
 
 import (
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/rs/zerolog/log"
 )
 
 // Flag is one named, reversible behaviour switch.
 type Flag struct {
 	// Name is the flag's identity. The environment variable is
-	// GOBPM_FEATURE_<NAME>, upper-cased with dashes as underscores.
+	// METIS_FEATURE_<NAME>, upper-cased with dashes as underscores. The
+	// pre-rename GOBPM_FEATURE_ spelling is still read; see internal/pkg/envvar.
 	Name string
 
 	// Default is what an operator who has configured nothing gets. A flag
@@ -121,7 +122,7 @@ func resolveAll() {
 	resolved = make(map[string]bool, len(all))
 	for _, f := range all {
 		value := f.Default
-		if raw, ok := os.LookupEnv(envName(f.Name)); ok {
+		if raw, ok := envvar.Lookup(envName(f.Name)); ok {
 			parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
 			if err != nil {
 				log.Warn().
@@ -146,7 +147,7 @@ func resolveAll() {
 
 // envName maps a flag name to its environment variable.
 func envName(name string) string {
-	return "GOBPM_FEATURE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	return "METIS_FEATURE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }
 
 // EnvName exposes the variable that controls a flag, for documentation and

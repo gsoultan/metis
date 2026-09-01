@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/interceptors/security"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/interceptors/security"
+	"github.com/gsoultan/metis/tests/testutils"
 	"gorm.io/gorm"
 )
 

@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
-	"github.com/gsoultan/gobpm/server/domains/services"
+	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 type Endpoints struct {
@@ -15,6 +16,9 @@ type Endpoints struct {
 	DeleteUser endpoint.Endpoint
 	Login      endpoint.Endpoint
 	ListUsers  endpoint.Endpoint
+
+	// ChangePassword rotates the caller's own password.
+	ChangePassword endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -25,6 +29,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		DeleteUser: MakeDeleteUserEndpoint(s),
 		Login:      MakeLoginEndpoint(s),
 		ListUsers:  MakeListUsersEndpoint(s),
+
+		ChangePassword: MakeChangePasswordEndpoint(s),
 	}
 }
 
@@ -102,5 +108,26 @@ func MakeDeleteUserEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		err := s.DeleteUser(ctx, req.ID)
 		return DeleteUserResponse{Err: err}, nil
+	}
+}
+
+// MakeChangePasswordEndpoint lets a signed-in user rotate their own password.
+//
+// The user's identity is taken from the context the auth interceptor populated,
+// not from the request: a body-supplied username would make this an endpoint
+// for changing other people's passwords.
+func MakeChangePasswordEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ChangePasswordRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a ChangePasswordRequest, got %T", request)
+		}
+		userID, err := impl.LocalUserIDFromContext(ctx)
+		if err != nil {
+			return ChangePasswordResponse{Err: err}, nil
+		}
+		return ChangePasswordResponse{
+			Err: s.ChangePassword(ctx, userID, req.CurrentPassword, req.NewPassword),
+		}, nil
 	}
 }

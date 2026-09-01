@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // UserService defines the user and group management operations.
@@ -19,6 +19,16 @@ type UserService interface {
 	// SetPassword replaces one account's password, identified by username so
 	// that an operator who has been locked out can name the account they know.
 	SetPassword(ctx context.Context, username, newPassword string) error
+
+	// ChangePassword rotates the caller's own password, having first proved
+	// they know the current one.
+	//
+	// Distinct from SetPassword, which does not ask: that is an operator
+	// recovering an account from the command line, where the proof is already
+	// shell access to the server. Exposing it to a session would mean a stolen
+	// token could lock the real owner out permanently, which turns a temporary
+	// compromise into a permanent one.
+	ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error
 
 	Login(ctx context.Context, username, password string) (entities.User, string, error) // Returns user and JWT token
 	ValidateToken(ctx context.Context, token string) (entities.User, error)

@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -32,7 +32,7 @@ const file_services_organization_proto_rawDesc = "" +
 	"\x11ListOrganizations\x12!.process.ListOrganizationsRequest\x1a\".process.ListOrganizationsResponse\"\x00\x12_\n" +
 	"\x12UpdateOrganization\x12\".process.UpdateOrganizationRequest\x1a#.process.UpdateOrganizationResponse\"\x00\x12_\n" +
 	"\x12DeleteOrganization\x12\".process.DeleteOrganizationRequest\x1a#.process.DeleteOrganizationResponse\"\x00B\x93\x01\n" +
-	"\vcom.processB\x11OrganizationProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"\vcom.processB\x11OrganizationProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_organization_proto_goTypes = []any{
 	(*endpoints.CreateOrganizationRequest)(nil),  // 0: process.CreateOrganizationRequest

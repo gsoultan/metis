@@ -3,8 +3,8 @@ package impl
 import (
 	"context"
 
-	"github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 type collaborationService struct {

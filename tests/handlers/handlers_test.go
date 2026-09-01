@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	handlersimpl "github.com/gsoultan/gobpm/server/domains/handlers/impl"
-	"github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/domains/services"
-	servicecontracts "github.com/gsoultan/gobpm/server/domains/services/contracts"
-	service_impl2 "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/repositories"
-	"github.com/gsoultan/gobpm/tests/testutils"
+	"github.com/gsoultan/metis/server/domains/entities"
+	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
+	"github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 func TestInclusiveGateway(t *testing.T) {

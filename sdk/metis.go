@@ -1,4 +1,4 @@
-// Package gobpm is the Go client for a gobpm server.
+// Package metis is the Go client for a Metis server.
 //
 // It covers the four ways an application integrates with the engine:
 //
@@ -11,12 +11,12 @@
 // The package has no dependencies outside the standard library, so importing
 // it costs nothing but this code.
 //
-//	client := gobpm.NewClient("http://localhost:8080")
+//	client := metis.NewClient("http://localhost:8080")
 //	if err := client.Login(ctx, "admin", "secret"); err != nil { ... }
 //
 //	id, err := client.StartProcess(ctx, projectID, "invoice-approval",
-//		gobpm.Variables{"amount": 900})
-package gobpm
+//		metis.Variables{"amount": 900})
+package metis
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ import (
 // Variables is the map of process variables passed into and out of the engine.
 type Variables = map[string]any
 
-// Client talks to one gobpm server as one authenticated principal.
+// Client talks to one metis server as one authenticated principal.
 //
 // It is safe for concurrent use. The zero value is not usable; construct with
 // NewClient.
@@ -87,7 +87,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("gobpm: server returned %d: %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("metis: server returned %d: %s", e.StatusCode, e.Message)
 }
 
 // IsNotFound reports whether err is the server saying a resource does not
@@ -119,7 +119,7 @@ func (c *Client) Login(ctx context.Context, username, password string) error {
 		return err
 	}
 	if out.Token == "" {
-		return errors.New("gobpm: login answered without a token")
+		return errors.New("metis: login answered without a token")
 	}
 
 	c.mu.Lock()
@@ -144,14 +144,14 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if in != nil {
 		encoded, err := json.Marshal(in)
 		if err != nil {
-			return fmt.Errorf("gobpm: encode request: %w", err)
+			return fmt.Errorf("metis: encode request: %w", err)
 		}
 		body = bytes.NewReader(encoded)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
-		return fmt.Errorf("gobpm: build request: %w", err)
+		return fmt.Errorf("metis: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if in != nil {
@@ -169,14 +169,14 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("gobpm: %s %s: %w", method, path, err)
+		return fmt.Errorf("metis: %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
 
 	// Bounded read: an error page should not become an unbounded allocation.
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return fmt.Errorf("gobpm: read response: %w", err)
+		return fmt.Errorf("metis: read response: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -186,7 +186,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		return nil
 	}
 	if err := json.Unmarshal(payload, out); err != nil {
-		return fmt.Errorf("gobpm: decode response: %w", err)
+		return fmt.Errorf("metis: decode response: %w", err)
 	}
 	return nil
 }

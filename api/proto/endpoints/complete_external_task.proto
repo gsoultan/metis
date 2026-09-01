@@ -4,6 +4,6 @@ package process;
 
 import "google/protobuf/struct.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message CompleteExternalTaskRequest { string task_id = 1; string worker_id = 2; google.protobuf.Struct variables = 3; } message CompleteExternalTaskResponse { string error = 1; }

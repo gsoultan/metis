@@ -3,8 +3,8 @@ package adapters
 import (
 	"time"
 
-	pbentities "github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // formatTime renders a timestamp for the wire, and an unset one as empty

@@ -307,15 +307,15 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                   />
                   {isSQLite && (
                     <Alert variant="light" color="blue" icon={<Database size={16} />}>
-                      SQLite uses a local file (<strong>gobpm.db</strong>) and requires no additional configuration.
+                      SQLite uses a local file (<strong>metis.db</strong>) and requires no additional configuration.
                       You can optionally specify a custom file path below.
                     </Alert>
                   )}
                   {isSQLite && (
                     <TextInput
                       label="Database File Path (optional)"
-                      placeholder="gobpm.db"
-                      description="Leave empty to use the default gobpm.db file"
+                      placeholder="metis.db"
+                      description="Leave empty to use the default metis.db file"
                       {...form.getInputProps('db_name')}
                     />
                   )}
@@ -340,7 +340,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                       <Group grow>
                         <TextInput
                           label="Username"
-                          placeholder="gobpm"
+                          placeholder="metis"
                           required
                           {...form.getInputProps('db_username')}
                         />
@@ -352,7 +352,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                       </Group>
                       <TextInput
                         label="Database Name"
-                        placeholder="gobpm"
+                        placeholder="metis"
                         required
                         {...form.getInputProps('db_name')}
                       />

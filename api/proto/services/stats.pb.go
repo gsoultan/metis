@@ -7,7 +7,7 @@
 package services
 
 import (
-	endpoints "github.com/gsoultan/gobpm/api/proto/endpoints"
+	endpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -29,7 +29,7 @@ const file_services_stats_proto_rawDesc = "" +
 	"\fStatsService\x12e\n" +
 	"\x14GetProcessStatistics\x12$.process.GetProcessStatisticsRequest\x1a%.process.GetProcessStatisticsResponse\"\x00B\x8c\x01\n" +
 	"\vcom.processB\n" +
-	"StatsProtoP\x01Z5github.com/gsoultan/gobpm/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
+	"StatsProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_stats_proto_goTypes = []any{
 	(*endpoints.GetProcessStatisticsRequest)(nil),  // 0: process.GetProcessStatisticsRequest

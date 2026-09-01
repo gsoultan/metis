@@ -5,7 +5,7 @@ package process;
 import "entities/process_instance.proto";
 import "endpoints/page.proto";
 
-option go_package = "github.com/gsoultan/gobpm/api/proto/endpoints;endpoints";
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
 
 message ListInstancesRequest {
   string project_id = 1;

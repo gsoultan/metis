@@ -19,32 +19,34 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gsoultan/gobpm/internal/pkg/tracing"
+	"github.com/gsoultan/metis/internal/pkg/envvar"
+
+	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/google/uuid"
-	pbservices "github.com/gsoultan/gobpm/api/proto/services"
-	"github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/internal/pkg/config"
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
-	"github.com/gsoultan/gobpm/internal/pkg/health"
-	"github.com/gsoultan/gobpm/internal/pkg/logger"
-	"github.com/gsoultan/gobpm/internal/pkg/metrics"
-	"github.com/gsoultan/gobpm/internal/pkg/redaction"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/domains/observers/impl"
-	"github.com/gsoultan/gobpm/server/domains/services"
-	serviceimpl "github.com/gsoultan/gobpm/server/domains/services/impl"
-	"github.com/gsoultan/gobpm/server/endpoints"
-	"github.com/gsoultan/gobpm/server/interceptors"
-	authinterceptor "github.com/gsoultan/gobpm/server/interceptors/auth"
-	"github.com/gsoultan/gobpm/server/interceptors/tenant"
-	"github.com/gsoultan/gobpm/server/repositories"
-	gorms "github.com/gsoultan/gobpm/server/repositories/gorms"
-	"github.com/gsoultan/gobpm/server/repositories/migrations"
-	models "github.com/gsoultan/gobpm/server/repositories/models"
-	"github.com/gsoultan/gobpm/server/transports/grpcs"
-	https "github.com/gsoultan/gobpm/server/transports/https"
+	pbservices "github.com/gsoultan/metis/api/proto/services"
+	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/config"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/health"
+	"github.com/gsoultan/metis/internal/pkg/logger"
+	"github.com/gsoultan/metis/internal/pkg/metrics"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/endpoints"
+	"github.com/gsoultan/metis/server/interceptors"
+	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
+	"github.com/gsoultan/metis/server/interceptors/tenant"
+	"github.com/gsoultan/metis/server/repositories"
+	gorms "github.com/gsoultan/metis/server/repositories/gorms"
+	"github.com/gsoultan/metis/server/repositories/migrations"
+	models "github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/transports/grpcs"
+	https "github.com/gsoultan/metis/server/transports/https"
 
 	"github.com/glebarez/sqlite"
 	"github.com/rs/zerolog/log"
@@ -61,7 +63,7 @@ import (
 //
 // Set at build time with:
 //
-//	go build -ldflags "-X github.com/gsoultan/gobpm/internal/app.version=$(git describe --tags --always)"
+//	go build -ldflags "-X github.com/gsoultan/metis/internal/app.version=$(git describe --tags --always)"
 //
 // It defaults to "dev" rather than a fake version number, because a trace
 // labelled with a version that was never released is worse than one that admits
@@ -88,8 +90,8 @@ const (
 	defaultHTTPIdleTimeout               = 120 * time.Second
 	defaultHTTPMaxHeaderBytes            = 1 << 20
 	defaultPprofAddress                  = "127.0.0.1:6060"
-	envPprofEnabled                      = "GOBPM_PPROF_ENABLED"
-	envPprofAddress                      = "GOBPM_PPROF_ADDRESS"
+	envPprofEnabled                      = "METIS_PPROF_ENABLED"
+	envPprofAddress                      = "METIS_PPROF_ADDRESS"
 
 	// Metrics listen on their own address, away from the public API, so a
 	// scrape endpoint is never published alongside it. The default binds to
@@ -99,31 +101,31 @@ const (
 	// 9464 is the registered OpenTelemetry Prometheus exporter port. Using 9090
 	// would collide with a Prometheus running on the same host.
 	defaultMetricsAddress = "127.0.0.1:9464"
-	envMetricsEnabled     = "GOBPM_METRICS_ENABLED"
-	envMetricsAddress     = "GOBPM_METRICS_ADDRESS"
+	envMetricsEnabled     = "METIS_METRICS_ENABLED"
+	envMetricsAddress     = "METIS_METRICS_ADDRESS"
 
 	defaultHTTPAddress = ":8080"
 	defaultGRPCAddress = ":8081"
-	envHTTPAddress     = "GOBPM_HTTP_ADDRESS"
-	envGRPCAddress     = "GOBPM_GRPC_ADDRESS"
+	envHTTPAddress     = "METIS_HTTP_ADDRESS"
+	envGRPCAddress     = "METIS_GRPC_ADDRESS"
 
 	// envResetPassword supplies the new password for --reset-password, so that
 	// a chosen one need not be typed where it will be recorded.
-	envResetPassword = "GOBPM_NEW_PASSWORD"
+	envResetPassword = "METIS_NEW_PASSWORD"
 )
 
 // resolveAddress returns the listen address from env, falling back to a
 // default. Both were previously hardcoded, so two instances could not run side
 // by side and a container could not be told which port to publish.
 func resolveAddress(envVar, fallback string) string {
-	if v := strings.TrimSpace(os.Getenv(envVar)); v != "" {
+	if v := strings.TrimSpace(envvar.Get(envVar)); v != "" {
 		return v
 	}
 	return fallback
 }
 
 func profilingEnabled() bool {
-	enabledValue, exists := os.LookupEnv(envPprofEnabled)
+	enabledValue, exists := envvar.Lookup(envPprofEnabled)
 	if !exists {
 		return false
 	}
@@ -141,7 +143,7 @@ func profilingEnabled() bool {
 }
 
 func resolvePprofAddress() string {
-	address := strings.TrimSpace(os.Getenv(envPprofAddress))
+	address := strings.TrimSpace(envvar.Get(envPprofAddress))
 	if address == "" {
 		return defaultPprofAddress
 	}
@@ -152,7 +154,7 @@ func resolvePprofAddress() string {
 // this defaults to on: an SLO nobody is measuring is not an objective, and the
 // endpoint is bound to loopback unless configured otherwise.
 func metricsEnabled() bool {
-	enabledValue, exists := os.LookupEnv(envMetricsEnabled)
+	enabledValue, exists := envvar.Lookup(envMetricsEnabled)
 	if !exists {
 		return true
 	}
@@ -309,7 +311,7 @@ func (a *App) Run() error {
 // keeps a chosen password out of the shell history; without one, a strong
 // password is generated, which is the better default for a recovery step.
 func (a *App) handleResetPassword(ctx context.Context, username string) error {
-	password, generated := os.Getenv(envResetPassword), false
+	password, generated := envvar.Get(envResetPassword), false
 	if password == "" {
 		var err error
 		if password, err = generatePassword(); err != nil {
@@ -378,7 +380,7 @@ func (a *App) handleBuildUI(ctx context.Context) error {
 // Pre-setup (no config.yaml) is allowed to start without a key: no process data
 // exists yet, and the setup flow collects the key before anything is written.
 func (a *App) setupEncryption() error {
-	envKey := os.Getenv("ENCRYPTION_KEY")
+	envKey := envvar.Get("ENCRYPTION_KEY")
 
 	// A configured system's key is whatever its data was actually encrypted
 	// with, so config.yaml wins over the environment.
@@ -541,7 +543,7 @@ func (a *App) setupService(ctx context.Context) error {
 	dispatcher.Register(a.sse)
 
 	// Register Webhook Observer if endpoints are provided
-	webhookEndpoints := os.Getenv("WEBHOOK_ENDPOINTS")
+	webhookEndpoints := envvar.Get("WEBHOOK_ENDPOINTS")
 	if webhookEndpoints != "" {
 		endpointsList := strings.Split(webhookEndpoints, ",")
 		dispatcher.Register(impl.NewWebhookObserver(endpointsList))
@@ -573,8 +575,8 @@ func (a *App) setupService(ctx context.Context) error {
 }
 
 func (a *App) setupAuth(ctx context.Context) {
-	oidcIssuer := os.Getenv("OIDC_ISSUER")
-	oidcClientID := os.Getenv("OIDC_CLIENT_ID")
+	oidcIssuer := envvar.Get("OIDC_ISSUER")
+	oidcClientID := envvar.Get("OIDC_CLIENT_ID")
 	if oidcIssuer != "" && oidcClientID != "" {
 		v, err := auth.NewTokenValidator(ctx, oidcIssuer, oidcClientID)
 		if err != nil {
@@ -676,7 +678,7 @@ func BuildAPIHandler(
 	// exactly the time a caller complains about and the handler never sees.
 	// otelhttp also reads any incoming traceparent, so a request arriving from
 	// another service joins that trace instead of starting a new one.
-	httpHandler = otelhttp.NewHandler(httpHandler, "gobpm.http")
+	httpHandler = otelhttp.NewHandler(httpHandler, "metis.http")
 
 	// Health wraps outside metrics, so probe traffic is served without being
 	// counted. Probes run every few seconds per replica and would otherwise
@@ -834,7 +836,7 @@ func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Se
 //  3. Pre-setup state (no config.yaml): a random ephemeral secret is used
 //     because no real users exist yet.
 func (a *App) resolveJWTSecret() (string, error) {
-	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+	if secret := envvar.Get("JWT_SECRET"); secret != "" {
 		return secret, nil
 	}
 
@@ -868,15 +870,16 @@ func (a *App) resolveDialector() (gorm.Dialector, error) {
 	}
 
 	// Priority 2: Fall back to environment variables
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := envvar.Get("DATABASE_URL")
 	if dsn != "" {
 		log.Info().Msg("Using PostgreSQL database from DATABASE_URL...")
 		return postgres.Open(dsn), nil
 	}
 
 	// Priority 3: Default to SQLite
-	log.Info().Msg("Using SQLite database (gobpm.db)...")
-	return sqlite.Open(sqliteDSNWithBusyTimeout("gobpm.db")), nil
+	path := config.DefaultSQLitePath()
+	log.Info().Str("file", path).Msg("Using SQLite database...")
+	return sqlite.Open(sqliteDSNWithBusyTimeout(path)), nil
 }
 
 func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
@@ -884,7 +887,7 @@ func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
 	// wins, because it is the one the data was encrypted with.
 	encKey := cfg.EncryptionKey
 	if encKey == "" {
-		encKey = os.Getenv("ENCRYPTION_KEY")
+		encKey = envvar.Get("ENCRYPTION_KEY")
 	}
 
 	dsn, err := cfg.DecryptConnectionString(encKey)

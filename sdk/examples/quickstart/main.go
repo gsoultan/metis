@@ -5,9 +5,9 @@
 // It doubles as the SDK's end-to-end proof — everything it prints was really
 // answered by a running engine, not a mock.
 //
-//	GOBPM_URL=http://localhost:8080 \
-//	GOBPM_USERNAME=admin GOBPM_PASSWORD=secret \
-//	GOBPM_PROJECT="Default Project" go run ./examples/quickstart
+//	METIS_URL=http://localhost:8080 \
+//	METIS_USERNAME=admin METIS_PASSWORD=secret \
+//	METIS_PROJECT="Default Project" go run ./examples/quickstart
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	gobpm "github.com/gsoultan/gobpm/sdk"
+	metis "github.com/gsoultan/metis/sdk"
 )
 
 // refundProcess is a complete, runnable definition: an external task a worker
@@ -46,12 +46,12 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	baseURL := cmp.Or(os.Getenv("GOBPM_URL"), "http://localhost:8080")
-	username := cmp.Or(os.Getenv("GOBPM_USERNAME"), "admin")
-	password := os.Getenv("GOBPM_PASSWORD")
-	projectName := cmp.Or(os.Getenv("GOBPM_PROJECT"), "Default Project")
+	baseURL := cmp.Or(env("URL"), "http://localhost:8080")
+	username := cmp.Or(env("USERNAME"), "admin")
+	password := env("PASSWORD")
+	projectName := cmp.Or(env("PROJECT"), "Default Project")
 
-	client := gobpm.NewClient(baseURL)
+	client := metis.NewClient(baseURL)
 
 	// 1. Authenticate.
 	if err := client.Login(ctx, username, password); err != nil {
@@ -83,20 +83,20 @@ func run() error {
 	fmt.Println("✓ deployed definition", defID)
 
 	// 4. Serve the external task from this process — this is what a payment
-	// service integrating with gobpm would run.
-	worker := gobpm.NewWorker(client, "reverse-charge", "quickstart-worker",
-		gobpm.WorkerOptions{PollInterval: 300 * time.Millisecond},
-		func(_ context.Context, task *gobpm.ExternalTask) (gobpm.Variables, error) {
+	// service integrating with metis would run.
+	worker := metis.NewWorker(client, "reverse-charge", "quickstart-worker",
+		metis.WorkerOptions{PollInterval: 300 * time.Millisecond},
+		func(_ context.Context, task *metis.ExternalTask) (metis.Variables, error) {
 			fmt.Printf("✓ worker got task %s with amount %v — reversing the charge\n",
 				task.ID, task.Variables["amount"])
-			return gobpm.Variables{"reversed": true}, nil
+			return metis.Variables{"reversed": true}, nil
 		})
 	workerCtx, stopWorker := context.WithCancel(ctx)
 	defer stopWorker()
 	go func() { _ = worker.Run(workerCtx) }()
 
 	// 5. Start an instance.
-	instanceID, err := client.StartProcess(ctx, projectID, "refund", gobpm.Variables{"amount": 42.50})
+	instanceID, err := client.StartProcess(ctx, projectID, "refund", metis.Variables{"amount": 42.50})
 	if err != nil {
 		return fmt.Errorf("start process: %w", err)
 	}
@@ -113,7 +113,7 @@ func run() error {
 	if err := client.ClaimTask(ctx, task.ID, username); err != nil {
 		return fmt.Errorf("claim: %w", err)
 	}
-	if err := client.CompleteTask(ctx, task.ID, username, gobpm.Variables{"approved": true}); err != nil {
+	if err := client.CompleteTask(ctx, task.ID, username, metis.Variables{"approved": true}); err != nil {
 		return fmt.Errorf("complete: %w", err)
 	}
 	fmt.Println("✓ approved the refund")
@@ -138,9 +138,9 @@ func run() error {
 }
 
 // waitForTask polls until the instance's human task shows up in the inbox.
-func waitForTask(ctx context.Context, client *gobpm.Client, instanceID string) (*gobpm.Task, error) {
+func waitForTask(ctx context.Context, client *metis.Client, instanceID string) (*metis.Task, error) {
 	for {
-		tasks, _, err := client.ListTasks(ctx, gobpm.ListTasksOptions{PageSize: 100})
+		tasks, _, err := client.ListTasks(ctx, metis.ListTasksOptions{PageSize: 100})
 		if err != nil {
 			return nil, fmt.Errorf("list tasks: %w", err)
 		}
@@ -158,7 +158,7 @@ func waitForTask(ctx context.Context, client *gobpm.Client, instanceID string) (
 }
 
 // waitForStatus polls until the instance reaches the wanted status.
-func waitForStatus(ctx context.Context, client *gobpm.Client, instanceID, want string) error {
+func waitForStatus(ctx context.Context, client *metis.Client, instanceID, want string) error {
 	for {
 		instance, err := client.GetInstance(ctx, instanceID)
 		if err != nil {
@@ -173,4 +173,13 @@ func waitForStatus(ctx context.Context, client *gobpm.Client, instanceID, want s
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
+}
+
+// env reads a setting under its Metis name, falling back to the GoBPM spelling
+// an existing script would still be exporting. The server does this through
+// internal/pkg/envvar, which the SDK deliberately cannot import: this example
+// is what someone copies into their own repository, and it has to keep the
+// promise the SDK makes of depending on nothing outside the standard library.
+func env(name string) string {
+	return cmp.Or(os.Getenv("METIS_"+name), os.Getenv("GOBPM_"+name))
 }

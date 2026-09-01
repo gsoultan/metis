@@ -231,9 +231,9 @@
 - 2026-03-24 (completed): Executed P0 Security/ Reliability CI baseline.
   - Added `.github/workflows/security_reliability_ci.yml`.
   - Coverage now includes:
-    - SAST baseline: `go vet` on `./cmd/gobpm ./internal/app ./server/interceptors/...`.
+    - SAST baseline: `go vet` on `./cmd/metis ./internal/app ./server/interceptors/...`.
     - Reliability baseline: `go test -race` on `./internal/app ./server/interceptors/...`.
-    - Build gate: `go build ./cmd/gobpm`.
+    - Build gate: `go build ./cmd/metis`.
     - Dependency vulnerability scan: `govulncheck`.
     - Secret scanning: `gitleaks` action.
 - 2026-03-24 (completed): Executed P0 secret/PII redaction hardening and CI scope expansion.
@@ -249,11 +249,11 @@
     - `go vet`, `go test -race`, and `govulncheck` now include `./internal/pkg/redaction`, `./server/transports/grpcs/common`, and `./server/transports/https/common`.
   - Verification evidence:
     - `go test ./internal/pkg/redaction ./server/transports/grpcs/common ./server/transports/https/common ./server/domains/services/impl ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
 - 2026-03-24 (completed): Executed P1 profiling baseline (`pprof`) with guarded runtime exposure and measured hotspots.
   - Added guarded profiling server in `internal/app/app.go`:
-    - Enabled only when `GOBPM_PPROF_ENABLED=true`.
-    - Configurable address via `GOBPM_PPROF_ADDRESS` (default `127.0.0.1:6060`).
+    - Enabled only when `METIS_PPROF_ENABLED=true`.
+    - Configurable address via `METIS_PPROF_ADDRESS` (default `127.0.0.1:6060`).
     - Lifecycle-managed startup/shutdown using existing app errgroup and timeout pattern.
   - Added focused tests in `internal/app/profiling_test.go`:
     - Env parsing and default address resolution.
@@ -263,19 +263,19 @@
   - Top 5 baseline hotspots and targets:
     - CPU (flat): `runtime.cgocall` (`57.75%`) → target `< 40%` by reducing per-request socket churn and improving keep-alive reuse.
     - CPU (cum): `net/http.(*conn).serve` (`59.69%`) → target `< 45%` by trimming request-path overhead on high-frequency endpoints.
-    - CPU (cum): `github.com/gsoultan/gobpm/internal/app.(*App).runServers.func2` (`23.64%`) → target `< 15%` via handler/interceptor allocation reduction.
+    - CPU (cum): `github.com/gsoultan/metis/internal/app.(*App).runServers.func2` (`23.64%`) → target `< 15%` via handler/interceptor allocation reduction.
     - Heap (flat): `runtime.mallocgc` (`30.43%`) → target `< 22%` by removing avoidable transient allocations.
     - Heap (flat): `regexp.compile` (`12.15%`) → target `< 3%` by precompiling/caching regex construction.
   - Verification evidence:
     - `go test ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `go tool pprof -top http://127.0.0.1:6060/debug/pprof/profile?seconds=20`
     - `go tool pprof -top http://127.0.0.1:6060/debug/pprof/heap`
 - 2026-03-24 (completed): Executed P1 reproducible load/profiling harness and concrete optimization backlog definition.
   - Added reproducible script: `tests/performance/setup_status_profile.ps1`.
   - Script behavior:
     - Resolves `ENCRYPTION_KEY` from `config.yaml` and applies it for deterministic startup (falls back to pre-set env var only if config key is unavailable).
-    - Starts `gobpm` with guarded `pprof` env flags.
+    - Starts `metis` with guarded `pprof` env flags.
     - Executes warm-up + sustained `GET /api/v1/setup/status` load.
     - Captures CPU and heap `pprof` outputs to timestamped files under `tests/performance/artifacts`.
   - Added checklist governance in this roadmap with explicit `[x]/[ ]` status per roadmap area.
@@ -294,7 +294,7 @@
     - `tests/performance/setup_status_profile.ps1`: deterministic `ENCRYPTION_KEY` resolution from `config.yaml` to avoid stale-env startup failures.
   - Verification evidence:
     - `go test ./server/transports/https/... ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-193320.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-193320.txt`
@@ -308,7 +308,7 @@
     - `internal/app/profiling_test.go`: added `TestNewHTTPServer` to lock server configuration values.
   - Verification evidence:
     - `go test ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-193920.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-193920.txt`
@@ -324,7 +324,7 @@
   - Verification evidence:
     - `go test ./internal/pkg/redaction`
     - `go test ./server/transports/grpcs/common ./server/transports/https/common ./server/domains/services/impl ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-194919.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-194919.txt`
@@ -339,7 +339,7 @@
   - Verification evidence:
     - `go test ./server/interceptors/security`
     - `go test ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-200816.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-200816.txt`
@@ -354,7 +354,7 @@
     - `server/interceptors/auth/interceptor_test.go`: new table-driven tests for bearer header parsing and mandatory auth behavior (public-path bypass, protected-path enforcement, invalid header rejection, failed auth, and context injection on success).
   - Verification evidence:
     - `go test ./server/interceptors/auth ./server/interceptors/security ./server/interceptors/... ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-201633.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-201633.txt`
@@ -368,7 +368,7 @@
     - `server/interceptors/auth/interceptor_test.go`: added table-driven optional-auth tests for no-header pass-through, invalid-header pass-through, failed-auth pass-through, and successful-auth context injection.
   - Verification evidence:
     - `go test ./server/interceptors/auth ./server/interceptors/security ./server/interceptors/... ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-202613.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-202613.txt`
@@ -387,7 +387,7 @@
   - Verification evidence:
     - `go test ./server/transports/grpcs/definitions ./server/transports/grpcs/organizations ./server/transports/grpcs/projects ./server/transports/grpcs/processes ./server/transports/grpcs/tasks`
     - `go test ./server/transports/grpcs/common ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-203816.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-203816.txt`
@@ -402,7 +402,7 @@
     - `server/interceptors/logging/interceptor_test.go`: added `failer called once` test to verify single `Failed()` invocation and preserve endpoint behavior.
   - Verification evidence:
     - `go test ./server/interceptors/logging ./server/interceptors/auth ./server/interceptors/security ./server/interceptors/... ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-214922.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-214922.txt`
@@ -418,7 +418,7 @@
     - `server/interceptors/security/backpressure_interceptor_test.go`: added table-driven constructor/default tests and behavioral tests for normal pass-through, queue overflow rejection, queued wait-until-slot-free flow, and context-cancel while queued.
   - Verification evidence:
     - `go test ./server/interceptors/security ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-222258.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-222258.txt`
@@ -435,7 +435,7 @@
     - `server/interceptors/security/idempotency_interceptor_test.go`: added table-driven constructor coverage and behavioral tests for pass-through without key, replay on duplicate requests, key-reuse conflict on mismatched payload, and cancellation while waiting on an in-flight request.
   - Verification evidence:
     - `go test ./server/interceptors/security ./internal/app ./server/interceptors/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260324-223508.txt`
     - `tests/performance/artifacts/setup-status-heap-20260324-223508.txt`
@@ -453,7 +453,7 @@
   - Verification evidence:
     - `go test ./server/domains/services/impl`
     - `go test ./server/domains/services/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260325-001134.txt`
     - `tests/performance/artifacts/setup-status-heap-20260325-001134.txt`
@@ -470,7 +470,7 @@
     - `server/domains/services/impl/messaging_test.go`: added table-driven tests for DLQ skip on successful dispatch, DLQ routing after retry exhaustion, DLQ routing on unmarshal failures, joined error behavior when DLQ publish fails, and no-DLQ handling for context-canceled dispatch.
   - Verification evidence:
     - `go test ./server/domains/services/impl ./server/domains/services/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260325-002021.txt`
     - `tests/performance/artifacts/setup-status-heap-20260325-002021.txt`
@@ -487,7 +487,7 @@
   - Verification evidence:
     - `go test ./server/domains/services/impl -run InboundPartition -v -count=1 -timeout 60s`
     - `go test ./server/domains/services/impl ./server/domains/services/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260325-004204.txt`
     - `tests/performance/artifacts/setup-status-heap-20260325-004204.txt`
@@ -504,7 +504,7 @@
   - Verification evidence:
     - `go test ./server/domains/services/impl -run "TestNarrative|TestActorName|TestSubjectName|TestRecordEvent" -v` — all 22 cases pass.
     - `go test ./server/domains/services/impl/... ./server/interceptors/... ./internal/app`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
 
 - 2026-03-25 (completed): Executed `P0-SEC-01` RBAC/ABAC enforcement and tenant-isolation hardening.
   - Security implemented:
@@ -519,7 +519,7 @@
   - Verification evidence:
     - `go test ./server/interceptors/auth/...`
     - `go build ./server/repositories/...`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
 
 - 2026-03-25 (completed): Executed `P1-OPT-14` heavy-traffic context timeout/cancellation propagation audit and bounded dispatch hardening.
   - Optimization implemented:
@@ -532,7 +532,7 @@
   - Verification evidence:
     - `go test ./server/domains/services/impl -run Messaging -count=1`
     - `go test ./server/domains/services/... -count=1`
-    - `go build ./cmd/gobpm`
+    - `go build ./cmd/metis`
     - `powershell -ExecutionPolicy Bypass -File .\tests\performance\setup_status_profile.ps1 -WarmupRequests 200 -LoadRequests 10000 -CPUProfileSeconds 15`
     - `tests/performance/artifacts/setup-status-cpu-20260325-005612.txt`
     - `tests/performance/artifacts/setup-status-heap-20260325-005612.txt`
@@ -789,7 +789,7 @@ memory-exhaustion vector it existed to remove is now off by default —
 outright rather than handing authored content to a runtime no sandbox setting can bound.
 A gateway whose conditions are all refused raises an incident naming the gateway; it does
 not guess a branch (`tests/bpmn/refused_js_condition_test.go`). Installations still
-migrating can set `GOBPM_FEATURE_JAVASCRIPT_CONDITIONS=true`, and
+migrating can set `METIS_FEATURE_JAVASCRIPT_CONDITIONS=true`, and
 `GET /api/v1/definitions/javascript-conditions` gives them the worklist.
 
 ---

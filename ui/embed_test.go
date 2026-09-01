@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/gobpm/ui"
+	"github.com/gsoultan/metis/ui"
 )
 
 func TestDistEmbedding(t *testing.T) {

@@ -2,14 +2,15 @@ package testutils
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/repositories/gorms"
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
-	models2 "github.com/gsoultan/gobpm/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/gorms"
+
+	"github.com/gsoultan/metis/internal/pkg/crypto"
+	models2 "github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -22,9 +23,9 @@ import (
 // anything about concurrency, and it does not exercise the SQL a real deployment
 // runs. Tests that need either of those ask for this DSN and skip without it, so
 // the default gate stays hermetic.
-const PostgresDSNEnv = "GOBPM_TEST_POSTGRES_DSN"
+const PostgresDSNEnv = "METIS_TEST_POSTGRES_DSN"
 
-// SetupPostgresDB opens the PostgreSQL instance named by GOBPM_TEST_POSTGRES_DSN
+// SetupPostgresDB opens the PostgreSQL instance named by METIS_TEST_POSTGRES_DSN
 // and migrates a schema into it, skipping the test when no DSN is configured.
 //
 // maxConns controls the connection pool. More than one connection is what makes
@@ -33,7 +34,7 @@ const PostgresDSNEnv = "GOBPM_TEST_POSTGRES_DSN"
 func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 	t.Helper()
 
-	dsn := os.Getenv(PostgresDSNEnv)
+	dsn := envvar.Get(PostgresDSNEnv)
 	if dsn == "" {
 		t.Skipf("set %s to run this against a live PostgreSQL instance", PostgresDSNEnv)
 	}

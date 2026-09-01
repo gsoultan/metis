@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gsoultan/gobpm/internal/pkg/crypto"
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"gopkg.in/yaml.v3"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -158,7 +160,7 @@ func BuildConnectionString(driver string, fields DatabaseFields) string {
 	default:
 		// SQLite: fields.DBName is the file path
 		if fields.DBName == "" {
-			return "gobpm.db"
+			return DefaultSQLitePath()
 		}
 		return fields.DBName
 	}
@@ -186,3 +188,43 @@ func NewConfig(driver, connectionString, encryptionKey, jwtSecret string) (*Conf
 		JWTSecret:     jwtSecret,
 	}, nil
 }
+
+// DefaultSQLitePath is the SQLite file used when nothing names one.
+//
+// The product's file is metis.db. An installation that predates the rename has
+// a gobpm.db instead, and creating a fresh empty database beside it would look
+// exactly like total data loss to whoever restarted the service — every
+// process, task and definition simply gone, with no error to explain it. So an
+// existing gobpm.db wins, and says so.
+//
+// The check is for an existing file rather than a configured name because this
+// path is only reached when nothing was configured at all.
+func DefaultSQLitePath() string {
+	// The new name wins when it exists: an operator who has already renamed
+	// their file and left a stale copy behind should get the one they moved to.
+	if isRegularFile(defaultSQLiteFile) {
+		return defaultSQLiteFile
+	}
+	if isRegularFile(legacySQLiteFile) {
+		log.Info().
+			Str("file", legacySQLiteFile).
+			Str("new_installs_use", defaultSQLiteFile).
+			Msg("Opening the pre-rename database file. Rename it to metis.db when convenient, or set DATABASE_URL to name it explicitly.")
+		return legacySQLiteFile
+	}
+	return defaultSQLiteFile
+}
+
+// isRegularFile reports whether path is a file this driver could open.
+//
+// Stat alone is not enough: it succeeds on a directory, so a stray `gobpm.db/`
+// would be handed to the driver as though it were a database.
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+const (
+	defaultSQLiteFile = "metis.db"
+	legacySQLiteFile  = "gobpm.db"
+)

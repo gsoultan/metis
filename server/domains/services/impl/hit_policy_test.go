@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // severityTable is one table reused across policies: three lines, two of which

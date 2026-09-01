@@ -14,4 +14,4 @@
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
-export const AUTH_STORAGE_KEY = "gobpm-app-storage";
+export const AUTH_STORAGE_KEY = "metis-app-storage";

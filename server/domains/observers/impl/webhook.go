@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gsoultan/gobpm/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 )
 
@@ -62,7 +62,7 @@ func (o *WebhookObserver) sendWebhook(ctx context.Context, url string, payload [
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "GoBPM-Webhook/1.0")
+	req.Header.Set("User-Agent", "Metis-Webhook/1.0")
 
 	resp, err := o.client.Do(req)
 	if err != nil {

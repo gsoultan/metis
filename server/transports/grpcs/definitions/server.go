@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	grpctransport "github.com/go-kit/kit/transport/grpc"
-	"github.com/gsoultan/gobpm/api/proto/endpoints"
-	"github.com/gsoultan/gobpm/api/proto/entities"
-	"github.com/gsoultan/gobpm/api/proto/services"
-	entities2 "github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/endpoints/definition"
-	"github.com/gsoultan/gobpm/server/transports/adapters"
-	"github.com/gsoultan/gobpm/server/transports/grpcs/common"
+	"github.com/gsoultan/metis/api/proto/endpoints"
+	"github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/api/proto/services"
+	entities2 "github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/endpoints/definition"
+	"github.com/gsoultan/metis/server/transports/adapters"
+	"github.com/gsoultan/metis/server/transports/grpcs/common"
 
 	"github.com/google/uuid"
 )

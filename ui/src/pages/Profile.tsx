@@ -8,13 +8,14 @@ import {
   Badge, 
   Divider, 
   TextInput, 
-  Tooltip,
   Button, 
   SimpleGrid,
   ThemeIcon,
   Box
 } from '@mantine/core';
 import { Mail, Building2,} from 'lucide-react';
+import { useState } from 'react';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { z } from 'zod';
@@ -25,6 +26,7 @@ import { notifications } from '@mantine/notifications';
 export function Profile() {
   const { user, setAuth, token } = useAppStore();
   const updateUser = useUpdateUser();
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Validation lives in a schema so the form and the request payload cannot
   // disagree about what is required.
@@ -192,11 +194,9 @@ export function Profile() {
                 <Text size="xs" c="dimmed" mb="sm">
                   Password changes are not available yet.
                 </Text>
-                <Tooltip label="Coming soon — password changes are not implemented yet">
-                  <Button variant="light" color="blue" size="xs" data-disabled onClick={(event) => event.preventDefault()}>
-                    Change Password
-                  </Button>
-                </Tooltip>
+                <Button variant="light" color="blue" size="xs" onClick={() => setChangingPassword(true)}>
+                  Change Password
+                </Button>
               </Box>
   
               <Divider my="md" />
@@ -227,6 +227,8 @@ export function Profile() {
           </form>
         </Paper>
       </SimpleGrid>
+
+      <ChangePasswordModal opened={changingPassword} onClose={() => setChangingPassword(false)} />
     </Stack>
   );
 }

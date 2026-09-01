@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/go-kit/kit/endpoint"
-	pkgauth "github.com/gsoultan/gobpm/internal/pkg/auth"
-	"github.com/gsoultan/gobpm/server/domains/entities"
-	"github.com/gsoultan/gobpm/server/interceptors/contracts"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 // AccessPolicy is the ABAC extension point. Implementations may evaluate

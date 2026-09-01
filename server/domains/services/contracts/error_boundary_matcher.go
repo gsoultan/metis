@@ -1,6 +1,6 @@
 package contracts
 
-import "github.com/gsoultan/gobpm/server/domains/entities"
+import "github.com/gsoultan/metis/server/domains/entities"
 
 // ErrorBoundaryMatcher determines whether a given error should be caught by
 // a specific boundary event node. Implementations apply the BPMN matching

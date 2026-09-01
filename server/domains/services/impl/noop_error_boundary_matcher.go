@@ -1,6 +1,6 @@
 package impl
 
-import "github.com/gsoultan/gobpm/server/domains/entities"
+import "github.com/gsoultan/metis/server/domains/entities"
 
 // NoOpErrorBoundaryMatcher is a Null Object implementation of ErrorBoundaryMatcher.
 // It never matches any boundary event, effectively disabling error boundary routing.
