@@ -10,6 +10,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Signed-in users can change their own password**, from Profile → Change
+  Password (`POST /api/v1/users/me/password`). Previously the only way was
+  `--reset-password` from a shell on the server, so every rotation on a running
+  installation needed access to the machine — including the administrator
+  account the setup wizard creates, which could never be rotated by its owner.
+
+  It asks for the current password, and that is the point rather than a
+  formality: without it a stolen session token would be enough to lock the real
+  owner out of their own account permanently. Accounts that sign in through
+  OIDC are refused — their password lives at the identity provider, and Metis
+  holds no hash their login consults, so "changing" it here would report
+  success while altering nothing.
+
+- **CI builds the image and boots it.** Nothing built the Dockerfile before,
+  though the README calls it the supported artifact. The job now starts the
+  built image against a real PostgreSQL with a read-only root filesystem and
+  waits on `/readyz` — because the image is distroless, the failures that matter
+  (a dynamically linked binary, a missing CA bundle, a moved entrypoint) all
+  produce something that builds cleanly and exits on first run.
+
 ### Changed
 
 - **GoBPM is now Metis.** The module path is `github.com/gsoultan/metis`, the
@@ -22,6 +44,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
   The one thing that does need editing is the import path, and the Go client's
   package name along with it — `gobpm.NewClient` is now `metis.NewClient`.
+
+  **Metrics and traces are renamed with no fallback.** They are now
+  `metis_http_requests_total`, `metis_http_request_duration_seconds`,
+  `metis_http_requests_in_flight`, and the OTel service, span and attributes are
+  `metis.*`. A dashboard or alert rule still written against `gobpm_` does not
+  error — it matches nothing and stops firing, which is harder to notice than a
+  break. Grep your alerting rules before upgrading.
+
+  The `Idempotency-Key` sent on outbound service calls still begins with
+  `gobpm-`, deliberately and permanently. It is derived fresh on every retry, so
+  it is the only thing telling a downstream system that a retry is the request
+  it already handled; renaming it would make a job caught mid-retry by the
+  upgrade arrive looking new, and charge the card twice.
 
 ### Security
 
