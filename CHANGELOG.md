@@ -60,6 +60,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- **The HTTP rate limiter could be bypassed by setting a header.** The limiter
+  keyed its buckets on `X-Forwarded-For` and believed it unconditionally. That
+  header is set by the client, so sending a different value on every request
+  bought a fresh allowance every time: measured against the previous code, one
+  address took 30 requests through a limit of 3, and only stopped because the
+  test stopped.
+
+  The header is now consulted only when the request arrived from a peer allowed
+  to set it — loopback and private space by default, configurable with
+  `METIS_TRUSTED_PROXIES`, and `none` for a directly-exposed server. Anything
+  else is charged to the address it actually connected from.
+
+  **If your load balancer sits in public address space, set
+  `METIS_TRUSTED_PROXIES` to its range**, or every client behind it will share
+  one bucket.
+
+
 - **`js:` gateway conditions are refused by default.** The JavaScript runtime
   behind them cannot be memory-bounded — a single native call ran for 37s
   against a 200ms budget, allocating throughout — so a default installation was

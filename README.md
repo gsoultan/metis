@@ -121,6 +121,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
 | `METIS_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout; the production paths are proven under it by `make strict-scope`. |
 | `METIS_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
+| `METIS_TRUSTED_PROXIES` | Which peers may set `X-Forwarded-For`, as comma-separated CIDRs. Defaults to loopback and private space, which is where a load balancer or sidecar connects from. Set it to `none` when the server is exposed directly. **Requests from anywhere else have the header ignored** — it is a client-set header, and believing it unconditionally let one address take 30 requests through a limit of 3 by varying it. |
 | `METIS_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
 
 ### Production build

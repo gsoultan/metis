@@ -27,6 +27,11 @@ type rateLimitInterceptor struct {
 	window      time.Duration
 	now         func() time.Time
 
+	// trusted decides whether this request's X-Forwarded-For may be believed.
+	// Without it the header — which any client can set — chose the bucket, so
+	// varying it per request bought unlimited requests.
+	trusted *trustedProxySet
+
 	mu           sync.Mutex
 	windows      map[string]*clientRequestWindow
 	requestCount int
@@ -44,13 +49,14 @@ func NewRateLimitInterceptor(maxRequests int, window time.Duration) contracts.Tr
 		maxRequests: maxRequests,
 		window:      window,
 		now:         time.Now,
+		trusted:     loadTrustedProxies(),
 		windows:     make(map[string]*clientRequestWindow, cleanupEveryRequests),
 	}
 }
 
 func (i *rateLimitInterceptor) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !i.allow(clientKeyFromRequest(r)) {
+		if !i.allow(i.clientKey(r)) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(i.window.Seconds())))
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 			return
@@ -100,24 +106,15 @@ func (i *rateLimitInterceptor) cleanupStaleWindows(staleBefore time.Time) {
 	}
 }
 
-func clientKeyFromRequest(r *http.Request) string {
-	xForwardedFor := r.Header.Get("X-Forwarded-For")
-	if xForwardedFor != "" {
-		client, _, _ := strings.Cut(xForwardedFor, ",")
-		if trimmedClient := strings.TrimSpace(client); trimmedClient != "" {
-			return trimmedClient
-		}
-	}
-
-	if host, ok := hostFromRemoteAddr(r.RemoteAddr); ok {
-		return host
-	}
-
-	if r.RemoteAddr != "" {
-		return r.RemoteAddr
-	}
-
-	return "unknown"
+// clientKey decides which bucket a request draws from.
+//
+// It used to read X-Forwarded-For and believe it. That header is set by the
+// client, so an attacker sending a different value on each request was handed a
+// fresh bucket every time and the limit never applied: measured, one address
+// got 30 requests through a limit of 3. The header is now only consulted when
+// the request actually arrived from a proxy we trust — see trustedProxySet.
+func (i *rateLimitInterceptor) clientKey(r *http.Request) string {
+	return i.trusted.clientAddr(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))
 }
 
 func hostFromRemoteAddr(remoteAddr string) (string, bool) {

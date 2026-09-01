@@ -1,6 +1,7 @@
 package security
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -126,6 +127,15 @@ func TestRateLimitInterceptorReusesClientWindowEntry(t *testing.T) {
 	}
 }
 
+// TestClientKeyFromRequest pins which address a request is charged to.
+//
+// The old expectation here was "uses first forwarded client" — the leftmost
+// X-Forwarded-For entry. That is the one value in the chain a client can write
+// itself, because proxies append. Asserting it meant the test agreed with the
+// bypass: an attacker varying the header got a fresh bucket per request.
+//
+// The rule now is rightmost-untrusted, and only when the request actually came
+// from a proxy we trust.
 func TestClientKeyFromRequest(t *testing.T) {
 	t.Parallel()
 
@@ -136,10 +146,29 @@ func TestClientKeyFromRequest(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "uses first forwarded client",
+			// The proxy appended the address it saw, on the right. Anything to
+			// the left of it came from the client.
+			name:      "takes the address the trusted proxy actually saw",
 			remote:    "10.0.0.1:1234",
 			forwarded: "203.0.113.10, 198.51.100.20",
-			expected:  "203.0.113.10",
+			expected:  "198.51.100.20",
+		},
+		{
+			// With no explicit proxy list, the rightmost entry is the client —
+			// including when it is a private address, which on an internal
+			// deployment is exactly what a real client looks like.
+			name:      "charges the rightmost hop when no proxy chain is configured",
+			remote:    "10.0.0.1:1234",
+			forwarded: "203.0.113.10, 192.168.1.10",
+			expected:  "192.168.1.10",
+		},
+		{
+			// The header is a claim from a stranger. A request straight off the
+			// internet does not get to name its own client.
+			name:      "ignores the header from an untrusted peer",
+			remote:    "203.0.113.9:5555",
+			forwarded: "10.0.0.99",
+			expected:  "203.0.113.9",
 		},
 		{
 			name:     "falls back to remote host",
@@ -178,9 +207,147 @@ func TestClientKeyFromRequest(t *testing.T) {
 				req.Header.Set("X-Forwarded-For", testCase.forwarded)
 			}
 
-			if got := clientKeyFromRequest(req); got != testCase.expected {
+			interceptor := &rateLimitInterceptor{trusted: loadTrustedProxies()}
+			if got := interceptor.clientKey(req); got != testCase.expected {
 				t.Fatalf("expected %q, got %q", testCase.expected, got)
 			}
 		})
+	}
+}
+
+// A rate limit an attacker can opt out of is not a rate limit.
+//
+// X-Forwarded-For was read and believed with no check on who sent it. Because
+// the header picks the bucket, sending a different value each time bought a
+// fresh allowance each time: measured against the code before this fix, one
+// address got 30 requests through a limit of 3, and only because the test
+// stopped at 50 — the real bound is however long the attacker keeps going.
+func TestSpoofedForwardedForCannotBuyAFreshBucket(t *testing.T) {
+	t.Parallel()
+
+	const limit = 3
+	interceptor := NewRateLimitInterceptor(limit, time.Minute)
+	handler := interceptor.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	allowed := 0
+	for i := range 50 {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/tasks", nil)
+		// One attacker, one address, a new forged client on every request.
+		req.RemoteAddr = "203.0.113.9:5555"
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.0.%d", i))
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code == http.StatusOK {
+			allowed++
+		}
+	}
+
+	if allowed > limit {
+		t.Fatalf("%d of 50 requests were allowed against a limit of %d: varying X-Forwarded-For still buys a fresh bucket", allowed, limit)
+	}
+}
+
+// The fix must not break the deployment shape it exists to support: behind a
+// load balancer, two real clients must still get their own allowances.
+func TestClientsBehindATrustedProxyKeepSeparateBuckets(t *testing.T) {
+	t.Parallel()
+
+	const limit = 2
+	interceptor := NewRateLimitInterceptor(limit, time.Minute)
+	handler := interceptor.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	call := func(client string) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/tasks", nil)
+		req.RemoteAddr = "10.0.0.1:443" // the load balancer
+		req.Header.Set("X-Forwarded-For", client)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		return recorder.Code
+	}
+
+	// One client exhausts its own allowance.
+	for range limit {
+		if code := call("198.51.100.20"); code != http.StatusOK {
+			t.Fatalf("a client was refused inside its own limit: %d", code)
+		}
+	}
+	if code := call("198.51.100.20"); code != http.StatusTooManyRequests {
+		t.Fatalf("the limit did not apply to a client behind the proxy: %d", code)
+	}
+
+	// A different client is unaffected: they do not share a bucket just
+	// because they share a load balancer.
+	if code := call("198.51.100.77"); code != http.StatusOK {
+		t.Fatalf("a second client was refused because the first exhausted its limit: %d", code)
+	}
+}
+
+// A multi-hop proxy chain has to be described, because it cannot be guessed.
+//
+// The default deliberately skips nothing while walking the header: on an
+// internal deployment every real client is on RFC1918, so treating private
+// space as infrastructure would walk straight past the clients and charge them
+// all to the load balancer — one shared allowance for the whole company. An
+// operator who genuinely has two proxies names them.
+func TestAConfiguredProxyChainIsWalkedPast(t *testing.T) {
+	t.Setenv("METIS_TRUSTED_PROXIES", "10.0.0.0/8")
+
+	cases := []struct {
+		name      string
+		remote    string
+		forwarded string
+		expected  string
+	}{
+		{
+			name:      "walks past our own proxies to the client",
+			remote:    "10.0.0.1:1234",
+			forwarded: "203.0.113.10, 198.51.100.20, 10.0.0.7",
+			expected:  "198.51.100.20",
+		},
+		{
+			name:      "falls back to the peer when every hop is our own",
+			remote:    "10.0.0.1:1234",
+			forwarded: "10.0.0.7, 10.0.0.8",
+			expected:  "10.0.0.1",
+		},
+		{
+			// Outside the configured range the header is not believed at all.
+			name:      "ignores the header from a peer outside the configured range",
+			remote:    "192.168.1.5:1234",
+			forwarded: "198.51.100.20",
+			expected:  "192.168.1.5",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			req.RemoteAddr = testCase.remote
+			req.Header.Set("X-Forwarded-For", testCase.forwarded)
+
+			interceptor := &rateLimitInterceptor{trusted: loadTrustedProxies()}
+			if got := interceptor.clientKey(req); got != testCase.expected {
+				t.Fatalf("expected %q, got %q", testCase.expected, got)
+			}
+		})
+	}
+}
+
+// "none" is for a server exposed directly, where no proxy should ever be
+// believed and the header is only ever a client's claim about itself.
+func TestTrustingNoProxyIgnoresTheHeaderEntirely(t *testing.T) {
+	t.Setenv("METIS_TRUSTED_PROXIES", "none")
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "198.51.100.20")
+
+	interceptor := &rateLimitInterceptor{trusted: loadTrustedProxies()}
+	if got := interceptor.clientKey(req); got != "10.0.0.1" {
+		t.Fatalf("expected the peer %q, got %q: the header was believed with trust disabled", "10.0.0.1", got)
 	}
 }
