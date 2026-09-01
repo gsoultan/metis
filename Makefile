@@ -88,9 +88,21 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 race: ## Run the full Go test suite under the race detector
 	go test -race $(GO_TEST_FLAGS) $(GO_PKGS)
 
+# The packages that exercise product paths through the real interceptor chain
+# and therefore mean something under the strict scope.
+#
+# Deliberately a list rather than ./... — most of the suite calls services
+# directly with a bare t.Context(), which carries neither a tenant nor a system
+# identity. Production never does: a request arrives through the auth
+# interceptor and the tenant resolver. So ./... under this flag reports ~130
+# failures that say nothing about production, and a red run nobody can act on
+# is a run people learn to ignore.
+STRICT_SCOPE_PKGS = ./tests/strictscope/... ./tests/slo/... ./tests/user/... \
+                    ./tests/setup/... ./tests/outage/... ./tests/replicas/... ./tests/auth/...
+
 .PHONY: strict-scope
-strict-scope: ## Run the strict-tenant-scope suite with the flag on, as production would set it
-	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 ./tests/strictscope/...
+strict-scope: ## Run the strict-tenant-scope suites with the flag on, as production would set it
+	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 $(STRICT_SCOPE_PKGS)
 
 .PHONY: lint
 lint: ## Run golangci-lint
