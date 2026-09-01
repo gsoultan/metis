@@ -60,6 +60,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- **Service tasks could reach internal addresses through a hostname.** The
+  egress guard checked IP ranges, but only when a URL literally contained an IP:
+  for a hostname `net.ParseIP` returned nil and the checks were skipped
+  entirely. A process definition — untrusted input — naming a host whose address
+  record pointed at `169.254.169.254` reached the cloud metadata endpoint, and
+  one pointing at `127.0.0.1` reached anything bound to loopback. Confirmed
+  against the previous code by reading the body of a loopback-only server
+  through a public hostname.
+
+  The check now runs on the resolved address immediately before connect, which
+  also closes DNS rebinding: there is no second lookup between the check and the
+  connection. `100.64.0.0/10` is refused as well — Go's `IsPrivate` does not
+  cover it, and several Kubernetes CNIs put internal service networks there.
+
+  A host named in `METIS_HTTP_ALLOWED_HOSTS` still reaches its private address:
+  that is what the setting is for.
+
+
 - **The HTTP rate limiter could be bypassed by setting a header.** The limiter
   keyed its buckets on `X-Forwarded-For` and believed it unconditionally. That
   header is set by the client, so sending a different value on every request

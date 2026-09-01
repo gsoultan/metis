@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
@@ -99,14 +100,29 @@ func New(timeout time.Duration) *http.Client {
 		timeout = Timeout()
 	}
 
-	dialer := &net.Dialer{Timeout: defaultDialTimeout, KeepAlive: 30 * time.Second}
+	dialer := &net.Dialer{
+		Timeout:   defaultDialTimeout,
+		KeepAlive: 30 * time.Second,
+		// ControlContext is the only place the *resolved* address is visible.
+		//
+		// Checking the URL's host does not protect anything on its own: a host
+		// is usually a name, net.ParseIP returns nil for it, and the IP checks
+		// are skipped entirely. A definition naming a host whose A record is
+		// 169.254.169.254 therefore reached the cloud metadata endpoint — and
+		// definitions are untrusted input. Verified before this existed: a
+		// request to a public hostname resolving to 127.0.0.1 read the body of
+		// a loopback-only server.
+		//
+		// This runs after resolution and immediately before connect, once per
+		// address attempted, so it also closes genuine DNS rebinding: there is
+		// no second lookup between the check and the connection.
+		ControlContext: guardedControl,
+	}
 
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
-		// Guarding at DialContext rather than before the request closes the
-		// DNS-rebinding hole: the address checked here is the one actually
-		// connected to, so a hostname that resolves to a public IP on the first
-		// lookup and a private one on the second is still blocked.
+		// The name is still checked here, because a name can be refused for
+		// reasons an address cannot — an allowlist, or metadata.google.internal.
 		DialContext:           guardedDialContext(dialer),
 		MaxIdleConns:          defaultMaxIdleConns,
 		IdleConnTimeout:       defaultIdleConnTimeo,
@@ -136,13 +152,52 @@ func guardedDialContext(dialer *net.Dialer) func(ctx context.Context, network, a
 		if err := checkHost(host); err != nil {
 			return nil, err
 		}
-		if ip := net.ParseIP(host); ip != nil {
-			if err := checkIP(ip); err != nil {
-				return nil, err
-			}
+		// An operator naming a host in the allowlist has decided it may be
+		// reached even though it is private — that is usually the entire point
+		// of the setting, since the alternative is no internal integrations at
+		// all. The address check below cannot see the name that was allowed, so
+		// the decision is carried to it.
+		if hostIsExplicitlyAllowed(host) {
+			ctx = context.WithValue(ctx, allowedHostKey{}, struct{}{})
 		}
 		return dialer.DialContext(ctx, network, addr)
 	}
+}
+
+// allowedHostKey marks a dial whose hostname the operator allowlisted.
+type allowedHostKey struct{}
+
+// guardedControl refuses a connection to an address the egress policy blocks.
+//
+// It is given the concrete address the kernel is about to connect to, which is
+// what makes it worth having: every earlier check sees a name, and a name says
+// nothing about where it points.
+func guardedControl(ctx context.Context, _, address string, _ syscall.RawConn) error {
+	if ctx.Value(allowedHostKey{}) != nil {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("%w: could not read the resolved address %q", ErrBlockedAddress, address)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Unreachable in practice — resolution has already happened — so
+		// refusing is right: an address this cannot parse is one it cannot
+		// vouch for.
+		return fmt.Errorf("%w: could not parse the resolved address %q", ErrBlockedAddress, host)
+	}
+	return checkIP(ip)
+}
+
+// hostIsExplicitlyAllowed reports whether the operator named this host.
+func hostIsExplicitlyAllowed(host string) bool {
+	allow := allowedHosts()
+	if allow == nil {
+		return false
+	}
+	_, ok := allow[strings.ToLower(strings.TrimSuffix(host, "."))]
+	return ok
 }
 
 // CheckURL validates a destination URL against egress policy before a request
@@ -204,6 +259,19 @@ func checkIP(ip net.IP) error {
 		return fmt.Errorf("%w: private address %s", ErrBlockedAddress, ip)
 	case ip.IsUnspecified():
 		return fmt.Errorf("%w: unspecified address %s", ErrBlockedAddress, ip)
+	case carrierGradeNAT.Contains(ip):
+		// net.IP.IsPrivate covers the RFC1918 ranges and fc00::/7, but not
+		// this one. It is not exotic: several Kubernetes CNIs and cloud
+		// providers put internal service networks in 100.64/10, so leaving it
+		// out means the ranges that matter most on exactly the platforms this
+		// ships to are the ranges left open.
+		return fmt.Errorf("%w: carrier-grade NAT address %s", ErrBlockedAddress, ip)
 	}
 	return nil
+}
+
+// carrierGradeNAT is RFC 6598 100.64.0.0/10.
+var carrierGradeNAT = &net.IPNet{
+	IP:   net.IPv4(100, 64, 0, 0),
+	Mask: net.CIDRMask(10, 32),
 }
