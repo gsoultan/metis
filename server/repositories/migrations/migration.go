@@ -178,6 +178,28 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 9,
+			Name:    "SSE events reach browsers on other replicas",
+			// The SSE client registry holds open response writers, so it is
+			// necessarily per-process. That meant a browser connected to
+			// replica A never saw anything that happened on replica B: its
+			// lists stopped updating, silently, with no error anywhere. This
+			// table is the bus that carries an event between replicas.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "broadcast_events")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasTable(model) {
+					return nil
+				}
+				if err := db.AutoMigrate(model); err != nil {
+					return fmt.Errorf("create broadcast_events: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 

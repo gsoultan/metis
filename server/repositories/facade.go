@@ -5,6 +5,10 @@ import "github.com/gsoultan/metis/server/repositories/contracts"
 // Repository defines the composite repository interface.
 type Repository interface {
 	Audit() contracts.AuditRepository
+
+	// Broadcast is the SSE fan-out bus: it carries an event produced on one
+	// replica to browsers connected to another.
+	Broadcast() contracts.BroadcastRepository
 	Connector() contracts.ConnectorRepository
 	ConnectorInstance() contracts.ConnectorInstanceRepository
 	Decision() contracts.DecisionRepository

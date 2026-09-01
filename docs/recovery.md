@@ -82,7 +82,7 @@ What does not, and what each one costs:
 | Component | With two replicas |
 | :-- | :-- |
 | ~~Idempotency interceptor~~ | **Fixed.** Records live in `idempotency_records`, claimed with a single conditional insert, so exactly one replica executes and the others replay its answer. Proven across SQLite, PostgreSQL and MySQL by `tests/replicas`. |
-| SSE event delivery | Per-process client registry. A browser connected to replica A never sees events produced on replica B, so the UI silently stops updating. |
+| ~~SSE event delivery~~ | **Fixed.** The client registry is still per-process — it holds open response writers — but events now go onto a shared `broadcast_events` bus that every replica polls, so a browser sees events produced anywhere. A replica delivers its own events directly and skips them on the bus, and starts from the current end rather than replaying history to browsers that were not there for it. Proven across SQLite, PostgreSQL and MySQL by `tests/replicas`. |
 | HTTP rate limiting | Per-process windows, so the effective limit is N × the configured one. |
 | Connector rate limits and circuit breakers | Per-process, so a partner's quota is exceeded N-fold and breakers trip independently. |
 | ~~AMQP bridge~~ | **Not a problem, on inspection.** Two replicas consuming one queue are competing consumers — each message is delivered to exactly one — and the external-task bridge polls `FetchAndLock`, which takes `FOR UPDATE`. The per-process registry correctly answers "is this bridge running *here*". The cost is duplicated polling, not duplicated work. |
@@ -94,11 +94,22 @@ It is **not wired in by default**: the shipped `DistributedLocker` is `NoOpLocke
 Object, because job claiming does not need it and it would add a round trip per job to a
 hot path.
 
-The remaining four are **degradations, not corruption**: a limit applied twice, an event a
-browser misses, a consumer started twice. The one that could produce a duplicate business
-action — the idempotency cache — is closed. That changes the risk of running two replicas
-from "may charge a card twice" to "may exceed a partner's quota and will not push live
-updates to every browser", which is a different conversation.
+The remaining two are **degradations, not corruption**: a limit applied twice, a breaker
+tripped independently. The one that could produce a duplicate business action — the
+idempotency cache — is closed, and the one that silently broke the UI — SSE delivery — is
+closed. That changes the risk of running two replicas from "may charge a card twice" to
+"may exceed a partner's quota and applies rate limits N-fold", which is a different
+conversation.
+
+Two things about the SSE bus worth knowing before relying on it. It **polls** rather than
+using PostgreSQL's `LISTEN/NOTIFY`, because SQLite, MySQL and SQL Server have no
+equivalent and a portable mechanism every deployment gets is worth more here than a faster
+one only one dialect can use; a browser on another replica therefore sees an event up to
+one poll interval late. And delivery is **best-effort by design**, unchanged from
+single-replica behaviour: a client whose buffer is full is skipped rather than waited for,
+because one slow browser must not hold up every other. The UI treats an event as a hint to
+refetch rather than as data, so a dropped one costs a stale list until the next refetch —
+which is also what makes the bus safe to prune after five minutes.
 
 It does not make two replicas *supported*. Until the table above is empty, run one and
 accept the availability that implies — the RTO in §1 is the honest number for this
