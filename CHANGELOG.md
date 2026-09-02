@@ -60,6 +60,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- **A weak `ENCRYPTION_KEY` or `JWT_SECRET` is refused at startup.** Both were
+  accepted on the single condition of being non-empty, so `JWT_SECRET=secret`
+  started a server whose administrator tokens could be forged offline.
+
+  Both must now be at least 32 characters — what `openssl rand -hex 16`
+  produces, which is what the documentation has always recommended — and must
+  not be one of the placeholders published in this repository. That last check
+  matters more than the length one: the evaluation `ENCRYPTION_KEY` in
+  `docker-compose.yml` is exactly 32 characters, so it passes every length rule
+  while being known to anyone with the repository, and a compose file is the
+  easiest thing to carry from an evaluation into production.
+
+  **Upgrading with a weak key is a real possibility, and `ENCRYPTION_KEY` cannot
+  simply be rotated** — changing it does not re-encrypt anything, it makes
+  existing variables unreadable. `METIS_ALLOW_WEAK_SECRETS=true` starts the
+  server anyway, warning on every boot, so the remedy is a planned
+  re-encryption rather than an outage.
+
+
 - **Service tasks could reach internal addresses through a hostname.** The
   egress guard checked IP ranges, but only when a URL literally contained an IP:
   for a hostname `net.ParseIP` returned nil and the checks were skipped

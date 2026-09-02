@@ -482,8 +482,8 @@ jobs:
             --network host \
             --read-only \
             --tmpfs /tmp \
-            -e ENCRYPTION_KEY=0123456789abcdef0123456789abcdef \
-            -e JWT_SECRET=ci-only-not-a-real-secret \
+            -e ENCRYPTION_KEY="$(openssl rand -hex 24)" \
+            -e JWT_SECRET="$(openssl rand -base64 48)" \
             -e DATABASE_URL="host=127.0.0.1 user=metis password=metis dbname=metis port=5432 sslmode=disable" \
             metis:ci
 

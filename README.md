@@ -108,8 +108,9 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 
 | Variable | Purpose |
 | :-- | :-- |
-| `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured. Rotating it makes existing variables unreadable. |
-| `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. |
+| `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured, and refuses a weak one — see below. Rotating it makes existing variables unreadable. |
+| `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. A weak one is forgeable into an administrator's token. |
+| `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused. For an existing installation that cannot rotate `ENCRYPTION_KEY` without losing data; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. Defaults to a local SQLite file. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
 | `METIS_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
@@ -143,6 +144,21 @@ make docker-run            # http://localhost:8080
 For Kubernetes, [`deploy/kubernetes/`](deploy/kubernetes/) is a complete
 deployment rather than a skeleton — read-only root, non-root user, the right
 probe on the right endpoint, and comments saying what each field prevents.
+
+Both secrets must be at least 32 characters, and must not be one of the
+placeholders published in this repository. Generate them:
+
+```bash
+openssl rand -hex 24     # ENCRYPTION_KEY
+openssl rand -base64 48  # JWT_SECRET
+```
+
+The server refuses to start otherwise. A weak secret is not a degraded mode —
+it behaves exactly like a strong one until somebody guesses it offline, and
+then it is total: a `JWT_SECRET` becomes an administrator's token, an
+`ENCRYPTION_KEY` turns a stolen backup back into plaintext. If you are upgrading
+an installation that cannot rotate its key, `METIS_ALLOW_WEAK_SECRETS=true`
+starts it while you plan a re-encryption.
 
 `docker-compose.yml` is for evaluation: the secrets in it are literals. Generate
 real ones for anything else, and back `ENCRYPTION_KEY` up separately from the
