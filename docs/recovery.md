@@ -172,7 +172,11 @@ Order matters, and step 1 is the one that gets skipped.
    claim jobs, run them, and write results the restore then overwrites — turning a clean
    recovery into a reconciliation problem.
 2. Restore the base backup, then replay WAL to the chosen point in time.
-3. Restore `ENCRYPTION_KEY` and `config.yaml`.
+3. Restore `ENCRYPTION_KEY` and `config.yaml`. **Check the manifest first** —
+   `config_included=refused-mismatch` means the backup found a `config.yaml`
+   describing a different database and deliberately left it out. Supply the
+   right one; restoring a mismatched config installs the wrong encryption key
+   over good data, and that is not recoverable.
 4. Start the engine. Watch the log for `Database migrations complete`. A restored
    database may be at an older schema version; the runner brings it forward.
 5. Check `/readyz` returns 200.
@@ -230,3 +234,34 @@ rollback plan, and gives it one extra requirement:
 
 `schema_migrations` records which version a database reached and when, so the recovery point
 can be chosen precisely.
+
+---
+
+## 5. What a rehearsal found (2026-09-02)
+
+The full cycle was run against PostgreSQL: setup, a process instance carrying an
+encrypted variable, `backup.sh`, `DROP SCHEMA CASCADE`, `restore.sh`, restart,
+and the variable read back through the API. **It works** — the canary value
+decrypted after the restore.
+
+Two things only came out by doing it:
+
+- **`backup.sh` copied `config.yaml` from the working directory with no check.**
+  Running it from a different directory than the server bundled a months-old
+  config describing a *SQLite* database, with a *different* `encryption_key`,
+  next to a PostgreSQL dump — and the manifest said `config_included=yes`.
+  Restoring that pair would have installed the wrong key over good data. It now
+  compares the config's driver against the engine being dumped, refuses on a
+  mismatch, and records `config_included=refused-mismatch`. `METIS_CONFIG_PATH`
+  names the file explicitly.
+
+- **A version-skewed dump stops the restore with no way past it.** A dump taken
+  by a newer `pg_dump` emits settings an older server rejects (`SET
+  transaction_timeout`), `pg_restore` exits non-zero, and the script correctly
+  aborted — with no documented way to proceed once an operator had read the
+  error and judged it harmless. The errors are now printed, and
+  `METIS_RESTORE_IGNORE_ERRORS=true` continues. There is a way past; there is
+  not a silent one.
+
+Rehearse this against your own storage before relying on it. Ours proves the
+scripts and the key handling, not your volumes.

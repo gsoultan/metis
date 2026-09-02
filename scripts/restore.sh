@@ -20,6 +20,40 @@ note() { printf 'restore: %s\n' "$1"; }
 [ -d "$SOURCE" ] || die "no such backup directory: $SOURCE"
 [ -f "${SOURCE}/manifest.txt" ] || die "$SOURCE has no manifest.txt; it was not written by scripts/backup.sh"
 
+# explain_failure decides whether a non-zero pg_restore is recoverable.
+#
+# pg_restore continues past individual errors and then exits non-zero, so the
+# same status covers "one statement this server does not understand" and "half
+# the tables are missing". Aborting on both is correct by default and useless in
+# the case that actually happens: a dump taken with a newer pg_dump emits
+# settings an older server rejects — SET transaction_timeout, for instance —
+# and a recovery must not be stopped by that with no way forward.
+#
+# So the errors are printed, and there is a documented way past them. What there
+# is not is a silent one.
+explain_failure() {
+  log="$1"
+  status="$2"
+  ignored="$(sed -n 's/.*errors ignored on restore: \([0-9]*\).*/\1/p' "$log" | tail -1)"
+
+  if [ -z "$ignored" ] || [ "$ignored" = "0" ]; then
+    die "pg_restore exited ${status} without completing; see ${log}"
+  fi
+
+  note ""
+  note "pg_restore ignored ${ignored} error(s) and exited ${status}:"
+  grep -iE '^pg_restore: (error|warning)' "$log" | head -20 | sed 's/^/  /'
+  note ""
+  note "Read them. A version skew and a table that failed to restore look the same"
+  note "from here, and only one of them is safe to start an engine on."
+
+  if [ "${METIS_RESTORE_IGNORE_ERRORS:-}" = "true" ]; then
+    note "Continuing because METIS_RESTORE_IGNORE_ERRORS=true."
+    return 0
+  fi
+  die "stopping. Once you have read the errors above and decided they are safe, re-run with METIS_RESTORE_IGNORE_ERRORS=true"
+}
+
 note "restoring from:"
 sed 's/^/  /' "${SOURCE}/manifest.txt"
 
@@ -39,8 +73,24 @@ case "$engine" in
     note "restoring PostgreSQL"
     # --clean --if-exists so a retry onto a partially restored database works;
     # a restore you cannot run twice is one you cannot run under pressure.
+    #
+    # The output is captured because pg_restore exits 0 having ignored errors.
+    # That is its documented default, and it means a restore that only partly
+    # worked reports success — which a rehearsal caught here: a version-skewed
+    # dump logged "errors ignored on restore: 1" and this script said nothing.
+    # A benign skew and a missing table look identical at that point, so the
+    # operator has to be the one who decides.
+    set +e
     pg_restore --clean --if-exists --no-owner \
-      ${DATABASE_URL:+--dbname="$DATABASE_URL"} "${SOURCE}/database.dump"
+      ${DATABASE_URL:+--dbname="$DATABASE_URL"} "${SOURCE}/database.dump" 2>&1 | tee "${SOURCE}/restore.log"
+    restore_status=${PIPESTATUS[0]}
+    set -e
+    if [ "$restore_status" -ne 0 ]; then
+      # Order matters: the ignored-error case has to be examined before the
+      # exit status is treated as fatal, or the override below can never be
+      # reached and a benign version skew stops a recovery dead.
+      explain_failure "${SOURCE}/restore.log" "$restore_status"
+    fi
     ;;
   mysql)
     command -v mysql >/dev/null || die "mysql client not found"
