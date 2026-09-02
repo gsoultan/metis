@@ -3,12 +3,34 @@
 Notable changes to Metis BPM. Entries describe what changed for somebody
 running this, and name the behaviour that changed rather than the files.
 
-This project has not cut a numbered release yet; everything below is on `main`
-and ships in images tagged with `git describe`.
-
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-09-02
+
+The first tagged release, and the first published image
+(`ghcr.io/gsoultan/metis:0.1.0`).
+
+**0.1.0 rather than 1.0.0, deliberately.** A single engine replica is the
+supported topology — HTTP rate limiting and connector rate limits/circuit
+breakers still hold per-process state, so with N replicas each of those limits
+applies N times over ([`docs/recovery.md` §2.1](docs/recovery.md)). The strict
+tenant scope, which makes a query carrying no identity return nothing instead of
+everything, ships off pending a staged rollout
+([`docs/strict-tenant-scope.md`](docs/strict-tenant-scope.md)). Both are written
+down rather than discovered, and both are reasons the HTTP API and the metric
+names are not yet being promised as stable.
+
+What that number does *not* mean is untested. Read latency was measured at
+500,000 instances and 500,000 tasks across 50 tenants and stayed under 5.2ms
+against a 150ms target; the backup and restore procedure was rehearsed end to
+end, including reading an encrypted variable back after a `DROP SCHEMA CASCADE`;
+and every merge runs the suite against SQLite, PostgreSQL, MySQL and SQL Server,
+builds the production image and boots it.
+
+Everything below this heading shipped in it.
 
 ### Added
 
