@@ -68,6 +68,11 @@ jobs:
         with:
           context: .
           push: true
+          # arm64 as well as amd64: Graviton and Ampere are ordinary Kubernetes
+          # nodes now, and every Apple Silicon developer is arm64 too. The
+          # Dockerfile cross-compiles rather than emulating, so this is close to
+          # free.
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             VERSION=${{ steps.tags.outputs.version }}
