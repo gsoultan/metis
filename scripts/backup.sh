@@ -75,9 +75,36 @@ fi
 
 # config.yaml carries the JWT secret and connection settings; recovery.md step 3
 # restores it alongside the key.
-if [ -f config.yaml ]; then
-  cp config.yaml "${TARGET}/config.yaml"
-  chmod 600 "${TARGET}/config.yaml"
+#
+# It used to be copied from the working directory with no check at all, which is
+# how a rehearsal produced a backup of a PostgreSQL database bundled with a
+# months-old config describing a SQLite one — including a different
+# encryption_key. The manifest said config_included=yes, and restoring that pair
+# would have installed the wrong key over good data: every variable unreadable,
+# and per docs/recovery.md that is not recoverable. A wrong config is worse than
+# no config, because no config is obvious and a wrong one is not.
+CONFIG_PATH="${METIS_CONFIG_PATH:-config.yaml}"
+CONFIG_STATUS=no
+
+if [ -f "$CONFIG_PATH" ]; then
+  # The one field that can be checked cheaply, and the one that catches a
+  # config belonging to an entirely different installation.
+  CONFIG_DRIVER="$(sed -n 's/^[[:space:]]*driver:[[:space:]]*//p' "$CONFIG_PATH" | head -1 | tr -d '"'"'"' ')"
+  ENGINE="${METIS_BACKUP_ENGINE:-postgres}"
+
+  if [ -n "$CONFIG_DRIVER" ] && [ "$CONFIG_DRIVER" != "$ENGINE" ]; then
+    CONFIG_STATUS="refused-mismatch"
+    note "WARNING: ${CONFIG_PATH} describes a '${CONFIG_DRIVER}' database, but this backup dumped '${ENGINE}'."
+    note "         It was NOT included. It almost certainly belongs to a different installation, and"
+    note "         restoring its encryption_key over this data would make every variable unreadable."
+    note "         Point METIS_CONFIG_PATH at the right file, or run this from the server's directory."
+  else
+    cp "$CONFIG_PATH" "${TARGET}/config.yaml"
+    chmod 600 "${TARGET}/config.yaml"
+    CONFIG_STATUS=yes
+  fi
+else
+  note "no ${CONFIG_PATH} found; the restore will need its connection settings supplied another way"
 fi
 
 # A manifest, so a restore knows what it is holding without guessing from
@@ -87,7 +114,8 @@ cat > "${TARGET}/manifest.txt" <<MANIFEST
 taken_at=${STAMP}
 engine=${METIS_BACKUP_ENGINE:-postgres}
 encryption_key_included=$([ -n "$KEY_RECIPIENT" ] && echo yes || echo no)
-config_included=$([ -f "${TARGET}/config.yaml" ] && echo yes || echo no)
+config_included=${CONFIG_STATUS}
+config_source=${CONFIG_PATH}
 MANIFEST
 
 note "written to ${TARGET}"
