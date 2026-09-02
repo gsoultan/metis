@@ -87,18 +87,14 @@ spec:
 
       containers:
         - name: metis
-          # THIS IMAGE EXISTS ONLY ONCE A v* TAG HAS BEEN PUSHED — the
-          # release workflow builds and publishes it, and nothing has been
-          # tagged yet. Until then, build it yourself and push it to your own
-          # registry:
-          #
-          #   make docker
-          #   docker tag metis:latest <your-registry>/metis:<version>
-          #   docker push <your-registry>/metis:<version>
+          # Published for linux/amd64 and linux/arm64 by the release workflow.
           #
           # Pin a digest in a real deployment. A moving tag makes a rollback
-          # ambiguous, which is the one moment it needs not to be.
-          image: ghcr.io/gsoultan/metis:latest
+          # ambiguous, which is the one moment it needs not to be:
+          #
+          #   docker pull ghcr.io/gsoultan/metis:v0.1.1
+          #   docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.1.1
+          image: ghcr.io/gsoultan/metis:v0.1.1
           imagePullPolicy: IfNotPresent
 
           ports:
