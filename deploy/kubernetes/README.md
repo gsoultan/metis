@@ -77,17 +77,16 @@ tenants: p95 between 1.9ms and 5.2ms on every endpoint, against a 150ms target.
 
 ## The image
 
-Nothing has been tagged yet, so no image is published. Build and push your own:
+`ghcr.io/gsoultan/metis:v0.1.1`, published for `linux/amd64` and `linux/arm64`
+by `.github/workflows/release.yml` on a `v*` tag.
+
+Pin a digest in a real deployment — a moving tag makes a rollback ambiguous,
+which is the one moment it needs not to be:
 
 ```bash
-make docker
-docker tag metis:latest <your-registry>/metis:<version>
-docker push <your-registry>/metis:<version>
+docker pull ghcr.io/gsoultan/metis:v0.1.1
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.1.1
 ```
-
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which publishes
-`ghcr.io/<owner>/metis`. Pin a digest in a real deployment: a moving tag makes a
-rollback ambiguous, which is the one moment it needs not to be.
 
 ## What this does not include
 

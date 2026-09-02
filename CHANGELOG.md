@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-02
+
+### Fixed
+
+- **The published image is now `linux/amd64` and `linux/arm64`.** 0.1.0 shipped
+  amd64 only, so Graviton and Ampere nodes — ordinary Kubernetes hardware — and
+  every Apple Silicon developer had nothing to pull. The Dockerfile
+  cross-compiles rather than emulating, so the second architecture costs almost
+  nothing to build, and CI now builds it on every merge rather than leaving it
+  to be discovered at tag time.
+
+- **The release workflow could not publish at all.** It asked buildx for a
+  provenance attestation, which the default `docker` driver cannot produce, so
+  0.1.0 tagged and published nothing until the driver was set up. The workflow
+  had never run before that tag: a release pipeline is not verified by existing.
+
 ## [0.1.0] - 2026-09-02
 
 The first tagged release, and the first published image
