@@ -519,3 +519,17 @@ jobs:
       # the image the manifest refers to.
       - name: Validate the Kubernetes manifest
         run: go run github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0 -strict -summary deploy/kubernetes/metis.yaml
+
+      # A rules file with a bad expression is worse than no rules file: it
+      # loads, it looks like coverage, and the alert never fires. promtool
+      # parses the PromQL rather than just the YAML.
+      - name: Validate the alerting rules
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import yaml
+          spec = yaml.safe_load(open("deploy/kubernetes/alerts.yaml"))
+          yaml.safe_dump({"groups": spec["spec"]["groups"]}, open("/tmp/rules.yaml", "w"))
+          PY
+          go install github.com/prometheus/prometheus/cmd/promtool@v0.57.0
+          "$(go env GOPATH)/bin/promtool" check rules /tmp/rules.yaml

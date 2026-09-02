@@ -1,0 +1,134 @@
+# Prometheus alerting rules for Metis.
+#
+# The metrics have existed for a while and nothing alerted on them, which means
+# every SLO in the roadmap was a number somebody could read on a dashboard if
+# they happened to look. These are the ones worth waking somebody for, and each
+# says what it means and what to do — an alert whose runbook is "ask whoever
+# wrote it" gets silenced the first time it fires at 3am.
+#
+# The thresholds are the §1 targets: p95 under 150ms for reads, under 500ms for
+# workflow actions, and a 0.1% error budget on 5xx.
+#
+#   kubectl -n metis apply -f alerts.yaml
+#
+# Assumes kube-prometheus-stack (PrometheusRule CRD). For a plain Prometheus,
+# lift the `groups:` block into your rules file.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: metis
+  labels:
+    app.kubernetes.io/name: metis
+    # kube-prometheus-stack selects on this by default; check yours.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: metis.availability
+      rules:
+        - alert: MetisDown
+          expr: up{job=~".*metis.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Metis is not being scraped
+            description: >-
+              No metrics for 2 minutes. One replica is the supported topology,
+              so this is a full outage rather than reduced capacity.
+              Check the pod: `kubectl -n metis logs deploy/metis --tail=100`.
+              If it is crash-looping on startup, the usual causes are a database
+              it cannot reach and a refused secret — both say so on the first
+              line.
+
+        - alert: MetisErrorBudgetBurning
+          # The roadmap allows 0.1% of responses to be 5xx. Measured over an
+          # hour rather than five minutes: this is a budget, and a budget that
+          # alerts on a single bad minute is a pager that gets ignored.
+          expr: >-
+            sum(rate(metis_http_requests_total{status_class="5xx"}[1h]))
+            /
+            sum(rate(metis_http_requests_total[1h]))
+            > 0.001
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Metis is over its 0.1% 5xx error budget
+            description: >-
+              {{ $value | humanizePercentage }} of responses are 5xx over the
+              last hour, against a 0.1% budget. A 5xx here is usually the engine
+              failing to advance work rather than a read failing, so check
+              incidents before latency: `GET /api/v1/incidents`.
+
+    - name: metis.latency
+      rules:
+        - alert: MetisReadLatencyOverTarget
+          # Reads are the endpoints a person waits on. 150ms is the §1 target,
+          # and a load test at 500k instances measured p95 under 5ms — so this
+          # firing means something changed in kind, not a system under load.
+          expr: >-
+            histogram_quantile(0.95,
+              sum by (le) (rate(metis_http_request_duration_seconds_bucket{method="GET"}[10m]))
+            ) > 0.15
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Read p95 is over the 150ms target
+            description: >-
+              p95 is {{ $value | humanizeDuration }}. At 500k instances this
+              measured under 5ms, so 150ms is not "busy" — look for a query
+              whose plan changed, a missing index after a migration, or a
+              database that has stopped being able to keep its working set in
+              memory.
+
+        - alert: MetisActionLatencyOverTarget
+          expr: >-
+            histogram_quantile(0.95,
+              sum by (le) (rate(metis_http_request_duration_seconds_bucket{method=~"POST|PUT|DELETE"}[10m]))
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Workflow action p95 is over the 500ms target
+            description: >-
+              p95 is {{ $value | humanizeDuration }}. Actions write, so this is
+              usually lock contention or a slow downstream inside a service
+              task rather than the API itself.
+
+    - name: metis.saturation
+      rules:
+        - alert: MetisSaturated
+          # The backpressure interceptor queues past its in-flight limit and
+          # then refuses. Sitting near the limit means the next burst is
+          # refused, which is why this warns before anything has failed.
+          expr: metis_http_requests_in_flight > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Metis is close to its in-flight request limit
+            description: >-
+              {{ $value }} requests in flight. Past the limit the backpressure
+              interceptor refuses rather than queueing without bound, so this
+              is the warning before 503s. One replica is the supported
+              topology, so the answer is usually a slow dependency rather than
+              adding replicas — see docs/recovery.md §2.1 before scaling out.
+
+        - alert: MetisNoTraffic
+          # Silence is ambiguous and worth surfacing, because the failure this
+          # catches does not produce errors: a job worker that stopped claiming
+          # looks exactly like a system with nothing to do.
+          expr: sum(rate(metis_http_requests_total[15m])) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Metis has served no requests for 15 minutes
+            description: >-
+              Expected outside working hours and suspicious inside them. This
+              exists because the alarming failures here are quiet ones — a
+              worker that stopped claiming jobs, or a tenant scope answering
+              every query with nothing, both look like an idle system.

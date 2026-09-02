@@ -43,6 +43,38 @@ state, so with N replicas each of those limits applies N times over.
 [`docs/recovery.md` §2.1](../../docs/recovery.md) has the table. Raising this is
 a decision to make deliberately, not a default to inherit.
 
+## Alerting
+
+`alerts.yaml` is a `PrometheusRule` for kube-prometheus-stack. Six rules, each
+with a description saying what it means and where to look — an alert whose
+runbook is "ask whoever wrote it" gets silenced the first time it fires at 3am.
+
+```bash
+kubectl -n metis apply -f alerts.yaml
+```
+
+Two of them are worth knowing about before they fire. **MetisNoTraffic** looks
+paranoid and is not: the alarming failures here are quiet ones — a job worker
+that stopped claiming, or a tenant scope answering every query with nothing,
+both look exactly like an idle system. And **MetisReadLatencyOverTarget** fires
+at 150ms, where a load test at 500k instances measured under 5ms; if it fires,
+something changed in kind, not a system merely under load.
+
+## Measuring before you commit
+
+`tests/loadtest` seeds a configurable volume into PostgreSQL and measures the
+same endpoints these alerts watch. Run it against hardware like yours, with
+your expected data volume, before deciding the targets are achievable:
+
+```bash
+METIS_TEST_POSTGRES_DSN='host=... user=... dbname=metis sslmode=disable' \
+METIS_LOADTEST=1 METIS_LOADTEST_INSTANCES=500000 METIS_LOADTEST_TENANTS=50 \
+go test ./tests/loadtest/ -v -timeout 40m
+```
+
+Measured on a laptop container at 500k instances and 500k tasks across 50
+tenants: p95 between 1.9ms and 5.2ms on every endpoint, against a 150ms target.
+
 ## The image
 
 Nothing has been tagged yet, so no image is published. Build and push your own:
