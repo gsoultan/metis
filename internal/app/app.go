@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
+	"github.com/gsoultan/metis/internal/pkg/secrets"
 
 	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -379,6 +380,47 @@ func (a *App) handleBuildUI(ctx context.Context) error {
 //
 // Pre-setup (no config.yaml) is allowed to start without a key: no process data
 // exists yet, and the setup flow collects the key before anything is written.
+// envAllowWeakSecrets lets an installation start with a secret that would
+// otherwise be refused.
+//
+// It exists because refusing outright can be worse than the weakness. A weak
+// ENCRYPTION_KEY has no safe remedy: rotating it does not re-encrypt anything,
+// it just makes every stored variable unreadable. So an operator who discovers
+// this on an upgrade needs a way to boot while they plan a re-encryption,
+// rather than an outage and a key they cannot change.
+const envAllowWeakSecrets = "METIS_ALLOW_WEAK_SECRETS"
+
+// requireStrongSecret refuses a secret that would not survive an offline guess.
+//
+// Both secrets were previously accepted on the sole condition of being
+// non-empty, and both fail silently when weak: a guessable JWT_SECRET is forged
+// into an administrator's token, and a guessable ENCRYPTION_KEY turns a stolen
+// backup back into plaintext. Nothing errors at the time — the system behaves
+// exactly as though the secret were strong, which is why this has to be checked
+// rather than trusted.
+func requireStrongSecret(name, value string) error {
+	err := secrets.Validate(name, value)
+	if err == nil {
+		return nil
+	}
+
+	if allowed, parseErr := strconv.ParseBool(envvar.Get(envAllowWeakSecrets)); parseErr == nil && allowed {
+		// Every boot, not once: this is a standing condition, and a warning
+		// printed the day it was set is a warning nobody who inherits the
+		// system will ever see.
+		log.Warn().Err(err).Str("setting", name).Str("override", envAllowWeakSecrets).
+			Msg("Starting with a weak secret because the override is set. This is not a safe steady state.")
+		return nil
+	}
+
+	return fmt.Errorf("%w\n\n"+
+		"Refusing to start. A weak %s is not a degraded mode — it is indistinguishable from a strong one\n"+
+		"until somebody guesses it offline, and then it is total.\n\n"+
+		"If this is an existing installation, note that ENCRYPTION_KEY cannot simply be changed: rotating it\n"+
+		"does not re-encrypt anything, it makes existing variables unreadable. To start anyway while you\n"+
+		"plan a re-encryption, set %s=true", err, name, envAllowWeakSecrets)
+}
+
 func (a *App) setupEncryption() error {
 	envKey := envvar.Get("ENCRYPTION_KEY")
 
@@ -401,6 +443,9 @@ func (a *App) setupEncryption() error {
 						"because that is what the existing data was encrypted with. " +
 						"To rotate the key, re-encrypt the data first.")
 			}
+			if err := requireStrongSecret("encryption_key in config.yaml", cfg.EncryptionKey); err != nil {
+				return err
+			}
 			if err := crypto.Configure(cfg.EncryptionKey); err != nil {
 				return fmt.Errorf("invalid encryption_key in config.yaml: %w", err)
 			}
@@ -409,6 +454,9 @@ func (a *App) setupEncryption() error {
 		}
 
 		if envKey != "" {
+			if err := requireStrongSecret("ENCRYPTION_KEY", envKey); err != nil {
+				return err
+			}
 			if err := crypto.Configure(envKey); err != nil {
 				return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
 			}
@@ -423,6 +471,12 @@ func (a *App) setupEncryption() error {
 	}
 
 	if envKey != "" {
+		// Checked here too, and this is the path that matters most: a fresh
+		// installation is the one moment the key can still be chosen freely,
+		// because nothing has been encrypted with it yet.
+		if err := requireStrongSecret("ENCRYPTION_KEY", envKey); err != nil {
+			return err
+		}
 		if err := crypto.Configure(envKey); err != nil {
 			return fmt.Errorf("invalid ENCRYPTION_KEY: %w", err)
 		}
@@ -876,12 +930,18 @@ func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Se
 //     because no real users exist yet.
 func (a *App) resolveJWTSecret() (string, error) {
 	if secret := envvar.Get("JWT_SECRET"); secret != "" {
+		if err := requireStrongSecret("JWT_SECRET", secret); err != nil {
+			return "", err
+		}
 		return secret, nil
 	}
 
 	if config.Exists(config.DefaultConfigPath) {
 		cfg, err := config.Load(config.DefaultConfigPath)
 		if err == nil && cfg.JWTSecret != "" {
+			if secretErr := requireStrongSecret("jwt_secret in config.yaml", cfg.JWTSecret); secretErr != nil {
+				return "", secretErr
+			}
 			return cfg.JWTSecret, nil
 		}
 

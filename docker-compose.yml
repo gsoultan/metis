@@ -44,6 +44,12 @@ services:
       # database, because a backup without it restores unreadable rows.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
       JWT_SECRET: ${JWT_SECRET:-evaluation-only-change-me}
+      # The two literals above are published in this repository, so they protect
+      # nothing. The server refuses them on purpose; this override is what makes
+      # the evaluation stack start anyway, and it is the reason this file is not
+      # a deployment. It warns on every boot, which is the intended noise.
+      # Export ENCRYPTION_KEY and JWT_SECRET yourself and this can go.
+      METIS_ALLOW_WEAK_SECRETS: "true"
 
       # Off by default in the product; stated here so the file documents the
       # decision rather than leaving it to a reader to wonder.
