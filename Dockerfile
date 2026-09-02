@@ -10,7 +10,10 @@
 # to build the UI to build the binary.
 
 # ---- stage 1: the UI ----------------------------------------------------
-FROM oven/bun:1-alpine AS ui
+# Pinned to the *build* platform. The output is JavaScript, which is the same
+# whatever it was bundled on, so emulating bun to produce an identical dist
+# would only cost time.
+FROM --platform=$BUILDPLATFORM oven/bun:1-alpine AS ui
 
 WORKDIR /src/ui
 # Manifests first, so a source-only change does not re-resolve the dependency
@@ -32,7 +35,11 @@ COPY ui/ ./
 RUN bun run build
 
 # ---- stage 2: the server ------------------------------------------------
-FROM golang:1.27.0-alpine AS build
+# Also the build platform, with Go cross-compiling to the target. CGO is off and
+# every driver is pure Go, so this is a real cross-compile rather than
+# emulation: an arm64 image builds at native speed instead of running the whole
+# toolchain under QEMU.
+FROM --platform=$BUILDPLATFORM golang:1.27.0-alpine AS build
 
 # git: the Go toolchain wants it for VCS stamping. ca-certificates: outbound
 # connector calls are TLS, and scratch-adjacent bases carry no roots.
@@ -50,9 +57,18 @@ COPY --from=ui /src/ui/dist ./ui/dist
 # labelled with a version that was never released is worse than one admitting it
 # does not know.
 ARG VERSION=dev
+# TARGETARCH and TARGETOS are supplied by buildx per platform. Without them this
+# stage would build for whatever the *builder* is and quietly ship an amd64
+# binary inside an arm64 image — which fails at exec time, on the user's
+# machine, with a message about a missing file.
+ARG TARGETOS
+ARG TARGETARCH
+
 # CGO off: the image runs on a distroless base with no libc to link against, and
-# every driver in use is pure Go.
+# every driver in use is pure Go. It is also what makes the cross-compile above
+# free.
 ENV CGO_ENABLED=0
+ENV GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build -trimpath \
       -ldflags "-s -w -X github.com/gsoultan/metis/internal/app.version=${VERSION}" \
       -o /out/metis ./cmd/metis

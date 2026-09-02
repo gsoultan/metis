@@ -465,11 +465,25 @@ jobs:
           # clone has no tags to describe against.
           fetch-depth: 0
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build the image
         run: |
           docker build \
             --build-arg VERSION="$(git describe --tags --always --dirty)" \
             -t metis:ci .
+
+      # The release publishes arm64 too, and until this existed that path was
+      # only exercised by tagging — which is how the first release broke, on a
+      # workflow that had never run. Built, not booted: an arm64 binary cannot
+      # be executed on an amd64 runner without emulation, and proving it
+      # compiles and assembles is what is actually at risk here.
+      - name: Build the arm64 image the release will publish
+        run: |
+          docker buildx build --platform linux/arm64 \
+            --build-arg VERSION="$(git describe --tags --always --dirty)" \
+            -o type=cacheonly .
 
       - name: Boot it and ask what it is
         run: |
