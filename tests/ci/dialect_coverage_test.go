@@ -44,6 +44,11 @@ var notGatedByADSN = map[string]string{
 	"slo": "falls back to SQLite instead of skipping",
 	// This guard.
 	"ci": "reads the workflow rather than a database",
+	// Gated twice on purpose: a DSN is not enough, METIS_LOADTEST must also be
+	// set. It seeds hundreds of thousands of rows and asserts latency, and a
+	// latency assertion on a shared runner measures the runner. Run it
+	// deliberately, against hardware you are actually asking about.
+	"loadtest": "opt-in via METIS_LOADTEST; latency on a shared CI runner would measure the runner",
 }
 
 const workflowPath = "../../.github/workflows/security_reliability_ci.yml"
