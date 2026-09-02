@@ -165,6 +165,10 @@ real ones for anything else, and back `ENCRYPTION_KEY` up separately from the
 database — a backup without it restores unreadable rows
 ([`docs/recovery.md`](docs/recovery.md)).
 
+The published image is `ghcr.io/gsoultan/metis:0.1.0`. Pin a digest for a real
+deployment — a moving tag makes a rollback ambiguous, which is the one moment it
+needs not to be.
+
 Ask a running server which build it is:
 
 ```bash
