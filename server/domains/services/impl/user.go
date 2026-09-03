@@ -153,6 +153,10 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (en
 			return entities.User{}, fmt.Errorf("invalid token: invalid user id")
 		}
 
+		if err := s.rejectIfIssuedBeforeCredentialsChanged(ctx, userID, claims); err != nil {
+			return entities.User{}, err
+		}
+
 		return s.GetUser(ctx, userID)
 	}
 
@@ -296,4 +300,47 @@ func (s *userService) AssignProject(ctx context.Context, userID, projectID uuid.
 
 func (s *userService) UnassignProject(ctx context.Context, userID, projectID uuid.UUID) error {
 	return s.repo.User().RemoveProject(ctx, userID, projectID)
+}
+
+// rejectIfIssuedBeforeCredentialsChanged refuses a token minted before this
+// account's password last changed.
+//
+// A signature check alone says the token was issued by us, not that it should
+// still be honoured. Without this, changing a password stopped the old password
+// working and left every token created with it valid for the rest of its
+// 24-hour life — so somebody changing their password *because they believe they
+// are compromised* achieved nothing against the attacker already holding a
+// session. That is the one thing they were trying to do.
+//
+// Reads the cutoff from the database rather than trusting a claim, because a
+// claim is exactly what an attacker holding a token already controls the
+// contents of.
+func (s *userService) rejectIfIssuedBeforeCredentialsChanged(ctx context.Context, userID uuid.UUID, claims jwt.MapClaims) error {
+	mu, _, err := s.repo.User().GetWithPasswordByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("invalid token: no such user")
+	}
+	if mu.TokensValidFrom == nil {
+		// An account whose password has not changed since the column was
+		// added. Nothing to compare against, and filling it in on upgrade
+		// would have signed everybody out.
+		return nil
+	}
+
+	issued, err := claims.GetIssuedAt()
+	if err != nil || issued == nil {
+		// Every token this service mints carries iat. One that does not is
+		// either older than this field or not ours to reason about, and an
+		// account that has had a credential change is not the place to be
+		// generous.
+		return fmt.Errorf("invalid token: no issued-at to check against the credential change")
+	}
+
+	// Strictly before: a token minted in the same second as the change is the
+	// one the user is about to be handed, and refusing it would sign them out
+	// of the session they just re-authenticated.
+	if issued.Unix() < mu.TokensValidFrom.Unix() {
+		return fmt.Errorf("invalid token: issued before the password was changed")
+	}
+	return nil
 }

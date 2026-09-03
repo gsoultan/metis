@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
@@ -124,5 +125,104 @@ func TestLocalUserIDFromContext_RefusesAnOIDCPrincipal(t *testing.T) {
 func TestLocalUserIDFromContext_RefusesAnAnonymousCaller(t *testing.T) {
 	if _, err := serviceimpl.LocalUserIDFromContext(t.Context()); err == nil {
 		t.Fatal("an unauthenticated caller was given an identity")
+	}
+}
+
+// Changing a password has to end the sessions that used it.
+//
+// It did not. The old password stopped working while every token minted with it
+// stayed valid for the rest of its 24-hour life — so somebody changing their
+// password *because they believed they were compromised* achieved nothing
+// against the attacker already holding a session. That is the one thing they
+// were trying to do, and the change reported success while not doing it.
+func TestChangePassword_InvalidatesTokensIssuedBeforeIt(t *testing.T) {
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
+	ctx := t.Context()
+	id := seedUser(t, repo, "alice", "the-old-password")
+
+	_, stolen, err := svc.Login(ctx, "alice", "the-old-password")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if _, err := svc.ValidateToken(ctx, stolen); err != nil {
+		t.Fatalf("the token did not work before the change: %v", err)
+	}
+
+	// iat has second granularity, so the change must land in a later second
+	// than the token for the comparison to mean anything. A test that raced
+	// this would pass on a fast machine and fail on a slow one.
+	time.Sleep(1100 * time.Millisecond)
+
+	if err := svc.ChangePassword(ctx, id, "the-old-password", "a-brand-new-password"); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	if _, err := svc.ValidateToken(ctx, stolen); err == nil {
+		t.Fatal("a token issued before the password change still works: changing the password did not end the attacker's session")
+	}
+}
+
+// The reset an operator runs from the command line has to do it too — that is
+// the path used when the account holder cannot get in, which is exactly the
+// situation where somebody else can.
+func TestSetPassword_InvalidatesTokensIssuedBeforeIt(t *testing.T) {
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
+	ctx := t.Context()
+	seedUser(t, repo, "alice", "the-old-password")
+
+	_, stolen, err := svc.Login(ctx, "alice", "the-old-password")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+
+	if err := svc.SetPassword(ctx, "alice", "an-operator-chosen-password"); err != nil {
+		t.Fatalf("set password: %v", err)
+	}
+
+	if _, err := svc.ValidateToken(ctx, stolen); err == nil {
+		t.Fatal("an administrator reset left the old sessions working")
+	}
+}
+
+// The account holder is not locked out by their own change: a token issued
+// after it is honoured.
+func TestChangePassword_LeavesLaterTokensWorking(t *testing.T) {
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
+	ctx := t.Context()
+	id := seedUser(t, repo, "alice", "the-old-password")
+
+	if err := svc.ChangePassword(ctx, id, "the-old-password", "a-brand-new-password"); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	_, fresh, err := svc.Login(ctx, "alice", "a-brand-new-password")
+	if err != nil {
+		t.Fatalf("login with the new password: %v", err)
+	}
+	if _, err := svc.ValidateToken(ctx, fresh); err != nil {
+		t.Fatalf("a token issued after the change was refused: %v", err)
+	}
+}
+
+// An account that has never changed its password since the column was added
+// keeps working. Filling the cutoff in for existing rows at migration time
+// would have signed out every user on the installation at the moment of an
+// upgrade — a self-inflicted outage in the name of a fix.
+func TestTokensSurviveWhenTheAccountHasNoRecordedChange(t *testing.T) {
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
+	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
+	ctx := t.Context()
+	seedUser(t, repo, "alice", "the-old-password")
+
+	_, token, err := svc.Login(ctx, "alice", "the-old-password")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if _, err := svc.ValidateToken(ctx, token); err != nil {
+		t.Fatalf("a token was refused for an account that has never changed its password: %v", err)
 	}
 }

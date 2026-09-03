@@ -3,6 +3,7 @@ package gorms
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -82,9 +83,15 @@ func (r *gormUserRepository) Update(ctx context.Context, u models.UserModel) err
 
 // SetPasswordHash updates just the one column.
 func (r *gormUserRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	// The cutoff moves in the same statement as the hash. Two statements would
+	// leave a window where the password had changed and the old tokens were
+	// still good, which is the whole bug.
 	result := GetTx(ctx, r.db).Model(&models.UserModel{}).
 		Where(QueryByID, id).
-		Update("password_hash", passwordHash)
+		Updates(map[string]any{
+			"password_hash":     passwordHash,
+			"tokens_valid_from": time.Now().UTC(),
+		})
 	if result.Error != nil {
 		return fmt.Errorf("could not set password: %w", result.Error)
 	}

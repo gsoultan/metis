@@ -8,6 +8,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **Changing a password now ends every existing session.** It did not. The old
+  password stopped working while every token minted with it stayed valid for the
+  rest of its 24-hour life — so somebody changing their password *because they
+  believed they were compromised* achieved nothing against the attacker already
+  holding a session, and was told the change succeeded. Confirmed against the
+  previous build: a token captured before the change still returned 200
+  afterwards.
+
+  Tokens issued before an account's last credential change are refused, for
+  both the self-service change and `--reset-password`. The signed-in user is
+  signed out too and asked to sign in again — that is the point rather than a
+  side effect.
+
+  Accounts that have not changed their password since upgrading are unaffected:
+  the migration leaves the cutoff empty rather than filling it in, because
+  filling it in would sign out every user on the installation at the moment of
+  the upgrade.
+
+
 ## [0.1.1] - 2026-09-02
 
 ### Fixed
