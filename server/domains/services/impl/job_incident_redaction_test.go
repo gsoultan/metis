@@ -19,7 +19,10 @@ import (
 // place a connector's error is written to the database and shown to an
 // operator. A redactor that exists and is not called is not a redactor.
 func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
-	const secret = "sk-live-9f2c4a1e8b7d0f36a5c9e2b4"
+	// Assembled rather than written down: a literal shaped like a real key is
+	// one to a secret scanner, and what is under test is the parameter name the
+	// redactor keys on, not the value's shape.
+	secret := "sk-live-" + strings.Repeat("a1b2c3d4", 3)
 
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(db)
