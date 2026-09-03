@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **A connector's credentials could be written into an incident in plaintext.**
+  A failed connector call carries the URL it was calling, and Go's `*url.Error`
+  includes the query string — so a manifest that passes its API key as a query
+  parameter, which many APIs require and which manifests are built to template,
+  wrote that key into the incident table and the log on every connection
+  failure. Incidents are kept and shown in the UI.
+
+  The job service now redacts before storing or logging. The redactor already
+  existed, already had patterns for `api_key=` and for URL userinfo, and was
+  already applied to transport responses and setup — it was simply not called on
+  the one path where a connector error becomes durable.
+
+
 ## [0.1.3] - 2026-09-03
 
 Both entries below were found reviewing this session's own changes rather than
