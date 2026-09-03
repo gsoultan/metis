@@ -53,12 +53,30 @@ runbook is "ask whoever wrote it" gets silenced the first time it fires at 3am.
 kubectl -n metis apply -f alerts.yaml
 ```
 
+**Name your scrape job something containing `metis`.** `MetisDown` matches on
+`up{job=~".*metis.*"}`, so a job called `bpm-engine` makes it match nothing and
+stay silent forever — an alert failing through a label rather than a threshold.
+`MetisMetricsMissing` is the backstop for exactly that: it keys on a metric only
+Metis exports, so it holds whatever the job is called. If it ever fires while
+`MetisDown` is quiet, your job name is wrong and `MetisDown` is not protecting
+you.
+
 Two of them are worth knowing about before they fire. **MetisNoTraffic** looks
 paranoid and is not: the alarming failures here are quiet ones — a job worker
 that stopped claiming, or a tenant scope answering every query with nothing,
 both look exactly like an idle system. And **MetisReadLatencyOverTarget** fires
 at 150ms, where a load test at 500k instances measured under 5ms; if it fires,
 something changed in kind, not a system merely under load.
+
+These rules are unit-tested — each one is asserted to fire on data that should
+trigger it and stay quiet on data that should not, because a rule that parses is
+not a rule that fires:
+
+```bash
+make alerts-test   # needs promtool: brew install prometheus
+```
+
+CI runs the same tests on every merge.
 
 ## Measuring before you commit
 

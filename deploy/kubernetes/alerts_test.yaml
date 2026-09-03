@@ -1,0 +1,214 @@
+# Unit tests for alerts.yaml, run by `promtool test rules`.
+#
+# An alerting rule that has never fired is decoration. Syntax checking proves
+# the PromQL parses, which is not the same as proving it matches anything: a
+# label that does not exist, a ratio whose denominator is empty, or a threshold
+# on the wrong side all parse perfectly and stay silent forever.
+#
+# The series below use the label sets a real server actually exposes — checked
+# against a running instance rather than assumed:
+#
+#   metis_http_requests_total{method,route,status_class}
+#   metis_http_request_duration_seconds_bucket{method,route,status,le}
+#   metis_http_requests_in_flight
+#
+#   make alerts-test
+rule_files:
+  - /tmp/rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # --------------------------------------------------------------- availability
+  - interval: 1m
+    name: a scrape that stops firing MetisDown
+    input_series:
+      - series: 'up{job="metis", instance="10.0.0.1:9464"}'
+        values: '1 1 1 0 0 0 0'
+    alert_rule_test:
+      # Two minutes of absence is inside `for: 2m`, so nothing yet.
+      - eval_time: 4m
+        alertname: MetisDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: MetisDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: Metis is not being scraped
+              description: >-
+                No metrics for 2 minutes. One replica is the supported topology, so this is a full outage rather than reduced capacity. Check the pod: `kubectl -n metis logs deploy/metis --tail=100`. If it is crash-looping on startup, the usual causes are a database it cannot reach and a refused secret — both say so on the first line.
+
+  - interval: 1m
+    name: a healthy scrape stays quiet
+    input_series:
+      - series: 'up{job="metis", instance="10.0.0.1:9464"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MetisDown
+        exp_alerts: []
+
+  # -------------------------------------------------------------- error budget
+  - interval: 1m
+    name: 5xx over the budget fires
+    input_series:
+      # 2 of every 100 responses are 5xx — twenty times the 0.1% budget.
+      - series: 'metis_http_requests_total{status_class="5xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+2x90'
+      - series: 'metis_http_requests_total{status_class="2xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+98x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: MetisErrorBudgetBurning
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Metis is over its 0.1% 5xx error budget
+              description: >-
+                2% of responses are 5xx over the last hour, against a 0.1% budget. A 5xx here is usually the engine failing to advance work rather than a read failing, so check incidents before latency: `GET /api/v1/incidents`.
+
+  - interval: 1m
+    name: an error rate inside the budget stays quiet
+    input_series:
+      # One 5xx in 10,000 — a tenth of the budget.
+      - series: 'metis_http_requests_total{status_class="5xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+1x90'
+      - series: 'metis_http_requests_total{status_class="2xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+9999x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: MetisErrorBudgetBurning
+        exp_alerts: []
+
+  # ------------------------------------------------------------------- latency
+  - interval: 1m
+    name: slow reads fire the read-latency alert
+    input_series:
+      # Everything lands in the 1s bucket and above: p95 is far past 150ms.
+      - series: 'metis_http_request_duration_seconds_bucket{le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisReadLatencyOverTarget
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Read p95 is over the 150ms target
+              description: >-
+                p95 is 957.5ms. At 500k instances this measured under 5ms, so 150ms is not "busy" — look for a query whose plan changed, a missing index after a migration, or a database that has stopped being able to keep its working set in memory.
+
+  - interval: 1m
+    name: fast reads stay quiet
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisReadLatencyOverTarget
+        exp_alerts: []
+
+  - interval: 1m
+    name: slow writes fire the action-latency alert
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{le="0.5", method="POST", route="/api/v1/process/start", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="2.5", method="POST", route="/api/v1/process/start", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{le="+Inf", method="POST", route="/api/v1/process/start", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisActionLatencyOverTarget
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Workflow action p95 is over the 500ms target
+              description: >-
+                p95 is 2.4s. Actions write, so this is usually lock contention or a slow downstream inside a service task rather than the API itself.
+
+  # ---------------------------------------------------------------- saturation
+  - interval: 1m
+    name: sitting near the in-flight limit fires
+    input_series:
+      - series: 'metis_http_requests_in_flight'
+        values: '90+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MetisSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Metis is close to its in-flight request limit
+              description: >-
+                90 requests in flight. Past the limit the backpressure interceptor refuses rather than queueing without bound, so this is the warning before 503s. One replica is the supported topology, so the answer is usually a slow dependency rather than adding replicas — see docs/recovery.md §2.1 before scaling out.
+
+  - interval: 1m
+    name: silence fires MetisNoTraffic
+    input_series:
+      # Served requests, then nothing: the counter stops advancing.
+      - series: 'metis_http_requests_total{status_class="2xx", method="GET", route="/api/v1/tasks"}'
+        values: '0+10x10 100+0x30'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: MetisNoTraffic
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Metis has served no requests for 15 minutes
+              description: >-
+                Expected outside working hours and suspicious inside them. This exists because the alarming failures here are quiet ones — a worker that stopped claiming jobs, or a tenant scope answering every query with nothing, both look like an idle system.
+
+  # The backstop for a scrape job named something MetisDown does not match.
+  - interval: 1m
+    name: metrics disappearing fires the backstop
+    input_series:
+      - series: 'metis_http_requests_in_flight'
+        values: '0 0 0 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MetisMetricsMissing
+        exp_alerts: []
+      # The series goes stale five minutes after its last sample, and `for: 5m`
+      # runs from there — so the earliest this can fire is about twelve minutes
+      # in, not seven. Getting that wrong is how a test concludes a working rule
+      # is broken.
+      - eval_time: 14m
+        alertname: MetisMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: No Metis metrics are being collected
+              description: >-
+                Nothing has exported metis_http_requests_in_flight for 5 minutes. Either the server is gone — see MetisDown, which says which instance — or nothing is scraping it. If MetisDown is silent while this is firing, your scrape job is not named what MetisDown looks for and that rule is not protecting you.
+
+  - interval: 1m
+    name: metrics present keep the backstop quiet
+    input_series:
+      - series: 'metis_http_requests_in_flight'
+        values: '3+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MetisMetricsMissing
+        exp_alerts: []

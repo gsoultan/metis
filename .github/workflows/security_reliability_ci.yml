@@ -552,3 +552,11 @@ jobs:
           curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" \
             | tar -xz --strip-components=1 -C /tmp "prometheus-${PROM_VERSION}.linux-amd64/promtool"
           /tmp/promtool check rules /tmp/rules.yaml
+
+          # Parsing is not firing. A rule can be valid PromQL and still match
+          # nothing — a label that does not exist, a ratio over an empty
+          # denominator, a threshold on the wrong side — and stay silent
+          # forever. These unit tests assert each alert fires on the shape of
+          # data that should trigger it, and stays quiet on the shape that
+          # should not.
+          /tmp/promtool test rules deploy/kubernetes/alerts_test.yaml
