@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -261,7 +262,9 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		job.Status = entities.JobPending
 		job.NextRunAt = time.Now().Add(deferred.after)
 	} else if err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Job execution failed")
+		// Str rather than Err: the same URL-with-credentials reaches the log,
+		// and a log is as durable as the table.
+		log.Error().Str("error", redaction.RedactError(err)).Str("jobId", job.ID.String()).Msg("Job execution failed")
 		if s.tryErrorBoundaryRoute(ctx, job, err) {
 			job.Status = entities.JobCompleted
 		} else {
@@ -339,9 +342,15 @@ func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobE
 		Instance:   &entities.ProcessInstance{ID: job.Instance.ID},
 		Definition: &entities.ProcessDefinition{ID: job.Definition.ID},
 		Node:       job.Node,
-		Error:      jobErr.Error(),
-		Status:     entities.IncidentOpen,
-		CreatedAt:  time.Now(),
+		// Redacted, because this text is the one an operator actually reads: it
+		// is stored in the incident table and shown in the UI. A connector
+		// failure carries the URL it was calling, and Go's *url.Error includes
+		// the query string — so a manifest that puts an API key in a query
+		// parameter, which many APIs require, wrote that key into the database
+		// in plaintext every time the call failed to connect.
+		Error:     redaction.RedactText(jobErr.Error()),
+		Status:    entities.IncidentOpen,
+		CreatedAt: time.Now(),
 	}
 	if _, err := s.repo.Incident().Create(ctx, adapters.IncidentModelAdapter{Incident: incident}.ToModel()); err != nil {
 		log.Error().Err(err).Msg("failed to create incident")
