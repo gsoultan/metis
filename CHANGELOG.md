@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-03
+
 ### Security
 
 - **Changing a password now ends every existing session.** It did not. The old
@@ -27,6 +29,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the migration leaves the cutoff empty rather than filling it in, because
   filling it in would sign out every user on the installation at the moment of
   the upgrade.
+
+### Added
+
+- **The alerting rules are unit-tested.** `promtool check rules` proves the
+  PromQL parses, not that it matches anything — a label that does not exist or a
+  threshold on the wrong side parses perfectly and stays silent forever. Each
+  rule is now asserted to fire on data that should trigger it and stay quiet on
+  data that should not.
+
+  Writing those tests found `MetisDown` matching `up{job=~".*metis.*"}`, which
+  means an operator whose scrape job is named anything else gets an alert that
+  never fires. `MetisMetricsMissing` is the backstop: it keys on a metric only
+  Metis exports, so it holds whatever the job is called. **If it fires while
+  `MetisDown` is silent, your scrape job is misnamed and `MetisDown` is not
+  protecting you.**
 
 
 ## [0.1.1] - 2026-09-02
