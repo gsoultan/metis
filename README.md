@@ -215,8 +215,11 @@ is what you chose.
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen
-token cannot lock the owner out of their own account. Accounts that sign in
-through OIDC have no password here; theirs lives at the identity provider.
+token cannot lock the owner out of their own account. **Changing it ends every
+session, including the one making the change**, because the usual reason to
+change a password is that somebody else may have it. The same applies to
+`--reset-password`. Accounts that sign in through OIDC have no password here;
+theirs lives at the identity provider.
 
 If nobody can sign in at all, reset one from the machine running the server:
 

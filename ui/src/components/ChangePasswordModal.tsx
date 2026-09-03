@@ -3,6 +3,7 @@ import { ShieldAlert } from 'lucide-react';
 import { z } from 'zod';
 import { useForm, fieldProps, zodField } from './form/AppForm';
 import { useChangeOwnPassword } from '../hooks/useUser';
+import { useAppStore } from '../store/useAppStore';
 import { notifications } from '@mantine/notifications';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
 
@@ -24,6 +25,7 @@ interface ChangePasswordModalProps {
  */
 export function ChangePasswordModal({ opened, onClose }: ChangePasswordModalProps) {
   const changePassword = useChangeOwnPassword();
+  const clearAuth = useAppStore((state) => state.clearAuth);
 
   const form = useForm({
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
@@ -35,11 +37,16 @@ export function ChangePasswordModal({ opened, onClose }: ChangePasswordModalProp
         });
         notifications.show({
           title: 'Password changed',
-          message: 'Your next sign-in will use the new password.',
+          message: 'Every session has ended, including this one. Sign in with your new password.',
           color: 'green',
         });
         form.reset();
         onClose();
+        // The token in hand was issued before the change, so the server will
+        // refuse it from here on. Clearing it sends the user to the login
+        // screen deliberately, rather than letting them meet a wall of 401s
+        // and conclude the change broke something.
+        clearAuth();
       } catch (error) {
         // The server refuses a wrong current password without saying which
         // field was wrong, so the message is shown as-is rather than pinned to
@@ -70,8 +77,9 @@ export function ChangePasswordModal({ opened, onClose }: ChangePasswordModalProp
         <Stack gap="md">
           <Alert icon={<ShieldAlert size={16} />} color="blue" variant="light">
             <Text size="sm">
-              You will stay signed in on this device. Sessions already open elsewhere are not
-              ended by changing your password.
+              Every signed-in session ends, including this one — you will be asked to sign in
+              again. That is the point: if you are changing this because somebody else may have
+              your password, their session has to end too.
             </Text>
           </Alert>
 

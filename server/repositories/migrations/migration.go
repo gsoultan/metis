@@ -200,6 +200,32 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 10,
+			Name:    "a password change ends existing sessions",
+			// Changing a password stopped the old password working and left
+			// every token minted with it valid for the rest of its 24-hour
+			// life. Somebody changing their password because they believe they
+			// are compromised is doing it to end the attacker's access.
+			//
+			// The column is left NULL for existing rows on purpose: filling it
+			// with the migration time would sign every user on the
+			// installation out at the moment of an upgrade, which is a
+			// self-inflicted outage in the name of a fix.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "users")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasColumn(model, "tokens_valid_from") {
+					return nil
+				}
+				if err := db.Migrator().AddColumn(model, "tokens_valid_from"); err != nil {
+					return fmt.Errorf("add users.tokens_valid_from: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 
