@@ -10,6 +10,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A process definition could run JavaScript in the browser of whoever opened
+  its task.** A user task's `form_definition` is a property of a node in a
+  deployed definition, and its fields carry `logic.hiddenIf`,
+  `logic.disabledIf`, `{{ … }}` defaults and a `validation.customJs` rule. All
+  four were handed to `new Function` inside a `with` block and executed.
+
+  The victim is normally an approver — by the nature of approval, someone with
+  more authority than whoever modelled the form — and the code ran in their
+  session, where the auth store and its token are reachable. Demonstrated
+  against the previous build: a `hiddenIf` of
+  `(globalThis.x = token, false)` read the session token, and the form rendered
+  as though nothing had happened.
+
+  The server has refused authored JavaScript in gateway conditions by default
+  since FEEL landed, for exactly this reason. The browser is not a safer place
+  to run it; it is where the session is.
+
+  Form logic now goes through a bounded evaluator that can express comparisons,
+  boolean logic and arithmetic over `data` and `vars`, and cannot express a
+  function call, a property outside those two objects, an assignment, or any
+  route to a global. A rule it cannot parse is refused and treated as false —
+  the field stays visible and editable — rather than falling back to something
+  that can run it. A test fails the build if `new Function` or `eval` reappears
+  anywhere in the UI.
+
+  **A `customJs` rule that is a comparison keeps working. One that is a program
+  does not**, and the browser console says which rule was refused.
+
+
+### Security
+
 - **A connector's credentials could be written into an incident in plaintext.**
   A failed connector call carries the URL it was calling, and Go's `*url.Error`
   includes the query string — so a manifest that passes its API key as a query

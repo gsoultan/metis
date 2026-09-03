@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { type FormField } from '../components/FormBuilder';
+import { evaluateFormCondition, evaluateFormExpression } from '../domain/formExpression';
 
 type FormValues = Record<string, unknown>;
 type FormErrors = Record<string, string | null>;
 type ExternalOptions = Record<string, Array<{ value: string; label: string }>>;
 
 function evaluateExpression(expression: string, values: FormValues, variables: FormValues): boolean {
-  if (!expression) {
-    return false;
-  }
-
-  try {
-    const context = { data: values, vars: variables };
-    return Boolean(new Function('context', `with(context) { return ${expression}; }`)(context));
-  } catch (error) {
-    console.error('Error evaluating form logic:', error);
-    return false;
-  }
+  return evaluateFormCondition(expression, { data: values, vars: variables });
 }
 
 function resolveDefaultValue(field: FormField, variables: FormValues): unknown {
@@ -30,10 +21,12 @@ function resolveDefaultValue(field: FormField, variables: FormValues): unknown {
   ) {
     const expression = field.defaultValue.slice(2, -2);
     try {
-      const context = { vars: variables };
-      value = new Function('context', `with(context) { return ${expression}; }`)(context);
+      value = evaluateFormExpression(expression, { data: {}, vars: variables });
     } catch (error) {
-      console.error('Error evaluating default value expression:', error);
+      console.warn(
+        `A default-value expression was refused and the field is left empty: ${expression}`,
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 
@@ -146,14 +139,27 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
         return field.validation.message || 'Invalid format';
       }
 
+      // `customJs` is named for what it used to be, and it is no longer that.
+      // It came from a deployed definition and was executed with new Function,
+      // which is how a modeller ran code in an approver's browser. It now goes
+      // through the same bounded evaluator as the rest of the form logic, so a
+      // rule that is a comparison keeps working and a rule that is a program
+      // does not.
+      //
+      // `value` is exposed under `data.value` rather than as a bare name,
+      // because the evaluator reads from `data` and `vars` and nothing else.
       if (field.validation?.customJs && value) {
+        const scope = { data: { ...currentValues, value }, vars: variables };
         try {
-          const isValid = new Function('value', 'data', `return ${field.validation.customJs}`)(value, currentValues);
+          const isValid = evaluateFormExpression(field.validation.customJs, scope);
           if (isValid !== true) {
             return typeof isValid === 'string' ? isValid : (field.validation.message || 'Validation failed');
           }
         } catch (error) {
-          console.error('Custom validation error:', error);
+          console.warn(
+            `A custom validation rule was refused, so the field is not being checked by it: ${field.validation.customJs}`,
+            error instanceof Error ? error.message : error,
+          );
         }
       }
 
