@@ -41,6 +41,29 @@ spec:
               it cannot reach and a refused secret — both say so on the first
               line.
 
+        # MetisDown above depends on your scrape job being named something
+        # containing "metis". If it is not, that rule matches nothing and stays
+        # silent forever — which is the failure mode this whole file exists to
+        # avoid, arriving through a label rather than a threshold.
+        #
+        # This one keys on a metric only Metis exports, so it holds whatever the
+        # job is called. It is the backstop, not the primary: it cannot tell you
+        # which instance went away, which is why MetisDown is worth naming your
+        # job for.
+        - alert: MetisMetricsMissing
+          expr: absent(metis_http_requests_in_flight)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: No Metis metrics are being collected
+            description: >-
+              Nothing has exported metis_http_requests_in_flight for 5 minutes.
+              Either the server is gone — see MetisDown, which says which
+              instance — or nothing is scraping it. If MetisDown is silent while
+              this is firing, your scrape job is not named what MetisDown looks
+              for and that rule is not protecting you.
+
         - alert: MetisErrorBudgetBurning
           # The roadmap allows 0.1% of responses to be 5xx. Measured over an
           # hour rather than five minutes: this is a budget, and a budget that

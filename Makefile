@@ -130,6 +130,13 @@ docker: ## Build the production image, stamped with the current git describe
 docker-run: ## Bring up the evaluation stack (engine + PostgreSQL) on :8080
 	docker compose up --build
 
+.PHONY: alerts-test
+alerts-test: ## Unit-test the Prometheus alerting rules (needs promtool on PATH)
+	@command -v promtool >/dev/null || { echo "promtool not found: brew install prometheus, or see deploy/kubernetes/README.md"; exit 1; }
+	@python3 -c "import yaml; spec=yaml.safe_load(open('deploy/kubernetes/alerts.yaml')); yaml.safe_dump({'groups': spec['spec']['groups']}, open('/tmp/metis-rules.yaml','w'))"
+	@sed 's|/tmp/rules.yaml|/tmp/metis-rules.yaml|' deploy/kubernetes/alerts_test.yaml > /tmp/metis-alerts-test.yaml
+	promtool test rules /tmp/metis-alerts-test.yaml
+
 .PHONY: graph
 graph: ## Refresh the graphify knowledge graph
 	rtk graphify update .
