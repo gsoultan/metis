@@ -92,9 +92,9 @@ spec:
           # Pin a digest in a real deployment. A moving tag makes a rollback
           # ambiguous, which is the one moment it needs not to be:
           #
-          #   docker pull ghcr.io/gsoultan/metis:v0.1.1
-          #   docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.1.1
-          image: ghcr.io/gsoultan/metis:v0.1.1
+          #   docker pull ghcr.io/gsoultan/metis:v0.1.2
+          #   docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.1.2
+          image: ghcr.io/gsoultan/metis:v0.1.2
           imagePullPolicy: IfNotPresent
 
           ports:
