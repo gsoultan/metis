@@ -11,6 +11,8 @@ package secrets
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -84,4 +86,24 @@ func distinct(s string) int {
 		seen[r] = struct{}{}
 	}
 	return len(seen)
+}
+
+// EnvAllowWeak names the override that lets a weak secret through.
+//
+// It exists because refusing outright can be worse than the weakness: a weak
+// ENCRYPTION_KEY has no safe remedy, since rotating it does not re-encrypt
+// anything, it makes every stored variable unreadable. An operator who meets
+// this on an upgrade needs a way to boot while planning a re-encryption.
+const EnvAllowWeak = "METIS_ALLOW_WEAK_SECRETS"
+
+// Allowed reports whether a weak secret has been explicitly permitted.
+//
+// Lives here rather than at each call site so that the boot path and the setup
+// wizard cannot disagree about the policy — which they did: validation was
+// added to one and not the other, so the wizard would accept a secret the
+// server then refused to start with, and an installation could be configured
+// successfully and never restart.
+func Allowed() bool {
+	allowed, err := strconv.ParseBool(os.Getenv(EnvAllowWeak))
+	return err == nil && allowed
 }

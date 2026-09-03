@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/metis/server/repositories/contracts"
@@ -35,7 +36,33 @@ type SSEFanout struct {
 	// lastID is the high-water mark of what has been delivered here. Only the
 	// poll loop touches it, so it needs no lock.
 	lastID int64
+
+	// queue holds events waiting to go onto the bus, and dropped counts the
+	// ones that did not fit.
+	//
+	// Publishing used to start a goroutine per event. That is fine while the
+	// database keeps up and unbounded when it does not: measured, five thousand
+	// events against a slow bus produced five thousand goroutines, each holding
+	// a payload and a pending write. The conditions that make the database slow
+	// are the conditions that make the engine busy, so the failure arrives when
+	// there is least room for it.
+	queue   chan string
+	dropped atomic.Uint64
 }
+
+const (
+	// publishQueueDepth is how many events may be waiting for the bus.
+	//
+	// Deep enough to absorb a burst, shallow enough that a bus which has
+	// stopped answering costs a bounded amount of memory rather than an
+	// increasing one.
+	publishQueueDepth = 1024
+
+	// publishWorkers drain the queue. A handful, because each holds a database
+	// connection while it writes and the pool is shared with work that matters
+	// more than a UI hint.
+	publishWorkers = 4
+)
 
 const (
 	// defaultFanoutInterval is the delay a browser on another replica sees. It
@@ -66,6 +93,7 @@ func NewSSEFanout(repo contracts.BroadcastRepository, observer *SSEObserver, ori
 		repo:      repo,
 		observer:  observer,
 		origin:    origin,
+		queue:     make(chan string, publishQueueDepth),
 		interval:  defaultFanoutInterval,
 		batch:     defaultFanoutBatch,
 		retention: defaultFanoutRetention,
@@ -87,6 +115,9 @@ func (f *SSEFanout) Start(ctx context.Context) error {
 
 	f.observer.PublishVia(f.publish)
 
+	for range publishWorkers {
+		go f.publishLoop(ctx)
+	}
 	go f.loop(ctx)
 	return nil
 }
@@ -98,18 +129,54 @@ func (f *SSEFanout) Start(ctx context.Context) error {
 // dropped rather than retried, because the local clients have already been
 // served and the UI treats an event as a hint to refetch.
 func (f *SSEFanout) publish(payload string) {
-	go func() {
-		// Detached from the request context on purpose: the event outlives the
-		// HTTP request that caused it, and cancelling the request must not
-		// cancel telling the other replicas about it.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), 5*time.Second)
-		defer cancel()
+	select {
+	case f.queue <- payload:
+	default:
+		// Dropped rather than queued without limit, and counted rather than
+		// logged: the moment this happens is the moment the bus is struggling,
+		// and a line per dropped event would be a second flood on top of the
+		// first. The count is reported by the poll loop instead.
+		//
+		// Safe to drop because the UI treats an event as a hint to refetch, not
+		// as data — the same reason a slow browser is skipped rather than
+		// waited for. What is lost is promptness on other replicas.
+		f.dropped.Add(1)
+	}
+}
 
-		if err := f.repo.Publish(ctx, f.origin, payload); err != nil {
-			log.Warn().Err(err).
-				Msg("An SSE event was not put on the shared bus; browsers on other replicas will not see it until they refetch.")
+// publishLoop drains the queue onto the bus.
+func (f *SSEFanout) publishLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload := <-f.queue:
+			f.writeToBus(ctx, payload)
 		}
-	}()
+	}
+}
+
+func (f *SSEFanout) writeToBus(ctx context.Context, payload string) {
+	// Detached from the caller's cancellation on purpose: the event outlives
+	// the HTTP request that caused it, and cancelling that request must not
+	// cancel telling the other replicas about it. Still bounded by the
+	// fan-out's own lifetime through the timeout.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	if err := f.repo.Publish(writeCtx, f.origin, payload); err != nil {
+		log.Warn().Err(err).
+			Msg("An SSE event was not put on the shared bus; browsers on other replicas will not see it until they refetch.")
+	}
+}
+
+// reportDrops says how much promptness was lost, once per sweep rather than
+// once per event.
+func (f *SSEFanout) reportDrops() {
+	if dropped := f.dropped.Swap(0); dropped > 0 {
+		log.Warn().Uint64("events", dropped).Int("queue_depth", publishQueueDepth).
+			Msg("The SSE bus could not keep up, so events were dropped. Browsers on other replicas will not see those changes until they refetch; this replica's own browsers were unaffected.")
+	}
 }
 
 func (f *SSEFanout) loop(ctx context.Context) {
@@ -127,6 +194,7 @@ func (f *SSEFanout) loop(ctx context.Context) {
 			f.drain(ctx)
 		case <-pruner.C:
 			f.prune(ctx)
+			f.reportDrops()
 		}
 	}
 }

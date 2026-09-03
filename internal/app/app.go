@@ -380,16 +380,6 @@ func (a *App) handleBuildUI(ctx context.Context) error {
 //
 // Pre-setup (no config.yaml) is allowed to start without a key: no process data
 // exists yet, and the setup flow collects the key before anything is written.
-// envAllowWeakSecrets lets an installation start with a secret that would
-// otherwise be refused.
-//
-// It exists because refusing outright can be worse than the weakness. A weak
-// ENCRYPTION_KEY has no safe remedy: rotating it does not re-encrypt anything,
-// it just makes every stored variable unreadable. So an operator who discovers
-// this on an upgrade needs a way to boot while they plan a re-encryption,
-// rather than an outage and a key they cannot change.
-const envAllowWeakSecrets = "METIS_ALLOW_WEAK_SECRETS"
-
 // requireStrongSecret refuses a secret that would not survive an offline guess.
 //
 // Both secrets were previously accepted on the sole condition of being
@@ -404,11 +394,11 @@ func requireStrongSecret(name, value string) error {
 		return nil
 	}
 
-	if allowed, parseErr := strconv.ParseBool(envvar.Get(envAllowWeakSecrets)); parseErr == nil && allowed {
+	if secrets.Allowed() {
 		// Every boot, not once: this is a standing condition, and a warning
 		// printed the day it was set is a warning nobody who inherits the
 		// system will ever see.
-		log.Warn().Err(err).Str("setting", name).Str("override", envAllowWeakSecrets).
+		log.Warn().Err(err).Str("setting", name).Str("override", secrets.EnvAllowWeak).
 			Msg("Starting with a weak secret because the override is set. This is not a safe steady state.")
 		return nil
 	}
@@ -418,7 +408,7 @@ func requireStrongSecret(name, value string) error {
 		"until somebody guesses it offline, and then it is total.\n\n"+
 		"If this is an existing installation, note that ENCRYPTION_KEY cannot simply be changed: rotating it\n"+
 		"does not re-encrypt anything, it makes existing variables unreadable. To start anyway while you\n"+
-		"plan a re-encryption, set %s=true", err, name, envAllowWeakSecrets)
+		"plan a re-encryption, set %s=true", err, name, secrets.EnvAllowWeak)
 }
 
 func (a *App) setupEncryption() error {

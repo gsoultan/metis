@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/secrets"
+
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/server/repositories/gorms"
@@ -25,8 +27,6 @@ import (
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
-
-const minEncryptionKeyLength = 16
 
 // OnSetupCompleteFunc is called after setup succeeds, passing the open target database
 // so the application can hot-swap its connection without requiring a restart.
@@ -174,11 +174,29 @@ func validateSetupRequest(req contracts.SetupRequest) error {
 	if req.DatabaseDriver == "" {
 		return errors.New("database driver is required")
 	}
+	// Validated here, before saveConfiguration encrypts anything with the key.
+	//
+	// The wizard used to apply a weaker rule of its own — sixteen characters
+	// for the encryption key, nothing at all for the JWT secret beyond being
+	// present — while the boot path refused anything under thirty-two. So a
+	// wizard run could succeed, write the config, and leave a server that
+	// refused to start on the next restart: configured successfully, and
+	// permanently unable to come back. Sharing the rule is what stops the two
+	// disagreeing.
+	//
+	// This is also the right moment for it. A new installation is the one point
+	// where the key can still be chosen freely; once data has been encrypted
+	// with it, a weak key has no safe remedy.
+	if !secrets.Allowed() {
+		if err := secrets.Validate("encryption key", req.EncryptionKey); err != nil {
+			return err
+		}
+		if err := secrets.Validate("JWT secret", req.JWTSecret); err != nil {
+			return err
+		}
+	}
 	if req.EncryptionKey == "" {
 		return errors.New("encryption key is required")
-	}
-	if len(req.EncryptionKey) < minEncryptionKeyLength {
-		return fmt.Errorf("encryption key must be at least %d characters", minEncryptionKeyLength)
 	}
 	if req.JWTSecret == "" {
 		return errors.New("jwt secret is required")

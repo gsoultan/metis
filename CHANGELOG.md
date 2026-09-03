@@ -8,6 +8,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Fixed
+
+- **The setup wizard could write a configuration the server refused to start
+  with.** It applied a weaker rule than startup — sixteen characters for the
+  encryption key, and nothing at all for the JWT secret beyond being present —
+  so a wizard run could report success, save the config, and leave an
+  installation that never came back after its first restart. Configured
+  successfully and permanently unable to boot is a worse outcome than the weak
+  secret the check was meant to prevent.
+
+  Both paths now share one rule, and the wizard applies it *before* anything is
+  encrypted with the key — which is the only moment the key can still be
+  changed freely. `METIS_ALLOW_WEAK_SECRETS` is honoured in both places, so they
+  cannot disagree in the other direction either.
+
+- **Publishing an SSE event no longer starts a goroutine per event.** Fine while
+  the database keeps up and unbounded when it does not: measured, five thousand
+  events against a slow bus produced five thousand goroutines, each holding a
+  payload and a pending write. The conditions that make a database slow are the
+  conditions that make an engine busy, so it arrived when there was least room
+  for it. Events now go through a bounded queue drained by a small pool, and
+  what does not fit is dropped and counted — the same trade the local delivery
+  already makes for a slow browser, and reported in the log rather than silently.
+
+
 ## [0.1.2] - 2026-09-03
 
 ### Security
