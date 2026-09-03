@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-03
+
+Both entries below were found reviewing this session's own changes rather than
+by a report — the setup one is a defect introduced by the secret validation in
+0.1.2, and it is worth upgrading past.
+
 ### Fixed
 
 - **The setup wizard could write a configuration the server refused to start
