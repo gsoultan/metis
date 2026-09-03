@@ -50,6 +50,17 @@ spec:
         # job is called. It is the backstop, not the primary: it cannot tell you
         # which instance went away, which is why MetisDown is worth naming your
         # job for.
+        #
+        # It is also the more robust of the two, for a reason worth knowing
+        # before you rely on either. A scenario test against a live Prometheus
+        # on a heavily loaded machine produced scrape gaps longer than the
+        # five-minute lookback: `up` went absent rather than zero, so MetisDown
+        # had no data to evaluate and sat in `pending` for 28 minutes of a real
+        # outage, its timer resetting. This rule fired correctly throughout,
+        # because absence is exactly what it looks for.
+        #
+        # The conditions that starve a scrape are the conditions that take an
+        # engine down, so on the worst day the backstop is the one that pages.
         - alert: MetisMetricsMissing
           expr: absent(metis_http_requests_in_flight)
           for: 5m

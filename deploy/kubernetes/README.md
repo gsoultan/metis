@@ -68,6 +68,24 @@ both look exactly like an idle system. And **MetisReadLatencyOverTarget** fires
 at 150ms, where a load test at 500k instances measured under 5ms; if it fires,
 something changed in kind, not a system merely under load.
 
+**They have also been run for real.** A scenario test started a live Prometheus
+against a live Metis, killed the server, and watched: `MetisDown` and
+`MetisMetricsMissing` both fired, and both resolved when it came back. Two
+things came out of that which the unit tests could not show.
+
+The scrape job was deliberately configured twice, as `metis` and as
+`bpm-engine`, against the same target. `up{job=~".*metis.*"}` matched only the
+first — so an operator with only the second name gets an alert that can never
+fire. That is the reason `MetisMetricsMissing` exists.
+
+And on a heavily loaded machine the scrape gapped for longer than Prometheus's
+five-minute lookback. `up` went *absent* rather than zero, so `MetisDown` had
+nothing to evaluate and sat in `pending` through 28 minutes of a real outage,
+its timer resetting each time. `MetisMetricsMissing` fired correctly throughout.
+**The conditions that starve a scrape are the conditions that take an engine
+down**, so on the worst day the backstop is the rule that pages. Route it
+somewhere a human will see.
+
 These rules are unit-tested — each one is asserted to fire on data that should
 trigger it and stay quiet on data that should not, because a rule that parses is
 not a rule that fires:
