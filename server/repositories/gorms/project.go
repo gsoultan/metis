@@ -29,7 +29,7 @@ func (r *gormProjectRepository) Get(ctx context.Context, id uuid.UUID) (models.P
 	var m models.ProjectModel
 	db := tenantScopeOrganization(ctx, GetTx(ctx, r.db), tableProjects)
 	if err := db.First(&m, QualifiedByID(tableProjects), id).Error; err != nil {
-		return models.ProjectModel{}, fmt.Errorf("could not get project: %w", err)
+		return models.ProjectModel{}, lookupError(err, "project")
 	}
 	return m, nil
 }

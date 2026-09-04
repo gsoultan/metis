@@ -42,7 +42,7 @@ func (r *gormGroupRepository) Create(ctx context.Context, g models.GroupModel) e
 func (r *gormGroupRepository) Get(ctx context.Context, id uuid.UUID) (models.GroupModel, error) {
 	var m models.GroupModel
 	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
-		return models.GroupModel{}, fmt.Errorf("could not get group: %w", err)
+		return models.GroupModel{}, lookupError(err, "group")
 	}
 	return m, nil
 }

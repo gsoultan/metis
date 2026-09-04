@@ -3,6 +3,8 @@ package slo
 import (
 	"net/http"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // A caller's own mistake must not be reported as a server failure.
@@ -63,5 +65,53 @@ func TestWellFormedRequestsStillSucceed(t *testing.T) {
 	}
 	if status := h.call(http.MethodGet, "/api/v1/tasks", h.token, nil, nil); status != http.StatusOK {
 		t.Errorf("listing tasks returned %d, want 200", status)
+	}
+}
+
+// Something that is not there is not a server failure either.
+//
+// The sibling of the test above, and it was missing. A well-formed identifier
+// that names nothing reached GORM, came back as ErrRecordNotFound, and the HTTP
+// encoder turned anything it did not recognise into a 500 — so following a
+// bookmark to a deleted instance, or asking for a task that has been completed
+// and cleaned up, spent the 0.1% error budget and would page whoever is on
+// call for a request the server had answered correctly.
+//
+// Measured before the repositories classified it: six of these nine returned
+// 500.
+func TestAbsentThingsAreClientErrors(t *testing.T) {
+	h := newHarness(t)
+
+	// Well-formed and belonging to nothing. Not a typo — the case where a
+	// caller holds an identifier that used to be real.
+	gone := uuid.New().String()
+
+	testCases := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{"an instance that is gone", http.MethodGet, "/api/v1/instances/" + gone, nil},
+		{"a task that is gone", http.MethodGet, "/api/v1/tasks/" + gone, nil},
+		{"exporting a definition that is gone", http.MethodGet, "/api/v1/definitions/" + gone + "/export", nil},
+		{"a project that is gone", http.MethodGet, "/api/v1/projects/" + gone, nil},
+		{"a user that is gone", http.MethodGet, "/api/v1/users/" + gone, nil},
+		{"evaluating a decision that was never deployed", http.MethodPost, "/api/v1/decisions/evaluate",
+			map[string]any{"project_id": h.projID.String(), "decision_key": "no-such-decision", "variables": map[string]any{}}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			status := h.call(tc.method, tc.path, h.token, tc.body, nil)
+			if status >= 500 {
+				t.Errorf("%s %s returned %d: absent is the caller's business, and a 5xx here spends the error budget the engine is measured by",
+					tc.method, tc.path, status)
+			}
+			if status != http.StatusNotFound {
+				t.Errorf("%s %s returned %d, want 404: a caller cannot tell an empty answer from a missing one",
+					tc.method, tc.path, status)
+			}
+		})
 	}
 }

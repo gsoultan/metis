@@ -23,7 +23,7 @@ func NewOrganizationRepository(db *gorm.DB) contracts.OrganizationRepository {
 func (r *gormOrganizationRepository) Get(ctx context.Context, id uuid.UUID) (models.OrganizationModel, error) {
 	var m models.OrganizationModel
 	if err := GetTx(ctx, r.db).First(&m, QueryByID, id).Error; err != nil {
-		return models.OrganizationModel{}, fmt.Errorf("could not get organization: %w", err)
+		return models.OrganizationModel{}, lookupError(err, "organization")
 	}
 	return m, nil
 }

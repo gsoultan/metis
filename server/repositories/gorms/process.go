@@ -41,7 +41,7 @@ func (r *gormProcessRepository) Get(ctx context.Context, id uuid.UUID) (models.P
 	var m models.ProcessInstanceModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessInstances)
 	if err := db.First(&m, QualifiedByID(tableProcessInstances), id).Error; err != nil {
-		return models.ProcessInstanceModel{}, fmt.Errorf("could not get process instance: %w", err)
+		return models.ProcessInstanceModel{}, lookupError(err, "process instance")
 	}
 	return m, nil
 }
@@ -54,7 +54,7 @@ func (r *gormProcessRepository) GetForUpdate(ctx context.Context, id uuid.UUID) 
 	db := tenantScopeCondition(ctx, GetTx(ctx, r.db), tableProcessInstances)
 	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&m, QualifiedByID(tableProcessInstances), id).Error; err != nil {
-		return models.ProcessInstanceModel{}, fmt.Errorf("could not get process instance for update: %w", err)
+		return models.ProcessInstanceModel{}, lookupError(err, "process instance for update")
 	}
 	return m, nil
 }

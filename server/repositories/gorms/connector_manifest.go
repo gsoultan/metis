@@ -31,7 +31,7 @@ func NewConnectorManifestRepository(db *gorm.DB) contracts.ConnectorManifestRepo
 func (r *gormConnectorManifestRepository) GetByKey(ctx context.Context, key string) (models.ConnectorManifestModel, error) {
 	var m models.ConnectorManifestModel
 	if err := GetTx(ctx, r.db).Where(ByKey(key)).First(&m).Error; err != nil {
-		return models.ConnectorManifestModel{}, fmt.Errorf("could not get connector manifest: %w", err)
+		return models.ConnectorManifestModel{}, lookupError(err, "connector manifest")
 	}
 	return m, nil
 }

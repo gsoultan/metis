@@ -27,7 +27,7 @@ func (r *gormDefinitionRepository) Get(ctx context.Context, id uuid.UUID) (model
 	var m models.ProcessDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
 	if err := db.First(&m, QualifiedByID(tableProcessDefinitions), id).Error; err != nil {
-		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition: %w", err)
+		return models.ProcessDefinitionModel{}, lookupError(err, "definition")
 	}
 	return m, nil
 }
@@ -40,7 +40,7 @@ func (r *gormDefinitionRepository) GetByKey(ctx context.Context, key string) (mo
 	var m models.ProcessDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
 	if err := db.Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
-		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key: %w", err)
+		return models.ProcessDefinitionModel{}, lookupError(err, "definition by key")
 	}
 	return m, nil
 }
@@ -51,7 +51,7 @@ func (r *gormDefinitionRepository) GetByKeyAndVersion(ctx context.Context, key s
 	var m models.ProcessDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableProcessDefinitions)
 	if err := db.Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
-		return models.ProcessDefinitionModel{}, fmt.Errorf("could not get definition by key and version: %w", err)
+		return models.ProcessDefinitionModel{}, lookupError(err, "definition by key and version")
 	}
 	return m, nil
 }
