@@ -8,6 +8,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **UI dependencies are audited in CI.** The Go side has had `govulncheck` from
+  the beginning and the UI side had nothing. A first run reported 23 advisories,
+  thirteen of them high — and every one was fixable within its existing range,
+  which is the point: they were not unfixable, nobody had looked. Most were
+  build-time (eslint, babel, vite) rather than shipped code, which lowers the
+  severity and not the argument, since a compromised build tool ships
+  compromised assets.
+
+### Added
+
+- **A security policy** ([`SECURITY.md`](SECURITY.md)). This repository is
+  public and had no private way to report a vulnerability, so a finder's only
+  option was an issue — which is a disclosure. It also states what counts as
+  untrusted input, which deliberate decisions look alarming and are not, and
+  what has already been audited.
+
+
 ## [0.1.4] - 2026-09-04
 
 Two security fixes, both found by auditing rather than reported. The first is
