@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -112,6 +113,22 @@ func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.Process
 	}
 	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
 	return err
+}
+
+// ShareLimitsVia pools this replica's outbound rate limiting with the others.
+//
+// Without it every replica holds its own bucket, so a partner's per-minute
+// quota is spent N times over — which is the specific cost that made a single
+// replica the supported topology.
+//
+// The circuit breakers are deliberately left per-process. They open on
+// *consecutive* failures rather than on a rate, because a downstream failing
+// one call in ten is flaky rather than down, and a shared count would turn that
+// back into a rate. What per-process breakers cost is that a partner sees up to
+// FailureThreshold failures per replica before all of them back off, rather
+// than in total — real, and much smaller than spending a quota N times.
+func (s *jobService) ShareLimitsVia(counter *sharedcount.Counter) {
+	s.limits.ShareVia(counter)
 }
 
 func (s *jobService) StartWorkers(ctx context.Context) {

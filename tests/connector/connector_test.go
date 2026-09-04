@@ -106,9 +106,10 @@ type MockRepository struct {
 
 var _ repositories.Repository = (*MockRepository)(nil)
 
-func (m *MockRepository) Audit() contracts.AuditRepository         { return nil }
-func (m *MockRepository) Broadcast() contracts.BroadcastRepository { return nil }
-func (m *MockRepository) Connector() contracts.ConnectorRepository { return m.connector }
+func (m *MockRepository) Audit() contracts.AuditRepository                 { return nil }
+func (m *MockRepository) Broadcast() contracts.BroadcastRepository         { return nil }
+func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository { return nil }
+func (m *MockRepository) Connector() contracts.ConnectorRepository         { return m.connector }
 func (m *MockRepository) ConnectorInstance() contracts.ConnectorInstanceRepository {
 	return m.connectorInstance
 }

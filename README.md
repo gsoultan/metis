@@ -29,7 +29,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Audit Logging**: Comprehensive, persistent audit trail for every state change and node transition.
   - **Security**: **AES-256-GCM encryption** for process and task variables at rest. Requires `ENCRYPTION_KEY`; the server refuses to start without it once configured.
   - **Dual DB Support**: Supports **SQLite** for development and **PostgreSQL** for production.
-- **Topology**: a **single engine replica** is still the supported deployment. Job claiming, migrations, correlation, idempotency and live UI updates are safe across replicas; what remains per-process is HTTP rate limiting and connector rate limits/circuit breakers, so with N replicas each limit is applied N times over — see [`docs/recovery.md` §2.1](docs/recovery.md) for the full table and what each one costs.
+- **Topology**: job claiming, migrations, correlation, idempotency, live UI updates and rate limits are all safe across replicas. What remains per-process is circuit breakers, which open on consecutive failures by design — so a failing partner sees up to the threshold per replica before all back off, rather than in total. See [`docs/recovery.md` §2.1](docs/recovery.md) before raising the replica count.
 
 ## 🏗️ Architecture & Design Patterns
 

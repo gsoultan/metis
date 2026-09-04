@@ -39,12 +39,20 @@ metadata:
   labels:
     app.kubernetes.io/name: metis
 spec:
-  # ONE REPLICA IS THE SUPPORTED TOPOLOGY. Read docs/recovery.md §2.1 before
-  # changing this. Job claiming, migrations, correlation, idempotency and live
-  # UI updates are all safe across replicas; what is not is rate limiting and
-  # connector limits/circuit breakers, which are per-process — so with N
-  # replicas each of those limits is applied N times over. That is a
-  # degradation, not corruption, but it is a decision to make deliberately.
+  # One replica is still the default here, and raising it is now a decision you
+  # can make rather than one the product forbids. Job claiming, migrations,
+  # correlation, idempotency, live UI updates and rate limits are all safe
+  # across replicas.
+  #
+  # What is not, and what to expect if you raise this: circuit breakers open on
+  # consecutive failures per process, so a failing partner sees up to the
+  # threshold of failures per replica before all of them back off rather than
+  # in total. Read docs/recovery.md §2.1, which says what each remaining
+  # component costs.
+  #
+  # Note the strategy below if you do: RollingUpdate is the right choice once
+  # more than one replica is intended, but during a schema migration it means
+  # an old pod serving against a schema the new one is changing.
   replicas: 1
 
   # Recreate, not RollingUpdate. A rolling update briefly runs two replicas,

@@ -83,8 +83,9 @@ What does not, and what each one costs:
 | :-- | :-- |
 | ~~Idempotency interceptor~~ | **Fixed.** Records live in `idempotency_records`, claimed with a single conditional insert, so exactly one replica executes and the others replay its answer. Proven across SQLite, PostgreSQL and MySQL by `tests/replicas`. |
 | ~~SSE event delivery~~ | **Fixed.** The client registry is still per-process — it holds open response writers — but events now go onto a shared `broadcast_events` bus that every replica polls, so a browser sees events produced anywhere. A replica delivers its own events directly and skips them on the bus, and starts from the current end rather than replaying history to browsers that were not there for it. Proven across SQLite, PostgreSQL and MySQL by `tests/replicas`. |
-| HTTP rate limiting | Per-process windows, so the effective limit is N × the configured one. |
-| Connector rate limits and circuit breakers | Per-process, so a partner's quota is exceeded N-fold and breakers trip independently. |
+| ~~HTTP rate limiting~~ | **Fixed.** Replicas count locally and exchange totals every 5s through `shared_counters`, so the limit is the installation's. The trade is a bounded overshoot rather than an exact limit: between exchanges a replica does not know what the others have counted, so up to one interval's worth per replica can slip through — roughly a twelfth of a per-minute limit, against N× it permanently. Reading a shared counter on every request would put a database round trip on the hottest path in the product. |
+| ~~Connector rate limits~~ | **Fixed**, by the same exchange. A partner's per-minute quota is now the installation's rather than each process's. |
+| Circuit breakers | Still per-process, and deliberately. They open on *consecutive* failures rather than on a rate — a downstream failing one call in ten is flaky, not down — and a shared count would turn that back into a rate. The cost is that a partner sees up to `FailureThreshold` failures per replica before all of them back off, rather than in total. Real, and far smaller than spending a quota N times. |
 | ~~AMQP bridge~~ | **Not a problem, on inspection.** Two replicas consuming one queue are competing consumers — each message is delivered to exactly one — and the external-task bridge polls `FetchAndLock`, which takes `FOR UPDATE`. The per-process registry correctly answers "is this bridge running *here*". The cost is duplicated polling, not duplicated work. |
 | Timer polling | Every replica polls on the same interval with no leader election. Correct — the row claim arbitrates — but N replicas contend for the same N jobs each tick. |
 
@@ -94,8 +95,7 @@ It is **not wired in by default**: the shipped `DistributedLocker` is `NoOpLocke
 Object, because job claiming does not need it and it would add a round trip per job to a
 hot path.
 
-The remaining two are **degradations, not corruption**: a limit applied twice, a breaker
-tripped independently. The one that could produce a duplicate business action — the
+What remains is **one degradation, not corruption**: breakers tripping independently. The one that could produce a duplicate business action — the
 idempotency cache — is closed, and the one that silently broke the UI — SSE delivery — is
 closed. That changes the risk of running two replicas from "may charge a card twice" to
 "may exceed a partner's quota and applies rate limits N-fold", which is a different
