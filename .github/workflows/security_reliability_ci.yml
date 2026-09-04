@@ -62,6 +62,7 @@ jobs:
       # than being noticed months later.
       - name: Build (includes bundle budget)
         run: bun run build
+        working-directory: ui
 
       # The Go side has had govulncheck since the beginning; the UI side had
       # nothing, and a first run found 23 advisories — thirteen of them high.
@@ -170,7 +171,11 @@ jobs:
       - name: Vulnerability scan (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck $(go list ./... | grep -v '/node_modules/')
+          # Read into an array rather than splitting an unquoted expansion: a
+          # package path with a space in it would otherwise become two
+          # arguments, and govulncheck would scan neither.
+          mapfile -t packages < <(go list ./... | grep -v '/node_modules/')
+          govulncheck "${packages[@]}"
 
   dialects:
     name: Databases (postgres, mysql, sqlserver)
