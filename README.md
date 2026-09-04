@@ -268,6 +268,12 @@ make race    # race detector
 make vet     # go vet, module-wide
 ```
 
+## 🔒 Security
+
+Reporting a vulnerability, what counts as untrusted input, and which
+alarming-looking decisions are deliberate: [`SECURITY.md`](SECURITY.md). It also
+lists what has already been audited, so a reviewer does not re-tread it.
+
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

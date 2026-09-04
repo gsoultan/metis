@@ -62,6 +62,18 @@ jobs:
       # than being noticed months later.
       - name: Build (includes bundle budget)
         run: bun run build
+
+      # The Go side has had govulncheck since the beginning; the UI side had
+      # nothing, and a first run found 23 advisories — thirteen of them high.
+      # Every one was fixable within its existing range, which is the point:
+      # they were not unfixable, nobody had looked.
+      #
+      # Most were build-time (eslint, babel, vite) rather than shipped code.
+      # That lowers the severity and not the argument: a compromised build tool
+      # ships compromised assets, and the whole UI is assets.
+      - name: Dependency audit
+        working-directory: ui
+        run: bun audit
         working-directory: ui
 
       # The Go build embeds ui/dist (ui/embed.go). Publish it so the Go job
