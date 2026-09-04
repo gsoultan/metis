@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
+	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/internal/pkg/secrets"
 
 	"github.com/gsoultan/metis/internal/pkg/tracing"
@@ -273,6 +274,9 @@ func (a *App) Run() error {
 
 	a.initDBOnce()
 
+	// 0. Say what the flags are, before anything can act on them.
+	logFeatureConfiguration()
+
 	// 1. Install the at-rest encryption key before any repository can read or
 	//    write an encrypted column.
 	if err := a.setupEncryption(); err != nil {
@@ -409,6 +413,16 @@ func requireStrongSecret(name, value string) error {
 		"If this is an existing installation, note that ENCRYPTION_KEY cannot simply be changed: rotating it\n"+
 		"does not re-encrypt anything, it makes existing variables unreadable. To start anyway while you\n"+
 		"plan a re-encryption, set %s=true", err, name, secrets.EnvAllowWeak)
+}
+
+// logFeatureConfiguration reads the feature flags before anything serves, so the
+// startup log states which are not at their default.
+//
+// They would otherwise resolve on first use, and their only two uses are deep
+// in request paths — so an installation where nothing goes wrong never logs
+// what it was configured with. See features.Resolve.
+func logFeatureConfiguration() {
+	features.Resolve()
 }
 
 func (a *App) setupEncryption() error {

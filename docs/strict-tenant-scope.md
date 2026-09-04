@@ -50,6 +50,35 @@ below is for.
 > on is a run people learn to ignore, which is why the target names packages
 > rather than `./...`.
 
+## A soak has already been run
+
+Against a real server on PostgreSQL with the flag on, 2026-09-04. It deployed a
+definition with a timer, a gateway and a user task; started five instances; let
+the job worker fire the timers; then swept 24 read endpoints and nine writes —
+completing a task, creating users and projects, deploying and evaluating a
+decision, fetch-and-lock, and a password change.
+
+**No denials.** Not one path reached a repository without an identity.
+
+That is evidence and not a substitute for yours: the traffic was synthetic and
+the installation was a fresh one. What it establishes is that the paths a
+product exercise touches are already carrying identity, so a soak against your
+workload is looking for the features this did not use rather than for a general
+problem.
+
+It also produced a fix worth knowing about. The flag used to resolve lazily, on
+first use — and its only two uses are deep in request paths, so an installation
+where nothing went wrong never logged what it had been configured with. Turning
+it on and seeing nothing was indistinguishable from mistyping the variable. The
+flags are now read at startup, so the log states them before anything serves:
+
+```
+INF Feature flag is not at its default enabled=true flag=strict-tenant-scope
+```
+
+**Check for that line first.** If it is absent, the flag is not on and
+everything below is measuring the old behaviour.
+
 ## The rollout
 
 **1. Turn it on in staging.**
