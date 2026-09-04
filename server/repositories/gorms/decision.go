@@ -26,7 +26,7 @@ func (r *gormDecisionRepository) Get(ctx context.Context, id uuid.UUID) (models.
 	var m models.DecisionDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
 	if err := db.First(&m, QualifiedByID(tableDecisionDefinitions), id).Error; err != nil {
-		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision: %w", err)
+		return models.DecisionDefinitionModel{}, lookupError(err, "decision")
 	}
 	return m, nil
 }
@@ -37,7 +37,7 @@ func (r *gormDecisionRepository) GetByKey(ctx context.Context, key string) (mode
 	var m models.DecisionDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
 	if err := db.Order(OrderLatestDefinition).Where(ByKey(key)).First(&m).Error; err != nil {
-		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key: %w", err)
+		return models.DecisionDefinitionModel{}, lookupError(err, "decision by key")
 	}
 	return m, nil
 }
@@ -48,7 +48,7 @@ func (r *gormDecisionRepository) GetByKeyAndVersion(ctx context.Context, key str
 	var m models.DecisionDefinitionModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableDecisionDefinitions)
 	if err := db.Where(ByKeyAndVersion(key, version)).First(&m).Error; err != nil {
-		return models.DecisionDefinitionModel{}, fmt.Errorf("could not get decision by key and version: %w", err)
+		return models.DecisionDefinitionModel{}, lookupError(err, "decision by key and version")
 	}
 	return m, nil
 }

@@ -24,7 +24,7 @@ func NewUserRepository(db *gorm.DB) contracts.UserRepository {
 func (r *gormUserRepository) Get(ctx context.Context, id uuid.UUID) (models.UserModel, error) {
 	var m models.UserModel
 	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").First(&m, QueryByID, id).Error; err != nil {
-		return models.UserModel{}, fmt.Errorf("could not get user: %w", err)
+		return models.UserModel{}, lookupError(err, "user")
 	}
 	return m, nil
 }
@@ -32,7 +32,7 @@ func (r *gormUserRepository) Get(ctx context.Context, id uuid.UUID) (models.User
 func (r *gormUserRepository) GetByUsername(ctx context.Context, username string) (models.UserModel, error) {
 	var m models.UserModel
 	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").Where(QueryByUsername, username).First(&m).Error; err != nil {
-		return models.UserModel{}, fmt.Errorf("could not get user: %w", err)
+		return models.UserModel{}, lookupError(err, "user")
 	}
 	return m, nil
 }
@@ -40,7 +40,7 @@ func (r *gormUserRepository) GetByUsername(ctx context.Context, username string)
 func (r *gormUserRepository) GetWithPasswordByUsername(ctx context.Context, username string) (models.UserModel, string, error) {
 	var m models.UserModel
 	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").Where(QueryByUsername, username).First(&m).Error; err != nil {
-		return models.UserModel{}, "", fmt.Errorf("could not get user: %w", err)
+		return models.UserModel{}, "", lookupError(err, "user")
 	}
 	return m, m.PasswordHash, nil
 }
@@ -48,7 +48,7 @@ func (r *gormUserRepository) GetWithPasswordByUsername(ctx context.Context, user
 func (r *gormUserRepository) GetWithPasswordByID(ctx context.Context, id uuid.UUID) (models.UserModel, string, error) {
 	var m models.UserModel
 	if err := GetTx(ctx, r.db).Preload("Organizations").Preload("Projects").First(&m, QueryByID, id).Error; err != nil {
-		return models.UserModel{}, "", fmt.Errorf("could not get user: %w", err)
+		return models.UserModel{}, "", lookupError(err, "user")
 	}
 	return m, m.PasswordHash, nil
 }

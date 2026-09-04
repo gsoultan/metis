@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Asking for something that is not there returned 500.** A well-formed
+  identifier naming nothing reached GORM, came back as `ErrRecordNotFound`, and
+  the HTTP encoder turns anything it does not recognise into a server error. So
+  following a bookmark to a deleted instance, or asking for a task that had been
+  completed and cleaned up, spent the roadmap's 0.1% 5xx budget and would page
+  whoever is on call for a request the server had answered correctly.
+
+  Measured: six of nine read endpoints did this. They return 404 now, and a
+  caller can tell an empty answer from a missing one.
+
+  This is the sibling of the malformed-identifier fix, which turned a caller's
+  typo from a 500 into a 400. Absent and malformed are both the caller's
+  business, and neither is the server failing.
+
+
 ## [0.2.0] - 2026-09-04
 
 A minor rather than a patch because it changes which topologies are supported:

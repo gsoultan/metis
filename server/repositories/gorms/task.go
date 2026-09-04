@@ -30,7 +30,7 @@ func (r *gormTaskRepository) Get(ctx context.Context, id uuid.UUID) (models.Task
 	var m models.TaskModel
 	db := tenantScopeDB(ctx, GetTx(ctx, r.db), tableTasks)
 	if err := db.First(&m, QualifiedByID(tableTasks), id).Error; err != nil {
-		return models.TaskModel{}, fmt.Errorf("could not get task: %w", err)
+		return models.TaskModel{}, lookupError(err, "task")
 	}
 	return m, nil
 }

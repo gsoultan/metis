@@ -34,7 +34,7 @@ func NewWebhookRepository(db *gorm.DB) contracts.WebhookRepository {
 func (r *gormWebhookRepository) GetByToken(ctx context.Context, token string) (models.WebhookModel, error) {
 	var m models.WebhookModel
 	if err := GetTx(ctx, r.db).Where("token = ?", token).First(&m).Error; err != nil {
-		return models.WebhookModel{}, fmt.Errorf("could not get webhook by token: %w", err)
+		return models.WebhookModel{}, lookupError(err, "webhook by token")
 	}
 	secret, err := crypto.Decrypt(m.Secret)
 	if err != nil {
