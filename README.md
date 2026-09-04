@@ -80,7 +80,11 @@ One command runs the backend and the UI together:
 ./scripts/dev.sh          # or: make dev
 ```
 
-- UI on **http://localhost:5273**, API on **:8080**, gRPC on **:8081**
+- UI on **http://localhost:5273**, API on **:8273**, gRPC on **:8274**
+- Deliberately not 5173/8080/8081: those are what every other project on a
+  developer's machine is already using. Production still listens on 8080 and
+  8081 — this is only what the development script asks for. Override with
+  `UI_PORT`, `API_PORT` or `GRPC_PORT`
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
@@ -90,7 +94,7 @@ One command runs the backend and the UI together:
 ./scripts/dev.sh backend    # backend only
 ./scripts/dev.sh ui         # UI only
 ./scripts/dev.sh --reset    # wipe the local database and re-run setup
-UI_PORT=3000 API_PORT=9000 ./scripts/dev.sh    # different ports
+UI_PORT=3000 API_PORT=9000 GRPC_PORT=9001 ./scripts/dev.sh   # different ports
 ```
 
 Install [air](https://github.com/air-verse/air) for backend hot reload; the

@@ -9,7 +9,7 @@
 #   ./scripts/dev.sh --reset      wipe the local SQLite database first
 #   ./scripts/dev.sh --sample     set up and fill it with worked examples
 #
-# The UI runs on :5273 and proxies /api to the backend on :8080, so
+# The UI runs on :5273 and proxies /api to the backend on :8273, so
 # development is same-origin — the app talks to the server exactly as it does
 # in production, and no CORS is involved.
 
@@ -18,14 +18,21 @@ set -Eeuo pipefail
 readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Not Vite's default 5173 — it collides with every other Vite project on the
-# machine. Override with UI_PORT for a one-off run.
+# None of these are the conventional defaults, and that is the point: a
+# developer has more than one project, and 5173, 8080 and 8081 are what every
+# other one is already using. Vite's 5173 collides with every Vite project;
+# 8080 and 8081 collide with roughly everything.
+#
+# The server still *listens* on 8080 and 8081 in production — that is what the
+# container exposes and what the Kubernetes manifest names. This is only what
+# the development script asks for, and it asks for something nobody else wants.
+# Override any of them for a one-off run.
 readonly UI_PORT="${UI_PORT:-5273}"
-readonly API_PORT="${API_PORT:-8080}"
+readonly API_PORT="${API_PORT:-8273}"
 
 # Ports this run actually bound, so shutdown only reports its own.
 STARTED_PORTS=()
-readonly GRPC_PORT="${GRPC_PORT:-8081}"
+readonly GRPC_PORT="${GRPC_PORT:-8274}"
 readonly ENV_FILE="$ROOT/.env.development"
 readonly DB_FILE="$ROOT/metis.db"
 
@@ -89,7 +96,7 @@ check_ports() {
   (( ${#held[@]} == 0 )) && return 0
 
   printf '%s\n' "${held[@]}" >&2
-  die "stop the process using it, or set API_PORT/UI_PORT to something free"
+  die "stop the process using it, or set API_PORT, GRPC_PORT or UI_PORT to something free"
 }
 
 # --- secrets ---------------------------------------------------------------
