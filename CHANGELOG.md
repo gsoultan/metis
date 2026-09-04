@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-04
+
+Two security fixes, both found by auditing rather than reported. The first is
+the most serious this project has had: **upgrade past 0.1.3 if you accept
+process definitions from anyone you would not give an approver's session to.**
+
 ### Security
 
 - **A process definition could run JavaScript in the browser of whoever opened
