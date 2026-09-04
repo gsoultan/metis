@@ -113,15 +113,15 @@ tenants: p95 between 1.9ms and 5.2ms on every endpoint, against a 150ms target.
 
 ## The image
 
-`ghcr.io/gsoultan/metis:v0.1.4`, published for `linux/amd64` and `linux/arm64`
+`ghcr.io/gsoultan/metis:v0.2.0`, published for `linux/amd64` and `linux/arm64`
 by `.github/workflows/release.yml` on a `v*` tag.
 
 Pin a digest in a real deployment — a moving tag makes a rollback ambiguous,
 which is the one moment it needs not to be:
 
 ```bash
-docker pull ghcr.io/gsoultan/metis:v0.1.4
-docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.1.4
+docker pull ghcr.io/gsoultan/metis:v0.2.0
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/gsoultan/metis:v0.2.0
 ```
 
 ## What this does not include

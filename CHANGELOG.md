@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-04
+
+A minor rather than a patch because it changes which topologies are supported:
+rate limits are now enforced across replicas, so raising the replica count is a
+decision to make rather than something the product forbids. Circuit breakers
+remain per-process, deliberately, and `docs/recovery.md` §2.1 says what that
+costs.
+
 ### Added
 
 - **Rate limits are enforced across replicas rather than per process.** Held in
