@@ -2,7 +2,7 @@
 #
 # Put something worth looking at into a development installation.
 #
-#   ./scripts/seed-sample.sh            against http://localhost:8080
+#   ./scripts/seed-sample.sh            against http://localhost:8273
 #   API_PORT=9000 ./scripts/seed-sample.sh
 #
 # Run the setup wizard if it has not been run, import the two worked examples
@@ -21,7 +21,9 @@
 set -Eeuo pipefail
 
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly API_PORT="${API_PORT:-8080}"
+# Matches scripts/dev.sh, which is the server this talks to. Not 8080: that is
+# what every other project on the machine is already using.
+readonly API_PORT="${API_PORT:-8273}"
 readonly API="http://localhost:${API_PORT}/api/v1"
 readonly EXAMPLES="$ROOT/docs/examples"
 
