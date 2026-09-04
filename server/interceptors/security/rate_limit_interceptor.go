@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
@@ -27,6 +28,16 @@ type rateLimitInterceptor struct {
 	window      time.Duration
 	now         func() time.Time
 
+	// shared carries this replica's counts to the others, so the limit is the
+	// installation's rather than each process's. Nil on a single-replica
+	// deployment and in tests, where the local window is the whole truth.
+	//
+	// It does not replace the local window: that is still what admits or
+	// refuses, on every request, without touching a database. The shared count
+	// only *lowers* the local allowance to this replica's share of what the
+	// installation has already spent.
+	shared *sharedcount.Counter
+
 	// trusted decides whether this request's X-Forwarded-For may be believed.
 	// Without it the header — which any client can set — chose the bucket, so
 	// varying it per request bought unlimited requests.
@@ -35,6 +46,12 @@ type rateLimitInterceptor struct {
 	mu           sync.Mutex
 	windows      map[string]*clientRequestWindow
 	requestCount int
+}
+
+// SharedLimiter is a rate limiter whose count can be pooled across replicas.
+type SharedLimiter interface {
+	contracts.TransportInterceptor
+	ShareVia(counter *sharedcount.Counter)
 }
 
 func NewRateLimitInterceptor(maxRequests int, window time.Duration) contracts.TransportInterceptor {
@@ -66,8 +83,34 @@ func (i *rateLimitInterceptor) Wrap(next http.Handler) http.Handler {
 	})
 }
 
+// ShareVia gives the interceptor a cross-replica counter.
+//
+// Without one the limit is per-process, which with N replicas admits N times
+// what was configured — the whole reason a single replica was the supported
+// topology.
+// ShareVia satisfies SharedLimiter.
+func (i *rateLimitInterceptor) ShareVia(counter *sharedcount.Counter) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.shared = counter
+}
+
 func (i *rateLimitInterceptor) allow(clientKey string) bool {
 	now := i.now()
+
+	// Asked before the lock, because the counter has its own and taking them in
+	// two orders in two places is how a deadlock is written.
+	//
+	// The total is a lower bound: it holds this replica's own count plus what
+	// the others had reported at the last exchange. So a limiter built on it
+	// refuses late rather than early, which is the right direction to be wrong
+	// — a legitimate client is never refused because of a count that turned out
+	// not to exist.
+	if shared := i.sharedCounter(); shared != nil {
+		if shared.Add(clientKey, now) > int64(i.maxRequests) {
+			return false
+		}
+	}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -144,4 +187,10 @@ func hostFromRemoteAddr(remoteAddr string) (string, bool) {
 	}
 
 	return remoteAddr[:lastColon], true
+}
+
+func (i *rateLimitInterceptor) sharedCounter() *sharedcount.Counter {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.shared
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/internal/pkg/secrets"
+	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 
 	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -42,6 +43,8 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors"
 	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
+	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
 	"github.com/gsoultan/metis/server/repositories"
 	gorms "github.com/gsoultan/metis/server/repositories/gorms"
@@ -630,7 +633,58 @@ func (a *App) setupService(ctx context.Context) error {
 
 	a.svc.StartWorkers(ctx)
 	a.startSSEFanout(ctx)
+	a.startSharedLimits(ctx)
 	return nil
+}
+
+// sharedHTTPLimit is the inbound rate-limit counter.
+//
+// Package-level because the counter is created in setupService, which owns the
+// repository and the context the exchange loop runs on, while the interceptor
+// that needs it is created in BuildAPIHandler — a package function that has
+// neither. setupService runs first (Run calls it before the HTTP server is
+// built), so by the time BuildAPIHandler reads this it is set.
+//
+// Nil in a test that calls BuildAPIHandler directly, which is correct: the
+// limit is then per-process, which for one process is the whole truth.
+var sharedHTTPLimit *sharedcount.Counter
+
+// sharedCountExchange is how often replicas tell each other what they have
+// counted.
+//
+// Five seconds against a per-minute limit: the overshoot this allows is roughly
+// a twelfth of the limit per replica in the worst case, which is the price of
+// not touching the database on a path that runs for every request. What it
+// replaces is N times the limit, permanently.
+const sharedCountExchange = 5 * time.Second
+
+// startSharedLimits pools the rate limits across replicas.
+//
+// Limits were held in memory, so N replicas applied each one N times over: an
+// inbound limit admitting N times what was configured, and a partner's quota
+// spent N times. That is the specific reason a single replica was the supported
+// topology.
+//
+// Counting stays local and only the totals are exchanged. A limiter that read a
+// shared counter on every request would put a database round trip on the
+// hottest path in the product, which would cost more than the limit protects.
+func (a *App) startSharedLimits(ctx context.Context) {
+	origin := replicaOrigin()
+	repo := a.repo.SharedCounter()
+
+	sharedHTTPLimit = sharedcount.New(repo, "http-rate", origin, time.Minute)
+	go sharedHTTPLimit.Run(ctx, sharedCountExchange)
+
+	connectorLimit := sharedcount.New(repo, "connector-rate", origin, time.Minute)
+	go connectorLimit.Run(ctx, sharedCountExchange)
+	if sharer, ok := a.svc.(interface {
+		ShareLimitsVia(*sharedcount.Counter)
+	}); ok {
+		sharer.ShareLimitsVia(connectorLimit)
+	}
+
+	log.Info().Str("replica", origin).Dur("exchange", sharedCountExchange).
+		Msg("Rate limits are pooled across replicas")
 }
 
 // startSSEFanout connects this replica's SSE observer to the shared bus, so a
@@ -742,7 +796,7 @@ func BuildAPIHandler(
 		"/api/v1/setup/test-connection",
 	}
 	httpHandler = f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(
-		f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute).Wrap(
+		sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
 			f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
 				f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
 					// Carries X-Organization-ID into the context. It only lets a
@@ -1015,4 +1069,24 @@ func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
 		log.Info().Str("path", redaction.RedactText(dsn)).Msg("Using SQLite database from config...")
 		return sqlite.Open(sqliteDSNWithBusyTimeout(dsn)), nil
 	}
+}
+
+// sharedRateLimit pools a limiter's count across replicas when there is a
+// counter to pool it with.
+//
+// Without this the interceptor keeps its own window and N replicas admit N
+// times the configured limit — the plumbing existing is not the same as it
+// being connected, and a limit that is quietly per-process looks exactly like
+// one that is not.
+func sharedRateLimit(limiter contracts.TransportInterceptor) contracts.TransportInterceptor {
+	if sharedHTTPLimit == nil {
+		return limiter
+	}
+	sharer, ok := limiter.(security.SharedLimiter)
+	if !ok {
+		log.Warn().Msg("The rate limiter cannot pool its count across replicas; the limit is per process.")
+		return limiter
+	}
+	sharer.ShareVia(sharedHTTPLimit)
+	return limiter
 }

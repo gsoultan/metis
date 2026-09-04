@@ -15,7 +15,10 @@ package ratelimit
 
 import (
 	"sync"
+
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 )
 
 // Settings bound the group itself, not any one limit.
@@ -47,6 +50,22 @@ type Group struct {
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
+
+	// shared carries this replica's draws to the others, so a partner's quota
+	// is the installation's rather than each process's. Nil on a single-replica
+	// deployment: the local bucket is then the whole truth.
+	//
+	// It does not replace the bucket. The bucket still shapes the rate — it is
+	// what smooths a burst — and the shared count only refuses once the
+	// installation as a whole has spent the minute's allowance.
+	shared *sharedcount.Counter
+}
+
+// ShareVia gives the group a cross-replica counter.
+func (g *Group) ShareVia(counter *sharedcount.Counter) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.shared = counter
 }
 
 type bucket struct {
@@ -83,6 +102,22 @@ func NewGroup(settings Settings) *Group {
 func (g *Group) Take(key string, perMinute float64) (allowed bool, retryAfter time.Duration) {
 	if key == "" || perMinute <= 0 {
 		return true, 0
+	}
+
+	// Asked before the group's lock, because the counter holds its own and
+	// taking two locks in two orders in two places is how a deadlock is
+	// written.
+	//
+	// A partner's quota is per minute and this counter's window is a minute, so
+	// the total is what the whole installation has spent against it. Refusing
+	// here returns the time until the window turns over rather than a token
+	// wait, because no local bucket refill will help: the allowance is gone
+	// everywhere.
+	if shared := g.sharedCounter(); shared != nil {
+		now := g.now()
+		if shared.Add(key, now) > int64(perMinute) {
+			return false, time.Until(now.Truncate(time.Minute).Add(time.Minute)) + time.Millisecond
+		}
 	}
 
 	g.mu.Lock()
@@ -142,4 +177,10 @@ func (g *Group) evictLocked(now time.Time) {
 			delete(g.buckets, key)
 		}
 	}
+}
+
+func (g *Group) sharedCounter() *sharedcount.Counter {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.shared
 }

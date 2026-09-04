@@ -8,6 +8,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- **Rate limits are enforced across replicas rather than per process.** Held in
+  memory, N replicas each admitted the whole limit, so the installation admitted
+  N times what was configured and a partner's per-minute quota was spent N times
+  over. That was the specific cost that made a single replica the supported
+  topology.
+
+  Replicas now count locally and exchange totals every five seconds through a
+  `shared_counters` table. The trade is a **bounded overshoot rather than an
+  exact limit** — between exchanges a replica does not know what the others have
+  counted, so up to one interval's worth per replica can slip through, roughly a
+  twelfth of a per-minute limit. Reading a shared counter on every request would
+  put a database round trip on the hottest path in the product, which would cost
+  more than the limit protects.
+
+  Measured across SQLite, PostgreSQL and MySQL: two replicas splitting one
+  client's traffic admit 12 requests against a limit of 10, where before they
+  admitted 20.
+
+  **Circuit breakers remain per-process, deliberately.** They open on
+  *consecutive* failures rather than on a rate — a downstream failing one call in
+  ten is flaky, not down — and sharing a count would turn that back into a rate.
+
+### Fixed
+
+- **Feature flags are read at startup**, so the log states which are not at
+  their default. They resolved lazily on first use, and their only two uses are
+  deep in request paths, so an installation where nothing went wrong never
+  logged what it had been configured with — and an operator turning on the
+  strict tenant scope could not tell success from a mistyped variable name.
+
+
 ### Security
 
 - **UI dependencies are audited in CI.** The Go side has had `govulncheck` from

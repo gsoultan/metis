@@ -6,6 +6,10 @@ import "github.com/gsoultan/metis/server/repositories/contracts"
 type Repository interface {
 	Audit() contracts.AuditRepository
 
+	// SharedCounter holds the counts that rate limits and circuit breakers
+	// enforce across replicas rather than per process.
+	SharedCounter() contracts.SharedCounterRepository
+
 	// Broadcast is the SSE fan-out bus: it carries an event produced on one
 	// replica to browsers connected to another.
 	Broadcast() contracts.BroadcastRepository

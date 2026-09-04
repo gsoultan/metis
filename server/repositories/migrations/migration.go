@@ -226,6 +226,26 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 11,
+			Name:    "rate limits and breakers are shared across replicas",
+			// They were per-process, so N replicas applied each limit N times
+			// over — a partner's quota exceeded N-fold, and N breakers each
+			// deciding on their own whether a downstream was healthy.
+			Run: func(_ context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "shared_counters")
+				if err != nil {
+					return err
+				}
+				if db.Migrator().HasTable(model) {
+					return nil
+				}
+				if err := db.AutoMigrate(model); err != nil {
+					return fmt.Errorf("create shared_counters: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 

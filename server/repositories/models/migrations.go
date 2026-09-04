@@ -33,6 +33,9 @@ func MigrationModels() []any {
 		// by the replica it happens to be connected to.
 		new(BroadcastEventModel),
 
+		// Rate limits and circuit breakers, shared across replicas.
+		new(SharedCounterModel),
+
 		// These five were declared, given repositories and used by the
 		// application, and left out of this list — so on a fresh installation
 		// their tables were never created and the first deployment, form or
