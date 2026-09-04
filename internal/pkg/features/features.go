@@ -115,6 +115,24 @@ func Enabled(f Flag) bool {
 	return resolved[f.Name]
 }
 
+// Resolve reads the flags now, so the startup log states the configuration.
+//
+// Without this the flags resolve lazily, on the first call to Enabled — and
+// there are only two, both deep in request paths: a `js:` condition being
+// evaluated, and a repository query that carries no tenant. On an installation
+// where every path carries identity and no definition uses `js:`, neither ever
+// runs, so nothing is ever logged.
+//
+// That is the wrong way round for a flag whose documented failure mode is
+// silence. An operator turning on the strict tenant scope is told to watch for
+// warnings; if none appear they cannot tell success from a mistyped variable
+// name, which is the same absence they were asked to interpret. Resolving at
+// startup makes the log say what was read, so afterwards silence means
+// something.
+func Resolve() {
+	resolveOnce.Do(resolveAll)
+}
+
 // resolveAll reads every flag from the environment and logs the ones that are
 // not at their default, so a surprising deployment can be diagnosed from its
 // startup log rather than by guessing.
