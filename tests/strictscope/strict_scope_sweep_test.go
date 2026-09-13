@@ -78,6 +78,13 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 		"/api/v1/definitions/javascript-conditions",
 		"/api/v1/decisions?project_id=" + projectID.String(),
 		"/api/v1/instances?project_id=" + projectID.String(),
+		// The filtered variants take different branches, and one of them —
+		// needs_attention — resolves its own scope before the page query does,
+		// by listing the instances holding an open incident. A branch that only
+		// runs when somebody presses a filter chip is a branch the bare path
+		// above never reaches.
+		"/api/v1/instances?status=active&project_id=" + projectID.String(),
+		"/api/v1/instances?needs_attention=true&project_id=" + projectID.String(),
 		"/api/v1/tasks",
 		"/api/v1/tasks/assignee/walker",
 		"/api/v1/connectors",
@@ -86,6 +93,12 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 		"/api/v1/notifications",
 		"/api/v1/webhooks",
 		"/api/v1/setup/status",
+		// Absent from this list until a soak found it. ExportOCEL was registered
+		// as a route and never wrapped by the protected chain, so nothing
+		// resolved a tenant for it — and the failure was a 200 carrying an empty
+		// log rather than an error, which is precisely the shape of denial no
+		// status code reveals and no operator notices.
+		"/api/v1/projects/" + projectID.String() + "/ocel",
 	}
 	if seeded.instanceID != uuid.Nil {
 		paths = append(paths,
@@ -94,6 +107,10 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 			"/api/v1/instances/"+seeded.instanceID.String()+"/path",
 			"/api/v1/instances/"+seeded.instanceID.String()+"/subprocesses",
 			"/api/v1/incidents/"+seeded.instanceID.String(),
+			// Narrowing to one process reaches the definition predicate and the
+			// grouped counts beside it.
+			"/api/v1/instances?project_id="+projectID.String()+
+				"&definition_id="+seeded.definitionID.String(),
 		)
 	}
 	if seeded.definitionID != uuid.Nil {

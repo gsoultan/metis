@@ -207,6 +207,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	processEndpoints.SendMessage = protected("SendMessage")(processEndpoints.SendMessage)
 	processEndpoints.ExecuteScript = designer("ExecuteScript")(processEndpoints.ExecuteScript)
 	processEndpoints.ListSubProcesses = protected("ListSubProcesses")(processEndpoints.ListSubProcesses)
+	// ExportOCEL was registered as a route and never wrapped, so nothing resolved
+	// a tenant for it. The transport chain still refused anonymous callers, so
+	// this was never a disclosure — but the endpoint reached the repository with
+	// no identity, and under METIS_FEATURE_STRICT_TENANT_SCOPE that is answered
+	// with nothing. The export returned 200 and an empty log: every event and
+	// object silently missing, on the endpoint whose whole purpose is to hand a
+	// project's history to a mining tool.
+	//
+	// protected rather than a role-restricted chain, to match GetAuditLogs —
+	// this is the same data at project scope rather than instance scope.
+	processEndpoints.ExportOCEL = protected("ExportOCEL")(processEndpoints.ExportOCEL)
 
 	projectEndpoints := project.MakeEndpoints(s)
 	projectEndpoints.CreateProject = adminOnly("CreateProject")(projectEndpoints.CreateProject)
