@@ -15,8 +15,20 @@ func TestDrainWaitsForWorkAlreadyStarted(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		time.Sleep(30 * time.Millisecond)
-		w.done()
+		// The order matters, and had it the other way round this test was
+		// racy against itself. done() is what releases wait(), so with
+		// close(finished) after it the drain could return, be scheduled, and
+		// read finished before this goroutine had closed it — a failure
+		// reported as "the drain returned before the job finished" while the
+		// drain had done exactly what it should. Reproduced on this machine
+		// roughly twice in 2,000 runs under -race, and on CI often enough to
+		// turn an unrelated Dependabot pull request red.
+		//
+		// Closing first makes the assertion sound: the channel now stands for
+		// "the job's work is complete", and the only way to observe it closed
+		// after wait() returns is for wait() to have waited.
 		close(finished)
+		w.done()
 	}()
 
 	w.stopping()
