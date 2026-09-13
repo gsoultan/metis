@@ -503,7 +503,129 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 20,
+			Name:    "index the instance list query",
+			// The instance list can now filter by state in the database rather
+			// than in the browser, which is the only way a project with 500,000
+			// instances can surface the twelve that failed. Doing it over the
+			// single-column indexes the models declare would be a poor trade:
+			// the planner picks one of project_id or status, filters the rest,
+			// and then sorts everything it kept — so the page someone looks at
+			// most often gets slower the longer the installation runs.
+			//
+			// Two composites, matching the two shapes the list actually issues.
+			// Both lead with project_id because tenant scoping is never absent,
+			// and both end with created_at DESC because that is the order every
+			// one of them asks for: with equality on the leading columns the
+			// index returns the rows already sorted, so a page is a walk of
+			// twenty-five entries rather than a sort of the project.
+			//
+			// Built CONCURRENTLY, which is the whole reason this migration is
+			// more than two lines. A plain CREATE INDEX takes a SHARE lock, and
+			// that blocks every INSERT and UPDATE on process_instances until it
+			// finishes — on the busiest table in the system, during a rolling
+			// deploy where the old replica is still accepting work. Starting a
+			// process would hang for as long as the build took.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				indexes := []struct{ name, columns string }{
+					// The default view: every state, newest first.
+					{"ix_process_instances_project_created", "project_id, created_at DESC"},
+					// With a state chosen, and with a definition chosen on top of
+					// one — definition_id is filtered from the rows this returns,
+					// which stays cheap because the walk stops at the page size.
+					{"ix_process_instances_project_status", "project_id, status, created_at DESC"},
+				}
+				for _, index := range indexes {
+					if err := createIndexConcurrently(ctx, db,
+						"process_instances", index.name, index.columns); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
 	}
+}
+
+// createIndexConcurrently builds an index without locking out writers.
+//
+// CONCURRENTLY is what makes an index on a large, busy table safe to add during
+// an upgrade, and it comes with two sharp edges this handles:
+//
+//   - **It cannot run inside a transaction.** Migrations that leave
+//     Transactional off execute their statements directly, which is why this is
+//     usable here at all. A migration that needed a transaction could not use it.
+//   - **A failed build leaves an INVALID index behind.** PostgreSQL keeps the
+//     catalog row, so every "does it exist?" guard says yes for ever while the
+//     planner refuses to use it — a permanently missing index that reports
+//     itself as present. So the guard asks whether it is *valid*, and drops the
+//     wreckage of a previous attempt before trying again.
+//
+// IF NOT EXISTS on top of the guard, because two replicas can both read "no
+// index" and only one of them can create it.
+//
+// PostgreSQL is the only engine this product ships on, but not the only one it
+// is migrated against: the completeness tests run the whole list over an
+// in-memory SQLite database precisely so they owe nothing to a test harness.
+// CONCURRENTLY and pg_index are both PostgreSQL-only, so everywhere else this
+// falls back to a plain create — correct there, and the locking concern that
+// makes CONCURRENTLY necessary does not exist on a fresh in-memory database.
+func createIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
+	if db.Name() != "postgres" {
+		if err := db.WithContext(ctx).Exec(fmt.Sprintf(
+			"CREATE INDEX IF NOT EXISTS %s ON %s (%s)", name, table, columns,
+		)).Error; err != nil {
+			return fmt.Errorf("create %s: %w", name, err)
+		}
+		return nil
+	}
+
+	valid, err := indexIsValid(ctx, db, name)
+	if err != nil {
+		return err
+	}
+	if valid {
+		return nil
+	}
+	// Present but invalid: an earlier attempt died part-way. Dropping is the
+	// only way forward — CREATE INDEX IF NOT EXISTS would see the broken one and
+	// do nothing.
+	if err := db.WithContext(ctx).
+		Exec("DROP INDEX CONCURRENTLY IF EXISTS " + name).Error; err != nil {
+		return fmt.Errorf("drop the invalid %s: %w", name, err)
+	}
+	if err := db.WithContext(ctx).Exec(fmt.Sprintf(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (%s)", name, table, columns,
+	)).Error; err != nil {
+		return fmt.Errorf("create %s: %w", name, err)
+	}
+	// Built, but a concurrent build can still finish invalid — it gives up
+	// rather than failing loudly when it cannot see a consistent snapshot. Left
+	// unchecked that is the silent missing index again.
+	valid, err = indexIsValid(ctx, db, name)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return fmt.Errorf("%s was built but is not valid; it must be rebuilt before the planner will use it", name)
+	}
+	return nil
+}
+
+// indexIsValid reports whether an index exists and is usable by the planner.
+func indexIsValid(ctx context.Context, db *gorm.DB, name string) (bool, error) {
+	var valid bool
+	err := db.WithContext(ctx).Raw(`
+		SELECT i.indisvalid
+		  FROM pg_class c
+		  JOIN pg_index i ON i.indexrelid = c.oid
+		 WHERE c.relname = ?
+		   AND c.relnamespace = current_schema()::regnamespace`, name).Scan(&valid).Error
+	if err != nil {
+		return false, fmt.Errorf("check whether %s is valid: %w", name, err)
+	}
+	return valid, nil
 }
 
 // moveColumn gets a column's data under its new name, whatever state the table

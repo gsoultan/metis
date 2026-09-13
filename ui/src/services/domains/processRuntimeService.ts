@@ -41,10 +41,19 @@ export const processRuntimeService = {
   async listInstances(
     projectId: string,
     page?: { page: number; pageSize: number },
+    filter?: { status?: string; definitionId?: string; needsAttention?: boolean },
     signal?: AbortSignal,
   ) {
     const response = await processClient.listInstances(
-      { projectId, page: page ? { page: page.page, pageSize: page.pageSize } : undefined },
+      {
+        projectId,
+        page: page ? { page: page.page, pageSize: page.pageSize } : undefined,
+        // The server refuses a status it does not know, so an empty string has
+        // to mean "every state" rather than being sent as a value.
+        status: filter?.status ?? '',
+        definitionId: filter?.definitionId ?? '',
+        needsAttention: filter?.needsAttention ?? false,
+      },
       { signal },
     );
     return {
@@ -58,6 +67,18 @@ export const processRuntimeService = {
             hasMore: response.page.hasMore,
           }
         : undefined,
+      // Counted across the project, not this page — what lets the list say
+      // "12 need attention" while showing twenty-five completed runs.
+      statusCounts: (response.statusCounts ?? []).map((count) => ({
+        status: count.status,
+        total: Number(count.total),
+      })),
+      // Which of these rows is waiting on a person, and how many are across the
+      // project. Separate from status because the engine never marks an
+      // instance failed — a job that runs out of retries raises an incident and
+      // leaves the instance active.
+      needsAttentionTotal: Number(response.needsAttentionTotal ?? 0),
+      needsAttentionIds: response.needsAttentionIds ?? [],
     };
   },
 

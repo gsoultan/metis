@@ -88,6 +88,16 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectorEndpoints.DeleteConnectorInstance = adminOnly("DeleteConnectorInstance")(connectorEndpoints.DeleteConnectorInstance)
 	connectorEndpoints.ExecuteConnector = protected("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
 
+	// The connector *templates*, as opposed to the instances above. These three
+	// were routed and never wrapped, so any authenticated account could add,
+	// rewrite or delete one — while creating an instance of the same connector
+	// needed an administrator. A connector describes what the engine calls out
+	// to and with which credentials, which is the definition of "authoring code
+	// the engine executes"; adminOnly matches the instances and the manifests.
+	connectorEndpoints.CreateConnector = adminOnly("CreateConnector")(connectorEndpoints.CreateConnector)
+	connectorEndpoints.UpdateConnector = adminOnly("UpdateConnector")(connectorEndpoints.UpdateConnector)
+	connectorEndpoints.DeleteConnector = adminOnly("DeleteConnector")(connectorEndpoints.DeleteConnector)
+
 	// Installing a connector adds an address this engine will call with the
 	// tenant's credentials attached, which is an administrator's decision.
 	// Reading the catalogue is not.
@@ -102,6 +112,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	decisionEndpoints.GetDecision = protected("GetDecision")(decisionEndpoints.GetDecision)
 	decisionEndpoints.CreateDecision = designer("CreateDecision")(decisionEndpoints.CreateDecision)
 	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)
+	// Routed and never wrapped, between two neighbours that are gated. Creating
+	// a decision needed the designer role and deleting one did too, while
+	// rewriting one needed nothing beyond a login — and rewriting is the more
+	// powerful of the three. Proven against a running server: the same account
+	// was refused a create with 401 and allowed an update with 200, which left
+	// the table with zero rules and zero inputs. A DMN table with no rules
+	// matches nothing, and a decision point that matches nothing is an incident
+	// on every instance that reaches it.
+	decisionEndpoints.UpdateDecision = designer("UpdateDecision")(decisionEndpoints.UpdateDecision)
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
 	decisionEndpoints.DecisionImpact = protected("DecisionImpact")(decisionEndpoints.DecisionImpact)
 	decisionEndpoints.RunTests = protected("RunDecisionTests")(decisionEndpoints.RunTests)
@@ -207,6 +226,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	processEndpoints.SendMessage = protected("SendMessage")(processEndpoints.SendMessage)
 	processEndpoints.ExecuteScript = designer("ExecuteScript")(processEndpoints.ExecuteScript)
 	processEndpoints.ListSubProcesses = protected("ListSubProcesses")(processEndpoints.ListSubProcesses)
+	// ExportOCEL was registered as a route and never wrapped, so nothing resolved
+	// a tenant for it. The transport chain still refused anonymous callers, so
+	// this was never a disclosure — but the endpoint reached the repository with
+	// no identity, and under METIS_FEATURE_STRICT_TENANT_SCOPE that is answered
+	// with nothing. The export returned 200 and an empty log: every event and
+	// object silently missing, on the endpoint whose whole purpose is to hand a
+	// project's history to a mining tool.
+	//
+	// protected rather than a role-restricted chain, to match GetAuditLogs —
+	// this is the same data at project scope rather than instance scope.
+	processEndpoints.ExportOCEL = protected("ExportOCEL")(processEndpoints.ExportOCEL)
 
 	projectEndpoints := project.MakeEndpoints(s)
 	projectEndpoints.CreateProject = adminOnly("CreateProject")(projectEndpoints.CreateProject)
@@ -247,6 +277,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	userEndpoints.DeleteUser = adminOnly("DeleteUser")(userEndpoints.DeleteUser)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
+	// Self-service, so protected rather than adminOnly: changing your own
+	// password is the one thing here every account must be able to do. It was
+	// routed and wrapped by nothing at all, which is a different problem — the
+	// transport chain still demanded a token, but no tenant was resolved, so
+	// the endpoint reached the repository with no identity.
+	userEndpoints.ChangePassword = protected("ChangePassword")(userEndpoints.ChangePassword)
 
 	groupEndpoints := group.MakeEndpoints(s)
 	groupEndpoints.ListGroups = protected("ListGroups")(groupEndpoints.ListGroups)

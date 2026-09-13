@@ -11,6 +11,27 @@ message ListInstancesRequest {
   string project_id = 1;
   // Optional; omitted means the first page at the server default.
   PageRequest page = 2;
+  // Optional. One of the four lifecycle states — active, completed, suspended,
+  // failed. Applied in the database, so it narrows the whole project and not
+  // merely the page that came back. Anything else is refused rather than
+  // ignored: a filter that silently matches everything is worse than an error,
+  // because the caller reads a full list as "nothing is wrong".
+  string status = 3;
+  // Optional. Narrows to runs of one process definition.
+  string definition_id = 4;
+  // Optional. Narrows to instances holding an unresolved incident.
+  //
+  // Deliberately not a value of `status`. A job that runs out of retries raises
+  // an incident and leaves the instance `active` — it has not failed, it is
+  // waiting for a person — so "is anything broken?" is a question the status
+  // column cannot answer.
+  bool needs_attention = 5;
+}
+
+// StatusCount is how many instances a project holds in one lifecycle state.
+message StatusCount {
+  string status = 1;
+  int64 total = 2;
 }
 
 message ListInstancesResponse {
@@ -18,4 +39,18 @@ message ListInstancesResponse {
   string error = 2;
   // Absent when the caller did not page.
   PageInfo page = 3;
+  // Every state the project holds and how many are in it, counted across the
+  // whole project rather than the page — so a caller can say "12 need
+  // attention" while showing 25 rows of something else, and offer the filter
+  // that reaches them.
+  //
+  // Narrowed by definition_id when one is given, and deliberately not by
+  // status: counting only the state already selected would zero every other
+  // chip the moment somebody used one.
+  repeated StatusCount status_counts = 4;
+  // How many of the project's instances hold an unresolved incident.
+  int64 needs_attention_total = 5;
+  // The ids, among `instances`, that hold one — so a row can be marked without
+  // a request per row.
+  repeated string needs_attention_ids = 6;
 }

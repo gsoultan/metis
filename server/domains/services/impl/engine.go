@@ -1128,13 +1128,18 @@ func (e *Engine) ExecuteScript(ctx context.Context, script string, scriptFormat 
 //
 // projectID of uuid.Nil lists across the active tenant; the repository applies
 // tenant scoping either way, so an unscoped read is not reachable from here.
-func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error) {
+//
+// The filter reaches the query rather than the result. Total therefore counts
+// the instances that match, which is what makes "3 of 412 that need attention"
+// a true sentence — filtering the page afterwards would leave Total describing
+// a different population from the rows beside it.
+func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error) {
 	var result repocontracts.Page[models.ProcessInstanceModel]
 	var err error
 	if projectID != uuid.Nil {
-		result, err = e.repo.Process().ListByProjectPaged(ctx, projectID, page)
+		result, err = e.repo.Process().ListByProjectPaged(ctx, projectID, filter, page)
 	} else {
-		result, err = e.repo.Process().ListPaged(ctx, page)
+		result, err = e.repo.Process().ListPaged(ctx, filter, page)
 	}
 	if err != nil {
 		return repocontracts.Page[entities.ProcessInstance]{}, err
@@ -1145,4 +1150,31 @@ func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, pa
 		instances[i] = adapters.InstanceEntityAdapter{Model: m}.ToEntity()
 	}
 	return repocontracts.NewPage(instances, result.Total, page), nil
+}
+
+// CountInstancesByStatus reports the project's instances per lifecycle state.
+func (e *Engine) CountInstancesByStatus(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter) (map[models.ProcessStatus]int64, error) {
+	return e.repo.Process().CountByStatuses(ctx, projectID, filter)
+}
+
+// InstanceAttention reports which instances are waiting on a person.
+//
+// Two reads, deliberately: one bounded by the page, for the marks beside the
+// rows, and one across the project, for the number that answers "is anything
+// broken?" without the answer depending on which page is open.
+func (e *Engine) InstanceAttention(
+	ctx context.Context,
+	projectID uuid.UUID,
+	filter repocontracts.InstanceFilter,
+	onPage []uuid.UUID,
+) (entities.InstanceAttention, error) {
+	perInstance, err := e.repo.Process().OpenIncidentsByInstance(ctx, onPage)
+	if err != nil {
+		return entities.InstanceAttention{}, err
+	}
+	total, err := e.repo.Process().CountInstancesNeedingAttention(ctx, projectID, filter)
+	if err != nil {
+		return entities.InstanceAttention{}, err
+	}
+	return entities.InstanceAttention{OpenIncidents: perInstance, Total: total}, nil
 }

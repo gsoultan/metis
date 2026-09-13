@@ -26,9 +26,24 @@ type ListInstancesRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	ProjectId string                 `protobuf:"bytes,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
 	// Optional; omitted means the first page at the server default.
-	Page          *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Page *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	// Optional. One of the four lifecycle states — active, completed, suspended,
+	// failed. Applied in the database, so it narrows the whole project and not
+	// merely the page that came back. Anything else is refused rather than
+	// ignored: a filter that silently matches everything is worse than an error,
+	// because the caller reads a full list as "nothing is wrong".
+	Status string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	// Optional. Narrows to runs of one process definition.
+	DefinitionId string `protobuf:"bytes,4,opt,name=definition_id,json=definitionId,proto3" json:"definition_id,omitempty"`
+	// Optional. Narrows to instances holding an unresolved incident.
+	//
+	// Deliberately not a value of `status`. A job that runs out of retries raises
+	// an incident and leaves the instance `active` — it has not failed, it is
+	// waiting for a person — so "is anything broken?" is a question the status
+	// column cannot answer.
+	NeedsAttention bool `protobuf:"varint,5,opt,name=needs_attention,json=needsAttention,proto3" json:"needs_attention,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListInstancesRequest) Reset() {
@@ -75,19 +90,107 @@ func (x *ListInstancesRequest) GetPage() *PageRequest {
 	return nil
 }
 
+func (x *ListInstancesRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListInstancesRequest) GetDefinitionId() string {
+	if x != nil {
+		return x.DefinitionId
+	}
+	return ""
+}
+
+func (x *ListInstancesRequest) GetNeedsAttention() bool {
+	if x != nil {
+		return x.NeedsAttention
+	}
+	return false
+}
+
+// StatusCount is how many instances a project holds in one lifecycle state.
+type StatusCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatusCount) Reset() {
+	*x = StatusCount{}
+	mi := &file_endpoints_list_instances_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatusCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatusCount) ProtoMessage() {}
+
+func (x *StatusCount) ProtoReflect() protoreflect.Message {
+	mi := &file_endpoints_list_instances_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatusCount.ProtoReflect.Descriptor instead.
+func (*StatusCount) Descriptor() ([]byte, []int) {
+	return file_endpoints_list_instances_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *StatusCount) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *StatusCount) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 type ListInstancesResponse struct {
 	state     protoimpl.MessageState      `protogen:"open.v1"`
 	Instances []*entities.ProcessInstance `protobuf:"bytes,1,rep,name=instances,proto3" json:"instances,omitempty"`
 	Error     string                      `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	// Absent when the caller did not page.
-	Page          *PageInfo `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Page *PageInfo `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	// Every state the project holds and how many are in it, counted across the
+	// whole project rather than the page — so a caller can say "12 need
+	// attention" while showing 25 rows of something else, and offer the filter
+	// that reaches them.
+	//
+	// Narrowed by definition_id when one is given, and deliberately not by
+	// status: counting only the state already selected would zero every other
+	// chip the moment somebody used one.
+	StatusCounts []*StatusCount `protobuf:"bytes,4,rep,name=status_counts,json=statusCounts,proto3" json:"status_counts,omitempty"`
+	// How many of the project's instances hold an unresolved incident.
+	NeedsAttentionTotal int64 `protobuf:"varint,5,opt,name=needs_attention_total,json=needsAttentionTotal,proto3" json:"needs_attention_total,omitempty"`
+	// The ids, among `instances`, that hold one — so a row can be marked without
+	// a request per row.
+	NeedsAttentionIds []string `protobuf:"bytes,6,rep,name=needs_attention_ids,json=needsAttentionIds,proto3" json:"needs_attention_ids,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ListInstancesResponse) Reset() {
 	*x = ListInstancesResponse{}
-	mi := &file_endpoints_list_instances_proto_msgTypes[1]
+	mi := &file_endpoints_list_instances_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -99,7 +202,7 @@ func (x *ListInstancesResponse) String() string {
 func (*ListInstancesResponse) ProtoMessage() {}
 
 func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_endpoints_list_instances_proto_msgTypes[1]
+	mi := &file_endpoints_list_instances_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -112,7 +215,7 @@ func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstancesResponse.ProtoReflect.Descriptor instead.
 func (*ListInstancesResponse) Descriptor() ([]byte, []int) {
-	return file_endpoints_list_instances_proto_rawDescGZIP(), []int{1}
+	return file_endpoints_list_instances_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ListInstancesResponse) GetInstances() []*entities.ProcessInstance {
@@ -136,19 +239,49 @@ func (x *ListInstancesResponse) GetPage() *PageInfo {
 	return nil
 }
 
+func (x *ListInstancesResponse) GetStatusCounts() []*StatusCount {
+	if x != nil {
+		return x.StatusCounts
+	}
+	return nil
+}
+
+func (x *ListInstancesResponse) GetNeedsAttentionTotal() int64 {
+	if x != nil {
+		return x.NeedsAttentionTotal
+	}
+	return 0
+}
+
+func (x *ListInstancesResponse) GetNeedsAttentionIds() []string {
+	if x != nil {
+		return x.NeedsAttentionIds
+	}
+	return nil
+}
+
 var File_endpoints_list_instances_proto protoreflect.FileDescriptor
 
 const file_endpoints_list_instances_proto_rawDesc = "" +
 	"\n" +
-	"\x1eendpoints/list_instances.proto\x12\aprocess\x1a\x1fentities/process_instance.proto\x1a\x14endpoints/page.proto\"_\n" +
+	"\x1eendpoints/list_instances.proto\x12\aprocess\x1a\x1fentities/process_instance.proto\x1a\x14endpoints/page.proto\"\xc5\x01\n" +
 	"\x14ListInstancesRequest\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12(\n" +
-	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04page\"\x8c\x01\n" +
+	"\x04page\x18\x02 \x01(\v2\x14.process.PageRequestR\x04page\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12#\n" +
+	"\rdefinition_id\x18\x04 \x01(\tR\fdefinitionId\x12'\n" +
+	"\x0fneeds_attention\x18\x05 \x01(\bR\x0eneedsAttention\";\n" +
+	"\vStatusCount\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xab\x02\n" +
 	"\x15ListInstancesResponse\x126\n" +
 	"\tinstances\x18\x01 \x03(\v2\x18.process.ProcessInstanceR\tinstances\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12%\n" +
-	"\x04page\x18\x03 \x01(\v2\x11.process.PageInfoR\x04pageB\x96\x01\n" +
+	"\x04page\x18\x03 \x01(\v2\x11.process.PageInfoR\x04page\x129\n" +
+	"\rstatus_counts\x18\x04 \x03(\v2\x14.process.StatusCountR\fstatusCounts\x122\n" +
+	"\x15needs_attention_total\x18\x05 \x01(\x03R\x13needsAttentionTotal\x12.\n" +
+	"\x13needs_attention_ids\x18\x06 \x03(\tR\x11needsAttentionIdsB\x96\x01\n" +
 	"\vcom.processB\x12ListInstancesProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -163,23 +296,25 @@ func file_endpoints_list_instances_proto_rawDescGZIP() []byte {
 	return file_endpoints_list_instances_proto_rawDescData
 }
 
-var file_endpoints_list_instances_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_endpoints_list_instances_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_endpoints_list_instances_proto_goTypes = []any{
 	(*ListInstancesRequest)(nil),     // 0: process.ListInstancesRequest
-	(*ListInstancesResponse)(nil),    // 1: process.ListInstancesResponse
-	(*PageRequest)(nil),              // 2: process.PageRequest
-	(*entities.ProcessInstance)(nil), // 3: process.ProcessInstance
-	(*PageInfo)(nil),                 // 4: process.PageInfo
+	(*StatusCount)(nil),              // 1: process.StatusCount
+	(*ListInstancesResponse)(nil),    // 2: process.ListInstancesResponse
+	(*PageRequest)(nil),              // 3: process.PageRequest
+	(*entities.ProcessInstance)(nil), // 4: process.ProcessInstance
+	(*PageInfo)(nil),                 // 5: process.PageInfo
 }
 var file_endpoints_list_instances_proto_depIdxs = []int32{
-	2, // 0: process.ListInstancesRequest.page:type_name -> process.PageRequest
-	3, // 1: process.ListInstancesResponse.instances:type_name -> process.ProcessInstance
-	4, // 2: process.ListInstancesResponse.page:type_name -> process.PageInfo
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 0: process.ListInstancesRequest.page:type_name -> process.PageRequest
+	4, // 1: process.ListInstancesResponse.instances:type_name -> process.ProcessInstance
+	5, // 2: process.ListInstancesResponse.page:type_name -> process.PageInfo
+	1, // 3: process.ListInstancesResponse.status_counts:type_name -> process.StatusCount
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_endpoints_list_instances_proto_init() }
@@ -194,7 +329,7 @@ func file_endpoints_list_instances_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_endpoints_list_instances_proto_rawDesc), len(file_endpoints_list_instances_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
