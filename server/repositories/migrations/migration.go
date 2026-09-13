@@ -572,7 +572,7 @@ func Schema(models []any) []Migration {
 // falls back to a plain create — correct there, and the locking concern that
 // makes CONCURRENTLY necessary does not exist on a fresh in-memory database.
 func createIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		if err := db.WithContext(ctx).Exec(fmt.Sprintf(
 			"CREATE INDEX IF NOT EXISTS %s ON %s (%s)", name, table, columns,
 		)).Error; err != nil {
