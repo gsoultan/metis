@@ -14,6 +14,29 @@ const (
 	ProcessFailed    ProcessStatus = "failed"
 )
 
+// ProcessStatuses is every state an instance may be in.
+//
+// Exported so the edge can refuse a status it does not recognise instead of
+// passing it down to a predicate that matches nothing. A filter that quietly
+// matches nothing reads as "this project is empty"; one that quietly matches
+// everything reads as "nothing is wrong". Both are worse than an error.
+var ProcessStatuses = []ProcessStatus{
+	ProcessActive,
+	ProcessCompleted,
+	ProcessSuspended,
+	ProcessFailed,
+}
+
+// ValidProcessStatus reports whether s names a state an instance can be in.
+func ValidProcessStatus(s ProcessStatus) bool {
+	for _, known := range ProcessStatuses {
+		if s == known {
+			return true
+		}
+	}
+	return false
+}
+
 // TokenStatus represents the current state of a token in the database.
 type TokenStatus string
 

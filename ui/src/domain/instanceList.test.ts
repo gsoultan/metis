@@ -2,11 +2,13 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   definitionName,
+  describeDuration,
   humanizeNodeId,
   instanceReference,
+  isRunning,
   startedAtFromId,
-  statusesOnPage,
-  withStatus,
+  statusChips,
+  totalAcrossStatuses,
 } from './instanceList';
 
 describe('definitionName', () => {
@@ -63,23 +65,83 @@ describe('instanceReference', () => {
   });
 });
 
-describe('status filter', () => {
-  const rows = [
-    { id: '1', status: 'active' },
-    { id: '2', status: 'failed' },
-    { id: '3', status: 'ACTIVE' },
-    { id: '4' },
-  ];
-
-  it('lists each status once, in the order it first appears', () => {
-    expect(statusesOnPage(rows)).toEqual(['active', 'failed']);
+describe('statusChips', () => {
+  it('puts what needs a person first and what is finished last', () => {
+    const chips = statusChips([
+      { status: 'completed', total: 4120 },
+      { status: 'active', total: 37 },
+      { status: 'failed', total: 12 },
+      { status: 'suspended', total: 2 },
+    ]);
+    expect(chips.map((c) => c.status)).toEqual(['failed', 'suspended', 'active', 'completed']);
   });
 
-  it('keeps the rows with the chosen status, case-insensitively', () => {
-    expect(withStatus(rows, 'active').map((r) => r.id)).toEqual(['1', '3']);
+  it('drops a state the project has none of', () => {
+    // A chip reading "Paused 0" can only ever empty the table.
+    const chips = statusChips([
+      { status: 'active', total: 3 },
+      { status: 'suspended', total: 0 },
+    ]);
+    expect(chips.map((c) => c.status)).toEqual(['active']);
   });
 
-  it('keeps every row when nothing is chosen', () => {
-    expect(withStatus(rows, null)).toBe(rows);
+  it('sorts a state it has no opinion about after the ones it does', () => {
+    // Written by an older version: reported, but never ahead of "failed".
+    const chips = statusChips([
+      { status: 'archived', total: 9 },
+      { status: 'completed', total: 1 },
+      { status: 'failed', total: 1 },
+    ]);
+    expect(chips.map((c) => c.status)).toEqual(['failed', 'completed', 'archived']);
+  });
+
+  it('adds up to the project total', () => {
+    expect(totalAcrossStatuses([
+      { status: 'failed', total: 12 },
+      { status: 'completed', total: 30 },
+    ])).toBe(42);
+  });
+});
+
+describe('isRunning', () => {
+  it('counts a failed instance as still going', () => {
+    // It is not finished, it is waiting for somebody to retry it — and how long
+    // it has been waiting is the number that should be growing on screen.
+    expect(isRunning('failed')).toBe(true);
+    expect(isRunning('suspended')).toBe(true);
+    expect(isRunning('active')).toBe(true);
+  });
+
+  it('counts an instance that will not move again as settled', () => {
+    expect(isRunning('completed')).toBe(false);
+    expect(isRunning('terminated')).toBe(false);
+    expect(isRunning('CANCELLED')).toBe(false);
+  });
+});
+
+describe('describeDuration', () => {
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  it('uses at most two units, largest first', () => {
+    expect(describeDuration(0, 2 * hour + 14 * minute + 6_000)).toBe('2h 14m');
+    expect(describeDuration(0, 3 * day + 5 * hour)).toBe('3d 5h');
+    expect(describeDuration(0, 7 * minute)).toBe('7m');
+  });
+
+  it('drops an empty smaller unit rather than printing a zero', () => {
+    expect(describeDuration(0, 2 * hour)).toBe('2h');
+    expect(describeDuration(0, 3 * day)).toBe('3d');
+  });
+
+  it('reads a sub-minute span as just now', () => {
+    expect(describeDuration(0, 6_000)).toBe('just now');
+  });
+
+  it('treats a little clock skew as just now, not as the future', () => {
+    // The start comes from a server-generated id and the end from the browser.
+    expect(describeDuration(10_000, 0)).toBe('just now');
+    expect(describeDuration(10 * minute, 0)).toBeNull();
   });
 });

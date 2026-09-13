@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file endpoints/list_instances.proto.
  */
 export const file_endpoints_list_instances: GenFile = /*@__PURE__*/
-  fileDesc("Ch5lbmRwb2ludHMvbGlzdF9pbnN0YW5jZXMucHJvdG8SB3Byb2Nlc3MiTgoUTGlzdEluc3RhbmNlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIiCgRwYWdlGAIgASgLMhQucHJvY2Vzcy5QYWdlUmVxdWVzdCJ0ChVMaXN0SW5zdGFuY2VzUmVzcG9uc2USKwoJaW5zdGFuY2VzGAEgAygLMhgucHJvY2Vzcy5Qcm9jZXNzSW5zdGFuY2USDQoFZXJyb3IYAiABKAkSHwoEcGFnZRgDIAEoCzIRLnByb2Nlc3MuUGFnZUluZm9ClgEKC2NvbS5wcm9jZXNzQhJMaXN0SW5zdGFuY2VzUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9tZXRpcy9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_entities_process_instance, file_endpoints_page]);
+  fileDesc("Ch5lbmRwb2ludHMvbGlzdF9pbnN0YW5jZXMucHJvdG8SB3Byb2Nlc3MijgEKFExpc3RJbnN0YW5jZXNSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSIgoEcGFnZRgCIAEoCzIULnByb2Nlc3MuUGFnZVJlcXVlc3QSDgoGc3RhdHVzGAMgASgJEhUKDWRlZmluaXRpb25faWQYBCABKAkSFwoPbmVlZHNfYXR0ZW50aW9uGAUgASgIIiwKC1N0YXR1c0NvdW50Eg4KBnN0YXR1cxgBIAEoCRINCgV0b3RhbBgCIAEoAyLdAQoVTGlzdEluc3RhbmNlc1Jlc3BvbnNlEisKCWluc3RhbmNlcxgBIAMoCzIYLnByb2Nlc3MuUHJvY2Vzc0luc3RhbmNlEg0KBWVycm9yGAIgASgJEh8KBHBhZ2UYAyABKAsyES5wcm9jZXNzLlBhZ2VJbmZvEisKDXN0YXR1c19jb3VudHMYBCADKAsyFC5wcm9jZXNzLlN0YXR1c0NvdW50Eh0KFW5lZWRzX2F0dGVudGlvbl90b3RhbBgFIAEoAxIbChNuZWVkc19hdHRlbnRpb25faWRzGAYgAygJQpYBCgtjb20ucHJvY2Vzc0ISTGlzdEluc3RhbmNlc1Byb3RvUAFaN2dpdGh1Yi5jb20vZ3NvdWx0YW4vbWV0aXMvYXBpL3Byb3RvL2VuZHBvaW50cztlbmRwb2ludHOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_entities_process_instance, file_endpoints_page]);
 
 /**
  * @generated from message process.ListInstancesRequest
@@ -31,6 +31,36 @@ export type ListInstancesRequest = Message<"process.ListInstancesRequest"> & {
    * @generated from field: process.PageRequest page = 2;
    */
   page?: PageRequest | undefined;
+
+  /**
+   * Optional. One of the four lifecycle states — active, completed, suspended,
+   * failed. Applied in the database, so it narrows the whole project and not
+   * merely the page that came back. Anything else is refused rather than
+   * ignored: a filter that silently matches everything is worse than an error,
+   * because the caller reads a full list as "nothing is wrong".
+   *
+   * @generated from field: string status = 3;
+   */
+  status: string;
+
+  /**
+   * Optional. Narrows to runs of one process definition.
+   *
+   * @generated from field: string definition_id = 4;
+   */
+  definitionId: string;
+
+  /**
+   * Optional. Narrows to instances holding an unresolved incident.
+   *
+   * Deliberately not a value of `status`. A job that runs out of retries raises
+   * an incident and leaves the instance `active` — it has not failed, it is
+   * waiting for a person — so "is anything broken?" is a question the status
+   * column cannot answer.
+   *
+   * @generated from field: bool needs_attention = 5;
+   */
+  needsAttention: boolean;
 };
 
 /**
@@ -39,6 +69,30 @@ export type ListInstancesRequest = Message<"process.ListInstancesRequest"> & {
  */
 export const ListInstancesRequestSchema: GenMessage<ListInstancesRequest> = /*@__PURE__*/
   messageDesc(file_endpoints_list_instances, 0);
+
+/**
+ * StatusCount is how many instances a project holds in one lifecycle state.
+ *
+ * @generated from message process.StatusCount
+ */
+export type StatusCount = Message<"process.StatusCount"> & {
+  /**
+   * @generated from field: string status = 1;
+   */
+  status: string;
+
+  /**
+   * @generated from field: int64 total = 2;
+   */
+  total: bigint;
+};
+
+/**
+ * Describes the message process.StatusCount.
+ * Use `create(StatusCountSchema)` to create a new message.
+ */
+export const StatusCountSchema: GenMessage<StatusCount> = /*@__PURE__*/
+  messageDesc(file_endpoints_list_instances, 1);
 
 /**
  * @generated from message process.ListInstancesResponse
@@ -60,6 +114,35 @@ export type ListInstancesResponse = Message<"process.ListInstancesResponse"> & {
    * @generated from field: process.PageInfo page = 3;
    */
   page?: PageInfo | undefined;
+
+  /**
+   * Every state the project holds and how many are in it, counted across the
+   * whole project rather than the page — so a caller can say "12 need
+   * attention" while showing 25 rows of something else, and offer the filter
+   * that reaches them.
+   *
+   * Narrowed by definition_id when one is given, and deliberately not by
+   * status: counting only the state already selected would zero every other
+   * chip the moment somebody used one.
+   *
+   * @generated from field: repeated process.StatusCount status_counts = 4;
+   */
+  statusCounts: StatusCount[];
+
+  /**
+   * How many of the project's instances hold an unresolved incident.
+   *
+   * @generated from field: int64 needs_attention_total = 5;
+   */
+  needsAttentionTotal: bigint;
+
+  /**
+   * The ids, among `instances`, that hold one — so a row can be marked without
+   * a request per row.
+   *
+   * @generated from field: repeated string needs_attention_ids = 6;
+   */
+  needsAttentionIds: string[];
 };
 
 /**
@@ -67,5 +150,5 @@ export type ListInstancesResponse = Message<"process.ListInstancesResponse"> & {
  * Use `create(ListInstancesResponseSchema)` to create a new message.
  */
 export const ListInstancesResponseSchema: GenMessage<ListInstancesResponse> = /*@__PURE__*/
-  messageDesc(file_endpoints_list_instances, 1);
+  messageDesc(file_endpoints_list_instances, 2);
 

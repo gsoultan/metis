@@ -8,6 +8,7 @@ import (
 	"context"
 
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -34,7 +35,24 @@ type EngineReader interface {
 	// ListInstancesPaged returns one window plus the total. A busy engine
 	// produces instances continuously, so this is the list most likely to grow
 	// past what a browser can hold.
-	ListInstancesPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error)
+	//
+	// The filter is applied in the database. Narrowing the window after it came
+	// back would mean a project's failures are findable only if they happen to
+	// be among the newest twenty-five.
+	ListInstancesPaged(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], error)
+
+	// CountInstancesByStatus reports how many instances the project holds in
+	// each state, so a page of rows can say what the rest of the project looks
+	// like and offer the filter that reaches it.
+	CountInstancesByStatus(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter) (map[models.ProcessStatus]int64, error)
+
+	// InstanceAttention reports which instances are waiting on a person.
+	//
+	// Separate from status because status does not say it: a job that exhausts
+	// its retries raises an incident and leaves the instance `active`. Nothing
+	// writes models.ProcessFailed, so "is anything broken?" is a question about
+	// open incidents and never about the status column.
+	InstanceAttention(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter, onPage []uuid.UUID) (entities.InstanceAttention, error)
 	ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUID) ([]entities.ProcessInstance, error)
 	// GetRootInstance walks the parent chain and returns the top-level ancestor.
 	GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error)

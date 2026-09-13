@@ -33,6 +33,19 @@ type ListInstancesRequest struct {
 	// Zero means "no paging requested" — the first page at the server default.
 	Page     int `json:"page,omitzero"`
 	PageSize int `json:"page_size,omitzero"`
+	// Status narrows to one lifecycle state across the whole project. Empty
+	// means every state; anything not in models.ProcessStatuses is refused.
+	Status string `json:"status,omitzero"`
+	// DefinitionID narrows to runs of one process. Empty means every process.
+	DefinitionID string `json:"definition_id,omitzero"`
+	// NeedsAttention narrows to instances holding an unresolved incident.
+	NeedsAttention bool `json:"needs_attention,omitzero"`
+}
+
+// InstanceStatusCount is how many of a project's instances are in one state.
+type InstanceStatusCount struct {
+	Status string `json:"status"`
+	Total  int64  `json:"total"`
 }
 
 // InstancePageInfo describes the window returned, when the caller paged.
@@ -46,7 +59,17 @@ type InstancePageInfo struct {
 type ListInstancesResponse struct {
 	Instances []entities.ProcessInstance `json:"instances"`
 	Page      *InstancePageInfo          `json:"page,omitempty"`
-	Err       error                      `json:"err,omitzero"`
+	// StatusCounts describes the whole project, not this page — so a caller
+	// showing twenty-five completed runs can still say twelve need attention,
+	// and offer the filter that reaches them.
+	StatusCounts []InstanceStatusCount `json:"status_counts,omitempty"`
+	// NeedsAttentionTotal is how many of the project's instances hold an
+	// unresolved incident. Separate from StatusCounts because it is not a
+	// status: the engine leaves such an instance `active`.
+	NeedsAttentionTotal int64 `json:"needs_attention_total,omitzero"`
+	// NeedsAttentionIDs are the instances on this page that hold one.
+	NeedsAttentionIDs []string `json:"needs_attention_ids,omitempty"`
+	Err               error    `json:"err,omitzero"`
 }
 
 func (r ListInstancesResponse) Failed() error { return r.Err }

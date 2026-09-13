@@ -63,9 +63,12 @@ func (h *ProcessHandler) GetInstance(ctx context.Context, req *connect.Request[p
 
 func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request[pbendpoints.ListInstancesRequest]) (*connect.Response[pbendpoints.ListInstancesResponse], error) {
 	response, err := h.eps.ListInstances(ctx, process.ListInstancesRequest{
-		ProjectID: req.Msg.ProjectId,
-		Page:      int(req.Msg.GetPage().GetPage()),
-		PageSize:  int(req.Msg.GetPage().GetPageSize()),
+		ProjectID:      req.Msg.ProjectId,
+		Page:           int(req.Msg.GetPage().GetPage()),
+		PageSize:       int(req.Msg.GetPage().GetPageSize()),
+		Status:         req.Msg.GetStatus(),
+		DefinitionID:   req.Msg.GetDefinitionId(),
+		NeedsAttention: req.Msg.GetNeedsAttention(),
 	})
 	if err != nil {
 		return nil, err
@@ -90,6 +93,12 @@ func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request
 			HasMore:  resp.Page.HasMore,
 		}
 	}
+	out.StatusCounts = make([]*pbendpoints.StatusCount, len(resp.StatusCounts))
+	for i, count := range resp.StatusCounts {
+		out.StatusCounts[i] = &pbendpoints.StatusCount{Status: count.Status, Total: count.Total}
+	}
+	out.NeedsAttentionTotal = resp.NeedsAttentionTotal
+	out.NeedsAttentionIds = resp.NeedsAttentionIDs
 	return connect.NewResponse(out), nil
 }
 

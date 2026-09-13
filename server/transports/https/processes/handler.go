@@ -108,10 +108,19 @@ func decodeListInstancesRequest(_ context.Context, r *http.Request) (any, error)
 	// no way past it. A busy project's older instances were unreachable over
 	// HTTP while the paging that would reach them was already implemented.
 	page, pageSize := common.PageParams(r)
+	query := r.URL.Query()
 	return process.ListInstancesRequest{
-		ProjectID: r.URL.Query().Get("project_id"),
+		ProjectID: query.Get("project_id"),
 		Page:      page,
 		PageSize:  pageSize,
+		// Passed through as written. The endpoint refuses a status it does not
+		// recognise, which is the behaviour that matters — normalising one here
+		// would quietly turn a typo into "every instance in the project".
+		Status:       query.Get("status"),
+		DefinitionID: query.Get("definition_id"),
+		// Presence is not enough: ?needs_attention=false must mean false, or a
+		// caller clearing the filter by setting it cannot.
+		NeedsAttention: query.Get("needs_attention") == "true",
 	}, nil
 }
 

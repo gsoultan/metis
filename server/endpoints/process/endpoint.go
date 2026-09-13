@@ -3,6 +3,8 @@ package process
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 type Endpoints struct {
@@ -80,13 +83,49 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			}, nil
 		}
 
-		page, pageErr := s.ListInstancesPaged(ctx, projectID, repocontracts.Pagination{
+		filter, filterErr := instanceFilterOf(req)
+		if filterErr != nil {
+			return ListInstancesResponse{Err: filterErr}, nil
+		}
+
+		page, pageErr := s.ListInstancesPaged(ctx, projectID, filter, repocontracts.Pagination{
 			Page:     req.Page,
 			PageSize: req.PageSize,
 		})
 		if pageErr != nil {
 			return ListInstancesResponse{Err: pageErr}, nil
 		}
+
+		// Counted on every page rather than only the first. A caller that jumps
+		// to page nine still needs to know what it is nine pages into, and the
+		// grouped count runs off the same index the page itself walks.
+		//
+		// The chips describe the population the rows are drawn from, before any
+		// choice the reader has made within it — this project, and this process
+		// if one was named. Both narrowing choices are stripped here rather than
+		// ignored further down: counting only the state already selected would
+		// zero every other chip the moment somebody used one, and a layer that
+		// discards part of what it is handed is a layer the next caller has to
+		// already know about.
+		countFilter := filter
+		countFilter.Status = ""
+		countFilter.NeedsAttention = false
+		counts, countErr := s.CountInstancesByStatus(ctx, projectID, countFilter)
+		if countErr != nil {
+			return ListInstancesResponse{Err: countErr}, nil
+		}
+
+		// Which of these are waiting on a person, and how many are project-wide.
+		// Bounded by the page for the marks and counted whole for the number.
+		onPage := make([]uuid.UUID, len(page.Items))
+		for i, instance := range page.Items {
+			onPage[i] = instance.ID
+		}
+		attention, attentionErr := s.InstanceAttention(ctx, projectID, countFilter, onPage)
+		if attentionErr != nil {
+			return ListInstancesResponse{Err: attentionErr}, nil
+		}
+
 		return ListInstancesResponse{
 			Instances: page.Items,
 			Page: &InstancePageInfo{
@@ -95,8 +134,97 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 				PageSize: page.PageSize,
 				HasMore:  page.HasMore(),
 			},
+			StatusCounts:        statusCountsOf(counts),
+			NeedsAttentionTotal: attention.Total,
+			NeedsAttentionIDs:   needingAttention(page.Items, attention),
 		}, nil
 	}
+}
+
+// needingAttention lists the page's instances that hold an open incident.
+//
+// In the order they appear on the page rather than the order a map yields, so
+// the response does not reshuffle between two identical requests.
+func needingAttention(instances []entities.ProcessInstance, attention entities.InstanceAttention) []string {
+	var ids []string
+	for _, instance := range instances {
+		if attention.NeedsAttention(instance.ID) {
+			ids = append(ids, instance.ID.String())
+		}
+	}
+	return ids
+}
+
+// instanceFilterOf validates what the caller asked to narrow by.
+//
+// An unrecognised status is refused rather than dropped. Dropping it answers a
+// request for "everything that failed" with every instance in the project,
+// which reads as "nothing failed" — the one answer this page must never give
+// wrongly. A malformed definition id is refused for the same reason a malformed
+// project id is: a filter that cannot be honoured must narrow nothing, and
+// narrowing nothing means widening everything.
+func instanceFilterOf(req ListInstancesRequest) (repocontracts.InstanceFilter, error) {
+	var filter repocontracts.InstanceFilter
+
+	if req.Status != "" {
+		status := models.ProcessStatus(strings.ToLower(strings.TrimSpace(req.Status)))
+		if !models.ValidProcessStatus(status) {
+			return filter, apierr.Invalidf(
+				"status %q is not a process state; expected one of %s",
+				req.Status, strings.Join(processStatusNames(), ", "))
+		}
+		filter.Status = status
+	}
+
+	if req.DefinitionID != "" {
+		definitionID, err := uuid.Parse(req.DefinitionID)
+		if err != nil {
+			return repocontracts.InstanceFilter{}, apierr.Invalidf(
+				"definition id %q is not a valid identifier: %v", req.DefinitionID, err)
+		}
+		filter.DefinitionID = definitionID
+	}
+
+	filter.NeedsAttention = req.NeedsAttention
+
+	return filter, nil
+}
+
+// processStatusNames lists the accepted states for an error message, so a
+// caller that guessed wrong is told what to guess instead.
+func processStatusNames() []string {
+	names := make([]string, 0, len(models.ProcessStatuses))
+	for _, status := range models.ProcessStatuses {
+		names = append(names, string(status))
+	}
+	return names
+}
+
+// statusCountsOf renders the counts in a fixed order.
+//
+// Map iteration order is random in Go, so serving them straight out of the map
+// would reorder a caller's filter chips on every refresh.
+func statusCountsOf(counts map[models.ProcessStatus]int64) []InstanceStatusCount {
+	out := make([]InstanceStatusCount, 0, len(counts))
+	for _, status := range models.ProcessStatuses {
+		if total, ok := counts[status]; ok {
+			out = append(out, InstanceStatusCount{Status: string(status), Total: total})
+		}
+	}
+	// A state the engine no longer writes can still be in the table from an
+	// older version. Reporting it is better than a total that does not add up —
+	// sorted, for the same reason the known ones are in a fixed order.
+	var unknown []string
+	for status := range counts {
+		if !models.ValidProcessStatus(status) {
+			unknown = append(unknown, string(status))
+		}
+	}
+	sort.Strings(unknown)
+	for _, status := range unknown {
+		out = append(out, InstanceStatusCount{Status: status, Total: counts[models.ProcessStatus(status)]})
+	}
+	return out
 }
 
 func MakeGetExecutionPathEndpoint(s services.ServiceFacade) endpoint.Endpoint {

@@ -142,7 +142,14 @@ func decodeGRPCListInstancesRequest(_ context.Context, grpcReq any) (any, error)
 	if !ok {
 		return nil, fmt.Errorf("processes: expected a *endpoints.ListInstancesRequest, got %T", grpcReq)
 	}
-	return process.ListInstancesRequest{ProjectID: req.ProjectId}, nil
+	return process.ListInstancesRequest{
+		ProjectID:      req.ProjectId,
+		Page:           int(req.GetPage().GetPage()),
+		PageSize:       int(req.GetPage().GetPageSize()),
+		Status:         req.GetStatus(),
+		DefinitionID:   req.GetDefinitionId(),
+		NeedsAttention: req.GetNeedsAttention(),
+	}, nil
 }
 
 func encodeGRPCListInstancesResponse(_ context.Context, response any) (any, error) {
@@ -157,7 +164,22 @@ func encodeGRPCListInstancesResponse(_ context.Context, response any) (any, erro
 			instances = append(instances, adapters.ProcessInstancePBAdapter{Instance: inst}.ToProto())
 		}
 	}
-	return &endpoints.ListInstancesResponse{Instances: instances, Error: common.ErrString(resp.Err)}, nil
+	out := &endpoints.ListInstancesResponse{Instances: instances, Error: common.ErrString(resp.Err)}
+	if resp.Page != nil {
+		out.Page = &endpoints.PageInfo{
+			Total:    resp.Page.Total,
+			Page:     int32(resp.Page.Page),
+			PageSize: int32(resp.Page.PageSize),
+			HasMore:  resp.Page.HasMore,
+		}
+	}
+	out.StatusCounts = make([]*endpoints.StatusCount, len(resp.StatusCounts))
+	for i, count := range resp.StatusCounts {
+		out.StatusCounts[i] = &endpoints.StatusCount{Status: count.Status, Total: count.Total}
+	}
+	out.NeedsAttentionTotal = resp.NeedsAttentionTotal
+	out.NeedsAttentionIds = resp.NeedsAttentionIDs
+	return out, nil
 }
 
 func decodeGRPCGetExecutionPathRequest(_ context.Context, grpcReq any) (any, error) {
