@@ -12,6 +12,19 @@ GO_PKGS = $(shell go list ./... | grep -v '/node_modules/')
 # from a suite that ran and passed.
 GO_TEST_FLAGS ?=
 
+# How many test packages run at once.
+#
+# Every package that touches the database opens its own pool of 25 connections,
+# and PostgreSQL's default max_connections is 100. Go's default parallelism is
+# GOMAXPROCS, so on any ordinary machine the suite asks for several times what
+# the server will give — and the failure is `dial: operation timed out` part way
+# through, which reads exactly like a database that has crashed rather than one
+# refusing a sixth pool. test-db has carried this warning in its help text for a
+# while; the gate runs the same packages and did not apply it.
+#
+# Override for a machine with a larger max_connections: make gate GO_TEST_P=-p 6
+GO_TEST_P ?= -p 2
+
 .PHONY: help
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -74,13 +87,13 @@ vet: ## Run go vet across the whole module
 
 .PHONY: test
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
-	go test $(GO_TEST_FLAGS) $(GO_PKGS)
+	go test $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: test-db
 test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4
 	@echo "Database tests skip unless METIS_TEST_POSTGRES_DSN and STORM_DSN are set."
-	@echo "Use -p 2 against a shared server: every package opens its own pool, and the"
-	@echo "default parallelism exhausts PostgreSQL's 100 connections. The dial timeout"
+	@echo "Parallelism is capped (GO_TEST_P, default -p 2): every package opens its own"
+	@echo "pool, and the default exhausts PostgreSQL's 100 connections. The dial timeout"
 	@echo "that produces reads like a defect and is not."
 	@echo "Apple container:"
 	@echo "  container run -d --rm --name metis-pg -e POSTGRES_PASSWORD=metis -e POSTGRES_USER=metis -e POSTGRES_DB=metis docker.io/library/postgres:17"
@@ -90,7 +103,7 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
-	go test -race $(GO_TEST_FLAGS) $(GO_PKGS)
+	go test -race $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 # The packages that exercise product paths through the real interceptor chain
 # and therefore mean something under the strict scope.
@@ -106,7 +119,7 @@ STRICT_SCOPE_PKGS = ./tests/strictscope/... ./tests/slo/... ./tests/user/... \
 
 .PHONY: strict-scope
 strict-scope: ## Run the strict-tenant-scope suites with the flag on, as production would set it
-	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test -count=1 $(STRICT_SCOPE_PKGS)
+	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test $(GO_TEST_P) -count=1 $(STRICT_SCOPE_PKGS)
 
 .PHONY: lint
 lint: ## Run golangci-lint

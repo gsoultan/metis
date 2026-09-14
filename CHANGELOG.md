@@ -8,7 +8,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-14
+
+A minor rather than a patch, and the largest release so far. It drops every
+database engine except PostgreSQL, so read **Removed** before upgrading: an
+installation on SQLite, MySQL or SQL Server cannot take this release as it
+stands.
+
+It also carries a privilege escalation fix. `PUT /api/v1/decisions/{id}` was
+served without an authorization chain, so any authenticated account could
+rewrite a decision table — proven on the shipped default configuration, leaving
+the table with no rules. Anyone running 0.2.0 has it.
+
 ### Security
+
+- **Five endpoints were routed and served without an authorization chain.**
+  `MakeEndpoints` builds a struct of endpoints and the wiring then replaces each
+  field with a wrapped copy that resolves the tenant and checks the role. A
+  field nobody wraps is still routed: it simply reaches the repository with no
+  identity and no role check, and nothing fails or logs.
+
+  `PUT /api/v1/decisions/{id}` was the exploitable one. Creating a decision
+  needed the designer role and deleting one did too, while rewriting one — the
+  most powerful of the three — needed only a login. Proven against a running
+  server on the shipped default configuration: the same account was refused a
+  create with 401 and allowed an update with 200, leaving the decision table
+  with zero rules and zero inputs. A DMN table with no rules matches nothing,
+  and a decision point that matches nothing is an incident on every instance
+  that reaches it.
+
+  The connector template endpoints (`POST`, `PUT` and `DELETE
+  /api/v1/connectors`) were the same shape: any authenticated account could add
+  or rewrite what the engine calls out to and with which credentials, while
+  creating an *instance* of the same connector already needed an administrator.
+  `ExportOCEL` and the self-service password change were unwrapped too, though
+  neither was exploitable.
+
+  None of them was ever reachable anonymously — the transport chain still
+  demanded a token — which is exactly why they survived: they pass any "is it
+  behind a login?" check. Two further things hid them. `ExportOCEL` failed
+  silently, answering 200 with an empty log on a project holding 105 events.
+  And under `METIS_FEATURE_STRICT_TENANT_SCOPE` the unwrapped `UpdateDecision`
+  returns 404 rather than 200, so the strict-scope soak masks the escalation
+  instead of revealing it.
+
+  A test now reads the source and fails on any declared endpoint with no chain,
+  because hand-auditing this once is what let four of them ship.
 
 - **The live event stream carried every organization's process variables to
   every signed-in browser.** The SSE client registry was a flat set with no
@@ -61,7 +106,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `Referrer-Policy` and `X-Content-Type-Options`. There were none, on a UI whose
   session token lives in `localStorage`.
 
+### Removed
+
+- **PostgreSQL is the only supported database engine.** SQLite, MySQL and SQL
+  Server are gone. An installation running one of them cannot upgrade to this
+  release; move the data to PostgreSQL first.
+
+  A config naming a removed driver is now an error at the point of opening. It
+  used to fall back to SQLite for anything it did not recognise, which meant
+  such a config would open a fresh empty file beside the real database and
+  start serving from it — indistinguishable, to whoever restarted the service,
+  from total data loss.
+
+  One engine is also what makes the rest of this release checkable: a
+  constraint has one spelling, and every test runs against what production
+  runs.
+
 ### Added
+
+- **The instance list filters in the database, so a project's failures are
+  reachable.** The status filter narrowed the twenty-five rows already in the
+  browser. A project with 500,000 instances and twelve failures therefore
+  offered no way to reach those twelve and no hint that they existed — the list
+  simply looked healthy, which is the one wrong answer this page must never
+  give.
+
+  `ListInstances` takes a state, a process and "needs attention", applied in
+  SQL, and returns counts for the whole project beside the page. So "12 need
+  attention" stays true while twenty-five completed runs are on screen, and the
+  number is also the control that reaches them. A status it does not recognise
+  is refused rather than dropped: dropping it answers "show me everything that
+  failed" with every instance in the project.
+
+  "Needs attention" is a separate axis from status because status cannot
+  express it. A job that exhausts its retries raises an incident and stops, and
+  the instance stays `active` — correctly, it has not failed, it is waiting for
+  somebody. Nothing in the engine writes a failed status, so a list that looked
+  for one would mark nothing, for ever.
+
+  Two composite indexes come with it, built `CONCURRENTLY` so the upgrade does
+  not hold a lock on the busiest table in the system while it runs.
 
 - **A BPMN file exported from here now opens in other BPMN tools, and one
   imported from them keeps its layout.** Export wrote a `<definitions>` element
