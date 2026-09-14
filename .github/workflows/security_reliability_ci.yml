@@ -41,7 +41,7 @@ jobs:
       # runner had node preinstalled and hid this; a self-hosted one need not,
       # so the job asks for the runtime its budgets were measured with.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
