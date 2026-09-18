@@ -62,6 +62,9 @@ func TestActorComesFromTheTokenNotTheBody(t *testing.T) {
 type taskHarness struct {
 	server *httptest.Server
 	svc    services.ServiceFacade
+	// db is the raw handle, for the tests that have to write a row the way
+	// something other than the engine would.
+	db     *gorm.DB
 	tokens map[string]string
 	projID uuid.UUID
 	orgID  uuid.UUID
@@ -78,7 +81,7 @@ func newTaskHarness(t *testing.T) *taskHarness {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	h := &taskHarness{server: server, svc: svc, tokens: map[string]string{}}
+	h := &taskHarness{server: server, svc: svc, db: db, tokens: map[string]string{}}
 
 	ctx := context.Background()
 	org, err := svc.CreateOrganization(ctx, "Actor Org", "")

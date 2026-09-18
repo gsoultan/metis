@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	neturl "net/url"
 	"os"
 	"strings"
 
@@ -146,6 +148,16 @@ func DefaultPort(driver string) int {
 // best-effort guess. Opening on an empty DSN fails immediately and says so,
 // where a guess would connect to something — the local socket, a default
 // database — and the first sign of trouble would be data in the wrong place.
+//
+// Values are quoted when they need it. Interpolating them raw is what this used
+// to do, and libpq's keyword/value grammar skips whitespace between `=` and the
+// value — so an empty password emitted `password= dbname=metis` and parsed as
+// the password *being* `dbname=metis`, leaving no database at all. libpq then
+// falls back to a database named after the user. The wizard does not require a
+// database password, so that was reachable by leaving a field blank: setup
+// migrated and seeded a database nobody named, wrote it into config.yaml, and
+// every boot afterwards went there. A space in the password made the whole DSN
+// unparseable, and a backslash was silently dropped from it.
 func BuildConnectionString(driver string, fields DatabaseFields) string {
 	if driver != DriverPostgres {
 		return ""
@@ -156,8 +168,167 @@ func BuildConnectionString(driver string, fields DatabaseFields) string {
 	}
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		fields.Host, fields.Port, fields.Username, fields.Password, fields.DBName, sslMode,
+		quoteDSNValue(fields.Host), fields.Port, quoteDSNValue(fields.Username),
+		quoteDSNValue(fields.Password), quoteDSNValue(fields.DBName), sslMode,
 	)
+}
+
+// dsnValueNeedsQuoting reports whether a value would not survive being written
+// bare into a keyword/value connection string.
+//
+// Empty is included: a bare `password=` does not mean "no password", it means
+// the parser keeps reading and takes the next keyword as the value.
+func dsnValueNeedsQuoting(value string) bool {
+	if value == "" {
+		return true
+	}
+	return strings.ContainsAny(value, " \t\r\n'\\")
+}
+
+// quoteDSNValue renders a value for a keyword/value connection string.
+//
+// The common case is returned unchanged, so an ordinary DSN reads exactly as it
+// did before and an operator comparing config.yaml against their notes sees no
+// difference.
+func quoteDSNValue(value string) string {
+	if !dsnValueNeedsQuoting(value) {
+		return value
+	}
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('\'')
+	for i := range len(value) {
+		if c := value[i]; c == '\'' || c == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(value[i])
+	}
+	b.WriteByte('\'')
+	return b.String()
+}
+
+// parseKeywordValueDSN reads libpq's keyword/value grammar.
+//
+// strings.Fields was here, and it is wrong in both directions: it splits a
+// quoted value that contains a space into two fields and drops the second for
+// having no `=`, and it cannot see that `password=` swallows the keyword after
+// it. Both produce a map missing `dbname`, which is how one layer reached the
+// configured database and the other reached whatever libpq defaulted to.
+//
+// The second return reports whether the string parsed. A malformed DSN is
+// handed back to the driver untouched rather than guessed at, so the error
+// names the connection string instead of a database nobody asked for.
+func parseKeywordValueDSN(dsn string) (map[string]string, bool) {
+	fields := map[string]string{}
+	i, n := 0, len(dsn)
+	isSpace := func(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
+
+	for {
+		for i < n && isSpace(dsn[i]) {
+			i++
+		}
+		if i >= n {
+			return fields, true
+		}
+
+		start := i
+		for i < n && dsn[i] != '=' && !isSpace(dsn[i]) {
+			i++
+		}
+		keyword := dsn[start:i]
+		if keyword == "" {
+			return nil, false
+		}
+
+		for i < n && isSpace(dsn[i]) {
+			i++
+		}
+		if i >= n || dsn[i] != '=' {
+			return nil, false
+		}
+		i++
+		for i < n && isSpace(dsn[i]) {
+			i++
+		}
+
+		var value strings.Builder
+		if i < n && dsn[i] == '\'' {
+			i++
+			for {
+				if i >= n {
+					return nil, false
+				}
+				if dsn[i] == '\'' {
+					i++
+					break
+				}
+				if dsn[i] == '\\' {
+					i++
+					if i >= n {
+						return nil, false
+					}
+				}
+				value.WriteByte(dsn[i])
+				i++
+			}
+		} else {
+			for i < n && !isSpace(dsn[i]) {
+				if dsn[i] == '\\' {
+					i++
+					if i >= n {
+						return nil, false
+					}
+				}
+				value.WriteByte(dsn[i])
+				i++
+			}
+		}
+		fields[keyword] = value.String()
+	}
+}
+
+// PostgresURL converts a key/value connection string into the URL form pgx
+// takes.
+//
+// Two formats for one database is not a choice anybody made; it is what the two
+// drivers accept. Converting in one place means an environment is configured
+// once and both layers reach the same database — resolving it twice is how one
+// ends up on the configured database and the other somewhere else.
+//
+// A DSN that does not parse, or that names no database, is returned unchanged.
+// Building a URL out of it would produce `postgres://user@host:5432/` — a
+// request to connect to the default database, which is the silent wrong answer
+// this function exists to prevent.
+func PostgresURL(dsn string) string {
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		return dsn
+	}
+	fields, ok := parseKeywordValueDSN(dsn)
+	if !ok || fields["dbname"] == "" {
+		return dsn
+	}
+	sslMode := fields["sslmode"]
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+
+	query := neturl.Values{}
+	query.Set("sslmode", sslMode)
+	if searchPath := fields["search_path"]; searchPath != "" {
+		query.Set("search_path", searchPath)
+	}
+
+	// net/url rather than Sprintf: a password is arbitrary bytes, and an `@`
+	// or a `/` in one silently re-points the host or the database when the URL
+	// is assembled by hand.
+	u := neturl.URL{
+		Scheme:   "postgres",
+		User:     neturl.UserPassword(fields["user"], fields["password"]),
+		Host:     net.JoinHostPort(fields["host"], fields["port"]),
+		Path:     "/" + fields["dbname"],
+		RawQuery: query.Encode(),
+	}
+	return u.String()
 }
 
 // SupportedDriver reports whether a stored or submitted driver is one this can
@@ -186,35 +357,4 @@ func NewConfig(driver, connectionString, encryptionKey, jwtSecret string) (*Conf
 		EncryptionKey: encryptionKey,
 		JWTSecret:     jwtSecret,
 	}, nil
-}
-
-// PostgresURL converts a key/value connection string into the URL form pgx
-// takes.
-//
-// Two formats for one database is not a choice anybody made; it is what the two
-// drivers accept. Converting in one place means an environment is configured
-// once and both layers reach the same database — resolving it twice is how one
-// ends up on the configured database and the other somewhere else.
-func PostgresURL(dsn string) string {
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-		return dsn
-	}
-	fields := map[string]string{}
-	for _, pair := range strings.Fields(dsn) {
-		key, value, ok := strings.Cut(pair, "=")
-		if ok {
-			fields[key] = value
-		}
-	}
-	sslMode := fields["sslmode"]
-	if sslMode == "" {
-		sslMode = "disable"
-	}
-	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		fields["user"], fields["password"], fields["host"], fields["port"],
-		fields["dbname"], sslMode)
-	if searchPath := fields["search_path"]; searchPath != "" {
-		url += "&search_path=" + searchPath
-	}
-	return url
 }

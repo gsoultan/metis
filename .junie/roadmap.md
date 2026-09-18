@@ -883,6 +883,14 @@ migrating can set `METIS_FEATURE_JAVASCRIPT_CONDITIONS=true`, and
 
 Two gaps closed, both of the same shape — a test existed and had never run:
 
+> **Superseded 2026-09-18.** This section is a record of what was true on the
+> date above; it is left as written. Two things in it no longer hold: the
+> product is PostgreSQL-only (`config.DriverPostgres` is the only driver), so
+> there is no `dialects` job and no MySQL or SQL Server to prove — the
+> PostgreSQL and RabbitMQ suites run on `go-security-reliability`, which still
+> fails on any skip. And GitHub Actions is running again; the blocker below is
+> resolved.
+
 - **Every dialect suite skipped everywhere.** `tests/postgres`, `tests/mysqldb`
   and `tests/tenant` skip when their DSN is unset, and no DSN was set in CI,
   which had no database service containers at all. The `dialects` job now runs

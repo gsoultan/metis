@@ -37,11 +37,15 @@ database. Pointing liveness at it means a brief database blip restarts every
 pod, turning an outage into a crash loop.
 
 **`replicas: 1` is deliberate.** Job claiming, migrations, correlation,
-idempotency and live UI updates are all safe across replicas. HTTP rate limiting
-and connector rate limits/circuit breakers are not — they hold per-process
-state, so with N replicas each of those limits applies N times over.
-[`docs/recovery.md` §2.1](../../docs/recovery.md) has the table. Raising this is
-a decision to make deliberately, not a default to inherit.
+idempotency, live UI updates, HTTP rate limiting and connector rate limits are
+all safe across replicas — the limits pool their counts through
+`shared_counters`, so the limit is the installation's rather than each
+process's. What is still per-process is **circuit breakers**, and deliberately:
+they open on *consecutive* failures rather than on a rate, and a shared count
+would turn that back into a rate. The cost is that a failing partner sees up to
+`FailureThreshold` failures per replica before all of them back off, rather than
+in total. [`docs/recovery.md` §2.1](../../docs/recovery.md) has the table.
+Raising this is a decision to make deliberately, not a default to inherit.
 
 ## Alerting
 

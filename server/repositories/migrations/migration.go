@@ -545,6 +545,93 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 21,
+			Name:    "a task's priority is a number, not a maybe",
+			// GET /api/v1/tasks panicked on a task whose priority was NULL:
+			// `index out of range [7] with length 0`, from the generated
+			// scanner reading eight bytes of an empty buffer. The inbox is the
+			// page a business user lives in, and it did not answer slowly — it
+			// dropped the connection.
+			//
+			// The model has always said `Priority int`, non-nullable. The
+			// column was created by AutoMigrate, which does not carry that over,
+			// so the schema permitted a value the reader cannot decode. Rows
+			// written by the engine always carry one; rows written by anything
+			// else — a bulk import, a data migration, or AutoMigrate adding the
+			// column to a table that already had tasks in it — do not. That last
+			// one is the upgrade path, and it leaves every pre-existing task
+			// NULL.
+			//
+			// Three steps, in this order, because the order is what makes it
+			// safe to run while the engine is serving:
+			//
+			//  1. Backfill, in batches. One statement over a large inbox holds
+			//     row locks for its whole duration; a hundred thousand at a time
+			//     keeps each transaction short enough to interleave with work.
+			//  2. A DEFAULT, so a writer that omits the column gets 0 rather
+			//     than reintroducing the NULL this just removed.
+			//  3. SET NOT NULL via a NOT VALID check that is then validated.
+			//     SET NOT NULL on its own takes ACCESS EXCLUSIVE and scans the
+			//     table under it, blocking every read and write on tasks for the
+			//     length of the scan. VALIDATE CONSTRAINT takes only SHARE
+			//     UPDATE EXCLUSIVE, and PostgreSQL 12 and later will then accept
+			//     SET NOT NULL without rescanning, because the validated check
+			//     already proves it.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				for {
+					res := db.WithContext(ctx).Exec(`
+						UPDATE tasks SET priority = 0
+						WHERE id IN (SELECT id FROM tasks WHERE priority IS NULL LIMIT 100000)`)
+					if res.Error != nil {
+						return fmt.Errorf("backfill tasks.priority: %w", res.Error)
+					}
+					if res.RowsAffected == 0 {
+						break
+					}
+				}
+
+				// The backfill above is portable and is the half that matters
+				// for correctness. Everything below is PostgreSQL grammar —
+				// ALTER COLUMN, NOT VALID, VALIDATE CONSTRAINT — and SQLite has
+				// none of it. PostgreSQL is the only engine this ships on; the
+				// completeness suite runs the migration list over in-memory
+				// SQLite to prove every model gets a table, and that check must
+				// not be broken by a statement only one engine understands.
+				if db.Name() != "postgres" {
+					return nil
+				}
+
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks ALTER COLUMN priority SET DEFAULT 0`).Error; err != nil {
+					return fmt.Errorf("default tasks.priority: %w", err)
+				}
+
+				const check = "ck_tasks_priority_not_null"
+				// Dropped first so a retry after a failure part-way through
+				// does not trip over the constraint its last attempt left.
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks DROP CONSTRAINT IF EXISTS ` + check).Error; err != nil {
+					return fmt.Errorf("drop %s: %w", check, err)
+				}
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks ADD CONSTRAINT ` + check +
+						` CHECK (priority IS NOT NULL) NOT VALID`).Error; err != nil {
+					return fmt.Errorf("add %s: %w", check, err)
+				}
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks VALIDATE CONSTRAINT ` + check).Error; err != nil {
+					return fmt.Errorf("validate %s: %w", check, err)
+				}
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks ALTER COLUMN priority SET NOT NULL`).Error; err != nil {
+					return fmt.Errorf("set tasks.priority not null: %w", err)
+				}
+				// The column constraint now says everything the check said.
+				return db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks DROP CONSTRAINT ` + check).Error
+			},
+		},
 	}
 }
 
