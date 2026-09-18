@@ -12,7 +12,7 @@ type CompensatableActivityModel struct {
 	NodeID             string         `json:"node_id"`
 	CompensationNodeID string         `json:"compensation_node_id"`
 	Variables          map[string]any `gorm:"type:text;serializer:json"  json:"variables,omitzero"`
-	CompletedAt        time.Time      `json:"completed_at"`
+	CompletedAt        time.Time      `gorm:"not null" json:"completed_at"`
 	Compensated        bool           `gorm:"default:false"              json:"compensated"`
 }
 

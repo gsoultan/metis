@@ -44,7 +44,7 @@ type ProcessDefinitionReleaseModel struct {
 	// Part of the unique key so that two versions cannot claim the same instant,
 	// and so that promoting again is a new entry rather than an overwrite of when
 	// the last change happened.
-	ActivateAt time.Time `gorm:"index:idx_definition_release_timeline,unique,priority:3" json:"activate_at"`
+	ActivateAt time.Time `gorm:"index:idx_definition_release_timeline,unique,priority:3;not null" json:"activate_at"`
 	// Version is the version number rather than a definition ID so a release can
 	// be read against the same (project_id, key, version) series the definitions
 	// are indexed by, in one lookup.
@@ -52,7 +52,7 @@ type ProcessDefinitionReleaseModel struct {
 	// A release naming a version that has since been deleted is not an error:
 	// the reader falls back to the highest version, which is what the engine did
 	// before releases existed.
-	Version int `json:"version"`
+	Version int `gorm:"not null;default:0" json:"version"`
 }
 
 // TableName overrides the table name for ProcessDefinitionReleaseModel.

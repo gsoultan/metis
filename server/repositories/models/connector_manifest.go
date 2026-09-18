@@ -17,7 +17,7 @@ type ConnectorManifestModel struct {
 	Key string `gorm:"size:191;uniqueIndex" json:"key"`
 
 	Name    string `gorm:"size:255" json:"name"`
-	Version int    `json:"version"`
+	Version int    `gorm:"not null;default:0" json:"version"`
 
 	// Document is the manifest as its author wrote it, YAML or JSON. Stored
 	// verbatim rather than as parsed fields so that what an operator reads back

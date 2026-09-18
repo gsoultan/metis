@@ -18,6 +18,42 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Migration 22 can stop the upgrade, on purpose
+
+Seventy-two columns were declared non-null by the model — which is what the
+generated reader is compiled from — and left nullable by `AutoMigrate`, which
+does not carry that over. The reader decodes each of them by indexing a fixed
+number of bytes, so a single NULL row is `index out of range`, not a zero
+value, and **every read of that table answers 500**. That is what took the task
+inbox down before it was found.
+
+Migration 22 repairs them. For counters and versions it fills the gap with zero
+— no retries yet, no attempts yet, version zero are all true statements about a
+row that does not say. For **timestamps it refuses**:
+
+```
+webhook_deliveries.received_at holds 4 NULL(s), and every read of
+webhook_deliveries panics on them.
+
+This migration will not guess a timestamp: webhook_deliveries.received_at is
+part of the record of when things happened, and an invented one is worse than a
+stopped upgrade. Decide what those rows should say, set it, and run the upgrade
+again. If they are junk, delete them
+```
+
+**You will almost certainly never see this.** The engine writes every timestamp
+on every insert, so the only rows that can carry a NULL are ones written around
+the application — a bulk import, a migration from another system, a fix applied
+by hand. If it does fire, the migration has changed nothing: the column is still
+nullable and the upgrade can be run again once the rows are decided. Set them,
+or delete them if they are junk.
+
+The repair takes no meaningful lock. `SET NOT NULL` on its own holds
+`ACCESS EXCLUSIVE` while it scans the table, which stops every read and write
+on it; this adds a `NOT VALID` check first and validates that under
+`SHARE UPDATE EXCLUSIVE`, which readers and writers do not contend with, so the
+exclusive lock is held for a catalog update rather than a scan.
+
 ## Moving to PostgreSQL
 
 Metis runs on PostgreSQL and nothing else. SQLite, MySQL and SQL Server were

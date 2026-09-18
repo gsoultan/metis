@@ -13,9 +13,21 @@ import (
 
 // Base is a base model that uses UUID V7 for the ID.
 type Base struct {
-	ID        UUID           `gorm:"primaryKey" json:"id,omitzero"`
-	CreatedAt time.Time      `json:"created_at,omitzero"`
-	UpdatedAt time.Time      `json:"updated_at,omitzero"`
+	ID UUID `gorm:"primaryKey" json:"id,omitzero"`
+	// not null: the storm reader decodes a timestamptz by indexing eight bytes
+	// out of the wire buffer, so a NULL is a panic on the read rather than a
+	// zero time. GORM fills both on every write, which is why it has never
+	// happened — but AutoMigrate left the column permitting it, and anything
+	// that writes a row without going through GORM could. Enforced by
+	// tests/drift/nullability_test.go; migration 22 does the same to tables
+	// that already exist.
+	//
+	// No DEFAULT deliberately. A zero priority is a meaningful priority; an
+	// invented created_at is a falsified audit trail, and this column is the
+	// compliance answer to "when did this happen". A writer that omits it
+	// should be refused, not quietly given now().
+	CreatedAt time.Time      `gorm:"not null" json:"created_at,omitzero"`
+	UpdatedAt time.Time      `gorm:"not null" json:"updated_at,omitzero"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
