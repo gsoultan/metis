@@ -34,14 +34,14 @@ type IdempotencyRecordModel struct {
 	// wait rather than execute.
 	Completed bool `gorm:"index" json:"completed"`
 
-	StatusCode int                 `json:"status_code,omitzero"`
+	StatusCode int                 `gorm:"not null;default:0" json:"status_code,omitzero"`
 	Headers    map[string][]string `gorm:"type:text;serializer:json" json:"headers,omitzero"`
 	Body       []byte              `json:"body,omitzero"`
 
 	// CreatedAt is what the retention sweep works from. These rows answer "have
 	// I already done this?" for as long as a client might retry, and are
 	// worthless after that.
-	CreatedAt   time.Time  `gorm:"index" json:"created_at"`
+	CreatedAt   time.Time  `gorm:"index;not null" json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitzero"`
 }
 

@@ -545,7 +545,298 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 21,
+			Name:    "a task's priority is a number, not a maybe",
+			// GET /api/v1/tasks panicked on a task whose priority was NULL:
+			// `index out of range [7] with length 0`, from the generated
+			// scanner reading eight bytes of an empty buffer. The inbox is the
+			// page a business user lives in, and it did not answer slowly — it
+			// dropped the connection.
+			//
+			// The model has always said `Priority int`, non-nullable. The
+			// column was created by AutoMigrate, which does not carry that over,
+			// so the schema permitted a value the reader cannot decode. Rows
+			// written by the engine always carry one; rows written by anything
+			// else — a bulk import, a data migration, or AutoMigrate adding the
+			// column to a table that already had tasks in it — do not. That last
+			// one is the upgrade path, and it leaves every pre-existing task
+			// NULL.
+			//
+			// Three steps, in this order, because the order is what makes it
+			// safe to run while the engine is serving:
+			//
+			//  1. Backfill, in batches. One statement over a large inbox holds
+			//     row locks for its whole duration; a hundred thousand at a time
+			//     keeps each transaction short enough to interleave with work.
+			//  2. A DEFAULT, so a writer that omits the column gets 0 rather
+			//     than reintroducing the NULL this just removed.
+			//  3. SET NOT NULL via a NOT VALID check that is then validated.
+			//     SET NOT NULL on its own takes ACCESS EXCLUSIVE and scans the
+			//     table under it, blocking every read and write on tasks for the
+			//     length of the scan. VALIDATE CONSTRAINT takes only SHARE
+			//     UPDATE EXCLUSIVE, and PostgreSQL 12 and later will then accept
+			//     SET NOT NULL without rescanning, because the validated check
+			//     already proves it.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				for {
+					res := db.WithContext(ctx).Exec(`
+						UPDATE tasks SET priority = 0
+						WHERE id IN (SELECT id FROM tasks WHERE priority IS NULL LIMIT 100000)`)
+					if res.Error != nil {
+						return fmt.Errorf("backfill tasks.priority: %w", res.Error)
+					}
+					if res.RowsAffected == 0 {
+						break
+					}
+				}
+
+				// The backfill above is portable and is the half that matters
+				// for correctness. Everything below is PostgreSQL grammar —
+				// ALTER COLUMN, NOT VALID, VALIDATE CONSTRAINT — and SQLite has
+				// none of it. PostgreSQL is the only engine this ships on; the
+				// completeness suite runs the migration list over in-memory
+				// SQLite to prove every model gets a table, and that check must
+				// not be broken by a statement only one engine understands.
+				if db.Name() != "postgres" {
+					return nil
+				}
+
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE tasks ALTER COLUMN priority SET DEFAULT 0`).Error; err != nil {
+					return fmt.Errorf("default tasks.priority: %w", err)
+				}
+
+				return setColumnNotNull(ctx, db, "tasks", "priority")
+			},
+		},
+		{
+			Version: 22,
+			Name:    "every column the reader treats as present is declared present",
+			// Migration 21 fixed tasks.priority. Seventy-two columns had the
+			// same shape: declared non-null in the storm model — which is what
+			// the generated reader is compiled from — and left nullable by
+			// AutoMigrate, which does not carry that over. The reader decodes
+			// each of them by indexing a fixed number of bytes out of the wire
+			// buffer, so one NULL row is `index out of range`, not a zero value,
+			// and every read of that table dies on it.
+			//
+			// They are not reachable through the engine, which writes every
+			// field. They are reachable the way tasks.priority was: on an
+			// upgrade, when AutoMigrate adds a column to a table that already
+			// has rows and leaves every one of them NULL.
+			//
+			// tests/drift/nullability_test.go is what keeps the list at zero
+			// from here; this is the one-off repair for databases that already
+			// exist. On a fresh install every column below is already NOT NULL
+			// from the model tag, and setColumnNotNull skips it without taking
+			// a lock.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				if db.Name() != "postgres" {
+					return nil
+				}
+
+				// Counters and versions, where zero is a meaningful value: no
+				// retries yet, no attempts yet, version zero. They get a
+				// DEFAULT as well, so a writer that omits the column gets 0
+				// rather than putting the NULL straight back.
+				counters := []struct{ table, column string }{
+					{"connector_manifests", "version"},
+					{"decision_definitions", "version"},
+					{"environments", "port"},
+					{"external_tasks", "retries"},
+					{"external_tasks", "retry_timeout"},
+					{"idempotency_records", "status_code"},
+					{"jobs", "max_retries"},
+					{"jobs", "repeats_remaining"},
+					{"jobs", "retries"},
+					{"process_definition_releases", "version"},
+					{"process_definitions", "version"},
+					{"service_calls", "attempts"},
+					// Storm creates its own tables with the constraint already
+					// on, so these are no-ops today. They are listed anyway:
+					// the migration is meant to be a complete statement of the
+					// invariant, not a list of the columns that happened to be
+					// wrong on the day it was written.
+					{"participant_sources", "last_run_created"},
+					{"participant_sources", "last_run_updated"},
+					{"shared_counters", "count"},
+				}
+				for _, c := range counters {
+					if err := backfillAndDefault(ctx, db, c.table, c.column, "0"); err != nil {
+						return err
+					}
+					if err := setColumnNotNull(ctx, db, c.table, c.column); err != nil {
+						return err
+					}
+				}
+
+				// Timestamps get no DEFAULT and no backfill.
+				//
+				// An invented created_at is a falsified audit trail, and in
+				// this system that column is the compliance answer to "when
+				// did this happen". Zero of them should be NULL — GORM writes
+				// both on every insert — so if any are, something wrote rows
+				// around the application and a migration is the wrong place to
+				// decide what time they happened. It stops and says so.
+				timestamps := []struct{ table, column string }{
+					{"compensatable_activities", "completed_at"},
+					{"idempotency_records", "created_at"},
+					{"jobs", "next_run_at"},
+					{"process_definition_releases", "activate_at"},
+					{"variable_snapshots", "captured_at"},
+					{"webhook_deliveries", "received_at"},
+					{"broadcast_events", "created_at"},
+					{"shared_counters", "updated_at"},
+				}
+				for _, table := range baseTimestampTables() {
+					timestamps = append(timestamps,
+						struct{ table, column string }{table, "created_at"},
+						struct{ table, column string }{table, "updated_at"})
+				}
+				for _, c := range timestamps {
+					if err := refuseOnNulls(ctx, db, c.table, c.column); err != nil {
+						return err
+					}
+					if err := setColumnNotNull(ctx, db, c.table, c.column); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
 	}
+}
+
+// baseTimestampTables are the tables whose created_at and updated_at come from
+// the embedded models.Base, listed rather than derived: a migration records
+// what it did to a database, and one that reads the current model list would
+// do something different on every release.
+func baseTimestampTables() []string {
+	return []string{
+		"audit_logs", "compensatable_activities", "connector_instances",
+		"connector_manifests", "connectors", "decision_definitions",
+		"deployment_resources", "deployments", "environments",
+		"event_subscriptions", "external_tasks", "forms", "groups",
+		"incidents", "jobs", "notifications", "organizations",
+		"process_definition_releases", "process_definitions",
+		"process_instances", "projects", "service_calls", "tasks", "users",
+		"variable_snapshots", "webhook_deliveries", "webhooks",
+		// Storm-owned, and already correct — see the note in migration 22.
+		"participant_sources", "platform_roles", "platform_users",
+		"workflow_groups", "workflow_users",
+	}
+}
+
+// columnIsNullable reports whether the column still permits NULL.
+//
+// Every repair below is a no-op on a database that already has the constraint,
+// and checking is what makes the migration cheap on a fresh install and safe to
+// re-run after a failure part-way through.
+func columnIsNullable(ctx context.Context, db *gorm.DB, table, column string) (bool, error) {
+	var nullable string
+	err := db.WithContext(ctx).Raw(`
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+		table, column).Scan(&nullable).Error
+	if err != nil {
+		return false, fmt.Errorf("read %s.%s: %w", table, column, err)
+	}
+	// An absent column is not an error here: a release that drops one should
+	// not make this migration fail forever on the installations that ran it.
+	return nullable == "YES", nil
+}
+
+// backfillAndDefault fills the NULLs already in a column and stops new ones.
+//
+// Batched, because one statement over a large table holds row locks for its
+// whole duration. On a busy jobs or tasks table that is the difference between
+// an upgrade that interleaves with work and one that stops it.
+func backfillAndDefault(ctx context.Context, db *gorm.DB, table, column, zero string) error {
+	nullable, err := columnIsNullable(ctx, db, table, column)
+	if err != nil || !nullable {
+		return err
+	}
+	for {
+		res := db.WithContext(ctx).Exec(fmt.Sprintf(
+			`UPDATE %[1]s SET %[2]s = %[3]s WHERE ctid IN (
+			   SELECT ctid FROM %[1]s WHERE %[2]s IS NULL LIMIT 100000)`,
+			table, column, zero))
+		if res.Error != nil {
+			return fmt.Errorf("backfill %s.%s: %w", table, column, res.Error)
+		}
+		if res.RowsAffected == 0 {
+			break
+		}
+	}
+	if err := db.WithContext(ctx).Exec(fmt.Sprintf(
+		`ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s`, table, column, zero)).Error; err != nil {
+		return fmt.Errorf("default %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+// refuseOnNulls stops the migration rather than inventing a value.
+//
+// It is reached only for timestamps, where there is no defensible zero. See
+// migration 22 for why stopping is the right answer for those and not for a
+// counter.
+func refuseOnNulls(ctx context.Context, db *gorm.DB, table, column string) error {
+	nullable, err := columnIsNullable(ctx, db, table, column)
+	if err != nil || !nullable {
+		return err
+	}
+	var nulls int64
+	if err := db.WithContext(ctx).Raw(fmt.Sprintf(
+		`SELECT count(*) FROM %s WHERE %s IS NULL`, table, column)).Scan(&nulls).Error; err != nil {
+		return fmt.Errorf("count nulls in %s.%s: %w", table, column, err)
+	}
+	if nulls == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s.%s holds %d NULL(s), and every read of %[1]s panics on them.\n\n"+
+			"This migration will not guess a timestamp: %[1]s.%[2]s is part of the record of when\n"+
+			"things happened, and an invented one is worse than a stopped upgrade. Decide what those\n"+
+			"rows should say, set it, and run the upgrade again. If they are junk, delete them",
+		table, column, nulls)
+}
+
+// setColumnNotNull adds the constraint without locking the table for a scan.
+//
+// ALTER COLUMN ... SET NOT NULL on its own takes ACCESS EXCLUSIVE and scans the
+// whole table under it, which blocks every read and write on it for the length
+// of the scan — on process_instances or tasks, during a rolling deploy, while
+// the old replica is still serving.
+//
+// A CHECK added NOT VALID takes the lock only long enough to record itself.
+// VALIDATE CONSTRAINT then does the scan under SHARE UPDATE EXCLUSIVE, which
+// readers and writers do not contend with. PostgreSQL 12 and later will accept
+// SET NOT NULL without rescanning once such a check exists, because the
+// validated constraint already proves it, so the exclusive lock is held for a
+// catalog update rather than a table scan. The scaffolding is then dropped: two
+// constraints saying the same thing is one more thing for every write to check.
+func setColumnNotNull(ctx context.Context, db *gorm.DB, table, column string) error {
+	nullable, err := columnIsNullable(ctx, db, table, column)
+	if err != nil || !nullable {
+		return err
+	}
+	check := fmt.Sprintf("ck_%s_%s_not_null", table, column)
+
+	// Dropped first, so a retry after a failure part-way through does not trip
+	// over the constraint its last attempt left behind.
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s`, table, check),
+		fmt.Sprintf(`ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s IS NOT NULL) NOT VALID`, table, check, column),
+		fmt.Sprintf(`ALTER TABLE %s VALIDATE CONSTRAINT %s`, table, check),
+		fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s SET NOT NULL`, table, column),
+		fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT %s`, table, check),
+	} {
+		if err := db.WithContext(ctx).Exec(stmt).Error; err != nil {
+			return fmt.Errorf("%s: %w", stmt, err)
+		}
+	}
+	return nil
 }
 
 // createIndexConcurrently builds an index without locking out writers.

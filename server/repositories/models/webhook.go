@@ -79,7 +79,7 @@ type WebhookDeliveryModel struct {
 	// ReceivedAt is what the retention sweep works from: these rows exist to
 	// answer "have I seen this?" for as long as a sender might retry, and are
 	// worthless after that.
-	ReceivedAt time.Time `gorm:"index" json:"received_at"`
+	ReceivedAt time.Time `gorm:"index;not null" json:"received_at"`
 }
 
 // TableName overrides the table name for WebhookDeliveryModel.

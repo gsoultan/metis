@@ -113,7 +113,7 @@ type ProcessDefinitionModel struct {
 	ProjectID    UUID           `gorm:"index" json:"project_id,omitzero"`
 	Key          string         `gorm:"size:255;index" json:"key"`
 	Name         string         `json:"name"`
-	Version      int            `json:"version"`
+	Version      int            `gorm:"not null;default:0" json:"version"`
 	Nodes        []FlowNode     `gorm:"type:text;serializer:json" json:"nodes,omitzero"`
 	Flows        []SequenceFlow `gorm:"type:text;serializer:json" json:"flows,omitzero"`
 	DeploymentID UUID           `gorm:"index" json:"deployment_id,omitzero"`

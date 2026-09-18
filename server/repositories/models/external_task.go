@@ -17,8 +17,8 @@ type ExternalTaskModel struct {
 	Topic               string         `gorm:"index;type:varchar(255)" json:"topic"`
 	WorkerID            string         `gorm:"index;type:varchar(255)" json:"worker_id,omitzero"`
 	LockExpiration      *time.Time     `gorm:"index" json:"lock_expiration,omitzero"`
-	Retries             int            `gorm:"default:0" json:"retries"`
-	RetryTimeout        int64          `gorm:"default:0" json:"retry_timeout"`
+	Retries             int            `gorm:"not null;default:0" json:"retries"`
+	RetryTimeout        int64          `gorm:"not null;default:0" json:"retry_timeout"`
 	ErrorMessage        string         `gorm:"type:text" json:"error_message,omitzero"`
 	ErrorDetails        string         `gorm:"type:text" json:"error_details,omitzero"`
 	Variables           map[string]any `gorm:"type:text;serializer:json" json:"variables,omitzero"`

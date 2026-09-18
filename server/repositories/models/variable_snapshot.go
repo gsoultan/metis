@@ -10,7 +10,7 @@ type VariableSnapshotModel struct {
 	InstanceID UUID           `gorm:"index"           json:"instance_id"`
 	NodeID     string         `json:"node_id,omitzero"`
 	Variables  map[string]any `gorm:"type:text;serializer:json" json:"variables,omitzero"`
-	CapturedAt time.Time      `gorm:"index"                     json:"captured_at"`
+	CapturedAt time.Time      `gorm:"index;not null"            json:"captured_at"`
 }
 
 func (VariableSnapshotModel) TableName() string {

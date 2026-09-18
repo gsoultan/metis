@@ -865,8 +865,11 @@ func BuildAPIHandler(
 	// 503 are still counted. Those spend a caller's error budget and are the
 	// first sign of trouble; measuring only what got through would make an
 	// overloaded service look perfectly healthy.
+	// Recovery inside the collector, so a panic is a 500 the collector records
+	// rather than a closed connection it never sees. Outside everything else,
+	// so it covers the interceptor chain as well as the handlers.
 	metricsCollector := metrics.New()
-	httpHandler = metricsCollector.Wrap(httpHandler)
+	httpHandler = metricsCollector.Wrap(https.RecoverPanics(httpHandler))
 
 	// Tracing wraps outside metrics so that a span covers the whole request,
 	// including time spent queued behind the backpressure limiter — which is

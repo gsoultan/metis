@@ -26,7 +26,7 @@ type EnvironmentModel struct {
 	// installation rather than per project: two listeners cannot share a port,
 	// and finding that out at bind time — after the row is saved and the
 	// server is restarting — is worse than being refused on save.
-	Port int `gorm:"uniqueIndex" json:"port"`
+	Port int `gorm:"uniqueIndex;not null;default:0" json:"port"`
 
 	// Driver is the database engine backing this environment. PostgreSQL is
 	// the only one this supports; the column remains because a stored row names

@@ -42,7 +42,7 @@ type ServiceCallModel struct {
 	// Attempts counts how many times the call has been started. A number above
 	// one means a previous attempt did not finish, which is the interesting
 	// case for anyone reading this table during an incident.
-	Attempts int `json:"attempts"`
+	Attempts int `gorm:"not null;default:0" json:"attempts"`
 
 	// Response is what the call returned, kept so a retry after a failed commit
 	// can finish the work without repeating the call.

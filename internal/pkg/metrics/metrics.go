@@ -206,6 +206,14 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	return r.ResponseWriter.Write(b)
 }
 
+// ResponseStarted reports whether the status line has gone out.
+//
+// Exported for the panic recovery middleware, which sits directly inside this
+// one: a panic after the response has started cannot be answered with a 500,
+// only appended to. Tracking it here rather than in a second wrapper keeps that
+// check off the per-request allocation budget.
+func (r *statusRecorder) ResponseStarted() bool { return r.wroteHeader }
+
 // Flush keeps server-sent events working through the wrapper. Without it the
 // SSE endpoint would buffer forever, because statusRecorder would hide the
 // underlying http.Flusher.

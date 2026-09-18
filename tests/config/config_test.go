@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/internal/pkg/config"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestNewConfig_EncryptsConnectionString(t *testing.T) {
@@ -240,5 +241,86 @@ func TestLoad_AcceptsAnEmptyFile(t *testing.T) {
 
 	if _, err := config.Load(path); err != nil {
 		t.Fatalf("an empty config was refused: %v", err)
+	}
+}
+
+// TestBuildConnectionStringReachesTheNamedDatabase is the check that was
+// missing, and the reason it was needed.
+//
+// Every case below was silently wrong. The DSN was assembled by interpolating
+// values into libpq's keyword/value grammar, which skips whitespace between
+// `=` and the value — so an empty password emitted `password= dbname=metis`,
+// and pgx read the password as `dbname=metis`, leaving the database unset.
+// libpq then connects to a database named after the user. Setup migrated and
+// seeded that database, reported success, and encrypted the same DSN into
+// config.yaml, so every boot afterwards went there too. Nothing errors at any
+// point; the installation is simply in the wrong place.
+//
+// The wizard does not require a database password (Setup.tsx validates host,
+// port, username and database name), so a blank field was enough.
+//
+// Asserting through pgx rather than on the string: what matters is not how the
+// DSN looks, it is which database the driver resolves out of it.
+func TestBuildConnectionStringReachesTheNamedDatabase(t *testing.T) {
+	for _, password := range []string{
+		"",             // the wizard permits it; libpq then ate `dbname`
+		"s3cr3t",       // the case that always worked
+		"with space",   // made the whole DSN unparseable
+		"back\\slash",  // was silently dropped from the password
+		"quo'te",       // ends the quoted value early once quoting exists
+		"tab\there",    // whitespace is whitespace to the parser
+		"p@ss:w/ord?#", // survives the URL form, not just the keyword/value one
+	} {
+		t.Run("password="+password, func(t *testing.T) {
+			dsn := config.BuildConnectionString(config.DriverPostgres, config.DatabaseFields{
+				Host: "db.internal", Port: 5432, Username: "metis",
+				Password: password, DBName: "metis_prod",
+			})
+
+			cfg, err := pgx.ParseConfig(dsn)
+			if err != nil {
+				t.Fatalf("the connection string does not parse: %v", err)
+			}
+			if cfg.Database != "metis_prod" {
+				t.Errorf("connects to database %q, not the one it was given (%q); "+
+					"an installation built on this DSN is in a database nobody named",
+					cfg.Database, "metis_prod")
+			}
+			if cfg.Password != password {
+				t.Errorf("sends password %q, not the one it was given (%q)", cfg.Password, password)
+			}
+			if cfg.User != "metis" || cfg.Host != "db.internal" {
+				t.Errorf("resolved user=%q host=%q, want user=metis host=db.internal", cfg.User, cfg.Host)
+			}
+
+			// The URL form is the other half: the two drivers take different
+			// formats, and the whole point of one conversion is that both
+			// reach the same database.
+			u, err := pgx.ParseConfig(config.PostgresURL(dsn))
+			if err != nil {
+				t.Fatalf("the URL form does not parse: %v", err)
+			}
+			if u.Database != cfg.Database || u.Password != cfg.Password || u.User != cfg.User {
+				t.Errorf("the URL form resolves to %s/%s and the keyword form to %s/%s; "+
+					"one layer would reach a different database than the other",
+					u.User, u.Database, cfg.User, cfg.Database)
+			}
+		})
+	}
+}
+
+// A DSN that does not parse is handed back untouched rather than turned into a
+// URL naming no database — `postgres://user@host:5432/` is a request for the
+// default database, which is the silent wrong answer, not an error.
+func TestPostgresURLRefusesToGuessADatabase(t *testing.T) {
+	for _, dsn := range []string{
+		"host=db.internal port=5432 user=metis",         // no dbname at all
+		"host=db.internal port=5432 user=metis dbname=", // an empty one
+		"host=db.internal =5432",                        // malformed
+		"host='unterminated dbname=metis",               // unterminated quote
+	} {
+		if got := config.PostgresURL(dsn); got != dsn {
+			t.Errorf("PostgresURL(%q) = %q; a DSN that names no database must not become a URL", dsn, got)
+		}
 	}
 }

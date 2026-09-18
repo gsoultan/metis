@@ -31,10 +31,10 @@ type JobModel struct {
 	LockedBy         string         `json:"locked_by,omitzero"`
 	LockExpires      *time.Time     `json:"lock_expires,omitzero"`
 	Payload          map[string]any `gorm:"type:text;serializer:json" json:"payload,omitzero"`
-	Retries          int            `json:"retries"`
-	MaxRetries       int            `json:"max_retries"`
-	RepeatsRemaining int            `json:"repeats_remaining,omitzero"`
-	NextRunAt        time.Time      `gorm:"index" json:"next_run_at,omitzero"`
+	Retries          int            `gorm:"not null;default:0" json:"retries"`
+	MaxRetries       int            `gorm:"not null;default:0" json:"max_retries"`
+	RepeatsRemaining int            `gorm:"not null;default:0" json:"repeats_remaining,omitzero"`
+	NextRunAt        time.Time      `gorm:"index;not null" json:"next_run_at,omitzero"`
 	LastError        string         `json:"last_error,omitzero"`
 }
 
