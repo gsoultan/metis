@@ -118,6 +118,7 @@ export function DesignerModals({
       >
         <Box p="md">
            <TextInput 
+             aria-label="Search commands and elements"
              placeholder="Search commands or elements..." 
              leftSection={<Search size={18} />} 
              size="md"

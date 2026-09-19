@@ -95,6 +95,7 @@ export function MappingTable({
               <Table.Td><Text size="xs" fw={700}>{k}</Text></Table.Td>
               <Table.Td>
                 <TextInput 
+                  aria-label="Value"
                   size="xs" 
                   value={v} 
                   onChange={(e) => onUpdate({ ...mapping, [k]: e.target.value })} 
@@ -110,6 +111,7 @@ export function MappingTable({
           <Table.Tr>
             <Table.Td>
               <TextInput 
+                aria-label="Key"
                 placeholder="key" 
                 size="xs" 
                 value={newKey} 
@@ -118,6 +120,7 @@ export function MappingTable({
             </Table.Td>
             <Table.Td>
               <TextInput 
+                aria-label="Expression"
                 placeholder="expression" 
                 size="xs" 
                 value={newVal} 
@@ -617,6 +620,7 @@ export function KeyValueEditor({
       {entries.map(([k, v], i) => (
         <Group key={i} gap={4} wrap="nowrap" align="flex-start">
           <TextInput
+            aria-label="Key"
             placeholder={keyPlaceholder}
             size="xs"
             style={{ flex: 1 }}
@@ -624,6 +628,7 @@ export function KeyValueEditor({
             onChange={(e) => updateKey(k, e.target.value)}
           />
           <TextInput
+            aria-label="Value"
             placeholder={valuePlaceholder}
             size="xs"
             style={{ flex: 1 }}

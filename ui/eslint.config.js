@@ -32,9 +32,19 @@ export default defineConfig([
       // way to tell which one deletes a process definition. Mantine's
       // ActionIcon is not a native <button> to the linter, so it is named
       // explicitly here.
+      // Mantine's form components are named here for the same reason ActionIcon
+      // is: the linter sees a React component, not a native control, so it
+      // checked none of them. axe (dev-only, console) reported 13 unlabelled
+      // controls on the task list alone and nothing was acting on it — the
+      // fastest way to make an accessibility finding permanent is to report it
+      // somewhere no build reads.
+      //
+      // `label` is a label attribute because Mantine renders that prop as a
+      // real <label>. `placeholder` deliberately is NOT: it disappears as soon
+      // as somebody types, and is not a reliable accessible name.
       'jsx-a11y/control-has-associated-label': ['error', {
-        labelAttributes: ['aria-label', 'title'],
-        controlComponents: ['ActionIcon'],
+        labelAttributes: ['aria-label', 'title', 'label'],
+        controlComponents: ['ActionIcon', 'Checkbox', 'Switch', 'TextInput', 'NumberInput', 'Select', 'Textarea'],
         // Without this the rule walks table markup and reports every <td>
         // that contains interactive content as an unlabelled control.
         ignoreElements: ['td', 'th', 'tr', 'tbody', 'thead', 'table', 'audio', 'canvas', 'embed', 'input', 'textarea', 'tfoot', 'video'],

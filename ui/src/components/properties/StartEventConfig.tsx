@@ -32,6 +32,7 @@ export function StartEventConfig({ data, onUpdate }: NodeConfigProps) {
     <Stack gap="xl">
       <PropertySection title="How it starts" hint="What causes a new process to begin.">
         <Select
+          aria-label="How this process starts"
           data={[
             { value: 'manual', label: 'Someone starts it' },
             { value: 'timer', label: 'On a schedule' },

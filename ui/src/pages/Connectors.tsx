@@ -42,11 +42,13 @@ import {
 import { errorMessage } from '../services/shared/errors';
 import type { ApiConnector, ApiConnectorInstance, CreateConnectorPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+import { useTranslation } from '../i18n/context';
 
 const DEFAULT_TEST_PAYLOAD = '{\n  "text": "Hello from Metis!"\n}';
 const CONFIGURATION_STEP = 1;
 
 export function Connectors() {
+  const { t } = useTranslation();
   const { currentProjectId, expertMode } = useAppStore();
   const {
     data: connectorsData,
@@ -159,8 +161,8 @@ export function Connectors() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="Connectors"
-        description="The services your processes call, and the ones that call them."
+        title={t('page.connectors.title')}
+        description={t('page.connectors.subtitle')}
         actions={
           <Group gap="sm">
             <Paper withBorder px="md" py={4} radius="md" bg="gray.0">

@@ -312,6 +312,10 @@ func (a *App) Run() error {
 		return a.handleResetPassword(ctx, *resetPassword)
 	}
 
+	// 3b. Only now start anything that acts on its own. Everything above this
+	//     line is safe for a maintenance command to run and exit.
+	a.startBackgroundWork(ctx)
+
 	// 4. Setup Transports
 	a.setupAuth(ctx)
 
@@ -666,15 +670,7 @@ func (a *App) setupService(ctx context.Context) error {
 		a.sse.ResolveProjectsWith(a.organizationOfProject)
 	}
 
-	a.svc.StartWorkers(ctx)
-	// Directory syncs, for the sources that carry a schedule. A no-op when
-	// there is no storm connection: there are no sources to run.
-	a.svc.StartScheduledSyncs(ctx)
-	a.startSSEFanout(ctx)
-	// The same work again, once per environment, against that environment's
-	// database. Without it a process started on a staging port never advances.
-	a.startEnvironmentWorkers(ctx)
-	a.startSharedLimits(ctx)
+	// Background work does NOT start here. See startBackgroundWork.
 	return nil
 }
 
@@ -726,6 +722,33 @@ func (a *App) startSharedLimits(ctx context.Context) {
 
 	log.Info().Str("replica", origin).Dur("exchange", sharedCountExchange).
 		Msg("Rate limits are pooled across replicas")
+}
+
+// startBackgroundWork starts everything that acts on its own: the job workers,
+// the scheduled directory syncs, the SSE fan-out, the per-environment workers
+// and the shared rate-limit counters.
+//
+// This used to be the tail of setupService, which runs at step 3 — *before* the
+// --reset-password branch returns at step 3b. So a password reset started ten
+// job workers against the shared database, claimed whatever was ready with a
+// five-minute lease, and then exited as soon as it had printed the password,
+// leaving that work locked and unworked until the lease expired.
+//
+// An operator runs --reset-password when somebody is locked out, which is
+// during an incident, which is the worst possible moment to stall the queue.
+//
+// Constructing a service and starting its background loops are two different
+// things, and only the server does the second.
+func (a *App) startBackgroundWork(ctx context.Context) {
+	a.svc.StartWorkers(ctx)
+	// Directory syncs, for the sources that carry a schedule. A no-op when
+	// there is no storm connection: there are no sources to run.
+	a.svc.StartScheduledSyncs(ctx)
+	a.startSSEFanout(ctx)
+	// The same work again, once per environment, against that environment's
+	// database. Without it a process started on a staging port never advances.
+	a.startEnvironmentWorkers(ctx)
+	a.startSharedLimits(ctx)
 }
 
 // startSSEFanout connects this replica's SSE observer to the shared bus, so a

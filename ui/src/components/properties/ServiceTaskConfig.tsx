@@ -51,6 +51,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
     <Stack gap="xl">
       <PropertySection title="What it calls" hint="Everything below follows from this.">
         <Select
+          aria-label="Implementation"
           data={options.map(({ value, label }) => ({ value, label }))}
           value={implementation}
           onChange={(val) => onUpdate({ implementation: val })}
@@ -158,6 +159,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
       {implementation === 'script' && expertMode && (
         <PropertySection title="The script" hint="Runs here, with the process variables available to it.">
           <Textarea
+            aria-label="Script"
             placeholder="// the process variables are in `vars`"
             minRows={10}
             autosize

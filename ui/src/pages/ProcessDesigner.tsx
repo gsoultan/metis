@@ -95,6 +95,14 @@ export function ProcessDesigner({
 
   // All state and handlers come from the hook — no duplicate logic here.
 
+  /**
+   * Issues that make a deploy fail rather than merely warn.
+   *
+   * Warnings stay deployable on purpose: a process with an unreachable node is
+   * odd but runnable, and refusing to save it would trap somebody mid-edit.
+   */
+  const blockingIssues = issues.filter((issue) => issue.severity === 'error').length;
+
 
   return (
     <Box h="calc(100vh - 60px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -162,7 +170,7 @@ export function ProcessDesigner({
               leftSection={<LayoutGrid size={14} />}
               onClick={openComponents}
             >
-              Components
+              Add step
             </Button>
             <Button 
               variant="subtle" 
@@ -184,16 +192,34 @@ export function ProcessDesigner({
             >
               Export
             </Button>
-            <Button 
-              variant="filled" 
-              color="indigo" 
-              size="xs"
-              leftSection={<Save size={14} />}
-              onClick={onSave}
-              loading={createDefinition.isPending}
+            {/*
+              Was the filled primary button on an empty, invalid process — the
+              most prominent control on screen offering the one action that
+              could not succeed. It is now disabled until the process has
+              something to deploy and no blocking errors, and says why.
+            */}
+            <Tooltip
+              label={
+                nodes.length === 0
+                  ? 'Add at least one step before deploying'
+                  : blockingIssues > 0
+                    ? `Fix ${blockingIssues} validation ${blockingIssues === 1 ? 'error' : 'errors'} before deploying`
+                    : 'Deploy this version so new instances can start on it'
+              }
             >
-              Deploy Model
-            </Button>
+              <Button
+                variant="filled"
+                color="indigo"
+                size="xs"
+                leftSection={<Save size={14} />}
+                onClick={onSave}
+                loading={createDefinition.isPending}
+                disabled={nodes.length === 0 || blockingIssues > 0}
+                data-disabled={nodes.length === 0 || blockingIssues > 0 ? true : undefined}
+              >
+                Deploy Model
+              </Button>
+            </Tooltip>
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -207,6 +233,7 @@ export function ProcessDesigner({
 
       <Box style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <ReactFlow<Node<BPMNNodeData>, Edge<BPMNEdgeData>>
+          proOptions={{ hideAttribution: true }}
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
@@ -339,8 +366,11 @@ export function ProcessDesigner({
 
                 <Divider orientation="vertical" />
 
-                <Tooltip label="Clear Canvas">
-                  <ActionIcon aria-label="Delete" variant="subtle" color="red" size="lg" onClick={clearCanvas}>
+                {/* The accessible name said "Delete" while the tooltip said
+                    "Clear Canvas" — a screen reader user and a sighted user
+                    were told this button did two different things. */}
+                <Tooltip label="Clear the canvas">
+                  <ActionIcon aria-label="Clear the canvas" variant="subtle" color="red" size="lg" onClick={clearCanvas}>
                     <Trash size={18} />
                   </ActionIcon>
                 </Tooltip>
@@ -348,14 +378,42 @@ export function ProcessDesigner({
             </Paper>
           </Panel>
 
-          {issues.length > 0 && (
+          {/*
+            An empty canvas is not a validation failure, it is a person who has
+            just arrived. The designer used to greet them with a blank grid and
+            a 280px panel reading "Validation (1) — This process is empty.",
+            which names the problem and offers no way out: the palette that
+            holds the steps is behind a "Components" button in the top-right
+            toolbar, grouped with Import and Export so it reads as a view
+            toggle. bpmn.io and Camunda Modeler both keep that palette open.
+
+            So: say what to do, and give the control that does it.
+          */}
+          {nodes.length === 0 && (
+            <Panel position="top-center">
+              <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)" shadow="sm" style={{ maxWidth: 320 }}>
+                <Stack gap="xs">
+                  <Text size="sm" fw={700}>Start with a step</Text>
+                  <Text size="xs" c="dimmed">
+                    A process is a sequence of steps. Add the first one, then drag from its
+                    edge to connect the next.
+                  </Text>
+                  <Button size="xs" leftSection={<LayoutGrid size={14} />} onClick={openComponents}>
+                    Add a step
+                  </Button>
+                </Stack>
+              </Paper>
+            </Panel>
+          )}
+
+          {issues.length > 0 && nodes.length > 0 && (
             <Panel position="bottom-left">
-              <Paper 
-                p="xs" 
-                withBorder 
-                radius="md" 
-                bg="var(--mantine-color-body)" 
-                shadow="sm" 
+              <Paper
+                p="xs"
+                withBorder
+                radius="md"
+                bg="var(--mantine-color-body)"
+                shadow="sm"
                 style={{ maxWidth: 280 }}
               >
                 <Group gap="xs" mb={4}>

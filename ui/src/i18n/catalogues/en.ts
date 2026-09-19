@@ -86,6 +86,45 @@ const en: Catalogue = {
   'common.retry': 'Try again',
   'common.loading': 'Loading…',
   'common.language': 'Language',
+
+  // Page headings.
+  //
+  // Every page title and standfirst the user lands on. These were hardcoded
+  // English in each page component, so switching the interface to Indonesian
+  // translated the seventeen navigation labels and nothing else — one screen
+  // where the sidebar read "Dasbor" and the heading beside it read "Dashboard".
+  'page.dashboard.title': 'Dashboard',
+  'page.dashboard.subtitle': 'Overview of your business processes and tasks.',
+  'page.welcome.title': 'Welcome to Metis BPM',
+  'page.welcome.subtitle': 'Get started by selecting or creating a project.',
+  'page.allTasks.title': 'All Tasks',
+  'page.allTasks.subtitle': 'Every task in this project, whoever it belongs to.',
+  'page.instances.title': 'Process Instances',
+  'page.instances.subtitle': 'Every run of a process in this project, and where each one is.',
+  'page.processes.title': 'Processes',
+  'page.processes.subtitle': 'Design, deploy and version the process models this project runs.',
+  'page.decisions.title': 'Decisions',
+  'page.decisions.subtitle': 'Business rules as decision tables, versioned and testable.',
+  'page.decisionTables.title': 'Decision Tables',
+  'page.decisionTables.subtitle': 'Manage your DMN-compatible decision tables and business rules.',
+  'page.definitions.title': 'Processes',
+  'page.definitions.subtitle': 'Design, deploy and manage your business process models.',
+  'page.connectors.title': 'Connectors',
+  'page.connectors.subtitle': 'The services your processes call, and the ones that call them.',
+  'page.people.title': 'People',
+  'page.people.subtitle': "Who this project's processes can assign work to. Separate from the accounts that administer Metis.",
+  'page.groups.title': 'Groups',
+  'page.groups.subtitle': 'Manage user groups and memberships.',
+  'page.projects.title': 'Projects',
+  'page.projects.subtitle': 'Organize your processes and tasks into projects.',
+  'page.organizations.title': 'Organizations',
+  'page.organizations.subtitle': 'Manage your organizations and their projects.',
+  'page.platformAccess.title': 'Platform access',
+  'page.platformAccess.subtitle': 'Accounts that administer Metis: they sign in, configure the installation and author models. The people processes assign work to are Participants, on the People page.',
+  'page.profile.title': 'User Profile',
+  'page.profile.subtitle': 'Manage your personal information and account settings.',
+  'page.settings.title': 'Application Settings',
+  'page.settings.subtitle': 'Configure your workspace and preferences.',
 };
 
 export default en;
