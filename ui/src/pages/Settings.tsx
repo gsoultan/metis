@@ -19,9 +19,10 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { EnvironmentSettings } from '../components/EnvironmentSettings';
 import { PageHeader } from '../components/PageHeader';
-import { ComingSoonButton } from '../components/state/ComingSoon';
+import { useTranslation } from '../i18n/context';
 
 export function Settings() {
+  const { t } = useTranslation();
   // Environments are administrative: the list alone says where every runtime's
   // database lives. The server refuses a non-admin either way; hiding it here
   // is so nobody is shown a control that will only ever say no.
@@ -34,8 +35,8 @@ export function Settings() {
   return (
     <Stack gap="xl">
       <PageHeader 
-        title="Application Settings" 
-        description="Configure your workspace and preferences."
+        title={t('page.settings.title')}
+        description={t('page.settings.subtitle')}
       />
 
       {/*
@@ -104,59 +105,22 @@ export function Settings() {
           */}
         </Stack>
 
-        <Stack gap="lg">
-          <Paper p="xl" radius="lg" withBorder shadow="sm">
-            <Title order={2} size="h5" mb="lg">Security &amp; API</Title>
-            <Stack gap="md">
-              <Group justify="space-between">
-                <Box>
-                  <Text fw={600} size="sm">Two-Factor Authentication</Text>
-                  <Text size="xs" c="dimmed">Add an extra layer of security to your account</Text>
-                </Box>
-                <ComingSoonButton variant="light" color="blue" size="xs" label="Two-factor authentication is not implemented yet">Enable</ComingSoonButton>
-              </Group>
-              <Divider />
-              <Group justify="space-between">
-                <Box>
-                  <Text fw={600} size="sm">API Keys</Text>
-                  <Text size="xs" c="dimmed">Manage tokens for external API access</Text>
-                </Box>
-                <ComingSoonButton variant="outline" color="gray" size="xs" label="API keys are not available yet">Manage</ComingSoonButton>
-              </Group>
-            </Stack>
-          </Paper>
+        {/*
+          "Security & API" (Two-Factor Authentication, API Keys), the "Danger
+          Zone" (Clear Cache) and "Reset to Defaults" all stood here as disabled
+          controls. Four of this page's six controls did nothing, so a page
+          called Application Settings was two thirds unavailable — and the
+          Danger Zone was a red-bordered section whose only action was greyed
+          out, which alarms without informing.
 
-          <Paper p="xl" radius="lg" withBorder shadow="sm" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
-            <Title order={2} size="h5" mb="lg" c="red">Danger Zone</Title>
-            <Stack gap="md">
-              <Group justify="space-between">
-                <Box>
-                  <Text fw={600} size="sm">Clear Cache</Text>
-                  <Text size="xs" c="dimmed">Reset local storage and application data</Text>
-                </Box>
-                <ComingSoonButton variant="light" color="red" size="xs" label="Clearing local application data is not implemented yet">Clear</ComingSoonButton>
-              </Group>
-              {/*
-                A red "Delete Account" button stood here with no handler. There
-                is no self-service deletion; an administrator removes accounts.
-              */}
-            </Stack>
-          </Paper>
-        </Stack>
+          A disabled control teaches when the feature exists and is unavailable
+          to *you*. It misleads when the feature does not exist at all. None of
+          these is built, so none of them is rendered.
+
+          Two-factor authentication is tracked as a real gap in
+          .junie/security-plan.md rather than advertised here as a grey button.
+        */}
       </SimpleGrid>
-      
-      {/*
-        Neither of these buttons was ever wired up, so the entire page was
-        decorative: a user could change a setting, press Save, and get no
-        feedback of any kind. Settings that DO persist (theme, expert mode)
-        already save themselves through the store on change, which is why the
-        page needs no save button once the unwired ones are removed.
-      */}
-      <Group justify="flex-end" mt="xl">
-        <ComingSoonButton variant="default" label="Restoring defaults is not implemented yet">
-          Reset to Defaults
-        </ComingSoonButton>
-      </Group>
     </Stack>
   );
 }

@@ -23,8 +23,10 @@ import { useUpdateUser } from '../hooks/useUser';
 import { notifications } from '@mantine/notifications';
 import { roleLabels } from '../domain/roles';
 import { failureMessage } from '../services/shared/errors';
+import { useTranslation } from '../i18n/context';
 
 export function Profile() {
+  const { t } = useTranslation();
   const { user, setAuth, token } = useAppStore();
   const updateUser = useUpdateUser();
   const [changingPassword, setChangingPassword] = useState(false);
@@ -91,8 +93,8 @@ export function Profile() {
   return (
     <Stack gap="xl">
       <PageHeader 
-        title="User Profile" 
-        description="Manage your personal information and account settings."
+        title={t('page.profile.title')}
+        description={t('page.profile.subtitle')}
       />
 
       <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">

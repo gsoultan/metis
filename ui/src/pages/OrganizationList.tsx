@@ -22,10 +22,12 @@ import type { Organization } from '../gen/entities/organization_pb';
 import { useCreateOrganization, useDeleteOrganization, useOrganizations, useUpdateOrganization } from '../hooks/useOrganization';
 import { failureMessage } from '../services/shared/errors';
 import { useAppStore } from '../store/useAppStore';
+import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 3;
 
 export function OrganizationList() {
+  const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useOrganizations();
   const { expertMode } = useAppStore();
   const createOrg = useCreateOrganization();
@@ -80,8 +82,8 @@ export function OrganizationList() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="Organizations"
-        description="Manage your organizations and their projects."
+        title={t('page.organizations.title')}
+        description={t('page.organizations.subtitle')}
         actions={
           <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => handleOpenModal()}>
             New Organization

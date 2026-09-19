@@ -5,7 +5,6 @@ import {
   Group, 
   Stack, 
   ThemeIcon, 
-  Box, 
   Title, 
   Button, 
   Badge, 
@@ -32,6 +31,7 @@ import { BusinessTimeline } from '../components/BusinessTimeline';
 import { Link } from '@tanstack/react-router';
 import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
+import { useTranslation } from '../i18n/context';
 
 /**
  * A single headline number.
@@ -101,6 +101,7 @@ function StatCard({
 }
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const { currentProjectId, currentOrganizationId } = useAppStore();
   const { data: statsData, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useProcessStatistics();
   const { data: defs } = useDefinitions();
@@ -124,13 +125,30 @@ export function Dashboard() {
    */
   const stats = statsData?.stats;
   const activeInstances = stats?.activeInstances ?? 0;
-  const failedInstances = stats?.failedInstances ?? 0;
   const totalTasks = stats?.totalTasks ?? 0;
   const pendingTasks = stats?.pendingTasks ?? 0;
 
+  /*
+   * Deliberately NOT stats.failedInstances, which counts instances whose
+   * *status* is FAILED. A BPMN instance whose job exhausts its retries does not
+   * go FAILED — it stays RUNNING and raises an incident. So that counter read 0
+   * while four instances sat stuck on a dead HTTP call, and this card told the
+   * operator "Nothing has failed" on their first screen.
+   *
+   * `needsAttentionTotal` is what the Instances page already filters on, so the
+   * dashboard and that page now answer the same question with the same number.
+   */
+  const needsAttention = instancesData?.needsAttentionTotal ?? 0;
+
   const lastInstanceId = instancesData?.instances?.[0]?.id;
 
-  const totalDefinitions = defs?.definitions?.length || 0;
+  /*
+   * Distinct process keys, not rows. `definitions` holds one row per deployed
+   * *version*, so counting it said "8 process models" for the two processes the
+   * Models page lists. Both numbers were defensible and a user reading them an
+   * hour apart could not reconcile them.
+   */
+  const totalDefinitions = new Set((defs?.definitions ?? []).map((d) => d.key)).size;
   const totalProjects = projectsData?.projects?.length || 0;
 
 
@@ -138,8 +156,8 @@ export function Dashboard() {
     return (
       <Stack gap="xl">
         <PageHeader 
-          title="Welcome to Metis BPM" 
-          description="Get started by selecting or creating a project."
+          title={t('page.welcome.title')}
+          description={t('page.welcome.subtitle')}
         />
         
         <Card shadow="sm" radius="lg" withBorder py={60}>
@@ -178,8 +196,8 @@ export function Dashboard() {
   return (
     <Stack gap="xl">
       <PageHeader 
-        title="Dashboard" 
-        description="Overview of your business processes and tasks."
+        title={t('page.dashboard.title')}
+        description={t('page.dashboard.subtitle')}
         actions={
           <ComingSoonButton variant="light" leftSection={<Activity size={16} />} label="Report export is not implemented yet">
             Generate Report
@@ -224,13 +242,13 @@ export function Dashboard() {
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
             title="Needs Attention"
-            value={failedInstances}
+            value={needsAttention}
             icon={AlertCircle}
-            color={failedInstances > 0 ? 'red' : 'green'}
+            color={needsAttention > 0 ? 'red' : 'green'}
             hint={
-              failedInstances > 0
-                ? 'Failed instances waiting on someone'
-                : 'Nothing has failed'
+              needsAttention > 0
+                ? 'Instances stuck and waiting on someone'
+                : 'Nothing is stuck'
             }
           />
         </Grid.Col>
@@ -265,66 +283,18 @@ export function Dashboard() {
       </Grid>
 
 
-      <Card shadow="sm" radius="lg" withBorder mb="xl">
-        <Group justify="space-between" mb="xl">
-          <Group gap="sm">
-            <ThemeIcon color="yellow" variant="light" size="lg">
-              <GitBranch size={20} />
-            </ThemeIcon>
-            <Title order={4}>Starter Templates</Title>
-            <Badge variant="light" color="yellow">Recommended</Badge>
-          </Group>
-          <Text size="xs" c="dimmed">Quick start by picking a template</Text>
-        </Group>
-        
-        <Grid gap="md">
-          {[
-            { 
-              title: "Simple Approval", 
-              desc: "A basic two-step approval process with conditional branching.", 
-              color: "green",
-              icon: CheckCircle
-            },
-            { 
-              title: "Support Ticket", 
-              desc: "Escalate issues based on priority and notify stakeholders.", 
-              color: "orange",
-              icon: AlertCircle
-            },
-            { 
-              title: "Invoice Processing", 
-              desc: "Automate invoice verification and payment triggering.", 
-              color: "blue",
-              icon: Activity
-            }
-          ].map(t => (
-            <Grid.Col span={{ base: 12, md: 4 }} key={t.title}>
-              <Card 
-                withBorder 
-                padding="md" 
-                radius="md" 
-                style={{ height: '100%' }}
-              >
-                 <Stack align="center" ta="center" gap="sm">
-                   <ThemeIcon variant="light" color={t.color} size={50} radius="xl">
-                      <t.icon size={24} />
-                   </ThemeIcon>
-                   <Box>
-                      <Text size="md" fw={700}>{t.title}</Text>
-                      <Text size="xs" c="dimmed" mt={4}>{t.desc}</Text>
-                   </Box>
-                   {/* Templates are not implemented; the card was a preview
-                       with a button that did nothing when pressed. */}
-                   <ComingSoonButton variant="light" color={t.color} size="xs" fullWidth mt="xs"
-                                     label="Process templates are not available yet">
-                      Use Template
-                   </ComingSoonButton>
-                 </Stack>
-              </Card>
-            </Grid.Col>
-          ))}
-        </Grid>
-      </Card>
+      {/*
+        The "Starter Templates" section was removed, not disabled.
+
+        It offered three cards badged "Recommended" whose every button was a
+        ComingSoonButton, because process templates are not implemented. That is
+        prime dashboard space advertising a feature that cannot be used: a first-
+        time user clicks all three and concludes the product is broken.
+
+        A disabled control teaches when the feature exists and is unavailable to
+        *you*. It misleads when the feature does not exist at all. Bring this back
+        with the templates, not before.
+      */}
     </Stack>
   );
 }

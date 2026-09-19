@@ -65,8 +65,14 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
     new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 
+  /*
+   * Height follows the content up to a cap, rather than always being 500px.
+   * A fixed height left roughly 350px of empty card under a three-event
+   * timeline — the dashboard's largest element was mostly blank, which reads
+   * as a failed load rather than a quiet system.
+   */
   return (
-    <ScrollArea h={500} offsetScrollbars>
+    <ScrollArea.Autosize mah={500} offsetScrollbars>
       <Box p="md">
         <Timeline active={entries.length} bulletSize={24} lineWidth={2}>
           {entries.map((entry, index) => (
@@ -130,6 +136,6 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
           ))}
         </Timeline>
       </Box>
-    </ScrollArea>
+    </ScrollArea.Autosize>
   );
 }

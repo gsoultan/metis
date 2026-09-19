@@ -28,6 +28,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { toStoreUser } from '../mappers/userMapper';
+import { signInError } from '../domain/signInError';
 
 // Plain statements of what the product does, not marketing superlatives. The
 // login page used to claim "sub-millisecond" execution and "GDPR-compliant"
@@ -224,17 +225,27 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
               >
                 <form onSubmit={handleSubmit}>
                   <Stack gap="md">
-                    {error && (
-                      <Alert 
-                        icon={<AlertCircle size={18} />} 
-                        title="Authentication Failed" 
-                        color="red" 
-                        radius="md" 
-                        variant="light"
-                      >
-                        {error}
-                      </Alert>
-                    )}
+                    {/*
+                      Was titled "Authentication Failed" with the server's own
+                      wrapped string repeated underneath — the same fact twice,
+                      the second time in Go's error-wrapping style. The message
+                      is now the whole alert, and it carries what to do next.
+                      See domain/signInError.ts.
+                    */}
+                    {error && (() => {
+                      const { message, hint } = signInError(error);
+                      return (
+                        <Alert
+                          icon={<AlertCircle size={18} />}
+                          color="red"
+                          radius="md"
+                          variant="light"
+                        >
+                          <Text size="sm" fw={600}>{message}</Text>
+                          {hint && <Text size="xs" c="dimmed" mt={4}>{hint}</Text>}
+                        </Alert>
+                      );
+                    })()}
                     
                     <TextInput 
                       label="Username" 

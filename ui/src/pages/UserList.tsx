@@ -29,10 +29,12 @@ import { useCreateUser, useDeleteUser, useUpdateUser, useUsers } from '../hooks/
 import { errorMessage } from '../services/shared/errors';
 import type { ApiOrganizationUser } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 4;
 
 export function UserList() {
+  const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useUsers();
   const { data: orgData } = useOrganizations();
   const createUser = useCreateUser();
@@ -130,8 +132,8 @@ export function UserList() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="Platform access"
-        description="Accounts that administer Metis: they sign in, configure the installation and author models. The people processes assign work to are Participants, on the People page."
+        title={t('page.platformAccess.title')}
+        description={t('page.platformAccess.subtitle')}
         actions={
           <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => handleOpenModal()}>
             New account

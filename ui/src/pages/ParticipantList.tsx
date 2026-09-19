@@ -32,6 +32,7 @@ import {
   useParticipants,
   useRemoveParticipant,
 } from '../hooks/useParticipants';
+import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 4;
 
@@ -54,6 +55,7 @@ const STANDING_COLOURS: Record<string, string> = {
  * different people.
  */
 export function ParticipantList() {
+  const { t } = useTranslation();
   const isAdmin = useAppStore((state) => state.user?.role === 'ADMIN');
   const { data, isLoading, error, refetch } = useParticipants();
   const removeParticipant = useRemoveParticipant();
@@ -91,8 +93,8 @@ export function ParticipantList() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="People"
-        description="Who this project's processes can assign work to. Separate from the accounts that administer Metis."
+        title={t('page.people.title')}
+        description={t('page.people.subtitle')}
         actions={
           <Button
             variant="filled"
@@ -108,6 +110,7 @@ export function ParticipantList() {
       <Card withBorder radius="lg" p={0}>
         <Group p="md" justify="space-between">
           <TextInput
+            aria-label="Search people"
             placeholder="Search by name or email"
             leftSection={<Search size={16} />}
             value={query}

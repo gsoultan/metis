@@ -68,6 +68,7 @@ import { urgencyOf } from '../domain/taskUrgency';
 import { VirtualRows } from '../components/VirtualRows';
 import { useRef } from 'react';
 import { statusLabel } from '../components/statusVocabulary';
+import { useTranslation } from '../i18n/context';
 
 function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
   if (!variables) return null;
@@ -140,6 +141,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
     <Table.Tr bg={isSelected ? 'blue.0' : undefined}>
       <Table.Td>
         <Checkbox 
+          aria-label={`Select task ${task.name}`}
           checked={isSelected} 
           onChange={() => onToggleSelection(task.id)} 
           radius="sm"
@@ -352,6 +354,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
       <Group justify="space-between" mb="xs">
         <Group gap="xs">
           <Checkbox 
+            aria-label={`Select task ${task.name}`}
             checked={isSelected} 
             onChange={() => onToggleSelection(task.id)} 
             size="xs"
@@ -494,6 +497,7 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
 }
 
 export function TaskInbox() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // The scrolling wrapper the row virtualizer measures against.
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -568,8 +572,8 @@ export function TaskInbox() {
   return (
     <Stack gap="xl">
       <PageHeader 
-        title="Task Inbox" 
-        description={`Manage and complete tasks for ${currentUser}.`}
+        title={t('inbox.title')}
+        description={t('inbox.subtitle', { name: currentUser })}
         actions={
           <Group gap="sm">
             <SegmentedControl
@@ -583,6 +587,7 @@ export function TaskInbox() {
               radius="md"
             />
             <TextInput 
+              aria-label="Search tasks"
               placeholder="Search tasks..." 
               leftSection={<Search size={16} />}
               value={searchQuery}
@@ -668,7 +673,7 @@ export function TaskInbox() {
               leftSection={<User size={16} />}
               rightSection={
                 assignedCount > 0 && (
-                  <Badge size="xs" variant="filled" circle color="blue">
+                  <Badge size="xs" variant="light" circle color="blue">
                     {assignedCount}
                   </Badge>
                 )
@@ -681,7 +686,7 @@ export function TaskInbox() {
               leftSection={<Users size={16} />}
               rightSection={
                 candidateCount > 0 && (
-                  <Badge size="xs" variant="filled" circle color="orange">
+                  <Badge size="xs" variant="light" circle color="orange">
                     {candidateCount}
                   </Badge>
                 )
@@ -702,6 +707,7 @@ export function TaskInbox() {
                   <Table.Tr>
                     <Table.Th w={40}>
                       <Checkbox 
+                        aria-label="Select all tasks"
                         checked={selectedTaskIds.length === currentTasks.length && currentTasks.length > 0} 
                         indeterminate={selectedTaskIds.length > 0 && selectedTaskIds.length < currentTasks.length}
                         onChange={() => {
@@ -747,6 +753,30 @@ export function TaskInbox() {
                             title="No tasks match your search"
                             description="Try a different term, or clear the search to see everything in this view."
                             variant="filtered"
+                          />
+                        ) : activeTab === 'assigned' && candidateCount > 0 ? (
+                          /*
+                           * "You're all caught up" used to render here whenever
+                           * the assigned tab was empty — directly beneath a tab
+                           * badged "Available to Claim 12". The screen's largest
+                           * text said there was no work while twelve tasks sat
+                           * one click away, and a user who believes it leaves.
+                           *
+                           * An empty state has to know what is next to it.
+                           */
+                          <EmptyState
+                            icon={Users}
+                            title="Nothing is assigned to you yet"
+                            description={`${candidateCount} ${candidateCount === 1 ? 'task is' : 'tasks are'} waiting to be claimed. Claiming one assigns it to you and takes it out of everyone else's queue.`}
+                            action={
+                              <Button
+                                variant="light"
+                                leftSection={<Users size={16} />}
+                                onClick={() => setActiveTab('available')}
+                              >
+                                View available {candidateCount === 1 ? 'task' : 'tasks'}
+                              </Button>
+                            }
                           />
                         ) : (
                           <EmptyState

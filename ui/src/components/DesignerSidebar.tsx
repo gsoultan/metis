@@ -213,6 +213,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
       )}
       
       <TextInput
+        aria-label="Search process steps"
         placeholder="Search — try “approve” or “wait”"
         size="xs"
         leftSection={<Search size={14} />}

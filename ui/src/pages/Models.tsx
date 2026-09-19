@@ -7,8 +7,10 @@ import { CreationWizard } from '../components/CreationWizard';
 import { useNavigate } from '@tanstack/react-router';
 import { Route } from '../routes/_authenticated.models';
 import { useState } from 'react';
+import { useTranslation } from '../i18n/context';
 
 export function Models() {
+  const { t } = useTranslation();
   const navigate = useNavigate({ from: Route.fullPath });
   const { tab } = Route.useSearch();
   const [wizardOpened, setWizardOpened] = useState(false);
@@ -33,9 +35,18 @@ export function Models() {
 
   return (
     <Stack gap="xl">
-      <PageHeader 
-        title="Models" 
-        description="Design and manage your business processes and decision tables."
+      {/*
+        Two navigation entries — "Processes" and "Decisions" — both arrive here,
+        and the page called itself "Models" regardless. A user clicked one word
+        and landed on another, which is the cheapest possible way to make an app
+        feel like it is not the one you asked for. The heading now answers to
+        whichever entry was clicked.
+      */}
+      <PageHeader
+        title={tab === 'decisions' ? t('page.decisions.title') : t('page.processes.title')}
+        description={
+          tab === 'decisions' ? t('page.decisions.subtitle') : t('page.processes.subtitle')
+        }
         actions={
           <Button 
             variant="filled" 

@@ -28,10 +28,12 @@ import { useCreateGroup, useDeleteGroup, useGroups, useUpdateGroup } from '../ho
 import { errorMessage } from '../services/shared/errors';
 import type { ApiGroup } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 4;
 
 export function GroupList() {
+  const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useGroups();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
@@ -94,8 +96,8 @@ export function GroupList() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="Groups"
-        description="Manage user groups and memberships."
+        title={t('page.groups.title')}
+        description={t('page.groups.subtitle')}
         actions={
           <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => handleOpenModal()}>
             New Group

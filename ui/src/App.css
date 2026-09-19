@@ -162,6 +162,16 @@
   flex-direction: column;
   justify-content: center;
   padding: 60px;
+  /*
+   * Reserved for .login-brand-footer, which is absolutely positioned at
+   * bottom: 32px. Without it the centred content simply grows into the
+   * footer's space: at a 1280x720 viewport "© 2026 Metis BPM" was drawn on top
+   * of the "Decisions — DMN decision tables with a real FEEL engine" line.
+   *
+   * Reserving the space here keeps the footer pinned (which is the design) and
+   * makes the overlap impossible rather than merely unlikely.
+   */
+  padding-bottom: 96px;
   overflow: hidden;
   background: linear-gradient(135deg, #0c1222 0%, #1a1a3e 40%, #0f172a 100%);
 }

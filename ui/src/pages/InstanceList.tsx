@@ -24,6 +24,7 @@ import { StatusChips } from '../components/instances/StatusChips';
 import { statusChips, totalAcrossStatuses } from '../domain/instanceList';
 import { useDefinitions } from '../hooks/useDefinitions';
 import { useInstances } from '../hooks/useProcess';
+import { useTranslation } from '../i18n/context';
 
 dayjs.extend(relativeTime);
 
@@ -55,6 +56,7 @@ const COLUMNS = 5;
  *    healthy majority who pressed it.
  */
 export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: string, definitionId: string) => void }) {
+  const { t } = useTranslation();
   // Which instance's failures are on screen, if any.
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -122,8 +124,8 @@ export function InstanceList({ onViewInstance }: { onViewInstance: (instanceId: 
   return (
     <PageShell>
       <PageHeader
-        title="Process Instances"
-        description="Every run of a process in this project, and where each one is."
+        title={t('page.instances.title')}
+        description={t('page.instances.subtitle')}
         meta={
           <LiveIndicator live={live} isFetching={isFetching} updatedAt={dataUpdatedAt} />
         }
