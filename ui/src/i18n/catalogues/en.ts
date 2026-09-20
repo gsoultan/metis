@@ -149,6 +149,9 @@ const en: Catalogue = {
   'dash.readyNoProjects': "Projects group related process models, tasks and instances. You'll need one to start.",
   'dash.createFirstProject': 'Create your first project',
   'common.complete': 'Complete',
+  'dash.startFrom': 'Start from a template',
+  'dash.startFromHint': 'A working process you can edit, instead of an empty canvas',
+  'dash.useTemplate': 'Use this template',
 };
 
 export default en;

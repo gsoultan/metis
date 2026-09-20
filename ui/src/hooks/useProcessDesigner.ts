@@ -14,6 +14,7 @@ import { notifications } from '@mantine/notifications';
 import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
 import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
+import { templateById } from '../domain/processTemplates';
 import { shouldAskRollout } from '../domain/versionRollout';
 import {
   useCreateDefinition,
@@ -113,6 +114,8 @@ type UseProcessDesignerParams = {
   initialName?: string;
   /** Pre-fill the process key from the URL search params (for new processes). */
   initialKey?: string;
+  /** A template id, which seeds the canvas. See domain/processTemplates.ts. */
+  initialTemplate?: string;
 };
 
 /*
@@ -132,9 +135,28 @@ type FullDefinition = {
   flows?: ApiFlow[];
 };
 
-export function useProcessDesigner({ definitionId, instanceId, initialName, initialKey }: UseProcessDesignerParams) {
-  const [nodes, setNodes] = useState<Node<BPMNNodeData>[]>([]);
-  const [edges, setEdges] = useState<Edge<BPMNEdgeData>[]>([]);
+export function useProcessDesigner({ definitionId, instanceId, initialName, initialKey, initialTemplate }: UseProcessDesignerParams) {
+  /*
+   * A template seeds the canvas once, as initial state rather than in an
+   * effect. Seeding in an effect would fight the draft-restore path below,
+   * which also writes nodes — and a template quietly overwriting recovered
+   * work is worse than never offering templates at all.
+   *
+   * An unknown id yields an empty canvas, which is the same as no template.
+   */
+  const seed = useMemo(() => {
+    const template = templateById(initialTemplate);
+    if (!template) return { nodes: [], edges: [] };
+    const built = template.build(uuidv7);
+    return {
+      nodes: built.nodes as unknown as Node<BPMNNodeData>[],
+      edges: built.edges as unknown as Edge<BPMNEdgeData>[],
+    };
+    // Built once per template id; rebuilding would mint new ids under the author.
+  }, [initialTemplate]);
+
+  const [nodes, setNodes] = useState<Node<BPMNNodeData>[]>(seed.nodes);
+  const [edges, setEdges] = useState<Edge<BPMNEdgeData>[]>(seed.edges);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<Node<BPMNNodeData>, Edge<BPMNEdgeData>> | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node<BPMNNodeData> | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge<BPMNEdgeData> | null>(null);
