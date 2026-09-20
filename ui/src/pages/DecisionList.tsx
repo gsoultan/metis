@@ -33,12 +33,14 @@ import { matchesQuery } from '../domain/textSearch';
 import { useDecisionImpact, useDecisions, useDeleteDecision } from '../hooks/useDecisions';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiDecision } from '../services/types';
+import { useTranslation } from '../i18n/context';
 
 dayjs.extend(relativeTime);
 
 const COLUMNS = 5;
 
 export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => void, hideHeader?: boolean }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useDecisions();
   const deleteDecision = useDeleteDecision();
@@ -101,8 +103,8 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
     <Stack gap="xl">
       {!hideHeader && (
         <PageHeader
-          title="Decision Tables"
-          description="Manage your DMN-compatible decision tables and business rules."
+          title={t('page.decisionTables.title')}
+          description={t('page.decisionTables.subtitle')}
           actions={
             <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => setWizardOpened(true)}>
               Create New

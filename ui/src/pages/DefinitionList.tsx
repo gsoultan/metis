@@ -46,6 +46,7 @@ type DefinitionRef = { id: string; key: string; name: string; version: number };
 import { useDefinition, useDefinitions, useStartProcess } from '../hooks/useProcess';
 import { useLiveVersions } from '../hooks/useDefinitions';
 import { errorMessage } from '../services/shared/errors';
+import { useTranslation } from '../i18n/context';
 
 dayjs.extend(relativeTime);
 
@@ -53,6 +54,7 @@ const PAGE_SIZES = ['25', '50', '100'];
 const COLUMNS = 5;
 
 export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id: string) => void, hideHeader?: boolean }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -141,8 +143,8 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
     <Stack gap="xl">
       {!hideHeader && (
         <PageHeader
-          title="Processes"
-          description="Design, deploy and manage your business process models."
+          title={t('page.definitions.title')}
+          description={t('page.definitions.subtitle')}
           actions={
             <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => setWizardOpened(true)}>
               Create New
@@ -189,13 +191,35 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                       <Badge variant="outline" color="gray" radius="sm" styles={{ label: { textTransform: 'none' } }}>{def.key}</Badge>
                     </Table.Td>
                     <Table.Td>
-                      <Group gap={6} wrap="nowrap">
+                      {/*
+                        These read "v1 live" and "v4 staged", and the column
+                        clipped them to "V1 LI…" and "V4 STA…" — Mantine
+                        uppercases a Badge label and ellipsises it on overflow,
+                        and two of them in a nowrap Group shrink rather than
+                        wrap. Which version is live is the single most important
+                        fact about a deployed process, so it cannot be the thing
+                        the layout drops first.
+                      */}
+                      <Group gap={6} wrap="wrap">
                         <Tooltip label="New instances start on this version">
-                          <Badge variant="light" color="blue">v{def.version} live</Badge>
+                          <Badge
+                            variant="light"
+                            color="blue"
+                            styles={{ label: { textTransform: 'none', overflow: 'visible' } }}
+                          >
+                            v{def.version} live
+                          </Badge>
                         </Tooltip>
                         {stagedFor(def.key) !== null && (
                           <Tooltip label={`v${stagedFor(def.key)} is deployed but takes no work yet. Promote it from Version history.`}>
-                            <Badge variant="outline" color="orange" size="sm">v{stagedFor(def.key)} staged</Badge>
+                            <Badge
+                              variant="outline"
+                              color="orange"
+                              size="sm"
+                              styles={{ label: { textTransform: 'none', overflow: 'visible' } }}
+                            >
+                              v{stagedFor(def.key)} staged
+                            </Badge>
                           </Tooltip>
                         )}
                       </Group>

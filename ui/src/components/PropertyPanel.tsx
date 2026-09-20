@@ -178,6 +178,7 @@ export function PropertyPanel({
                  someone can learn the notation without being blocked by it. */}
              <Text size="xs" c={expertMode ? "indigo" : "dimmed"}>BPMN names</Text>
              <Checkbox 
+                aria-label="Show BPMN names"
                 checked={expertMode} 
                 onChange={(e) => setExpertMode(e.currentTarget.checked)}
                 size="xs"

@@ -1,3 +1,15 @@
+/*
+ * Inter, self-hosted. The weights are the ones the Mantine theme and index.css
+ * actually ask for — importing the variable font or the full family would ship
+ * every weight from 100 to 900 for the four we use.
+ *
+ * See index.html for why this is not a fonts.googleapis.com stylesheet.
+ */
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+
 import './styles/tailwind.css';
 import { queryClientDefaults } from './services/queryDefaults';
 

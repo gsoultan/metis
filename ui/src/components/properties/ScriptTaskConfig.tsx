@@ -44,6 +44,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </Group>
 
         <Textarea
+          aria-label="Script"
           placeholder="// the process variables are available by name, e.g. if (amount > 100) …"
           description="Use setVar(name, value) to add or change a variable."
           minRows={12}

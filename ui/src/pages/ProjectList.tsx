@@ -25,10 +25,12 @@ import { useCreateProject, useDeleteProject, useProjects, useUpdateProject } fro
 import { failureMessage } from '../services/shared/errors';
 import type { Project } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 3;
 
 export function ProjectList() {
+  const { t } = useTranslation();
   const { currentProjectId, setCurrentProjectId, setCurrentOrganizationId, currentOrganizationId, expertMode } = useAppStore();
   const { data, isLoading, error, refetch } = useProjects(currentOrganizationId);
   const { data: orgData } = useOrganizations();
@@ -101,8 +103,8 @@ export function ProjectList() {
   return (
     <Stack gap="xl">
       <PageHeader
-        title="Projects"
-        description="Organize your processes and tasks into projects."
+        title={t('page.projects.title')}
+        description={t('page.projects.subtitle')}
         actions={
           <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => handleOpenModal()}>
             New Project

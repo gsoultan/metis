@@ -154,6 +154,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
         <>
           <PropertySection title="Form key" hint="Points at a form built outside this designer. Leave empty to use the fields above.">
             <TextInput
+              aria-label="Form key"
               placeholder="form_id"
               value={asText(data.formKey)}
               onChange={(e) => onUpdate({ formKey: e.target.value })}

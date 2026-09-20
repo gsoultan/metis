@@ -210,6 +210,7 @@ function FieldEditor({
               <GripVertical size={16} />
             </ActionIcon>
             <TextInput 
+              aria-label="Field label"
               variant="unstyled" 
               placeholder="Field Label" 
               value={field.label}
@@ -322,6 +323,7 @@ function FieldEditor({
                     {(field.options || []).map((opt, i) => (
                       <Group key={i} gap="xs" align="flex-start">
                         <TextInput 
+                          aria-label="Option value"
                           label={i === 0 ? "Option Value" : undefined}
                           description={i === 0 ? "Unique ID" : undefined}
                           size="xs" 
@@ -335,6 +337,7 @@ function FieldEditor({
                           }}
                         />
                         <TextInput 
+                          aria-label="Option label"
                           label={i === 0 ? "Option Label" : undefined}
                           description={i === 0 ? "Display text" : undefined}
                           size="xs" 
