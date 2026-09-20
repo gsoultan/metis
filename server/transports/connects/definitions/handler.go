@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
@@ -52,7 +54,7 @@ func (h *DefinitionHandler) CreateDefinition(ctx context.Context, req *connect.R
 	return connect.NewResponse(&pbendpoints.CreateDefinitionResponse{
 		Id:      resp.ID.String(),
 		Error:   common.ErrString(resp.Err),
-		Version: int32(resp.Version),
+		Version: clamp.Int32(resp.Version),
 		Live:    resp.Live,
 	}), nil
 }
@@ -81,8 +83,8 @@ func (h *DefinitionHandler) ListDefinitions(ctx context.Context, req *connect.Re
 	if resp.Page != nil {
 		out.Page = &pbendpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}

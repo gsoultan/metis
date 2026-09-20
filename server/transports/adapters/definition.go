@@ -3,6 +3,8 @@ package adapters
 import (
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
@@ -54,7 +56,7 @@ func (a ProcessDefinitionPBAdapter) ToProtoSummary() *pbentities.ProcessDefiniti
 		Project:       projectRef(projectID),
 		Key:           a.Definition.Key,
 		Name:          a.Definition.Name,
-		Version:       int32(a.Definition.Version),
+		Version:       clamp.Int32(a.Definition.Version),
 		Documentation: a.Definition.Documentation,
 		CreatedAt:     formatTime(a.Definition.CreatedAt),
 	}

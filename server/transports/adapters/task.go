@@ -3,6 +3,8 @@ package adapters
 import (
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"github.com/rs/zerolog/log"
 
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
@@ -65,7 +67,7 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 		Assignee:        userRef(assignee),
 		CandidateUsers:  candidateUsers,
 		CandidateGroups: candidateGroups,
-		Priority:        int32(a.Task.Priority),
+		Priority:        clamp.Int32(a.Task.Priority),
 		DueDate:         dueDate,
 		CreatedAt:       a.Task.CreatedAt.Format(time.RFC3339),
 		Variables:       variables,

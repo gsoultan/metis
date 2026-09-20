@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -372,7 +373,10 @@ func TestExportLaysOutADefinitionThatWasNeverDrawn(t *testing.T) {
 		if n.Width == 0 || n.Height == 0 {
 			t.Errorf("node %s exported with no size: w=%d h=%d", id, n.Width, n.Height)
 		}
-		key := string(rune(n.X)) + ":" + string(rune(n.Y))
+		// fmt, not string(rune(...)): that maps anything outside the rune
+		// range to the replacement character, so two different positions
+		// collide and this test reports a stack that is not there.
+		key := fmt.Sprintf("%d:%d", n.X, n.Y)
 		if seen[key] {
 			t.Errorf("node %s was stacked on top of another shape at %d,%d", id, n.X, n.Y)
 		}

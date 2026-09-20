@@ -490,6 +490,9 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 			Icon:        "Send",
 			Type:        "messaging",
 			Schema: []entities.ConnectorProperty{
+				// #nosec G101 -- RabbitMQ's documented default, shown as a form
+				// placeholder so somebody knows the shape to type. Not a credential
+				// this installation holds.
 				{Key: "url", Label: "RabbitMQ URL", Type: "string", Required: true, DefaultValue: "amqp://guest:guest@localhost:5672/"},
 				{Key: "exchange", Label: "Exchange", Type: "string", Required: true},
 				{Key: "routing_key", Label: "Routing Key", Type: "string"},

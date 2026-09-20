@@ -58,6 +58,9 @@ func retryDelay(retries int) time.Duration {
 	spread := float64(delay) * jitterFraction
 	// Centred on the delay: the wait is somewhere in [delay-spread, delay+spread],
 	// so the average schedule is the one the constants describe.
+	// #nosec G404 -- jitter, not a secret. This spreads retries so a cohort of
+	// failed jobs does not retry in lockstep; an attacker predicting it learns
+	// when a retry lands, which is not a capability worth crypto/rand.
 	offset := (rand.Float64()*2 - 1) * spread
 	jittered := time.Duration(float64(delay) + offset)
 	if jittered < time.Second {

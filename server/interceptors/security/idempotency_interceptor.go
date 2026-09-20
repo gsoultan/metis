@@ -273,6 +273,9 @@ func writeIdempotencyResult(w http.ResponseWriter, result *idempotencyResult, re
 		return
 	}
 
+	// #nosec G705 -- this body is a reply this server produced earlier and
+	// stored, replayed with the original headers (including Content-Type) set
+	// above. It is exactly as safe as the response it is replaying.
 	if _, err := w.Write(result.body); err != nil {
 		log.Debug().Err(err).Msg("The caller went away before the replayed reply could be written")
 	}

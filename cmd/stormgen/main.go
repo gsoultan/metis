@@ -67,10 +67,10 @@ func run() error {
 	var bytes int
 	for _, rel := range paths {
 		full := filepath.Join(outputDir, rel)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 			return err
 		}
-		if err := os.WriteFile(full, files[rel], 0o644); err != nil {
+		if err := os.WriteFile(full, files[rel], 0o600); err != nil {
 			return err
 		}
 		bytes += len(files[rel])

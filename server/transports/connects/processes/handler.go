@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
@@ -88,8 +90,8 @@ func (h *ProcessHandler) ListInstances(ctx context.Context, req *connect.Request
 	if resp.Page != nil {
 		out.Page = &pbendpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}
@@ -115,7 +117,7 @@ func (h *ProcessHandler) GetExecutionPath(ctx context.Context, req *connect.Requ
 	}
 	freqs := make(map[string]int32)
 	for k, v := range resp.Frequencies {
-		freqs[k] = int32(v)
+		freqs[k] = clamp.Int32(v)
 	}
 	return connect.NewResponse(&pbendpoints.GetExecutionPathResponse{
 		Nodes:           adapters.NodesToProto(resp.Nodes),

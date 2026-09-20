@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -142,5 +144,5 @@ func releaseConn(conn *sql.Conn, key, when string) {
 func hashKey(key string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
-	return int64(h.Sum64())
+	return clamp.Int64FromUint64(h.Sum64())
 }

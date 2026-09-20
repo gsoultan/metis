@@ -124,6 +124,8 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 		// would be checking that a fake hash failed to match, which it always
 		// does.
 		//nolint:errcheck // deliberate: equalises timing, result is meaningless
+		// #nosec G104 -- same reason: checking the result would be checking that
+		// a fake hash failed to match, which it always does.
 		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		// Counted even though no account matched: not counting would let an
 		// attacker probe usernames for free and only pay once they found a

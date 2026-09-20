@@ -167,6 +167,11 @@ func (m Manifest) Validate() error {
 }
 
 // The authentication kinds a manifest may ask for.
+//
+// #nosec G101 -- these are the names of authentication kinds. G101 matches the
+// shape of the identifier rather than the value, so "authBasic" and
+// "authOAuth2ClientCredentials" read as credentials to it. None of them holds
+// one; they are what a manifest writes in its `auth.type` field.
 const (
 	authNone                    = "none"
 	authBasic                   = "basic"

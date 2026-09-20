@@ -5,6 +5,8 @@ import (
 	"errors"
 	"hash/maphash"
 	"sync"
+
+	"github.com/gsoultan/metis/internal/pkg/clamp"
 )
 
 var (
@@ -110,7 +112,7 @@ func (e *inboundPartitionExecutor) partitionIndex(key string) int {
 	hasher.SetSeed(e.seed)
 	_, _ = hasher.WriteString(key)
 
-	return int(hasher.Sum64() % uint64(len(e.partitions)))
+	return clamp.IntFromUint64(hasher.Sum64() % uint64(len(e.partitions)))
 }
 
 func (e *inboundPartitionExecutor) Stop() {

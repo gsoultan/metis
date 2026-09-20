@@ -424,6 +424,7 @@ func randomJitter(max time.Duration) time.Duration {
 		return 0
 	}
 
+	// #nosec G404 -- jitter, as in backoff.go. Not used for anything secret.
 	return time.Duration(rand.Int64N(int64(max) + 1))
 }
 
