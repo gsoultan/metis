@@ -221,6 +221,19 @@ and the rest proceed alongside it.
 
 ---
 
+## Status — 2026-09-20
+
+| Item | State |
+| :-- | :-- |
+| **P0.1** strict tenant scope | Steps 1–4 exercised, no denials found. **Not cleared**: 13 packages still fail with the flag on, and the gate is a staging soak. The flag ships off. |
+| **P0.2(a)** script-task inventory | **Done.** `GET /api/v1/definitions/script-tasks`, behind the designer chain — stricter than the javascript-conditions worklist beside it, because this returns every script *body* in the tenant in one call. |
+| **P0.2(b)** containment | **Done.** `METIS_SCRIPT_CONCURRENCY` (default 4, below `METIS_JOB_WORKERS`) bounds how many scripts allocate at once; a slot is held until the script actually finishes, so a runaway that ignored its interrupt is still counted. The container memory limit already existed. |
+| **P0.2(c)** resolution | **Not started, deliberately.** It is the choice between a FEEL replacement and process isolation, and (a) exists so that choice is made from the scripts an installation actually has. Run the endpoint first. |
+| **P1.1** SAST in CI | **Done.** `gosec` enabled in `.golangci.yml`, which CI already runs with `--new-from-merge-base`. 21 pre-existing findings, triaged rather than baselined blind; the one real defect — an unbounded multipart body that spilled past its in-memory budget to disk — is fixed. |
+| **P1.2** login throttle | **Done.** `internal/pkg/loginthrottle`: per-account exponential backoff, LRU-bounded because the key is attacker-supplied. Backoff rather than lockout, because a lockout is a denial of service against any guessable username. |
+| **P2** external review | **Cannot be done from here.** Needs a third party. Schedule after P0.1. |
+| **P2** golangci-lint burn-down | Not started. ~799 findings, baselined, CI blocks new ones. |
+
 ## The standing lesson
 
 `SECURITY.md` records that all ten issues found in the 2026-08-30 → 2026-09-04

@@ -116,6 +116,28 @@ const id: Catalogue = {
   'page.profile.subtitle': 'Kelola informasi pribadi dan pengaturan akun Anda.',
   'page.settings.title': 'Pengaturan Aplikasi',
   'page.settings.subtitle': 'Konfigurasikan ruang kerja dan preferensi Anda.',
+
+  // The dashboard. See the English catalogue.
+  'dash.activeInstances': 'Instansi Aktif',
+  'dash.activeInstancesHint': 'Proses yang sedang berjalan',
+  'dash.processModels': 'Model Proses',
+  'dash.processModelsHint': 'Definisi yang diterapkan dalam proyek ini',
+  'dash.tasksCompleted': 'Tugas Selesai',
+  'dash.tasksProgress': '{done} dari {total}',
+  'dash.needsAttention': 'Perlu Perhatian',
+  'dash.needsAttentionSome': 'Instansi tersendat dan menunggu seseorang',
+  'dash.needsAttentionNone': 'Tidak ada yang tersendat',
+  'dash.timeline': 'Lini Masa Bisnis',
+  'dash.recentActivity': 'Aktivitas Terbaru',
+  'dash.viewAllInstances': 'Lihat semua instansi',
+  'dash.generateReport': 'Buat Laporan',
+  'dash.noActivity': 'Belum ada aktivitas',
+  'dash.noActivityHint': 'Mulai sebuah proses untuk melihat lini masa aktivitas di sini.',
+  'dash.readyTitle': 'Siap mengotomatiskan?',
+  'dash.readyLoading': 'Memuat proyek Anda. Jika tetap di sini, pilih satu dari header.',
+  'dash.readyNoProjects': 'Proyek mengelompokkan model proses, tugas, dan instansi yang berkaitan. Anda memerlukan satu untuk memulai.',
+  'dash.createFirstProject': 'Buat proyek pertama Anda',
+  'common.complete': 'Selesai',
 };
 
 export default id;

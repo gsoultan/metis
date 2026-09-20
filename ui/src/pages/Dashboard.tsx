@@ -165,7 +165,7 @@ export function Dashboard() {
             <ThemeIcon size={80} radius="xl" variant="light" color="indigo">
               <TrendingUp size={40} />
             </ThemeIcon>
-            <Title order={2}>Ready to automate?</Title>
+            <Title order={2}>{t('dash.readyTitle')}</Title>
             {/*
               A project is now chosen automatically, so this is reached when
               there is none to choose rather than because somebody skipped a
@@ -174,13 +174,13 @@ export function Dashboard() {
             */}
             <Text c="dimmed" ta="center" maw={500}>
               {totalProjects > 0
-                ? 'Loading your project. If this stays here, pick one from the header.'
-                : "Projects group related process models, tasks and instances. You'll need one to start."}
+                ? t('dash.readyLoading')
+                : t('dash.readyNoProjects')}
             </Text>
 
             {totalProjects === 0 && (
               <Button component={Link} to="/projects" size="md" radius="md" color="indigo">
-                Create your first project
+                {t('dash.createFirstProject')}
               </Button>
             )}
           </Stack>
@@ -200,7 +200,7 @@ export function Dashboard() {
         description={t('page.dashboard.subtitle')}
         actions={
           <ComingSoonButton variant="light" leftSection={<Activity size={16} />} label="Report export is not implemented yet">
-            Generate Report
+            {t('dash.generateReport')}
           </ComingSoonButton>
         }
       />
@@ -213,42 +213,42 @@ export function Dashboard() {
       <Grid gap="xl">
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
-            title="Active Instances"
+            title={t('dash.activeInstances')}
             value={activeInstances}
             icon={Activity}
             color="indigo"
-            hint="Processes currently running"
+            hint={t('dash.activeInstancesHint')}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
-            title="Process Models"
+            title={t('dash.processModels')}
             value={totalDefinitions}
             icon={GitBranch}
             color="teal"
-            hint="Deployed definitions in this project"
+            hint={t('dash.processModelsHint')}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
-            title="Tasks Completed"
+            title={t('dash.tasksCompleted')}
             value={`${completionRate}%`}
             icon={CheckCircle}
             color="orange"
             progress={completionRate}
-            progressLabel={`${totalTasks - pendingTasks} of ${totalTasks}`}
+            progressLabel={t('dash.tasksProgress', { done: totalTasks - pendingTasks, total: totalTasks })}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
-            title="Needs Attention"
+            title={t('dash.needsAttention')}
             value={needsAttention}
             icon={AlertCircle}
             color={needsAttention > 0 ? 'red' : 'green'}
             hint={
               needsAttention > 0
-                ? 'Instances stuck and waiting on someone'
-                : 'Nothing is stuck'
+                ? t('dash.needsAttentionSome')
+                : t('dash.needsAttentionNone')
             }
           />
         </Grid.Col>
@@ -260,10 +260,10 @@ export function Dashboard() {
           <Card shadow="sm" radius="lg" withBorder h="100%">
             <Group justify="space-between" mb="xl">
               <Group gap="sm">
-                <Title order={4}>Business Timeline</Title>
-                <Badge variant="light" color="indigo" radius="sm">Recent Activity</Badge>
+                <Title order={4}>{t('dash.timeline')}</Title>
+                <Badge variant="light" color="indigo" radius="sm">{t('dash.recentActivity')}</Badge>
               </Group>
-              <Button component={Link} to="/instances" variant="subtle" size="xs">View all instances</Button>
+              <Button component={Link} to="/instances" variant="subtle" size="xs">{t('dash.viewAllInstances')}</Button>
             </Group>
             
             {lastInstanceId ? (
@@ -273,8 +273,8 @@ export function Dashboard() {
                 <ThemeIcon size={60} radius="xl" variant="light" color="gray">
                   <Activity size={32} />
                 </ThemeIcon>
-                <Text fw={700}>No recent activity</Text>
-                <Text size="sm" c="dimmed">Start a process to see the activity timeline here.</Text>
+                <Text fw={700}>{t('dash.noActivity')}</Text>
+                <Text size="sm" c="dimmed">{t('dash.noActivityHint')}</Text>
               </Stack>
             )}
           </Card>
