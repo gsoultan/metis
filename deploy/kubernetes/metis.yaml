@@ -208,6 +208,11 @@ spec:
               # the node — script tasks have a wall-clock budget but goja
               # cannot be pre-empted inside a native call, so memory is the
               # backstop.
+              #
+              # The first line of defence is METIS_SCRIPT_CONCURRENCY (default
+              # 4): it bounds how many scripts allocate at once, and holds a
+              # runaway's slot until it actually finishes. This limit is what
+              # catches the case that gets past it.
               memory: "1Gi"
 
       volumes:
