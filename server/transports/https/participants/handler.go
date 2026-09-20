@@ -77,6 +77,15 @@ func decodeImportParticipantsRequest(_ context.Context, r *http.Request) (any, e
 }
 
 func decodeUpload(r *http.Request) (any, error) {
+	// MaxBytesReader first, because ParseMultipartForm's argument is only the
+	// in-memory budget: everything past it spills to temporary files, so the
+	// call alone bounds memory and not the upload. Without this an unbounded
+	// body fills the disk instead of the heap, which is the same denial of
+	// service wearing a different hat.
+	r.Body = http.MaxBytesReader(nil, r.Body, maxUploadBytes)
+	// #nosec G120 -- the body is bounded by MaxBytesReader on the line above.
+	// gosec matches the call rather than the bound, so it reports this either
+	// way; the annotation is here so the finding does not read as unreviewed.
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		return nil, fmt.Errorf("could not read the upload: %w", err)
 	}
