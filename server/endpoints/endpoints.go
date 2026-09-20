@@ -182,6 +182,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	definitionEndpoints.ExportDefinition = protected("ExportDefinition")(definitionEndpoints.ExportDefinition)
 	definitionEndpoints.ImportDefinition = designer("ImportDefinition")(definitionEndpoints.ImportDefinition)
 	definitionEndpoints.ListJavaScriptConditions = protected("ListJavaScriptConditions")(definitionEndpoints.ListJavaScriptConditions)
+	// Deliberately stricter than the javascript-conditions worklist beside it.
+	// That one reports expressions; this one returns every script *body* in the
+	// tenant in a single call, which is the sort of aggregate an ordinary
+	// approver has no reason to pull. Admin and designer are the roles that
+	// author and manage models, and so the roles that would act on it.
+	definitionEndpoints.ListScriptTasks = designer("ListScriptTasks")(definitionEndpoints.ListScriptTasks)
 	// Promoting is a write that changes which model every future instance runs,
 	// so it takes the designer role rather than the read role — the same bar as
 	// deploying the version in the first place.

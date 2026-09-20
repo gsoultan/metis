@@ -499,6 +499,72 @@ func (c *jsConditionCollector) record(elementID, elementName, where, condition s
 	})
 }
 
+// ListScriptTasks walks every definition the caller can see and reports each
+// script task in it.
+//
+// This is an inventory, not a worklist: nothing here is refused and nothing
+// needs rewriting today. It exists because the script sandbox bounds wall-clock
+// time, recursion and host capability but cannot bound memory — goja offers no
+// heap limit — and choosing between a FEEL replacement and out-of-process
+// execution is a question about the scripts that exist.
+//
+// Complete rather than paged, and batched for the same reason
+// ListJavaScriptConditions is: a truncated inventory reads as a small problem.
+func (s *definitionService) ListScriptTasks(ctx context.Context) ([]entities.ScriptTaskUsage, error) {
+	usages := make([]entities.ScriptTaskUsage, 0)
+	err := s.repo.Definition().ScanWithGraphs(ctx, func(batch []models.ProcessDefinitionModel) error {
+		for _, m := range batch {
+			def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
+			usages = append(usages, collectScriptTasks(def)...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return usages, nil
+}
+
+// collectScriptTasks finds the script tasks in one definition.
+func collectScriptTasks(def *entities.ProcessDefinition) []entities.ScriptTaskUsage {
+	c := &scriptTaskCollector{def: def}
+	def.Accept(c)
+	return c.usages
+}
+
+// scriptTaskCollector is the DefinitionVisitor behind collectScriptTasks.
+//
+// It keys on the node type rather than on a non-empty Script, because a script
+// task with an empty body is still a script task: it is a node somebody will
+// fill in, and leaving it out would make the inventory shrink for the wrong
+// reason. A non-script node carrying a Script field is ignored for the mirror
+// image of that reason — the engine would never hand it to goja.
+type scriptTaskCollector struct {
+	def    *entities.ProcessDefinition
+	usages []entities.ScriptTaskUsage
+}
+
+func (c *scriptTaskCollector) VisitDefinition(*entities.ProcessDefinition) {}
+
+func (c *scriptTaskCollector) VisitSequenceFlow(*entities.SequenceFlow) {}
+
+func (c *scriptTaskCollector) VisitFlowNode(n *entities.Node) {
+	if n == nil || n.Type != entities.ScriptTask {
+		return
+	}
+	c.usages = append(c.usages, entities.ScriptTaskUsage{
+		DefinitionID:   c.def.ID,
+		DefinitionKey:  c.def.Key,
+		DefinitionName: c.def.Name,
+		Version:        c.def.Version,
+		NodeID:         n.ID,
+		NodeName:       n.Name,
+		ScriptFormat:   n.ScriptFormat,
+		Script:         n.Script,
+		ScriptLength:   len(n.Script),
+	})
+}
+
 // ListLiveVersions maps each process key in a project to the version new
 // instances start on.
 //

@@ -44,6 +44,14 @@ func RegisterHandlers(m *http.ServeMux, eps definition.Endpoints, options []http
 		common.EncodeResponse,
 		options...,
 	))
+	// The script-task inventory: every script task in the tenant, with its body.
+	// A literal segment for the same reason as the worklist above.
+	m.Handle("GET /api/v1/definitions/script-tasks", httptransport.NewServer(
+		eps.ListScriptTasks,
+		decodeListScriptTasksRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/definitions/import", httptransport.NewServer(
 		eps.ImportDefinition,
 		decodeImportDefinitionRequest,
@@ -169,6 +177,10 @@ func decodeExportDefinitionRequest(_ context.Context, r *http.Request) (any, err
 
 func decodeListJavaScriptConditionsRequest(_ context.Context, _ *http.Request) (any, error) {
 	return definition.ListJavaScriptConditionsRequest{}, nil
+}
+
+func decodeListScriptTasksRequest(_ context.Context, _ *http.Request) (any, error) {
+	return definition.ListScriptTasksRequest{}, nil
 }
 
 func decodeImportDefinitionRequest(_ context.Context, r *http.Request) (any, error) {

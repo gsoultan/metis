@@ -73,4 +73,10 @@ type DefinitionService interface {
 	// can see — the worklist for the javascript-conditions flag, which refuses
 	// them by default.
 	ListJavaScriptConditions(ctx context.Context) ([]entities.JavaScriptConditionUsage, error)
+
+	// ListScriptTasks reports every script task the caller can see. An
+	// inventory rather than a worklist: nothing here is refused, and it exists
+	// so that the script sandbox's unbounded-memory gap can be sized before it
+	// is fixed. See entities.ScriptTaskUsage.
+	ListScriptTasks(ctx context.Context) ([]entities.ScriptTaskUsage, error)
 }
