@@ -173,6 +173,20 @@ type ListJavaScriptConditionsResponse struct {
 
 func (r ListJavaScriptConditionsResponse) Failed() error { return r.Err }
 
+// ListScriptTasksRequest asks for the script-task inventory. It carries
+// nothing: the scope is the caller's tenant, resolved from context.
+type ListScriptTasksRequest struct{}
+
+// ListScriptTasksResponse is the inventory. Usages is always present — `[]`
+// says "none", where an omitted field would leave a reader guessing whether
+// the scan ran.
+type ListScriptTasksResponse struct {
+	Usages []entities.ScriptTaskUsage `json:"usages"`
+	Err    error                      `json:"err,omitzero"`
+}
+
+func (r ListScriptTasksResponse) Failed() error { return r.Err }
+
 type ImportDefinitionRequest struct {
 	ProjectID string `json:"project_id"`
 	XML       []byte `json:"xml"`

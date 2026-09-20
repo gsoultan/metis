@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/loginthrottle"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
@@ -25,6 +26,10 @@ type userService struct {
 	// projects — about six queries before a request reached its handler. See
 	// principal_cache.go for why the lifetime is seconds rather than minutes.
 	principals *principalCache
+	// throttle slows repeated failed sign-ins for one account. The HTTP rate
+	// limiter bounds requests per address, which credential stuffing spreads
+	// across; this bounds them per account, which it cannot.
+	throttle *loginthrottle.Throttle
 }
 
 func NewUserService(repo repositories.Repository, jwtSecret string) contracts.UserService {
@@ -32,6 +37,7 @@ func NewUserService(repo repositories.Repository, jwtSecret string) contracts.Us
 		repo:       repo,
 		jwtSecret:  []byte(jwtSecret),
 		principals: newPrincipalCache(),
+		throttle:   loginthrottle.New(),
 	}
 }
 
@@ -103,6 +109,14 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 	// The comparison still runs when no user is found, against a fixed hash, so
 	// the two paths also cost roughly the same amount of time. Returning early
 	// would leave a timing signal saying the same thing more quietly.
+	// Checked before the account is looked up, so a throttled attempt costs the
+	// same whether the account exists or not — the same reason the dummy hash
+	// below exists.
+	if retry, wait := s.throttle.RetryAfter(username, time.Now()); wait {
+		return entities.User{}, "", fmt.Errorf("%w: too many failed attempts, try again in %s",
+			auth.ErrAuthenticationFailed, retry.Round(time.Second))
+	}
+
 	mu, hash, err := s.repo.User().GetWithPasswordByUsername(ctx, username)
 	if err != nil {
 		// The result is deliberately unused: this compare exists only so that a
@@ -111,13 +125,20 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 		// does.
 		//nolint:errcheck // deliberate: equalises timing, result is meaningless
 		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		// Counted even though no account matched: not counting would let an
+		// attacker probe usernames for free and only pay once they found a
+		// real one, which is the enumeration this path already guards against.
+		s.throttle.Failed(username, time.Now())
 		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	u := adapters.UserEntityAdapter{Model: mu}.ToEntity()
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		s.throttle.Failed(username, time.Now())
 		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
+	// The correct password ends the sequence, whatever came before it.
+	s.throttle.Succeeded(username)
 
 	// Generate JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{

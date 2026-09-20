@@ -125,6 +125,30 @@ const en: Catalogue = {
   'page.profile.subtitle': 'Manage your personal information and account settings.',
   'page.settings.title': 'Application Settings',
   'page.settings.subtitle': 'Configure your workspace and preferences.',
+
+  // The dashboard, which is where the interface's own language was most
+  // visibly at odds with itself: the navigation translated and the cards
+  // beside it did not.
+  'dash.activeInstances': 'Active Instances',
+  'dash.activeInstancesHint': 'Processes currently running',
+  'dash.processModels': 'Process Models',
+  'dash.processModelsHint': 'Deployed definitions in this project',
+  'dash.tasksCompleted': 'Tasks Completed',
+  'dash.tasksProgress': '{done} of {total}',
+  'dash.needsAttention': 'Needs Attention',
+  'dash.needsAttentionSome': 'Instances stuck and waiting on someone',
+  'dash.needsAttentionNone': 'Nothing is stuck',
+  'dash.timeline': 'Business Timeline',
+  'dash.recentActivity': 'Recent Activity',
+  'dash.viewAllInstances': 'View all instances',
+  'dash.generateReport': 'Generate Report',
+  'dash.noActivity': 'No recent activity',
+  'dash.noActivityHint': 'Start a process to see the activity timeline here.',
+  'dash.readyTitle': 'Ready to automate?',
+  'dash.readyLoading': 'Loading your project. If this stays here, pick one from the header.',
+  'dash.readyNoProjects': "Projects group related process models, tasks and instances. You'll need one to start.",
+  'dash.createFirstProject': 'Create your first project',
+  'common.complete': 'Complete',
 };
 
 export default en;

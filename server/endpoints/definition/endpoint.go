@@ -20,6 +20,7 @@ type Endpoints struct {
 	ExportDefinition          endpoint.Endpoint
 	ImportDefinition          endpoint.Endpoint
 	ListJavaScriptConditions  endpoint.Endpoint
+	ListScriptTasks           endpoint.Endpoint
 	PromoteDefinition         endpoint.Endpoint
 	ListDefinitionVersions    endpoint.Endpoint
 	ListLiveVersions          endpoint.Endpoint
@@ -37,6 +38,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ExportDefinition:          MakeExportDefinitionEndpoint(s),
 		ImportDefinition:          MakeImportDefinitionEndpoint(s),
 		ListJavaScriptConditions:  MakeListJavaScriptConditionsEndpoint(s),
+		ListScriptTasks:           MakeListScriptTasksEndpoint(s),
 		PromoteDefinition:         MakePromoteDefinitionEndpoint(s),
 		ListDefinitionVersions:    MakeListDefinitionVersionsEndpoint(s),
 		ListLiveVersions:          MakeListLiveVersionsEndpoint(s),
@@ -201,6 +203,22 @@ func MakeListJavaScriptConditionsEndpoint(s services.ServiceFacade) endpoint.End
 		}
 		usages, err := s.ListJavaScriptConditions(ctx)
 		return ListJavaScriptConditionsResponse{Usages: usages, Err: err}, nil
+	}
+}
+
+// MakeListScriptTasksEndpoint serves the script-task inventory: every script
+// task the caller's tenant can see.
+//
+// Nothing here is refused — this is not the javascript-conditions worklist. It
+// is what sizes the sandbox's unbounded-memory gap, so that the fix is chosen
+// from the scripts that exist rather than from a guess.
+func MakeListScriptTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		if _, ok := request.(ListScriptTasksRequest); !ok {
+			return nil, fmt.Errorf("definition: expected a ListScriptTasksRequest, got %T", request)
+		}
+		usages, err := s.ListScriptTasks(ctx)
+		return ListScriptTasksResponse{Usages: usages, Err: err}, nil
 	}
 }
 

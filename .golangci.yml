@@ -51,6 +51,18 @@ linters:
     # discarded errors on the execution path. A swallowed error in a BPMN
     # engine is a silently hung process instance.
     - errcheck
+    # SAST, which roadmap.md §5.6 asks for and CI did not have: govulncheck
+    # covers Go dependencies, bun audit the UI's, gitleaks secrets and trivy the
+    # image, and nothing read the source itself.
+    #
+    # Enabled with 21 pre-existing findings, which CI does not block on: it runs
+    # --new-from-merge-base, so a finding introduced by a change fails and the
+    # backlog does not. Triaged on adoption rather than baselined blind — the
+    # one real defect (an unbounded multipart body that spilled to disk past its
+    # in-memory budget) is fixed, and the rest are integer conversions on known
+    # ranges, jitter from math/rand, and env-var names matching a credential
+    # pattern.
+    - gosec
     - bodyclose      # leaked HTTP response bodies in connectors
     - noctx          # HTTP requests without a context (and therefore no timeout)
     - contextcheck   # context not propagated through a call chain
