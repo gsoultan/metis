@@ -60,6 +60,30 @@ decision, fetch-and-lock, and a password change.
 
 **No denials.** Not one path reached a repository without an identity.
 
+Repeated 2026-09-20 against a seeded development installation on PostgreSQL,
+driving the browser as well as the API: all fifteen UI routes, the reads behind
+them, a process started from the Models page, a task claimed and completed,
+signal and message correlation, fetch-and-lock, an OCEL export, the webhook
+receiver refusing an unknown token, and the job worker claiming and retrying
+service-task jobs throughout. **Again no denials and no 5xx**, with
+`DeniedSites()` empty.
+
+The detector was confirmed live rather than assumed, because a zero from a dead
+detector looks exactly like a zero from a clean run and silence is this flag's
+whole failure mode. Its own tests prove a denied query is recorded with its
+caller, that a site is named once however often it runs, that nothing is
+reported while the flag is off, and that system work is exempt.
+
+> **Do not read a green `make strict-scope` as more than it is.** That same day,
+> `go test ./...` with the flag on appeared to pass module-wide on a developer
+> machine, which would have meant the note below was obsolete. It was not: the
+> DSN was unset, so every package needing a real database skipped and reported
+> `ok`. With `METIS_TEST_POSTGRES_DSN` set, the same command fails 13 packages,
+> which is what CI had been saying all along. `make test`, `make race` and
+> `make strict-scope` now warn when the DSN is missing. A skip and a pass are
+> the same word, and that is the second time on this page that an absence has
+> been mistaken for a result.
+
 That is evidence and not a substitute for yours: the traffic was synthetic and
 the installation was a fresh one. What it establishes is that the paths a
 product exercise touches are already carrying identity, so a soak against your

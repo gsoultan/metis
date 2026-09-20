@@ -377,6 +377,13 @@ Two things only CI proves, so a green local gate is not the whole story:
 CI also passes `-count=1`: with a warm `GOCACHE` an unchanged tree replays `ok (cached)`
 for every package, and the suite and race detector "pass" having executed nothing.
 
+**And a third way to be green on nothing:** without `METIS_TEST_POSTGRES_DSN`, every
+package that needs a real database skips and still reports `ok`. Measured 2026-09-20:
+`METIS_FEATURE_STRICT_TENANT_SCOPE=true go test ./...` reports *no failures at all*
+without a DSN and *13 failing packages* with one. `make test`, `make race` and
+`make strict-scope` now say so when it is unset. A local gate without a database
+proves strictly less than CI does.
+
 ---
 
 ## 5. Task summary format

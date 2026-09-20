@@ -87,6 +87,7 @@ vet: ## Run go vet across the whole module
 
 .PHONY: test
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
+	$(call warn_if_no_dsn)
 	go test $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: test-db
@@ -103,7 +104,29 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
+	$(call warn_if_no_dsn)
 	go test -race $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
+
+# Say so when the database-backed tests are about to skip.
+#
+# Without METIS_TEST_POSTGRES_DSN the packages that need a real database skip,
+# and `go test` reports `ok` for them — a pass and a skip are the same word.
+# That is how a local run can be green on exactly the packages CI fails.
+#
+# Measured: `METIS_FEATURE_STRICT_TENANT_SCOPE=true go test ./...` reports no
+# failures at all without a DSN, and 13 failing packages with one. A green gate
+# on this machine is therefore weaker evidence than a green gate in CI, and
+# nothing said so.
+#
+# It warns rather than refuses: a developer without a database still wants to
+# run the parts that do not need one.
+define warn_if_no_dsn
+@if [ -z "$$METIS_TEST_POSTGRES_DSN" ]; then \
+	printf '\033[33mwarning: METIS_TEST_POSTGRES_DSN is unset, so every package that needs a real\n'; \
+	printf '         database will SKIP and still report "ok". This run proves less than CI.\n'; \
+	printf '         See test-db for how to start one.\033[0m\n'; \
+fi
+endef
 
 # The packages that exercise product paths through the real interceptor chain
 # and therefore mean something under the strict scope.
@@ -119,6 +142,7 @@ STRICT_SCOPE_PKGS = ./tests/strictscope/... ./tests/slo/... ./tests/user/... \
 
 .PHONY: strict-scope
 strict-scope: ## Run the strict-tenant-scope suites with the flag on, as production would set it
+	$(call warn_if_no_dsn)
 	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test $(GO_TEST_P) -count=1 $(STRICT_SCOPE_PKGS)
 
 .PHONY: lint
