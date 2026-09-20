@@ -2,6 +2,7 @@ package adapters
 
 import (
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/internal/pkg/clamp"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -33,6 +34,6 @@ func (a ExternalTaskPBAdapter) ToProto() *pbentities.ExternalTask {
 		Node:      NodeToProto(a.Task.Node),
 		Topic:     a.Task.Topic,
 		Variables: variables,
-		Retries:   int32(a.Task.Retries),
+		Retries:   clamp.Int32(a.Task.Retries),
 	}
 }

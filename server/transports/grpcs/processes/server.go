@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/metis/api/proto/endpoints"
 	"github.com/gsoultan/metis/api/proto/entities"
@@ -168,8 +170,8 @@ func encodeGRPCListInstancesResponse(_ context.Context, response any) (any, erro
 	if resp.Page != nil {
 		out.Page = &endpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}
@@ -197,7 +199,7 @@ func encodeGRPCGetExecutionPathResponse(_ context.Context, response any) (any, e
 	}
 	freqs := make(map[string]int32, len(resp.Frequencies))
 	for k, v := range resp.Frequencies {
-		freqs[k] = int32(v)
+		freqs[k] = clamp.Int32(v)
 	}
 	return &endpoints.GetExecutionPathResponse{
 		Nodes:           adapters.NodesToProto(resp.Nodes),

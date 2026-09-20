@@ -132,6 +132,7 @@ const (
 
 	// envResetPassword supplies the new password for --reset-password, so that
 	// a chosen one need not be typed where it will be recorded.
+	// #nosec G101 -- the name of an environment variable, not a credential.
 	envResetPassword = "METIS_NEW_PASSWORD"
 )
 

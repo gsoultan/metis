@@ -151,7 +151,7 @@ dependencies), `gitleaks` (secrets) and `trivy` (image), so `roadmap.md` §5.6's
 *"SAST + dependency + secret scanning in CI"* is two-thirds done.
 
 **Ordering matters.** Add the linter **before** the golangci-lint burn-down.
-Burning down 799 findings and then enabling a linter that finds more is wasted
+Burning down a backlog and then enabling a linter that finds more is wasted
 work.
 
 Use `only-new-issues`, the same mechanism that already baselines golangci-lint,
@@ -193,8 +193,10 @@ fail-open default. Hand them `SECURITY.md` §"What has already been looked at" a
 explicit out-of-scope, so the engagement buys new coverage rather than
 re-treading ten known issues.
 
-**golangci-lint 799 → 0.** Burn-down order is already in `.golangci.yml`; the
-engine's slice is done. Background work, no gate.
+**golangci-lint → 0. Done.** The 799 figure was stale — every linter but
+`gosec` already ran clean, which `.golangci.yml`'s own adoption note says. What
+remained was the 61 `gosec` findings that enabling it introduced, and those are
+closed: three real defects fixed, the rest annotated with a stated reason.
 
 ---
 
@@ -232,7 +234,7 @@ and the rest proceed alongside it.
 | **P1.1** SAST in CI | **Done.** `gosec` enabled in `.golangci.yml`, which CI already runs with `--new-from-merge-base`. 21 pre-existing findings, triaged rather than baselined blind; the one real defect — an unbounded multipart body that spilled past its in-memory budget to disk — is fixed. |
 | **P1.2** login throttle | **Done.** `internal/pkg/loginthrottle`: per-account exponential backoff, LRU-bounded because the key is attacker-supplied. Backoff rather than lockout, because a lockout is a denial of service against any guessable username. |
 | **P2** external review | **Cannot be done from here.** Needs a third party. Schedule after P0.1. |
-| **P2** golangci-lint burn-down | Not started. ~799 findings, baselined, CI blocks new ones. |
+| **P2** golangci-lint burn-down | **Done.** `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0` reports **0 issues**. The 799 was stale; the real remainder was the 61 `gosec` findings that adopting SAST introduced. |
 
 ## The standing lesson
 

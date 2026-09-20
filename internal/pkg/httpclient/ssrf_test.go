@@ -113,6 +113,8 @@ func TestAHostnameResolvingToLoopbackCannotReachIt(t *testing.T) {
 
 	resp, err := New(5 * time.Second).Do(req)
 	if err == nil {
+		// #nosec G104 -- closing to release the connection on a path this test
+		// asserts is never reached; a close error here changes nothing.
 		resp.Body.Close()
 		t.Fatal("a hostname resolving to loopback reached a loopback-only server")
 	}

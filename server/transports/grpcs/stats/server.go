@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	grpctransport "github.com/go-kit/kit/transport/grpc"
 	"github.com/gsoultan/metis/api/proto/endpoints"
 	"github.com/gsoultan/metis/api/proto/services"
@@ -52,11 +54,11 @@ func encodeGRPCGetStatsResponse(_ context.Context, response any) (any, error) {
 		return nil, fmt.Errorf("stats: expected a process.GetProcessStatisticsResponse, got %T", response)
 	}
 	return &endpoints.GetProcessStatisticsResponse{
-		ActiveInstances:    int32(resp.ActiveInstances),
-		CompletedInstances: int32(resp.CompletedInstances),
-		FailedInstances:    int32(resp.FailedInstances),
-		TotalTasks:         int32(resp.TotalTasks),
-		PendingTasks:       int32(resp.PendingTasks),
+		ActiveInstances:    clamp.Int32(resp.ActiveInstances),
+		CompletedInstances: clamp.Int32(resp.CompletedInstances),
+		FailedInstances:    clamp.Int32(resp.FailedInstances),
+		TotalTasks:         clamp.Int32(resp.TotalTasks),
+		PendingTasks:       clamp.Int32(resp.PendingTasks),
 		Error:              common.ErrString(resp.Err),
 	}, nil
 }

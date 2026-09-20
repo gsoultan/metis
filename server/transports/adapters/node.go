@@ -2,6 +2,7 @@ package adapters
 
 import (
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/internal/pkg/clamp"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -58,7 +59,7 @@ func NodeToProto(n *entities.Node) *pbentities.Node {
 		Script:        n.Script,
 		ScriptFormat:  n.ScriptFormat,
 		ExternalTopic: n.ExternalTopic,
-		Priority:      int32(n.Priority),
+		Priority:      clamp.Int32(n.Priority),
 		DueDate:       n.DueDate,
 		Condition:     n.Condition,
 
@@ -70,15 +71,15 @@ func NodeToProto(n *entities.Node) *pbentities.Node {
 		IsEventSubProcess: n.IsEventSubProcess,
 
 		MultiInstanceType:   n.MultiInstanceType,
-		LoopCardinality:     int32(n.LoopCardinality),
+		LoopCardinality:     clamp.Int32(n.LoopCardinality),
 		Collection:          n.Collection,
 		ElementVariable:     n.ElementVariable,
 		CompletionCondition: n.CompletionCondition,
 
-		X:          int32(n.X),
-		Y:          int32(n.Y),
-		Width:      int32(n.Width),
-		Height:     int32(n.Height),
+		X:          clamp.Int32(n.X),
+		Y:          clamp.Int32(n.Y),
+		Width:      clamp.Int32(n.Width),
+		Height:     clamp.Int32(n.Height),
 		IsExpanded: n.IsExpanded,
 
 		Nodes: NodesToProto(n.Nodes),
@@ -276,7 +277,7 @@ func waypointsToProto(in []entities.Waypoint) []*pbentities.Waypoint {
 	}
 	out := make([]*pbentities.Waypoint, len(in))
 	for i, wp := range in {
-		out[i] = &pbentities.Waypoint{X: int32(wp.X), Y: int32(wp.Y)}
+		out[i] = &pbentities.Waypoint{X: clamp.Int32(wp.X), Y: clamp.Int32(wp.Y)}
 	}
 	return out
 }

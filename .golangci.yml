@@ -106,6 +106,21 @@ linters:
           - errcheck
           - gocritic
 
+      # Test fixtures are not credentials.
+      #
+      # G101 matches on the *shape* of a string — a name containing "pass",
+      # "secret" or "token", or a URL with userinfo — and a test suite is made
+      # of those by necessity: a login test needs a password, a redaction test
+      # needs a URL with one in it to prove the redaction works. Every match
+      # under a test path was read on adoption and every one was a fixture.
+      #
+      # Scoped to test paths on purpose. The same rule still applies to
+      # production code, where a match is worth looking at.
+      - path: (_test\.go|^tests/)
+        linters:
+          - gosec
+        text: "G101"
+
       # go-kit endpoints carry the domain error in the response and reserve the
       # error return for transport failures — Failed() is what the transport
       # reads. `return Response{Err: err}, nil` is therefore correct here, and

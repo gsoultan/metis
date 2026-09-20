@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	"github.com/gsoultan/metis/server/endpoints/process"
@@ -30,11 +32,11 @@ func (h *StatsHandler) GetProcessStatistics(ctx context.Context, req *connect.Re
 		return nil, fmt.Errorf("stats: expected a process.GetProcessStatisticsResponse, got %T", response)
 	}
 	return connect.NewResponse(&pbendpoints.GetProcessStatisticsResponse{
-		ActiveInstances:    int32(resp.ActiveInstances),
-		CompletedInstances: int32(resp.CompletedInstances),
-		FailedInstances:    int32(resp.FailedInstances),
-		TotalTasks:         int32(resp.TotalTasks),
-		PendingTasks:       int32(resp.PendingTasks),
+		ActiveInstances:    clamp.Int32(resp.ActiveInstances),
+		CompletedInstances: clamp.Int32(resp.CompletedInstances),
+		FailedInstances:    clamp.Int32(resp.FailedInstances),
+		TotalTasks:         clamp.Int32(resp.TotalTasks),
+		PendingTasks:       clamp.Int32(resp.PendingTasks),
 		Error:              common.ErrString(resp.Err),
 	}), nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/clamp"
+
 	"connectrpc.com/connect"
 	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
@@ -61,8 +63,8 @@ func (h *TaskHandler) ListTasks(ctx context.Context, req *connect.Request[pbendp
 	if resp.Page != nil {
 		out.Page = &pbendpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}
@@ -93,8 +95,8 @@ func (h *TaskHandler) ListTasksByAssignee(ctx context.Context, req *connect.Requ
 	if resp.Page != nil {
 		out.Page = &pbendpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}
@@ -126,8 +128,8 @@ func (h *TaskHandler) ListTasksByCandidates(ctx context.Context, req *connect.Re
 	if resp.Page != nil {
 		out.Page = &pbendpoints.PageInfo{
 			Total:    resp.Page.Total,
-			Page:     int32(resp.Page.Page),
-			PageSize: int32(resp.Page.PageSize),
+			Page:     clamp.Int32(resp.Page.Page),
+			PageSize: clamp.Int32(resp.Page.PageSize),
 			HasMore:  resp.Page.HasMore,
 		}
 	}

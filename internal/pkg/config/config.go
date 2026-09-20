@@ -54,6 +54,16 @@ type Config struct {
 }
 
 // Save writes the configuration to the specified file path as YAML.
+//
+// It writes the encryption key and the JWT secret, which is the point: this is
+// the file the setup wizard produces and the server reads them back from.
+// 0600 is what makes that acceptable, so the mode below is a security control
+// rather than a default — the same secrets in a world-readable file would be
+// an administrator's token and a decryption key for any stolen backup.
+//
+// #nosec G117 -- marshalling the secrets is what this function is for; the
+// file mode is the control, and docs/recovery.md covers keeping ENCRYPTION_KEY
+// backed up separately from the database.
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {
@@ -95,6 +105,8 @@ func (c *Config) DecryptConnectionString(passphrase string) (string, error) {
 
 // Load reads and parses a config.yaml file from the given path.
 func Load(path string) (*Config, error) {
+	// #nosec G304 -- path comes from a flag or the installation default, not
+	// from a request. Reading an operator-named file is what this function is.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
