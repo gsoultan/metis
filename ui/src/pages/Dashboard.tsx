@@ -8,6 +8,7 @@ import {
   Title, 
   Button, 
   Badge, 
+  Box,
   rem, 
   Progress,
 } from '@mantine/core';
@@ -28,9 +29,10 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { BusinessTimeline } from '../components/BusinessTimeline';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
+import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
 
 /**
@@ -102,6 +104,7 @@ function StatCard({
 
 export function Dashboard() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { currentProjectId, currentOrganizationId } = useAppStore();
   const { data: statsData, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useProcessStatistics();
   const { data: defs } = useDefinitions();
@@ -284,17 +287,53 @@ export function Dashboard() {
 
 
       {/*
-        The "Starter Templates" section was removed, not disabled.
+        This section was removed in #57 and is back because the feature exists
+        now. It previously offered three cards badged "Recommended" whose every
+        button was disabled, which is prime dashboard space advertising
+        something that could not be used.
 
-        It offered three cards badged "Recommended" whose every button was a
-        ComingSoonButton, because process templates are not implemented. That is
-        prime dashboard space advertising a feature that cannot be used: a first-
-        time user clicks all three and concludes the product is broken.
-
-        A disabled control teaches when the feature exists and is unavailable to
-        *you*. It misleads when the feature does not exist at all. Bring this back
-        with the templates, not before.
+        The templates are real diagrams — see domain/processTemplates.ts — and
+        each card opens the designer with one already drawn.
       */}
+      <Card shadow="sm" radius="lg" withBorder mb="xl">
+        <Group justify="space-between" mb="lg">
+          <Group gap="sm">
+            <ThemeIcon color="indigo" variant="light" size="lg">
+              <GitBranch size={20} />
+            </ThemeIcon>
+            <Title order={4}>{t('dash.startFrom')}</Title>
+          </Group>
+          <Text size="xs" c="dimmed">{t('dash.startFromHint')}</Text>
+        </Group>
+
+        <Grid gap="md">
+          {PROCESS_TEMPLATES.map((template) => (
+            <Grid.Col span={{ base: 12, md: 4 }} key={template.id}>
+              <Card withBorder padding="md" radius="md" h="100%">
+                <Stack gap="sm" h="100%" justify="space-between">
+                  <Box>
+                    <Text size="md" fw={700}>{template.name}</Text>
+                    <Text size="xs" c="dimmed" mt={4}>{template.description}</Text>
+                  </Box>
+                  <Button
+                    onClick={() => navigate({
+                      to: '/designer',
+                      search: { template: template.id, name: template.name, key: template.suggestedKey },
+                    })}
+                    variant="light"
+                    color="indigo"
+                    size="xs"
+                    fullWidth
+                  >
+                    {t('dash.useTemplate')}
+                  </Button>
+                </Stack>
+              </Card>
+            </Grid.Col>
+          ))}
+        </Grid>
+      </Card>
+
     </Stack>
   );
 }

@@ -61,9 +61,20 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
   identity, so that background workers can span tenants. `METIS_FEATURE_STRICT_TENANT_SCOPE`
   reverses it and ships off pending a staged rollout, because its failure mode is
   silence rather than an error. See [`docs/strict-tenant-scope.md`](docs/strict-tenant-scope.md).
-- **A single replica is the supported topology.** HTTP rate limiting and
-  connector rate limits/circuit breakers hold per-process state.
-  [`docs/recovery.md` §2.1](docs/recovery.md) has the table.
+- **Circuit breakers are per-process, and deliberately so.** They open on
+  *consecutive* failures rather than on a rate, because a downstream failing one
+  call in ten is flaky rather than down — and a shared count would turn that
+  back into a rate. The cost with N replicas is that a failing partner sees up
+  to `FailureThreshold` failures per replica before all of them back off, rather
+  than in total. A degradation, not corruption.
+
+  This entry used to read "a single replica is the supported topology", naming
+  HTTP rate limiting and connector rate limits alongside the breakers. Both of
+  those were fixed — they exchange totals through `shared_counters`, proven by
+  `tests/replicas/shared_limits_test.go` — and this line was not updated with
+  them. So was the idempotency cache, which was the one that could have charged
+  a card twice. [`docs/recovery.md` §2.1](docs/recovery.md) has the current
+  table and is the one to trust.
 - **The outbound `Idempotency-Key` still begins with `gobpm-`**, from before the
   rename. It is derived fresh on every retry, so it is the only thing telling a
   downstream that a retry is the request it already saw. Renaming it would

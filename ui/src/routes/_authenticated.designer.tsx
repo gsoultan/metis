@@ -6,6 +6,8 @@ const designerSearchSchema = z.object({
   instanceId: z.string().optional(),
   name: z.string().optional(),
   key: z.string().optional(),
+  /** A starting diagram from domain/processTemplates.ts. */
+  template: z.string().optional(),
 })
 
 export const Route = createFileRoute('/_authenticated/designer')({

@@ -138,6 +138,9 @@ const id: Catalogue = {
   'dash.readyNoProjects': 'Proyek mengelompokkan model proses, tugas, dan instansi yang berkaitan. Anda memerlukan satu untuk memulai.',
   'dash.createFirstProject': 'Buat proyek pertama Anda',
   'common.complete': 'Selesai',
+  'dash.startFrom': 'Mulai dari templat',
+  'dash.startFromHint': 'Proses yang sudah berjalan dan bisa Anda ubah, bukan kanvas kosong',
+  'dash.useTemplate': 'Gunakan templat ini',
 };
 
 export default id;

@@ -63,6 +63,7 @@ export function ProcessDesigner({
     instanceId,
     initialName: search.name,
     initialKey: search.key,
+    initialTemplate: search.template,
   });
 
   const {
