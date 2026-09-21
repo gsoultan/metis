@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -20,7 +21,7 @@ import (
 // correlation_key LIKE '%${%' — behaves differently across engines in ways that
 // are easy to assume away: wildcard handling, escape requirements, and case
 // sensitivity all differ between SQLite, PostgreSQL and MySQL.
-func newPostgresEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, uuid.UUID) {
+func newPostgresEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -45,11 +46,14 @@ func newPostgresEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *ser
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here a caller is inside that organization, which is what a request
+	// carries; this fixture entered with no identity at all.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, err := projectSvc.CreateProject(ctx, org.ID, "PG Project", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return repo, engine, proj.ID
+	return repo, engine, proj.ID, ctx
 }
 
 func paymentDefinition(projID uuid.UUID, key string) *entities.ProcessDefinition {
@@ -76,8 +80,7 @@ func paymentDefinition(projID uuid.UUID, key string) *entities.ProcessDefinition
 // The migration rehearsal: a stranded instance on PostgreSQL, repaired.
 func TestCorrelationBackfillOnPostgres(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 4)
-	ctx := t.Context()
-	repo, engine, projID := newPostgresEngine(t, db)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
 
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	if _, err := defSvc.CreateDefinition(ctx, paymentDefinition(projID, "order-payment-pg")); err != nil {
@@ -136,8 +139,7 @@ func TestCorrelationBackfillOnPostgres(t *testing.T) {
 // the second time. Idempotence matters here because this executes on every boot.
 func TestCorrelationBackfillOnPostgresIsIdempotent(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 4)
-	ctx := t.Context()
-	repo, engine, projID := newPostgresEngine(t, db)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
 
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	if _, err := defSvc.CreateDefinition(ctx, paymentDefinition(projID, "order-payment-pg-idem")); err != nil {

@@ -36,7 +36,7 @@ func scriptDefinition(projID uuid.UUID, key, script string) entities.ProcessDefi
 // variables as they were persisted afterwards.
 func (h engineHarness) runScriptProcess(t *testing.T, key, script string, vars map[string]any) map[string]any {
 	t.Helper()
-	ctx := t.Context()
+	ctx := h.ctx
 
 	def := scriptDefinition(h.projID, key, script)
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
@@ -109,8 +109,8 @@ func TestScriptTaskSetVarIsVisibleToTheRestOfTheScript(t *testing.T) {
 // The engine's own ExecuteScript is a second implementation of the same thing
 // and carries the same contract.
 func TestExecuteScriptSetVarUpdatesAnExistingVariable(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "ExecuteScript Project")
+	ctx := h.Ctx()
 
 	out, err := h.engine.ExecuteScript(ctx, `setVar("total", 99);`, "javascript", map[string]any{"total": 10})
 	if err != nil {
@@ -126,8 +126,8 @@ func TestExecuteScriptSetVarUpdatesAnExistingVariable(t *testing.T) {
 // transaction. Process definitions are untrusted input.
 func TestScriptTaskIsBoundedByTheScriptTimeout(t *testing.T) {
 	t.Setenv("GOBPM_SCRIPT_TIMEOUT", "200ms")
-	ctx := t.Context()
 	h := newEngineHarness(t, "Script Timeout Project")
+	ctx := h.Ctx()
 
 	def := scriptDefinition(h.projID, "script-runaway", `while (true) {}`)
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {

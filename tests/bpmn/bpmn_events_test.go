@@ -59,6 +59,10 @@ func TestBPMNEvents(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Event Project", "")
 
 	t.Run("ErrorEndEvent", func(t *testing.T) {

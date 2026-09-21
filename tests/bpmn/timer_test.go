@@ -38,8 +38,8 @@ func timerDefinition(key, timerValue string) entities.ProcessDefinition {
 func TestTimerAcceptsTheDurationsTheDesignerDocuments(t *testing.T) {
 	for _, timerValue := range []string{"PT1H", "PT10M", "P1D", "P1DT2H30M"} {
 		t.Run(timerValue, func(t *testing.T) {
-			ctx := t.Context()
 			h := newEngineHarness(t, "Timer Project "+timerValue)
+			ctx := h.Ctx()
 
 			def := timerDefinition("cooling-off-"+strings.ToLower(timerValue), timerValue)
 			def.Project = &entities.Project{ID: h.projID}
@@ -62,8 +62,8 @@ func TestTimerAcceptsTheDurationsTheDesignerDocuments(t *testing.T) {
 
 // The timer has to be scheduled for the right moment, not merely accepted.
 func TestTimerSchedulesTheJobAtTheRightTime(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Timer Schedule Project")
+	ctx := h.Ctx()
 
 	def := timerDefinition("cooling-off-scheduled", "PT10M")
 	def.Project = &entities.Project{ID: h.projID}
@@ -99,8 +99,8 @@ func TestTimerSchedulesTheJobAtTheRightTime(t *testing.T) {
 // ten minutes apart, without cancelling the work. Each occurrence is its own
 // job, so firing one has to queue the next.
 func TestRepeatingBoundaryTimerFiresItsFullCount(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Timer Cycle Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -152,8 +152,8 @@ func TestRepeatingBoundaryTimerFiresItsFullCount(t *testing.T) {
 
 // A repeating timer stops once the activity it watches is done.
 func TestRepeatingBoundaryTimerStopsWhenTheActivityCompletes(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Timer Cycle Stop Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -218,8 +218,8 @@ func TestRepeatingBoundaryTimerStopsWhenTheActivityCompletes(t *testing.T) {
 
 // Definitions written against the previous behaviour keep working.
 func TestTimerStillAcceptsGoStyleDurations(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Timer Legacy Project")
+	ctx := h.Ctx()
 
 	def := timerDefinition("cooling-off-legacy", "1h30m")
 	def.Project = &entities.Project{ID: h.projID}

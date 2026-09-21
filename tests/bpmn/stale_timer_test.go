@@ -47,8 +47,8 @@ func (h engineHarness) dueNow(ctx context.Context, t *testing.T, instanceID uuid
 
 // A deadline that has already been met must not fire.
 func TestBoundaryTimerDoesNotFireAfterItsActivityCompleted(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Stale Boundary Timer Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -112,8 +112,8 @@ func TestBoundaryTimerDoesNotFireAfterItsActivityCompleted(t *testing.T) {
 
 // The losing branch of an event-based gateway must stay off.
 func TestEventGatewayTimerBranchDoesNotFireAfterAnotherBranchWon(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Stale Gateway Timer Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -174,8 +174,8 @@ func TestEventGatewayTimerBranchDoesNotFireAfterAnotherBranchWon(t *testing.T) {
 // The guard must not block a deadline that is genuinely missed: the activity is
 // still open when the timer comes due, so the escalation is exactly right.
 func TestBoundaryTimerStillFiresWhileItsActivityIsOpen(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Live Boundary Timer Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -221,8 +221,8 @@ func TestBoundaryTimerStillFiresWhileItsActivityIsOpen(t *testing.T) {
 
 // A plain intermediate timer with nothing racing it must still advance.
 func TestIntermediateTimerStillAdvancesTheProcess(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Live Intermediate Timer Project")
+	ctx := h.Ctx()
 
 	def := timerDefinition("cooling-off-fires", "PT10M")
 	def.Project = &entities.Project{ID: h.projID}
@@ -256,8 +256,8 @@ func TestIntermediateTimerStillAdvancesTheProcess(t *testing.T) {
 // so honouring it would stop an error boundary cancelling the activity that
 // failed. It is an explicit opt-in property instead.
 func TestNonInterruptingBoundaryEventLeavesTheActivityRunning(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Non Interrupting Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -305,8 +305,8 @@ func TestNonInterruptingBoundaryEventLeavesTheActivityRunning(t *testing.T) {
 // The default stays interrupting, which is BPMN's default and what every stored
 // definition already relies on.
 func TestBoundaryEventInterruptsByDefault(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Interrupting Default Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -364,8 +364,8 @@ func TestBoundaryEventInterruptsByDefault(t *testing.T) {
 // stayed in whoever's inbox it was assigned to and completing it acted on an
 // activity the process had already abandoned.
 func TestInterruptedActivityCancelsItsTask(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Interrupted Task Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},

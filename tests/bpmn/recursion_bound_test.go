@@ -51,6 +51,10 @@ func TestUnboundedLoopIsRejectedNotStackOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, err := projectSvc.CreateProject(ctx, org.ID, "Loops", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)

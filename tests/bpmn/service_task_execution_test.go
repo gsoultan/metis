@@ -1,6 +1,7 @@
 package bpmn_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -144,12 +145,15 @@ type serviceTaskHarness struct {
 	taskSvc     contracts.TaskService
 	decisionSvc contracts.DecisionService
 	projectID   uuid.UUID
+	// The tenant this harness acts inside; its methods carry it, because a
+	// bare context carries no identity and every request in production has one.
+	ctx context.Context
 }
 
 // subProcessesOf returns the instances started by this one.
 func (h *serviceTaskHarness) subProcessesOf(t *testing.T, parentID uuid.UUID) []entities.ProcessInstance {
 	t.Helper()
-	children, err := h.engine.ListSubProcesses(t.Context(), parentID)
+	children, err := h.engine.ListSubProcesses(h.ctx, parentID)
 	if err != nil {
 		t.Fatalf("list sub-processes: %v", err)
 	}
@@ -159,7 +163,7 @@ func (h *serviceTaskHarness) subProcessesOf(t *testing.T, parentID uuid.UUID) []
 // tasksFor returns the tasks an instance is waiting on.
 func (h *serviceTaskHarness) tasksFor(t *testing.T, instanceID uuid.UUID) []entities.Task {
 	t.Helper()
-	all, err := h.taskSvc.ListTasks(t.Context(), h.projectID)
+	all, err := h.taskSvc.ListTasks(h.ctx, h.projectID)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -209,12 +213,17 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	project, err := serviceimpl.NewProjectService(repo).CreateProject(ctx, org.ID, "Demo", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
 	return &serviceTaskHarness{
+		ctx:         ctx,
 		repo:        repo,
 		engine:      engine,
 		jobSvc:      jobSvc,
@@ -251,7 +260,7 @@ func (h *serviceTaskHarness) run(t *testing.T, node entities.Node, variables map
 // the job queue.
 func (h *serviceTaskHarness) runDefinition(t *testing.T, def *entities.ProcessDefinition, variables map[string]any) entities.ProcessInstance {
 	t.Helper()
-	ctx := t.Context()
+	ctx := h.ctx
 
 	if def.Project == nil {
 		def.Project = &entities.Project{ID: h.projectID}

@@ -1,6 +1,7 @@
 package pagination_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -19,10 +20,10 @@ import (
 // on for a year has every version of every process in that list, and the list
 // exists to pick one from.
 
-func seedDefinitions(t *testing.T, repo repositories.Repository, projectID uuid.UUID, n int) {
+func seedDefinitions(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, n int) {
 	t.Helper()
 	for i := range n {
-		if err := repo.Definition().Create(t.Context(), models.ProcessDefinitionModel{
+		if err := repo.Definition().Create(ctx, models.ProcessDefinitionModel{
 			Base:      models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 			ProjectID: models.UUID(projectID),
 			Key:       fmt.Sprintf("process-%03d", i),
@@ -34,10 +35,10 @@ func seedDefinitions(t *testing.T, repo repositories.Repository, projectID uuid.
 	}
 }
 
-func seedDecisions(t *testing.T, repo repositories.Repository, projectID uuid.UUID, n int) {
+func seedDecisions(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, n int) {
 	t.Helper()
 	for i := range n {
-		if err := repo.Decision().Create(t.Context(), models.DecisionDefinitionModel{
+		if err := repo.Decision().Create(ctx, models.DecisionDefinitionModel{
 			Base:      models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 			ProjectID: models.UUID(projectID),
 			Key:       fmt.Sprintf("decision-%03d", i),
@@ -52,10 +53,12 @@ func seedDecisions(t *testing.T, repo repositories.Repository, projectID uuid.UU
 
 func TestDefinitionsPaged_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
-	projectID := uuid.Must(uuid.NewV7())
-	seedDefinitions(t, repo, projectID, 137)
+	// A real project inside a real organization, and a context naming it:
+	// every one of these rows is reached by joining through the project.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	seedDefinitions(t, repo, ctx, projectID, 137)
 
-	page, err := repo.Definition().ListByProjectPaged(t.Context(), projectID, contracts.Pagination{Page: 1, PageSize: 50})
+	page, err := repo.Definition().ListByProjectPaged(ctx, projectID, contracts.Pagination{Page: 1, PageSize: 50})
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -72,12 +75,14 @@ func TestDefinitionsPaged_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 
 func TestDefinitionsPaged_PagesDoNotOverlap(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
-	projectID := uuid.Must(uuid.NewV7())
-	seedDefinitions(t, repo, projectID, 30)
+	// A real project inside a real organization, and a context naming it:
+	// every one of these rows is reached by joining through the project.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	seedDefinitions(t, repo, ctx, projectID, 30)
 
 	seen := map[uuid.UUID]int{}
 	for n := 1; n <= 3; n++ {
-		page, err := repo.Definition().ListByProjectPaged(t.Context(), projectID, contracts.Pagination{Page: n, PageSize: 10})
+		page, err := repo.Definition().ListByProjectPaged(ctx, projectID, contracts.Pagination{Page: n, PageSize: 10})
 		if err != nil {
 			t.Fatalf("page %d: %v", n, err)
 		}
@@ -97,10 +102,12 @@ func TestDefinitionsPaged_PagesDoNotOverlap(t *testing.T) {
 
 func TestDecisionsPaged_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
-	projectID := uuid.Must(uuid.NewV7())
-	seedDecisions(t, repo, projectID, 137)
+	// A real project inside a real organization, and a context naming it:
+	// every one of these rows is reached by joining through the project.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	seedDecisions(t, repo, ctx, projectID, 137)
 
-	page, err := repo.Decision().ListByProjectPaged(t.Context(), projectID, contracts.Pagination{Page: 3, PageSize: 50})
+	page, err := repo.Decision().ListByProjectPaged(ctx, projectID, contracts.Pagination{Page: 3, PageSize: 50})
 	if err != nil {
 		t.Fatalf("page 3: %v", err)
 	}
@@ -125,22 +132,24 @@ func TestDefinitionsPaged_WorksUnderTenantScoping(t *testing.T) {
 	ctx := t.Context()
 
 	orgID := uuid.Must(uuid.NewV7())
-	if err := repo.Organization().Create(ctx, models.OrganizationModel{
+	// Seeded as system work: this is the moment before there is a tenant.
+	if err := repo.Organization().Create(entities.WithSystemContext(ctx), models.OrganizationModel{
 		Base: models.Base{ID: models.UUID(orgID)},
 		Name: "Acme",
 	}); err != nil {
 		t.Fatalf("seed organization: %v", err)
 	}
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 	projectID := uuid.Must(uuid.NewV7())
-	if err := repo.Project().Create(ctx, models.ProjectModel{
+	if err := repo.Project().Create(entities.WithSystemContext(ctx), models.ProjectModel{
 		Base:           models.Base{ID: models.UUID(projectID)},
 		OrganizationID: models.UUID(orgID),
 		Name:           "Acme Project",
 	}); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	seedDefinitions(t, repo, projectID, 12)
-	seedDecisions(t, repo, projectID, 12)
+	seedDefinitions(t, repo, ctx, projectID, 12)
+	seedDecisions(t, repo, ctx, projectID, 12)
 
 	scoped := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 
@@ -163,8 +172,9 @@ func TestDefinitionsPaged_WorksUnderTenantScoping(t *testing.T) {
 
 func TestDefinitionsPaged_EmptyResultIsAnEmptyPageNotNil(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
+	ctx, _, _ := testutils.ScopedProject(t, repo)
 
-	page, err := repo.Definition().ListByProjectPaged(t.Context(), uuid.Must(uuid.NewV7()), contracts.Pagination{Page: 1, PageSize: 10})
+	page, err := repo.Definition().ListByProjectPaged(ctx, uuid.Must(uuid.NewV7()), contracts.Pagination{Page: 1, PageSize: 10})
 	if err != nil {
 		t.Fatalf("empty page: %v", err)
 	}

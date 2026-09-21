@@ -13,6 +13,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gsoultan/metis/internal/pkg/features"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -894,7 +896,20 @@ func TestTenantIsolation_OwnRowsStillReadable(t *testing.T) {
 // fail-open behaviour of the scope helpers: the engine and its background
 // workers run with no request context, and must keep seeing the whole
 // installation. Changing that is a deliberate decision, not a silent one.
-func TestTenantIsolation_NoTenantContextReadsEverything(t *testing.T) {
+// What a context with no identity gets, which depends on the flag — and both
+// answers are worth pinning, because the whole point of
+// METIS_FEATURE_STRICT_TENANT_SCOPE is to change this one behaviour.
+//
+// Off (the shipped default), an unscoped read sees everything. That is the
+// fail-open default SECURITY.md names as a deliberate decision, and a test
+// asserting it is how anyone notices if it silently changes.
+//
+// On, the same read sees nothing. Asserting only the first would make this
+// suite fail under the flag for the right reason and the wrong-looking one —
+// it would read as a regression rather than as the feature working.
+func TestTenantIsolation_NoTenantContextReadsWhatTheFlagAllows(t *testing.T) {
+	strict := features.Enabled(features.StrictTenantScope)
+
 	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
 		f := seedTenantFixture(t, db)
 		ctx := t.Context()
@@ -903,15 +918,28 @@ func TestTenantIsolation_NoTenantContextReadsEverything(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list forms: %v", err)
 		}
-		assertSameIDs(t, idsOf(forms, func(m models.FormModel) uuid.UUID { return uuid.UUID(m.ID) }),
-			[]uuid.UUID{f.formA, f.formB})
+		wantForms := []uuid.UUID{f.formA, f.formB}
+		if strict {
+			wantForms = nil
+		}
+		assertSameIDs(t, idsOf(forms, func(m models.FormModel) uuid.UUID { return uuid.UUID(m.ID) }), wantForms)
 
 		notifications, err := pg.NewNotificationRepository(testutils.StormConn(db)).ListByUser(ctx, sharedUserID)
 		if err != nil {
 			t.Fatalf("list notifications: %v", err)
 		}
+		wantNotifications := []uuid.UUID{f.notificationA, f.notifB, f.systemNotification}
+		if strict {
+			// Not empty: the system notification survives, and deliberately.
+			// notifications.project_id is nullable, so the scope is a LEFT JOIN
+			// with an IS NULL rather than an inner join — an inner one would
+			// erase installation-wide messages, which belong to everybody
+			// rather than to nobody. The two tenants' notifications go; this
+			// one stays.
+			wantNotifications = []uuid.UUID{f.systemNotification}
+		}
 		assertSameIDs(t, idsOf(notifications, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
-			[]uuid.UUID{f.notificationA, f.notifB, f.systemNotification})
+			wantNotifications)
 	})
 }
 

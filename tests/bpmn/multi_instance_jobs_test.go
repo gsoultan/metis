@@ -25,8 +25,8 @@ import (
 // an increment cannot arise here. This covers the path end to end and guards the
 // counting behaviour; the concurrency fix itself rests on the lock.
 func TestMultiInstanceServiceTaskCountsEveryIteration(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Multi Instance Jobs Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -101,8 +101,8 @@ func TestMultiInstanceServiceTaskCountsEveryIteration(t *testing.T) {
 // data and leaks into the UI, audit history, variable snapshots and every script
 // and condition scope. It now lives in its own field on the instance.
 func TestMultiInstanceBookkeepingIsNotInProcessVariables(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Multi Instance Namespace Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -158,8 +158,8 @@ func TestMultiInstanceBookkeepingIsNotInProcessVariables(t *testing.T) {
 // An instance already part-way through a multi-instance node when the bookkeeping
 // moved must keep its progress.
 func TestMultiInstanceBackfillPreservesProgress(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Multi Instance Backfill Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -248,8 +248,8 @@ func TestMultiInstanceBackfillPreservesProgress(t *testing.T) {
 // the branches that had already arrived — otherwise the gateway forgets them
 // and waits forever.
 func TestParallelJoinBookkeepingIsNotInProcessVariables(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Join Namespace Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -327,8 +327,8 @@ func TestParallelJoinBookkeepingIsNotInProcessVariables(t *testing.T) {
 
 // An instance caught mid-join when the counter moved keeps its arrivals.
 func TestJoinBackfillPreservesArrivals(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Join Backfill Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},

@@ -28,6 +28,8 @@ type secretFixture struct {
 	eps        connector.Endpoints
 	instanceID uuid.UUID
 	projectID  uuid.UUID
+	// The tenant this fixture acts inside; every call below carries it.
+	ctx context.Context
 }
 
 func newSecretFixture(t *testing.T) *secretFixture {
@@ -42,6 +44,10 @@ func newSecretFixture(t *testing.T) *secretFixture {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	project, err := svc.CreateProject(ctx, org.ID, "Secret Project", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
@@ -67,12 +73,13 @@ func newSecretFixture(t *testing.T) *secretFixture {
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
 	}
-	return &secretFixture{svc: svc, eps: eps, instanceID: created.ID, projectID: project.ID}
+	return &secretFixture{
+		ctx: ctx, svc: svc, eps: eps, instanceID: created.ID, projectID: project.ID}
 }
 
 func (f *secretFixture) list(t *testing.T) []entities.ConnectorInstance {
 	t.Helper()
-	out, err := f.eps.ListConnectorInstances(context.Background(),
+	out, err := f.eps.ListConnectorInstances(f.ctx,
 		connector.ListConnectorInstancesRequest{ProjectID: f.projectID.String()})
 	if err != nil {
 		t.Fatalf("list endpoint: %v", err)
@@ -120,7 +127,7 @@ func TestEditingAnotherFieldKeepsTheStoredCredential(t *testing.T) {
 	shown := f.list(t)[0]
 
 	shown.Config["url"] = "https://partner.example.com/changed"
-	out, err := f.eps.UpdateConnectorInstance(context.Background(),
+	out, err := f.eps.UpdateConnectorInstance(f.ctx,
 		connector.UpdateConnectorInstanceRequest{Instance: shown})
 	if err != nil {
 		t.Fatalf("update endpoint: %v", err)
@@ -130,7 +137,7 @@ func TestEditingAnotherFieldKeepsTheStoredCredential(t *testing.T) {
 	}
 
 	// Read past the API, the way the executor does, to see what is really held.
-	stored, err := f.svc.GetConnectorInstance(context.Background(), f.instanceID)
+	stored, err := f.svc.GetConnectorInstance(f.ctx, f.instanceID)
 	if err != nil {
 		t.Fatalf("read stored instance: %v", err)
 	}
@@ -147,12 +154,12 @@ func TestATypedReplacementIsSaved(t *testing.T) {
 	shown := f.list(t)[0]
 
 	shown.Config["api_key"] = "sk-live-rotated"
-	if _, err := f.eps.UpdateConnectorInstance(context.Background(),
+	if _, err := f.eps.UpdateConnectorInstance(f.ctx,
 		connector.UpdateConnectorInstanceRequest{Instance: shown}); err != nil {
 		t.Fatalf("update endpoint: %v", err)
 	}
 
-	stored, err := f.svc.GetConnectorInstance(context.Background(), f.instanceID)
+	stored, err := f.svc.GetConnectorInstance(f.ctx, f.instanceID)
 	if err != nil {
 		t.Fatalf("read stored instance: %v", err)
 	}
@@ -167,7 +174,9 @@ func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := serviceimpl.NewConnectorService(repo)
-	ctx := context.Background()
+	// A real project, and a context that names its organization: an instance
+	// hangs off a project and a scoped read joins through it.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	if err := svc.EnsureDefaultConnectors(ctx); err != nil {
 		t.Fatalf("seed connectors: %v", err)
@@ -178,7 +187,7 @@ func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 	}
 	if _, err := svc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
 		Name:      "Partner API",
-		Project:   &entities.Project{ID: uuid.Must(uuid.NewV7())},
+		Project:   &entities.Project{ID: projectID},
 		Connector: &entities.Connector{ID: catalogue[0].ID},
 		Config:    map[string]any{"api_key": "sk-live-do-not-leak"},
 	}); err != nil {

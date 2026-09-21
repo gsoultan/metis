@@ -1,7 +1,6 @@
 package bpmn_test
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -18,8 +17,7 @@ import (
 // forever the next time anybody tried to advance it.
 func TestMigrationRefusesAMoveItCannotLand(t *testing.T) {
 	t.Run("a mapping naming a node the target does not have", func(t *testing.T) {
-		svc, projectID := releaseFixture(t)
-		ctx := context.Background()
+		svc, projectID, ctx := releaseFixture(t)
 		v1 := approvalModel(projectID, "v1", "hold")
 		v1ID, err := svc.CreateDefinition(ctx, &v1)
 		if err != nil {
@@ -47,8 +45,7 @@ func TestMigrationRefusesAMoveItCannotLand(t *testing.T) {
 	})
 
 	t.Run("an empty mapping that would strand a token", func(t *testing.T) {
-		svc, projectID := releaseFixture(t)
-		ctx := context.Background()
+		svc, projectID, ctx := releaseFixture(t)
 		v1 := approvalModel(projectID, "v1", "hold")
 		v1ID, err := svc.CreateDefinition(ctx, &v1)
 		if err != nil {
@@ -95,8 +92,7 @@ func TestMigrationRefusesAMoveItCannotLand(t *testing.T) {
 	})
 
 	t.Run("two different processes", func(t *testing.T) {
-		svc, projectID := releaseFixture(t)
-		ctx := context.Background()
+		svc, projectID, ctx := releaseFixture(t)
 		v1 := approvalModel(projectID, "v1", "hold")
 		v1ID, err := svc.CreateDefinition(ctx, &v1)
 		if err != nil {
@@ -134,8 +130,7 @@ func TestMigrationRefusesAMoveItCannotLand(t *testing.T) {
 // A migration whose every waiting node lands is carried out, and the instance
 // keeps running — on the target version's graph.
 func TestMigrationAppliesAMoveThatLands(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	v1ID, err := svc.CreateDefinition(ctx, &v1)

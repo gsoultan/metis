@@ -1,7 +1,6 @@
 package bpmn_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -16,8 +15,7 @@ import (
 // timeline on every read, so this test moves the *schedule* into the near past
 // rather than waiting, and asserts the same read gives a different answer.
 func TestScheduledVersionTakesOverWhenItsTimeArrives(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -33,7 +31,7 @@ func TestScheduledVersionTakesOverWhenItsTimeArrives(t *testing.T) {
 	if err := svc.ScheduleDefinitionVersion(ctx, projectID, "expense-approval", 2, cutover); err != nil {
 		t.Fatalf("schedule v2: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("a cutover an hour away must not take effect now, instance started on v%d", got)
 	}
 
@@ -57,7 +55,7 @@ func TestScheduledVersionTakesOverWhenItsTimeArrives(t *testing.T) {
 	if err := svc.PromoteDefinitionVersion(ctx, projectID, "expense-approval", 2); err != nil {
 		t.Fatalf("bring the cutover forward: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 2 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 2 {
 		t.Fatalf("once the cutover has passed, new instances should start on v2, got v%d", got)
 	}
 }
@@ -66,8 +64,7 @@ func TestScheduledVersionTakesOverWhenItsTimeArrives(t *testing.T) {
 // are different acts, and a past cutover landing behind an existing entry would
 // change nothing at all while reporting success.
 func TestSchedulingInThePastIsRefused(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -85,7 +82,7 @@ func TestSchedulingInThePastIsRefused(t *testing.T) {
 	if !errors.Is(err, apierr.ErrInvalidArgument) {
 		t.Fatalf("expected an invalid-argument refusal, got %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("a refused schedule must not move the live version, got v%d", got)
 	}
 }
@@ -93,8 +90,7 @@ func TestSchedulingInThePastIsRefused(t *testing.T) {
 // Scheduling a version nobody deployed is refused, for the same reason promoting
 // one is: the entry would resolve to nothing and silently fall back.
 func TestSchedulingAnUndeployedVersionIsRefused(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -113,8 +109,7 @@ func TestSchedulingAnUndeployedVersionIsRefused(t *testing.T) {
 // A pending cutover can be called off, and calling it off leaves the version
 // that is live alone.
 func TestCancellingAScheduledCutover(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -147,7 +142,7 @@ func TestCancellingAScheduledCutover(t *testing.T) {
 	if !versions[0].ScheduledFor.IsZero() {
 		t.Fatalf("the cutover was cancelled, so nothing should be pending, got %s", versions[0].ScheduledFor)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("cancelling a future cutover must leave the live version alone, got v%d", got)
 	}
 }
@@ -156,8 +151,7 @@ func TestCancellingAScheduledCutover(t *testing.T) {
 // rewrite which version has been in force, and strand the instances that started
 // on it under a timeline that no longer admits to having chosen it.
 func TestAnAppliedCutoverCannotBeCancelled(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -188,7 +182,7 @@ func TestAnAppliedCutoverCannotBeCancelled(t *testing.T) {
 	if !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("expected a not-found refusal, got %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 2 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 2 {
 		t.Fatalf("a refused cancel must leave the live version alone, got v%d", got)
 	}
 }

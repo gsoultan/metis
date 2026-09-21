@@ -54,7 +54,7 @@ func TestServiceTask_ACompletedCallIsNotRepeatedByARetry(t *testing.T) {
 	// What a lost commit looks like from the outside: the call happened, and the
 	// job row still says there is work to do. The worker picks it up again.
 	rewindJobToPending(t, h, instance.ID)
-	if err := h.jobSvc.ProcessPendingJobs(t.Context()); err != nil {
+	if err := h.jobSvc.ProcessPendingJobs(h.ctx); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestServiceTask_ACompletedCallIsNotRepeatedByARetry(t *testing.T) {
 
 	// And the work still finishes: the retry reuses the response it recorded
 	// rather than skipping the mapping along with the call.
-	reloaded, err := h.engine.GetInstance(t.Context(), instance.ID)
+	reloaded, err := h.engine.GetInstance(h.ctx, instance.ID)
 	if err != nil {
 		t.Fatalf("reload instance: %v", err)
 	}

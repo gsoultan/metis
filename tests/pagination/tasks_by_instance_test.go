@@ -1,6 +1,7 @@
 package pagination_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 // through every task in the project and match — which only worked while the one
 // it wanted was still on a page it could reach.
 
-func seedTasksForInstance(t *testing.T, repo repositories.Repository, projectID, instanceID uuid.UUID, n int) {
+func seedTasksForInstance(t *testing.T, repo repositories.Repository, ctx context.Context, projectID, instanceID uuid.UUID, n int) {
 	t.Helper()
 	for i := range n {
 		task := entities.Task{
@@ -29,7 +30,7 @@ func seedTasksForInstance(t *testing.T, repo repositories.Repository, projectID,
 			Status:   entities.TaskUnclaimed,
 			Node:     &entities.Node{ID: "approve"},
 		}
-		if err := repo.Task().Create(t.Context(), adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
+		if err := repo.Task().Create(ctx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			t.Fatalf("seed task %d: %v", i, err)
 		}
 	}
@@ -39,16 +40,16 @@ func TestListByInstancePaged_WindowsAndCountsOneInstance(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 
-	projectID := uuid.Must(uuid.NewV7())
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	wanted := uuid.Must(uuid.NewV7())
 	other := uuid.Must(uuid.NewV7())
 
-	seedTasksForInstance(t, repo, projectID, wanted, 73)
+	seedTasksForInstance(t, repo, ctx, projectID, wanted, 73)
 	// A second instance in the same project: the filter has to be the instance,
 	// not the project, or this test passes for the wrong reason.
-	seedTasksForInstance(t, repo, projectID, other, 40)
+	seedTasksForInstance(t, repo, ctx, projectID, other, 40)
 
-	page, err := repo.Task().ListByInstancePaged(t.Context(), wanted, contracts.Pagination{Page: 1, PageSize: 25})
+	page, err := repo.Task().ListByInstancePaged(ctx, wanted, contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -77,10 +78,10 @@ func TestListByInstancePaged_UnknownInstanceIsEmpty(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 
-	projectID := uuid.Must(uuid.NewV7())
-	seedTasksForInstance(t, repo, projectID, uuid.Must(uuid.NewV7()), 5)
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	seedTasksForInstance(t, repo, ctx, projectID, uuid.Must(uuid.NewV7()), 5)
 
-	page, err := repo.Task().ListByInstancePaged(t.Context(), uuid.Must(uuid.NewV7()), contracts.Pagination{Page: 1, PageSize: 25})
+	page, err := repo.Task().ListByInstancePaged(ctx, uuid.Must(uuid.NewV7()), contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

@@ -60,8 +60,7 @@ func multiInstanceDefinition(projID uuid.UUID, key string) *entities.ProcessDefi
 // for the whole read-modify-write rather than just the read.
 func TestUnlockedInstanceReadLosesIterationCounts(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 8)
-	ctx := t.Context()
-	repo, engine, projID := newPostgresEngine(t, db)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
 
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	if _, err := defSvc.CreateDefinition(ctx, multiInstanceDefinition(projID, "review-unlocked")); err != nil {
@@ -73,7 +72,7 @@ func TestUnlockedInstanceReadLosesIterationCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	def, err := engine.GetProcessDefinition(ctx, mustInstanceDefID(t, engine, instanceID))
+	def, err := engine.GetProcessDefinition(ctx, mustInstanceDefID(t, ctx, engine, instanceID))
 	if err != nil {
 		t.Fatalf("load definition: %v", err)
 	}
@@ -126,8 +125,7 @@ func TestUnlockedInstanceReadLosesIterationCounts(t *testing.T) {
 // even when several finish at the same moment.
 func TestMultiInstanceCountsEveryIterationUnderConcurrentJobs(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 8)
-	ctx := t.Context()
-	repo, engine, projID := newPostgresEngine(t, db)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
 
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	if _, err := defSvc.CreateDefinition(ctx, multiInstanceDefinition(projID, "review-locked")); err != nil {
@@ -139,7 +137,7 @@ func TestMultiInstanceCountsEveryIterationUnderConcurrentJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	def, err := engine.GetProcessDefinition(ctx, mustInstanceDefID(t, engine, instanceID))
+	def, err := engine.GetProcessDefinition(ctx, mustInstanceDefID(t, ctx, engine, instanceID))
 	if err != nil {
 		t.Fatalf("load definition: %v", err)
 	}
@@ -182,9 +180,9 @@ func TestMultiInstanceCountsEveryIterationUnderConcurrentJobs(t *testing.T) {
 	}
 }
 
-func mustInstanceDefID(t *testing.T, engine *serviceimpl.Engine, instanceID uuid.UUID) uuid.UUID {
+func mustInstanceDefID(t *testing.T, ctx context.Context, engine *serviceimpl.Engine, instanceID uuid.UUID) uuid.UUID {
 	t.Helper()
-	instance, err := engine.GetInstance(t.Context(), instanceID)
+	instance, err := engine.GetInstance(ctx, instanceID)
 	if err != nil {
 		t.Fatalf("load instance: %v", err)
 	}

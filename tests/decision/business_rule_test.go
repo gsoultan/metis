@@ -60,6 +60,10 @@ func TestBusinessRuleTaskMapping(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+
+	// A request carries the organization it belongs to; this suite did not, and
+	// only passed while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Test Project", "")
 
 	// 1. Setup Decision

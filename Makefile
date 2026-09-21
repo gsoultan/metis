@@ -128,17 +128,25 @@ define warn_if_no_dsn
 fi
 endef
 
-# The packages that exercise product paths through the real interceptor chain
-# and therefore mean something under the strict scope.
+# Everything, under the strict tenant scope.
 #
-# Deliberately a list rather than ./... — most of the suite calls services
-# directly with a bare t.Context(), which carries neither a tenant nor a system
-# identity. Production never does: a request arrives through the auth
-# interceptor and the tenant resolver. So ./... under this flag reports ~130
-# failures that say nothing about production, and a red run nobody can act on
-# is a run people learn to ignore.
-STRICT_SCOPE_PKGS = ./tests/strictscope/... ./tests/slo/... ./tests/user/... \
-                    ./tests/setup/... ./tests/outage/... ./tests/replicas/... ./tests/auth/...
+# This was seven named suites, because ./... under the flag reported ~175
+# failing tests across twelve packages: most of the suite called services with
+# a bare t.Context(), which carries neither a tenant nor a system identity,
+# where production always arrives through the auth interceptor and the tenant
+# resolver. A red run nobody can act on is a run people learn to ignore.
+#
+# Those tests now carry identity, so the whole module passes with the flag on.
+# That was worth doing for its own sake rather than to make a number go green:
+# a test entering with no identity was asserting against a path no request
+# takes, and several were reaching rows that belong to nobody — a group in no
+# organization, tasks in no project, connector instances pointing at project
+# ids that did not exist.
+#
+# Measured 2026-09-21 with METIS_TEST_POSTGRES_DSN set, because without it the
+# database-backed packages skip and report ok — see the warning below, and
+# AGENTS.md §4.
+STRICT_SCOPE_PKGS = ./...
 
 .PHONY: strict-scope
 strict-scope: ## Run the strict-tenant-scope suites with the flag on, as production would set it

@@ -106,11 +106,23 @@ Outstanding:
    (`METIS_FEATURE_STRICT_TENANT_SCOPE`) makes a context with neither a tenant nor that
    marker return nothing instead of everything.
 
-   **It ships off**, and turning it on is not yet safe *for the test suite*. Running the
-   whole suite with it enabled fails 10 packages: `tests/bpmn`, `connector`, `decision`,
-   `handlers`, `pagination`, `project`, `postgres`, `mysqldb`, plus
-   `server/domains/services/impl`. Those are tests calling engine internals directly with
-   `t.Context()`, which bypasses the entry points where the markers live — 106 call sites.
+   **It ships off**, but no longer because the test suite cannot take it. Running the
+   whole suite with it enabled used to fail twelve packages — `tests/bpmn`, `connector`,
+   `decision`, `environment`, `handlers`, `pagination`, `postgres`, `project`, `task`,
+   `tenant`, `webhook`, plus `server/domains/services/impl` — 175 tests calling services
+   with a bare `t.Context()`, which bypasses the entry points where identity is resolved.
+
+   Those tests now carry a resolved tenant, and the whole module passes with the flag on
+   (measured 2026-09-21 **with a DSN set**; without one the database-backed packages skip
+   and report ok). `make strict-scope` and the CI step run `./...` accordingly.
+
+   The rewrite was worth doing beyond the green: several of those tests were reaching rows
+   that belong to nobody — a group in no organization, tasks in no project, connector
+   instances naming project ids that did not exist. They passed only because the scope
+   fails open, so they asserted against a path no request takes.
+
+   What remains before the default can flip is the staging soak, which is a property of
+   real traffic rather than of the suite.
 
    Blanket-marking them as system work was rejected: it would make the suite pass without
    proving anything about production, since the tests would no longer traverse the paths

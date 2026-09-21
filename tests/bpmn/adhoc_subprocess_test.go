@@ -72,8 +72,8 @@ func adHocDefinition(key, completionCondition string) entities.ProcessDefinition
 // A knowledge worker runs the steps in whatever order the work needs, and the
 // sub-process finishes when its completion condition says so.
 func TestAdHocSubProcessRunsStepsOnDemand(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Activation Project")
+	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}
@@ -123,8 +123,8 @@ func TestAdHocSubProcessRunsStepsOnDemand(t *testing.T) {
 
 // Activation is checked against the process, not taken on trust.
 func TestAdHocActivationRefusesWhatIsNotThere(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Refusal Project")
+	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research-guard", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}
@@ -161,8 +161,8 @@ func TestAdHocActivationRefusesWhatIsNotThere(t *testing.T) {
 
 // A step cannot be started in a sub-process the process is not currently in.
 func TestAdHocActivationRefusesWhenTheProcessIsElsewhere(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Elsewhere Project")
+	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research-done-already", "")
 	def.Project = &entities.Project{ID: h.projID}
@@ -189,8 +189,8 @@ func TestAdHocActivationRefusesWhenTheProcessIsElsewhere(t *testing.T) {
 // An ad-hoc sub-process with no completion condition has nothing to wait for and
 // carries on. This path works today and must keep working.
 func TestAdHocSubProcessWithNoConditionProceeds(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Open Project")
+	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research-open", "")
 	def.Project = &entities.Project{ID: h.projID}
@@ -210,8 +210,8 @@ func TestAdHocSubProcessWithNoConditionProceeds(t *testing.T) {
 
 // A completion condition that is already satisfied is the same story.
 func TestAdHocSubProcessWithSatisfiedConditionProceeds(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "AdHoc Satisfied Project")
+	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research-done", "reviewsDone >= 2")
 	def.Project = &entities.Project{ID: h.projID}

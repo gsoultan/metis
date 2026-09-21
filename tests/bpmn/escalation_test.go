@@ -50,8 +50,8 @@ func escalationDefinition(projID interface{ String() string }, key, escalationCo
 // GetBoundaryEvents returns boundary events of every kind, and error, timer,
 // message and compensation events all report an empty escalation_code.
 func TestEscalationIsNotCaughtByAnErrorBoundaryEvent(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Escalation Wrong Handler Project")
+	ctx := h.Ctx()
 
 	def := escalationDefinition(h.projID, "escalation-vs-error", "BUDGET_EXCEEDED",
 		[]*entities.Node{
@@ -80,8 +80,8 @@ func TestEscalationIsNotCaughtByAnErrorBoundaryEvent(t *testing.T) {
 
 // The handler whose code matches must still catch it.
 func TestEscalationIsCaughtByTheMatchingHandler(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Escalation Match Project")
+	ctx := h.Ctx()
 
 	def := escalationDefinition(h.projID, "escalation-match", "BUDGET_EXCEEDED",
 		[]*entities.Node{
@@ -112,8 +112,8 @@ func TestEscalationIsCaughtByTheMatchingHandler(t *testing.T) {
 // escalation. That rule is kept — it is only scoped to escalation events now,
 // rather than to every boundary event on the activity.
 func TestEscalationBoundaryWithNoCodeCatchesAnything(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Escalation Catch All Project")
+	ctx := h.Ctx()
 
 	def := escalationDefinition(h.projID, "escalation-catch-all", "BUDGET_EXCEEDED",
 		[]*entities.Node{
@@ -142,8 +142,8 @@ func TestEscalationBoundaryWithNoCodeCatchesAnything(t *testing.T) {
 
 // A handler for a different escalation must not catch this one.
 func TestEscalationIsNotCaughtByADifferentCode(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Escalation Mismatch Project")
+	ctx := h.Ctx()
 
 	def := escalationDefinition(h.projID, "escalation-mismatch", "BUDGET_EXCEEDED",
 		[]*entities.Node{

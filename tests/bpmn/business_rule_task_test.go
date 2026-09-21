@@ -19,7 +19,7 @@ import (
 
 func createExpenseDecision(t *testing.T, h *serviceTaskHarness) {
 	t.Helper()
-	if _, err := h.decisionSvc.CreateDecision(t.Context(), entities.DecisionDefinition{
+	if _, err := h.decisionSvc.CreateDecision(h.ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
 		Key:       "expense-approval-level",
 		Name:      "Expense approval level",
@@ -171,7 +171,7 @@ func TestBusinessRuleTask_TranslatesNamesInBothDirections(t *testing.T) {
 // right answer: carrying on would route on a value that was never decided.
 func TestBusinessRuleTask_ReportsADecisionThatDoesNotExist(t *testing.T) {
 	h := newServiceTaskHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	def := expenseProcess("expense-missing-decision")
 	def.Project = &entities.Project{ID: h.projectID}
@@ -194,7 +194,7 @@ func TestBusinessRuleTask_ReportsADecisionThatDoesNotExist(t *testing.T) {
 // step that does nothing — it is unfinished, and should say so.
 func TestBusinessRuleTask_ReportsWhenNoDecisionIsNamed(t *testing.T) {
 	h := newServiceTaskHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	def := expenseProcess("expense-no-decision")
 	def.Project = &entities.Project{ID: h.projectID}
@@ -220,7 +220,7 @@ func TestBusinessRuleTask_AppliesTheCurrentVersionOfTheTable(t *testing.T) {
 	createExpenseDecision(t, h)
 
 	// A second version, where everything needs a director.
-	if _, err := h.decisionSvc.CreateDecision(t.Context(), entities.DecisionDefinition{
+	if _, err := h.decisionSvc.CreateDecision(h.ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
 		Key:       "expense-approval-level",
 		Name:      "Expense approval level",

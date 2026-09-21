@@ -47,7 +47,7 @@ func TestRefusedJavaScriptConditionRaisesRatherThanGuessing(t *testing.T) {
 	defer features.OverrideForTest(features.JavaScriptConditions, false)()
 
 	h := newEngineHarness(t, "Refused JS")
-	ctx := t.Context()
+	ctx := h.ctx
 
 	if _, err := h.svc.CreateDefinition(ctx, jsGateway(h.projID, "refused-js", "")); err != nil {
 		t.Fatalf("create definition: %v", err)
@@ -71,7 +71,7 @@ func TestRefusedJavaScriptConditionStillHonoursADeclaredDefault(t *testing.T) {
 	defer features.OverrideForTest(features.JavaScriptConditions, false)()
 
 	h := newEngineHarness(t, "Refused JS Default")
-	ctx := t.Context()
+	ctx := h.ctx
 
 	if _, err := h.svc.CreateDefinition(ctx, jsGateway(h.projID, "refused-js-default", "reject")); err != nil {
 		t.Fatalf("create definition: %v", err)
@@ -98,7 +98,7 @@ func TestJavaScriptConditionRoutesWhenExplicitlyEnabled(t *testing.T) {
 	defer features.OverrideForTest(features.JavaScriptConditions, true)()
 
 	h := newEngineHarness(t, "Enabled JS")
-	ctx := t.Context()
+	ctx := h.ctx
 
 	if _, err := h.svc.CreateDefinition(ctx, jsGateway(h.projID, "enabled-js", "")); err != nil {
 		t.Fatalf("create definition: %v", err)

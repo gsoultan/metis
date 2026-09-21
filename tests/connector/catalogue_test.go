@@ -94,7 +94,8 @@ func TestCreateConnectorInstance_RequiresAProjectAndAConnector(t *testing.T) {
 		{
 			name: "no connector",
 			instance: entities.ConnectorInstance{
-				Name:    "My Slack",
+				Name: "My Slack",
+				// Any id: validation refuses this before anything is looked up.
 				Project: &entities.Project{ID: uuid.Must(uuid.NewV7())},
 			},
 			wants: "connector",
@@ -144,7 +145,9 @@ func TestCreateConnectorInstance_AcceptsAWiredUpInstance(t *testing.T) {
 		t.Fatal("no connectors to attach an instance to")
 	}
 
-	projectID := uuid.Must(uuid.NewV7())
+	// A real project, not an invented id: a connector instance hangs off one,
+	// and a scoped read reaches it by joining through it.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	got, err := svc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
 		Name:      "Ops channel",
 		Project:   &entities.Project{ID: projectID},
@@ -204,7 +207,8 @@ func TestListConnectorInstances_NamesTheConnectorEachOneConfigures(t *testing.T)
 		t.Fatal("the catalogue has no slack connector to attach to")
 	}
 
-	projectID := uuid.Must(uuid.NewV7())
+	// A real project, for the same reason as above.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	if _, err := svc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
 		Name:      "Ops channel",
 		Project:   &entities.Project{ID: projectID},

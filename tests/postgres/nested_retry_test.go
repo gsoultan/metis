@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/domains/entities"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -31,7 +33,10 @@ func TestAttemptLeavesAnEnclosingTransactionUsable(t *testing.T) {
 	project := models.UUID(uuid.New())
 	seeded := models.UUID(uuid.New())
 
-	err := uow.Do(t.Context(), func(txCtx context.Context) error {
+	// System work: this test is about UnitOfWork's savepoint semantics, not
+	// about a request. Marking it says so, rather than leaving it identity-less
+	// and relying on the scope failing open.
+	err := uow.Do(entities.WithSystemContext(t.Context()), func(txCtx context.Context) error {
 		if err := createDefinitionRow(txCtx, repo, seeded, project, "nested", 1); err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package pagination_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -22,10 +23,10 @@ import (
 
 // seedDefinitionsWithFlows seeds n definitions, each carrying a flow condition,
 // so the scan has a graph to lose rather than an empty skeleton.
-func seedDefinitionsWithFlows(t *testing.T, repo repositories.Repository, projectID uuid.UUID, n int) {
+func seedDefinitionsWithFlows(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, n int) {
 	t.Helper()
 	for i := range n {
-		if err := repo.Definition().Create(t.Context(), models.ProcessDefinitionModel{
+		if err := repo.Definition().Create(ctx, models.ProcessDefinitionModel{
 			Base:      models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 			ProjectID: models.UUID(projectID),
 			Key:       fmt.Sprintf("scanned-%04d", i),
@@ -44,14 +45,14 @@ func seedDefinitionsWithFlows(t *testing.T, repo repositories.Repository, projec
 // the internal batch size so the scan must page at least three times.
 func TestScanWithGraphs_CrossesBatchBoundariesWithoutLosingRows(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
-	projectID := uuid.Must(uuid.NewV7())
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	const seeded = 451 // > 2 × the 200-row batch size, so the tail is a partial batch
-	seedDefinitionsWithFlows(t, repo, projectID, seeded)
+	seedDefinitionsWithFlows(t, repo, ctx, projectID, seeded)
 
 	seen := make(map[string]int)
 	batches := 0
-	err := repo.Definition().ScanWithGraphs(t.Context(), func(batch []models.ProcessDefinitionModel) error {
+	err := repo.Definition().ScanWithGraphs(ctx, func(batch []models.ProcessDefinitionModel) error {
 		batches++
 		for _, m := range batch {
 			seen[m.Key]++
@@ -86,10 +87,12 @@ func TestScanWithGraphs_CrossesBatchBoundariesWithoutLosingRows(t *testing.T) {
 // complete, and therefore empty, result.
 func TestScanWithGraphs_StopsWhenTheVisitorFails(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
-	projectID := uuid.Must(uuid.NewV7())
-	seedDefinitionsWithFlows(t, repo, projectID, 250)
+	// A real project inside a real organization, and a context naming it:
+	// every one of these rows is reached by joining through the project.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	seedDefinitionsWithFlows(t, repo, ctx, projectID, 250)
 
-	err := repo.Definition().ScanWithGraphs(t.Context(), func([]models.ProcessDefinitionModel) error {
+	err := repo.Definition().ScanWithGraphs(ctx, func([]models.ProcessDefinitionModel) error {
 		return fmt.Errorf("the caller gave up")
 	})
 	if err == nil {

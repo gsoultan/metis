@@ -62,6 +62,10 @@ func TestBPMNFlow(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Test Project", "")
 
 	// CreateAuditEntry a BPMN definition: Start -> Task1 -> End
@@ -177,6 +181,10 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Exclusive Project", "")
 
 	// Start -> Gateway -> TaskA (if approved) OR TaskB (if rejected) -> End
@@ -288,6 +296,10 @@ func TestParallelGatewayJoin(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Parallel Project", "")
 
 	// Start -> Fork -> (TaskA, TaskB) -> Join -> End
@@ -400,6 +412,10 @@ func TestParallelGatewayFlow(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Parallel Flow Project", "")
 
 	// Start -> ParallelGateway -> (TaskA AND TaskB) -> End
@@ -479,6 +495,10 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	})
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Test Project", "")
 
 	// CreateAuditEntry a BPMN definition: Start -> Task1 -> End

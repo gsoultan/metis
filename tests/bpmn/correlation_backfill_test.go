@@ -21,8 +21,8 @@ import (
 // the pre-fix shape, confirm it really is stranded, run the backfill, and
 // confirm the message now reaches it.
 func TestCorrelationBackfillRescuesStrandedInstances(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Backfill Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -93,8 +93,8 @@ func TestCorrelationBackfillRescuesStrandedInstances(t *testing.T) {
 // Running the backfill twice must not corrupt an already-resolved key. A
 // rewritten key contains no "${", so the second run has nothing to do.
 func TestCorrelationBackfillIsIdempotent(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Backfill Idempotent Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -175,8 +175,8 @@ func TestCorrelationBackfillIsIdempotent(t *testing.T) {
 // subscription for that message name, which would deliver one instance's message
 // to all of them.
 func TestCorrelationBackfillLeavesUnresolvableKeysAlone(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Backfill Unresolvable Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -235,8 +235,8 @@ func TestCorrelationBackfillLeavesUnresolvableKeysAlone(t *testing.T) {
 // empty correlation key is treated as "do not filter", so a blanked row would
 // receive every message sent for that name.
 func TestEmptyCorrelationKeyMatchesEverySubscription(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Empty Key Project")
+	ctx := h.Ctx()
 
 	subs, err := h.repo.Subscription().FindMessages(ctx, h.projID, "PaymentReceived", "")
 	if err != nil {

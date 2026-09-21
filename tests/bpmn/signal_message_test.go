@@ -25,7 +25,14 @@ type engineHarness struct {
 	repo   repositories.Repository
 	jobSvc servicecontracts.JobService
 	projID uuid.UUID
+	// The tenant this harness acts inside. Tests take it with h.Ctx(t)
+	// rather than t.Context(), because a bare context carries no identity and
+	// every request in production carries one.
+	ctx context.Context
 }
+
+// Ctx is the context a caller inside this harness's organization would have.
+func (h engineHarness) Ctx() context.Context { return h.ctx }
 
 func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	t.Helper()
@@ -81,12 +88,16 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, err := svc.CreateProject(ctx, org.ID, projectName, "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
-	return engineHarness{svc: svc, engine: engine, repo: repo, jobSvc: jobSvc, projID: proj.ID}
+	return engineHarness{svc: svc, engine: engine, repo: repo, jobSvc: jobSvc, projID: proj.ID, ctx: ctx}
 }
 
 // taskIsOpen reports whether a task is still work someone could pick up.
@@ -122,8 +133,8 @@ func (h engineHarness) waitingAt(ctx context.Context, t *testing.T, instanceID u
 // correlation key, so broadcast delivery should reach every instance parked on
 // that signal name.
 func TestSignalCatchEventResumesWaitingInstance(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Signal Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -170,8 +181,8 @@ func TestSignalCatchEventResumesWaitingInstance(t *testing.T) {
 // correlation key drawn from their own variables. A message correlated to one
 // must resume that one and leave the other parked.
 func TestMessageCorrelationRoutesToTheCorrelatedInstance(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Message Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -227,8 +238,8 @@ func TestMessageCorrelationRoutesToTheCorrelatedInstance(t *testing.T) {
 // subscription list — that is the ordering under which the abort-on-first-error
 // behaviour actually loses deliveries.
 func TestSignalBroadcastReachesEverySubscriberDespiteOneFailing(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Broadcast Resilience Project")
+	ctx := h.Ctx()
 
 	failing := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
