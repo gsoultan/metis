@@ -22,6 +22,31 @@ updates:
       # patch bumps. Kept separate from majors, which need reading.
       go-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # grpc, held on the 1.83 line until 1.85 is a stable release.
+      #
+      # GO-2026-6443 is a remote panic in the HTTP/2 server: a request with a
+      # missing authority or Host header crashes the listener, before any
+      # authentication. It is reachable here — govulncheck traces it from
+      # app.runServers through grpc.Server.Serve to http2Server.HandleStreams.
+      #
+      # The fix was backported to v1.83.2, which is what this module pins. It
+      # is NOT in v1.84.0: that release shipped from a branch without it, so
+      # the advisory's affected ranges read
+      #
+      #   fixed 1.83.2 · introduced 1.84.0-dev · fixed 1.85.0-dev.0.2026...
+      #
+      # which makes "upgrade grpc" a downgrade in security posture. Dependabot
+      # optimises for newest and cannot know that; CI caught it (#65) and the
+      # bump was declined.
+      #
+      # Lift this once a stable 1.85.x exists. The only fixed version above the
+      # 1.83 line today is a pre-release pseudo-version, and this engine holds
+      # durable business commitments — it does not run on a dev build of its
+      # transport.
+      - dependency-name: google.golang.org/grpc
+        versions: [">=1.84.0"]
+
     commit-message:
       prefix: "chore(deps)"
 
