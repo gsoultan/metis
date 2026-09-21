@@ -1,7 +1,6 @@
 package decision_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,11 +15,15 @@ func TestDecisionEvaluation(t *testing.T) {
 
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := impl.NewDecisionService(repo, impl.NewDecisionTableEvaluator(impl.NewFEELEvaluator()))
+	// The table belongs to a project, and a scoped read reaches it by joining
+	// through one. Created without, it belongs to nobody.
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	id, _ := uuid.NewV7()
 	// CreateAuditEntry a sample decision table
 	decision := entities.DecisionDefinition{
 		ID:      id,
+		Project: &entities.Project{ID: projectID},
 		Key:     "discount-decision",
 		Name:    "Discount Decision",
 		Version: 1,
@@ -50,7 +53,7 @@ func TestDecisionEvaluation(t *testing.T) {
 		},
 	}
 
-	_, err := svc.CreateDecision(context.Background(), decision)
+	_, err := svc.CreateDecision(ctx, decision)
 	if err != nil {
 		t.Fatalf("failed to create decision: %v", err)
 	}
@@ -88,7 +91,7 @@ func TestDecisionEvaluation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := svc.Evaluate(t.Context(), "discount-decision", 1, tt.variables)
+			result, err := svc.Evaluate(ctx, "discount-decision", 1, tt.variables)
 			if err != nil {
 				t.Fatalf("evaluation failed: %v", err)
 			}

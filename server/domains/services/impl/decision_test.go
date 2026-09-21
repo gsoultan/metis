@@ -13,7 +13,6 @@ import (
 )
 
 func TestDecisionService_FullDMN(t *testing.T) {
-	ctx := context.Background()
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := NewDecisionService(repo, NewDecisionTableEvaluator(NewFEELEvaluator()))
@@ -23,7 +22,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 	// refused by the database — which is right, and which this test used to
 	// hide by discarding the error from CreateDecision and only noticing at
 	// evaluation time.
-	projectID := seedProject(t, repo)
+	projectID, ctx := seedProject(t, repo)
 
 	t.Run("HitPolicy UNIQUE", func(t *testing.T) {
 		d := entities.DecisionDefinition{
@@ -148,7 +147,9 @@ func TestDecisionService_FullDMN(t *testing.T) {
 }
 
 // seedProject creates an organization and a project to hang decisions off.
-func seedProject(t *testing.T, repo repositories.Repository) uuid.UUID {
+// Returns the scoped context too: a caller inside the organization that owns
+// the project, which is what a request carries.
+func seedProject(t *testing.T, repo repositories.Repository) (uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := entities.WithSystemContext(context.Background())
 
@@ -173,7 +174,8 @@ func seedProject(t *testing.T, repo repositories.Repository) uuid.UUID {
 	}); err != nil {
 		t.Fatalf("seed the project: %v", err)
 	}
-	return projectID
+	return projectID, entities.WithTenantContext(context.Background(),
+		entities.TenantContext{TenantID: orgID.String()})
 }
 
 // mustCreateDecision fails the test when a decision cannot be created.

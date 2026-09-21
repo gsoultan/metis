@@ -171,11 +171,11 @@ func TestErrorBoundary_TheRecoveryPathCanBeCompleted(t *testing.T) {
 		t.Fatalf("expected the recovery task, got %v", taskNames(tasks))
 	}
 
-	if err := h.taskSvc.CompleteTask(t.Context(), tasks[0].ID, "carol", map[string]any{"paidBy": "bank transfer"}); err != nil {
+	if err := h.taskSvc.CompleteTask(h.ctx, tasks[0].ID, "carol", map[string]any{"paidBy": "bank transfer"}); err != nil {
 		t.Fatalf("complete the recovery task: %v", err)
 	}
 
-	reloaded, err := h.engine.GetInstance(t.Context(), instance.ID)
+	reloaded, err := h.engine.GetInstance(h.ctx, instance.ID)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}

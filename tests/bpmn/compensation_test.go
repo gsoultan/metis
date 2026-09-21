@@ -67,8 +67,8 @@ func compensationDefinition(projID uuid.UUID, key string) entities.ProcessDefini
 // pointers, so a dedupe check based on pointer identity stops working precisely
 // when it is needed.
 func TestCompensationDoesNotRunTwiceForTheSameActivity(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Compensation Project")
+	ctx := h.Ctx()
 
 	def := compensationDefinition(h.projID, "booking")
 	if _, err := h.svc.CreateDefinition(ctx, &def); err != nil {
@@ -127,8 +127,8 @@ func TestCompensationDoesNotRunTwiceForTheSameActivity(t *testing.T) {
 
 // Compensating one named activity must not touch the others.
 func TestCompensationOfANamedActivityLeavesOthersAlone(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Named Compensation Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
@@ -205,8 +205,8 @@ func TestCompensationOfANamedActivityLeavesOthersAlone(t *testing.T) {
 // then blocks every retry — the business reversal never happens and nothing
 // says so.
 func TestFailedCompensationIsNotRecordedAsDone(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Failed Compensation Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},

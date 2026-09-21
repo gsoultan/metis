@@ -1,6 +1,7 @@
 package pagination_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,7 +22,7 @@ import (
 // are easy to get quietly wrong: the window is actually limited, and the total
 // counts the whole result set rather than the page.
 
-func seedTasks(t *testing.T, repo repositories.Repository, projectID uuid.UUID, assignee string, n int) {
+func seedTasks(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, assignee string, n int) {
 	t.Helper()
 	for i := range n {
 		task := entities.Task{
@@ -32,7 +33,7 @@ func seedTasks(t *testing.T, repo repositories.Repository, projectID uuid.UUID, 
 			Node:     &entities.Node{ID: "n1"},
 			Assignee: &entities.User{Username: assignee},
 		}
-		if err := repo.Task().Create(t.Context(), adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
+		if err := repo.Task().Create(ctx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			t.Fatalf("seed task %d: %v", i, err)
 		}
 	}
@@ -41,11 +42,11 @@ func seedTasks(t *testing.T, repo repositories.Repository, projectID uuid.UUID, 
 func TestPagination_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	projectID := uuid.Must(uuid.NewV7())
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
-	seedTasks(t, repo, projectID, "alice", 137)
+	seedTasks(t, repo, ctx, projectID, "alice", 137)
 
-	page, err := repo.Task().ListByAssigneePaged(t.Context(), "alice", contracts.Pagination{Page: 1, PageSize: 50})
+	page, err := repo.Task().ListByAssigneePaged(ctx, "alice", contracts.Pagination{Page: 1, PageSize: 50})
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -71,11 +72,11 @@ func TestPagination_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 func TestPagination_LastPageIsPartialAndReportsNoMore(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	projectID := uuid.Must(uuid.NewV7())
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
-	seedTasks(t, repo, projectID, "alice", 137)
+	seedTasks(t, repo, ctx, projectID, "alice", 137)
 
-	page, err := repo.Task().ListByAssigneePaged(t.Context(), "alice", contracts.Pagination{Page: 3, PageSize: 50})
+	page, err := repo.Task().ListByAssigneePaged(ctx, "alice", contracts.Pagination{Page: 3, PageSize: 50})
 	if err != nil {
 		t.Fatalf("page 3: %v", err)
 	}
@@ -90,13 +91,13 @@ func TestPagination_LastPageIsPartialAndReportsNoMore(t *testing.T) {
 func TestPagination_PagesDoNotOverlap(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	projectID := uuid.Must(uuid.NewV7())
+	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
-	seedTasks(t, repo, projectID, "alice", 30)
+	seedTasks(t, repo, ctx, projectID, "alice", 30)
 
 	seen := map[uuid.UUID]int{}
 	for pageNum := 1; pageNum <= 3; pageNum++ {
-		page, err := repo.Task().ListByAssigneePaged(t.Context(), "alice", contracts.Pagination{Page: pageNum, PageSize: 10})
+		page, err := repo.Task().ListByAssigneePaged(ctx, "alice", contracts.Pagination{Page: pageNum, PageSize: 10})
 		if err != nil {
 			t.Fatalf("page %d: %v", pageNum, err)
 		}
@@ -142,8 +143,9 @@ func TestPagination_ClampsHostileInput(t *testing.T) {
 func TestPagination_EmptyResultIsAnEmptyPageNotNil(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
+	ctx, _, _ := testutils.ScopedProject(t, repo)
 
-	page, err := repo.Task().ListByAssigneePaged(t.Context(), "nobody", contracts.Pagination{Page: 1, PageSize: 10})
+	page, err := repo.Task().ListByAssigneePaged(ctx, "nobody", contracts.Pagination{Page: 1, PageSize: 10})
 	if err != nil {
 		t.Fatalf("empty page: %v", err)
 	}
@@ -175,15 +177,17 @@ func TestPagination_WorksUnderTenantScoping(t *testing.T) {
 	ctx := t.Context()
 
 	orgID := uuid.Must(uuid.NewV7())
-	if err := repo.Organization().Create(ctx, models.OrganizationModel{
+	// Seeded as system work: this is the moment before there is a tenant.
+	if err := repo.Organization().Create(entities.WithSystemContext(ctx), models.OrganizationModel{
 		Base: models.Base{ID: models.UUID(orgID)},
 		Name: "Acme",
 	}); err != nil {
 		t.Fatalf("seed organization: %v", err)
 	}
 
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 	projectID := uuid.Must(uuid.NewV7())
-	if err := repo.Project().Create(ctx, models.ProjectModel{
+	if err := repo.Project().Create(entities.WithSystemContext(ctx), models.ProjectModel{
 		Base:           models.Base{ID: models.UUID(projectID)},
 		OrganizationID: models.UUID(orgID),
 		Name:           "Acme Project",
@@ -191,7 +195,7 @@ func TestPagination_WorksUnderTenantScoping(t *testing.T) {
 		t.Fatalf("seed project: %v", err)
 	}
 
-	seedTasks(t, repo, projectID, "alice", 12)
+	seedTasks(t, repo, ctx, projectID, "alice", 12)
 
 	scoped := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 	page, err := repo.Task().ListByAssigneePaged(scoped, "alice", contracts.Pagination{Page: 1, PageSize: 5})

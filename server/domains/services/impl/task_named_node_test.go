@@ -67,28 +67,31 @@ func TestNamedNode(t *testing.T) {
 func TestClaimNarrativeNamesTheTask(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
+	// A real project and a caller inside its organization: CreateTaskForNode
+	// is a service call, and in production one always arrives with a tenant.
+	projectID, ctx := seedProject(t, repo)
 	engine := NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 	svc := NewTaskService(repo, engine, NewAuditWriter(repo.Audit()))
 
 	instance := entities.ProcessInstance{
 		ID:         uuid.New(),
-		Project:    &entities.Project{ID: uuid.New()},
+		Project:    &entities.Project{ID: projectID},
 		Definition: &entities.ProcessDefinition{ID: uuid.New()},
 	}
 	node := entities.Node{ID: "approve", Name: "Approve the refund", Type: entities.UserTask}
-	if err := svc.CreateTaskForNode(t.Context(), instance, node); err != nil {
+	if err := svc.CreateTaskForNode(ctx, instance, node); err != nil {
 		t.Fatalf("create task: %v", err)
 	}
 
-	tasks, err := svc.ListTasks(t.Context(), uuid.Nil)
+	tasks, err := svc.ListTasks(ctx, uuid.Nil)
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("list: %d tasks, err=%v", len(tasks), err)
 	}
-	if err := svc.ClaimTask(t.Context(), tasks[0].ID, "admin"); err != nil {
+	if err := svc.ClaimTask(ctx, tasks[0].ID, "admin"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
-	entries, err := repo.Audit().ListByInstance(t.Context(), instance.ID)
+	entries, err := repo.Audit().ListByInstance(ctx, instance.ID)
 	if err != nil {
 		t.Fatalf("audit: %v", err)
 	}

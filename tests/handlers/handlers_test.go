@@ -24,6 +24,10 @@ func TestInclusiveGateway(t *testing.T) {
 	svc, _ := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked
+	// while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Inclusive Project", "")
 
 	// Start -> InclusiveGateway -> (TaskA if condA, TaskB if condB) -> End
@@ -96,6 +100,10 @@ func TestTimerEvent(t *testing.T) {
 	svc, jobSvc := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked
+	// while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Timer Project", "")
 
 	// Start -> Timer (100ms) -> End
@@ -182,6 +190,10 @@ func TestServiceTask(t *testing.T) {
 	svc, jobSvc := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked
+	// while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Service Project", "")
 
 	def := entities.ProcessDefinition{
@@ -244,6 +256,10 @@ func TestAdvancedTasks(t *testing.T) {
 	svc, _ := newHandlerHarness(t)
 
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked
+	// while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := svc.CreateProject(ctx, org.ID, "Advanced Project", "")
 
 	t.Run("ManualTask Creates Task Entry", func(t *testing.T) {

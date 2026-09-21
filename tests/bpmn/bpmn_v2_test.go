@@ -35,6 +35,10 @@ func TestTerminateEndEvent(t *testing.T) {
 	)
 
 	org, _ := orgSvc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := projectSvc.CreateProject(ctx, org.ID, "Test Project", "")
 
 	// Define process: Start -> Parallel -> (Task1, Terminate)
@@ -101,6 +105,10 @@ func TestEventBasedGateway(t *testing.T) {
 	)
 
 	org, _ := orgSvc.CreateOrganization(ctx, "Test Org", "")
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, _ := projectSvc.CreateProject(ctx, org.ID, "Test Project", "")
 
 	// Define process: Start -> EventGateway -> (Catch1, Catch2) -> End

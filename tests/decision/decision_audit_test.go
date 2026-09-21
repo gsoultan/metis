@@ -135,7 +135,7 @@ func TestAFailedAuditWriteDoesNotStallTheProcess(t *testing.T) {
 // auditEntriesOf reads an instance's timeline.
 func auditEntriesOf(t *testing.T, h *businessRuleHarness, instanceID uuid.UUID) []models.AuditModel {
 	t.Helper()
-	entries, err := h.repo.Audit().ListByInstance(t.Context(), instanceID)
+	entries, err := h.repo.Audit().ListByInstance(h.ctx, instanceID)
 	if err != nil {
 		t.Fatalf("list audit entries: %v", err)
 	}
@@ -149,6 +149,9 @@ type businessRuleHarness struct {
 	engine    *serviceimpl.Engine
 	decisions servicecontracts.DecisionService
 	projectID uuid.UUID
+	// The tenant this harness acts inside; every call below carries it,
+	// because in production every one of them arrives with one resolved.
+	ctx context.Context
 }
 
 func newBusinessRuleHarness(t *testing.T) *businessRuleHarness {
@@ -197,19 +200,23 @@ func buildBusinessRuleHarness(t *testing.T, audit servicecontracts.AuditWriter) 
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+
+	// A request carries the organization it belongs to; this suite did not, and
+	// only passed while the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	project, err := serviceimpl.NewProjectService(repo).CreateProject(ctx, org.ID, "Audit Project", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
-	return &businessRuleHarness{repo: repo, engine: engine, decisions: decisionSvc, projectID: project.ID}
+	return &businessRuleHarness{repo: repo, engine: engine, decisions: decisionSvc, projectID: project.ID, ctx: ctx}
 }
 
 // runDecision deploys the table, runs a process whose only step consults it, and
 // returns the finished instance.
 func (h *businessRuleHarness) runDecision(t *testing.T, table entities.DecisionDefinition, variables map[string]any) entities.ProcessInstance {
 	t.Helper()
-	ctx := t.Context()
+	ctx := h.ctx
 
 	table.Project = &entities.Project{ID: h.projectID}
 	if _, err := h.decisions.CreateDecision(ctx, table); err != nil {
@@ -271,7 +278,7 @@ func (h *businessRuleHarness) decisionEntry(t *testing.T, instanceID uuid.UUID) 
 // that no longer exists — and by then nobody remembers what the table said.
 func TestADecisionInUseCannotBeDeleted(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	// A process that stops at a human task after deciding, so its instance is
 	// still running and can still be resumed through the decision on a retry.
@@ -310,7 +317,7 @@ func TestADecisionInUseCannotBeDeleted(t *testing.T) {
 // A decision nothing uses is deleted without ceremony.
 func TestAnUnusedDecisionIsDeleted(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -331,7 +338,7 @@ func TestAnUnusedDecisionIsDeleted(t *testing.T) {
 // the instance is still running when the test looks at it.
 func (h *businessRuleHarness) runDecisionThenWait(t *testing.T, table entities.DecisionDefinition, variables map[string]any) entities.ProcessInstance {
 	t.Helper()
-	ctx := t.Context()
+	ctx := h.ctx
 
 	table.Project = &entities.Project{ID: h.projectID}
 	if _, err := h.decisions.CreateDecision(ctx, table); err != nil {
@@ -372,7 +379,7 @@ func (h *businessRuleHarness) runDecisionThenWait(t *testing.T, table entities.D
 
 func (h *businessRuleHarness) decisionByKey(t *testing.T, key string) entities.DecisionDefinition {
 	t.Helper()
-	decisions, err := h.decisions.ListDecisions(t.Context(), h.projectID)
+	decisions, err := h.decisions.ListDecisions(h.ctx, h.projectID)
 	if err != nil {
 		t.Fatalf("list decisions: %v", err)
 	}
@@ -389,7 +396,7 @@ func (h *businessRuleHarness) decisionByKey(t *testing.T, key string) entities.D
 // a reason not to delete anything.
 func (h *businessRuleHarness) completeEveryTask(t *testing.T, instanceID uuid.UUID) {
 	t.Helper()
-	ctx := t.Context()
+	ctx := h.ctx
 	tasks, err := h.repo.Task().ListByInstance(ctx, instanceID)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
@@ -409,7 +416,7 @@ func (h *businessRuleHarness) completeEveryTask(t *testing.T, instanceID uuid.UU
 // threshold from 10k to 25k takes a modeller and a redeploy.
 func TestADecisionDecidesWhoApproves(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	matrix := entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -490,7 +497,7 @@ func TestADecisionDecidesWhoApproves(t *testing.T) {
 
 func (h *businessRuleHarness) taskOn(t *testing.T, instanceID uuid.UUID) entities.Task {
 	t.Helper()
-	tasks, err := h.repo.Task().ListByInstance(t.Context(), instanceID)
+	tasks, err := h.repo.Task().ListByInstance(h.ctx, instanceID)
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
 	}
@@ -506,7 +513,7 @@ func (h *businessRuleHarness) taskOn(t *testing.T, instanceID uuid.UUID) entitie
 // from changing one nothing uses.
 func TestTheImpactViewSaysWhatDependsOnADecision(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	table := entities.DecisionDefinition{
 		Key:       "risk",
@@ -557,7 +564,7 @@ func TestTheImpactViewSaysWhatDependsOnADecision(t *testing.T) {
 // would otherwise say "nothing uses this" about a live approval matrix.
 func TestTheImpactViewSeesAssignmentTables(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	matrix := entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -617,7 +624,7 @@ func TestTheAssignmentPropertyNameIsTheSameOnBothSides(t *testing.T) {
 // beside it and are re-run whenever somebody looks.
 func TestATableIsRunAgainstItsOwnExamples(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -674,7 +681,7 @@ func TestATableIsRunAgainstItsOwnExamples(t *testing.T) {
 // column without invalidating every example written before it.
 func TestAnExampleOnlyChecksWhatItNames(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -709,7 +716,7 @@ func TestAnExampleOnlyChecksWhatItNames(t *testing.T) {
 // between a passing test and somebody hunting a bug in their policy.
 func TestANumericExpectationIsComparedAsANumber(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},
@@ -741,7 +748,7 @@ func TestANumericExpectationIsComparedAsANumber(t *testing.T) {
 // policy, and they are fixed in different places.
 func TestABrokenTableIsReportedAsBrokenNotAsWrong(t *testing.T) {
 	h := newBusinessRuleHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	id, err := h.decisions.CreateDecision(ctx, entities.DecisionDefinition{
 		Project:   &entities.Project{ID: h.projectID},

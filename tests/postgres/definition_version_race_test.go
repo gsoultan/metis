@@ -28,8 +28,7 @@ const racers = 8
 // serialises the reads and hides the race — which is why the test lives here.
 func TestConcurrentDeploysGetDistinctVersions(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, racers+2)
-	ctx := t.Context()
-	repo, _, projID := newPostgresEngine(t, db)
+	repo, _, projID, ctx := newPostgresEngine(t, db)
 
 	defSvc := serviceimpl.NewDefinitionService(repo)
 
@@ -81,8 +80,7 @@ func TestConcurrentDeploysGetDistinctVersions(t *testing.T) {
 // same defect.
 func TestConcurrentDecisionDeploysGetDistinctVersions(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, racers+2)
-	ctx := t.Context()
-	repo, _, projID := newPostgresEngine(t, db)
+	repo, _, projID, ctx := newPostgresEngine(t, db)
 
 	decisionSvc := serviceimpl.NewDecisionService(repo, serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 

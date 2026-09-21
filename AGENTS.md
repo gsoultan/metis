@@ -354,7 +354,7 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `bunx tsc --noEmit` | green |
 | `bun run build` | green |
 | `bun run lint` | green — was 231 errors (Phase 0.6, cleared) |
-| `make strict-scope` | green — the HTTP chain and job worker under the strict tenant scope, which ships off |
+| `make strict-scope` | green — **the whole module** under the strict tenant scope. Widened from seven named suites on 2026-09-21, when the ~175 failing tests that had justified the narrower list were given the tenant identity a request carries. The flag still ships off; what remains is the staging soak, not the suite |
 | `tests/ci` | green — asserts every dialect-gated package is actually run by the dialects job. A new one added to `tests/` otherwise skips for want of a DSN, reports ok, and is never run against a real database by anything |
 | `tests/slo` | green — the §1 targets are asserted, not assumed. Reads p95 11.1ms/150ms, actions 13.8ms/500ms, 0.000% 5xx, 170k starts/min on PostgreSQL 17 |
 | `image` (CI only) | green — builds the Dockerfile and boots it against PostgreSQL with a read-only root, waiting on `/readyz`. Nothing built the image before this; the README calls it the supported artifact |

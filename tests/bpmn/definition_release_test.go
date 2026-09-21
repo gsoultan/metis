@@ -19,7 +19,7 @@ import (
 
 // releaseFixture is the smallest wiring that can deploy, start and complete —
 // enough to prove which version an instance actually runs.
-func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID) {
+func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Context) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
@@ -59,11 +59,15 @@ func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID) {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here this test stands in for a request from inside that
+	// organization. It carried no identity at all, which only worked while
+	// the repository scope failed open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
 	proj, err := svc.CreateProject(ctx, org.ID, "Release Project", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return svc, proj.ID
+	return svc, proj.ID, ctx
 }
 
 // approvalModel is start -> hold -> end, where hold is a user task the instance
@@ -85,9 +89,8 @@ func approvalModel(projectID uuid.UUID, name, holdNodeID string) entities.Proces
 	}
 }
 
-func startedVersion(t *testing.T, svc services.ServiceFacade, projectID uuid.UUID) int {
+func startedVersion(t *testing.T, ctx context.Context, svc services.ServiceFacade, projectID uuid.UUID) int {
 	t.Helper()
-	ctx := context.Background()
 	instanceID, err := svc.StartProcess(ctx, projectID, "expense-approval", nil)
 	if err != nil {
 		t.Fatalf("start process: %v", err)
@@ -109,14 +112,13 @@ func startedVersion(t *testing.T, svc services.ServiceFacade, projectID uuid.UUI
 // This is the case the release table exists for. Without it "live" means "the
 // highest version", so the act of saving a model promoted it.
 func TestStagedVersionDoesNotTakeNewInstances(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("before staging, new instances should start on v1, got v%d", got)
 	}
 
@@ -128,14 +130,14 @@ func TestStagedVersionDoesNotTakeNewInstances(t *testing.T) {
 		t.Fatalf("staging should still allocate a version, got v%d", v2.Version)
 	}
 
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("a staged version must not take new instances, but one started on v%d", got)
 	}
 
 	if err := svc.PromoteDefinitionVersion(ctx, projectID, "expense-approval", 2); err != nil {
 		t.Fatalf("promote v2: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 2 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 2 {
 		t.Fatalf("after promotion new instances should start on v2, got v%d", got)
 	}
 }
@@ -144,8 +146,7 @@ func TestStagedVersionDoesNotTakeNewInstances(t *testing.T) {
 // it. This is the rollback that previously required redeploying the old model
 // under a higher number.
 func TestPromotingAnOlderVersionRollsBack(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -155,14 +156,14 @@ func TestPromotingAnOlderVersionRollsBack(t *testing.T) {
 	if _, err := svc.CreateDefinition(ctx, &v2); err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 2 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 2 {
 		t.Fatalf("a promoted deploy should be live, got v%d", got)
 	}
 
 	if err := svc.PromoteDefinitionVersion(ctx, projectID, "expense-approval", 1); err != nil {
 		t.Fatalf("roll back to v1: %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("after rollback new instances should start on v1, got v%d", got)
 	}
 }
@@ -172,8 +173,7 @@ func TestPromotingAnOlderVersionRollsBack(t *testing.T) {
 // quietly resolve to the highest one, and the caller would be told a rollback
 // worked while new instances kept starting on what they rolled back from.
 func TestPromotingAnUndeployedVersionIsRefused(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -187,7 +187,7 @@ func TestPromotingAnUndeployedVersionIsRefused(t *testing.T) {
 	if !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("expected a not-found refusal, got %v", err)
 	}
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("a refused promotion must not move the live version, new instance is on v%d", got)
 	}
 }
@@ -196,8 +196,7 @@ func TestPromotingAnUndeployedVersionIsRefused(t *testing.T) {
 // "Has v1 finished?" is a question about running instances, not about which
 // version is live, and this is where that answer comes from.
 func TestVersionStatusReportsLiveAndDraining(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -273,8 +272,7 @@ func TestVersionStatusReportsLiveAndDraining(t *testing.T) {
 // the whole feature rests on, so it is asserted against the graph rather than
 // against the definition ID alone.
 func TestRunningInstanceDrainsOnItsOwnVersion(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -334,8 +332,7 @@ func TestRunningInstanceDrainsOnItsOwnVersion(t *testing.T) {
 // one tenant can both hold "expense-approval". Their live versions are separate
 // choices, and one project's release must not pin the other project's starts.
 func TestReleasesAreScopedToTheirProject(t *testing.T) {
-	ctx := context.Background()
-	svc, projectA := releaseFixture(t)
+	svc, projectA, ctx := releaseFixture(t)
 
 	// A second project in the same organization, holding the same key.
 	orgs, err := svc.ListOrganizations(ctx)
@@ -370,10 +367,10 @@ func TestReleasesAreScopedToTheirProject(t *testing.T) {
 		t.Fatalf("deploy B v2: %v", err)
 	}
 
-	if got := startedVersion(t, svc, projectB.ID); got != 2 {
+	if got := startedVersion(t, ctx, svc, projectB.ID); got != 2 {
 		t.Fatalf("project B never rolled back, so it should start on v2, got v%d", got)
 	}
-	if got := startedVersion(t, svc, projectA); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectA); got != 1 {
 		t.Fatalf("project A rolled back, so it should start on v1, got v%d", got)
 	}
 
@@ -395,8 +392,7 @@ func TestReleasesAreScopedToTheirProject(t *testing.T) {
 // one — the engine can never load the graph it is executing — and erases the
 // record of what a finished one actually ran.
 func TestDeletingAVersionInUseIsRefused(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	v1ID, err := svc.CreateDefinition(ctx, &v1)
@@ -438,8 +434,7 @@ func TestDeletingAVersionInUseIsRefused(t *testing.T) {
 // A version nothing has ever run can be deleted — a staged one thought better
 // of, or a mistake.
 func TestDeletingAnUnusedVersionIsAllowed(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -463,7 +458,7 @@ func TestDeletingAnUnusedVersionIsAllowed(t *testing.T) {
 		t.Fatalf("only v1 should remain, got %d versions", len(versions))
 	}
 	// And the live version still starts.
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("v1 should still be live and startable, got v%d", got)
 	}
 }

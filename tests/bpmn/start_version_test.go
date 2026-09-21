@@ -1,7 +1,6 @@
 package bpmn_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,8 +13,7 @@ import (
 // the start path could name a version, the only way to exercise a new one was to
 // make it live for everybody first.
 func TestStartingAStagedVersionWithoutPromotingIt(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
@@ -44,7 +42,7 @@ func TestStartingAStagedVersionWithoutPromotingIt(t *testing.T) {
 	}
 
 	// And doing so has not promoted it: the next ordinary start is still v1.
-	if got := startedVersion(t, svc, projectID); got != 1 {
+	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("trying a staged version must not promote it, an ordinary start got v%d", got)
 	}
 }
@@ -52,8 +50,7 @@ func TestStartingAStagedVersionWithoutPromotingIt(t *testing.T) {
 // Naming a version that was never deployed is refused rather than silently
 // falling back to the live one, which would run a different process than asked.
 func TestStartingAnUndeployedVersionIsRefused(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	v1 := approvalModel(projectID, "v1", "hold")
 	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {

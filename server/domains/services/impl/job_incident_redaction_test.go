@@ -27,6 +27,11 @@ func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	service := &jobService{repo: repo}
+	// System work: this exercises the repository's incident write and the
+	// redaction of its error text, against ids that belong to no project. It
+	// is not standing in for a request, so it says so rather than relying on
+	// the scope failing open.
+	ctx := entities.WithSystemContext(t.Context())
 
 	instanceID, definitionID := uuid.New(), uuid.New()
 	job := &entities.Job{
@@ -39,9 +44,9 @@ func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
 	// The shape net/http produces when a connector cannot reach its API.
 	jobErr := &stubError{text: `connector "salesforce": Get "https://api.example.com/v1/leads?api_key=` + secret + `": dial tcp: connection refused`}
 
-	service.createIncident(t.Context(), job, jobErr)
+	service.createIncident(ctx, job, jobErr)
 
-	incidents, err := repo.Incident().ListByInstance(t.Context(), instanceID)
+	incidents, err := repo.Incident().ListByInstance(ctx, instanceID)
 	if err != nil {
 		t.Fatalf("list incidents: %v", err)
 	}

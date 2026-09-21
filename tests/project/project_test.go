@@ -61,6 +61,17 @@ func TestProjectAssociation(t *testing.T) {
 	// CreateAuditEntry an organization
 	org, _ := svc.CreateOrganization(ctx, "Test Org", "")
 
+	// From here the test acts as somebody inside that organization, because
+	// that is what production does: a request arrives through the auth
+	// interceptor and the tenant resolver, and every repository query is
+	// scoped by what they resolved.
+	//
+	// It used to carry a bare t.Context(), which carries no identity at all.
+	// That passes only while the repository scope fails open — the behaviour
+	// METIS_FEATURE_STRICT_TENANT_SCOPE exists to end — so the test was
+	// asserting against a code path no request takes.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
+
 	// CreateAuditEntry two projects
 	proj1, _ := svc.CreateProject(ctx, org.ID, "Project 1", "")
 	proj2, _ := svc.CreateProject(ctx, org.ID, "Project 2", "")

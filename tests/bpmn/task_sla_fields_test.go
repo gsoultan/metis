@@ -1,7 +1,6 @@
 package bpmn_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -17,8 +16,7 @@ import (
 // asserted that end to end, and the failure would be silent: the inbox would
 // simply show every task as ordinary and never overdue.
 func TestUserTaskCarriesPriorityAndDueDate(t *testing.T) {
-	ctx := context.Background()
-	svc, projectID := releaseFixture(t)
+	svc, projectID, ctx := releaseFixture(t)
 
 	due := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
 	def := entities.ProcessDefinition{

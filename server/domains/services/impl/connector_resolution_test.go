@@ -38,7 +38,7 @@ import (
 // that is not built yet; naming a connector is a statement that the call
 // matters.
 func TestServiceTask_FailsWhenItsConnectorInstanceIsMissing(t *testing.T) {
-	svc, projectID := jobServiceForConnectorTest(t)
+	svc, projectID, ctx, _ := jobServiceForConnectorTest(t)
 	def := &entities.ProcessDefinition{Project: &entities.Project{ID: projectID}}
 
 	node := entities.Node{
@@ -51,7 +51,7 @@ func TestServiceTask_FailsWhenItsConnectorInstanceIsMissing(t *testing.T) {
 		},
 	}
 
-	_, err := svc.resolveAndExecuteConnector(context.Background(), def, node, map[string]any{"message": "deploy finished"})
+	_, err := svc.resolveAndExecuteConnector(ctx, def, node, map[string]any{"message": "deploy finished"})
 	if err == nil {
 		t.Fatal("a service task naming a missing connector instance was allowed to proceed")
 	}
@@ -62,7 +62,7 @@ func TestServiceTask_FailsWhenItsConnectorInstanceIsMissing(t *testing.T) {
 
 // The same holds for the other way a node names one.
 func TestServiceTask_FailsWhenItsConnectorIsNotConfiguredForTheProject(t *testing.T) {
-	svc, projectID := jobServiceForConnectorTest(t)
+	svc, projectID, ctx, _ := jobServiceForConnectorTest(t)
 	def := &entities.ProcessDefinition{Project: &entities.Project{ID: projectID}}
 
 	node := entities.Node{
@@ -74,7 +74,7 @@ func TestServiceTask_FailsWhenItsConnectorIsNotConfiguredForTheProject(t *testin
 		},
 	}
 
-	if _, err := svc.resolveAndExecuteConnector(context.Background(), def, node, nil); err == nil {
+	if _, err := svc.resolveAndExecuteConnector(ctx, def, node, nil); err == nil {
 		t.Fatal("a service task naming an unconfigured connector was allowed to proceed")
 	}
 }
@@ -83,8 +83,7 @@ func TestServiceTask_FailsWhenItsConnectorIsNotConfiguredForTheProject(t *testin
 // Silently ignoring it would be a tenant leak in the other direction: the
 // process would carry on as though the call had been made.
 func TestServiceTask_FailsWhenTheInstanceBelongsToAnotherProject(t *testing.T) {
-	svc, projectID := jobServiceForConnectorTest(t)
-	ctx := context.Background()
+	svc, projectID, ctx, repo := jobServiceForConnectorTest(t)
 
 	if err := svc.connectorSvc.EnsureDefaultConnectors(ctx); err != nil {
 		t.Fatalf("seed catalogue: %v", err)
@@ -94,8 +93,12 @@ func TestServiceTask_FailsWhenTheInstanceBelongsToAnotherProject(t *testing.T) {
 		t.Fatal("no connectors to configure")
 	}
 
-	otherProject := uuid.Must(uuid.NewV7())
-	instance, err := svc.connectorSvc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
+	// A real second project, in its own organization. It used to be an invented
+	// id, which only resolved while the scope failed open — so the test was
+	// proving its point against a project that did not exist rather than one
+	// belonging to somebody else.
+	otherProject, otherCtx := seedProject(t, repo)
+	instance, err := svc.connectorSvc.CreateConnectorInstance(otherCtx, entities.ConnectorInstance{
 		Name:      "Someone else's Slack",
 		Project:   &entities.Project{ID: otherProject},
 		Connector: &entities.Connector{ID: catalogue[0].ID},
@@ -120,12 +123,12 @@ func TestServiceTask_FailsWhenTheInstanceBelongsToAnotherProject(t *testing.T) {
 // step which is not built yet gets modelled, and it is the case the fallback
 // exists for.
 func TestServiceTask_WithNoConnectorAndNoURLIsStillANoOp(t *testing.T) {
-	svc, projectID := jobServiceForConnectorTest(t)
+	svc, projectID, ctx, _ := jobServiceForConnectorTest(t)
 	def := &entities.ProcessDefinition{Project: &entities.Project{ID: projectID}}
 
 	node := entities.Node{ID: "placeholder", Type: entities.ServiceTask}
 
-	result, err := svc.resolveAndExecuteConnector(context.Background(), def, node, nil)
+	result, err := svc.resolveAndExecuteConnector(ctx, def, node, nil)
 	if err != nil {
 		t.Fatalf("an unconfigured service task was rejected: %v", err)
 	}
@@ -137,7 +140,7 @@ func TestServiceTask_WithNoConnectorAndNoURLIsStillANoOp(t *testing.T) {
 // A definition with no project cannot have its connectors resolved, and used to
 // be dereferenced without checking.
 func TestServiceTask_ToleratesADefinitionWithNoProject(t *testing.T) {
-	svc, _ := jobServiceForConnectorTest(t)
+	svc, _, ctx, _ := jobServiceForConnectorTest(t)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -150,12 +153,15 @@ func TestServiceTask_ToleratesADefinitionWithNoProject(t *testing.T) {
 		Type:       entities.ServiceTask,
 		Properties: map[string]any{"connector_instance_id": uuid.Must(uuid.NewV7()).String()},
 	}
-	if _, err := svc.resolveAndExecuteConnector(context.Background(), &entities.ProcessDefinition{}, node, nil); err == nil {
+	if _, err := svc.resolveAndExecuteConnector(ctx, &entities.ProcessDefinition{}, node, nil); err == nil {
 		t.Fatal("a definition with no project resolved a connector anyway")
 	}
 }
 
-func jobServiceForConnectorTest(t *testing.T) (*jobService, uuid.UUID) {
+// Returns a real project and a context naming its organization, rather than
+// an invented id nothing owns: a connector instance is reached by joining
+// through the project.
+func jobServiceForConnectorTest(t *testing.T) (*jobService, uuid.UUID, context.Context, repositories.Repository) {
 	t.Helper()
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
 	engine := NewExecutionEngine(repo, observerimpl.NewEventDispatcher())
@@ -164,5 +170,6 @@ func jobServiceForConnectorTest(t *testing.T) (*jobService, uuid.UUID) {
 	if !ok {
 		t.Fatalf("NewJobService returned %T, want *jobService", svc)
 	}
-	return js, uuid.Must(uuid.NewV7())
+	projectID, ctx := seedProject(t, repo)
+	return js, projectID, ctx, repo
 }

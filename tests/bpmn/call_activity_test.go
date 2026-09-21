@@ -16,7 +16,7 @@ import (
 // The child process the tests below call.
 func createChildProcess(t *testing.T, h *serviceTaskHarness, key string) {
 	t.Helper()
-	if _, err := h.defSvc.CreateDefinition(t.Context(), &entities.ProcessDefinition{
+	if _, err := h.defSvc.CreateDefinition(h.ctx, &entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projectID},
 		Key:     key,
 		Name:    "Check the supplier",
@@ -103,7 +103,7 @@ func TestCallActivity_ParentResumesWhenTheChildFinishes(t *testing.T) {
 	if len(childTasks) != 1 {
 		t.Fatalf("the child is not waiting on a task: %v", taskNames(childTasks))
 	}
-	if err := h.taskSvc.CompleteTask(t.Context(), childTasks[0].ID, "carol", map[string]any{"approved": true}); err != nil {
+	if err := h.taskSvc.CompleteTask(h.ctx, childTasks[0].ID, "carol", map[string]any{"approved": true}); err != nil {
 		t.Fatalf("complete the child's task: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestCallActivity_ParentResumesWhenTheChildFinishes(t *testing.T) {
 // that then waits for a child that will never exist.
 func TestCallActivity_ReportsAProcessThatDoesNotExist(t *testing.T) {
 	h := newServiceTaskHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	def := &entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projectID},
@@ -154,7 +154,7 @@ func TestCallActivity_ReportsAProcessThatDoesNotExist(t *testing.T) {
 // and leaving the process waiting for a child it never asked for.
 func TestCallActivity_ReportsWhenNoProcessIsNamed(t *testing.T) {
 	h := newServiceTaskHarness(t)
-	ctx := t.Context()
+	ctx := h.ctx
 
 	def := &entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projectID},

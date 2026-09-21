@@ -1,6 +1,7 @@
 package pagination_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -62,13 +63,14 @@ func seedDefinition(t *testing.T, db *gorm.DB, projectID, definitionID uuid.UUID
 func seedInstances(
 	t *testing.T,
 	repo repositories.Repository,
+	ctx context.Context,
 	projectID, definitionID uuid.UUID,
 	status models.ProcessStatus,
 	n int,
 ) {
 	t.Helper()
 	for i := range n {
-		_, err := repo.Process().Create(t.Context(), models.ProcessInstanceModel{
+		_, err := repo.Process().Create(ctx, models.ProcessInstanceModel{
 			Base:         models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))},
 			ProjectID:    models.FromUUID(projectID),
 			DefinitionID: models.FromUUID(definitionID),
@@ -89,18 +91,22 @@ func seedInstances(
 func TestInstanceFilter_ReachesBeyondTheFirstPage(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
+	orgID := uuid.New()
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
-	seedProject(t, db, uuid.New(), projectID, "Filtering")
+	seedProject(t, db, orgID, projectID, "Filtering")
+	// The rows below are reached by joining through the project to its
+	// organization, so the caller has to name one.
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgID.String()})
 	seedDefinition(t, db, projectID, definitionID, "expenses", 1)
 
-	seedInstances(t, repo, projectID, definitionID, models.ProcessFailed, 12)
-	seedInstances(t, repo, projectID, definitionID, models.ProcessCompleted, 400)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessFailed, 12)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessCompleted, 400)
 
 	// Page one, unfiltered: every row is a completed one, and nothing on screen
 	// suggests otherwise. This is the state the old page left an operator in.
 	unfiltered, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectID, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
+		ctx, projectID, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("unfiltered page 1: %v", err)
 	}
@@ -111,7 +117,7 @@ func TestInstanceFilter_ReachesBeyondTheFirstPage(t *testing.T) {
 	}
 
 	filtered, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectID,
+		ctx, projectID,
 		contracts.InstanceFilter{Status: models.ProcessFailed},
 		contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
@@ -141,16 +147,18 @@ func TestInstanceFilter_NarrowsToOneDefinition(t *testing.T) {
 	projectID := uuid.Must(uuid.NewV7())
 	expenses := uuid.Must(uuid.NewV7())
 	onboarding := uuid.Must(uuid.NewV7())
-	seedProject(t, db, uuid.New(), projectID, "Two processes")
+	orgID := uuid.New()
+	seedProject(t, db, orgID, projectID, "Two processes")
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgID.String()})
 	seedDefinition(t, db, projectID, expenses, "expenses", 1)
 	seedDefinition(t, db, projectID, onboarding, "onboarding", 1)
 
-	seedInstances(t, repo, projectID, expenses, models.ProcessFailed, 3)
-	seedInstances(t, repo, projectID, expenses, models.ProcessActive, 5)
-	seedInstances(t, repo, projectID, onboarding, models.ProcessFailed, 7)
+	seedInstances(t, repo, ctx, projectID, expenses, models.ProcessFailed, 3)
+	seedInstances(t, repo, ctx, projectID, expenses, models.ProcessActive, 5)
+	seedInstances(t, repo, ctx, projectID, onboarding, models.ProcessFailed, 7)
 
 	page, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectID,
+		ctx, projectID,
 		contracts.InstanceFilter{Status: models.ProcessFailed, DefinitionID: expenses},
 		contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
@@ -170,14 +178,16 @@ func TestInstanceFilter_CountsDescribeTheWholeProject(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
-	seedProject(t, db, uuid.New(), projectID, "Counting")
+	orgID := uuid.New()
+	seedProject(t, db, orgID, projectID, "Counting")
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgID.String()})
 	seedDefinition(t, db, projectID, definitionID, "expenses", 1)
 
-	seedInstances(t, repo, projectID, definitionID, models.ProcessFailed, 12)
-	seedInstances(t, repo, projectID, definitionID, models.ProcessCompleted, 400)
-	seedInstances(t, repo, projectID, definitionID, models.ProcessActive, 37)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessFailed, 12)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessCompleted, 400)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessActive, 37)
 
-	counts, err := repo.Process().CountByStatuses(t.Context(), projectID, contracts.InstanceFilter{})
+	counts, err := repo.Process().CountByStatuses(ctx, projectID, contracts.InstanceFilter{})
 	if err != nil {
 		t.Fatalf("count by status: %v", err)
 	}
@@ -213,18 +223,21 @@ func TestInstanceFilter_DoesNotReachAnotherTenantsRows(t *testing.T) {
 	definitionA, definitionB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 
 	seedProject(t, db, orgA, projectA, "Org A")
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgA.String()})
 	seedProject(t, db, orgB, projectB, "Org B")
 	// The same key in both projects, so a read that returns the wrong tenant's
 	// rows cannot be explained away as a filter mismatch.
 	seedDefinition(t, db, projectA, definitionA, "expenses", 1)
 	seedDefinition(t, db, projectB, definitionB, "expenses", 1)
 
-	// Seeded outside a tenant context so both projects get their rows; the reads
-	// below are the ones under test.
-	seedInstances(t, repo, projectA, definitionA, models.ProcessFailed, 2)
-	seedInstances(t, repo, projectB, definitionB, models.ProcessFailed, 9)
+	// Seeded as system work so both tenants' rows land: a context scoped to
+	// one organization cannot write into the other's project, which is the
+	// property under test rather than something to work around. The reads
+	// below are the ones that matter.
+	seedCtx := entities.WithSystemContext(t.Context())
+	seedInstances(t, repo, seedCtx, projectA, definitionA, models.ProcessFailed, 2)
+	seedInstances(t, repo, seedCtx, projectB, definitionB, models.ProcessFailed, 9)
 
-	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgA.String()})
 	failures := contracts.InstanceFilter{Status: models.ProcessFailed}
 
 	t.Run("naming another tenant's project", func(t *testing.T) {
@@ -288,12 +301,14 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
-	seedProject(t, db, uuid.New(), projectID, "Attention")
+	orgID := uuid.New()
+	seedProject(t, db, orgID, projectID, "Attention")
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgID.String()})
 	seedDefinition(t, db, projectID, definitionID, "expenses", 1)
-	seedInstances(t, repo, projectID, definitionID, models.ProcessActive, 5)
+	seedInstances(t, repo, ctx, projectID, definitionID, models.ProcessActive, 5)
 
 	page, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectID, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
+		ctx, projectID, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -309,7 +324,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 
 	t.Run("the row is marked", func(t *testing.T) {
 		ids := []uuid.UUID{broken, uuid.UUID(page.Items[1].ID)}
-		counts, err := repo.Process().OpenIncidentsByInstance(t.Context(), ids)
+		counts, err := repo.Process().OpenIncidentsByInstance(ctx, ids)
 		if err != nil {
 			t.Fatalf("open incidents: %v", err)
 		}
@@ -324,7 +339,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 
 	t.Run("the project total counts it", func(t *testing.T) {
 		total, err := repo.Process().CountInstancesNeedingAttention(
-			t.Context(), projectID, contracts.InstanceFilter{})
+			ctx, projectID, contracts.InstanceFilter{})
 		if err != nil {
 			t.Fatalf("count needing attention: %v", err)
 		}
@@ -335,7 +350,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 
 	t.Run("the filter reaches it", func(t *testing.T) {
 		filtered, err := repo.Process().ListByProjectPaged(
-			t.Context(), projectID,
+			ctx, projectID,
 			contracts.InstanceFilter{NeedsAttention: true},
 			contracts.Pagination{Page: 1, PageSize: 25})
 		if err != nil {
@@ -357,7 +372,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 			t.Fatalf("resolve: %v", err)
 		}
 		total, err := repo.Process().CountInstancesNeedingAttention(
-			t.Context(), projectID, contracts.InstanceFilter{})
+			ctx, projectID, contracts.InstanceFilter{})
 		if err != nil {
 			t.Fatalf("count after resolving: %v", err)
 		}
@@ -379,24 +394,31 @@ func TestInstanceAttention_IsTenantScoped(t *testing.T) {
 	seedProject(t, db, orgB, projectB, "Org B")
 	seedDefinition(t, db, projectA, definitionA, "expenses", 1)
 	seedDefinition(t, db, projectB, definitionB, "expenses", 1)
-	seedInstances(t, repo, projectA, definitionA, models.ProcessActive, 1)
-	seedInstances(t, repo, projectB, definitionB, models.ProcessActive, 1)
+	// Seeding two tenants' rows is fixture construction rather than a request,
+	// so it is system work. The reads below are per-tenant, which is the thing
+	// this test is actually about.
+	seedCtx := entities.WithSystemContext(t.Context())
+	seedInstances(t, repo, seedCtx, projectA, definitionA, models.ProcessActive, 1)
+	seedInstances(t, repo, seedCtx, projectB, definitionB, models.ProcessActive, 1)
+	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgA.String()})
 
 	a, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectA, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
+		ctx, projectA, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("list A: %v", err)
 	}
+	// Read as system work: this is how the test obtains an id belonging to the
+	// *other* tenant, to probe with below. Asking for it as orgA is exactly
+	// what the assertion further down proves does not answer, so it cannot
+	// also be how the id is found.
 	b, err := repo.Process().ListByProjectPaged(
-		t.Context(), projectB, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
+		seedCtx, projectB, contracts.InstanceFilter{}, contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {
 		t.Fatalf("list B: %v", err)
 	}
 	foreign := uuid.UUID(b.Items[0].ID)
 	seedIncident(t, db, foreign, definitionB)
 	seedIncident(t, db, uuid.UUID(a.Items[0].ID), definitionA)
-
-	ctx := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: orgA.String()})
 
 	// Asking about the other tenant's instance by id must not answer, even
 	// though the caller supplied the id and the row exists.

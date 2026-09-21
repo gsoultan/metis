@@ -26,29 +26,35 @@ Everything below exists to turn "watch for something that stops happening" into
 
 ## Before you start: what is already proven
 
-`make strict-scope` runs seven suites with the flag forced on — every one of
-them exercising product paths through the real interceptor chain, not through a
-test shortcut:
+`make strict-scope` runs the **whole module** with the flag forced on, and it is
+green. It is part of `make gate`, and CI runs the same thing.
 
-```
-tests/strictscope  tests/slo  tests/user  tests/setup  tests/outage
-tests/replicas     tests/auth
-```
+That was not always true, and the change matters because it moves where the
+remaining risk lives. This target used to name seven suites, because `./...`
+under the flag reported around 175 failing tests across twelve packages: most
+of the suite called services with a bare `t.Context()`, which carries no
+identity, where production always arrives through the auth interceptor and the
+tenant resolver. A red run nobody can act on is a run people learn to ignore.
 
-That covers the HTTP surface, the job worker firing a timer, message
-correlation, setup, and multi-replica behaviour. It is part of `make gate`, and
-`tests/ci` fails if the list shrinks or the gate stops running it.
+Those tests now carry a resolved tenant. That was worth doing for its own sake
+rather than to make a number go green — several of them were reaching rows that
+belong to nobody: a group seeded into no organization, tasks in no project,
+connector instances naming project ids that did not exist. They passed only
+because the scope fails open, so they were asserting against a path no request
+takes.
 
-**What it does not cover** is anything that never goes through the interceptor
-chain or a background worker under test. That residue is what the staging step
-below is for.
+> **Measure it with a DSN.** Without `METIS_TEST_POSTGRES_DSN`, every package
+> that needs a real database skips and still reports `ok`. An earlier pass on
+> this page claimed the suite already passed module-wide on the strength of a
+> run with no DSN set; it did not. See AGENTS.md §4 for the other two ways to
+> be green on nothing.
 
-> Running the *whole* suite under the flag reports around 130 failures. They are
-> not product defects: most tests call services directly with a bare
-> `t.Context()`, which carries no identity, where production always arrives
-> through the auth interceptor and the tenant resolver. A red run nobody can act
-> on is a run people learn to ignore, which is why the target names packages
-> rather than `./...`.
+**What a green suite still does not tell you.** It proves no path *under test*
+loses its identity. It cannot prove that of a path nobody wrote a test for, and
+the failure mode here is silence rather than an error — a background worker
+that forgets its system marker reads no rows and raises nothing. That residue
+is what the staging step below is for, and it is why the flag still ships off:
+the gate is real traffic, not the unit suite.
 
 ## A soak has already been run
 

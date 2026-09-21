@@ -1,6 +1,7 @@
 package webhook_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func TestOnlyASignedDeliveryIsAccepted(t *testing.T) {
 func TestAnUnknownAddressIsRefused(t *testing.T) {
 	h := newWebhookHarness(t)
 
-	_, err := h.service.Receive(t.Context(), entities.WebhookDelivery{
+	_, err := h.service.Receive(h.ctx, entities.WebhookDelivery{
 		Token:     "not-a-real-token",
 		Signature: "anything",
 		Body:      []byte(`{}`),
@@ -169,7 +170,7 @@ func TestTheSecretIsGivenOnceAndNeverRead(t *testing.T) {
 		t.Fatal("the token and the secret are the same value; the one in the URL must not be the one that authenticates")
 	}
 
-	listed, err := h.service.ListWebhooks(t.Context(), h.projectID)
+	listed, err := h.service.ListWebhooks(h.ctx, h.projectID)
 	if err != nil {
 		t.Fatalf("list webhooks: %v", err)
 	}
@@ -214,6 +215,9 @@ type webhookHarness struct {
 	repo      repositories.Repository
 	service   servicecontracts.WebhookService
 	projectID uuid.UUID
+	// The tenant this harness acts inside. Every call below uses it, because
+	// in production every one of them arrives with a tenant resolved.
+	ctx context.Context
 }
 
 func newWebhookHarness(t *testing.T) *webhookHarness {
@@ -240,12 +244,19 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// Everything after the organization exists is reachable only through it,
+	// once the repository scope stops failing open. A webhook delivery does
+	// resolve a tenant in production — from the token on the hook — so this is
+	// the harness catching up with the product rather than a workaround.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
+
 	project, err := serviceimpl.NewProjectService(repo).CreateProject(ctx, org.ID, "Hook Project", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
 	return &webhookHarness{
+		ctx:       ctx,
 		repo:      repo,
 		service:   serviceimpl.NewWebhookService(repo, engine),
 		projectID: project.ID,
@@ -254,7 +265,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 
 func (h *webhookHarness) register(t *testing.T, messageName, correlation string) entities.Webhook {
 	t.Helper()
-	hook, err := h.service.CreateWebhook(t.Context(), entities.Webhook{
+	hook, err := h.service.CreateWebhook(h.ctx, entities.Webhook{
 		Project:               &entities.Project{ID: h.projectID},
 		Name:                  messageName,
 		MessageName:           messageName,
@@ -268,7 +279,7 @@ func (h *webhookHarness) register(t *testing.T, messageName, correlation string)
 
 func (h *webhookHarness) deliver(t *testing.T, hook entities.Webhook, body []byte, signature, deliveryID string) (entities.WebhookOutcome, error) {
 	t.Helper()
-	return h.service.Receive(t.Context(), entities.WebhookDelivery{
+	return h.service.Receive(h.ctx, entities.WebhookDelivery{
 		Token:      hook.Token,
 		Signature:  signature,
 		DeliveryID: deliveryID,
@@ -278,7 +289,7 @@ func (h *webhookHarness) deliver(t *testing.T, hook entities.Webhook, body []byt
 
 func (h *webhookHarness) disable(t *testing.T, id uuid.UUID) {
 	t.Helper()
-	if err := h.repo.Webhook().SetEnabled(t.Context(), id, false); err != nil {
+	if err := h.repo.Webhook().SetEnabled(h.ctx, id, false); err != nil {
 		t.Fatalf("disable webhook: %v", err)
 	}
 }

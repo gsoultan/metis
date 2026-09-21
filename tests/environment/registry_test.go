@@ -27,6 +27,11 @@ func fixture(t *testing.T) (servicecontracts.EnvironmentService, uuid.UUID, cont
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	// From here on this fixture stands in for a request from inside that
+	// organization, which is the only way the rows below are reachable once
+	// the repository scope stops failing open.
+	ctx = entities.WithTenantContext(ctx, entities.TenantContext{TenantID: org.ID.String()})
+
 	project, err := serviceimpl.NewProjectService(repo).CreateProject(ctx, org.ID, "Purchase Approval", "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)

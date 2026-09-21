@@ -86,8 +86,8 @@ func conditionalDefinition(key, condition string) entities.ProcessDefinition {
 // while the condition is false, and moves on when another part of the process
 // makes it true.
 func TestConditionalEventWaitsAndThenProceeds(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Conditional Event Project")
+	ctx := h.Ctx()
 
 	def := conditionalDefinition("claim-funding", "funded >= 1000")
 	def.Project = &entities.Project{ID: h.projID}
@@ -134,8 +134,8 @@ func TestConditionalEventWaitsAndThenProceeds(t *testing.T) {
 // hang the instance for ever — nothing else is going to change a variable that
 // is already right.
 func TestConditionalEventAlreadyTrueDoesNotWait(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Conditional Event Immediate Project")
+	ctx := h.Ctx()
 
 	def := conditionalDefinition("claim-already-funded", "funded >= 1000")
 	def.Project = &entities.Project{ID: h.projID}
@@ -161,8 +161,8 @@ func TestConditionalEventAlreadyTrueDoesNotWait(t *testing.T) {
 // running other people's obligations cannot afford, because there is nothing
 // to investigate and no sign anything is wrong.
 func TestCatchEventWithNothingToWaitForIsRefused(t *testing.T) {
-	ctx := t.Context()
 	h := newEngineHarness(t, "Empty Catch Event Project")
+	ctx := h.Ctx()
 
 	def := entities.ProcessDefinition{
 		Key:     "empty-catch",
