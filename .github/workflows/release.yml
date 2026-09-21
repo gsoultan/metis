@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # `git describe` stamps the version into the binary, and a shallow
           # clone has no tags to describe against — including the one that
