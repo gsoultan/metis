@@ -12,6 +12,7 @@ import {
   Play,
   ShieldCheck,
   Table2,
+  TerminalSquare,
   Users,
   Zap,
   type LucideIcon,
@@ -76,6 +77,15 @@ const sections: NavSection[] = [
       { icon: Network, label: 'nav.processes', to: '/models', hint: 'Design and deploy process models' },
       { icon: Table2, label: 'nav.decisions', to: '/decisions', hint: 'Business rules as decision tables' },
       { icon: Zap, label: 'nav.connectors', to: '/connectors', hint: 'Connect to other systems' },
+      // Under Build rather than a developer section of its own: writing the
+      // worker for a topic is part of building the process, and separating the
+      // two is how a model ships with nothing on the other end of its topics.
+      {
+        icon: TerminalSquare,
+        label: 'nav.sdkSandbox',
+        to: '/sdk',
+        hint: 'Try the API your integration will call',
+      },
     ],
   },
   {

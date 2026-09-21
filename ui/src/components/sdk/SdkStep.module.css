@@ -1,0 +1,92 @@
+/*
+ * The vertical rail that makes five panels read as one journey.
+ *
+ * Without the connecting line these are five cards in a column, and a person
+ * reads them as five independent things to fill in. With it they read as an
+ * order — which matters here, because the steps genuinely depend on each other:
+ * there is no task to lock until an instance has started.
+ *
+ * Borders and space, never shadows: a shadow means "this floats above the
+ * page", and these do not.
+ */
+
+.step {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: var(--mantine-spacing-md);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.line {
+  flex: 1;
+  width: 2px;
+  margin-top: 0.5rem;
+  border-radius: 1px;
+  background: light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
+/* A completed step's line is drawn in the accent colour, so progress is
+   readable from the rail alone without counting the ticks. */
+.lineDone {
+  background: light-dark(var(--mantine-color-blue-3), var(--mantine-color-blue-8));
+}
+
+.body {
+  padding-bottom: var(--mantine-spacing-xl);
+  min-width: 0;
+}
+
+/* A step whose turn has not come is quietened rather than hidden: seeing what
+   is coming is what makes this legible as a journey, and hiding it would make
+   the page appear to grow new sections out of nowhere. */
+.waiting {
+  opacity: 0.55;
+}
+
+.panel {
+  /* Sticky so the code and the wire log stay beside whichever step you are on
+     while the left column scrolls. Offset by the shell's own header height. */
+  position: sticky;
+  top: var(--mantine-spacing-md);
+}
+
+@media (max-width: 62em) {
+  .panel {
+    position: static;
+  }
+}
+
+.code {
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 0.78rem;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+  color: light-dark(var(--mantine-color-gray-8), var(--mantine-color-gray-3));
+}
+
+.wireRow {
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0.5rem 0.25rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.wireRow:hover {
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.wireRow:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: -2px;
+}
