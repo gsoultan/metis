@@ -153,6 +153,14 @@ The image is the supported artifact. It builds the UI, compiles a static binary
 and ships it on a distroless base with no shell — one file plus certificates,
 running as a non-root user against a read-only root filesystem.
 
+Every tagged release also publishes **Linux archives** — `amd64` and `arm64`,
+each a static binary with the UI already embedded — for anyone putting Metis on
+a host under systemd rather than in a scheduler. They are the same build as the
+image, stamped with the same version, and carry a bill of materials, build
+provenance and a `checksums.txt`. There is no macOS or Windows build: Metis
+compiles on both and nothing tests it there, and publishing a binary is a claim
+to support it.
+
 ```bash
 make docker                # stamps the image with `git describe`
 ```

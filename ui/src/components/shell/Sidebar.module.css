@@ -182,3 +182,38 @@
     transition: none;
   }
 }
+
+/* --- build version -------------------------------------------------------- */
+
+/*
+ * Deliberately the quietest thing in the sidebar. It is never needed while
+ * working and always wanted when something is wrong, so it reads as a footnote
+ * until somebody goes looking for it.
+ *
+ * `overflow` and `text-overflow` matter in the collapsed rail: a version string
+ * longer than 60px would otherwise widen the navigation rather than being cut.
+ */
+.buildVersion {
+  display: block;
+  margin-top: 6px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.buildVersion:hover {
+  color: var(--mantine-color-text);
+  text-decoration: underline;
+}
+
+.buildVersion:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+  border-radius: var(--mantine-radius-sm);
+}

@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { BuildVersion } from './BuildVersion';
 import classes from './Sidebar.module.css';
 import { useTranslation } from '../../i18n/context';
 
@@ -190,6 +191,7 @@ export function Sidebar() {
           {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
           {!collapsed && <span>{t('nav.collapse')}</span>}
         </button>
+        <BuildVersion collapsed={collapsed} />
       </div>
     </div>
   );

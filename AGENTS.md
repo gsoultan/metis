@@ -320,8 +320,13 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 
 Backend:
 ```bash
-go run ./cmd/metis --build-ui   # REQUIRED FIRST — ui/embed.go embeds ui/dist;
-                                # without it `go build ./...` fails on a fresh clone
+cd ui && bun install && bun run build && cd ..   # REQUIRED FIRST — ui/embed.go embeds
+                                # ui/dist, which is gitignored, so on a clean checkout
+                                # `//go:embed all:dist` matches nothing and every Go build
+                                # fails before it starts. `go run ./cmd/metis --build-ui`
+                                # cannot bootstrap it — cmd/metis reaches ui through
+                                # server/transports/https/http.go and needs the same embed
+                                # to compile. It is the right command once dist exists.
 go build ./...
 go vet ./...                    # must not regress; module-wide, not a package allowlist
 go test ./...                   # module-wide — ./server/... alone SKIPS the entire tests/ tree
