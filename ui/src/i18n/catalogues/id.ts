@@ -19,6 +19,7 @@ const id: Catalogue = {
   'nav.processes': 'Proses',
   'nav.decisions': 'Keputusan',
   'nav.connectors': 'Konektor',
+  'nav.sdkSandbox': 'Uji Coba SDK',
   'nav.instances': 'Instansi',
   'nav.projects': 'Proyek',
   'nav.organizations': 'Organisasi',

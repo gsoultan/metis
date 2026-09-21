@@ -20,6 +20,7 @@ const en: Catalogue = {
   'nav.processes': 'Processes',
   'nav.decisions': 'Decisions',
   'nav.connectors': 'Connectors',
+  'nav.sdkSandbox': 'SDK Sandbox',
   'nav.instances': 'Instances',
   'nav.projects': 'Projects',
   'nav.organizations': 'Organizations',

@@ -26,6 +26,7 @@ import { Route as AuthenticatedOrganizationsRouteImport } from './routes/_authen
 import { Route as AuthenticatedPeopleRouteImport } from './routes/_authenticated.people'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated.profile'
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated.projects'
+import { Route as AuthenticatedSdkRouteImport } from './routes/_authenticated.sdk'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
@@ -135,6 +136,13 @@ const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_authenticated.projects.lazy').then((d) => d.Route),
 )
+const AuthenticatedSdkRoute = AuthenticatedSdkRouteImport.update({
+  id: '/sdk',
+  path: '/sdk',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.sdk.lazy').then((d) => d.Route),
+)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -172,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/people': typeof AuthenticatedPeopleRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/sdk': typeof AuthenticatedSdkRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/users': typeof AuthenticatedUsersRoute
@@ -192,6 +201,7 @@ export interface FileRoutesByTo {
   '/people': typeof AuthenticatedPeopleRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/sdk': typeof AuthenticatedSdkRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/users': typeof AuthenticatedUsersRoute
@@ -215,6 +225,7 @@ export interface FileRoutesById {
   '/_authenticated/people': typeof AuthenticatedPeopleRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/projects': typeof AuthenticatedProjectsRoute
+  '/_authenticated/sdk': typeof AuthenticatedSdkRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/people'
     | '/profile'
     | '/projects'
+    | '/sdk'
     | '/settings'
     | '/tasks'
     | '/users'
@@ -259,6 +271,7 @@ export interface FileRouteTypes {
     | '/people'
     | '/profile'
     | '/projects'
+    | '/sdk'
     | '/settings'
     | '/tasks'
     | '/users'
@@ -281,6 +294,7 @@ export interface FileRouteTypes {
     | '/_authenticated/people'
     | '/_authenticated/profile'
     | '/_authenticated/projects'
+    | '/_authenticated/sdk'
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
     | '/_authenticated/users'
@@ -414,6 +428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/sdk': {
+      id: '/_authenticated/sdk'
+      path: '/sdk'
+      fullPath: '/sdk'
+      preLoaderRoute: typeof AuthenticatedSdkRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -452,6 +473,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedPeopleRoute: typeof AuthenticatedPeopleRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRoute
+  AuthenticatedSdkRoute: typeof AuthenticatedSdkRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
@@ -472,6 +494,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedPeopleRoute: AuthenticatedPeopleRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedProjectsRoute: AuthenticatedProjectsRoute,
+  AuthenticatedSdkRoute: AuthenticatedSdkRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
