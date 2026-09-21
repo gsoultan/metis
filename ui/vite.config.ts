@@ -22,6 +22,9 @@ export default defineConfig({
       '/api': { target: backend, changeOrigin: true },
       // Server-sent events for live process/task updates.
       '/events': { target: backend, changeOrigin: true, ws: true },
+      // The liveness probe is served outside /api/v1, ahead of authentication,
+      // so it needs its own entry — the sidebar reads the running build from it.
+      '/healthz': { target: backend, changeOrigin: true },
     },
   },
   plugins: [

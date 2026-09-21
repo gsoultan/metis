@@ -1,0 +1,125 @@
+# What a tag publishes, besides the image.
+#
+# The container is the supported way to run Metis and `.github/workflows/release.yml`
+# publishes it. This adds the other thing people ask for: a binary they can drop
+# on a host, run under systemd, or copy into an image of their own. The two are
+# built from the same commit with the same flags, so "which version is running"
+# has one answer whichever artifact you took.
+#
+# **Linux only, deliberately.** Metis is a server. It is developed on macOS and
+# it will compile there, but nothing tests it on macOS or Windows and no
+# deployment target runs it there — publishing a binary implies supporting it.
+# Both Linux architectures ship, because Graviton and Ampere are ordinary
+# Kubernetes nodes now and the cross-compile is free.
+version: 2
+
+project_name: metis
+
+before:
+  hooks:
+    # ui/embed.go carries `//go:embed all:dist`, and ui/dist is gitignored — so
+    # on a clean checkout there is no directory to embed and *any* Go build of
+    # this module fails before it starts. The UI is built here rather than in
+    # the workflow so that a local `goreleaser release --snapshot` produces the
+    # same artifact CI does, rather than silently embedding whatever dist was
+    # last left lying around.
+    - sh -c "cd ui && bun install --frozen-lockfile"
+    - sh -c "cd ui && bun run build"
+
+builds:
+  - id: metis
+    main: ./cmd/metis
+    binary: metis
+    env:
+      # Every driver in use is pure Go, and a static binary is what makes the
+      # archive runnable on a host whose libc is older than the builder's.
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # THE VERSION STAMP. Repeated verbatim in the archive name below, because
+      # a global `env:` entry is resolved before `.Version` and `.IsSnapshot`
+      # exist and silently evaluates to the empty string, and `variables:` is
+      # GoReleaser Pro. Change one, change the other.
+      #
+      # `.Tag` and not `.Version` for a release: GoReleaser's `.Version` strips
+      # the leading `v`, while the image is stamped from GITHUB_REF_NAME, which
+      # keeps it. `.Version` here would have the tarball report `1.4.2` and the
+      # container report `v1.4.2` for the same commit — two answers to the first
+      # question of any incident.
+      #
+      # And not `.Tag` for a snapshot, which is where this first went wrong:
+      # outside a release `.Tag` is the *last* tag, so `goreleaser release
+      # --snapshot` produced a binary stamped `v0.3.0` — a laptop build claiming
+      # to be a shipped release, on the probe whose entire purpose is answering
+      # which version is running. A snapshot stamps itself
+      # `0.3.1-snapshot-<sha>`, deliberately without the `v`, so nothing
+      # downstream can mistake it for a tag.
+      - -s -w -X github.com/gsoultan/metis/internal/app.version={{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}
+    # Reproducible: without this the binary carries the moment the runner
+    # happened to build it, so re-running a release produces different bytes for
+    # the same source and the checksums stop meaning anything.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: metis
+    formats:
+      - tar.gz
+    # The same stamp the binary carries — see the ldflags comment above.
+    name_template: "metis_{{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      # The operational documents, in the tarball rather than a link: the person
+      # unpacking this on a host at two in the morning is the person who needs
+      # the runbook, and they may not have the repository.
+      - src: docs/**/*
+        dst: docs
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# One bill of materials per archive, generated from the built artifact rather
+# than from go.mod, so it lists what is actually in the binary. The image
+# publishes the same thing; a binary released without it would be the weaker
+# half of the same release.
+sboms:
+  - artifacts: archive
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^chore\\(ci\\):"
+      - "^chore\\(deps\\):"
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: false
+  # A pre-release tag stays marked as one, matching the image job's rule that
+  # `latest` only moves for a final release. Somebody running a release
+  # candidate in production should have chosen to.
+  prerelease: auto
+  footer: |
+    ## Running it
+
+    The container is the supported artifact:
+
+    ```
+    docker pull ghcr.io/gsoultan/metis:{{ .Tag }}
+    ```
+
+    The archives above are the same build for anyone deploying a binary
+    directly. Verify one against `checksums.txt` before running it.

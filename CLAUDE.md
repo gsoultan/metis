@@ -22,8 +22,12 @@
   `AGENTS.md` governs *what must be proven*; `.junie/guidelines.md` governs *how to write it*.
 - **Roadmap priority is fixed**: `P0 Security & Reliability` → `P1 Scalability & Performance`
   → `P2 UX Delight`. See [`.junie/roadmap.md`](.junie/roadmap.md).
-- **`go run ./cmd/metis --build-ui` must run before `go build ./...`** on a fresh clone —
-  `ui/embed.go` embeds `ui/dist`, which is gitignored.
+- **`cd ui && bun install && bun run build` must run before `go build ./...`** on a fresh
+  clone — `ui/embed.go` embeds `ui/dist`, which is gitignored, so `//go:embed all:dist`
+  has no directory to match and *every* Go build of this module fails before it starts.
+  `go run ./cmd/metis --build-ui` cannot bootstrap it: `cmd/metis` reaches `ui` through
+  `server/transports/https/http.go`, so it needs the same embed to compile.
+  `make ui-build` does the same thing once the dependencies are installed.
 - **`go test ./server/...` is not the test suite.** It skips the entire `tests/` tree.
   Use `make test` (or `go test ./...`). `make gate` runs the whole verification gate.
 - **Never report done on an unrun command.** Paste the output.

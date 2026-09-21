@@ -1,14 +1,20 @@
-# Publishes the image for a tagged release.
+# What a tag publishes.
+#
+# Two artifacts, built from the same commit and stamped with the same version
+# string: the container image, which is the supported way to run Metis, and
+# Linux archives for anyone deploying a binary directly. They are independent
+# jobs on purpose — a registry outage should not cost the release its tarballs,
+# and vice versa.
 #
 # Deliberately tag-triggered and nothing else. Publishing on every push to main
 # would mean the registry's newest tag is whatever merged last, which is a
 # rollback target nobody chose — and an image is the one artifact people deploy
 # without reading first.
 #
-# What is published alongside the image: a software bill of materials, build
-# provenance, and a signature. Between them they answer the three questions an
-# operator asks about a container they did not build — what is in it, where it
-# came from, and whether it is the one that was published.
+# Both carry a software bill of materials and build provenance, and the image is
+# signed as well. Between them they answer the three questions an operator asks
+# about something they did not build — what is in it, where it came from, and
+# whether it is the one that was published.
 
 name: Release
 
@@ -118,3 +124,69 @@ jobs:
             echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    name: Publish the archives
+    runs-on: ubuntu-latest
+
+    # Job-scoped, because they replace the workflow's defaults rather than
+    # extending them: GoReleaser creates the GitHub Release and uploads to it,
+    # which the workflow-level `contents: read` would refuse.
+    permissions:
+      contents: write
+      # Keyless provenance over the archives, the same guarantee the image gets.
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # GoReleaser needs the tags to work out the version it is releasing,
+          # and the commits since the last tag to write the changelog. A shallow
+          # clone has neither.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          # Read from go.mod rather than pinned here: a second copy of the
+          # version is a second thing to forget when it moves.
+          go-version-file: go.mod
+
+      # `bun run build` ends by running `node scripts/check-bundle-budget.mjs`,
+      # and those budgets are tuned to within a kilobyte. With no node on PATH,
+      # bun answers that call with its own shim, whose zlib compresses about
+      # 0.8% worse — enough to fail the first-paint budget on a bundle whose
+      # bytes are identical, and to fail a release for it. See the same note in
+      # security_reliability_ci.yml.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      # GoReleaser shells out to syft for the per-archive bill of materials.
+      # Without it on PATH the sboms step fails the release outright rather than
+      # quietly publishing archives nobody can inspect.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Build and publish
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest the archives
+        # Same question the image's attestation answers, for the artifact people
+        # download instead: which commit and which workflow produced these bytes.
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
