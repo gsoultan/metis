@@ -16,18 +16,21 @@ import (
 
 // TestACompletionRacingAMigrationLosesCleanly.
 //
-// This is an invariant check, not a reproduction. The window it guards is a few
-// statements wide and this test does not reliably land inside it — it passes
-// against the old ordering too, which is stated here rather than left for
-// somebody to discover when they rely on it. What it does do is assert that
-// however the two interleave, the result is one of the two legitimate orders
-// and never a mixture: a task is never both completed and still waiting, and an
-// instance never ends up holding work on a node absent from the version it
-// names.
+// This is a probabilistic check, not a reproduction: the window is a few
+// statements wide and a given run may not land inside it. It earns its place
+// anyway — it caught a real one. The migration took the instance lock and then
+// wrote the copy of the row it had read *before* the lock, so a completion that
+// committed in between was overwritten wholesale and the instance came back to
+// life with the status and tokens it had before somebody finished it. The
+// symptom is the message below: a task completed, and a task still open on the
+// same node.
 //
-// The ordering fix it accompanies is argued rather than demonstrated: deciding
-// who may complete a task and then taking the lock means the decision is made
-// against a row another transaction is free to rewrite before the write lands.
+// Locking and then writing a pre-lock read is worse than not locking at all, so
+// apply and cancelInstance both work from the row GetForUpdate returns.
+//
+// It asserts only what holds under every interleaving: the result is one of the
+// two legitimate orders and never a mixture. If it fires, read the DIAG lines —
+// a rare failure nobody can reproduce is worth its dump.
 func TestACompletionRacingAMigrationLosesCleanly(t *testing.T) {
 	for attempt := range 8 {
 		f := newFixture(t)
@@ -90,6 +93,7 @@ func TestACompletionRacingAMigrationLosesCleanly(t *testing.T) {
 			// only shape that allows is a completion that landed before the
 			// migration, leaving nothing open.
 			if len(stillOpen) != 0 {
+				dumpRaceState(t, f, instance, completeErr, migrateErr)
 				t.Fatalf("attempt %d: a task was completed and %d task(s) are still open on the same node",
 					attempt, len(stillOpen))
 			}
@@ -99,4 +103,29 @@ func TestACompletionRacingAMigrationLosesCleanly(t *testing.T) {
 				attempt, migrateErr, completeErr)
 		}
 	}
+}
+
+// dumpRaceState prints everything needed to tell which interleaving happened,
+// because a failure here may not reproduce on the machine that reads it.
+func dumpRaceState(t *testing.T, f *fixture, instance entities.ProcessInstance, completeErr, migrateErr error) {
+	t.Helper()
+	definition := "<nil>"
+	if instance.Definition != nil {
+		definition = instance.Definition.ID.String()
+	}
+	t.Logf("DIAG instance status=%v definition=%s tokens=%d", instance.Status, definition, len(instance.Tokens))
+	for _, token := range instance.Tokens {
+		if token.Node != nil {
+			t.Logf("DIAG   token on %s", token.Node.ID)
+		}
+	}
+	all, err := f.svc.ListTasks(f.ctx, f.project)
+	if err != nil {
+		t.Logf("DIAG   (could not list tasks: %v)", err)
+		return
+	}
+	for _, task := range all {
+		t.Logf("DIAG   task on %s status=%v", task.NodeID(), task.Status)
+	}
+	t.Logf("DIAG completeErr=%v migrateErr=%v", completeErr, migrateErr)
 }

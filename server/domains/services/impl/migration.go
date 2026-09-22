@@ -353,14 +353,27 @@ func (s *migrationService) apply(
 		}
 
 		moved := map[string]string{}
+		settled := false
 		err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-			// Hold the instance for the whole rewrite. A task completion that
-			// arrives mid-migration takes the same lock first, so the two
-			// cannot interleave: one of them reads what the other wrote rather
-			// than both acting on the state they found.
-			if _, lockErr := s.repo.Process().GetForUpdate(txCtx, uuid.UUID(instance.ID)); lockErr != nil {
+			// Hold the instance for the whole rewrite, and work from the row the
+			// lock returns rather than the one the listing did.
+			//
+			// Taking the lock and then writing the copy read before it is worse
+			// than not locking at all: a completion that commits in between is
+			// overwritten wholesale, and the instance comes back to life with
+			// the status and the tokens it had before somebody finished it.
+			fresh, lockErr := s.repo.Process().GetForUpdate(txCtx, uuid.UUID(instance.ID))
+			if lockErr != nil {
 				return lockErr
 			}
+			// And re-read the question the listing answered. An instance that
+			// finished while this migration was working through the ones ahead
+			// of it is not ours to move.
+			if fresh.Status != models.ProcessActive {
+				settled = true
+				return nil
+			}
+			instance = fresh
 			instance.DefinitionID = models.UUID(targetDefID)
 			for i := range instance.Tokens {
 				instance.Tokens[i].NodeID = mapNode(nodeMapping, instance.Tokens[i].NodeID)
@@ -421,6 +434,9 @@ func (s *migrationService) apply(
 			return fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
 				"dealt with; run the same migration again to carry on from here)",
 				instance.ID, err, done, len(instances))
+		}
+		if settled {
+			continue
 		}
 		s.recordMigration(ctx, instance, source, target, moved, options, plan, runID)
 		done++
@@ -1176,6 +1192,16 @@ func (s *migrationService) cancelInstance(
 ) error {
 	instanceID := uuid.UUID(instance.ID)
 	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		// The locked row, not the listed one, for the same reason apply uses
+		// it: writing a copy read earlier would undo whatever landed in between.
+		fresh, lockErr := s.repo.Process().GetForUpdate(txCtx, instanceID)
+		if lockErr != nil {
+			return lockErr
+		}
+		if fresh.Status != models.ProcessActive {
+			return nil
+		}
+		instance = fresh
 		tasks, err := s.repo.Task().ListByInstance(txCtx, instanceID)
 		if err != nil {
 			return err
