@@ -616,7 +616,7 @@ const SeparationOfDutiesKey = "separation_of_duties"
 // have been skipped, or on a branch this instance did not take. The rule is
 // "not the same person twice", not "that step must have happened".
 func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models.TaskModel, userID string) error {
-	def, node, err := s.nodeBehind(ctx, task)
+	node, err := s.nodeBehind(ctx, task)
 	if err != nil || node == nil {
 		// A task whose node cannot be read is refused by the caller's own
 		// checks; there is nothing to enforce here.
@@ -626,7 +626,6 @@ func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models
 	if len(conflicts) == 0 {
 		return nil
 	}
-	_ = def
 
 	performed, err := s.repo.Task().ListByInstance(ctx, uuid.UUID(task.InstanceID))
 	if err != nil {
@@ -646,16 +645,17 @@ func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models
 }
 
 // nodeBehind reads the definition node a task was created from.
-func (s *taskService) nodeBehind(ctx context.Context, task models.TaskModel) (*entities.ProcessDefinition, *entities.Node, error) {
+func (s *taskService) nodeBehind(ctx context.Context, task models.TaskModel) (*entities.Node, error) {
 	instance, err := s.repo.Process().Get(ctx, uuid.UUID(task.InstanceID))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	def, err := s.engine.GetProcessDefinition(ctx, uuid.UUID(instance.DefinitionID))
 	if err != nil || def == nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return def, def.FindNode(task.NodeID), nil
+	node := def.FindNode(task.NodeID)
+	return node, nil
 }
 
 // splitNodeList reads a comma-separated node id list from a node property.

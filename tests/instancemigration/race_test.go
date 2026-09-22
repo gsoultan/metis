@@ -29,7 +29,7 @@ import (
 // who may complete a task and then taking the lock means the decision is made
 // against a row another transaction is free to rewrite before the write lands.
 func TestACompletionRacingAMigrationLosesCleanly(t *testing.T) {
-	for attempt := 0; attempt < 8; attempt++ {
+	for attempt := range 8 {
 		f := newFixture(t)
 		v1 := f.deploy(t, "approve")
 		if _, err := f.svc.StartProcess(f.ctx, f.project, "expense-approval", nil); err != nil {
