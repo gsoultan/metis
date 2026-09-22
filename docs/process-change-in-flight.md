@@ -130,23 +130,41 @@ first thing a reviewer needs.
   three-day escalation on whatever else the target attaches one to. The planner checked only
   that target nodes *exist*. Camunda 8 refuses exactly this shape; Metis now does too
   (`boundaryRefusals`).
-- **Message subscriptions.** Follows from the three-row-types rule: migration does not write
-  subscriptions, so one still naming the old node will receive a callback for a node that no
-  longer exists. **Still open** — see §6.
+- **Message subscriptions** were the fourth row keyed by node ID, and `apply` wrote three.
+  A renamed catch event left its subscription naming a node the new version does not have:
+  the message arrives, correlates to nothing, and the sender is never told. It is also the
+  one kind of waiting that does not sit under a token — a message boundary event keeps its
+  subscription on the boundary node while the token stays on the task it guards — so the
+  token checks could not stand in for it. Now surveyed for landing and re-pointed with the
+  work; a cancelled instance closes the ones it held.
 
 ### Class D: concurrency
 
 The operations manager has the form open and clicks Submit at the instant migration runs.
-There is no optimistic locking on tasks or instances. **Still open** — see §6. This is why
-`Claimed` and `Delegated` now count separately in the plan: an unclaimed task is a queue
-item, a claimed one is a person mid-sentence.
+`CompleteTask` took the instance lock *after* deciding who was allowed to complete, so the
+decision was made against a row another transaction was free to rewrite before the write
+landed. It now authorises, takes the lock, then **re-reads and re-checks** — and migration
+takes the same lock for the whole rewrite, so the two serialise instead of both acting on
+what they found.
+
+This one is argued rather than demonstrated: the window is a few statements wide and the
+test in `race_test.go` does not reliably land inside it (it passes against the old ordering
+too, which its comment says). What that test does guard is the invariant — however the two
+interleave, the result is one of the two legitimate orders and never a mixture.
+
+This is also why `Claimed` and `Delegated` count separately in the plan: an unclaimed task
+is a queue item, a claimed one is a person mid-sentence.
 
 ### Class E: control and compliance
 
 - **Segregation of duties collapses quietly.** The operations approval may exist so that no
   single reporting line approves its own deal. Remove it and in some org paths the
   submitter's own manager becomes the only approver. Auditors look for evidence that no
-  single role can complete the transaction loop.
+  single role can complete the transaction loop. A node can now declare
+  `separation_of_duties` — the steps whose performer may not also perform it — and the
+  engine refuses the second one at claim *and* at completion. Removing a step a surviving
+  rule names is a **warning**: the rule survives the edit and stops meaning anything,
+  because it is satisfied by everybody once nobody has performed the step it names.
 - **Delegation-of-authority thresholds.** DoA matrices are value-banded. Remove the step that
   caught everything under $50k and those quotations now need an approval the matrix does not
   authorise — or skip approval entirely.
@@ -332,20 +350,37 @@ Unattended, with no error raised anywhere.
 
 ---
 
-## 6. Still open
+## 6. Resuming a partial run
 
-| Gap | Why it is not done here |
+A migration writes instance by instance, each in its own transaction, so a failure part-way
+leaves some moved and some not. There is deliberately **no run table** to resume from,
+because the source version already is one: an instance that moved is no longer on it.
+Re-running the same migration therefore picks up exactly what is left.
+
+Three things make that true rather than merely plausible:
+
+- **Anything not still running is skipped.** A migrated instance has left the source
+  version; a cancelled one must not be cancelled twice; and a *finished* one must never be
+  repointed at a graph it did not execute — that record is the only account of what it
+  actually did.
+- **`hold` is idempotent.** A held instance stays on the source version by design, so every
+  later run finds it again. It does not collect an incident per run.
+- **Every entry of one run shares a `run_id`**, so the trail reads back as "what did that
+  migration do" rather than as unrelated events sharing a timestamp.
+
+A failure reports how many instances had already been dealt with, and says to run the same
+migration again to carry on.
+
+## 7. Still open
+
+| Gap | Why |
 | :-- | :-- |
-| **Optimistic locking** on tasks and instances | Needs a schema migration and conflict handling in every writer, on the hot path of every task completion. Large enough to deserve its own change with its own proof. |
-| **Message subscriptions** are not rewritten by migration | Follows from the three-row-types rule. Camunda closes subscriptions for unmapped catch events; the equivalent here needs a decision about what "unmapped" should mean for a correlation key. |
-| **A `Hold` action** — park an instance in an incident for a human to resolve one at a time | `skip` and `cancel` cover B2 and B3; `hold` is the "I want to look at this one myself" case, and it needs the incident inbox to grow a category first. |
-| **Instance selection** on a plan | One mapping still applies to every instance on the source version, so populations A, B and C get one policy. |
-| **Migration as a durable, resumable entity** | `apply` still loops instances in per-instance transactions and returns on first error, so a partial run is neither visible nor resumable. |
-| **SoD / DoA as first-class constraints** | `compliance_relevant` marks *that* a step carries an obligation, not *what* it is. Modelling "not the same person as X" or "over $50k" belongs with the RBAC work in the roadmap. |
+| **Delegation-of-authority thresholds** — "over $50k needs the CFO" | `separation_of_duties` answers *not the same person*; a value-banded authority matrix is a different shape and belongs with the assignment decision tables, which already decide *who* from process data. |
+| **A reproducing test for the completion/migration race** | See Class D. The fix is an ordering argument; landing a test inside the window needs a seam in production code that does not exist and should not be added lightly. |
 
 ---
 
-## 7. For the quotation process specifically
+## 8. For the quotation process specifically
 
 The operations-approval node almost certainly writes variables the sales manager's step
 reads, and `opsApprove → salesApprove` is a rename. Before this work, that one

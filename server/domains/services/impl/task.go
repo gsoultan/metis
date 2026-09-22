@@ -3,6 +3,8 @@ package impl
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -98,6 +100,12 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 		}
 
 		if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
+			return err
+		}
+		// Refused at the point somebody picks the work up, not only when they
+		// try to finish it: letting them claim a task they can never complete
+		// is a queue item that looks taken and is not.
+		if err := s.enforceSeparationOfDuties(txCtx, m, userID); err != nil {
 			return err
 		}
 
@@ -251,12 +259,9 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		if err != nil {
 			return fmt.Errorf("failed to get task %s: %w", id, err)
 		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 
-		if task.Status == entities.TaskCompleted {
-			return fmt.Errorf("task %s is already completed", id)
-		}
-
+		// May this caller act on this task, as it stands right now?
+		//
 		// An assigned task may only be completed by its assignee. An unassigned
 		// task falls back to the same candidate check as claiming.
 		//
@@ -265,22 +270,69 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// leaves Assignee nil for every task routed by candidate user or group.
 		// Any authenticated user could therefore complete any unclaimed task in
 		// any project and inject arbitrary variables into the instance.
-		if task.Assignee != nil {
-			if task.Assignee.Username != userID {
-				return fmt.Errorf("%w: task %s is assigned to %s, not %s", ErrTaskForbidden, id, task.Assignee.Username, userID)
+		authorize := func(task entities.Task) error {
+			if task.Status == entities.TaskCompleted {
+				return fmt.Errorf("task %s is already completed", id)
 			}
-		} else if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
+			if task.Status == entities.TaskCanceled {
+				return fmt.Errorf("%w: task %s was cancelled and cannot be completed", ErrTaskForbidden, id)
+			}
+			if task.Assignee != nil {
+				if task.Assignee.Username != userID {
+					return fmt.Errorf("%w: task %s is assigned to %s, not %s", ErrTaskForbidden, id, task.Assignee.Username, userID)
+				}
+				return nil
+			}
+			return s.authorizeCandidate(txCtx, task, userID)
+		}
+
+		// Decided before the instance is touched, so a caller with no business
+		// here is told that and nothing else — "forbidden" and "no such
+		// instance" are different answers and only one of them is theirs.
+		if err := authorize(adapters.TaskEntityAdapter{Model: m}.ToEntity()); err != nil {
+			return err
+		}
+		if err := s.enforceSeparationOfDuties(txCtx, m, userID); err != nil {
 			return err
 		}
 
-		if err := s.repo.Task().UpdateStatus(txCtx, id, models.TaskStatus(entities.TaskCompleted)); err != nil {
-			return fmt.Errorf("failed to update task status: %w", err)
-		}
-
-		instance, err := s.engine.GetInstanceForUpdate(txCtx, task.Instance.ID)
+		// Then hold the instance and ask again.
+		//
+		// The lock used to be taken further down, after the check and after the
+		// status write. That left a window: a migration running at the same
+		// moment re-points this task onto a different node and re-derives who
+		// may do it, so a completion that had already read the old row would
+		// authorise against an assignee the task no longer has and complete a
+		// step the instance is no longer on. Taking the lock makes the two
+		// serialise; re-reading and re-checking is what makes the second one
+		// see what the first did.
+		locked, err := s.engine.GetInstanceForUpdate(txCtx, uuid.UUID(m.InstanceID))
 		if err != nil {
 			return err
 		}
+		if m, err = s.repo.Task().Get(txCtx, id); err != nil {
+			return fmt.Errorf("failed to re-read task %s: %w", id, err)
+		}
+		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+		if err := authorize(task); err != nil {
+			return err
+		}
+
+		// Who did it, recorded on the task itself.
+		//
+		// A task routed by candidate group is completed with a nil assignee, so
+		// the row said a step had been performed and not by whom. That is the
+		// answer a segregation-of-duties rule needs — and the one an auditor
+		// asks for first.
+		m.Status = models.TaskStatus(entities.TaskCompleted)
+		if m.Assignee == "" {
+			m.Assignee = userID
+		}
+		if err := s.repo.Task().Update(txCtx, m); err != nil {
+			return fmt.Errorf("failed to update task status: %w", err)
+		}
+
+		instance := locked
 
 		if _, err := s.repo.Definition().Get(txCtx, instance.Definition.ID); err != nil {
 			return err
@@ -542,4 +594,81 @@ func (s *taskService) ListTasksPaged(ctx context.Context, projectID uuid.UUID, p
 		tasks[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
 	}
 	return repocontracts.NewPage(tasks, result.Total, page), nil
+}
+
+// SeparationOfDutiesKey is the node property naming the steps whose performer
+// must not also perform this one.
+//
+// A list of node ids, comma-separated. "The person who requested it cannot be
+// the person who approves it" is the oldest control there is, and a process
+// graph cannot express it: the graph says a supervisor approves, not that the
+// supervisor is somebody else.
+const SeparationOfDutiesKey = "separation_of_duties"
+
+// enforceSeparationOfDuties refuses work whose conflicting step this person has
+// already performed on this instance.
+//
+// Scoped to the instance on purpose. The control is about one transaction — the
+// same person requesting and approving *this* quotation — not about a person
+// being permanently barred from a kind of step, which is what roles are for.
+//
+// A node it names that the instance never performed is not a violation: it may
+// have been skipped, or on a branch this instance did not take. The rule is
+// "not the same person twice", not "that step must have happened".
+func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models.TaskModel, userID string) error {
+	def, node, err := s.nodeBehind(ctx, task)
+	if err != nil || node == nil {
+		// A task whose node cannot be read is refused by the caller's own
+		// checks; there is nothing to enforce here.
+		return nil //nolint:nilerr // absence of a node is not a conflict
+	}
+	conflicts := splitNodeList(node.GetStringProperty(SeparationOfDutiesKey))
+	if len(conflicts) == 0 {
+		return nil
+	}
+	_ = def
+
+	performed, err := s.repo.Task().ListByInstance(ctx, uuid.UUID(task.InstanceID))
+	if err != nil {
+		return err
+	}
+	for _, other := range performed {
+		if other.Status != models.TaskCompleted || !slices.Contains(conflicts, other.NodeID) {
+			continue
+		}
+		if other.Assignee != userID {
+			continue
+		}
+		return fmt.Errorf("%w: %s already did %q on this instance, and %q may not be done by the same person",
+			ErrTaskForbidden, userID, other.NodeID, task.NodeID)
+	}
+	return nil
+}
+
+// nodeBehind reads the definition node a task was created from.
+func (s *taskService) nodeBehind(ctx context.Context, task models.TaskModel) (*entities.ProcessDefinition, *entities.Node, error) {
+	instance, err := s.repo.Process().Get(ctx, uuid.UUID(task.InstanceID))
+	if err != nil {
+		return nil, nil, err
+	}
+	def, err := s.engine.GetProcessDefinition(ctx, uuid.UUID(instance.DefinitionID))
+	if err != nil || def == nil {
+		return nil, nil, err
+	}
+	return def, def.FindNode(task.NodeID), nil
+}
+
+// splitNodeList reads a comma-separated node id list from a node property.
+func splitNodeList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

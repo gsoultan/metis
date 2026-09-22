@@ -705,6 +705,36 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-22 (completed): The rest of the in-flight migration gaps — subscriptions,
+  concurrency, resumability and segregation of duties. Closes §6 of
+  [`../docs/process-change-in-flight.md`](../docs/process-change-in-flight.md).
+  - **A completion could be authorised against a stale task.** `CompleteTask` took the
+    instance lock *after* deciding who was allowed to complete, so the decision was made
+    against a row another transaction was free to rewrite before the write landed. It now
+    authorises (so an unauthorised caller is still told "forbidden" and not "no such
+    instance"), takes the lock, then re-reads and re-checks; migration takes the same lock
+    for the whole rewrite. Argued rather than demonstrated — the window is a few statements
+    wide and `race_test.go` does not reliably land inside it, which its comment says.
+  - **Completing a task recorded that a step had happened and not by whom.** A task routed
+    by candidate group completed with a nil assignee. The completer is now recorded, which
+    is what a segregation-of-duties rule needs and what an auditor asks for first.
+  - **Segregation of duties** is declarable: a node names the steps whose performer may not
+    also perform it, refused at claim *and* at completion, scoped to the instance because
+    the control is about one transaction rather than a permanent bar. Removing a step a
+    surviving rule names is a warning — the rule survives the edit and is then satisfied by
+    everybody, because nobody performed the step it names.
+  - **Resumability without a run table.** The source version already is one: an instance
+    that moved is no longer on it, so re-running the same migration picks up what is left.
+    Made true rather than plausible by skipping anything not still running — which also
+    fixes a finished instance being repointed at a graph it never executed — by making
+    `hold` idempotent, and by tagging every entry of one run with a shared `run_id`.
+  - Deliberately not built: a `migration_runs` table. Two tables, a storm model, a GORM
+    model, codegen and a schema migration to record something the existing rows already
+    say.
+  - Gate: `make gate` green. 6 new Go tests here (plus 5 in the batch below), each verified
+    to fail with its fix reverted except the race invariant and the SoD opt-out, both of
+    which say so.
+
 - 2026-09-22 (completed): Node actions — a migration can now decide work instead of only
   moving it. Builds on the in-flight migration work below.
   - A node mapping can only answer *where does this work go*. Removing an approval asks

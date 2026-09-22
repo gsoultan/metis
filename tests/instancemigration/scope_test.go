@@ -1,6 +1,7 @@
 package instancemigration
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -226,5 +227,77 @@ func TestNamingAnInstanceThatIsNotThereIsRefused(t *testing.T) {
 		servicecontracts.WithInstances(uuid.New()))
 	if err == nil {
 		t.Fatal("naming an instance that is not running on the source version was accepted")
+	}
+}
+
+// TestAMigrationSaysWhenItDisarmsAFourEyesRule.
+//
+// The rule survives the edit and stops meaning anything: "approve may not be
+// done by whoever did opsApprove" is satisfied by everybody once opsApprove is
+// gone, because nobody did it. A control that weakens itself quietly is the
+// shape auditors find and nobody else does.
+func TestAMigrationSaysWhenItDisarmsAFourEyesRule(t *testing.T) {
+	f := newFixture(t)
+
+	guarded := func(withOps bool) *entities.ProcessDefinition {
+		nodes := []*entities.Node{
+			{ID: "start", Type: entities.StartEvent, Outgoing: []string{"d1"}},
+		}
+		flows := []*entities.SequenceFlow{}
+		if withOps {
+			nodes = append(nodes, &entities.Node{
+				ID: "opsApprove", Name: "Operations approve", Type: entities.UserTask, Assignee: "ollie",
+				Incoming: []string{"d1"}, Outgoing: []string{"d2"},
+			})
+			flows = append(flows,
+				&entities.SequenceFlow{ID: "d1", SourceRef: "start", TargetRef: "opsApprove"},
+				&entities.SequenceFlow{ID: "d2", SourceRef: "opsApprove", TargetRef: "salesApprove"})
+		} else {
+			flows = append(flows, &entities.SequenceFlow{ID: "d1", SourceRef: "start", TargetRef: "salesApprove"})
+		}
+		incoming := []string{"d2"}
+		if !withOps {
+			incoming = []string{"d1"}
+		}
+		nodes = append(nodes,
+			&entities.Node{
+				ID: "salesApprove", Name: "Sales approve", Type: entities.UserTask, Assignee: "sasha",
+				// The rule names the step that v2 removes.
+				Properties: map[string]any{"separation_of_duties": "opsApprove"},
+				Incoming:   incoming, Outgoing: []string{"d3"},
+			},
+			&entities.Node{ID: "end", Type: entities.EndEvent, Incoming: []string{"d3"}})
+		flows = append(flows, &entities.SequenceFlow{ID: "d3", SourceRef: "salesApprove", TargetRef: "end"})
+		return &entities.ProcessDefinition{
+			Project: &entities.Project{ID: f.project},
+			Key:     "disarmed", Name: "Disarmed",
+			Nodes: nodes, Flows: flows,
+		}
+	}
+
+	v1, err := f.svc.CreateDefinition(f.ctx, guarded(true))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	if _, err := f.svc.StartProcess(f.ctx, f.project, "disarmed", nil); err != nil {
+		t.Fatalf("start an instance: %v", err)
+	}
+	v2, err := f.svc.CreateDefinition(f.ctx, guarded(false))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, map[string]string{"opsApprove": "salesApprove"})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var warned bool
+	for _, warning := range plan.Warnings {
+		if strings.Contains(warning, "opsApprove") && strings.Contains(warning, "refuse anybody") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("the plan does not say the four-eyes rule on salesApprove is now unenforceable: %v", plan.Warnings)
 	}
 }
