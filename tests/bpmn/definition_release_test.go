@@ -2,7 +2,9 @@ package bpmn_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -13,9 +15,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"time"
-
-	"errors"
 )
 
 // releaseFixture is the smallest wiring that can deploy, start and complete —
