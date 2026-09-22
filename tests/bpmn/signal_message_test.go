@@ -52,7 +52,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 

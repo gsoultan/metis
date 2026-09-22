@@ -31,7 +31,7 @@ func TestBPMNFlow(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
@@ -150,7 +150,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
@@ -265,7 +265,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
@@ -381,7 +381,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
@@ -464,7 +464,7 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
@@ -576,7 +576,7 @@ func TestExecutionEnhancements(t *testing.T) {
 	jobSvc := service_impl2.NewJobService(repo, engine, connectorSvc, service_impl2.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl2.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl2.NewDecisionService(repo, service_impl2.NewDecisionTableEvaluator(service_impl2.NewFEELEvaluator()))
-	migrationSvc := service_impl2.NewMigrationService(repo)
+	migrationSvc := service_impl2.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 

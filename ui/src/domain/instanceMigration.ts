@@ -1,4 +1,4 @@
-import type { ApiMigrationPlan, ApiNodeMove } from '../services/types';
+import type { ApiMigrationPlan, ApiNodeAction, ApiNodeMove, NodeActionKind } from '../services/types';
 
 /**
  * Reading a migration plan.
@@ -119,4 +119,45 @@ export function toNodeMapping(rows: readonly { from: string; to: string }[]): Re
     mapping[from] = to;
   }
   return mapping;
+}
+
+/** One row of the "decide this instead of moving it" editor. */
+export interface ActionRow {
+  from: string;
+  kind: NodeActionKind | '';
+  reason: string;
+}
+
+/**
+ * Turns the action rows a person edits into what the API takes.
+ *
+ * A row with no reason is dropped rather than sent, for the same reason the
+ * server refuses one: a skipped approval with no reason recorded is
+ * indistinguishable on the trail from an approval somebody gave. Dropping it
+ * here means the preview shows the refusal about the row they have not finished
+ * rather than one about a node they never chose.
+ */
+export function toNodeActions(rows: readonly ActionRow[]): Record<string, ApiNodeAction> {
+  const actions: Record<string, ApiNodeAction> = {};
+  for (const row of rows) {
+    const from = row.from.trim();
+    const reason = row.reason.trim();
+    if (from === '' || row.kind === '' || reason === '') continue;
+    actions[from] = { kind: row.kind, reason };
+  }
+  return actions;
+}
+
+/**
+ * One sentence about what a decision does, for the row that sets it.
+ *
+ * Written as the consequence rather than the verb: "skip" and "cancel" are
+ * short enough to pick without reading, and what separates them is what happens
+ * to the quotation, not what happens to the token.
+ */
+export function actionConsequence(kind: NodeActionKind, nodeID: string): string {
+  if (kind === 'cancel') {
+    return `Instances waiting at "${nodeID}" end here. They are not moved to the new version, and their record keeps the version they ran.`;
+  }
+  return `Instances waiting at "${nodeID}" advance to the next step as though it had been done. Whoever holds the task loses it.`;
 }

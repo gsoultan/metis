@@ -4,6 +4,7 @@ import { definitionClient, statsClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
 import type {
   ApiDefinition,
+  ApiNodeAction,
   CreateDefinitionPayload,
   CreateFlowPayload,
   CreateNodePayload,
@@ -288,6 +289,8 @@ export const definitionService = {
      * comes to press a button that then fails.
      */
     acknowledge: string[] = [],
+    /** Nodes whose work is decided rather than moved, keyed by source node id. */
+    nodeActions: Record<string, ApiNodeAction> = {},
     signal?: AbortSignal,
   ) {
     const response = await requestJSON<MigrateInstancesResponse>(`/definitions/versions/migrate`, {
@@ -296,6 +299,7 @@ export const definitionService = {
         source_definition_id: sourceDefinitionId,
         target_definition_id: targetDefinitionId,
         node_mapping: nodeMapping,
+        node_actions: nodeActions,
         acknowledge: acknowledge,
         dry_run: dryRun,
       },
