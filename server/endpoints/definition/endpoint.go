@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/endpoints/principal"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
@@ -318,14 +320,23 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return MigrateInstancesResponse{Err: apierr.Invalidf("target_definition_id %q is not a valid identifier: %v", req.TargetDefinitionID, err)}, nil
 		}
 
-		plan, err := s.PlanInstanceMigration(ctx, source, target, req.NodeMapping)
+		// The actor is read even for a dry run, so a preview shows the same
+		// refusals the apply would make rather than a friendlier set.
+		opts := []servicecontracts.MigrationOption{
+			servicecontracts.WithAcknowledgedHolds(req.Acknowledge...),
+		}
+		if actor, actorErr := principal.Username(ctx); actorErr == nil {
+			opts = append(opts, servicecontracts.WithActor(actor))
+		}
+
+		plan, err := s.PlanInstanceMigration(ctx, source, target, req.NodeMapping, opts...)
 		if err != nil {
 			return MigrateInstancesResponse{Err: err}, nil
 		}
 		if req.DryRun {
 			return MigrateInstancesResponse{Plan: plan}, nil
 		}
-		if err := s.MigrateInstances(ctx, source, target, req.NodeMapping); err != nil {
+		if err := s.MigrateInstances(ctx, source, target, req.NodeMapping, opts...); err != nil {
 			// The plan comes back with the refusal so the caller sees both what
 			// they asked for and why it was declined, in one reply.
 			return MigrateInstancesResponse{Plan: plan, Err: err}, nil

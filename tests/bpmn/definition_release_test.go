@@ -13,6 +13,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
+	"time"
 
 	"errors"
 )
@@ -460,5 +461,77 @@ func TestDeletingAnUnusedVersionIsAllowed(t *testing.T) {
 	// And the live version still starts.
 	if got := startedVersion(t, ctx, svc, projectID); got != 1 {
 		t.Fatalf("v1 should still be live and startable, got v%d", got)
+	}
+}
+
+// TestDeletingAVersionAScheduledCutoverNeedsIsRefused.
+//
+// Root cause: "safe to delete" was decided from instance counts alone, and a
+// version scheduled for next week has run nothing yet — so it deleted cleanly
+// while the release timeline still named it. At the scheduled moment the reader
+// finds no such version and falls back to the highest one, so whichever draft
+// happened to be deployed in the meantime goes live instead: a silent version
+// swap, unattended, at an hour nobody is watching.
+func TestDeletingAVersionAScheduledCutoverNeedsIsRefused(t *testing.T) {
+	svc, projectID, ctx := releaseFixture(t)
+
+	v1 := approvalModel(projectID, "v1", "hold")
+	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	v2 := approvalModel(projectID, "v2", "hold")
+	v2ID, err := svc.CreateDefinition(ctx, &v2)
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+
+	// The cutover is arranged for next week. Nothing has run on v2, so every
+	// other check in DeleteDefinition passes it.
+	activateAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	if err := svc.ScheduleDefinitionVersion(ctx, projectID, "expense-approval", 2, activateAt); err != nil {
+		t.Fatalf("schedule the cutover: %v", err)
+	}
+
+	err = svc.DeleteDefinition(ctx, v2ID)
+	if err == nil {
+		t.Fatal("a version a scheduled cutover is waiting on was deleted; the timeline now names a version that is not there")
+	}
+	if !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Fatalf("expected an invalid-argument refusal, got %v", err)
+	}
+
+	// And the version is still there to go live when its time comes.
+	versions, err := svc.ListDefinitionVersions(ctx, projectID, "expense-approval")
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	var found bool
+	for _, version := range versions {
+		if version.Version == 2 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("version 2 is gone after a refused delete")
+	}
+}
+
+// TestDeletingAnUnscheduledVersionIsStillAllowed keeps the refusal narrow: a
+// version nothing has run and no cutover is waiting on is still deletable.
+func TestDeletingAnUnscheduledVersionIsStillAllowed(t *testing.T) {
+	svc, projectID, ctx := releaseFixture(t)
+
+	v1 := approvalModel(projectID, "v1", "hold")
+	if _, err := svc.CreateDefinition(ctx, &v1); err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	v2 := approvalModel(projectID, "v2", "hold")
+	v2ID, err := svc.CreateDefinition(ctx, &v2)
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+
+	if err := svc.DeleteDefinition(ctx, v2ID); err != nil {
+		t.Fatalf("deleting an unused, unscheduled version was refused: %v", err)
 	}
 }

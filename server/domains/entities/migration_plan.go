@@ -28,10 +28,50 @@ type MigrationPlan struct {
 	// one the apply would reject; they are returned rather than raised so the
 	// caller sees all of them at once instead of one per attempt.
 	Refusals []string `json:"refusals,omitzero"`
+
+	// Warnings are what somebody should look at before applying, as distinct
+	// from what would corrupt an instance. They do not block.
+	//
+	// Separate from Refusals because collapsing the two teaches people to
+	// dismiss the list: a warning that reads like a refusal gets clicked past,
+	// and then a real refusal does too.
+	Warnings []string `json:"warnings,omitzero"`
+
+	// ComplianceHolds are the control-bearing steps this migration would take
+	// away from instances that have not performed them yet.
+	//
+	// A hold is a refusal the caller may accept by name. It is not a warning:
+	// the difference between "this approval was skipped" and "this approval was
+	// skipped, by Dita, on the 22nd, because the approver had left" is the whole
+	// of what an auditor asks for, and only a deliberate acknowledgement can
+	// produce the second.
+	ComplianceHolds []ComplianceHold `json:"compliance_holds,omitzero"`
+
+	// RemovedNodes are the nodes the target version no longer has, whether or
+	// not anything is currently sitting on one.
+	//
+	// Listed because a removed user task is not only a removed step: it is the
+	// removed producer of every variable its form used to write, and the
+	// gateways downstream still read them. That consequence is invisible in a
+	// node mapping, which is why people discover it as an incident storm.
+	RemovedNodes []string `json:"removed_nodes,omitzero"`
 }
 
 // Applicable reports whether applying this plan would be accepted.
 func (p MigrationPlan) Applicable() bool { return len(p.Refusals) == 0 }
+
+// ComplianceHold is one control-bearing step a migration would drop.
+type ComplianceHold struct {
+	NodeID string `json:"node_id"`
+	Name   string `json:"name,omitzero"`
+	// Note is whatever the modeller wrote about why the step is there. It is
+	// carried into the refusal and the audit entry, because "you are about to
+	// skip node opsApprove" and "you are about to skip the second signature
+	// SOX requires over $50k" are not the same sentence.
+	Note string `json:"note,omitzero"`
+	// Instances is how many running instances have not passed it yet.
+	Instances int `json:"instances"`
+}
 
 // NodeMove is one node's worth of a plan.
 type NodeMove struct {
@@ -43,6 +83,13 @@ type NodeMove struct {
 	Tokens int `json:"tokens"`
 	Tasks  int `json:"tasks"`
 	Jobs   int `json:"jobs"`
+	// TasksClaimed and TasksDelegated are the subset of Tasks that somebody has
+	// in their hands right now, counted apart because they cost differently.
+	// An unclaimed task is a queue item nobody has started; a claimed one is a
+	// person with the form open who is about to lose their place, because a
+	// task that changes node has its assignment re-derived from the new node.
+	TasksClaimed   int `json:"tasks_claimed,omitzero"`
+	TasksDelegated int `json:"tasks_delegated,omitzero"`
 	// Mapped is false when From is carried across unchanged because the target
 	// has a node of the same id. That is the common case and needs no mapping
 	// entry; showing it is how somebody confirms they did not need one.

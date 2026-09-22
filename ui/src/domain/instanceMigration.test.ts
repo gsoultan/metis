@@ -2,9 +2,12 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   carriedNodes,
+  hasAdvisories,
+  heldTasksAffected,
   isApplicable,
   movedNodes,
   planSummary,
+  removedNodesSummary,
   tasksAffected,
   toNodeMapping,
   workOn,
@@ -83,5 +86,39 @@ describe('instanceMigration', () => {
     // Sending it would be asking the server to do nothing, in a request whose
     // whole purpose is to say what changes.
     expect(toNodeMapping([{ from: 'notify', to: 'notify' }])).toEqual({});
+  });
+
+  it('counts held tasks apart from tasks, because those are interruptions', () => {
+    expect(
+      heldTasksAffected(
+        plan({
+          moves: [
+            { from: 'approve', to: 'review', tokens: 3, tasks: 3, tasks_claimed: 2, tasks_delegated: 1, mapped: true },
+            // Carried across, so nobody is interrupted.
+            { from: 'notify', to: 'notify', tokens: 0, tasks: 4, tasks_claimed: 4, jobs: 0, mapped: false },
+          ],
+        }),
+      ),
+    ).toBe(3);
+  });
+
+  it('treats an applicable plan with warnings as still worth reading', () => {
+    // The case that motivated this: it applies cleanly and then produces
+    // incidents, so "no refusals" must not read as "nothing to see".
+    const warned = plan({ warnings: ['gateway "route" has a default flow'] });
+    expect(isApplicable(warned)).toBe(true);
+    expect(hasAdvisories(warned)).toBe(true);
+    expect(hasAdvisories(plan())).toBe(false);
+    expect(hasAdvisories(null)).toBe(false);
+  });
+
+  it('says what a removed step stops setting, not just that it is gone', () => {
+    expect(removedNodesSummary(plan({ removed_nodes: ['opsApprove'] }))).toBe(
+      'Version 2 no longer has "opsApprove". Anything that step used to set is no longer set.',
+    );
+    expect(removedNodesSummary(plan({ removed_nodes: ['a', 'b'] }))).toBe(
+      'Version 2 no longer has "a", "b". Anything those steps used to set is no longer set.',
+    );
+    expect(removedNodesSummary(plan())).toBeNull();
   });
 });

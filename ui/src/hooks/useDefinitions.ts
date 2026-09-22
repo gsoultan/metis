@@ -174,10 +174,18 @@ export const usePromoteDefinitionVersion = () => {
  * cache invalidation conditional on an argument, which is how a preview comes to
  * blank somebody's task list.
  */
+interface MigrationArgs {
+  source: string;
+  target: string;
+  mapping: Record<string, string>;
+  /** Control-bearing steps the operator has accepted losing, by node id. */
+  acknowledge?: string[];
+}
+
 export const usePlanInstanceMigration = () => {
   return useMutation({
-    mutationFn: ({ source, target, mapping }: { source: string; target: string; mapping: Record<string, string> }) =>
-      processService.migrateInstances(source, target, mapping, true),
+    mutationFn: ({ source, target, mapping, acknowledge }: MigrationArgs) =>
+      processService.migrateInstances(source, target, mapping, true, acknowledge ?? []),
   });
 };
 
@@ -185,8 +193,8 @@ export const useMigrateInstances = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: ({ source, target, mapping }: { source: string; target: string; mapping: Record<string, string> }) =>
-      processService.migrateInstances(source, target, mapping, false),
+    mutationFn: ({ source, target, mapping, acknowledge }: MigrationArgs) =>
+      processService.migrateInstances(source, target, mapping, false, acknowledge ?? []),
     onSuccess: () => {
       // Instances, the inbox and the version history all change: a task that was
       // on one node is now on another, and the instance names a different

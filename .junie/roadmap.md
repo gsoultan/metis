@@ -705,6 +705,45 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-22 (completed): Changing a process that is already running — in-flight migration
+  made safe. Analysis and the remaining gaps: [`../docs/process-change-in-flight.md`](../docs/process-change-in-flight.md).
+  - **Node-keyed instance state was stranded by every rename.** `apply` wrote tokens, tasks
+    and jobs; `CompletedNodes`, `CompensatedNodes`, `MultiInstance` and `Joins` are keyed by
+    node id too and were left pointing at the old graph. A renamed join gateway therefore
+    waited forever for a branch that had already arrived — no error, no incident, the
+    instance simply never finished. A renamed multi-instance node re-asked everyone who had
+    already answered. A stranded `CompletedNodes` lets an activity run twice.
+  - **A migrated task kept the authority of the step it came from.** A task mapped from
+    `opsApprove` to `salesApprove` kept the operations manager as assignee and candidate
+    group. The person whose approval step was deleted could complete the approval step that
+    replaced it, and the sales manager never saw it. Tasks that change node are now rebuilt
+    from the node they land on, and the claim is dropped.
+  - **Migrations left no trace at all.** `instance_migrated` now records source and target
+    version, what was re-pointed, who authorised it and which controls were waived. The
+    OCEL export inherited the gap; a migrated trace is not a deviation, but only this event
+    can say so.
+  - **A version a scheduled cutover needed could be deleted.** It has run nothing, so every
+    check passed it — and at the scheduled moment the timeline named a version that was not
+    there, so the highest one went live instead. Unattended, silently.
+  - New refusals: bookkeeping with nowhere to land, two counters merging onto one node, a
+    boundary event moved off the activity it guards. New warnings, kept apart from refusals:
+    a downstream gateway with a default flow (which routes silently rather than raising an
+    incident when a removed step's variables are missing), and tasks held by somebody right
+    now. Plans also list the nodes the new version removed.
+  - **Compliance holds**: a node marked `compliance_relevant` produces a refusal the operator
+    accepts by name, recorded with the authoriser on every instance's timeline. Only
+    instances that have not passed the step count, and the obligation must land on a node
+    that carries one too — mapping a control step onto an unmarked one lands the token and
+    still removes the control. Entirely additive.
+  - Sub-process children are now indexed, so a token parked inside one no longer looks
+    unlandable.
+  - Gate: `make gate` green — `go build`, `go vet`, `go test ./...`, `go test -race ./...`,
+    strict-scope, `tsc -b`, `eslint`, `bun test` (731 UI tests). 14 tests in
+    `tests/instancemigration/state_test.go`, plus two in `tests/bpmn/definition_release_test.go`
+    for the scheduled-cutover delete. Each was verified to fail with its fix reverted.
+  - Still open, with reasons, in §6 of the doc: optimistic locking, message subscriptions,
+    per-node Skip/Cancel actions, instance selection, resumable migration runs.
+
 - 2026-08-16 (completed): Executed `P0-OPS-02` versioned schema migrations, replacing
   AutoMigrate-on-every-boot.
   - `server/repositories/migrations`: a `schema_migrations` table records every applied

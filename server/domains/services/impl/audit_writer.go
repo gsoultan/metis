@@ -28,6 +28,14 @@ const (
 	EventProcessFailed  = "process_failed"
 	EventNodeReached    = "node_reached"
 	EventNodeCompleted  = "node_completed"
+	// EventInstanceMigrated marks an instance that changed process version
+	// while it was running.
+	//
+	// Without it the trail shows a task completed on a node the instance never
+	// started on, and nothing explains how it got there. It also keeps the
+	// conformance story honest: a trace that is part one version and part
+	// another is not a deviation, but only this event can say so.
+	EventInstanceMigrated = "instance_migrated"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each
@@ -86,6 +94,8 @@ func narrativeFor(eventType, subject, actor string) string {
 		return fmt.Sprintf("Step %q started", subject)
 	case EventNodeCompleted:
 		return fmt.Sprintf("Step %q finished", subject)
+	case EventInstanceMigrated:
+		return "This instance was moved onto another version of the process by a migration"
 	default:
 		if subject != "" {
 			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)

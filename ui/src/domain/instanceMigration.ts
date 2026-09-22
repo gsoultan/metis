@@ -41,6 +41,49 @@ export function tasksAffected(plan: ApiMigrationPlan): number {
 }
 
 /**
+ * Tasks somebody is holding right now that would be returned to the queue.
+ *
+ * Separate from tasksAffected because it is a different conversation: an
+ * unclaimed task moving is bookkeeping, and a claimed one moving is a person
+ * who was partway through something losing their place.
+ */
+export function heldTasksAffected(plan: ApiMigrationPlan): number {
+  return movedNodes(plan).reduce(
+    (total, move) => total + (move.tasks_claimed ?? 0) + (move.tasks_delegated ?? 0),
+    0,
+  );
+}
+
+/**
+ * Whether there is anything to look at that is not a refusal.
+ *
+ * A plan can be perfectly applicable and still deserve a second look — a
+ * removed step whose form fed a gateway downstream is the case that motivated
+ * this, because it applies cleanly and then produces incidents.
+ */
+export function hasAdvisories(plan: ApiMigrationPlan | null): boolean {
+  if (plan === null) return false;
+  return (plan.warnings?.length ?? 0) > 0 || (plan.removed_nodes?.length ?? 0) > 0;
+}
+
+/**
+ * One sentence about what the new version dropped.
+ *
+ * Phrased as a consequence rather than a list, because the list on its own
+ * reads as trivia: the point of naming a removed user task is that whatever its
+ * form used to write is no longer being written.
+ */
+export function removedNodesSummary(plan: ApiMigrationPlan): string | null {
+  const removed = plan.removed_nodes ?? [];
+  if (removed.length === 0) return null;
+  const nodes = removed.map((node) => `"${node}"`).join(', ');
+  if (removed.length === 1) {
+    return `Version ${plan.target_version} no longer has ${nodes}. Anything that step used to set is no longer set.`;
+  }
+  return `Version ${plan.target_version} no longer has ${nodes}. Anything those steps used to set is no longer set.`;
+}
+
+/**
  * One sentence for the top of the dialog.
  *
  * Written to be readable when the answer is "nothing": a plan over zero
