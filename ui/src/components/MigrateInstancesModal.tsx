@@ -3,6 +3,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Group,
   Loader,
   Modal,
@@ -13,14 +14,16 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { AlertTriangle, ArrowRight, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import {
   carriedNodes,
+  heldTasksAffected,
   isApplicable,
   movedNodes,
   planSummary,
+  removedNodesSummary,
   toNodeMapping,
 } from '../domain/instanceMigration';
 import { useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
@@ -65,6 +68,10 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   const [rows, setRows] = useState<MappingRow[]>([]);
   const [plan, setPlan] = useState<ApiMigrationPlan | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+  // Accepted holds, by node id. Cleared whenever the mapping changes: an
+  // acknowledgement is of a specific plan, and carrying it across an edit is
+  // how somebody accepts something they never read.
+  const [accepted, setAccepted] = useState<string[]>([]);
 
   const preview = usePlanInstanceMigration();
   const apply = useMigrateInstances();
@@ -82,7 +89,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     }
     let cancelled = false;
     preview
-      .mutateAsync({ source: source.id, target: target.id, mapping: toNodeMapping(rows) })
+      .mutateAsync({ source: source.id, target: target.id, mapping: toNodeMapping(rows), acknowledge: accepted })
       .then((result) => {
         if (cancelled) return;
         setPlan(result.plan ?? null);
@@ -99,7 +106,13 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     // preview is a stable mutation object; including it would refetch on every
     // render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source?.id, target?.id, JSON.stringify(rows)]);
+  }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted)]);
+
+  // A mapping edit invalidates every acknowledgement made against the old one.
+  useEffect(() => {
+    setAccepted([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(rows.map((row) => `${row.from}->${row.to}`))]);
 
   const handleApply = async () => {
     if (!source || !target) return;
@@ -108,6 +121,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         source: source.id,
         target: target.id,
         mapping: toNodeMapping(rows),
+        acknowledge: accepted,
       });
       if (result.err) {
         setRefused(result.err);
@@ -126,6 +140,8 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
 
   const moved = plan ? movedNodes(plan) : [];
   const carried = plan ? carriedNodes(plan) : [];
+  const removedSummary = plan ? removedNodesSummary(plan) : null;
+  const held = plan ? heldTasksAffected(plan) : 0;
   const ready = isApplicable(plan) && (plan?.instances ?? 0) > 0 && refused === null;
 
   return (
@@ -170,6 +186,61 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           </Alert>
         ))}
 
+        {/*
+          Yellow, not red, and never merged with the refusals above. These do
+          not block the apply — they are the things that apply cleanly and then
+          produce incidents, which is exactly the class somebody stops reading
+          if it is dressed up as an error.
+        */}
+        {removedSummary && (
+          <Alert color="yellow" icon={<AlertTriangle size={16} />} radius="md">
+            <Text size="sm">{removedSummary}</Text>
+          </Alert>
+        )}
+
+        {plan?.warnings?.map((warning) => (
+          <Alert key={warning} color="yellow" icon={<AlertTriangle size={16} />} radius="md">
+            <Text size="sm">{warning}</Text>
+          </Alert>
+        ))}
+
+        {/*
+          Holds are refusals somebody may accept, one at a time and by name.
+          A single "I understand" for the whole list would be a button people
+          learn to press without reading, which is the opposite of what an
+          acknowledgement is for.
+        */}
+        {(plan?.compliance_holds?.length ?? 0) > 0 && (
+          <Alert color="red" icon={<ShieldAlert size={16} />} radius="md">
+            <Stack gap={6}>
+              <Text size="sm" fw={600}>Steps that carry a control obligation</Text>
+              {plan?.compliance_holds?.map((hold) => (
+                <Checkbox
+                  key={hold.node_id}
+                  checked={accepted.includes(hold.node_id)}
+                  onChange={(event) =>
+                    setAccepted((current) =>
+                      event.currentTarget.checked
+                        ? [...current, hold.node_id]
+                        : current.filter((id) => id !== hold.node_id),
+                    )
+                  }
+                  label={
+                    <Text size="xs">
+                      {hold.instances === 1 ? '1 instance has' : `${hold.instances} instances have`} not
+                      passed <Text span ff="monospace" size="xs">{hold.name || hold.node_id}</Text> yet.
+                      {hold.note ? ` ${hold.note}.` : ''} Accept that they never will.
+                    </Text>
+                  }
+                />
+              ))}
+              <Text size="xs" c="dimmed">
+                Your name is recorded against each one on every instance's timeline.
+              </Text>
+            </Stack>
+          </Alert>
+        )}
+
         {moved.length > 0 && (
           <Stack gap={4}>
             <Text size="sm" fw={600}>Work that moves</Text>
@@ -192,12 +263,28 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                         <Text size="xs" ff="monospace">{move.to}</Text>
                       </Group>
                     </Table.Td>
-                    <Table.Td ta="right"><Text size="xs">{move.tasks}</Text></Table.Td>
+                    <Table.Td ta="right">
+                      <Text size="xs">
+                        {move.tasks}
+                        {(move.tasks_claimed ?? 0) + (move.tasks_delegated ?? 0) > 0 && (
+                          <Text span size="xs" c="orange">
+                            {' '}({(move.tasks_claimed ?? 0) + (move.tasks_delegated ?? 0)} held)
+                          </Text>
+                        )}
+                      </Text>
+                    </Table.Td>
                     <Table.Td ta="right"><Text size="xs">{move.jobs}</Text></Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
             </Table>
+            {held > 0 && (
+              <Text size="xs" c="dimmed">
+                {held === 1 ? '1 task is' : `${held} tasks are`} open in somebody's hands right now.
+                Moving re-derives who may do the work from the node it lands on, so
+                {held === 1 ? ' it goes' : ' they go'} back to the queue.
+              </Text>
+            )}
           </Stack>
         )}
 

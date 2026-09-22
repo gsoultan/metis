@@ -225,8 +225,28 @@ export interface ApiNodeMove {
   tokens: number;
   tasks: number;
   jobs: number;
+  /**
+   * The subset of `tasks` somebody is holding right now.
+   *
+   * Counted apart because they cost differently: an unclaimed task is a queue
+   * item nobody has started, a claimed one is a person with the form open who
+   * is about to lose their place, because a task that changes node has its
+   * assignment re-derived from the node it lands on.
+   */
+  tasks_claimed?: number;
+  tasks_delegated?: number;
   /** False when the node keeps its id and is carried over without a mapping. */
   mapped: boolean;
+}
+
+/** One control-bearing step a migration would drop. */
+export interface ApiComplianceHold {
+  node_id: string;
+  name?: string;
+  /** Why the step is there, as the modeller wrote it. */
+  note?: string;
+  /** How many running instances have not passed it yet. */
+  instances: number;
 }
 
 /** What moving running instances onto another version would do. */
@@ -239,6 +259,30 @@ export interface ApiMigrationPlan {
   moves?: ApiNodeMove[];
   /** Non-empty means the apply would be refused, and why. */
   refusals?: string[];
+  /**
+   * What to look at before applying, as distinct from what would be refused.
+   *
+   * Kept apart from `refusals` on purpose: a warning that reads like a refusal
+   * teaches people to click past the list, and then a real refusal gets clicked
+   * past too.
+   */
+  warnings?: string[];
+  /**
+   * Control-bearing steps this migration would take away from instances that
+   * have not performed them yet.
+   *
+   * A hold is a refusal the operator may accept by name. It is not a warning:
+   * accepting one is the act that turns "the approval was skipped" into "the
+   * approval was skipped, by this person, who was told what it was for".
+   */
+  compliance_holds?: ApiComplianceHold[];
+  /**
+   * The nodes the new version no longer has, whether or not work sits on one.
+   *
+   * A removed user task is also the removed producer of everything its form
+   * used to write, and the gateways downstream still read those variables.
+   */
+  removed_nodes?: string[];
 }
 
 export interface MigrateInstancesResponse {

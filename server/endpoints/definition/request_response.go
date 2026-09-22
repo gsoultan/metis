@@ -209,6 +209,14 @@ type MigrateInstancesRequest struct {
 	TargetDefinitionID string            `json:"target_definition_id"`
 	NodeMapping        map[string]string `json:"node_mapping,omitzero"`
 
+	// Acknowledge names the control-bearing steps whose loss the caller accepts.
+	//
+	// Node ids rather than a blanket flag: an override people can set once and
+	// forget is one they stop reading, and it would carry over to whatever the
+	// plan holds next time. Naming each one means the acknowledgement lapses
+	// the moment the plan changes under it.
+	Acknowledge []string `json:"acknowledge,omitzero"`
+
 	// DryRun asks what would happen and changes nothing. The default, because
 	// this rewrites instances that are somebody's purchase order — committing
 	// has to be the thing you ask for, not the thing you get by omission.

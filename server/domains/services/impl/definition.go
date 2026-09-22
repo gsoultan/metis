@@ -317,9 +317,8 @@ func (s *definitionService) ListDefinitionVersions(ctx context.Context, projectI
 // while a finished one loses the record of what it actually ran, which is the
 // only account of why it did what it did.
 //
-// So "safe to delete" means no instance has ever started on it. That is now a
-// question the drain counters can answer, and this is the check that makes the
-// answer binding rather than advisory.
+// So "safe to delete" means no instance has ever started on it, and no cutover
+// is waiting to make it live.
 func (s *definitionService) DeleteDefinition(ctx context.Context, id uuid.UUID) error {
 	counts, err := s.repo.Process().CountInstancesByDefinitions(ctx, []uuid.UUID{id})
 	if err != nil {
@@ -335,11 +334,51 @@ func (s *definitionService) DeleteDefinition(ctx context.Context, id uuid.UUID) 
 			"this version has run %d instance(s); deleting it would remove the record of what they executed",
 			count.Total)
 	}
+	if err := s.refuseIfScheduled(ctx, id); err != nil {
+		return err
+	}
 	if err := s.repo.Definition().Delete(ctx, id); err != nil {
 		return err
 	}
 	if s.onChanged != nil {
 		s.onChanged()
+	}
+	return nil
+}
+
+// refuseIfScheduled refuses to delete a version that a cutover is waiting on.
+//
+// A version scheduled for next Monday has run nothing yet, so every other check
+// in DeleteDefinition passes it. Delete it and the release timeline still names
+// it: when the scheduled moment arrives the reader finds no such version and
+// falls back to the highest one, so whichever draft happened to be deployed in
+// the meantime goes live instead — unattended, at a moment nobody is watching,
+// with no error raised anywhere.
+//
+// A scheduled cutover is a decision somebody has already made. It gets the same
+// protection a running instance gets, and for the same reason: the silent
+// outcome is the one nobody can undo.
+func (s *definitionService) refuseIfScheduled(ctx context.Context, id uuid.UUID) error {
+	def, err := s.repo.Definition().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	releases, err := s.repo.Definition().ListReleasesForKey(ctx, uuid.UUID(def.ProjectID), def.Key)
+	if err != nil {
+		if errors.Is(err, apierr.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	now := time.Now().UTC()
+	for _, release := range releases {
+		if release.Version != def.Version || !release.Scheduled(now) {
+			continue
+		}
+		return apierr.Invalidf(
+			"version %d of %q is scheduled to go live at %s; cancel that cutover first, "+
+				"or the timeline will name a version that is not there and the highest one will go live in its place",
+			def.Version, def.Key, release.ActivateAt.UTC().Format(time.RFC3339))
 	}
 	return nil
 }

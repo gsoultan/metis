@@ -280,6 +280,14 @@ export const definitionService = {
     targetDefinitionId: string,
     nodeMapping: Record<string, string>,
     dryRun = true,
+    /**
+     * Control-bearing steps whose loss the caller accepts, named one by one.
+     *
+     * Sent on the dry run too, so the preview shows the same refusals the apply
+     * would make. A preview that is friendlier than the apply is how somebody
+     * comes to press a button that then fails.
+     */
+    acknowledge: string[] = [],
     signal?: AbortSignal,
   ) {
     const response = await requestJSON<MigrateInstancesResponse>(`/definitions/versions/migrate`, {
@@ -288,6 +296,7 @@ export const definitionService = {
         source_definition_id: sourceDefinitionId,
         target_definition_id: targetDefinitionId,
         node_mapping: nodeMapping,
+        acknowledge: acknowledge,
         dry_run: dryRun,
       },
       signal,
