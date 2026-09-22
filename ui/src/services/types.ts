@@ -239,6 +239,24 @@ export interface ApiNodeMove {
   mapped: boolean;
 }
 
+/** What a migration does with the work on one node instead of moving it. */
+export type NodeActionKind = 'skip' | 'cancel';
+
+/** One node whose work a migration decides rather than moves. */
+export interface ApiNodeAction {
+  kind: NodeActionKind;
+  /** Why. Required: without it the trail cannot tell a skipped step from a performed one. */
+  reason: string;
+}
+
+/** One decided node, as the plan reports it back. */
+export interface ApiPlannedNodeAction {
+  node_id: string;
+  name?: string;
+  kind: NodeActionKind;
+  reason?: string;
+}
+
 /** One control-bearing step a migration would drop. */
 export interface ApiComplianceHold {
   node_id: string;
@@ -267,6 +285,14 @@ export interface ApiMigrationPlan {
    * past too.
    */
   warnings?: string[];
+  /**
+   * Nodes whose work this migration decides rather than moves.
+   *
+   * Reported back so a preview shows the decisions as prominently as the moves:
+   * "two instances move" and "two instances have an approval skipped" must not
+   * read identically.
+   */
+  actions?: ApiPlannedNodeAction[];
   /**
    * Control-bearing steps this migration would take away from instances that
    * have not performed them yet.

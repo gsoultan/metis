@@ -47,6 +47,15 @@ type MigrationPlan struct {
 	// produce the second.
 	ComplianceHolds []ComplianceHold `json:"compliance_holds,omitzero"`
 
+	// Actions are the nodes whose work this migration decides rather than
+	// moves — skipped, or the instance ended there.
+	//
+	// Reported back so a preview shows the decisions as prominently as the
+	// moves. "Two instances move" and "two instances have an approval skipped"
+	// are not the same sentence, and a plan that only counted moves would show
+	// them identically.
+	Actions []PlannedNodeAction `json:"actions,omitzero"`
+
 	// RemovedNodes are the nodes the target version no longer has, whether or
 	// not anything is currently sitting on one.
 	//
@@ -59,6 +68,16 @@ type MigrationPlan struct {
 
 // Applicable reports whether applying this plan would be accepted.
 func (p MigrationPlan) Applicable() bool { return len(p.Refusals) == 0 }
+
+// PlannedNodeAction is one node whose work is decided rather than moved.
+type PlannedNodeAction struct {
+	NodeID string `json:"node_id"`
+	Name   string `json:"name,omitzero"`
+	// Kind is "skip" or "cancel".
+	Kind string `json:"kind"`
+	// Reason is why, and it is carried into every instance's trail.
+	Reason string `json:"reason,omitzero"`
+}
 
 // ComplianceHold is one control-bearing step a migration would drop.
 type ComplianceHold struct {

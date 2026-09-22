@@ -36,6 +36,13 @@ const (
 	// conformance story honest: a trace that is part one version and part
 	// another is not a deviation, but only this event can say so.
 	EventInstanceMigrated = "instance_migrated"
+	// EventNodeSkipped marks a step a migration advanced past without anybody
+	// performing it. It is the entry that stops a skipped approval from reading
+	// like an approval somebody gave.
+	EventNodeSkipped = "node_skipped"
+	// EventInstanceCancelled marks an instance a migration ended rather than
+	// moved.
+	EventInstanceCancelled = "instance_cancelled"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each
@@ -96,6 +103,10 @@ func narrativeFor(eventType, subject, actor string) string {
 		return fmt.Sprintf("Step %q finished", subject)
 	case EventInstanceMigrated:
 		return "This instance was moved onto another version of the process by a migration"
+	case EventNodeSkipped:
+		return fmt.Sprintf("Step %q was skipped without being performed", subject)
+	case EventInstanceCancelled:
+		return "This instance was ended by a migration rather than moved"
 	default:
 		if subject != "" {
 			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)

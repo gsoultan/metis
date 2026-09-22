@@ -59,6 +59,13 @@ func (f *fixture) completeTaskOn(t *testing.T, nodeID, actor string) {
 		if task.NodeID() != nodeID {
 			continue
 		}
+		// ListTasks returns every status; a node that has already been through
+		// once would otherwise match its own finished task.
+		switch task.Status {
+		case entities.TaskUnclaimed, entities.TaskClaimed, entities.TaskDelegated:
+		default:
+			continue
+		}
 		if err := f.svc.CompleteTask(f.ctx, task.ID, actor, nil); err != nil {
 			t.Fatalf("complete the task on %q: %v", nodeID, err)
 		}

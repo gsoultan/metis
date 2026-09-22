@@ -324,6 +324,7 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		// refusals the apply would make rather than a friendlier set.
 		opts := []servicecontracts.MigrationOption{
 			servicecontracts.WithAcknowledgedHolds(req.Acknowledge...),
+			servicecontracts.WithNodeActions(req.NodeActions),
 		}
 		if actor, actorErr := principal.Username(ctx); actorErr == nil {
 			opts = append(opts, servicecontracts.WithActor(actor))

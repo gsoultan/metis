@@ -47,7 +47,7 @@ func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Co
 		JobService:          jobSvc,
 		ExternalTaskService: externalTaskSvc,
 		DecisionService:     decisionSvc,
-		MigrationService:    serviceimpl.NewMigrationService(repo),
+		MigrationService:    serviceimpl.NewMigrationService(repo, engine),
 		ConnectorService:    connectorSvc,
 		MessagingService:    serviceimpl.NewMessagingService(engine, externalTaskSvc),
 		UserService:         serviceimpl.NewUserService(repo, "test-jwt-secret"),

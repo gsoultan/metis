@@ -705,6 +705,38 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-22 (completed): Node actions — a migration can now decide work instead of only
+  moving it. Builds on the in-flight migration work below.
+  - A node mapping can only answer *where does this work go*. Removing an approval asks
+    whether the approval that was pending counts as given or as void, and the only way to
+    say the first with a mapping alone was to point the task at some other step — which is
+    how somebody else's approval gets performed by the wrong person.
+  - **`skip`** cancels the work on a node and advances the instance past it as though it had
+    been performed. The engine's own `Proceed` runs, so boundary timers are cancelled,
+    multi-instance counts are honoured and the following gateway is evaluated exactly as it
+    would have been; a second copy of that here would be a second set of BPMN semantics.
+    The advance runs on the *source* graph, because the node being skipped is the one the
+    new version does not have.
+  - **`cancel`** ends the instance where it stands and does **not** migrate it: it will never
+    run again, so its record should name the version it actually ran.
+  - **`cancelled` is a new instance status.** Reusing `completed` would make an instance
+    somebody called off read, in every list and count, exactly like one that succeeded;
+    `failed` is no better, because nothing went wrong. The UI status vocabulary already had
+    an entry for it. Pending timers need no cleanup — `timerStillApplies` already refuses to
+    fire for an instance that is not active, which a terminate end event relies on too.
+  - Refused: a decision with no reason (without it the trail cannot tell a step nobody
+    performed from a step somebody did), a node that is both mapped and actioned, skipping a
+    gateway (which branch would it take?), skipping a node with no outgoing flow, and a skip
+    in a wiring with no engine. Work on an actioned node is exempt from the must-land check,
+    without which the feature is unreachable.
+  - New trail entries `node_skipped` and `instance_cancelled`, separate from the migration
+    entry because they are the separate fact an auditor asks about: not *this instance
+    changed version* but *this approval did not happen, and here is who said so and why*.
+  - `NewMigrationService` now takes the engine, and is constructed after it in
+    `NewServiceFacade`.
+  - Gate: `make gate` green. 8 new tests in `tests/instancemigration/actions_test.go`, each
+    verified to fail with its fix reverted; 2 new UI domain tests.
+
 - 2026-09-22 (completed): Changing a process that is already running — in-flight migration
   made safe. Analysis and the remaining gaps: [`../docs/process-change-in-flight.md`](../docs/process-change-in-flight.md).
   - **Node-keyed instance state was stranded by every rename.** `apply` wrote tokens, tasks
