@@ -159,5 +159,8 @@ export function actionConsequence(kind: NodeActionKind, nodeID: string): string 
   if (kind === 'cancel') {
     return `Instances waiting at "${nodeID}" end here. They are not moved to the new version, and their record keeps the version they ran.`;
   }
+  if (kind === 'hold') {
+    return `Instances waiting at "${nodeID}" are left exactly as they are and raised as incidents, for somebody to decide one at a time.`;
+  }
   return `Instances waiting at "${nodeID}" advance to the next step as though it had been done. Whoever holds the task loses it.`;
 }

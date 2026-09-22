@@ -350,6 +350,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                     data={[
                       { value: 'skip', label: 'Skip it' },
                       { value: 'cancel', label: 'End the instance' },
+                      { value: 'hold', label: 'Leave for a person' },
                     ]}
                     value={row.kind === '' ? null : row.kind}
                     onChange={(value) => update({ kind: (value ?? '') as NodeActionKind | '' })}

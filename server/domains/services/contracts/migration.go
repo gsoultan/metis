@@ -58,6 +58,17 @@ const (
 	// survive it. The instance is not migrated: it will never run again, and
 	// its record should show the version it actually ran on.
 	NodeActionCancel NodeActionKind = "cancel"
+
+	// NodeActionHold leaves the instance where it is and raises an incident
+	// against it.
+	//
+	// This is the answer for the instances nobody can decide in bulk — the
+	// quotation for the customer who is mid-negotiation, the one with a note on
+	// it. Skip and cancel are policies applied to a population; hold is the
+	// admission that a particular instance needs a person, and it puts it
+	// somewhere a person will actually see it rather than leaving it on a
+	// version everyone has stopped looking at.
+	NodeActionHold NodeActionKind = "hold"
 )
 
 // NodeAction is what to do with the work parked on one node, instead of moving
@@ -86,6 +97,14 @@ type MigrationOptions struct {
 	// Actions are the nodes whose work is decided rather than moved, keyed by
 	// source node id.
 	Actions map[string]NodeAction
+	// Instances narrows the migration to particular instances. Empty means
+	// every instance on the source version.
+	//
+	// Without it one mapping is one policy for everybody, and the three
+	// populations a removed step splits instances into — already past it,
+	// parked on it, not yet arrived — have to be treated identically. They are
+	// rarely the same decision.
+	Instances []uuid.UUID
 	// Actor is who authorised the migration. It is recorded on every instance's
 	// trail, because "a step was skipped" is only half an audit answer; the
 	// other half is who decided that.
@@ -107,6 +126,11 @@ func WithNodeActions(actions map[string]NodeAction) MigrationOption {
 			o.Actions[nodeID] = action
 		}
 	}
+}
+
+// WithInstances narrows a migration to particular instances.
+func WithInstances(ids ...uuid.UUID) MigrationOption {
+	return func(o *MigrationOptions) { o.Instances = append(o.Instances, ids...) }
 }
 
 // WithActor records who authorised the migration.
