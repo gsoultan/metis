@@ -43,6 +43,9 @@ const (
 	// EventInstanceCancelled marks an instance a migration ended rather than
 	// moved.
 	EventInstanceCancelled = "instance_cancelled"
+	// EventInstanceHeld marks an instance a migration deliberately left behind
+	// for a person to decide.
+	EventInstanceHeld = "instance_held"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each
@@ -107,6 +110,8 @@ func narrativeFor(eventType, subject, actor string) string {
 		return fmt.Sprintf("Step %q was skipped without being performed", subject)
 	case EventInstanceCancelled:
 		return "This instance was ended by a migration rather than moved"
+	case EventInstanceHeld:
+		return "This instance was held back from a migration for somebody to decide"
 	default:
 		if subject != "" {
 			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)

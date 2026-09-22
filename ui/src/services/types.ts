@@ -235,12 +235,20 @@ export interface ApiNodeMove {
    */
   tasks_claimed?: number;
   tasks_delegated?: number;
+  /**
+   * Message or signal subscriptions waiting on this node.
+   *
+   * Counted apart from jobs because a subscription is a promise to somebody
+   * outside the process: a timer that does not fire is a delay, a message that
+   * correlates to nothing is a caller who never gets an answer.
+   */
+  events?: number;
   /** False when the node keeps its id and is carried over without a mapping. */
   mapped: boolean;
 }
 
 /** What a migration does with the work on one node instead of moving it. */
-export type NodeActionKind = 'skip' | 'cancel';
+export type NodeActionKind = 'skip' | 'cancel' | 'hold';
 
 /** One node whose work a migration decides rather than moves. */
 export interface ApiNodeAction {

@@ -131,6 +131,10 @@ describe('instanceMigration', () => {
     expect(actionConsequence('skip', 'opsApprove')).toContain('advance to the next step');
     expect(actionConsequence('cancel', 'opsApprove')).toContain('end here');
     expect(actionConsequence('cancel', 'opsApprove')).toContain('keeps the version they ran');
+    // A hold is the one that changes nothing about the instance, only where it
+    // is visible, and the wording has to carry that.
+    expect(actionConsequence('hold', 'opsApprove')).toContain('left exactly as they are');
+    expect(actionConsequence('hold', 'opsApprove')).toContain('incidents');
   });
 
   it('says what a removed step stops setting, not just that it is gone', () => {

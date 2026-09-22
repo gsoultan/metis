@@ -109,6 +109,11 @@ type NodeMove struct {
 	// task that changes node has its assignment re-derived from the new node.
 	TasksClaimed   int `json:"tasks_claimed,omitzero"`
 	TasksDelegated int `json:"tasks_delegated,omitzero"`
+	// Events is how many message or signal subscriptions wait on this node.
+	// Counted apart from Jobs because a subscription is a promise to somebody
+	// outside the process: a timer that does not fire is a delay, a message
+	// that correlates to nothing is a caller who never gets an answer.
+	Events int `json:"events,omitzero"`
 	// Mapped is false when From is carried across unchanged because the target
 	// has a node of the same id. That is the common case and needs no mapping
 	// entry; showing it is how somebody confirms they did not need one.

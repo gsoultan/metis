@@ -162,6 +162,14 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 	if err != nil {
 		return plan, fmt.Errorf("failed to list instances for migration: %w", err)
 	}
+	instances, missing := selectInstances(instances, options.Instances)
+	if len(missing) > 0 {
+		// Named and not there is a refusal, not a silent omission: somebody who
+		// listed twelve instances and had eleven moved would have no way to
+		// find out which one did not.
+		return plan, apierr.Invalidf("version %d of %q is not running instance(s) %s",
+			source.Version, source.Key, strings.Join(missing, ", "))
+	}
 	plan.Instances = len(instances)
 	if len(instances) == 0 {
 		return plan, nil
@@ -199,6 +207,7 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 	}
 
 	plan.Warnings = append(plan.Warnings, defaultFlowWarnings(target, targetNodes, found.landings)...)
+	plan.Warnings = append(plan.Warnings, disarmedDutyWarnings(targetNodes)...)
 	plan.Warnings = append(plan.Warnings, claimWarnings(found.moves)...)
 
 	// A step somebody marked as carrying a control obligation is not a step a
@@ -303,17 +312,35 @@ func (s *migrationService) apply(
 	if err != nil {
 		return fmt.Errorf("failed to list instances for migration: %w", err)
 	}
+	instances, _ = selectInstances(instances, options.Instances)
+
+	// One id across every entry this run writes, so the trail can be read back
+	// as "what did that migration do" rather than as unrelated events that
+	// happen to share a timestamp.
+	runID := uuid.New()
+	done := 0
 
 	for _, instance := range instances {
+		// Anything that is not still running is already settled — migrated by
+		// an earlier attempt, cancelled, or finished on its own. Skipping it is
+		// what makes re-running a migration a resume rather than a second pass:
+		// an instance that moved is no longer on the source version at all, and
+		// one that was cancelled must not be cancelled again.
+		if instance.Status != models.ProcessActive {
+			continue
+		}
+
 		// Work that is being decided rather than moved is settled first, and
 		// an instance that was cancelled or finished by a skip is not migrated
 		// at all: it will never run again, and its record should name the
 		// version it actually ran on.
-		carryOn, err := s.decide(ctx, instance, sourceDefID, source, target, options)
+		carryOn, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
+				"run the same migration again to carry on from here)", err, done, len(instances))
 		}
 		if !carryOn {
+			done++
 			continue
 		}
 		if len(options.Actions) > 0 {
@@ -327,6 +354,13 @@ func (s *migrationService) apply(
 
 		moved := map[string]string{}
 		err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+			// Hold the instance for the whole rewrite. A task completion that
+			// arrives mid-migration takes the same lock first, so the two
+			// cannot interleave: one of them reads what the other wrote rather
+			// than both acting on the state they found.
+			if _, lockErr := s.repo.Process().GetForUpdate(txCtx, uuid.UUID(instance.ID)); lockErr != nil {
+				return lockErr
+			}
 			instance.DefinitionID = models.UUID(targetDefID)
 			for i := range instance.Tokens {
 				instance.Tokens[i].NodeID = mapNode(nodeMapping, instance.Tokens[i].NodeID)
@@ -381,12 +415,15 @@ func (s *migrationService) apply(
 				}
 			}
 
-			return nil
+			return s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes)
 		})
 		if err != nil {
-			return fmt.Errorf("failed to migrate instance %s: %w", instance.ID, err)
+			return fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
+				"dealt with; run the same migration again to carry on from here)",
+				instance.ID, err, done, len(instances))
 		}
-		s.recordMigration(ctx, instance, source, target, moved, options, plan)
+		s.recordMigration(ctx, instance, source, target, moved, options, plan, runID)
+		done++
 	}
 
 	return nil
@@ -405,6 +442,7 @@ func (s *migrationService) recordMigration(
 	moved map[string]string,
 	options servicecontracts.MigrationOptions,
 	plan entities.MigrationPlan,
+	runID uuid.UUID,
 ) {
 	if s.audit == nil {
 		return
@@ -451,6 +489,7 @@ func (s *migrationService) recordMigration(
 			"target_version":  target.Version,
 			"process_key":     target.Key,
 			"task_moves":      pairs,
+			"run_id":          runID.String(),
 			"actor":           actor,
 			"waived_controls": waived,
 		},
@@ -500,7 +539,7 @@ func (s *migrationService) survey(
 	nodeMapping map[string]string,
 	actions map[string]servicecontracts.NodeAction,
 ) (surveyResult, error) {
-	type counts struct{ tokens, tasks, claimed, delegated, jobs int }
+	type counts struct{ tokens, tasks, claimed, delegated, jobs, events int }
 	byNode := map[string]*counts{}
 	stranded := map[string]struct{}{}
 	strandedState := map[string]struct{}{}
@@ -596,6 +635,19 @@ func (s *migrationService) survey(
 		for _, job := range jobs {
 			count(job.NodeID, func(c *counts) { c.jobs++ })
 		}
+		// Event subscriptions are the one kind of waiting that does not always
+		// sit under a token. A message boundary event on a user task keeps its
+		// subscription on the boundary node while the token stays on the task
+		// it guards, so mapping the task and forgetting the event leaves a
+		// subscription pointing at a node the target does not have — and the
+		// message, when it arrives, correlates to nothing.
+		subs, listErr := s.repo.Subscription().ListByInstance(ctx, uuid.UUID(instance.ID))
+		if listErr != nil {
+			return surveyResult{}, listErr
+		}
+		for _, sub := range subs {
+			count(sub.NodeID, func(c *counts) { c.events++ })
+		}
 	}
 
 	for from, c := range byNode {
@@ -611,6 +663,7 @@ func (s *migrationService) survey(
 			TasksClaimed:   c.claimed,
 			TasksDelegated: c.delegated,
 			Jobs:           c.jobs,
+			Events:         c.events,
 			Mapped:         mapped,
 		})
 	}
@@ -932,9 +985,9 @@ func (s *migrationService) actionRefusals(
 			continue
 		}
 		switch action.Kind {
-		case servicecontracts.NodeActionSkip, servicecontracts.NodeActionCancel:
+		case servicecontracts.NodeActionSkip, servicecontracts.NodeActionCancel, servicecontracts.NodeActionHold:
 		default:
-			out = append(out, fmt.Sprintf("%q is not something a migration can do with %q; use skip or cancel",
+			out = append(out, fmt.Sprintf("%q is not something a migration can do with %q; use skip, cancel or hold",
 				action.Kind, nodeID))
 			continue
 		}
@@ -1009,6 +1062,7 @@ func (s *migrationService) decide(
 	sourceDefID uuid.UUID,
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
+	runID uuid.UUID,
 ) (carryOn bool, err error) {
 	if len(options.Actions) == 0 {
 		return true, nil
@@ -1022,7 +1076,18 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionCancel || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target); err != nil {
+		if err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	for _, nodeID := range sortedKeys(options.Actions) {
+		action := options.Actions[nodeID]
+		if action.Kind != servicecontracts.NodeActionHold || !holdsWork(instance, nodeID) {
+			continue
+		}
+		if err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -1034,7 +1099,7 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionSkip || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options); err != nil {
+		if err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID); err != nil {
 			return false, err
 		}
 		skipped = append(skipped, nodeID)
@@ -1063,6 +1128,7 @@ func (s *migrationService) skipNode(
 	instance models.ProcessInstanceModel,
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
+	runID uuid.UUID,
 ) error {
 	if s.engine == nil {
 		return apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
@@ -1088,7 +1154,7 @@ func (s *migrationService) skipNode(
 	if err := s.engine.Proceed(ctx, &live, def, nodeID); err != nil {
 		return fmt.Errorf("advancing instance %s past %q: %w", instanceID, nodeID, err)
 	}
-	s.recordDecision(ctx, instance, source, target, nodeID, action, options)
+	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
 	return nil
 }
 
@@ -1106,6 +1172,7 @@ func (s *migrationService) cancelInstance(
 	action servicecontracts.NodeAction,
 	options servicecontracts.MigrationOptions,
 	source, target models.ProcessDefinitionModel,
+	runID uuid.UUID,
 ) error {
 	instanceID := uuid.UUID(instance.ID)
 	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
@@ -1121,6 +1188,18 @@ func (s *migrationService) cancelInstance(
 				return err
 			}
 		}
+		// Waiting events go with it. An instance that will never run again
+		// cannot honour a subscription, and leaving one means a message arrives
+		// later and correlates to something that has stopped.
+		subs, err := s.repo.Subscription().ListByInstance(txCtx, instanceID)
+		if err != nil {
+			return err
+		}
+		for _, sub := range subs {
+			if err := s.repo.Subscription().Delete(txCtx, uuid.UUID(sub.ID)); err != nil {
+				return err
+			}
+		}
 		instance.Tokens = nil
 		instance.Status = models.ProcessCancelled
 		return s.repo.Process().Update(txCtx, instance)
@@ -1128,7 +1207,7 @@ func (s *migrationService) cancelInstance(
 	if err != nil {
 		return fmt.Errorf("cancelling instance %s: %w", instanceID, err)
 	}
-	s.recordDecision(ctx, instance, source, target, nodeID, action, options)
+	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
 	return nil
 }
 
@@ -1163,6 +1242,7 @@ func (s *migrationService) recordDecision(
 	nodeID string,
 	action servicecontracts.NodeAction,
 	options servicecontracts.MigrationOptions,
+	runID uuid.UUID,
 ) {
 	if s.audit == nil {
 		return
@@ -1175,10 +1255,16 @@ func (s *migrationService) recordDecision(
 	narrative := fmt.Sprintf(
 		"%q was skipped without being performed, by %s, when %q moved from version %d to version %d. Reason: %s.",
 		nodeID, actor, target.Key, source.Version, target.Version, action.Reason)
-	if action.Kind == servicecontracts.NodeActionCancel {
+	switch action.Kind {
+	case servicecontracts.NodeActionCancel:
 		eventType = EventInstanceCancelled
 		narrative = fmt.Sprintf(
 			"This instance was ended at %q by %s, rather than moved to version %d of %q. Reason: %s.",
+			nodeID, actor, target.Version, target.Key, action.Reason)
+	case servicecontracts.NodeActionHold:
+		eventType = EventInstanceHeld
+		narrative = fmt.Sprintf(
+			"This instance was held at %q by %s rather than moved to version %d of %q, and raised as an incident for somebody to decide. Reason: %s.",
 			nodeID, actor, target.Version, target.Key, action.Reason)
 	}
 
@@ -1190,6 +1276,7 @@ func (s *migrationService) recordDecision(
 		Timestamp: time.Now(),
 		Data: map[string]any{
 			"node_id": nodeID,
+			"run_id":  runID.String(),
 			"action":  string(action.Kind),
 			"reason":  action.Reason,
 			"actor":   actor,
@@ -1222,4 +1309,156 @@ func holdsWork(instance models.ProcessInstanceModel, nodeID string) bool {
 // openTask reports whether a task is still somebody's to do.
 func openTask(status models.TaskStatus) bool {
 	return status == models.TaskUnclaimed || status == models.TaskClaimed || status == models.TaskDelegated
+}
+
+// remapSubscriptions moves an instance's waiting events onto the new graph.
+//
+// A subscription is a promise that a message or signal arriving later will find
+// the instance waiting for it. Left naming a node the new version does not
+// have, that promise is quietly broken: the message arrives, correlates to
+// nothing, and the sender is never told.
+//
+// One with nowhere to land is closed rather than carried, which is what Camunda
+// does with an unmapped catch event too — a subscription to an event no graph
+// can receive is not a promise, it is a row.
+//
+// Re-pointing is delete-then-create because the repository has no update for
+// the node: a subscription is identified by where it waits, so changing that is
+// a different subscription. The new row takes a new id for the same reason.
+func (s *migrationService) remapSubscriptions(
+	ctx context.Context,
+	instanceID uuid.UUID,
+	nodeMapping map[string]string,
+	targetNodes map[string]models.FlowNode,
+) error {
+	subs, err := s.repo.Subscription().ListByInstance(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	for _, sub := range subs {
+		mapped := mapNode(nodeMapping, sub.NodeID)
+		if mapped == sub.NodeID {
+			continue
+		}
+		if err := s.repo.Subscription().Delete(ctx, uuid.UUID(sub.ID)); err != nil {
+			return err
+		}
+		if _, ok := targetNodes[mapped]; !ok {
+			continue
+		}
+		sub.ID = models.UUID(uuid.New())
+		sub.NodeID = mapped
+		if err := s.repo.Subscription().Create(ctx, sub); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// selectInstances narrows a list to the ones named, and reports any name that
+// matched nothing.
+//
+// An empty selection means everything, which is what a migration without one
+// has always meant.
+func selectInstances(all []models.ProcessInstanceModel, wanted []uuid.UUID) (kept []models.ProcessInstanceModel, missing []string) {
+	if len(wanted) == 0 {
+		return all, nil
+	}
+	want := make(map[uuid.UUID]struct{}, len(wanted))
+	for _, id := range wanted {
+		want[id] = struct{}{}
+	}
+	found := make(map[uuid.UUID]struct{}, len(wanted))
+	for _, instance := range all {
+		id := uuid.UUID(instance.ID)
+		if _, ok := want[id]; !ok {
+			continue
+		}
+		found[id] = struct{}{}
+		kept = append(kept, instance)
+	}
+	for _, id := range wanted {
+		if _, ok := found[id]; !ok {
+			missing = append(missing, id.String())
+		}
+	}
+	slices.Sort(missing)
+	return kept, missing
+}
+
+// holdInstance leaves an instance exactly where it is and raises an incident
+// against it.
+//
+// Nothing is moved, cancelled or advanced on purpose. A hold is the case where
+// the right answer is "a person needs to look at this one", and the worst thing
+// to do with that is guess — so this only changes where it is visible, not what
+// it is.
+func (s *migrationService) holdInstance(
+	ctx context.Context,
+	instance models.ProcessInstanceModel,
+	nodeID string,
+	action servicecontracts.NodeAction,
+	options servicecontracts.MigrationOptions,
+	source, target models.ProcessDefinitionModel,
+	runID uuid.UUID,
+) error {
+	actor := options.Actor
+	if actor == "" {
+		actor = "System"
+	}
+	// A held instance stays on the source version, so a second run of the same
+	// migration finds it again. Raising a second incident for the same node
+	// would turn one instance somebody has to look at into a growing pile of
+	// identical rows, which is the fastest way to make an inbox worth ignoring.
+	open, err := s.repo.Incident().ListByInstance(ctx, uuid.UUID(instance.ID))
+	if err != nil {
+		return fmt.Errorf("reading the incidents already on instance %s: %w", instance.ID, err)
+	}
+	for _, existing := range open {
+		if existing.NodeID == nodeID && existing.Status == models.IncidentOpen {
+			return nil
+		}
+	}
+
+	incident := models.IncidentModel{
+		InstanceID:   instance.ID,
+		DefinitionID: instance.DefinitionID,
+		NodeID:       nodeID,
+		Status:       models.IncidentOpen,
+		Error: fmt.Sprintf(
+			"held out of the migration from version %d to version %d of %q by %s: %s",
+			source.Version, target.Version, target.Key, actor, action.Reason),
+	}
+	incident.ID = models.UUID(uuid.New())
+	if _, err := s.repo.Incident().Create(ctx, incident); err != nil {
+		return fmt.Errorf("raising the incident that holds instance %s: %w", instance.ID, err)
+	}
+	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
+	return nil
+}
+
+// disarmedDutyWarnings reports separation-of-duties rules the new version has
+// left pointing at a step it no longer has.
+//
+// The rule survives the edit and stops meaning anything: "approve may not be
+// done by whoever did opsApprove" is satisfied by everybody once opsApprove is
+// gone, because nobody did it. That is a control weakening itself quietly,
+// which is the shape auditors find and nobody else does — so the plan says it
+// out loud rather than leaving the property sitting there looking enforced.
+func disarmedDutyWarnings(targetNodes map[string]models.FlowNode) []string {
+	var out []string
+	for _, id := range sortedKeys(targetNodes) {
+		node := targetNodes[id]
+		for _, conflict := range splitNodeList(stringProperty(node.Properties, SeparationOfDutiesKey)) {
+			if _, ok := targetNodes[conflict]; ok {
+				continue
+			}
+			out = append(out, fmt.Sprintf(
+				"%q may not be performed by whoever performed %q, and the new version has no %q — "+
+					"the rule survives the edit and can no longer refuse anybody",
+				id, conflict, conflict))
+		}
+	}
+	slices.Sort(out)
+	return out
 }

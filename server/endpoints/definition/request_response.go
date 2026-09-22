@@ -216,6 +216,10 @@ type MigrateInstancesRequest struct {
 	// every affected instance's trail.
 	NodeActions map[string]servicecontracts.NodeAction `json:"node_actions,omitzero"`
 
+	// Instances narrows the migration to particular instances. Empty means
+	// every instance on the source version, which is what it has always meant.
+	Instances []string `json:"instances,omitzero"`
+
 	// Acknowledge names the control-bearing steps whose loss the caller accepts.
 	//
 	// Node ids rather than a blanket flag: an override people can set once and
