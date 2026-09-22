@@ -39,7 +39,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	jobSvc := service_impl.NewJobService(repo, engine, connectorSvc, service_impl.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	externalTaskSvc := service_impl.NewExternalTaskService(repo, engine)
 	decisionSvc := service_impl.NewDecisionService(repo, service_impl.NewDecisionTableEvaluator(service_impl.NewFEELEvaluator()))
-	migrationSvc := service_impl.NewMigrationService(repo)
+	migrationSvc := service_impl.NewMigrationService(repo, engine)
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl.NewCollaborationService(sse)
 

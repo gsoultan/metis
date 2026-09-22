@@ -106,7 +106,7 @@ export interface StatusCount {
  * opens this page to find out whether anything needs them; what needs them goes
  * first, what is still moving next, and what is already finished last.
  */
-const STATUS_PRIORITY = ['failed', 'suspended', 'active', 'completed'];
+const STATUS_PRIORITY = ['failed', 'suspended', 'active', 'completed', 'cancelled'];
 
 /**
  * The filter chips to offer, in the order above.

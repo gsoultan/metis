@@ -390,7 +390,7 @@ func newHandlerHarness(t *testing.T) (services.ServiceFacade, servicecontracts.J
 		JobService:           jobSvc,
 		ExternalTaskService:  externalTaskSvc,
 		DecisionService:      decisionSvc,
-		MigrationService:     service_impl2.NewMigrationService(repo),
+		MigrationService:     service_impl2.NewMigrationService(repo, engine),
 		ConnectorService:     connectorSvc,
 		CollaborationService: service_impl2.NewCollaborationService(sse),
 		MessagingService:     service_impl2.NewMessagingService(engine, externalTaskSvc),

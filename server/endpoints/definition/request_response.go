@@ -3,6 +3,7 @@ package definition
 import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
 type ListDefinitionsRequest struct {
@@ -208,6 +209,16 @@ type MigrateInstancesRequest struct {
 	SourceDefinitionID string            `json:"source_definition_id"`
 	TargetDefinitionID string            `json:"target_definition_id"`
 	NodeMapping        map[string]string `json:"node_mapping,omitzero"`
+
+	// NodeActions decides the work parked on named nodes instead of moving it:
+	// "skip" advances past the step as though it had been performed, "cancel"
+	// ends the instance there. Both require a reason, which is recorded on
+	// every affected instance's trail.
+	NodeActions map[string]servicecontracts.NodeAction `json:"node_actions,omitzero"`
+
+	// Instances narrows the migration to particular instances. Empty means
+	// every instance on the source version, which is what it has always meant.
+	Instances []string `json:"instances,omitzero"`
 
 	// Acknowledge names the control-bearing steps whose loss the caller accepts.
 	//

@@ -3,7 +3,7 @@ import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
-import type { CreateDefinitionPayload } from '../services/types';
+import type { ApiNodeAction, CreateDefinitionPayload } from '../services/types';
 
 // The queryFn ternary returned the service's real result on one branch and a
 // hand-written literal on the other. TypeScript widened that union to `{}`,
@@ -180,12 +180,14 @@ interface MigrationArgs {
   mapping: Record<string, string>;
   /** Control-bearing steps the operator has accepted losing, by node id. */
   acknowledge?: string[];
+  /** Nodes whose work is decided rather than moved. */
+  actions?: Record<string, ApiNodeAction>;
 }
 
 export const usePlanInstanceMigration = () => {
   return useMutation({
-    mutationFn: ({ source, target, mapping, acknowledge }: MigrationArgs) =>
-      processService.migrateInstances(source, target, mapping, true, acknowledge ?? []),
+    mutationFn: ({ source, target, mapping, acknowledge, actions }: MigrationArgs) =>
+      processService.migrateInstances(source, target, mapping, true, acknowledge ?? [], actions ?? {}),
   });
 };
 
@@ -193,8 +195,8 @@ export const useMigrateInstances = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: ({ source, target, mapping, acknowledge }: MigrationArgs) =>
-      processService.migrateInstances(source, target, mapping, false, acknowledge ?? []),
+    mutationFn: ({ source, target, mapping, acknowledge, actions }: MigrationArgs) =>
+      processService.migrateInstances(source, target, mapping, false, acknowledge ?? [], actions ?? {}),
     onSuccess: () => {
       // Instances, the inbox and the version history all change: a task that was
       // on one node is now on another, and the instance names a different
