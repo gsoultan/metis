@@ -148,19 +148,20 @@ func NewConnectorService(
 
 	// Register built-in executors.
 	//
-	// email-smtp names the connectors-package implementation, which is the one
-	// the application runs. It used to be registered here as EmailSmtpExecutor
-	// and then overwritten by NewServiceFacade, so every test that built a
-	// connector service exercised one implementation while the application ran
-	// the other — and the two had drifted apart. Registering the shipped one
-	// here is what puts the SMTP test on the code that ships.
+	// These name the connectors-package implementations, which are the ones the
+	// application runs. They used to be registered here as HttpJsonExecutor,
+	// SlackMessageExecutor and EmailSmtpExecutor and then overwritten by
+	// NewServiceFacade, so every test that built a connector service exercised
+	// one implementation while the application ran the other. The two sets had
+	// drifted — in the email case into a delivery bug that nothing could catch,
+	// because the test was pointed at the executor nobody ran.
 	//
-	// http-json and slack-message are still overridden in NewServiceFacade and
-	// still diverge the same way; their contracts differ in what they return,
-	// so unpicking that changes what a running process sees and is a separate
-	// decision. See the note in NewServiceFacade.
-	s.executors["http-json"] = &HttpJsonExecutor{}
-	s.executors["slack-message"] = &SlackMessageExecutor{}
+	// Registered once, here, so there is a single answer to "what does this
+	// connector do". Production behaviour is unchanged: these are exactly the
+	// executors NewServiceFacade was installing over the top. What changes is
+	// that the tests now exercise them.
+	s.executors["http-json"] = connectors.NewHTTPConnector(nil)
+	s.executors["slack-message"] = connectors.NewSlackConnector()
 	s.executors["email-smtp"] = connectors.NewEmailConnector()
 	s.executors["rabbitmq-publish"] = NewRabbitMQExecutor()
 
