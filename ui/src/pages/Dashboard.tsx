@@ -38,6 +38,7 @@ import { useMemo } from 'react';
 import { useTasks } from '../hooks/useTasks';
 import { csvFilename } from '../domain/csv';
 import { slaReport, slaReportCsv, slaSummary, describeHours, type ReportableTask } from '../domain/slaReport';
+import { heatColor, heatSummary, processHeat } from '../domain/processHeatmap';
 
 /**
  * A single headline number.
@@ -123,6 +124,11 @@ export function Dashboard() {
     () => slaReport((tasksData?.tasks ?? []).map(toReportableTask)),
     [tasksData?.tasks],
   );
+
+  // Where the running work is sitting. The instance list already says which
+  // step each instance is on, one row at a time; this asks it the other way
+  // round, which is the direction that finds a bottleneck.
+  const heat = useMemo(() => processHeat(instancesData?.instances ?? []), [instancesData?.instances]);
   
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a
@@ -327,6 +333,55 @@ export function Dashboard() {
             </Grid.Col>
           </Grid>
         )}
+      </Card>
+
+      {/*
+        Where the work is sitting. The instance list answers "where is this
+        quotation" a row at a time; this asks which step is holding the most,
+        which is the direction that finds a bottleneck.
+
+        About now rather than about history on purpose: a count of how often a
+        step has ever run flatters the busy ones and hides the one where forty
+        quotations are stuck this morning.
+      */}
+      <Card shadow="sm" radius="lg" withBorder mb="xl">
+        <Group justify="space-between" mb="md">
+          <Title order={4}>Where work is waiting</Title>
+          <Button component={Link} to="/instances" variant="subtle" size="xs">
+            {t('dash.viewAllInstances')}
+          </Button>
+        </Group>
+
+        <Text size="sm" c={heat.length > 0 ? undefined : 'dimmed'} mb={heat.length > 0 ? 'md' : 0}>
+          {heatSummary(heat)}
+        </Text>
+
+        {heat.map((process) => (
+          <Stack key={process.processName} gap={4} mb="md">
+            <Text size="xs" fw={600}>{process.processName}</Text>
+            {process.nodes.slice(0, 6).map((node) => (
+              <Group key={node.nodeId} gap="xs" wrap="nowrap" align="center">
+                <Text size="xs" style={{ minWidth: 160 }}>{node.label}</Text>
+                {/*
+                  The bar is the comparison; the number is the fact. Both,
+                  because a bar alone cannot be read off and a number alone
+                  cannot be scanned.
+                */}
+                <Progress
+                  value={node.intensity * 100}
+                  color={heatColor(node.intensity)}
+                  size="sm"
+                  radius="sm"
+                  style={{ flex: 1 }}
+                  aria-label={`${node.waiting} waiting on ${node.label}`}
+                />
+                <Text size="xs" c="dimmed" style={{ minWidth: 28 }} ta="right">
+                  {node.waiting}
+                </Text>
+              </Group>
+            ))}
+          </Stack>
+        ))}
       </Card>
 
       <Grid gap="xl">
