@@ -34,6 +34,10 @@ import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
 import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
+import { useMemo } from 'react';
+import { useTasks } from '../hooks/useTasks';
+import { csvFilename } from '../domain/csv';
+import { slaReport, slaReportCsv, slaSummary, describeHours, type ReportableTask } from '../domain/slaReport';
 
 /**
  * A single headline number.
@@ -110,6 +114,15 @@ export function Dashboard() {
   const { data: defs } = useDefinitions();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const { data: instancesData } = useInstances();
+  // A page of open work, for the deadline report below. The inbox already
+  // tells one person that one task is late; nothing answered "how much is
+  // late, and whose" for somebody who has to do something about it.
+  const { data: tasksData } = useTasks(1, 200);
+
+  const report = useMemo(
+    () => slaReport((tasksData?.tasks ?? []).map(toReportableTask)),
+    [tasksData?.tasks],
+  );
   
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a
@@ -258,6 +271,64 @@ export function Dashboard() {
       </Grid>
       )}
 
+      {/*
+        Deadlines, for the reader the inbox does not serve. The inbox tells one
+        person that one task of theirs is late; this is how much is late across
+        the project and who is carrying it, which is the question asked at the
+        end of a week rather than at the start of a task.
+      */}
+      <Card shadow="sm" radius="lg" withBorder mb="xl">
+        <Group justify="space-between" mb="md">
+          <Group gap="sm">
+            <Title order={4}>Deadlines</Title>
+            {report.breached.length > 0 && (
+              <Badge variant="light" color="red" radius="sm">
+                {report.breached.length} late
+              </Badge>
+            )}
+          </Group>
+          <Button
+            variant="subtle"
+            size="xs"
+            disabled={report.breached.length === 0}
+            onClick={() => downloadCsv(slaReportCsv(report), csvFilename('late-work'))}
+          >
+            Export CSV
+          </Button>
+        </Group>
+
+        <Text size="sm" c={report.breached.length > 0 ? undefined : 'dimmed'} mb={report.breached.length > 0 ? 'md' : 0}>
+          {slaSummary(report)}
+        </Text>
+
+        {report.breached.length > 0 && (
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Text size="xs" fw={600} mb={4}>Who is carrying it</Text>
+              {report.byAssignee.slice(0, 5).map((group) => (
+                <Group key={group.name} justify="space-between" wrap="nowrap">
+                  <Text size="xs">{group.name}</Text>
+                  <Text size="xs" c="dimmed">
+                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                  </Text>
+                </Group>
+              ))}
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Text size="xs" fw={600} mb={4}>Which process</Text>
+              {report.byProcess.slice(0, 5).map((group) => (
+                <Group key={group.name} justify="space-between" wrap="nowrap">
+                  <Text size="xs">{group.name}</Text>
+                  <Text size="xs" c="dimmed">
+                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                  </Text>
+                </Group>
+              ))}
+            </Grid.Col>
+          </Grid>
+        )}
+      </Card>
+
       <Grid gap="xl">
         <Grid.Col span={12}>
           <Card shadow="sm" radius="lg" withBorder h="100%">
@@ -336,4 +407,51 @@ export function Dashboard() {
 
     </Stack>
   );
+}
+
+
+/**
+ * Reads a task from the API as the deadline report needs it.
+ *
+ * The report deliberately takes a small shape of its own rather than the API
+ * type: it is arithmetic over four fields, and coupling it to the wire format
+ * would mean a field rename breaking a calculation that does not care.
+ */
+function toReportableTask(task: {
+  id: string;
+  name?: string;
+  nodeId?: string;
+  status?: string;
+  priority?: number;
+  dueDate?: string | null;
+  assignee?: { username?: string } | null;
+  instance?: { definition?: { name?: string; key?: string } | null } | null;
+}): ReportableTask {
+  return {
+    id: task.id,
+    name: task.name,
+    nodeId: task.nodeId,
+    status: task.status,
+    priority: task.priority,
+    dueDate: task.dueDate,
+    assignee: task.assignee?.username ?? null,
+    processName: task.instance?.definition?.name || task.instance?.definition?.key,
+  };
+}
+
+/**
+ * Hands the browser a file.
+ *
+ * An object URL rather than a data: one because a data URL carrying a few
+ * hundred late tasks runs into length limits in exactly the situation the
+ * report matters most.
+ */
+function downloadCsv(contents: string, filename: string) {
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
