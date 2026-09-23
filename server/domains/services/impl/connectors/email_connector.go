@@ -24,14 +24,17 @@ func (c *EmailConnector) Execute(_ context.Context, config map[string]any, paylo
 	if err != nil {
 		return nil, err
 	}
-	msg, err := buildEmailMessage(cfg, payload)
+	recipients, msg, err := buildEmailMessage(cfg, payload)
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmail(cfg, msg); err != nil {
+	if err := sendEmail(cfg, recipients, msg); err != nil {
 		return nil, err
 	}
-	return map[string]any{"sent": true}, nil
+	// "status": "sent" rather than "sent": true, because that is what the
+	// executor this one replaced returned and what everything reading the
+	// result of a connector call expects.
+	return map[string]any{"status": "sent"}, nil
 }
 
 type smtpConfig struct {
@@ -60,14 +63,23 @@ func extractSMTPConfig(config map[string]any) (smtpConfig, error) {
 	return smtpConfig{host: host, port: port, username: username, password: password, from: from}, nil
 }
 
-func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]byte, error) {
+// buildEmailMessage returns the envelope recipients and the message.
+//
+// The two are returned together because they have to agree: a "To:" header
+// naming one address and an envelope naming another is a mail that arrives
+// somewhere nobody looked for it, and SMTP reports that as a success.
+func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]string, []byte, error) {
 	to, _ := textSetting(payload, "to")
 	if to == "" {
-		return nil, fmt.Errorf("email connector: missing required payload key 'to'")
+		return nil, nil, fmt.Errorf("email connector: missing required payload key 'to'")
+	}
+	recipients := splitRecipients(to)
+	if len(recipients) == 0 {
+		return nil, nil, fmt.Errorf("email connector: payload key 'to' names no address")
 	}
 	subject, _ := textSetting(payload, "subject")
 	if subject == "" {
-		return nil, fmt.Errorf("email connector: missing required payload key 'subject'")
+		return nil, nil, fmt.Errorf("email connector: missing required payload key 'subject'")
 	}
 	body, _ := textSetting(payload, "body")
 
@@ -78,16 +90,36 @@ func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]byte, error) {
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	sb.WriteString(body)
-	return []byte(sb.String()), nil
+	return recipients, []byte(sb.String()), nil
 }
 
-func sendEmail(cfg smtpConfig, msg []byte) error {
+// splitRecipients reads the comma-separated list the payload documents.
+func splitRecipients(to string) []string {
+	parts := strings.Split(to, ",")
+	recipients := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			recipients = append(recipients, trimmed)
+		}
+	}
+	return recipients
+}
+
+// sendEmail hands the message to the SMTP server.
+//
+// The envelope recipients are the addresses the payload asked for. They used to
+// be cfg.from — the *sender* — so every message a process sent was delivered to
+// the configured mailbox rather than to the person it was addressed to, while
+// the "To:" header said otherwise and SMTP reported success. An approval
+// request for approver@example.com arrived in the noreply@ inbox and nothing
+// anywhere looked wrong.
+func sendEmail(cfg smtpConfig, recipients []string, msg []byte) error {
 	addr := cfg.host + ":" + cfg.port
 	var auth smtp.Auth
 	if cfg.username != "" {
 		auth = smtp.PlainAuth("", cfg.username, cfg.password, cfg.host)
 	}
-	if err := smtp.SendMail(addr, auth, cfg.from, []string{cfg.from}, msg); err != nil {
+	if err := smtp.SendMail(addr, auth, cfg.from, recipients, msg); err != nil {
 		return fmt.Errorf("email connector: send mail: %w", err)
 	}
 	return nil
