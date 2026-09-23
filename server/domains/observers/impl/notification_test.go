@@ -164,3 +164,69 @@ func TestAnEventWithNoInstanceIsIgnored(t *testing.T) {
 		t.Fatalf("an event with no instance produced %d notifications", len(notifier.sent))
 	}
 }
+
+// Being told work was taken away.
+//
+// The observer handled a task arriving and a task being claimed. A task
+// *withdrawn* — a boundary timer firing, or a migration skipping the step —
+// simply vanished from somebody's inbox, which from their side is
+// indistinguishable from a colleague completing it, or from a bug.
+
+func taskCancelled(node *entities.Node, heldBy string) entities.ProcessEvent {
+	event := taskCreated(node)
+	event.Type = entities.EventTaskCanceled
+	event.Assignee = heldBy
+	return event
+}
+
+func TestWhoeverHeldAWithdrawnTaskIsTold(t *testing.T) {
+	notifier := &recordingNotifier{}
+	observer := NewNotificationObserver(notifier)
+
+	// Claimed by dita, whatever the diagram nominated. She is the one who has
+	// it open and the only one who needs telling.
+	observer.OnEvent(context.Background(), taskCancelled(
+		&entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"}, "dita"))
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "dita" {
+		t.Fatalf("a withdrawn task told %v; dita was holding it", got)
+	}
+	if title := notifier.sent[0].Title; title != "A task was withdrawn" {
+		t.Errorf("the notification is titled %q, which reads like work arriving", title)
+	}
+	if msg := notifier.sent[0].Message; !strings.Contains(msg, "no longer needed") {
+		t.Errorf("the message does not say the work is gone: %q", msg)
+	}
+}
+
+func TestAWithdrawnTaskNobodyHadTellsTheQueue(t *testing.T) {
+	notifier := &recordingNotifier{}
+	observer := NewNotificationObserver(notifier)
+
+	// Nobody had claimed it, so everybody who could have is told it is gone —
+	// otherwise it is simply absent from a queue they were watching.
+	observer.OnEvent(context.Background(), taskCancelled(&entities.Node{
+		ID: "review", Name: "Review",
+		CandidateUsers: []*entities.User{{Username: "ada"}, {Username: "bo"}},
+	}, ""))
+
+	if got := notifier.recipients(); len(got) != 2 {
+		t.Fatalf("an unclaimed withdrawn task told %v", got)
+	}
+}
+
+func TestTheExplicitAssigneeWinsOverTheOldVariablesRoute(t *testing.T) {
+	notifier := &recordingNotifier{}
+	observer := NewNotificationObserver(notifier)
+
+	// Both present and disagreeing: the field is the one that means "this event
+	// is about this person", and Variables is business data that happened to
+	// have a key of the same name.
+	event := taskCancelled(&entities.Node{ID: "opsApprove", Name: "Operations approve"}, "dita")
+	event.Variables = map[string]any{"assignee": "someone-elses-process-variable"}
+	observer.OnEvent(context.Background(), event)
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "dita" {
+		t.Fatalf("told %v; the event's own assignee field should win", got)
+	}
+}

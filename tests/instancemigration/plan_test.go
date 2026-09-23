@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
@@ -24,13 +25,18 @@ type fixture struct {
 	svc     services.ServiceFacade
 	ctx     context.Context
 	project uuid.UUID
+	// dispatcher is kept so a test can watch what the engine raises. Work being
+	// taken out of somebody's hands is an event before it is a notification,
+	// and that is the level a migration test can assert at.
+	dispatcher observercontracts.EventDispatcher
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
+	dispatcher := observersimpl.NewEventDispatcher()
+	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
 		"migration-test", nil, nil, nil, func(*gorm.DB) {})
 
 	ctx := context.Background()
@@ -43,7 +49,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID}
+	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher}
 }
 
 // approval is start → one user task → end. The task's id is the parameter,
