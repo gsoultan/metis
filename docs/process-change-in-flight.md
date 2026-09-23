@@ -371,12 +371,32 @@ Three things make that true rather than merely plausible:
 A failure reports how many instances had already been dealt with, and says to run the same
 migration again to carry on.
 
-## 7. Still open
+## 7. The two that were open
 
-| Gap | Why |
-| :-- | :-- |
-| **Delegation-of-authority thresholds** — "over $50k needs the CFO" | `separation_of_duties` answers *not the same person*; a value-banded authority matrix is a different shape and belongs with the assignment decision tables, which already decide *who* from process data. |
-| **A reproducing test for the completion/migration race** | See Class D. The fix is an ordering argument; landing a test inside the window needs a seam in production code that does not exist and should not be added lightly. |
+Both are now closed, and neither the way it was first written down.
+
+**Delegation-of-authority thresholds** were already implemented. "Under 50k the team lead,
+over 50k the CFO" is a value-banded matrix, and it is business policy — it changes far more
+often than the shape of the process does, so it is not in the diagram. A user task names a
+decision table through `assignment_decision_key` and takes its assignee from whatever that
+table decides: the process says *that* somebody approves, the table says who. The mechanism
+had unit tests and nothing that ran an instance through it; it does now
+(`authority_test.go`).
+
+The band is read once, when the task is created, and that is the last moment before the
+work exists — there is no API to amend an instance variable behind a task that is already
+open, so the approver a matrix chose cannot go stale under it. If one is ever added, that
+test needs a second half.
+
+`separation_of_duties` and the authority matrix answer different questions and compose:
+one is *not the same person as the step before*, the other is *who, given the number*.
+
+**The completion/migration race now has a reproducing test**, and writing it found the bug
+described in Class D. The seam is in the test, not in production code: a repository wrapper
+hooks `ListByDefinition` and runs the completion at the moment the migration's listing
+returns — which is precisely the window. No goroutines, no timing
+(`stalewrite_test.go`). The probabilistic test stays alongside it: it covers interleavings
+the deterministic one cannot name, and it is the one that caught this in CI.
 
 ---
 
