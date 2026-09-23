@@ -168,3 +168,38 @@ export function proposeMapping(diff: VersionDiff): Record<string, string> {
   if (removed.length !== 1 || added.length !== 1) return {};
   return { [removed[0].id]: added[0].id };
 }
+
+/**
+ * What changes for instances started after a version goes live.
+ *
+ * The diff says removed/added/changed between two versions. Promoting reads
+ * that forward and rolling back reads it in reverse, and the words have to
+ * follow: a step the version you are going back to still has is one that
+ * *returns*, not one that is new. Getting that backwards in a confirmation is
+ * how somebody rolls back believing they are rolling forward.
+ *
+ * Only what is visible in behaviour is listed. Nothing is said about instances
+ * already running, because nothing happens to them — they finish on the version
+ * they started on, which the dialog says separately and which is the fact
+ * people most often disbelieve.
+ */
+export function rolloutEffect(diff: VersionDiff, rollingBack: boolean): string[] {
+  const lines: string[] = [];
+  for (const change of diff.changes) {
+    const label = change.before?.name ?? change.after?.name ?? change.id;
+    switch (change.kind) {
+      case 'removed':
+        lines.push(`"${label}" is no longer a step.`);
+        break;
+      case 'added':
+        lines.push(rollingBack ? `"${label}" is a step again.` : `"${label}" is a new step.`);
+        break;
+      case 'changed':
+        lines.push(`"${label}" changes: ${change.differences.join('; ')}.`);
+        break;
+      default:
+        break;
+    }
+  }
+  return lines;
+}
