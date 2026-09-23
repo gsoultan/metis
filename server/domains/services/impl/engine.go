@@ -587,6 +587,11 @@ func (e *Engine) cancelOpenTasksForNode(ctx context.Context, instance *entities.
 			Node:      node,
 			Timestamp: time.Now().Unix(),
 			Variables: instance.Variables,
+			// Who it was taken from. The task row is in hand here and the
+			// person holding it is the only one who needs telling — the node's
+			// assignee is who the diagram nominated, which is not the same
+			// thing once somebody has claimed it.
+			Assignee: m.Assignee,
 		})
 	}
 	return nil

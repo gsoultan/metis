@@ -22,7 +22,7 @@ func NewNotificationObserver(notificationService serviceContracts.NotificationSe
 
 func (o *notificationObserver) OnEvent(ctx context.Context, event entities.ProcessEvent) {
 	switch event.Type {
-	case entities.EventTaskCreated, entities.EventTaskClaimed:
+	case entities.EventTaskCreated, entities.EventTaskClaimed, entities.EventTaskCanceled:
 		o.handleTaskEvent(ctx, event)
 	}
 }
@@ -68,9 +68,14 @@ func (o *notificationObserver) handleTaskEvent(ctx context.Context, event entiti
 // you already knew, and not when one arrived for you, which is the entire
 // point.
 func taskRecipients(event entities.ProcessEvent) []string {
-	// A hand-built event says who it is about, and more precisely than the node
-	// can: an assignment names the person it was assigned *to*, who is not
-	// whoever the diagram nominated.
+	// The event says who it is about, and more precisely than the node can:
+	// work taken back from whoever claimed it concerns them, not whoever the
+	// diagram nominated.
+	if event.Assignee != "" {
+		return []string{event.Assignee}
+	}
+	// The older way of saying the same thing, still used by claiming and
+	// assigning.
 	if assignee, ok := event.Variables["assignee"].(string); ok && assignee != "" {
 		return []string{assignee}
 	}
@@ -100,10 +105,14 @@ func taskRecipients(event entities.ProcessEvent) []string {
 }
 
 func taskNotificationTitle(event entities.ProcessEvent) string {
-	if event.Type == entities.EventTaskCreated {
+	switch event.Type {
+	case entities.EventTaskCanceled:
+		return "A task was withdrawn"
+	case entities.EventTaskCreated:
 		return "A task is waiting for you"
+	default:
+		return "Task Update"
 	}
-	return "Task Update"
 }
 
 // taskNotificationMessage names the work and the process it belongs to.
@@ -116,7 +125,19 @@ func taskNotificationMessage(event entities.ProcessEvent) string {
 	if event.Node != nil && event.Node.Name != "" {
 		taskName = fmt.Sprintf("%q", event.Node.Name)
 	}
-	if process := processName(event); process != "" {
+	process := processName(event)
+
+	// Work being taken away needs saying as plainly as work arriving. A task
+	// that vanishes from an inbox with no explanation is indistinguishable
+	// from one somebody else completed, or from a bug.
+	if event.Type == entities.EventTaskCanceled {
+		if process != "" {
+			return fmt.Sprintf("%s in %s is no longer needed and has been taken off your list.", taskName, process)
+		}
+		return fmt.Sprintf("%s is no longer needed and has been taken off your list.", taskName)
+	}
+
+	if process != "" {
 		return fmt.Sprintf("%s is waiting for you in %s.", taskName, process)
 	}
 	return fmt.Sprintf("%s is waiting for you.", taskName)

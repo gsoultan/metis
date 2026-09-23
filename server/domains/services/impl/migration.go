@@ -1213,6 +1213,7 @@ func (s *migrationService) cancelInstance(
 			if err := s.repo.Task().UpdateStatus(txCtx, uuid.UUID(task.ID), models.TaskCanceled); err != nil {
 				return err
 			}
+			s.announceWithdrawal(txCtx, task)
 		}
 		// Waiting events go with it. An instance that will never run again
 		// cannot honour a subscription, and leaving one means a message arrives
@@ -1251,8 +1252,48 @@ func (s *migrationService) cancelTasksOn(ctx context.Context, instanceID uuid.UU
 			if err := s.repo.Task().UpdateStatus(txCtx, uuid.UUID(task.ID), models.TaskCanceled); err != nil {
 				return err
 			}
+			s.announceWithdrawal(txCtx, task)
 		}
 		return nil
+	})
+}
+
+// announceWithdrawal says that a task was taken off somebody's list.
+//
+// Skipping a step and cancelling an instance both cancel work that is in
+// somebody's hands. The trail records why, which answers the auditor's question
+// but not the assignee's: from their side a task simply disappears, which looks
+// the same as somebody else completing it, or as a bug. The engine raises this
+// event when a boundary event withdraws a task; a migration withdrawing one is
+// the same thing happening for a different reason.
+func (s *migrationService) announceWithdrawal(ctx context.Context, task models.TaskModel) {
+	if s.engine == nil {
+		return
+	}
+	instance, err := s.engine.GetInstance(ctx, uuid.UUID(task.InstanceID))
+	if err != nil {
+		log.Warn().Err(err).Str("task", uuid.UUID(task.ID).String()).
+			Msg("A withdrawn task could not be announced; whoever held it will not be told")
+		return
+	}
+	// The definition on the instance is a reference rather than the whole
+	// graph, so the node has to be read from the definition itself — otherwise
+	// the event names the person but not the work, and "a task was withdrawn"
+	// with no task in it is not worth sending.
+	var node *entities.Node
+	if instance.Definition != nil {
+		if def, defErr := s.engine.GetProcessDefinition(ctx, instance.Definition.ID); defErr == nil && def != nil {
+			node = def.FindNode(task.NodeID)
+		}
+	}
+	s.engine.DispatchEvent(ctx, entities.ProcessEvent{
+		Type:      entities.EventTaskCanceled,
+		Instance:  &instance,
+		Project:   instance.Project,
+		Node:      node,
+		Timestamp: time.Now().Unix(),
+		Variables: instance.Variables,
+		Assignee:  task.Assignee,
 	})
 }
 
