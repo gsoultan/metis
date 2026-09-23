@@ -209,3 +209,35 @@ func TestSMTPConnectorDoesNotReportAnUndeliveredEmailAsSent(t *testing.T) {
 		t.Fatal("an email that was never handed to a server was reported as sent")
 	}
 }
+
+// TestSMTPConnectorSendsToEveryAddressItWasGiven.
+//
+// The connector documents 'to' as a comma-separated list, and the envelope has
+// to carry all of them: an address that only reaches the header is an address
+// the mail server never delivers to.
+func TestSMTPConnectorSendsToEveryAddressItWasGiven(t *testing.T) {
+	port, received := fakeSMTP(t)
+
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	_, err := svc.ExecuteConnector(context.Background(), "email-smtp",
+		map[string]any{
+			"host": "localhost",
+			"port": port,
+			"from": "noreply@example.com",
+		},
+		map[string]any{
+			// Spacing and a trailing separator, because a list typed by a
+			// person has both.
+			"to":      "approver@example.com, cfo@example.com ,",
+			"subject": "Claim C-42 needs approval",
+			"body":    "The claim is over the limit.",
+		})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	mail := received()
+	if len(mail.to) != 2 || mail.to[0] != "approver@example.com" || mail.to[1] != "cfo@example.com" {
+		t.Errorf("envelope recipients: got %v, want both addresses and nothing empty", mail.to)
+	}
+}
