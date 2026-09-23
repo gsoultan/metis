@@ -34,6 +34,7 @@ type service struct {
 	contracts.GroupService
 	contracts.SetupService
 	contracts.NotificationService
+	contracts.SimulationService
 }
 
 type ServiceParams struct {
@@ -59,6 +60,7 @@ type ServiceParams struct {
 	GroupService           contracts.GroupService
 	SetupService           contracts.SetupService
 	NotificationService    contracts.NotificationService
+	SimulationService      contracts.SimulationService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -85,6 +87,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		GroupService:           p.GroupService,
 		SetupService:           p.SetupService,
 		NotificationService:    p.NotificationService,
+		SimulationService:      p.SimulationService,
 	}
 }
 
@@ -172,6 +175,28 @@ func NewServiceFacade(
 	// its source keeps running something an administrator removed.
 	defSvc.InvalidateWith(engine.ForgetDefinitions)
 
+	// Simulation gets a *fresh* engine per run, built from the same parts as the
+	// real one so it cannot quietly differ from it, but with two of them
+	// swapped: its own dispatcher, so nothing fans out to browsers, webhooks or
+	// notifications, and its own job service, so no connector is ever called and
+	// no timer ever sleeps. The run itself is rolled back; see simulation.go.
+	simulationSvc := serviceimpl.NewSimulationService(repo, func(
+		dispatcher observercontracts.EventDispatcher,
+		jobs contracts.JobService,
+	) contracts.ExecutionEngine {
+		simEngine := serviceimpl.NewExecutionEngine(repo, dispatcher)
+		simTaskSvc := serviceimpl.NewTaskService(repo, simEngine, auditWriter)
+		simExternalTaskSvc := serviceimpl.NewExternalTaskService(repo, simEngine)
+		simEngine.Apply(
+			serviceimpl.WithJobService(jobs),
+			serviceimpl.WithHandlerFactory(impl.NewNodeHandlerFactory(
+				simEngine, simTaskSvc, jobs, simExternalTaskSvc,
+				decisionSvc, connectorSvc, repo.Subscription(), auditWriter,
+			)),
+		)
+		return simEngine
+	})
+
 	return NewService(ServiceParams{
 		OrganizationService:    orgSvc,
 		ProjectService:         projectSvc,
@@ -195,6 +220,7 @@ func NewServiceFacade(
 		GroupService:           groupSvc,
 		SetupService:           setupSvc,
 		NotificationService:    notificationSvc,
+		SimulationService:      simulationSvc,
 	})
 }
 

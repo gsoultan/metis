@@ -21,6 +21,7 @@ import {
   Badge,
   Notification,
   Box,
+  SegmentedControl,
   Tooltip,
   ScrollArea,
   Title,
@@ -43,8 +44,14 @@ import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
 import { DeployVersionModal } from '../components/DeployVersionModal';
 import { nodeTypes } from '../components/bpmnNodeTypes';
-import { useSearch } from '@tanstack/react-router';
+import { SimulationAnswerCard, SimulationRail, SimulationTransport } from '../components/simulation';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useCallback, useMemo } from 'react';
+import { decorateEdges, decorateNodes } from '../domain/simulationCanvas';
+import { answerKindFor, type SimulationTarget } from '../domain/simulationScenario';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
+import { useSimulation } from '../hooks/useSimulation';
+import { useAppStore } from '../store/useAppStore';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 export function ProcessDesigner({
@@ -104,6 +111,79 @@ export function ProcessDesigner({
    */
   const blockingIssues = issues.filter((issue) => issue.severity === 'error').length;
 
+  /*
+   * Simulation mode.
+   *
+   * Only a *deployed* definition can be simulated: the run happens on the
+   * server, on the real engine, against a version instances actually pin. A
+   * canvas that has never been deployed has no version for the engine — or for
+   * a CI pipeline — to name, so the sidebar says so rather than offering a
+   * button that cannot work.
+   */
+  const navigate = useNavigate();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const simulating = search.mode === 'simulate';
+
+  const simulationTarget = useMemo<SimulationTarget | null>(() => {
+    if (currentProjectId === null || !definitionId) return null;
+    // Version 0 is "whatever is live", which is what somebody simulating from
+    // the designer means when they have not said otherwise.
+    return { kind: 'deployed', projectId: currentProjectId, definitionKey: processKey, version: 0 };
+  }, [currentProjectId, definitionId, processKey]);
+
+  const sim = useSimulation(simulationTarget);
+
+  /*
+   * The canvas the simulation draws on is the designer's own, dressed. Nothing
+   * about the model changes — only opacity, outlines and which edges animate —
+   * so switching back to Design leaves exactly what was there.
+   */
+  const decoration = useMemo(
+    () => ({
+      // Dressed as soon as the mode is on, not only once a run exists: the
+      // answers somebody has already given show on the diagram before the first
+      // Run, which is how they can see what is set up.
+      active: simulating,
+      nodeStates: sim.nodeStates,
+      flowStates: sim.flowStates,
+      tokens: sim.step?.tokens ?? [],
+      awaiting: sim.editing ?? sim.run?.awaitingNode ?? null,
+      answered: sim.answered,
+    }),
+    [simulating, sim.nodeStates, sim.flowStates, sim.step, sim.editing, sim.run, sim.answered],
+  );
+
+  const canvasNodes = useMemo(() => decorateNodes(nodes, decoration), [nodes, decoration]);
+  const canvasEdges = useMemo(() => decorateEdges(edges, decoration), [edges, decoration]);
+
+  /*
+   * Clicking a step in simulate mode answers it.
+   *
+   * Only steps that have something outside them to answer for — a person, a
+   * service, a message. A gateway or a decision table runs for real, so there
+   * is nothing to say about it and clicking one does nothing rather than
+   * opening an empty card.
+   */
+  const answerNode = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      const kind = answerKindFor(node?.type);
+      if (kind === null) return;
+      sim.startAnswering(nodeId, kind);
+    },
+    [nodes, sim],
+  );
+
+  const onSimulationNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node<BPMNNodeData>) => answerNode(node.id),
+    [answerNode],
+  );
+
+  const awaitingNode = sim.editing;
+  const awaitingLabel = useMemo(() => {
+    const found = nodes.find((node) => node.id === awaitingNode);
+    return typeof found?.data.label === 'string' ? found.data.label : (awaitingNode ?? '');
+  }, [nodes, awaitingNode]);
 
   return (
     <Box h="calc(100vh - 60px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -164,12 +244,34 @@ export function ProcessDesigner({
             </Group>
           </Stack>
           <Group>
-            <Button 
-              variant="light" 
-              color="indigo" 
+            {/*
+              Two halves of one screen rather than two screens: you simulate the
+              thing you are editing, on the diagram you are looking at. In the
+              URL so the mode is linkable.
+            */}
+            <SegmentedControl
+              size="xs"
+              value={simulating ? 'simulate' : 'design'}
+              onChange={(value) =>
+                navigate({
+                  to: '/designer',
+                  search: { ...search, mode: value as 'design' | 'simulate' },
+                  replace: true,
+                })
+              }
+              data={[
+                { value: 'design', label: 'Design' },
+                { value: 'simulate', label: 'Simulate' },
+              ]}
+              aria-label="Design or simulate this process"
+            />
+            <Button
+              variant="light"
+              color="indigo"
               size="xs"
               leftSection={<LayoutGrid size={14} />}
               onClick={openComponents}
+              disabled={simulating}
             >
               Add step
             </Button>
@@ -232,11 +334,12 @@ export function ProcessDesigner({
         </Group>
       </Box>
 
-      <Box style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <Box style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+        <Box style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
         <ReactFlow<Node<BPMNNodeData>, Edge<BPMNEdgeData>>
           proOptions={{ hideAttribution: true }}
-          nodes={nodes}
-          edges={edges}
+          nodes={canvasNodes}
+          edges={canvasEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -244,10 +347,10 @@ export function ProcessDesigner({
           onMouseMove={onMouseMove}
           onDrop={onDrop}
           onDragOver={onDragOver}
-          onNodeClick={onNodeClick}
+          onNodeClick={simulating ? onSimulationNodeClick : onNodeClick}
           onNodeDragStop={onNodeDragStop}
           onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
+          onPaneClick={simulating ? sim.stopAnswering : onPaneClick}
           nodeTypes={nodeTypes}
           fitView
           style={{ width: '100%', height: '100%' }}
@@ -438,21 +541,55 @@ export function ProcessDesigner({
               </Paper>
             </Panel>
           )}
+
+          {/*
+            The question a step is asking, anchored to the step. NodeToolbar has
+            to live inside ReactFlow to know where its node is, which is why it
+            is here rather than beside the rail.
+          */}
+          {simulating && awaitingNode !== null && (
+            <SimulationAnswerCard sim={sim} nodeId={awaitingNode} label={awaitingLabel} />
+          )}
         </ReactFlow>
 
-        <PropertyPanel
-          selectedNode={selectedNode}
-          selectedEdge={selectedEdge}
-          onClose={designer.closeSelection}
-          onDelete={deleteSelected}
-          updateNodeData={updateNodeData}
-          updateEdgeData={updateEdgeData}
-          nodes={nodes}
-          edges={edges}
-          instanceId={instanceId}
-          onViewInstance={onViewInstance}
-        />
+        {/*
+          The property panel edits the model, which is not what this mode is
+          for — and a run is a trace of the model as it was when the run
+          started. Editing mid-trace would leave the canvas showing a diagram
+          the steps below it never ran on.
+        */}
+        {!simulating && (
+          <PropertyPanel
+            selectedNode={selectedNode}
+            selectedEdge={selectedEdge}
+            onClose={designer.closeSelection}
+            onDelete={deleteSelected}
+            updateNodeData={updateNodeData}
+            updateEdgeData={updateEdgeData}
+            nodes={nodes}
+            edges={edges}
+            instanceId={instanceId}
+            onViewInstance={onViewInstance}
+          />
+        )}
+        </Box>
+
+        {simulating && (
+          <Box
+            w={340}
+            style={{
+              flexShrink: 0,
+              overflow: 'hidden',
+              borderLeft: '1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))',
+              backgroundColor: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-7))',
+            }}
+          >
+            <SimulationRail sim={sim} target={simulationTarget} onAnswerAwaiting={answerNode} />
+          </Box>
+        )}
       </Box>
+
+      {simulating && <SimulationTransport sim={sim} />}
 
       <DesignerModals
         checklistOpened={checklistOpened}

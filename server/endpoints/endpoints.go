@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
 	"github.com/gsoultan/metis/server/endpoints/setup"
+	"github.com/gsoultan/metis/server/endpoints/simulation"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/endpoints/user"
 	"github.com/gsoultan/metis/server/endpoints/webhook"
@@ -46,6 +47,7 @@ type Endpoints struct {
 	User              user.Endpoints
 	Group             group.Endpoints
 	Notification      notification.Endpoints
+	Simulation        simulation.Endpoints
 }
 
 // Failer is an interface that should be implemented by response types that can fail.
@@ -307,6 +309,18 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	notificationEndpoints.MarkAllAsRead = protected("MarkAllAsRead")(notificationEndpoints.MarkAllAsRead)
 	notificationEndpoints.DeleteNotification = protected("DeleteNotification")(notificationEndpoints.DeleteNotification)
 
+	// Simulation runs an authored definition and reports which gateway fired and
+	// which rule matched — the contents of the model, not just its name. That is
+	// the designer's own material, and simulating is an authoring activity, so it
+	// sits on the same gate as authoring rather than on plain `protected`.
+	//
+	// It is also the most expensive endpoint here: each run holds a database
+	// transaction for its length. Restricting it to the roles that have a reason
+	// to call it is the cheap half of not letting it become an amplifier.
+	simulationEndpoints := simulation.MakeEndpoints(s)
+	simulationEndpoints.Simulate = designer("Simulate")(simulationEndpoints.Simulate)
+	simulationEndpoints.SimulateBatch = designer("SimulateBatch")(simulationEndpoints.SimulateBatch)
+
 	return Endpoints{
 		Collaboration:     collaborationEndpoints,
 		Connector:         connectorEndpoints,
@@ -327,5 +341,6 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		User:              userEndpoints,
 		Group:             groupEndpoints,
 		Notification:      notificationEndpoints,
+		Simulation:        simulationEndpoints,
 	}
 }

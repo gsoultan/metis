@@ -44,4 +44,10 @@ type ServiceFacade interface {
 	serviceContracts.GroupService
 	serviceContracts.SetupService
 	serviceContracts.NotificationService
+
+	// SimulationService runs a deployed definition on the real engine against a
+	// virtual clock, persisting nothing and calling nothing. It is on the facade
+	// because it is a first-class product surface — the Go SDK calls it, and CI
+	// gates on it — not a test affordance.
+	serviceContracts.SimulationService
 }
