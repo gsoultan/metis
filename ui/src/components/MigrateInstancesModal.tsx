@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { AlertTriangle, ArrowRight, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   actionConsequence,
@@ -30,7 +30,8 @@ import {
   toNodeMapping,
 } from '../domain/instanceMigration';
 import type { ActionRow } from '../domain/instanceMigration';
-import { useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
+import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
+import { useDefinition, useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiMigrationPlan, NodeActionKind } from '../services/types';
 
@@ -81,6 +82,18 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // node that carries both, and merging them here would hide that.
   const [actionRows, setActionRows] = useState<ActionRow[]>([]);
 
+  // Both versions, so the mapping can be picked from what actually exists
+  // rather than typed. The node ids are on the definitions already; nothing new
+  // is fetched that the designer does not fetch too.
+  const before = useDefinition(source?.id ?? null);
+  const after = useDefinition(target?.id ?? null);
+  const diff = useMemo(
+    () => diffVersions(before.data?.definition ?? null, after.data?.definition ?? null),
+    [before.data?.definition, after.data?.definition],
+  );
+  const gone = removedNodes(diff);
+  const landing = landingChoices(diff);
+
   const preview = usePlanInstanceMigration();
   const apply = useMigrateInstances();
 
@@ -121,6 +134,17 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     // render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted), JSON.stringify(actionRows)]);
+
+  // One step out and one in is a rename, and the only reading of it — so it is
+  // filled in. Anything less certain is left blank on purpose: a wrong guess
+  // pre-filled is the row nobody re-reads.
+  useEffect(() => {
+    const proposed = proposeMapping(diff);
+    const entries = Object.entries(proposed);
+    if (entries.length === 0) return;
+    setRows((current) => (current.length > 0 ? current
+      : entries.map(([from, to]) => ({ id: nextRowId++, from, to }))));
+  }, [diff]);
 
   // A mapping edit invalidates every acknowledgement made against the old one.
   useEffect(() => {
@@ -188,6 +212,63 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         )}
 
         {plan && <Text size="sm">{planSummary(plan)}</Text>}
+
+        {/*
+          What actually changed between the two versions.
+          
+          The mapping below asks where the work on a removed step should go, and
+          answering that without seeing the diff meant reading node ids off a
+          diagram in another tab. Removed steps come first because those are the
+          ones holding work; changed ones next, because a step whose approver
+          moved alters what the migration means even though nothing has to be
+          mapped for it.
+        */}
+        {(before.isLoading || after.isLoading) && (
+          <Group gap="xs">
+            <Loader size="xs" />
+            <Text size="sm" c="dimmed">Comparing the two versions…</Text>
+          </Group>
+        )}
+        {!before.isLoading && !after.isLoading && diff.changes.length > 0 && (
+          <Stack gap={4}>
+            <Group gap="xs" justify="space-between">
+              <Text size="sm" fw={600}>What changed</Text>
+              <Text size="xs" c="dimmed">{diffSummary(diff)}</Text>
+            </Group>
+            <Table verticalSpacing="xs" horizontalSpacing="sm">
+              <Table.Tbody>
+                {diff.changes
+                  .filter((change) => change.kind !== 'unchanged')
+                  .map((change) => (
+                    <Table.Tr key={change.id}>
+                      <Table.Td width={110}>
+                        <Badge
+                          size="sm"
+                          variant="light"
+                          color={
+                            change.kind === 'removed' ? 'red' : change.kind === 'added' ? 'green' : 'yellow'
+                          }
+                        >
+                          {change.kind}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="xs" ff="monospace">{change.id}</Text>
+                        {(change.before?.name ?? change.after?.name) && (
+                          <Text size="xs" c="dimmed">{change.before?.name ?? change.after?.name}</Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        {change.differences.map((difference) => (
+                          <Text key={difference} size="xs" c="dimmed">{difference}</Text>
+                        ))}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+              </Table.Tbody>
+            </Table>
+          </Stack>
+        )}
 
         {refused && (
           <Alert color="red" icon={<AlertTriangle size={16} />} radius="md">
@@ -403,32 +484,42 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
             </Button>
           </Group>
           <Text size="xs" c="dimmed">
-            Only needed where a node changed id. Anything you do not list is carried across
+            Only needed where a step changed id. Anything you do not list is carried across
             unchanged.
           </Text>
           {rows.map((row, index) => (
             <Group key={row.id} gap="xs" wrap="nowrap">
-              <TextInput
+              <Select
                 size="xs"
-                placeholder="node in v{source?.version}"
+                placeholder={`step in v${source?.version}`}
                 aria-label={`Node in the old version, row ${index + 1}`}
-                value={row.from}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRows((current) => current.map((r, i) => (i === index ? { ...r, from: value } : r)));
+                data={gone.map((change) => ({
+                  value: change.id,
+                  label: change.before?.name ? `${change.before.name} (${change.id})` : change.id,
+                }))}
+                value={row.from === '' ? null : row.from}
+                onChange={(value) => {
+                  const next = value ?? '';
+                  setRows((current) => current.map((r, i) => (i === index ? { ...r, from: next } : r)));
                 }}
+                searchable
                 style={{ flex: 1 }}
               />
               <ArrowRight size={14} />
-              <TextInput
+              <Select
                 size="xs"
-                placeholder="node in the new version"
+                placeholder={`step in v${target?.version}`}
                 aria-label={`Node in the new version, row ${index + 1}`}
-                value={row.to}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setRows((current) => current.map((r, i) => (i === index ? { ...r, to: value } : r)));
+                data={landing.map((node) => ({
+                  value: node.id,
+                  label: node.name ? `${node.name} (${node.id})` : node.id,
+                }))}
+                value={row.to === '' ? null : row.to}
+                onChange={(value) => {
+                  const next = value ?? '';
+                  setRows((current) => current.map((r, i) => (i === index ? { ...r, to: next } : r)));
                 }}
+                searchable
                 style={{ flex: 1 }}
               />
               <Tooltip label="Remove this mapping">
