@@ -661,7 +661,7 @@ func (a *App) setupService(ctx context.Context) error {
 		}
 	})
 
-	dispatcher.Register(impl.NewNotificationObserver(a.svc))
+	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery()))
 
 	// How the event stream works out who a background event is for. The job
 	// worker and the timer sweep run under a system context with no tenant on
@@ -1218,4 +1218,44 @@ func sharedRateLimit(limiter contracts.TransportInterceptor) contracts.Transport
 	}
 	sharer.ShareVia(sharedHTTPLimit)
 	return limiter
+}
+
+// notificationDelivery decides how a notification leaves the application.
+//
+// The notification centre is only read by somebody already looking at it, and
+// the point of telling people a task is theirs is to reach them when they are
+// not. Both channels are opt-in through the environment, in the same shape as
+// WEBHOOK_ENDPOINTS: configure nothing and this is the plain service, which is
+// what every installation had before.
+func (a *App) notificationDelivery() servicecontracts.NotificationService {
+	var channels []serviceimpl.NotificationChannel
+
+	if url := envvar.Get("NOTIFICATION_WEBHOOK_URL"); url != "" {
+		channels = append(channels, serviceimpl.NewWebhookNotificationChannel(url))
+		log.Info().Msg("Notifications will also be posted to a webhook")
+	}
+
+	mail := serviceimpl.EmailSettings{
+		Host:     envvar.Get("NOTIFICATION_SMTP_HOST"),
+		Port:     envvar.Get("NOTIFICATION_SMTP_PORT"),
+		Username: envvar.Get("NOTIFICATION_SMTP_USERNAME"),
+		Password: envvar.Get("NOTIFICATION_SMTP_PASSWORD"),
+		From:     envvar.Get("NOTIFICATION_SMTP_FROM"),
+	}
+	if mail.Configured() {
+		// The address comes from the account, looked up when the notification
+		// is sent rather than carried on it: a notification names a username,
+		// and where that person reads their mail is not the engine's to cache.
+		channels = append(channels, serviceimpl.NewEmailNotificationChannel(mail,
+			func(ctx context.Context, username string) (string, error) {
+				user, err := a.svc.GetUserByUsername(ctx, username)
+				if err != nil {
+					return "", err
+				}
+				return user.Email, nil
+			}))
+		log.Info().Str("host", mail.Host).Msg("Notifications will also be emailed")
+	}
+
+	return serviceimpl.NewDeliveringNotificationService(a.svc, channels...)
 }
