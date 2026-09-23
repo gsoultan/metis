@@ -12,6 +12,9 @@ const (
 	ProcessCompleted ProcessStatus = "completed"
 	ProcessSuspended ProcessStatus = "suspended"
 	ProcessFailed    ProcessStatus = "failed"
+	// ProcessCancelled is an instance somebody ended deliberately. See
+	// entities.ProcessCancelled for why it is not "completed".
+	ProcessCancelled ProcessStatus = "cancelled"
 )
 
 // ProcessStatuses is every state an instance may be in.
@@ -25,6 +28,7 @@ var ProcessStatuses = []ProcessStatus{
 	ProcessCompleted,
 	ProcessSuspended,
 	ProcessFailed,
+	ProcessCancelled,
 }
 
 // ValidProcessStatus reports whether s names a state an instance can be in.

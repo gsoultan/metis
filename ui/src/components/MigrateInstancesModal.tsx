@@ -5,6 +5,7 @@ import {
   Button,
   Checkbox,
   Group,
+  Select,
   Loader,
   Modal,
   Stack,
@@ -18,17 +19,20 @@ import { AlertTriangle, ArrowRight, Plus, ShieldAlert, Trash2 } from 'lucide-rea
 import { useEffect, useState } from 'react';
 
 import {
+  actionConsequence,
   carriedNodes,
   heldTasksAffected,
   isApplicable,
   movedNodes,
   planSummary,
   removedNodesSummary,
+  toNodeActions,
   toNodeMapping,
 } from '../domain/instanceMigration';
+import type { ActionRow } from '../domain/instanceMigration';
 import { useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
 import { errorMessage } from '../services/shared/errors';
-import type { ApiMigrationPlan } from '../services/types';
+import type { ApiMigrationPlan, NodeActionKind } from '../services/types';
 
 /** A version, as this dialog needs to name it. */
 export interface MigrationVersionRef {
@@ -72,6 +76,10 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // acknowledgement is of a specific plan, and carrying it across an edit is
   // how somebody accepts something they never read.
   const [accepted, setAccepted] = useState<string[]>([]);
+  // Nodes whose work is decided rather than moved. Separate state from the
+  // mapping rows because they are separate instructions: the server refuses a
+  // node that carries both, and merging them here would hide that.
+  const [actionRows, setActionRows] = useState<ActionRow[]>([]);
 
   const preview = usePlanInstanceMigration();
   const apply = useMigrateInstances();
@@ -89,7 +97,13 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     }
     let cancelled = false;
     preview
-      .mutateAsync({ source: source.id, target: target.id, mapping: toNodeMapping(rows), acknowledge: accepted })
+      .mutateAsync({
+        source: source.id,
+        target: target.id,
+        mapping: toNodeMapping(rows),
+        acknowledge: accepted,
+        actions: toNodeActions(actionRows),
+      })
       .then((result) => {
         if (cancelled) return;
         setPlan(result.plan ?? null);
@@ -106,7 +120,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     // preview is a stable mutation object; including it would refetch on every
     // render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted)]);
+  }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted), JSON.stringify(actionRows)]);
 
   // A mapping edit invalidates every acknowledgement made against the old one.
   useEffect(() => {
@@ -122,6 +136,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         target: target.id,
         mapping: toNodeMapping(rows),
         acknowledge: accepted,
+        actions: toNodeActions(actionRows),
       });
       if (result.err) {
         setRefused(result.err);
@@ -287,6 +302,84 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
             )}
           </Stack>
         )}
+
+        {/*
+          Deciding work, as opposed to moving it. A mapping can only answer
+          "where does this go"; removing an approval asks whether the pending
+          approval counts as given or as void, and the only way to say the first
+          with a mapping alone is to point the task at somebody else's step.
+        */}
+        <Stack gap={6}>
+          <Group gap="xs" justify="space-between">
+            <Text size="sm" fw={600}>Decide instead of moving</Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              leftSection={<Plus size={12} />}
+              onClick={() => setActionRows((current) => [...current, { from: '', kind: '', reason: '' }])}
+            >
+              Add
+            </Button>
+          </Group>
+          {actionRows.length === 0 && (
+            <Text size="xs" c="dimmed">
+              Skip a step to advance past it as though it had been done, or cancel to end the
+              instances waiting there. Both are recorded against your name.
+            </Text>
+          )}
+          {actionRows.map((row, index) => {
+            const update = (patch: Partial<ActionRow>) =>
+              setActionRows((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+            return (
+              <Stack key={index} gap={4}>
+                <Group gap="xs" wrap="nowrap" align="flex-start">
+                  <Select
+                    size="xs"
+                    aria-label="Step to decide"
+                    placeholder="Step"
+                    data={(plan?.removed_nodes ?? []).map((node) => ({ value: node, label: node }))}
+                    value={row.from === '' ? null : row.from}
+                    onChange={(value) => update({ from: value ?? '' })}
+                    searchable
+                    style={{ flex: 1 }}
+                  />
+                  <Select
+                    size="xs"
+                    aria-label="What to do with it"
+                    placeholder="Do what"
+                    data={[
+                      { value: 'skip', label: 'Skip it' },
+                      { value: 'cancel', label: 'End the instance' },
+                      { value: 'hold', label: 'Leave for a person' },
+                    ]}
+                    value={row.kind === '' ? null : row.kind}
+                    onChange={(value) => update({ kind: (value ?? '') as NodeActionKind | '' })}
+                    style={{ width: 150 }}
+                  />
+                  <TextInput
+                    size="xs"
+                    aria-label="Reason"
+                    placeholder="Why — recorded on every instance"
+                    value={row.reason}
+                    onChange={(event) => update({ reason: event.currentTarget.value })}
+                    style={{ flex: 2 }}
+                  />
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setActionRows((current) => current.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 size={14} />
+                  </ActionIcon>
+                </Group>
+                {row.from !== '' && row.kind !== '' && (
+                  <Text size="xs" c="dimmed">{actionConsequence(row.kind, row.from)}</Text>
+                )}
+              </Stack>
+            );
+          })}
+        </Stack>
 
         {carried.length > 0 && (
           <Group gap={4}>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  actionConsequence,
   carriedNodes,
   hasAdvisories,
   heldTasksAffected,
@@ -9,6 +10,7 @@ import {
   planSummary,
   removedNodesSummary,
   tasksAffected,
+  toNodeActions,
   toNodeMapping,
   workOn,
 } from './instanceMigration';
@@ -110,6 +112,29 @@ describe('instanceMigration', () => {
     expect(hasAdvisories(warned)).toBe(true);
     expect(hasAdvisories(plan())).toBe(false);
     expect(hasAdvisories(null)).toBe(false);
+  });
+
+  it('drops action rows nobody has finished, including the reason', () => {
+    // The reason is not decoration: without it the trail cannot tell a skipped
+    // approval from one somebody gave, and the server refuses it for that.
+    expect(
+      toNodeActions([
+        { from: 'opsApprove', kind: 'skip', reason: 'role eliminated' },
+        { from: 'other', kind: 'skip', reason: '   ' },
+        { from: 'third', kind: '', reason: 'a reason' },
+        { from: '  ', kind: 'cancel', reason: 'a reason' },
+      ]),
+    ).toEqual({ opsApprove: { kind: 'skip', reason: 'role eliminated' } });
+  });
+
+  it('describes a decision by what happens to the work, not to the token', () => {
+    expect(actionConsequence('skip', 'opsApprove')).toContain('advance to the next step');
+    expect(actionConsequence('cancel', 'opsApprove')).toContain('end here');
+    expect(actionConsequence('cancel', 'opsApprove')).toContain('keeps the version they ran');
+    // A hold is the one that changes nothing about the instance, only where it
+    // is visible, and the wording has to carry that.
+    expect(actionConsequence('hold', 'opsApprove')).toContain('left exactly as they are');
+    expect(actionConsequence('hold', 'opsApprove')).toContain('incidents');
   });
 
   it('says what a removed step stops setting, not just that it is gone', () => {

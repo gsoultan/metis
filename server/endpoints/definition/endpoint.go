@@ -322,8 +322,18 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 		// The actor is read even for a dry run, so a preview shows the same
 		// refusals the apply would make rather than a friendlier set.
+		selected := make([]uuid.UUID, 0, len(req.Instances))
+		for _, raw := range req.Instances {
+			id, parseErr := uuid.Parse(raw)
+			if parseErr != nil {
+				return MigrateInstancesResponse{Err: apierr.Invalidf("instances contains %q, which is not a valid identifier", raw)}, nil
+			}
+			selected = append(selected, id)
+		}
 		opts := []servicecontracts.MigrationOption{
 			servicecontracts.WithAcknowledgedHolds(req.Acknowledge...),
+			servicecontracts.WithNodeActions(req.NodeActions),
+			servicecontracts.WithInstances(selected...),
 		}
 		if actor, actorErr := principal.Username(ctx); actorErr == nil {
 			opts = append(opts, servicecontracts.WithActor(actor))

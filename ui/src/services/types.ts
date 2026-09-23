@@ -235,8 +235,34 @@ export interface ApiNodeMove {
    */
   tasks_claimed?: number;
   tasks_delegated?: number;
+  /**
+   * Message or signal subscriptions waiting on this node.
+   *
+   * Counted apart from jobs because a subscription is a promise to somebody
+   * outside the process: a timer that does not fire is a delay, a message that
+   * correlates to nothing is a caller who never gets an answer.
+   */
+  events?: number;
   /** False when the node keeps its id and is carried over without a mapping. */
   mapped: boolean;
+}
+
+/** What a migration does with the work on one node instead of moving it. */
+export type NodeActionKind = 'skip' | 'cancel' | 'hold';
+
+/** One node whose work a migration decides rather than moves. */
+export interface ApiNodeAction {
+  kind: NodeActionKind;
+  /** Why. Required: without it the trail cannot tell a skipped step from a performed one. */
+  reason: string;
+}
+
+/** One decided node, as the plan reports it back. */
+export interface ApiPlannedNodeAction {
+  node_id: string;
+  name?: string;
+  kind: NodeActionKind;
+  reason?: string;
 }
 
 /** One control-bearing step a migration would drop. */
@@ -267,6 +293,14 @@ export interface ApiMigrationPlan {
    * past too.
    */
   warnings?: string[];
+  /**
+   * Nodes whose work this migration decides rather than moves.
+   *
+   * Reported back so a preview shows the decisions as prominently as the moves:
+   * "two instances move" and "two instances have an approval skipped" must not
+   * read identically.
+   */
+  actions?: ApiPlannedNodeAction[];
   /**
    * Control-bearing steps this migration would take away from instances that
    * have not performed them yet.
