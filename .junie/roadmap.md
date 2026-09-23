@@ -263,13 +263,31 @@
         `tests/connector/smtp_test.go` runs an in-process server and asserts the
         envelope sender, recipient, subject header and body. Hermetic, so it needs
         no gating and always runs.
-  - [ ] **Two publish paths in `messaging.go` still have no confirm.** The
-        external-task bridge (`messaging.go:150`) stalls a task until its lock
-        expires while logging "Forwarded external task to RabbitMQ"; the inbound
-        dead-letter publish (`messaging.go:233`) routes correctly — the DLQ is
-        declared durable at line 223 — but an inbound message is auto-acked
-        before it, so a broker-side rejection loses it. Neither is the connector's
-        "advertised configuration delivers nothing", which is why they were left.
+  - [x] **Both publish paths in `messaging.go` confirm now.** The logic the
+        connector already had — publisher confirms plus mandatory delivery, so a
+        message the broker refused or could not route is an error rather than
+        silence — was written out inside the connector and used by nothing else.
+        It now lives in `amqp_confirm.go`, and all three publish paths share it;
+        the connector's broker-backed tests cover the shared code.
+        - The external-task bridge no longer logs "Forwarded external task to
+          RabbitMQ" over a task that never left. A publish the broker did not
+          accept hands the task back through `HandleFailure` instead of letting
+          it sit locked for the full 30s, so the engine's own retry decides what
+          happens next.
+        - The inbound consumer acknowledged every message the moment the broker
+          handed it over, so every path that tried to preserve a message it
+          could not process was preserving one the broker had already forgotten.
+          It takes manual acknowledgement with a prefetch of one and settles
+          each message on the outcome: parked in the DLQ is an ack, a DLQ
+          publish that failed is a requeue, and a dispatch abandoned because the
+          engine is shutting down is a requeue rather than the silent drop it
+          used to be.
+        - Covered without a broker, so it always runs:
+          `TestAMessageTheDeadLetterQueueRefusesIsNotAcknowledged`,
+          `TestAMessageParkedInTheDeadLetterQueueIsAcknowledged`,
+          `TestAnUnreadableMessageTheDeadLetterQueueRefusesIsNotAcknowledged`,
+          and the shutdown case folded into the existing dispatch-timeout test.
+          All four verified to fail against the previous behaviour.
 
 - [ ] 7. User-Friendly UX Roadmap
   - [x] Business Timeline audit log: `AuditWriter` contract + `narrativeFor` narrative generator + lifecycle hooks for all task events (Claim/Unclaim/Complete/Assign/Delegate/Create).

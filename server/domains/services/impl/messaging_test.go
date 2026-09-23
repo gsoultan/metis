@@ -294,7 +294,7 @@ func TestMessagingServiceProcessInboundDeliveryDispatchTimeoutIsNotMovedToDLQ(t 
 		inboundDispatchTimeout: 20 * time.Millisecond,
 	}
 
-	err := svc.processInboundDelivery(
+	outcome, err := svc.processInboundDelivery(
 		ctx,
 		uuid.New(),
 		"incoming-queue",
@@ -317,6 +317,13 @@ func TestMessagingServiceProcessInboundDeliveryDispatchTimeoutIsNotMovedToDLQ(t 
 
 	if publishCalls != 0 {
 		t.Fatalf("expected no DLQ publishes, got %d", publishCalls)
+	}
+
+	// A dispatch that ran out of time because the engine is stopping is nobody
+	// refusing the message — it is nobody getting to it. It used to be
+	// auto-acknowledged on the way out, which lost it.
+	if outcome != requeueDelivery {
+		t.Fatalf("a message abandoned at shutdown was not requeued (outcome %v)", outcome)
 	}
 }
 
@@ -444,7 +451,7 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 				},
 			}
 
-			err := svc.processInboundDelivery(ctx, testProjectID, "incoming-queue", "incoming-queue.dlq", "message.name", tc.delivery, func(_ context.Context, queueName string, message amqp.Publishing) error {
+			_, err := svc.processInboundDelivery(ctx, testProjectID, "incoming-queue", "incoming-queue.dlq", "message.name", tc.delivery, func(_ context.Context, queueName string, message amqp.Publishing) error {
 				publishCalls = append(publishCalls, struct {
 					queueName string
 					message   amqp.Publishing
@@ -510,5 +517,118 @@ func TestMessagingServiceProcessInboundDelivery(t *testing.T) {
 				t.Fatalf("expected original_queue %q, got %q", "incoming-queue", originalQueue)
 			}
 		})
+	}
+}
+
+// Losing a message the dead-letter queue would not take.
+//
+// The consumer acknowledged every message the moment the broker handed it over,
+// so the dead-letter publish below was standing in for a message the broker had
+// already forgotten. When that publish failed, nothing anywhere had the
+// message: not the queue, not the DLQ, not the engine.
+func TestAMessageTheDeadLetterQueueRefusesIsNotAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				return errors.New("no process is listening")
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	outcome, err := svc.processInboundDelivery(
+		t.Context(),
+		uuid.New(),
+		"incoming-queue",
+		"incoming-queue.dlq",
+		"message.name",
+		amqp.Delivery{Body: []byte(`{"correlation_key":"corr-1","value":"x"}`)},
+		func(context.Context, string, amqp.Publishing) error {
+			return errors.New("the broker refused the dead-letter message")
+		},
+	)
+
+	if err == nil {
+		t.Fatal("a dispatch failure whose dead-letter publish also failed reported success")
+	}
+	if outcome != requeueDelivery {
+		t.Fatalf("the message was acknowledged (outcome %v) after the dead-letter queue refused it; "+
+			"nothing would have been holding it", outcome)
+	}
+}
+
+// The counterpart: once the dead-letter queue has it, the original is accounted
+// for and must not come back. Requeueing it would loop it forever.
+func TestAMessageParkedInTheDeadLetterQueueIsAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				return errors.New("no process is listening")
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	parked := 0
+	outcome, err := svc.processInboundDelivery(
+		t.Context(),
+		uuid.New(),
+		"incoming-queue",
+		"incoming-queue.dlq",
+		"message.name",
+		amqp.Delivery{Body: []byte(`{"correlation_key":"corr-2","value":"x"}`)},
+		func(context.Context, string, amqp.Publishing) error {
+			parked++
+			return nil
+		},
+	)
+
+	if err == nil {
+		t.Fatal("a dispatch failure reported success")
+	}
+	if parked != 1 {
+		t.Fatalf("the message was published to the dead-letter queue %d times, want once", parked)
+	}
+	if outcome != ackDelivery {
+		t.Fatalf("a message safely parked in the dead-letter queue was requeued (outcome %v); "+
+			"it would come back forever", outcome)
+	}
+}
+
+// A body nothing can parse, which the dead-letter queue then refuses too.
+func TestAnUnreadableMessageTheDeadLetterQueueRefusesIsNotAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	svc := &messagingService{
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	outcome, err := svc.processInboundDelivery(
+		t.Context(),
+		uuid.New(),
+		"incoming-queue",
+		"incoming-queue.dlq",
+		"message.name",
+		amqp.Delivery{Body: []byte(`{not json`)},
+		func(context.Context, string, amqp.Publishing) error {
+			return errors.New("the broker refused the dead-letter message")
+		},
+	)
+
+	if err == nil {
+		t.Fatal("an unreadable body whose dead-letter publish also failed reported success")
+	}
+	if outcome != requeueDelivery {
+		t.Fatalf("an unreadable message was acknowledged (outcome %v) with nowhere holding it", outcome)
 	}
 }

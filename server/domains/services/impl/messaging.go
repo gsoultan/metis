@@ -37,6 +37,12 @@ const (
 	inboundDispatchMaxBackoff     = 2 * time.Second
 	inboundDispatchMaxJitter      = 200 * time.Millisecond
 
+	// inboundPrefetch is how many unacknowledged messages the broker will hand
+	// this consumer at once. One: the consumer processes serially, and a
+	// prefetch larger than that only decides how many messages are stranded on
+	// a consumer that dies.
+	inboundPrefetch = 1
+
 	inboundDeadLetterQueueSuffix    = ".dlq"
 	inboundDeadLetterPublishTimeout = 3 * time.Second
 	inboundDispatchTimeout          = 10 * time.Second
@@ -111,6 +117,8 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 	}
 	defer cleanup()
 
+	var publisher *confirmingPublisher
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -126,6 +134,14 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 				ch, err = conn.Channel()
 				if err != nil {
 					log.Error().Err(err).Msg("Bridge RabbitMQ channel error")
+					cleanup()
+					continue
+				}
+				// Once per channel: NotifyReturn appends a listener each call,
+				// and this loop publishes for as long as the connection lives.
+				publisher, err = newConfirmingPublisher(ch)
+				if err != nil {
+					log.Error().Err(err).Msg("Bridge could not enable publisher confirms")
 					cleanup()
 					continue
 				}
@@ -145,9 +161,10 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 					// message it cannot act on and loses the task.
 					log.Error().Err(err).Str("taskId", task.ID.String()).
 						Msg("A task could not be encoded and was not published")
+					s.releaseUnforwardedTask(ctx, task, err)
 					continue
 				}
-				err = ch.PublishWithContext(ctx, exchange, routingKey, false, false, amqp.Publishing{
+				err = publisher.publish(ctx, exchange, routingKey, amqp.Publishing{
 					ContentType: "application/json",
 					Body:        body,
 					Headers: amqp.Table{
@@ -155,8 +172,15 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 					},
 				})
 				if err != nil {
-					log.Error().Err(err).Msg("Bridge publish error")
-					// Task will timeout and be retried
+					// The task is locked to this bridge. Leaving it that way
+					// meant the work stalled until the lock expired while the
+					// line below claimed it had been forwarded — so hand it
+					// back now, and let the retry the engine already has do its
+					// job.
+					log.Error().Err(err).Str("taskID", task.ID.String()).
+						Str("exchange", exchange).Str("routingKey", routingKey).
+						Msg("A task was not accepted by the broker and was handed back")
+					s.releaseUnforwardedTask(ctx, task, err)
 					continue
 				}
 				log.Info().Str("taskID", task.ID.String()).Msg("Forwarded external task to RabbitMQ")
@@ -224,23 +248,77 @@ func (s *messagingService) consumeOnce(ctx context.Context, projectID uuid.UUID,
 		return err
 	}
 
-	msgs, err := ch.ConsumeWithContext(ctx, q.Name, "", true, false, false, false, nil)
+	// The dead-letter publish has to be accounted for before the message it is
+	// standing in for can be acknowledged, so the channel needs confirms.
+	publisher, err := newConfirmingPublisher(ch)
+	if err != nil {
+		return err
+	}
+
+	// Manual acknowledgement, so one message at a time is outstanding and the
+	// broker holds the rest.
+	if err := ch.Qos(inboundPrefetch, 0, false); err != nil {
+		return err
+	}
+
+	// autoAck was true, which acknowledges a message the moment the broker
+	// hands it over — before anything has looked at it. Every path below that
+	// tries to preserve a message it could not process was therefore preserving
+	// one the broker had already forgotten: if the dead-letter publish failed,
+	// or the engine was shutting down, the message was simply gone.
+	msgs, err := ch.ConsumeWithContext(ctx, q.Name, "", false, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
 	publishToQueue := func(ctx context.Context, queueName string, message amqp.Publishing) error {
-		return ch.PublishWithContext(ctx, "", queueName, false, false, message)
+		// The default exchange routes by queue name, and the queue is declared
+		// above, so this is routable — but it still has to be confirmed, or a
+		// broker that refused it would look identical to one that took it.
+		return publisher.publish(ctx, "", queueName, message)
 	}
 
 	for d := range msgs {
-		err = s.processInboundDelivery(ctx, projectID, q.Name, dlqName, messageName, d, publishToQueue)
+		outcome, err := s.processInboundDelivery(ctx, projectID, q.Name, dlqName, messageName, d, publishToQueue)
 		if err != nil {
 			log.Error().Err(err).Str("queue", q.Name).Str("deadLetterQueue", dlqName).Msg("Error processing inbound message")
 		}
+		settleInboundDelivery(d, outcome, q.Name)
 	}
 
 	return nil
+}
+
+// deliveryOutcome is what should happen to a message once it has been handled.
+type deliveryOutcome int
+
+const (
+	// ackDelivery means somebody has taken responsibility for the message: it
+	// was dispatched, or it is parked in the dead-letter queue.
+	ackDelivery deliveryOutcome = iota
+	// requeueDelivery means nobody has, so the broker should keep it. It covers
+	// the two cases that used to lose a message outright — a dead-letter
+	// publish that failed, and a shutdown arriving mid-dispatch.
+	requeueDelivery
+)
+
+// settleInboundDelivery tells the broker what happened to a message.
+//
+// A failure to settle is logged rather than returned: the message stays
+// unacknowledged, so the broker redelivers it when this consumer's channel
+// closes, which is the outcome this function was trying to produce anyway.
+func settleInboundDelivery(delivery amqp.Delivery, outcome deliveryOutcome, queueName string) {
+	var err error
+	switch outcome {
+	case requeueDelivery:
+		err = delivery.Nack(false, true)
+	default:
+		err = delivery.Ack(false)
+	}
+	if err != nil {
+		log.Error().Err(err).Str("queue", queueName).
+			Msg("Could not tell the broker what happened to a message; it will be redelivered")
+	}
 }
 
 func (s *messagingService) processInboundDelivery(
@@ -251,33 +329,38 @@ func (s *messagingService) processInboundDelivery(
 	messageName string,
 	delivery amqp.Delivery,
 	publishToQueue func(context.Context, string, amqp.Publishing) error,
-) error {
+) (deliveryOutcome, error) {
 	payload, correlationKey, err := decodeInboundPayload(delivery)
 	if err != nil {
 		dlqErr := s.publishInboundDeadLetter(ctx, publishToQueue, dlqName, queueName, messageName, correlationKey, nil, delivery.Body, "unmarshal_error", err)
 		if dlqErr != nil {
-			return errors.Join(err, dlqErr)
+			// The body is unreadable and the dead-letter queue would not take
+			// it. Requeueing keeps it somewhere rather than nowhere.
+			return requeueDelivery, errors.Join(err, dlqErr)
 		}
 
-		return fmt.Errorf("unmarshal inbound message: %w", err)
+		return ackDelivery, fmt.Errorf("unmarshal inbound message: %w", err)
 	}
 
 	log.Info().Str("messageName", messageName).Str("correlationKey", correlationKey).Msg("Received inbound message")
 	err = s.dispatchInboundMessage(ctx, projectID, messageName, correlationKey, payload)
 	if err == nil {
-		return nil
+		return ackDelivery, nil
 	}
 
 	if !isRetryableDispatchError(err) {
-		return err
+		// Cancelled or timed out, which here means the engine is stopping. The
+		// message was not refused by anything — nobody got to it — so it goes
+		// back rather than being dropped on the way out.
+		return requeueDelivery, err
 	}
 
 	dlqErr := s.publishInboundDeadLetter(ctx, publishToQueue, dlqName, queueName, messageName, correlationKey, payload, delivery.Body, "dispatch_failed", err)
 	if dlqErr != nil {
-		return errors.Join(err, dlqErr)
+		return requeueDelivery, errors.Join(err, dlqErr)
 	}
 
-	return err
+	return ackDelivery, err
 }
 
 func decodeInboundPayload(delivery amqp.Delivery) (map[string]any, string, error) {
@@ -477,5 +560,30 @@ func (s *messagingService) StopAll() {
 func closeQuietly(handle io.Closer, what string) {
 	if err := handle.Close(); err != nil {
 		log.Warn().Err(err).Msgf("Could not close the %s", what)
+	}
+}
+
+// releaseUnforwardedTask hands a locked task back when the bridge could not put
+// it on the broker.
+//
+// FetchAndLock makes a task invisible to other workers for lockDurationMS. A
+// bridge that fetched a task and then failed to publish it used to simply move
+// on, so the work sat idle for the whole lock — thirty seconds in which the
+// only record was a log line saying it had been forwarded. Failing it here
+// makes the engine's own retry the thing that decides what happens next, which
+// is what it is for.
+func (s *messagingService) releaseUnforwardedTask(ctx context.Context, task *entities.ExternalTask, cause error) {
+	if s.externalSvc == nil || task == nil {
+		return
+	}
+	// Retries are left where the task already had them: this is a transport
+	// failure, not the worker rejecting the work, so it should not consume an
+	// attempt the business logic is entitled to.
+	err := s.externalSvc.HandleFailure(ctx, task.ID, workerID,
+		"the bridge could not publish this task to the broker",
+		cause.Error(), task.Retries, 0)
+	if err != nil {
+		log.Error().Err(err).Str("taskID", task.ID.String()).
+			Msg("A task that was not forwarded could not be handed back either; it stays locked until its lock expires")
 	}
 }
