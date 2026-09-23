@@ -208,6 +208,11 @@ func TestConnectorService(t *testing.T) {
 	assert.NotNil(t, service)
 
 	t.Run("ExecuteConnector", func(t *testing.T) {
+		// The shipped slack connector posts through the shared client, so this
+		// has to opt into loopback exactly as an operator running the engine
+		// beside internal services would.
+		allowLoopbackEgress(t)
+
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, "ok")
@@ -219,7 +224,12 @@ func TestConnectorService(t *testing.T) {
 
 		result, err := service.ExecuteConnector(context.Background(), "slack-message", config, payload)
 		assert.NoError(t, err)
-		assert.Equal(t, "ok", result["status"])
+		// {"ok": true} is what the connector that ships answers, and always
+		// has. This asserted {"status": "ok"} — the internal executor's answer
+		// — because the service used to register that one and the application
+		// then replaced it. The assertion was describing code nobody ran, so
+		// this is the contract being written down rather than changed.
+		assert.Equal(t, true, result["ok"])
 	})
 
 	t.Run("ExecuteConnector_NotFound", func(t *testing.T) {

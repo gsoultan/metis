@@ -6,7 +6,6 @@ import (
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
-	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 	"github.com/gsoultan/metis/server/repositories"
 	"gorm.io/gorm"
 )
@@ -120,16 +119,10 @@ func NewServiceFacade(
 	projectSvc := serviceimpl.NewProjectService(repo)
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	environmentSvc := serviceimpl.NewEnvironmentService(repo)
+	// The connector service registers the executors that ship. Overriding them
+	// here is what let the application and every test that built a connector
+	// service run different code.
 	connectorSvc := serviceimpl.NewConnectorService(repo)
-	// These two override what the constructor registered, so the application
-	// and every test that builds a connector service run different code. They
-	// are left alone here because the two implementations return different
-	// shapes — the internal slack executor answers {"status": "ok"} and this
-	// one answers {"ok": true} — so picking one changes what a running process
-	// reads back from a connector call. email-smtp had the same split and a
-	// worse symptom, and is now registered once in the constructor.
-	connectorSvc.RegisterExecutor(connectors.HTTPConnectorKey, connectors.NewHTTPConnector(nil))
-	connectorSvc.RegisterExecutor(connectors.SlackConnectorKey, connectors.NewSlackConnector())
 	feelEval := serviceimpl.NewFEELEvaluator()
 	tableEval := serviceimpl.NewDecisionTableEvaluator(feelEval)
 	collaborationSvc := serviceimpl.NewCollaborationService(sseObserver)
