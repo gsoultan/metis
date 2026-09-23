@@ -95,10 +95,21 @@
    - Live process heatmap.
    - SLA/compliance reporting.
    - Export (PDF/CSV).
-6. Notification System:
-   - In-app center with unread count.
-   - Assignment/incident alerts.
-   - Email/webhook notifications.
+6. Notification System: **done.** The centre and the unread count were already
+   built; what was missing was anything feeding them and any way out of the app.
+   - In-app center with unread count — already there, and now actually fed.
+   - Assignment/incident alerts — the observer read the recipient from the
+     instance's business variables, so it told you when you claimed a task
+     yourself and not when one arrived for you. It reads the node's assignee and
+     candidates now, and says so when work is withdrawn as well as when it
+     arrives.
+   - Email/webhook notifications — opt-in per installation through
+     NOTIFICATION_WEBHOOK_URL and NOTIFICATION_SMTP_*, in the same shape as
+     WEBHOOK_ENDPOINTS. Stored first and delivered second: the centre is the
+     record, so a mail server that is down does not also cost somebody the one
+     place it was guaranteed to appear. The webhook goes through the shared
+     client, so it is subject to the same egress policy as every other outbound
+     call rather than being a way around it.
 7. RBAC UI:
    - Visual role editor.
    - Group/org-scoped access.
