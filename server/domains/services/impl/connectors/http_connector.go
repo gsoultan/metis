@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/gsoultan/metis/internal/pkg/idempotency"
+	"strings"
 
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/idempotency"
+	"github.com/rs/zerolog/log"
 )
 
 const HTTPConnectorKey = "http-json"
@@ -90,13 +91,44 @@ func applyHeaders(req *http.Request, config map[string]any) {
 	if key, ok := idempotency.KeyFrom(req.Context()); ok {
 		req.Header.Set(idempotency.Header, key)
 	}
-	// A "headers" value that is not an object is a mistake in the connection's
-	// settings, not headers — treat it as none rather than panicking on it.
-	headers, _ := config["headers"].(map[string]any) //nolint:errcheck // a "headers" value that is not an object is treated as none
-	for k, v := range headers {
+	for k, v := range configuredHeaders(config) {
 		if s, ok := v.(string); ok {
 			req.Header.Set(k, s)
 		}
+	}
+}
+
+// configuredHeaders reads the headers setting in either form it arrives in.
+//
+// The Connectors page stores it as text: the catalogue declares "Headers
+// (JSON)" as a string field, so what the administrator types is saved as a
+// string. An API caller may pass an object. Reading only the object form
+// dropped every header typed into the page — an Authorization header
+// configured there never left the server, and the call went out without it.
+//
+// A value that is neither, or text that is not a JSON object, is a mistake in
+// the connection's settings rather than headers, and is still treated as none
+// as it always was. It is logged now, because a header somebody meant to send
+// that silently is not sent is otherwise found only in the partner's access
+// log. The log names the parse error and not the text, which may hold a token.
+func configuredHeaders(config map[string]any) map[string]any {
+	switch headers := config["headers"].(type) {
+	case map[string]any:
+		return headers
+	case string:
+		text := strings.TrimSpace(headers)
+		if text == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+			log.Warn().Err(err).Str("connector", HTTPConnectorKey).
+				Msg("A connection's headers are not a JSON object; the call is sent without them")
+			return nil
+		}
+		return parsed
+	default:
+		return nil
 	}
 }
 
