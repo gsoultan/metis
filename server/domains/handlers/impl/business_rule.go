@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/server/domains/entities"
-	"github.com/gsoultan/metis/server/domains/logic/feel"
+	"github.com/gsoultan/metis/server/domains/logic/mapping"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
@@ -50,8 +50,8 @@ func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entit
 
 	// Prepare inputs based on input mapping
 	inputs := instance.Variables
-	if mapping, ok := node.Properties["input_mapping"].(map[string]any); ok && len(mapping) > 0 {
-		inputs = resolveMapping(mapping, instance.Variables)
+	if inputMapping, ok := node.Properties["input_mapping"].(map[string]any); ok && len(inputMapping) > 0 {
+		inputs = mapping.Resolve(inputMapping, instance.Variables)
 	}
 
 	result, err := h.decisionService.Evaluate(ctx, decisionKey, decisionVersion, inputs)
@@ -62,8 +62,8 @@ func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entit
 	h.recordEvaluation(ctx, instance, node, inputs, result)
 
 	// Apply decision results to process variables based on output mapping
-	if mapping, ok := node.Properties["output_mapping"].(map[string]any); ok {
-		for target, value := range resolveMapping(mapping, result.Values) {
+	if outputMapping, ok := node.Properties["output_mapping"].(map[string]any); ok {
+		for target, value := range mapping.Resolve(outputMapping, result.Values) {
 			instance.SetVariable(target, value)
 		}
 	} else {
@@ -74,53 +74,6 @@ func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entit
 	}
 
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
-}
-
-// resolveMapping turns a mapping of target name → source into concrete values.
-//
-// A source was previously a variable name and nothing else, so a mapping could
-// rename a value and no more: computing `total` from `price` and `quantity`
-// meant adding a script task beside the decision purely to do the arithmetic.
-// A source is now a FEEL expression, which subsumes the old behaviour — a bare
-// name is still a variable reference — and adds everything else:
-// `price * quantity`, `applicant.address.city`, `sum(items.price)`.
-//
-// A source that resolves to nothing is omitted rather than written as null,
-// which is what the name-only version did: mapping an absent variable left the
-// target unset instead of setting it to nothing.
-func resolveMapping(mapping map[string]any, source map[string]any) map[string]any {
-	out := make(map[string]any, len(mapping))
-	for target, expression := range mapping {
-		text, isText := expression.(string)
-		if !isText {
-			// A non-string source is a constant the author wrote into the
-			// mapping; pass it through untouched.
-			out[target] = expression
-			continue
-		}
-
-		// The plain-name case first: it is the common one, it cannot fail, and
-		// it keeps a variable whose name is also a FEEL keyword working.
-		if value, ok := source[text]; ok {
-			out[target] = value
-			continue
-		}
-
-		value, err := feel.Evaluate(text, source)
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("target", target).
-				Str("expression", text).
-				Msg("Mapping expression could not be evaluated; the target is left unset")
-			continue
-		}
-		if value.IsNull() {
-			continue
-		}
-		out[target] = value.ToAny()
-	}
-	return out
 }
 
 // recordEvaluation writes the decision to the instance's timeline.

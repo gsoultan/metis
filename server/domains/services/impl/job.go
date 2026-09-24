@@ -38,7 +38,7 @@ type jobService struct {
 	// internal/pkg/ratelimit.
 	limits       *ratelimit.Group
 	engine       contracts2.ExecutionEngine
-	connectorSvc contracts2.ConnectorService
+	connectorSvc contracts2.JobConnectorService
 	locker       contracts2.DistributedLocker
 	errorMatcher contracts2.ErrorBoundaryMatcher
 	workerID     string
@@ -55,7 +55,7 @@ type jobService struct {
 func NewJobService(
 	repo repositories.Repository,
 	engine contracts2.ExecutionEngine,
-	connectorSvc contracts2.ConnectorService,
+	connectorSvc contracts2.JobConnectorService,
 	locker contracts2.DistributedLocker,
 	errorMatcher contracts2.ErrorBoundaryMatcher,
 ) contracts2.JobService {
@@ -786,7 +786,7 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 	if err != nil {
 		return nil, fmt.Errorf("connector lookup failed: %w", err)
 	}
-	result, err := s.connectorSvc.ExecuteConnector(ctx, connector.Key, ci.Config, payload)
+	result, err := s.connectorSvc.ExecuteConnectorRequest(ctx, connector.Key, ci.Config, connectorRequestFor(node, payload))
 	if err != nil {
 		return nil, fmt.Errorf("connector execution failed: %w", err)
 	}

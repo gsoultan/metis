@@ -31,6 +31,10 @@ type connectorService struct {
 	executors map[string]servicecontracts.ConnectorExecutor
 }
 
+// connectorService still satisfies the contracts; asserted here because the
+// constructor now returns the concrete type and would no longer catch a drift.
+var _ servicecontracts.JobConnectorService = (*connectorService)(nil)
+
 // InstallManifest registers a connector described by a document.
 //
 // Validated here rather than at call time: a manifest is installed once and
@@ -131,9 +135,14 @@ func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) (
 	return installed, nil
 }
 
+// NewConnectorService returns the concrete type, not the interface, so the
+// composition root can hand the job service the request runner as well as the
+// ConnectorService every other consumer gets — without the facade, which embeds
+// ConnectorService, gaining it too. The same reason NewDefinitionService returns
+// its concrete type.
 func NewConnectorService(
 	repo repositories.Repository,
-) servicecontracts.ConnectorService {
+) *connectorService {
 	s := &connectorService{
 		repo:      repo,
 		executors: make(map[string]servicecontracts.ConnectorExecutor),
@@ -355,13 +364,27 @@ func (s *connectorService) manifestFor(ctx context.Context, key string) (connect
 	return manifest, true
 }
 
-// ExecuteConnector runs one outbound integration call.
+// ExecuteConnector runs one outbound integration call with the process
+// variables as its payload.
+//
+// It is ExecuteConnectorRequest with nothing but variables, so there is one
+// path through a connector call rather than two that can drift apart.
+func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey string, config map[string]any, payload map[string]any) (map[string]any, error) {
+	return s.ExecuteConnectorRequest(ctx, connectorKey, config, servicecontracts.ConnectorRequest{Variables: payload})
+}
+
+// ExecuteConnectorRequest runs one outbound integration call.
 //
 // This is the span execution-plan.md §3.4 asks for. It is the boundary where
 // this system stops being in control: everything inside is our code, and
 // everything past it is somebody else's availability. When an instance has been
 // stuck for hours, this span is usually the answer.
-func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey string, config map[string]any, payload map[string]any) (map[string]any, error) {
+//
+// The request reaches an executor only if it implements RequestExecutor. Every
+// other executor, and every manifest, is called with the variables alone,
+// exactly as ExecuteConnector always called it.
+func (s *connectorService) ExecuteConnectorRequest(ctx context.Context, connectorKey string, config map[string]any, req servicecontracts.ConnectorRequest) (map[string]any, error) {
+	payload := req.Variables
 	ctx, span := tracing.Tracer().Start(ctx, "connector.execute",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(tracing.AttrConnectorKey.String(connectorKey)),
@@ -396,7 +419,7 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 		return nil, err
 	}
 
-	result, err := executor.Execute(ctx, config, payload)
+	result, err := execute(ctx, executor, config, req)
 	if err != nil {
 		// Recorded rather than merely returned: a connector failure is the most
 		// common cause of a stalled instance, and a trace that shows the call
@@ -407,6 +430,15 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 	}
 	span.SetStatus(codes.Ok, "")
 	return result, nil
+}
+
+// execute hands the request to an executor that can take one, and the
+// variables to one that cannot.
+func execute(ctx context.Context, executor servicecontracts.ConnectorExecutor, config map[string]any, req servicecontracts.ConnectorRequest) (map[string]any, error) {
+	if requests, ok := executor.(servicecontracts.RequestExecutor); ok {
+		return requests.ExecuteRequest(ctx, config, req)
+	}
+	return executor.Execute(ctx, config, req.Variables)
 }
 
 func (s *connectorService) RegisterExecutor(key string, executor servicecontracts.ConnectorExecutor) {

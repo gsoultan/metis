@@ -1,4 +1,4 @@
-package impl
+package mapping
 
 import (
 	"testing"
@@ -64,10 +64,10 @@ func TestResolveMapping(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolveMapping(tc.mapping, source)
+			got := Resolve(tc.mapping, source)
 
 			if len(got) != len(tc.want) {
-				t.Fatalf("resolveMapping = %v, want %v", got, tc.want)
+				t.Fatalf("Resolve = %v, want %v", got, tc.want)
 			}
 			for key, want := range tc.want {
 				if got[key] != want {
@@ -82,7 +82,7 @@ func TestResolveMapping(t *testing.T) {
 // name collides with FEEL syntax working: the plain lookup is tried first.
 func TestResolveMappingPrefersAVariableOverAnExpression(t *testing.T) {
 	source := map[string]any{"true": "not a boolean"}
-	got := resolveMapping(map[string]any{"x": "true"}, source)
+	got := Resolve(map[string]any{"x": "true"}, source)
 	if got["x"] != "not a boolean" {
 		t.Errorf(`x = %v, want the variable named "true" rather than the FEEL literal`, got["x"])
 	}
