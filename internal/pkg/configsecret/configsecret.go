@@ -28,33 +28,79 @@ const Sentinel = "__unchanged__"
 
 // sensitiveFragments name a configuration key that holds a credential.
 //
-// Matched as substrings, case-insensitively, because connector authors name
+// Matched as substrings of the normalised key, because connector authors name
 // these things every way there is: apiKey, api_key, API-KEY, clientSecret,
-// smtp_password, authToken. Over-matching is the safe direction — masking a
-// field that turns out to be harmless costs a re-type; missing one publishes a
-// credential.
+// smtp_password, authToken, connectionString. Over-matching is the safe
+// direction — masking a field that turns out to be harmless costs a re-type;
+// missing one publishes a credential.
+//
+// Written already normalised: lowercase, no separators. See normaliseKey.
+//
+// dsn and the connection-string spellings were missing, and a database
+// connection string is every credential in that system at once. A directory
+// source's DSN — password included — was returned to the browser by the
+// participant sources page, which masked its configuration with this list and
+// had no key this list recognised.
+//
+// webhook was missing too. A Slack, Discord or Teams webhook URL is the whole
+// credential: anybody holding it can post as the integration. The catalogue
+// declared those fields as passwords, which changed the input the form drew and
+// nothing about what the server sent back.
 var sensitiveFragments = []string{
 	"secret",
 	"password",
 	"passwd",
 	"token",
 	"apikey",
-	"api_key",
 	"credential",
 	"private",
 	"signature",
 	"key",
+	"dsn",
+	"connectionstring",
+	"connstring",
+	"connectionuri",
+	"webhook",
+}
+
+// SensitiveFragments returns the fragments a sensitive key is recognised by.
+//
+// A copy, so a caller cannot widen or narrow the list. It exists for the drift
+// test that holds the browser's copy of this list to this one: the browser
+// decides from its own copy whether to draw a password box, and that copy had
+// already fallen four fragments behind.
+func SensitiveFragments() []string {
+	return append([]string(nil), sensitiveFragments...)
 }
 
 // IsSensitive reports whether a configuration key holds a credential.
 func IsSensitive(key string) bool {
-	lower := strings.ToLower(key)
+	normalised := normaliseKey(key)
 	for _, fragment := range sensitiveFragments {
-		if strings.Contains(lower, fragment) {
+		if strings.Contains(normalised, fragment) {
 			return true
 		}
 	}
 	return false
+}
+
+// normaliseKey lowercases a key and drops everything that is not a letter or a
+// digit, so connection_string, connectionString, connection-string and
+// "Connection String" are all the same key.
+//
+// It can only add matches, never remove one: every fragment is itself letters
+// and digits, so a key that contained a fragment before still contains it once
+// the separators around it are gone. The one fragment that had a separator,
+// api_key, is apikey here and matches everything api_key did.
+func normaliseKey(key string) string {
+	var b strings.Builder
+	b.Grow(len(key))
+	for _, r := range strings.ToLower(key) {
+		if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // Mask returns a copy of config with every secret replaced by the sentinel.

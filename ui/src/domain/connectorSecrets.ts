@@ -15,12 +15,44 @@ export const UNCHANGED_SECRET = '__unchanged__';
 /** Placeholder shown where a stored secret would otherwise be. */
 export const UNCHANGED_PLACEHOLDER = 'unchanged';
 
-/** Config keys the server treats as secrets. Mirrors the server's list. */
-const SENSITIVE_KEY = /secret|password|token|api_key|key/i;
+/**
+ * Fragments of a config key the server treats as a secret, written normalised:
+ * lowercase, no separators.
+ *
+ * The server's list is internal/pkg/configsecret. tests/secretdrift reads this
+ * array and holds it to that one in both directions, because this copy had
+ * already fallen behind — it lacked passwd, credential, private and signature,
+ * so a field the server masked was drawn here as plain text.
+ */
+export const SENSITIVE_FRAGMENTS: readonly string[] = [
+  'secret',
+  'password',
+  'passwd',
+  'token',
+  'apikey',
+  'credential',
+  'private',
+  'signature',
+  'key',
+  'dsn',
+  'connectionstring',
+  'connstring',
+  'connectionuri',
+  'webhook',
+];
+
+/**
+ * A key as the server compares it: lowercase with every separator dropped, so
+ * connection_string, connectionString and connection-string are one key.
+ */
+function normaliseKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 /** Whether the server would mask this config key. */
 export function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEY.test(key);
+  const normalised = normaliseKey(key);
+  return SENSITIVE_FRAGMENTS.some((fragment) => normalised.includes(fragment));
 }
 
 /** Whether a config value is the sentinel rather than something to show. */
