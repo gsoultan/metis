@@ -593,7 +593,7 @@ func (s *jobService) callOnce(
 	def *entities.ProcessDefinition,
 	node entities.Node,
 ) (map[string]any, error) {
-	target := serviceCallTarget(node)
+	target := serviceCallTarget(def, node)
 
 	// The quota first, because being over one is not a failure and must not
 	// spend an attempt. A call held back here has not been made, has not been
@@ -718,15 +718,38 @@ func numericSetting(raw any) (float64, bool) {
 }
 
 // serviceCallTarget names the thing a breaker is about: the downstream, not the
-// process step.
+// process step. The rate limiter keys on it too.
 //
 // A connector instance is the better key when there is one — several nodes can
 // share a Salesforce connection, and it is the connection that is unhealthy. For
 // a plain HTTP task it is the host, so two tasks calling different paths on the
 // same failing API trip one breaker between them rather than one each.
-func serviceCallTarget(node entities.Node) string {
+//
+// A step dragged from the designer's palette names its catalogue entry,
+// connector_id, and leaves the instance to be resolved from the project at run
+// time. Those steps used to get no target at all, and an empty target is a
+// no-op to the breaker and the limiter alike: no breaker, and a limit an
+// operator set on the connection silently skipped. The key is the project and
+// the catalogue entry together, which is exactly the instance
+// findConnectorInstance resolves — one per project per connector. The catalogue
+// entry alone would not do: its id is the same in every project, so one
+// organization's dead webhook would open the breaker of every organization
+// using that connector.
+//
+// A project whose steps name the same connection both ways gets two keys for
+// one downstream. That costs a breaker opening a little later than it might;
+// telling them apart would need a read before every call to find out.
+func serviceCallTarget(def *entities.ProcessDefinition, node entities.Node) string {
 	if id := node.GetStringProperty("connector_instance_id"); id != "" {
 		return "connector:" + id
+	}
+	if id := node.GetStringProperty("connector_id"); id != "" {
+		if project := projectIDOf(def); project != models.NilUUID {
+			return "connector:" + project.String() + "/" + id
+		}
+		// No project, no connection this could be — the resolver refuses it
+		// for the same reason — and nothing to share a breaker with.
+		return ""
 	}
 	if raw := node.GetStringProperty("http_url"); raw != "" {
 		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
