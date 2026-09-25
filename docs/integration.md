@@ -587,6 +587,26 @@ connector installed on one replica is live on all of them immediately, and a
 switched-off one stops being used everywhere at once. Switching off leaves the
 document in place — deleting loses it.
 
+Installing a connector adds it to the catalogue: on the Connectors page, where a
+project connects it, and in the designer, where a step chooses it. A step
+reaches a manifest only this way — it names a catalogue entry, the entry's
+connection supplies `config`, and the entry's key finds the manifest. The
+connection form asks for what the manifest reads from `config`: the credentials
+its `auth` needs (`token`, `api_key`, `username` and `password`, or `client_id`
+and `client_secret`), every property of `config_schema` — its `title`,
+`description`, `type`, `enum`, `default` and `required` become the field — and
+any other `{{config.…}}` a template reads. A setting that holds a credential is
+kept from the browser by its **name**, so include `secret`, `password`, `token`
+or `key` in it; `format: password` alone does not hide it, and the form does not
+pretend otherwise.
+
+Switching a connector off or removing it takes it out of the catalogue. The
+steps and connections that use it are kept; while it is gone they fail saying
+so, and they work again once it is switched back on or installed again. A
+manifest under a built-in's key leaves the built-in's entry as it is. A manifest
+installed before this behaviour arrived joins the catalogue the next time it is
+installed — the same document again will do.
+
 ## Importing a connector from an OpenAPI document
 
 Most APIs worth integrating with publish one, and a manifest is close enough to
@@ -616,6 +636,10 @@ An operation the importer cannot read is skipped, not an error. What it did
 generate is installed as one step: if any of it cannot be installed — an
 operation you took further and gave a higher `version` than the import's 1, for
 instance — none of it is, and the error names the operation that stopped it.
+
+Each operation is its own entry in the catalogue, so a project connects each one
+it uses — with the same `base_url` and credentials, which is one more reason to
+delete the operations you will not call.
 
 ## Errors
 

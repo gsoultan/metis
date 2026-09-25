@@ -87,6 +87,11 @@ func (s *connectorService) install(ctx context.Context, manifest connectors.Mani
 	if err != nil {
 		return entities.ConnectorManifest{}, err
 	}
+	// In the same transaction, so a manifest is never installed without the
+	// catalogue entry a step needs to reach it, nor offered with a stale form.
+	if err := s.syncCatalogue(ctx, manifest, stored.Enabled); err != nil {
+		return entities.ConnectorManifest{}, err
+	}
 	return manifestEntity(stored), nil
 }
 

@@ -131,6 +131,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   import generates are now installed in one transaction: if one cannot be
   installed, none are, and the error names it. An operation the importer
   cannot read is still skipped rather than failing the import.
+- **An installed connector could not be chosen in the designer, nor connected
+  to a project.** Both offer the connector catalogue, and installing a manifest
+  never added to it. A step reaches a manifest only through a catalogue entry,
+  so an installed connector could not be used by any process unless somebody
+  also built a matching template by hand in Expert Mode. Installing now adds
+  the entry, with a connection form that asks for what the manifest reads:
+  its credentials, its `config_schema`, and any other `{{config.…}}` its
+  templates use. Switching a connector off or removing it takes the entry out
+  of the catalogue. The steps and connections that use it are kept, fail
+  saying the connector was switched off or removed, and work again once it is
+  switched back on or installed again. A manifest under a built-in's key leaves
+  the built-in's entry alone.
+
+  Upgrading: a manifest installed before this version joins the catalogue the
+  next time it is installed; installing the same document again will do. A
+  template made by hand under a manifest's key becomes that manifest's entry,
+  so its settings are replaced by the ones the manifest reads.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

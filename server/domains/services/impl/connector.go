@@ -92,12 +92,33 @@ func (s *connectorService) GetManifestDocument(ctx context.Context, key string) 
 	return m.Document, nil
 }
 
+// SetManifestEnabled switches an installed connector on or off, and with it
+// whether the catalogue offers it to modellers.
 func (s *connectorService) SetManifestEnabled(ctx context.Context, id uuid.UUID, enabled bool) error {
-	return s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled)
+	return s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		current, err := s.repo.ConnectorManifest().GetForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled); err != nil {
+			return err
+		}
+		return s.syncCatalogueFrom(ctx, current, enabled)
+	})
 }
 
+// DeleteManifest uninstalls a connector and withdraws its catalogue entry.
 func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) error {
-	return s.repo.ConnectorManifest().Delete(ctx, id)
+	return s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		current, err := s.repo.ConnectorManifest().GetForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.ConnectorManifest().Delete(ctx, id); err != nil {
+			return err
+		}
+		return s.syncCatalogueFrom(ctx, current, false)
+	})
 }
 
 // ImportOpenAPI turns a specification into manifests and installs every one.
