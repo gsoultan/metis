@@ -71,10 +71,12 @@ export const useDeleteDecision = () => {
   });
 };
 
+/** Runs a saved table in the current project — the one the editor saves into. */
 export const useEvaluateDecision = () => {
+  const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: ({ key, variables, version }: { key: string; variables: ProcessVariables; version?: number }) => 
-      processService.evaluateDecision(key, variables, version),
+    mutationFn: ({ key, variables, version }: { key: string; variables: ProcessVariables; version?: number }) =>
+      processService.evaluateDecision(currentProjectId ?? '', key, variables, version),
   });
 };
 

@@ -38,7 +38,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 		}
 		mustCreateDecision(t, svc, ctx, d)
 
-		res, err := svc.Evaluate(ctx, "unique-decision", 0, map[string]any{"score": 90})
+		res, err := svc.Evaluate(ctx, projectID, "unique-decision", 0, map[string]any{"score": 90})
 		if err != nil {
 			t.Fatalf("Evaluate failed: %v", err)
 		}
@@ -59,7 +59,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 			},
 		}
 		mustCreateDecision(t, svc, ctx, d2)
-		_, err = svc.Evaluate(ctx, "unique-fail", 0, map[string]any{"score": 90})
+		_, err = svc.Evaluate(ctx, projectID, "unique-fail", 0, map[string]any{"score": 90})
 		if err == nil {
 			t.Fatal("Expected error for UNIQUE hit policy with multiple matches")
 		}
@@ -80,7 +80,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 		}
 		mustCreateDecision(t, svc, ctx, d)
 
-		res, err := svc.Evaluate(ctx, "collect-sum", 0, map[string]any{"val": 25})
+		res, err := svc.Evaluate(ctx, projectID, "collect-sum", 0, map[string]any{"val": 25})
 		if err != nil {
 			t.Fatalf("Evaluate failed: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 		}
 		mustCreateDecision(t, svc, ctx, d2)
 
-		res, err := svc.Evaluate(ctx, "final-price", 0, map[string]any{"category": "B"})
+		res, err := svc.Evaluate(ctx, projectID, "final-price", 0, map[string]any{"category": "B"})
 		if err != nil {
 			t.Fatalf("Evaluate failed: %v", err)
 		}
@@ -139,7 +139,7 @@ func TestDecisionService_FullDMN(t *testing.T) {
 		}
 		mustCreateDecision(t, svc, ctx, d)
 
-		res, _ := svc.Evaluate(ctx, "list-test", 0, map[string]any{"status": "IN_PROGRESS"})
+		res, _ := svc.Evaluate(ctx, projectID, "list-test", 0, map[string]any{"status": "IN_PROGRESS"})
 		if res.Values["ok"] != true {
 			t.Errorf("Expected true for IN_PROGRESS in [OPEN, IN_PROGRESS]")
 		}

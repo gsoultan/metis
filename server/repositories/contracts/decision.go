@@ -10,8 +10,14 @@ import (
 // DecisionRepository defines the decision definition operations.
 type DecisionRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (models.DecisionDefinitionModel, error)
-	GetByKey(ctx context.Context, key string) (models.DecisionDefinitionModel, error)
-	GetByKeyAndVersion(ctx context.Context, key string, version int) (models.DecisionDefinitionModel, error)
+
+	// GetByKey returns the highest version of a key within one project.
+	//
+	// Keys are unique per project, not per installation, so a key is only an
+	// answer together with the project that owns it — the same shape as the
+	// form repository's lookup.
+	GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionDefinitionModel, error)
+	GetByKeyAndVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error)
 	List(ctx context.Context) ([]models.DecisionDefinitionModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.DecisionDefinitionModel, error)
 

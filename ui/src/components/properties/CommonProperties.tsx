@@ -459,7 +459,7 @@ err := client.BroadcastSignal(ctx, projectID, "${signal}", nil)`;
       snippet = `# curl
 curl -X POST $METIS/api/v1/decisions/evaluate \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"key":"<decision-key>","variables":{"amount":900}}'`;
+  -d '{"project_id":"<project-uuid>","key":"<decision-key>","variables":{"amount":900}}'`;
       break;
 
     default:

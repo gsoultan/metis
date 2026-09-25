@@ -55,7 +55,7 @@ type UserTaskHandler struct {
 }
 
 func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
-	node = h.resolveAssignment(ctx, instance, node)
+	node = h.resolveAssignment(ctx, instance, def, node)
 	// The taskService manages the lifecycle of human tasks.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node)
 }
@@ -66,13 +66,13 @@ func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.Proc
 // existed before this. A table that fails is logged and the diagram's own
 // assignment stands: a process that stops because an approval matrix could not
 // be read is worse than one that routes to the default approver and says so.
-func (h *UserTaskHandler) resolveAssignment(ctx context.Context, instance *entities.ProcessInstance, node entities.Node) entities.Node {
+func (h *UserTaskHandler) resolveAssignment(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node) entities.Node {
 	key, version := assignmentDecisionOf(node)
 	if key == "" || h.decisionService == nil {
 		return node
 	}
 
-	result, err := h.decisionService.Evaluate(ctx, key, version, instance.Variables)
+	result, err := h.decisionService.Evaluate(ctx, projectOf(def), key, version, instance.Variables)
 	if err != nil {
 		log.Error().Err(err).
 			Str("instance", instance.ID.String()).

@@ -74,6 +74,9 @@ type DeleteDecisionResponse struct {
 func (r DeleteDecisionResponse) Failed() error { return r.Err }
 
 type EvaluateDecisionRequest struct {
+	// ProjectID says whose table the key names. Keys are unique per project,
+	// so a key on its own could answer with another project's table.
+	ProjectID string         `json:"project_id"`
 	Key       string         `json:"key"`
 	Version   int            `json:"version,omitzero"`
 	Variables map[string]any `json:"variables,omitzero"`

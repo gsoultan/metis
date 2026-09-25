@@ -60,7 +60,7 @@ func TestOutputPriorityOrderSurvivesASave(t *testing.T) {
 
 	// And the table it describes still decides what its author meant: the most
 	// severe outcome that applies, not the first one written down.
-	result, err := svc.Evaluate(ctx, "severity", 0, map[string]any{"amount": 50.0})
+	result, err := svc.Evaluate(ctx, projectID, "severity", 0, map[string]any{"amount": 50.0})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}

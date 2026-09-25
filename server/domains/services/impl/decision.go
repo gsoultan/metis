@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -25,16 +26,23 @@ func NewDecisionService(repo repositories.Repository, tableEvaluator servicecont
 	return &decisionService{repo: repo, tableEvaluator: tableEvaluator}
 }
 
-func (s *decisionService) Evaluate(ctx context.Context, decisionKey string, version int, variables map[string]any) (entities.DecisionResult, error) {
+// ErrNoDecisionProject refuses an evaluation that does not say which project
+// the table belongs to. Without one a key could name any tenant's table.
+var ErrNoDecisionProject = apierr.Invalidf("a decision is looked up in a project, and none was given")
+
+func (s *decisionService) Evaluate(ctx context.Context, projectID uuid.UUID, decisionKey string, version int, variables map[string]any) (entities.DecisionResult, error) {
+	if projectID == uuid.Nil {
+		return entities.DecisionResult{}, ErrNoDecisionProject
+	}
 	// Use a copy of variables to avoid polluting caller's map during intermediate steps
 	varsCopy := make(map[string]any)
 	for k, v := range variables {
 		varsCopy[k] = v
 	}
-	return s.evaluateRecursive(ctx, decisionKey, version, varsCopy, make(map[string]bool))
+	return s.evaluateRecursive(ctx, projectID, decisionKey, version, varsCopy, make(map[string]bool))
 }
 
-func (s *decisionService) evaluateRecursive(ctx context.Context, decisionKey string, version int, variables map[string]any, seen map[string]bool) (entities.DecisionResult, error) {
+func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.UUID, decisionKey string, version int, variables map[string]any, seen map[string]bool) (entities.DecisionResult, error) {
 	if seen[decisionKey] {
 		return entities.DecisionResult{}, fmt.Errorf("circular dependency detected for decision %s", decisionKey)
 	}
@@ -44,9 +52,9 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, decisionKey str
 	var m models.DecisionDefinitionModel
 	var err error
 	if version > 0 {
-		m, err = s.repo.Decision().GetByKeyAndVersion(ctx, decisionKey, version)
+		m, err = s.repo.Decision().GetByKeyAndVersion(ctx, projectID, decisionKey, version)
 	} else {
-		m, err = s.repo.Decision().GetByKey(ctx, decisionKey)
+		m, err = s.repo.Decision().GetByKey(ctx, projectID, decisionKey)
 	}
 	if err != nil {
 		return entities.DecisionResult{}, err
@@ -54,9 +62,10 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, decisionKey str
 
 	decision := adapters.DecisionEntityAdapter{Model: m}.ToEntity()
 
-	// 1. Evaluate required decisions
+	// 1. Evaluate required decisions, in the same project: a requirement names
+	// a table beside this one, not one anywhere a key happens to match.
 	for _, reqKey := range decision.RequiredDecisions {
-		res, err := s.evaluateRecursive(ctx, reqKey, 0, variables, seen)
+		res, err := s.evaluateRecursive(ctx, projectID, reqKey, 0, variables, seen)
 		if err != nil {
 			return entities.DecisionResult{}, fmt.Errorf("failed to evaluate required decision %s: %w", reqKey, err)
 		}
