@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
@@ -40,9 +41,10 @@ func TestRequireRoles_DeniesCallerWithoutTheRole(t *testing.T) {
 	ep, reached := reachedEndpoint()
 	guarded := authinterceptor.NewRequireRoles(entities.RoleAdmin).Intercept(ep)
 
+	// Forbidden, not unauthorized: the caller is known and lacks the right.
 	_, err := guarded(ctxWithRoles(entities.RoleUser), nil)
-	if !errors.Is(err, pkgauth.ErrUnauthorized) {
-		t.Fatalf("non-admin reached an admin endpoint: got %v, want ErrUnauthorized", err)
+	if !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("non-admin reached an admin endpoint: got %v, want ErrForbidden", err)
 	}
 	if *reached {
 		t.Fatal("endpoint body executed despite the role check failing")
