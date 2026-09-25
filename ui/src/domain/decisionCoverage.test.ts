@@ -375,3 +375,40 @@ describe('comparisons in a column that is not a number', () => {
     expect(findCoverageGaps([score], [rule('10'), rule('"GOLD"')]).notAnalysed).toEqual([]);
   });
 });
+
+/**
+ * A bare word in a cell is read by the engine as text only when it is one
+ * name: `GOLD`, `gold_2`. Anything else unquoted — `Gold Member`, `SKU-1`,
+ * `3M`, `1 000`, `v1.2`, `.5` — the engine fails to read, and the decision
+ * fails with it. The checks read all of them as text, so a table the engine
+ * cannot run showed a green tick for "every case has a line".
+ */
+describe('bare words', () => {
+  const unreadable = ['Gold Member', 'SKU-1', '3M', '1 000', 'v1.2', '.5', 'GOLD, Gold Member', 'not(SKU-1)', 'null', 'and'];
+
+  it.each(unreadable)('leave the column unchecked when one is not a single name: %p', (cell) => {
+    const report = findCoverageGaps([tier], [rule(cell), rule(ANY_VALUE)]);
+    expect(report.notAnalysed).toEqual(['Tier']);
+    expect(report.gaps).toEqual([]);
+  });
+
+  it('say what to do about text the engine cannot read', () => {
+    const report = findCoverageGaps([tier], [rule('Gold Member'), rule(ANY_VALUE)]);
+    expect(report.needsQuotes).toEqual(['Tier']);
+    expect(whyNotChecked(report)).toBe(
+      'Not checked: Tier has text the engine cannot read without quotes. Put it in quotes, as in "Gold Member".',
+    );
+    expect(findCoverageGaps([tier], [rule('in'), rule('out')]).needsQuotes).toEqual(['Tier']);
+    // Unquoted, null is no value at all, which may be what was meant.
+    expect(findCoverageGaps([tier], [rule('null')]).needsQuotes).toEqual([]);
+  });
+
+  it('are still read when they are one name, as text', () => {
+    for (const cell of ['GOLD', 'gold_2', '_tier', 'GOLD, SILVER', 'not(GOLD)', 'TRUE']) {
+      expect(findCoverageGaps([tier], [rule(cell), rule(ANY_VALUE)]).notAnalysed).toEqual([]);
+    }
+    expect(findCoverageGaps([tier], [rule('GOLD'), rule('"Gold Member"')]).gaps.map((gap) => gap.values[0])).toEqual([
+      'anything else',
+    ]);
+  });
+});

@@ -47,6 +47,8 @@ export interface CoverageReport {
    * a new column is Text — which a change of type makes readable.
    */
   needsNumberType: string[];
+  /** Of those, the ones holding unquoted text the engine cannot read either. */
+  needsQuotes: string[];
 }
 
 const MAX_COMBINATIONS = 400;
@@ -74,7 +76,7 @@ export interface Sample {
  * considered.
  */
 export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionRuleRow[]): CoverageReport {
-  const empty: CoverageReport = { gaps: [], truncated: false, notAnalysed: [], needsNumberType: [] };
+  const empty: CoverageReport = { gaps: [], truncated: false, notAnalysed: [], needsNumberType: [], needsQuotes: [] };
   if (inputs.length === 0 || rules.length === 0) return empty;
 
   const columns: Sample[][] = [];
@@ -85,7 +87,8 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
     if (cells.some((cell) => !understandsCell(cell, input.type))) {
       const label = input.label || input.expression;
       const needsNumber = input.type !== 'number' && cells.some(comparesNumbers);
-      return { ...empty, notAnalysed: [label], needsNumberType: needsNumber ? [label] : [] };
+      const unquoted = cells.some(needsQuotes);
+      return { ...empty, notAnalysed: [label], needsNumberType: needsNumber ? [label] : [], needsQuotes: unquoted ? [label] : [] };
     }
     columns.push(columnSamples(input, cells));
   }
@@ -119,7 +122,7 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
   // Cut short means some combination was never looked at, whichever limit
   // stopped the walk. Each column's values used to be trimmed to the first
   // eight as well, and that was the one limit nobody was told about.
-  return { gaps, truncated: examined < total, notAnalysed: [], needsNumberType: [] };
+  return { gaps, truncated: examined < total, notAnalysed: [], needsNumberType: [], needsQuotes: [] };
 }
 
 const NUMBER_LITERAL = /^-?\d+(\.\d+)?$/;
@@ -147,8 +150,44 @@ export function understandsCell(cell: string, type: string): boolean {
   // that blocked Save over a table the check could not read.
   const negated = text.match(/^not\((.+)\)$/);
   if (negated) return understandsCell(negated[1], type) && !isWildcardText(negated[1]);
-  // A list, or a bare or quoted literal.
-  return text.split(',').every((part) => /^\s*("[^"]*"|'[^']*'|[\w .-]+)\s*$/.test(part));
+  // A list, or a single literal.
+  return text.split(',').every(readablePart);
+}
+
+/** One name: what the engine reads as text when it is written without quotes. */
+const SINGLE_NAME = /^[A-Za-z_]\w*$/;
+
+/**
+ * Single names the engine does not read as text: its keywords — `null` is no
+ * value, `and` cannot start a test — and the name a cell's own input goes by.
+ */
+const NOT_TEXT = new Set(['and', 'or', 'not', 'null', 'in', 'between', 'if', 'then', 'else', '_input']);
+
+/**
+ * One part of a list, read the way the engine reads it: quoted text, a number,
+ * or a single name. Bare text used to be read whatever it held, and the engine
+ * reads `Gold Member`, `SKU-1`, `3M`, `1 000`, `v1.2` and `.5` as something
+ * else or not at all — so a table it cannot run showed a green tick.
+ */
+function readablePart(part: string): boolean {
+  const text = part.trim();
+  if (/^("[^"]*"|'[^']*')$/.test(text) || NUMBER_LITERAL.test(text)) return true;
+  return SINGLE_NAME.test(text) && !NOT_TEXT.has(text);
+}
+
+/**
+ * Whether a cell holds unquoted text the engine cannot read as text — more
+ * than one plain word, a dash or a dot, a digit first, or a keyword such as
+ * `in` — which quotes would make readable. `null` is left out: unquoted, it
+ * means no value at all, which may be what was meant.
+ */
+function needsQuotes(cell: string): boolean {
+  const text = cell.trim().replace(/^not\((.+)\)$/, '$1');
+  return text.split(',').some((part) => {
+    const word = part.trim();
+    if (word === 'null' || word === '_input' || /^-\s*\d/.test(word)) return false;
+    return /^[\w .-]+$/.test(word) && !readablePart(word);
+  });
 }
 
 /**
@@ -160,6 +199,9 @@ export function whyNotChecked(report: CoverageReport): string {
   const columns = report.notAnalysed.join(', ');
   if (report.needsNumberType.length > 0) {
     return `Not checked: ${report.needsNumberType.join(', ')} compares numbers but is not a Number column. Make it a Number column and the check can read it.`;
+  }
+  if (report.needsQuotes.length > 0) {
+    return `Not checked: ${report.needsQuotes.join(', ')} has text the engine cannot read without quotes. Put it in quotes, as in "Gold Member".`;
   }
   return `Not checked: ${columns} uses a condition this check cannot read, so it cannot tell whether every case is decided.`;
 }
