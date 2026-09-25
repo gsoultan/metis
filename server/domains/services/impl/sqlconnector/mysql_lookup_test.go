@@ -90,7 +90,10 @@ func TestAMySQLLookupThatRunsTooLongIsStopped(t *testing.T) {
 		"INSERT INTO numbers (n) WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 1000) SELECT n FROM seq")
 	_, err := testExecutor().ExecuteRequest(testContext(t), mysqlConfig(target.DSN, "statement_timeout_ms", "200"),
 		servicecontracts.ConnectorRequest{
-			Statement:      "SELECT COUNT(*) AS total FROM numbers a, numbers b, numbers c",
+			// A predicate over all three, so every one of the 10^9 combinations
+			// has to be visited. A bare COUNT(*) of the cross join came back in
+			// 40ms on MySQL 8.4 — an optimizer does not have to walk it.
+			Statement:      "SELECT COUNT(*) AS total FROM numbers a, numbers b, numbers c WHERE MOD(a.n * b.n + c.n, 7) = 3",
 			ResultVariable: "total",
 		})
 	if err == nil || !strings.Contains(err.Error(), "took longer than its limit") {

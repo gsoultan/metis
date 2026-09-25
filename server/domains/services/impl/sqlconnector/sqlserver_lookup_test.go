@@ -81,7 +81,12 @@ func TestASQLServerLookupThatRunsTooLongIsStopped(t *testing.T) {
 	target := testutils.SQLServerLookupDatabase(t)
 	_, err := testExecutor().ExecuteRequest(testContext(t), sqlServerConfig(target.DSN, "statement_timeout_ms", "300"),
 		servicecontracts.ConnectorRequest{
-			Statement:      "SELECT COUNT_BIG(*) AS total FROM sys.all_objects a CROSS JOIN sys.all_objects b CROSS JOIN sys.all_objects c",
+			// A predicate over all three, so the count cannot be pushed into
+			// each input and multiplied — which is what SQL Server did with a bare
+			// COUNT_BIG(*) of the cross join, answering well inside the limit.
+			// Remainders keep INT object ids from overflowing.
+			Statement: "SELECT COUNT_BIG(*) AS total FROM sys.all_objects a CROSS JOIN sys.all_objects b " +
+				"CROSS JOIN sys.all_objects c WHERE (a.object_id % 7) + (b.object_id % 7) + (c.object_id % 7) = 3",
 			ResultVariable: "total",
 		})
 	if err == nil || !strings.Contains(err.Error(), "took longer than its limit") {
