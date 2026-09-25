@@ -7,7 +7,7 @@
  * gets — an author writing `Approved` means the word and `500` means the number
  * — and it lives here rather than in the component so it can be checked.
  */
-import { parseOutputValue, type DecisionInputColumn, type DecisionOutputColumn } from './decisionTable';
+import { formatOutputValue, parseOutputValue, type DecisionInputColumn, type DecisionOutputColumn } from './decisionTable';
 
 /** One example, as the editor holds it: plain text per column. */
 export interface DecisionTestRow {
@@ -54,5 +54,20 @@ export function testsToPayload(
         .filter((output) => (test.expected[output.name] ?? '').trim() !== '')
         .map((output) => [output.name, parseOutputValue(test.expected[output.name], output.type)]),
     ),
+  }));
+}
+
+/**
+ * The examples as the API returns them, as the text the editor holds: the
+ * inverse of testsToPayload, so that what was loaded is what is saved back.
+ */
+export function testsFromPayload(tests: Partial<DecisionTestPayload>[] | undefined): DecisionTestRow[] {
+  const asText = (values: Record<string, unknown> | undefined) =>
+    Object.fromEntries(Object.entries(values ?? {}).map(([name, value]) => [name, formatOutputValue(value)]));
+  return (tests ?? []).map((test) => ({
+    id: test.id ?? '',
+    name: test.name ?? '',
+    inputs: asText(test.inputs),
+    expected: asText(test.expected),
   }));
 }
