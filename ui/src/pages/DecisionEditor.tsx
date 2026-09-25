@@ -96,11 +96,10 @@ import {
 } from '../domain/decisionTable';
 import { findCoverageGaps, ruleForGap, type CoverageGap, type CoverageReport } from '../domain/decisionCoverage';
 import { findProblems } from '../domain/decisionProblems';
-import { trialTarget } from '../domain/decisionTrial';
+import { trialTarget, trialValueOf, trialVariables, withTrialValue, type TrialValues } from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
-import type { ProcessVariables } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
 /** A caught value is `unknown`; take its message when it has one. */
@@ -291,7 +290,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   // What the server holds, as the save would send it: set on load and on save.
   const [savedPayload, setSavedPayload] = useState<string | null>(null);
 
-  const [testInputs, setTestInputs] = useState<Record<string, string>>({});
+  const [testInputs, setTestInputs] = useState<TrialValues>({});
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
   const [matchedRules, setMatchedRules] = useState<number[]>([]);
   const [isTesting, setIsTesting] = useState(false);
@@ -314,12 +313,6 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setRules(loaded.rules);
     setTests(loaded.tests);
     setSavedPayload(JSON.stringify(decisionPayload(loaded)));
-
-    const seeded: Record<string, string> = {};
-    decision.inputs?.forEach((input) => {
-      seeded[input.expression] = '';
-    });
-    setTestInputs(seeded);
   }, [existingDef]);
 
   const policy = hitPolicyOf(hitPolicy);
@@ -336,7 +329,6 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     const expression = slugVariable(label);
     setInputs([...inputs, { id: uuidv4(), label, expression, type: 'string' }]);
     setRules(rules.map((rule) => ({ ...rule, input_entries: [...rule.input_entries, ANY_VALUE] })));
-    setTestInputs({ ...testInputs, [expression]: '' });
   };
 
   const addOutput = () => {
@@ -517,17 +509,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setTestResult(null);
     setMatchedRules([]);
 
-    const variables: ProcessVariables = {};
-    Object.entries(testInputs).forEach(([variable, raw]) => {
-      const column = inputs.find((input) => input.expression === variable);
-      if (column?.type === 'boolean') {
-        variables[variable] = raw === 'true';
-      } else if (column?.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) {
-        variables[variable] = Number(raw);
-      } else {
-        variables[variable] = raw;
-      }
-    });
+    const variables = trialVariables(inputs, testInputs);
 
     try {
       const response = await evaluateDecision.mutateAsync({ key: target.key, version: target.version, variables });
@@ -925,8 +907,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                     key={input.id}
                     size="xs"
                     label={input.label}
-                    value={testInputs[input.expression] || ''}
-                    onChange={(next) => setTestInputs({ ...testInputs, [input.expression]: next ?? '' })}
+                    value={trialValueOf(testInputs, input)}
+                    onChange={(next) => setTestInputs(withTrialValue(testInputs, input, next ?? ''))}
                     data={[
                       { value: 'true', label: 'Yes' },
                       { value: 'false', label: 'No' },
@@ -938,10 +920,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                     size="xs"
                     label={input.label}
                     placeholder={input.type === 'number' ? '100' : 'Sample value'}
-                    value={testInputs[input.expression] || ''}
-                    onChange={(event) =>
-                      setTestInputs({ ...testInputs, [input.expression]: event.currentTarget.value })
-                    }
+                    value={trialValueOf(testInputs, input)}
+                    onChange={(event) => setTestInputs(withTrialValue(testInputs, input, event.currentTarget.value))}
                   />
                 ),
               )}

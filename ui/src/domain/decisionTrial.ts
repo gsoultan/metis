@@ -7,6 +7,8 @@
  * inline from whatever was on screen at the time, and got each of them wrong in
  * a different way.
  */
+import type { ProcessVariables } from '../services/types';
+import type { DecisionInputColumn } from './decisionTable';
 
 /** A stored decision, as much of one as Try it needs to name it. */
 export interface TrialTarget {
@@ -24,4 +26,33 @@ export interface TrialTarget {
  */
 export function trialTarget(saved: TrialTarget | undefined): TrialTarget | null {
   return saved ? { key: saved.key, version: saved.version } : null;
+}
+
+/**
+ * What has been typed into Try it, by column id.
+ *
+ * By id, not by the variable the column reads: the values were kept under the
+ * variable name, so renaming a column's variable emptied its box while the old
+ * value was still sent under the old name, and a removed column's value was
+ * sent as well.
+ */
+export type TrialValues = Record<string, string>;
+
+export function trialValueOf(values: TrialValues, column: DecisionInputColumn): string {
+  return values[column.id] ?? '';
+}
+
+export function withTrialValue(values: TrialValues, column: DecisionInputColumn, text: string): TrialValues {
+  return { ...values, [column.id]: text };
+}
+
+/** The variables Try it sends: one per condition column as the table stands, under the name it reads now. */
+export function trialVariables(inputs: DecisionInputColumn[], values: TrialValues): ProcessVariables {
+  return Object.fromEntries(inputs.map((input) => [input.expression, trialValue(input, trialValueOf(values, input))]));
+}
+
+function trialValue(column: DecisionInputColumn, raw: string): string | number | boolean {
+  if (column.type === 'boolean') return raw === 'true';
+  if (column.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) return Number(raw);
+  return raw;
 }
