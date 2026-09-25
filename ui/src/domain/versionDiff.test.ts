@@ -6,6 +6,7 @@ import {
   landingChoices,
   proposeMapping,
   removedNodes,
+  rolloutEffect,
 } from './versionDiff';
 import type { ApiDefinition, ApiNode } from '../services/types';
 
@@ -131,5 +132,44 @@ describe('versionDiff', () => {
     expect(diffVersions(null, v2).changes.every((c) => c.kind === 'added')).toBe(true);
     expect(diffVersions(v1, null).changes.every((c) => c.kind === 'removed')).toBe(true);
     expect(diffVersions(null, null).changes).toEqual([]);
+  });
+});
+
+describe('rolloutEffect', () => {
+  const live = version(5, [
+    node({ id: 'start', type: 'startEvent' }),
+    node({ id: 'salesApprove', assignee: 'sasha' }),
+  ]);
+  const older = version(3, [
+    node({ id: 'start', type: 'startEvent' }),
+    node({ id: 'opsApprove', name: 'Operations approve' }),
+    node({ id: 'salesApprove', assignee: 'dani' }),
+  ]);
+
+  it('says a step the older version still has comes back, not that it is new', () => {
+    // Rolling back from 5 to 3. opsApprove exists in 3 and not in 5, so the
+    // diff calls it "added" — but to somebody rolling back it returns.
+    // Reading that forward is how you roll back believing you rolled forward.
+    // In the diff's own order: what changed before what appeared.
+    expect(rolloutEffect(diffVersions(live, older), true)).toEqual([
+      '"salesApprove" changes: assignee: sasha → dani.',
+      '"Operations approve" is a step again.',
+    ]);
+  });
+
+  it('says the same step is new when moving forward', () => {
+    expect(rolloutEffect(diffVersions(live, older), false)).toContain(
+      '"Operations approve" is a new step.',
+    );
+  });
+
+  it('names a step that goes away', () => {
+    expect(rolloutEffect(diffVersions(older, live), false)).toContain(
+      '"Operations approve" is no longer a step.',
+    );
+  });
+
+  it('says nothing about steps that did not change', () => {
+    expect(rolloutEffect(diffVersions(live, live), false)).toEqual([]);
   });
 });
