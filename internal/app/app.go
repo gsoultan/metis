@@ -863,27 +863,39 @@ func BuildAPIHandler(
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",
 	}
-	httpHandler = f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(
-		sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
-			f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
-				f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
-					// Carries X-Organization-ID into the context. It only lets a
-					// caller *choose* among the organizations they belong to;
-					// the endpoint tenant resolver validates it against their
-					// actual memberships.
-					tenant.NewHTTPOrganizationSelector().Wrap(
-						// Records go in the database rather than in this
-						// process: a client retry that reaches another replica
-						// must find the original answer, not an empty cache and
-						// a second execution of the write. Before setup has run
-						// there is no database yet, and the factory falls back
-						// to the in-process store for that window.
-						f.NewIdempotencyOver(conn, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
-					),
+	guarded := sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
+		f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
+			f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
+				// Carries X-Organization-ID into the context. It only lets a
+				// caller *choose* among the organizations they belong to;
+				// the endpoint tenant resolver validates it against their
+				// actual memberships.
+				tenant.NewHTTPOrganizationSelector().Wrap(
+					// Records go in the database rather than in this
+					// process: a client retry that reaches another replica
+					// must find the original answer, not an empty cache and
+					// a second execution of the write. Before setup has run
+					// there is no database yet, and the factory falls back
+					// to the in-process store for that window.
+					f.NewIdempotencyOver(conn, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
 				),
 			),
 		),
 	)
+
+	// The live event stream is held open for as long as a tab stays open, so it
+	// goes around the backpressure limiter — it held one of the API's in-flight
+	// slots for its whole life, and 128 open tabs stalled every other call —
+	// and is limited by its own caps where it is served. Everything else it
+	// still meets: rate limit, body limit, authentication.
+	backpressured := f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(guarded)
+	httpHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == https.EventStreamPath {
+			guarded.ServeHTTP(w, r)
+			return
+		}
+		backpressured.ServeHTTP(w, r)
+	})
 
 	// Metrics wrap outside the limiters so that requests they reject with 429 or
 	// 503 are still counted. Those spend a caller's error budget and are the
@@ -892,7 +904,7 @@ func BuildAPIHandler(
 	// Recovery inside the collector, so a panic is a 500 the collector records
 	// rather than a closed connection it never sees. Outside everything else,
 	// so it covers the interceptor chain as well as the handlers.
-	metricsCollector := metrics.New()
+	metricsCollector := metrics.New(metrics.WithStreams(https.EventStreamPath))
 	httpHandler = metricsCollector.Wrap(https.RecoverPanics(httpHandler))
 
 	// Tracing wraps outside metrics so that a span covers the whole request,

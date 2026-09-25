@@ -267,6 +267,35 @@ the budget or page you.
 
 ---
 
+## Live updates stopped arriving
+
+The inbox, the designer's collaborators and the SDK sandbox listen on one
+stream per browser tab, at `/api/v1/events`.
+
+```promql
+metis_http_event_streams_open
+sum by (status_class) (rate(metis_http_requests_total{route="/api/v1/events"}[5m]))
+```
+
+Streams are not counted as requests in flight, and they do not use the API's
+backpressure slots: until 2026-09-25 each open tab held one of the 128, so a
+busy morning's worth of tabs stalled every other call. They have limits of
+their own — 2048 per process, 16 per account — and past them a stream is
+refused with **503** (the process is full) or **429** (that account is), with
+`Retry-After`. The browser retries with a backoff.
+
+- **429s for one account** is a script, or a tab reloading itself. Nobody else
+  is affected.
+- **503s, `metis_http_event_streams_open` at 2048** is a process holding as many
+  tabs as it will. Add a replica, or find what is opening streams it does not
+  close.
+- **Nothing refused and still no updates** usually means a proxy in the way is
+  buffering or cutting the stream. Every stream sends a keep-alive comment
+  every 25 seconds, so a proxy idle timeout shorter than that is the first
+  thing to check; response buffering the second.
+
+---
+
 ## Everything is slow
 
 Read latency past 150ms or actions past 500ms at p95.
