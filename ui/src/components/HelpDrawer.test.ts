@@ -3,7 +3,9 @@ import { QueryClient } from '@tanstack/react-query';
 import { createElement } from 'react';
 
 import { standInForAppStore, userWithRoles } from '../test/appStoreStandIn';
-import { renderStatic, visibleText } from '../test/renderStatic';
+import id from '../i18n/catalogues/id';
+import { inLanguage, renderStatic, visibleText } from '../test/renderStatic';
+import { GlossaryPanel } from './GlossaryPanel';
 import { HelpTabs } from './HelpDrawer';
 
 const store = standInForAppStore((specifier, factory) => mock.module(specifier, factory));
@@ -95,5 +97,31 @@ describe('what Help asks the server for', () => {
     expect(asked).not.toContain(JSON.stringify(['participants', PROJECT]));
     expect(asked).toContain(JSON.stringify(['stats', PROJECT]));
     expect(asked.some((key) => key.startsWith('["tasks"'))).toBe(false);
+  });
+});
+
+/* Help's tabs, checklist and glossary follow the language the rest of the page is in. */
+describe('Help in Indonesian', () => {
+  it('names its tabs and draws its checklist in Indonesian', async () => {
+    const html = await renderStatic(
+      inLanguage(createElement(HelpTabs, { onNavigate: () => {} }), 'id', id),
+      answered([...PROJECT_UNDER_WAY, [['stats', PROJECT], { stats: { completedTasks: 1 }, err: '' }]]),
+    );
+    const text = visibleText(html);
+    expect(text).toContain('Memulai');
+    expect(text).toContain('Glosarium');
+    expect(text).toContain('Selesai: Terapkan sebuah proses');
+    expect(text).not.toContain('Deploy a process');
+  });
+
+  /* Drawn on its own: an inactive tab's panel is empty until it is opened. */
+  it('draws the glossary in Indonesian', async () => {
+    const html = await renderStatic(inLanguage(createElement(GlossaryPanel), 'id', id));
+    const text = visibleText(html);
+    expect(html).toContain('aria-label="Cari di glosarium"');
+    expect(text).toContain('Instansi');
+    expect(text).toContain('istilah');
+    expect(text).toContain('disebut juga Process instance');
+    expect(text).not.toContain('One run of a process');
   });
 });

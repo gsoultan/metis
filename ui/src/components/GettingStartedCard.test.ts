@@ -3,7 +3,8 @@ import { createElement } from 'react';
 
 import { dismissalKey, type GettingStartedFacts, type GettingStartedProgress } from '../domain/gettingStarted';
 import { standInForAppStore, userWithRoles } from '../test/appStoreStandIn';
-import { linkTargets, renderStatic, visibleText } from '../test/renderStatic';
+import id from '../i18n/catalogues/id';
+import { inLanguage, linkTargets, renderStatic, visibleText } from '../test/renderStatic';
 import { GettingStartedCard, GettingStartedTimeline } from './GettingStartedCard';
 
 const store = standInForAppStore((specifier, factory) => mock.module(specifier, factory));
@@ -177,5 +178,30 @@ describe('hiding the card', () => {
   it('does not hide it for everybody because somebody once hid it on this browser', async () => {
     stored.set('metis-getting-started-dismissed', 'true');
     expect(visibleText(await card())).toContain('Getting started');
+  });
+});
+
+/* The Dashboard is translated, so the card on it is too. */
+describe('the card in Indonesian', () => {
+  it('reads in Indonesian, steps and all', async () => {
+    const html = await renderStatic(
+      inLanguage(createElement(GettingStartedCard, { progress: known(NOTHING_DONE), onRetry: noRetry }), 'id', id),
+    );
+    const text = visibleText(html);
+    expect(text).toContain('Memulai');
+    expect(text).toContain('0 dari 5 selesai');
+    expect(text).toContain('Terapkan sebuah proses');
+    expect(text).toContain('Berikutnya');
+    expect(text).not.toContain('Getting started');
+    expect(text).not.toContain('Deploy a process');
+    expect(html).toContain('aria-label="Sembunyikan panduan memulai"');
+  });
+
+  it('says in Indonesian when it could not check', async () => {
+    const html = await renderStatic(
+      inLanguage(createElement(GettingStartedCard, { progress: { state: 'failed' }, onRetry: noRetry }), 'id', id),
+    );
+    expect(visibleText(html)).toContain('Tidak dapat memeriksa kemajuan proyek ini');
+    expect(visibleText(html)).toContain('Coba lagi');
   });
 });

@@ -1,23 +1,7 @@
-import {
-  Anchor,
-  Badge,
-  Button,
-  Card,
-  CloseButton,
-  Group,
-  Progress,
-  Stack,
-  Text,
-  Timeline,
-  Title,
-  Tooltip,
-  VisuallyHidden,
-  type AnchorProps,
-  type ButtonProps,
-} from '@mantine/core';
-import { createLink, linkOptions } from '@tanstack/react-router';
+import { Badge, Button, Card, CloseButton, Group, Progress, Stack, Text, Timeline, Title, Tooltip, VisuallyHidden } from '@mantine/core';
+import { linkOptions } from '@tanstack/react-router';
 import { ArrowRight, Check, RefreshCw } from 'lucide-react';
-import { useId, useState, type ComponentPropsWithRef } from 'react';
+import { useId, useState } from 'react';
 
 import {
   dismissalKey,
@@ -27,13 +11,15 @@ import {
   type GettingStartedProgress,
   type GettingStartedStepId,
 } from '../domain/gettingStarted';
+import { useTranslation } from '../i18n/context';
 import { useAppStore } from '../store/useAppStore';
+import { AnchorLink, ButtonLink } from './RouterLinks';
 
 /**
  * Getting started, drawn two ways: as a card somebody can put away, and as the
  * timeline in the Help drawer. Both draw the same steps from the same facts,
  * so the two cannot disagree about what is done. The rules are in
- * domain/gettingStarted.ts.
+ * domain/gettingStarted.ts, and the words in src/i18n/catalogues.
  */
 
 /**
@@ -52,22 +38,6 @@ const STEP_LINKS = {
   'connect-system': linkOptions({ to: '/connectors' }),
   'add-people': linkOptions({ to: '/people' }),
 } satisfies Record<GettingStartedStepId, unknown>;
-
-type ButtonAnchorProps = ButtonProps & Omit<ComponentPropsWithRef<'a'>, keyof ButtonProps>;
-
-/** A button drawn as the link it is, so it can be opened in a new tab and is announced as a link. */
-function ButtonAnchor(props: ButtonAnchorProps) {
-  return <Button component="a" {...props} />;
-}
-
-type TextAnchorProps = AnchorProps & Omit<ComponentPropsWithRef<'a'>, keyof AnchorProps>;
-
-function TextAnchor(props: TextAnchorProps) {
-  return <Anchor {...props} />;
-}
-
-const ButtonLink = createLink(ButtonAnchor);
-const AnchorLink = createLink(TextAnchor);
 
 /** Whether this person hid the card in this project, per dismissalKey(). */
 function readDismissed(key: string | undefined): boolean {
@@ -107,6 +77,7 @@ interface GettingStartedCardProps {
  * says so rather than drawing a checklist it cannot vouch for.
  */
 export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProps) {
+  const { t } = useTranslation();
   const titleId = useId();
   const viewer = useAppStore((state) => state.user);
   const projectId = useAppStore((state) => state.currentProjectId);
@@ -121,7 +92,7 @@ export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProp
   const steps = progress.state === 'known' ? gettingStartedSteps(progress.facts, viewer) : [];
   const next = nextStep(steps);
   if (progress.state === 'known' && !next) return null;
-  const doneCount = steps.filter((step) => step.done).length;
+  const counts = { done: steps.filter((step) => step.done).length, total: steps.length };
 
   const dismiss = () => {
     rememberDismissed(key);
@@ -132,26 +103,22 @@ export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProp
     <Card withBorder radius="lg" p="lg" component="section" aria-labelledby={titleId}>
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Stack gap={2}>
-          <Title order={4} id={titleId}>Getting started</Title>
-          {next && <Text size="sm" c="dimmed">{doneCount} of {steps.length} done</Text>}
+          <Title order={4} id={titleId}>{t('start.title')}</Title>
+          {next && <Text size="sm" c="dimmed">{t('start.progress', counts)}</Text>}
         </Stack>
-        <Tooltip label="Your progress stays under Help, the question mark at the top." withArrow>
-          <CloseButton aria-label="Hide getting started" onClick={dismiss} />
+        <Tooltip label={t('start.hideHint')} withArrow>
+          <CloseButton aria-label={t('start.hide')} onClick={dismiss} />
         </Tooltip>
       </Group>
       {!next ? (
         <ProgressUnknown onRetry={onRetry} />
       ) : (
         <>
-          <Progress
-            value={(doneCount / steps.length) * 100}
-            mt="md"
-            aria-label={`${doneCount} of ${steps.length} getting started steps done`}
-          />
+          <Progress value={(counts.done / counts.total) * 100} mt="md" aria-label={t('start.progressLabel', counts)} />
           <Stack gap="lg" mt="lg" align="flex-start">
             <GettingStartedTimeline progress={progress} onRetry={onRetry} />
             <ButtonLink {...STEP_LINKS[next.id]} rightSection={<ArrowRight size={16} />}>
-              {next.label}
+              {t(next.labelKey)}
             </ButtonLink>
           </Stack>
         </>
@@ -162,14 +129,13 @@ export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProp
 
 /** Said instead of a checklist when what has been done could not be found out. */
 function ProgressUnknown({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
   return (
     <Stack gap="xs" mt="md" align="flex-start" role="alert">
-      <Text size="sm" fw={600}>Could not check this project's progress</Text>
-      <Text size="sm" c="dimmed">
-        Nothing is shown as done or not done until it can be. Trying again often resolves it.
-      </Text>
+      <Text size="sm" fw={600}>{t('start.unknownTitle')}</Text>
+      <Text size="sm" c="dimmed">{t('start.unknownHint')}</Text>
       <Button variant="light" size="xs" leftSection={<RefreshCw size={14} />} onClick={onRetry}>
-        Try again
+        {t('common.retry')}
       </Button>
     </Stack>
   );
@@ -201,6 +167,7 @@ interface GettingStartedTimelineProps {
  * the first step next and then jumping once the answers land.
  */
 export function GettingStartedTimeline({ progress, onRetry, onNavigate }: GettingStartedTimelineProps) {
+  const { t } = useTranslation();
   const viewer = useAppStore((state) => state.user);
   if (progress.state === 'failed') return <ProgressUnknown onRetry={onRetry} />;
   const facts = progress.state === 'known' ? progress.facts : undefined;
@@ -220,14 +187,14 @@ export function GettingStartedTimeline({ progress, onRetry, onNavigate }: Gettin
           title={
             <Group gap="xs" wrap="nowrap">
               <AnchorLink {...STEP_LINKS[step.id]} onClick={onNavigate} size="sm" fw={600}>
-                {step.done && <VisuallyHidden>Done: </VisuallyHidden>}
-                {step.label}
+                {step.done && <VisuallyHidden>{`${t('start.done')} `}</VisuallyHidden>}
+                {t(step.labelKey)}
               </AnchorLink>
-              {step.id === next?.id && <Badge size="xs" variant="light">Next</Badge>}
+              {step.id === next?.id && <Badge size="xs" variant="light">{t('start.next')}</Badge>}
             </Group>
           }
         >
-          <Text c="dimmed" size="xs">{step.description}</Text>
+          <Text c="dimmed" size="xs">{t(step.descriptionKey)}</Text>
         </Timeline.Item>
       ))}
     </Timeline>

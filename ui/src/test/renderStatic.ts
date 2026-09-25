@@ -16,6 +16,9 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { TranslationContext } from '../i18n/context';
+import { format, type Catalogue } from '../i18n/translate';
+
 export async function renderStatic(element: ReactElement, queryClient: QueryClient = new QueryClient()): Promise<string> {
   const root = createRootRoute({ component: () => element });
   const router = createRouter({ routeTree: root, history: createMemoryHistory({ initialEntries: ['/'] }) });
@@ -44,4 +47,13 @@ export function visibleText(html: string): string {
 /** Every link's address, in the order they are drawn. */
 export function linkTargets(html: string): string[] {
   return [...html.matchAll(/<a\b[^>]*\shref="([^"]*)"/g)].map((match) => match[1].replace(/&amp;/g, '&'));
+}
+
+/**
+ * The element as it reads in another language: the same translation context
+ * the provider gives the app, over the catalogue given.
+ */
+export function inLanguage(element: ReactElement, locale: string, catalogue: Catalogue): ReactElement {
+  const value = { locale, t: (key: string, values?: Record<string, string | number>) => format(catalogue, key, values), setLocale: () => {} };
+  return createElement(TranslationContext, { value }, element);
 }

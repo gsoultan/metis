@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
+import en from '../i18n/catalogues/en';
+import { format } from '../i18n/translate';
+
 import {
   dismissalKey,
   gettingStartedProgress,
@@ -25,6 +28,9 @@ const EVERYTHING_DONE: GettingStartedFacts = {
   connectionSetUp: true,
   peopleAdded: true,
 };
+
+/** A message in English, the way the card shows it. */
+const words = (key: string) => format(en, key);
 
 /** Somebody who may do every step. */
 const ADMINISTRATOR = { roles: ['ADMIN'] };
@@ -72,7 +78,7 @@ describe('the steps', () => {
    */
   it('never asks for a project, which setup has already made', () => {
     for (const step of gettingStartedSteps(NOTHING_DONE, ADMINISTRATOR)) {
-      expect(`${step.label} ${step.description}`.toLowerCase()).not.toContain('project');
+      expect(`${words(step.labelKey)} ${words(step.descriptionKey)}`.toLowerCase()).not.toContain('project');
     }
   });
 
@@ -83,13 +89,13 @@ describe('the steps', () => {
    */
   it('says the templates are on the Dashboard, since the deploy step links to Processes', () => {
     const deploy = gettingStartedSteps(NOTHING_DONE, ADMINISTRATOR).find((step) => step.id === 'deploy-process');
-    expect(deploy?.description).toMatch(/templates? on the Dashboard/);
+    expect(words(deploy?.descriptionKey ?? '')).toMatch(/templates? on the Dashboard/);
   });
 
   it('says what each step is for, in a sentence', () => {
     for (const step of gettingStartedSteps(NOTHING_DONE, ADMINISTRATOR)) {
-      expect(step.label.length).toBeGreaterThan(0);
-      expect(step.description).toMatch(/\.$/);
+      expect(words(step.labelKey)).not.toBe(step.labelKey);
+      expect(words(step.descriptionKey)).toMatch(/\.$/);
     }
   });
 

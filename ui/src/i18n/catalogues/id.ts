@@ -142,6 +142,81 @@ const id: Catalogue = {
   'dash.startFrom': 'Mulai dari templat',
   'dash.startFromHint': 'Proses yang sudah berjalan dan bisa Anda ubah, bukan kanvas kosong',
   'dash.useTemplate': 'Gunakan templat ini',
+
+  // Memulai: kartu di Dasbor dan daftar periksa di Bantuan.
+  'start.title': 'Memulai',
+  'start.progress': '{done} dari {total} selesai',
+  'start.progressLabel': '{done} dari {total} langkah memulai selesai',
+  'start.hide': 'Sembunyikan panduan memulai',
+  'start.hideHint': 'Kemajuan Anda tetap ada di Bantuan, tanda tanya di bagian atas.',
+  'start.next': 'Berikutnya',
+  'start.done': 'Selesai:',
+  'start.unknownTitle': 'Tidak dapat memeriksa kemajuan proyek ini',
+  'start.unknownHint':
+    'Belum ada yang ditandai selesai atau belum selesai sampai bisa diperiksa. Mencoba lagi biasanya berhasil.',
+  'start.deployProcess.label': 'Terapkan sebuah proses',
+  'start.deployProcess.description':
+    'Gambar satu di Proses, atau pilih templat di Dasbor, lalu terapkan agar bisa berjalan.',
+  'start.startInstance.label': 'Mulai sebuah instansi',
+  'start.startInstance.description':
+    'Jalankan proses Anda sekali. Setiap jalannya adalah instansi yang bisa Anda ikuti langkah demi langkah.',
+  'start.completeTask.label': 'Selesaikan sebuah tugas',
+  'start.completeTask.description':
+    'Saat proses membutuhkan seseorang, tugasnya menunggu di kotak masuk sampai ada yang menyelesaikannya.',
+  'start.connectSystem.label': 'Hubungkan sistem lain',
+  'start.connectSystem.description':
+    'Siapkan koneksi, misalnya email atau Slack, agar langkah-langkah Anda bisa memanggilnya.',
+  'start.addPeople.label': 'Tambahkan orang yang mengerjakannya',
+  'start.addPeople.description': 'Impor orang-orang yang bisa diberi tugas oleh proses Anda.',
+
+  // Bantuan
+  'help.title': 'Bantuan',
+  'help.glossary': 'Glosarium',
+
+  // Glosarium. Nama langkah tetap seperti di palet, yang masih berbahasa
+  // Inggris, agar bisa dicari dengan nama yang terlihat di sana.
+  'glossary.search': 'Cari di glosarium',
+  'glossary.searchPlaceholder': 'Cari, misalnya gateway atau versi aktif',
+  'glossary.count': '{count, plural, other {# istilah}}',
+  'glossary.matches': '{count} dari {total} cocok',
+  'glossary.noMatch': 'Tidak ada yang cocok. Coba kata yang lebih pendek, atau nama lainnya.',
+  'glossary.alsoCalled': 'disebut juga {name}',
+  'glossary.example': 'Contoh: {example}',
+  'glossary.instance.term': 'Instansi',
+  'glossary.instance.definition':
+    'Satu kali jalannya sebuah proses, dari awal sampai selesai. Masing-masing membawa informasinya sendiri dan berada di langkahnya sendiri.',
+  'glossary.instance.example':
+    'Setiap klaim biaya yang diajukan seseorang adalah instansi tersendiri dari proses klaim biaya.',
+  'glossary.deploy.term': 'Penerapan',
+  'glossary.deploy.definition':
+    'Menerbitkan sebuah proses agar bisa berjalan. Setiap penerapan menyimpan versi baru, dan instansi yang sudah berjalan dibiarkan apa adanya.',
+  'glossary.version.term': 'Versi',
+  'glossary.version.definition':
+    'Salinan bernomor dari sebuah proses, disimpan setiap kali diterapkan. Sebuah instansi tetap pada versi tempat ia dimulai, kecuali seseorang memindahkannya.',
+  'glossary.liveVersion.term': 'Versi aktif',
+  'glossary.liveVersion.definition':
+    'Versi tempat instansi baru dimulai. Sebuah proses hanya punya satu dalam satu waktu: penerapan biasanya menjadikan versi baru aktif, dan “Version history” bisa menjadikan versi lain aktif, saat itu juga atau pada waktu yang Anda pilih.',
+  'glossary.stagedVersion.term': 'Versi siaga',
+  'glossary.stagedVersion.definition':
+    'Versi yang sudah diterapkan tetapi belum aktif, sehingga instansi baru tetap dimulai pada versi aktif. Di “Version history” Anda bisa menjalankannya untuk mencoba tanpa mengaktifkannya, lalu mengaktifkannya dengan “Make live” atau menjadwalkannya untuk menggantikan versi aktif pada waktu yang Anda pilih.',
+  'glossary.incident.term': 'Insiden',
+  'glossary.incident.definition':
+    'Langkah yang tidak bisa selesai, sehingga instansinya menunggu di sana sampai ada yang menanganinya. Biasanya panggilan ke sistem lain yang terus gagal. Pilihan tanpa jalur yang bisa diambil menimbulkan insiden bila didahului langkah otomatis; bila didahului tugas seseorang, penyelesaian tugas itu ditolak dan tugasnya tetap terbuka. Perbaiki penyebabnya, lalu ulangi langkahnya.',
+  'glossary.connection.term': 'Koneksi',
+  'glossary.connection.definition':
+    'Konektor yang disiapkan untuk satu proyek, dengan alamat dan kredensial milik proyek itu: ruang kerja Slack Anda, bukan Slack secara umum. Langkah yang memakai konektor memanggil lewat koneksi proyeknya.',
+  'glossary.connector.term': 'Konektor',
+  'glossary.connector.definition':
+    'Cara siap pakai untuk memanggil sejenis sistem, seperti Slack, email, basis data, atau API web. Sebuah proyek menyiapkan koneksi ke konektor itu sebelum langkah-langkahnya bisa memakainya.',
+  'glossary.decisionTable.term': 'Tabel keputusan',
+  'glossary.decisionTable.definition':
+    'Aturan yang ditulis sebagai baris-baris tabel: bila masukan cocok dengan sebuah baris, baris itulah yang memberi jawaban. Kebijakannya ada di tabel, jadi bisa diubah tanpa mengubah prosesnya.',
+  'glossary.decisionTable.example': 'Klaim di bawah Rp5 juta disetujui otomatis; yang lebih besar diteruskan ke manajer.',
+  'glossary.hitPolicy.term': 'Aturan kecocokan',
+  'glossary.hitPolicy.definition':
+    'Apa yang dilakukan tabel keputusan bila lebih dari satu baris cocok: ambil yang pertama, izinkan hanya satu, kumpulkan semua yang cocok, dan seterusnya.',
+  'glossary.hitPolicy.example':
+    'Dua baris diskon cocok dengan pesanan yang sama, dan baris pertama yang cocok yang dipakai.',
 };
 
 export default id;

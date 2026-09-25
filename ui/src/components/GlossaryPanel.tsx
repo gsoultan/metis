@@ -1,25 +1,36 @@
 import { Box, Stack, Text, TextInput } from '@mantine/core';
 import { Search } from 'lucide-react';
-import { useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 
-import { alsoKnownAs, glossarySearchSummary, searchGlossary, type GlossaryEntry } from '../domain/glossary';
+import {
+  alsoKnownAs,
+  glossaryEntries,
+  glossaryIndex,
+  glossarySearchSummary,
+  searchGlossary,
+  type GlossaryEntry,
+} from '../domain/glossary';
+import { useTranslation } from '../i18n/context';
 
 /**
- * The glossary, found by either name.
+ * The glossary, found by either name, in the language the interface is in.
  *
  * The input is left uncontrolled and the filter runs in a transition, so the
- * letters appear as they are typed and the list follows.
+ * letters appear as they are typed and the list follows. The entries are
+ * indexed once per language rather than on every keystroke.
  */
 export function GlossaryPanel() {
+  const { t, locale } = useTranslation();
   const [query, setQuery] = useState('');
   const [, startTransition] = useTransition();
-  const entries = searchGlossary(query);
+  const index = useMemo(() => glossaryIndex(glossaryEntries(t, locale)), [t, locale]);
+  const entries = searchGlossary(index, query);
 
   return (
     <Stack gap="sm">
       <TextInput
-        aria-label="Search the glossary"
-        placeholder="Search, for example gateway or live version"
+        aria-label={t('glossary.search')}
+        placeholder={t('glossary.searchPlaceholder')}
         leftSection={<Search size={16} />}
         onChange={(event) => {
           const value = event.currentTarget.value;
@@ -27,7 +38,7 @@ export function GlossaryPanel() {
         }}
       />
       <Text size="xs" c="dimmed" aria-live="polite">
-        {glossarySearchSummary(entries.length)}
+        {glossarySearchSummary(t, entries.length, index.entries.length)}
       </Text>
       <Box component="dl" m={0}>
         {entries.map((entry) => (
@@ -39,6 +50,7 @@ export function GlossaryPanel() {
 }
 
 function GlossaryItem({ entry }: { entry: GlossaryEntry }) {
+  const { t } = useTranslation();
   const otherName = alsoKnownAs(entry);
   return (
     <Box mb="md">
@@ -46,7 +58,8 @@ function GlossaryItem({ entry }: { entry: GlossaryEntry }) {
         {entry.term}
         {otherName && (
           <Text span size="xs" c="dimmed" fw={400}>
-            {' '}· also called {otherName}
+            {' · '}
+            {t('glossary.alsoCalled', { name: otherName })}
           </Text>
         )}
       </Text>
@@ -55,7 +68,7 @@ function GlossaryItem({ entry }: { entry: GlossaryEntry }) {
       </Text>
       {entry.example && (
         <Text component="dd" size="xs" c="dimmed" m={0} mt={2}>
-          For example: {entry.example}
+          {t('glossary.example', { example: entry.example })}
         </Text>
       )}
     </Box>

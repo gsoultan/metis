@@ -7,8 +7,12 @@
  * somebody who met the word on a screen and not in the palette. This does.
  *
  * The steps come straight from NODE_VOCABULARY, so the glossary and the palette
- * cannot describe the same step two ways. The rest are the terms the product
- * uses around them: instances, versions, incidents, connections and decisions.
+ * cannot describe the same step two ways. The palette is not translated yet,
+ * so a step keeps its English name here in every language: somebody looks a
+ * step up by the name they saw on it. The rest are the terms the product uses
+ * around the steps, instances, versions, incidents, connections and decisions,
+ * and those are in the catalogues (src/i18n/catalogues) with the rest of the
+ * translated interface.
  */
 
 import { NODE_VOCABULARY } from './bpmnVocabulary';
@@ -24,6 +28,9 @@ export interface GlossaryEntry {
   example?: string;
 }
 
+/** A message key and its values, as words in the chosen language (the translation context's `t`). */
+export type Translate = (key: string, values?: Record<string, string | number>) => string;
+
 const STEP_ENTRIES: GlossaryEntry[] = Object.values(NODE_VOCABULARY).map((word) => ({
   term: word.plainName,
   technicalName: word.bpmnName,
@@ -31,65 +38,35 @@ const STEP_ENTRIES: GlossaryEntry[] = Object.values(NODE_VOCABULARY).map((word) 
   example: word.example,
 }));
 
-const PRODUCT_ENTRIES: GlossaryEntry[] = [
-  {
-    term: 'Instance',
-    technicalName: 'Process instance',
-    definition: 'One run of a process, from its start to its finish. Each one carries its own information and is at its own step.',
-    example: 'Every expense claim somebody submits is its own instance of the expense process.',
-  },
-  {
-    term: 'Deploy',
-    technicalName: 'Deployment',
-    definition: 'Publishing a process so it can run. Each deploy saves a new version, and instances already running are left as they are.',
-  },
-  {
-    term: 'Version',
-    technicalName: 'Process definition version',
-    definition: 'A numbered copy of a process, saved each time it is deployed. An instance stays on the version it started on unless somebody migrates it.',
-  },
-  {
-    term: 'Live version',
-    technicalName: 'Promoted version',
-    definition: 'The version new instances start on. A process has one at a time: deploying normally makes the new version live, and Version history can make a different one live, straight away or at a time you choose.',
-  },
-  {
-    term: 'Staged version',
-    technicalName: 'Staged deployment',
-    definition: 'A version that is deployed but not live, so new instances keep starting on the live one. In Version history you can run it to try it, without making it live, then make it live with “Make live” or schedule it to take over at a time you choose.',
-  },
-  {
-    term: 'Incident',
-    technicalName: 'Incident',
-    definition: 'A step that could not finish, so its instance waits there until somebody deals with it. Usually a call to another system that kept failing. A choice with no path to take raises one when an automatic step leads to it; when a person’s task leads to it, completing the task is refused instead, and the task stays open. Fix the cause, then retry the step.',
-  },
-  {
-    term: 'Connection',
-    technicalName: 'Connector instance',
-    definition: 'A connector set up for one project, with that project’s own address and credentials: your Slack workspace, rather than Slack in general. A step that uses a connector calls through its project’s connection.',
-  },
-  {
-    term: 'Connector',
-    technicalName: 'Connector',
-    definition: 'A ready-made way to call a kind of system, such as Slack, email, a database or a web API. A project sets up a connection to it before its steps can use it.',
-  },
-  {
-    term: 'Decision table',
-    technicalName: 'DMN decision table',
-    definition: 'Rules written as the lines of a table: when the inputs match a line, that line gives the answer. The policy lives in the table, so it can change without changing the process.',
-    example: 'Claims under £500 are approved automatically; larger ones go to a manager.',
-  },
-  {
-    term: 'Hit policy',
-    technicalName: 'DMN hit policy',
-    definition: 'What a decision table does when more than one line matches: take the first, allow only one, collect every match, and so on.',
-    example: 'Two discount lines match the same order, and the first line that matches wins.',
-  },
+/**
+ * The product's own terms. The words are under `glossary.<key>.term`,
+ * `.definition` and, where there is one, `.example`. The technical name is the
+ * one used outside the product, in the BPMN and DMN specifications and the API,
+ * so it is the same in every language.
+ */
+const PRODUCT_TERMS: readonly { key: string; technicalName: string; hasExample?: boolean }[] = [
+  { key: 'instance', technicalName: 'Process instance', hasExample: true },
+  { key: 'deploy', technicalName: 'Deployment' },
+  { key: 'version', technicalName: 'Process definition version' },
+  { key: 'liveVersion', technicalName: 'Promoted version' },
+  { key: 'stagedVersion', technicalName: 'Staged deployment' },
+  { key: 'incident', technicalName: 'Incident' },
+  { key: 'connection', technicalName: 'Connector instance' },
+  { key: 'connector', technicalName: 'Connector' },
+  { key: 'decisionTable', technicalName: 'DMN decision table', hasExample: true },
+  { key: 'hitPolicy', technicalName: 'DMN hit policy', hasExample: true },
 ];
 
-export const GLOSSARY: GlossaryEntry[] = [...STEP_ENTRIES, ...PRODUCT_ENTRIES].sort((a, b) =>
-  a.term.localeCompare(b.term, 'en'),
-);
+/** Every entry in the language `t` speaks, in that language's alphabetical order. */
+export function glossaryEntries(t: Translate, locale: string): GlossaryEntry[] {
+  const productEntries = PRODUCT_TERMS.map(({ key, technicalName, hasExample }) => ({
+    term: t(`glossary.${key}.term`),
+    technicalName,
+    definition: t(`glossary.${key}.definition`),
+    example: hasExample ? t(`glossary.${key}.example`) : undefined,
+  }));
+  return [...STEP_ENTRIES, ...productEntries].sort((a, b) => a.term.localeCompare(b.term, locale));
+}
 
 /** The technical name, when showing it beside the term would say something the term does not. */
 export function alsoKnownAs(entry: GlossaryEntry): string | undefined {
@@ -125,12 +102,22 @@ interface SearchableEntry {
   explanation: string;
 }
 
-/** Normalised once, rather than on every keystroke. */
-const SEARCHABLE: SearchableEntry[] = GLOSSARY.map((entry) => ({
-  entry,
-  names: [normalized(entry.term), normalized(entry.technicalName)],
-  explanation: normalized(`${entry.definition} ${entry.example ?? ''}`),
-}));
+/** The entries of one language, normalised once for searching rather than on every keystroke. */
+export interface GlossaryIndex {
+  entries: readonly GlossaryEntry[];
+  searchable: readonly SearchableEntry[];
+}
+
+export function glossaryIndex(entries: readonly GlossaryEntry[]): GlossaryIndex {
+  return {
+    entries,
+    searchable: entries.map((entry) => ({
+      entry,
+      names: [normalized(entry.term), normalized(entry.technicalName)],
+      explanation: normalized(`${entry.definition} ${entry.example ?? ''}`),
+    })),
+  };
+}
 
 function matchRank(item: SearchableEntry, needle: string): number {
   if (item.names.includes(needle)) return NAMED_EXACTLY;
@@ -147,11 +134,11 @@ function matchRank(item: SearchableEntry, needle: string): number {
  * as though everything had matched. Within each rank the alphabetical order
  * stands, because sorting is stable.
  */
-export function searchGlossary(query: string): GlossaryEntry[] {
-  if (query.trim() === '') return GLOSSARY;
+export function searchGlossary(index: GlossaryIndex, query: string): readonly GlossaryEntry[] {
+  if (query.trim() === '') return index.entries;
   const needle = normalized(query);
   if (needle === '') return [];
-  return SEARCHABLE
+  return index.searchable
     .map((item) => ({ entry: item.entry, rank: matchRank(item, needle) }))
     .filter((match) => match.rank !== NO_MATCH)
     .sort((a, b) => a.rank - b.rank)
@@ -159,8 +146,8 @@ export function searchGlossary(query: string): GlossaryEntry[] {
 }
 
 /** One line under the search box, read out as the results change. */
-export function glossarySearchSummary(matchCount: number): string {
-  if (matchCount === 0) return 'Nothing matches. Try a shorter word, or the other name for it.';
-  if (matchCount === GLOSSARY.length) return `${GLOSSARY.length} terms`;
-  return `${matchCount} of ${GLOSSARY.length} match`;
+export function glossarySearchSummary(t: Translate, matchCount: number, total: number): string {
+  if (matchCount === 0) return t('glossary.noMatch');
+  if (matchCount === total) return t('glossary.count', { count: total });
+  return t('glossary.matches', { count: matchCount, total });
 }

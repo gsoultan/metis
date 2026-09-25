@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'bun:test';
 
+import en from '../i18n/catalogues/en';
+import id from '../i18n/catalogues/id';
+import { format, type Catalogue } from '../i18n/translate';
 import { NODE_VOCABULARY } from './bpmnVocabulary';
-import { alsoKnownAs, GLOSSARY, glossarySearchSummary, searchGlossary } from './glossary';
+import {
+  alsoKnownAs,
+  glossaryEntries,
+  glossaryIndex,
+  glossarySearchSummary as summaryIn,
+  searchGlossary as searchIn,
+} from './glossary';
+
+/** The words of one catalogue, the way the translation context gives them. */
+const speaking = (catalogue: Catalogue) => (key: string, values?: Record<string, string | number>) =>
+  format(catalogue, key, values);
+
+/** The glossary as it reads in English, which most of these cases are about. */
+const GLOSSARY = glossaryEntries(speaking(en), 'en');
+const ENGLISH = glossaryIndex(GLOSSARY);
+const searchGlossary = (query: string) => searchIn(ENGLISH, query);
+const glossarySearchSummary = (matchCount: number) => summaryIn(speaking(en), matchCount, GLOSSARY.length);
 
 const firstMatch = (query: string) => searchGlossary(query)[0]?.term;
 const definitionOf = (term: string) => GLOSSARY.find((entry) => entry.term === term)?.definition ?? '';
@@ -178,5 +197,54 @@ describe('saying how a search went', () => {
   /* An empty list with no explanation reads as broken. */
   it('suggests what to try when nothing matches', () => {
     expect(glossarySearchSummary(0)).toBe('Nothing matches. Try a shorter word, or the other name for it.');
+  });
+});
+
+/*
+ * In Indonesian the product's own terms are in Indonesian, beside the
+ * translated navigation and Dashboard, and each is still found by its
+ * technical name. A step keeps the palette's name, which is English still, so
+ * it is found by what somebody saw on the palette.
+ */
+describe('the glossary in Indonesian', () => {
+  const INDONESIAN_ENTRIES = glossaryEntries(speaking(id), 'id');
+  const INDONESIAN = glossaryIndex(INDONESIAN_ENTRIES);
+  const firstIn = (query: string) => searchIn(INDONESIAN, query)[0]?.term;
+
+  it.each([
+    ['Instansi', 'Process instance'],
+    ['Versi siaga', 'Staged deployment'],
+    ['Insiden', 'Incident'],
+    ['Tabel keputusan', 'DMN decision table'],
+  ])('names %s in Indonesian, found by that and by %s', (term, technicalName) => {
+    expect(firstIn(term)).toBe(term);
+    expect(firstIn(technicalName)).toBe(term);
+  });
+
+  it("keeps the palette's name for a step", () => {
+    const choose = NODE_VOCABULARY.exclusiveGateway;
+    expect(firstIn(choose.plainName)).toBe(choose.plainName);
+    expect(firstIn(choose.bpmnName)).toBe(choose.plainName);
+  });
+
+  it('defines every entry in sentences, under a name no other entry uses', () => {
+    for (const entry of INDONESIAN_ENTRIES) {
+      expect(entry.definition).toMatch(/^[A-Z].*\.$/);
+    }
+    const terms = INDONESIAN_ENTRIES.map((entry) => entry.term.toLowerCase());
+    expect(new Set(terms).size).toBe(terms.length);
+  });
+
+  /* The technical name is worth showing beside a translated term, even where the English one is the same word. */
+  it('shows the technical name beside a term translated away from it', () => {
+    const incident = INDONESIAN_ENTRIES.find((entry) => entry.term === 'Insiden');
+    expect(incident && alsoKnownAs(incident)).toBe('Incident');
+  });
+
+  it('says how a search went in Indonesian', () => {
+    const total = INDONESIAN_ENTRIES.length;
+    expect(summaryIn(speaking(id), total, total)).toBe(`${total} istilah`);
+    expect(summaryIn(speaking(id), 3, total)).toBe(`3 dari ${total} cocok`);
+    expect(summaryIn(speaking(id), 0, total)).toBe('Tidak ada yang cocok. Coba kata yang lebih pendek, atau nama lainnya.');
   });
 });

@@ -46,8 +46,11 @@ English in place, because the wrong language beats a page of identifiers.
 ## What is translated so far
 
 The shell: navigation, the language menu itself, and the offline and update
-messages. **Everything else is still hardcoded English** — the pages, forms,
-designer and decision editor, which is the large majority of the strings.
+messages. The page headings, the Dashboard's figures, the getting-started card
+and Help's checklist and glossary. The glossary's steps keep the palette's
+names, which are still English, so a step can be looked up by the name seen on
+it. **Everything else is still hardcoded English** — the rest of the pages,
+forms, designer and decision editor, which is the large majority of the strings.
 
 That is a deliberate stopping point rather than a claim of completeness. The
 machinery is in place, proven by a second language that is not a copy of English

@@ -41,9 +41,10 @@ export interface GettingStartedFacts {
 
 export interface GettingStartedStep {
   id: GettingStartedStepId;
-  label: string;
-  /** What the step is for, in one sentence, for somebody who has not done it. */
-  description: string;
+  /** The message key of what it is called (src/i18n/catalogues). */
+  labelKey: string;
+  /** The message key of what it is for, in one sentence, for somebody who has not done it. */
+  descriptionKey: string;
   done: boolean;
 }
 
@@ -67,38 +68,38 @@ const STEPS: StepDefinition[] = [
   {
     id: 'deploy-process',
     doneBy: DESIGNERS,
-    label: 'Deploy a process',
+    labelKey: 'start.deployProcess.label',
     // It links to Processes, where a new process is drawn (see the card's
     // STEP_LINKS). The templates are on the Dashboard only, so it says so.
-    description: 'Draw one under Processes, or pick a template on the Dashboard, then deploy it so it can run.',
+    descriptionKey: 'start.deployProcess.description',
     isDone: (facts) => facts.processDeployed,
   },
   {
     id: 'start-instance',
     doneBy: ANYBODY,
-    label: 'Start an instance',
-    description: 'Run your process once. Each run is an instance you can follow step by step.',
+    labelKey: 'start.startInstance.label',
+    descriptionKey: 'start.startInstance.description',
     isDone: (facts) => facts.instanceStarted,
   },
   {
     id: 'complete-task',
     doneBy: ANYBODY,
-    label: 'Complete a task',
-    description: 'When a process needs a person, the task waits in the inbox until somebody completes it.',
+    labelKey: 'start.completeTask.label',
+    descriptionKey: 'start.completeTask.description',
     isDone: (facts) => facts.taskCompleted,
   },
   {
     id: 'connect-system',
     doneBy: ADMINISTRATORS,
-    label: 'Connect another system',
-    description: 'Set up a connection, such as email or Slack, so your steps can call it.',
+    labelKey: 'start.connectSystem.label',
+    descriptionKey: 'start.connectSystem.description',
     isDone: (facts) => facts.connectionSetUp,
   },
   {
     id: 'add-people',
     doneBy: DESIGNERS,
-    label: 'Add the people who do the work',
-    description: 'Import the people your processes can assign tasks to.',
+    labelKey: 'start.addPeople.label',
+    descriptionKey: 'start.addPeople.description',
     isDone: (facts) => facts.peopleAdded,
   },
 ];

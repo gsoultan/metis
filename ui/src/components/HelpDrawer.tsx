@@ -2,6 +2,7 @@ import { Button, Divider, Drawer, Group, Paper, Stack, Tabs, Text, ThemeIcon } f
 import { BookOpen, ExternalLink, Lightbulb } from 'lucide-react';
 
 import { useGettingStartedProgress } from '../hooks/useGettingStarted';
+import { useTranslation } from '../i18n/context';
 import { GettingStartedTimeline } from './GettingStartedCard';
 import { GlossaryPanel } from './GlossaryPanel';
 
@@ -13,8 +14,9 @@ import { GlossaryPanel } from './GlossaryPanel';
  * on some screen stops them.
  */
 export function HelpDrawer({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
   return (
-    <Drawer opened={opened} onClose={onClose} position="right" size="md" title={<Text fw={600}>Help</Text>}>
+    <Drawer opened={opened} onClose={onClose} position="right" size="md" title={<Text fw={600}>{t('help.title')}</Text>}>
       <HelpTabs onNavigate={onClose} />
     </Drawer>
   );
@@ -25,11 +27,12 @@ export function HelpDrawer({ opened, onClose }: { opened: boolean; onClose: () =
  * while it is open, so it can be drawn on its own.
  */
 export function HelpTabs({ onNavigate }: { onNavigate: () => void }) {
+  const { t } = useTranslation();
   return (
     <Tabs defaultValue="getting-started">
       <Tabs.List grow mb="lg">
-        <Tabs.Tab value="getting-started">Getting started</Tabs.Tab>
-        <Tabs.Tab value="glossary">Glossary</Tabs.Tab>
+        <Tabs.Tab value="getting-started">{t('start.title')}</Tabs.Tab>
+        <Tabs.Tab value="glossary">{t('help.glossary')}</Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value="getting-started">
         <Stack gap="xl">
