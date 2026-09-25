@@ -32,6 +32,22 @@ export function findProblems(
   outputs: DecisionOutputColumn[],
   rules: DecisionRuleRow[],
 ): TableProblem[] {
+  // Lines that apply to the same case: an error or a warning depending on the
+  // hit policy, and the catch-all line is the loudest case of it.
+  return [...findStructureProblems(hitPolicy, inputs, outputs, rules), ...findOverlaps(hitPolicy, inputs, outputs, rules)];
+}
+
+/**
+ * Everything findProblems finds except overlapping lines: a line at a time,
+ * cheap enough to run on every keystroke, where the overlap check compares
+ * pairs of lines and is run only when what it reads changes (decisionChecks).
+ */
+export function findStructureProblems(
+  hitPolicy: string,
+  inputs: DecisionInputColumn[],
+  outputs: DecisionOutputColumn[],
+  rules: DecisionRuleRow[],
+): TableProblem[] {
   const problems: TableProblem[] = [];
   const policy = hitPolicyOf(hitPolicy);
 
@@ -71,10 +87,6 @@ export function findProblems(
       problems.push({ severity: 'warning', message: `Line ${index + 1} has no result.` });
     }
   });
-
-  // Lines that apply to the same case: an error or a warning depending on the
-  // hit policy, and the catch-all line is the loudest case of it.
-  problems.push(...findOverlaps(hitPolicy, inputs, outputs, rules));
 
   return problems;
 }

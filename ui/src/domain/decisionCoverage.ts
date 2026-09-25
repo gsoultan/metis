@@ -233,7 +233,7 @@ function quoted(text: string): string {
 }
 
 /** Every number a column's cells mention, lowest first. */
-function thresholdsIn(cells: string[]): number[] {
+export function thresholdsIn(cells: string[]): number[] {
   const thresholds = new Set<number>();
   for (const cell of cells) {
     for (const match of cell.matchAll(/-?\d+(\.\d+)?/g)) {

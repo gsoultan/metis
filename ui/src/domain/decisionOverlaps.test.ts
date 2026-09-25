@@ -11,8 +11,8 @@ function rule(condition: string, result = 'X'): DecisionRuleRow {
   return { id: `${condition}-${result}`, input_entries: [condition], output_entries: [result] };
 }
 
-function messages(hitPolicy: string, rules: DecisionRuleRow[], columns = [amount]): string[] {
-  return findOverlaps(hitPolicy, columns, outputs, rules).map((problem) => problem.message);
+function messages(hitPolicy: string, rules: DecisionRuleRow[], columns = [amount], budget?: number): string[] {
+  return findOverlaps(hitPolicy, columns, outputs, rules, budget).map((problem) => problem.message);
 }
 
 /**
@@ -99,5 +99,36 @@ describe('findOverlaps', () => {
       'Lines 2 and 3 both apply when Tier is empty, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
     ]);
     expect(messages('UNIQUE', [rule('"GOLD"', 'A'), rule('""', 'B'), rule('not("GOLD", "")', 'C')], [tier])).toEqual([]);
+  });
+});
+
+/**
+ * The check compared every pair of lines on every keystroke: 280 ms for a
+ * table of two thousand lines where only one may match, and 840 ms where the
+ * first match wins. It now does a bounded amount of pairwise work, and says so
+ * when a table needs more, as the coverage check does, rather than holding up
+ * the editor or implying the rest is clean.
+ */
+describe('findOverlaps on a long table', () => {
+  const band = (i: number) => rule(`[${i * 10}..${(i + 1) * 10}[`, `B${i}`);
+
+  it('says how far it got when the table needs more work than it will do', () => {
+    const everyLineOverlaps = Array.from({ length: 100 }, (_, i) => rule(`> ${i}`, `R${i}`));
+    const unique = messages('UNIQUE', everyLineOverlaps, [amount], 2_000);
+    expect(unique[unique.length - 1]).toMatch(
+      /^Only lines 1 to \d+ were checked against each other: the table is too long to compare every pair of lines, so a problem further down would not be listed here\.$/,
+    );
+    const first = messages('FIRST', Array.from({ length: 100 }, (_, i) => band(i)), [amount], 50);
+    expect(first[first.length - 1]).toStartWith('Only lines 1 to ');
+  });
+
+  it('still compares every pair of two thousand banded lines', () => {
+    const banded = Array.from({ length: 2000 }, (_, i) => band(i));
+    expect(messages('UNIQUE', banded)).toEqual([]);
+    expect(messages('FIRST', banded)).toEqual([]);
+    const overlapAtTheEnd = [...banded, rule('[19990..19995[', 'X')];
+    expect(messages('UNIQUE', overlapAtTheEnd)).toEqual([
+      'Lines 2000 and 2001 both apply when Amount is 19990, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
   });
 });

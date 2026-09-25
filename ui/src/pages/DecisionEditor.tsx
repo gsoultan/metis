@@ -62,6 +62,7 @@ import {
 } from 'lucide-react';
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -95,13 +96,13 @@ import {
   type DecisionRuleRow,
 } from '../domain/decisionTable';
 import {
-  findCoverageGaps,
   ruleForGap,
   whyNotChecked,
   type CoverageGap,
   type CoverageReport,
 } from '../domain/decisionCoverage';
-import { findProblems } from '../domain/decisionProblems';
+import { coverageCheckKey, coverageFor, overlapCheckKey, overlapsFor } from '../domain/decisionChecks';
+import { findProblems, findStructureProblems, type TableProblem } from '../domain/decisionProblems';
 import {
   describeMatchedLines,
   matchedLines,
@@ -122,6 +123,8 @@ import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
 import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+
+const isError = (problem: TableProblem) => problem.severity === 'error';
 
 /** A caught value is `unknown`; take its message when it has one. */
 function errorMessage(err: unknown, fallback: string): string {
@@ -336,12 +339,16 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   }, [existingDef]);
 
   const policy = hitPolicyOf(hitPolicy);
-  const problems = useMemo(
-    () => findProblems(hitPolicy, inputs, outputs, rules),
-    [hitPolicy, inputs, outputs, rules],
-  );
-  const blocking = problems.filter((problem) => problem.severity === 'error');
-  const coverage = useMemo(() => findCoverageGaps(inputs, rules), [inputs, rules]);
+  // The two checks that compare lines run only when what they read changes —
+  // not on a result or a note — and behind the keystroke rather than in it:
+  // the deferred key lets React finish the typing first and run the check in
+  // the render after.
+  const overlapKey = useDeferredValue(overlapCheckKey(hitPolicy, inputs, outputs, rules));
+  const overlaps = useMemo(() => overlapsFor(overlapKey), [overlapKey]);
+  const coverageKey = useDeferredValue(coverageCheckKey(inputs, rules));
+  const coverage = useMemo(() => coverageFor(coverageKey), [coverageKey]);
+  const problems = [...findStructureProblems(hitPolicy, inputs, outputs, rules), ...overlaps];
+  const blocking = problems.filter(isError);
   const summary = describeTable(hitPolicy, aggregation, inputs, outputs, rules.length);
 
   const addInput = () => {
@@ -493,10 +500,12 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const highlighted = matchedLines(outcome, rules, table, savedTable);
 
   const handleSave = async () => {
-    if (blocking.length > 0) {
+    // Checked again as it stands: the list on screen can be a keystroke behind.
+    const refusal = findProblems(hitPolicy, inputs, outputs, rules).find(isError);
+    if (refusal) {
       notifications.show({
         title: 'The table cannot be saved yet',
-        message: blocking[0].message,
+        message: refusal.message,
         color: 'red',
       });
       return;
