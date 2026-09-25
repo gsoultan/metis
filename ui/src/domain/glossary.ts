@@ -51,12 +51,12 @@ const PRODUCT_ENTRIES: GlossaryEntry[] = [
   {
     term: 'Live version',
     technicalName: 'Promoted version',
-    definition: 'The version new instances start on. A process has one at a time: deploying normally makes the new version live, and Version history can promote a different one.',
+    definition: 'The version new instances start on. A process has one at a time: deploying normally makes the new version live, and Version history can make a different one live, straight away or at a time you choose.',
   },
   {
     term: 'Staged version',
     technicalName: 'Staged deployment',
-    definition: 'A version that is deployed but not live. Nothing starts on it until it is promoted from Version history, so it can be checked first.',
+    definition: 'A version that is deployed but not live, so new instances keep starting on the live one. In Version history you can run it to try it, without making it live, then make it live with “Make live” or schedule it to take over at a time you choose.',
   },
   {
     term: 'Incident',

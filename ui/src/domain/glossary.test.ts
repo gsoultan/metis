@@ -43,6 +43,30 @@ describe('the words the rest of the product uses', () => {
   });
 });
 
+/*
+ * Version history is where a version is tried, made live or scheduled, and the
+ * glossary has to say what that screen lets somebody do, in its own words. The
+ * button says "Make live". A staged version can be run from there ("Try v3
+ * without making it live") and scheduled to take over; "nothing starts on it
+ * until it is promoted" was wrong twice over.
+ */
+describe('the versions, as Version history handles them', () => {
+  const definitionOf = (term: string) => GLOSSARY.find((entry) => entry.term === term)?.definition ?? '';
+
+  it('says a staged version can be run to try it, without making it live', () => {
+    expect(definitionOf('Staged version')).toMatch(/without making it live/i);
+  });
+
+  it('says a staged version can be made live, or scheduled to take over', () => {
+    expect(definitionOf('Staged version')).toContain('“Make live”');
+    expect(definitionOf('Staged version')).toMatch(/schedule/i);
+  });
+
+  it.each(['Staged version', 'Live version'])('uses the words on the buttons in %s, not "promote"', (term) => {
+    expect(definitionOf(term)).not.toMatch(/promot/i);
+  });
+});
+
 describe('every entry', () => {
   it('is defined in sentences', () => {
     for (const entry of GLOSSARY) {
