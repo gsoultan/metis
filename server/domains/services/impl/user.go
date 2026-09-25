@@ -46,6 +46,9 @@ func (s *userService) GetUser(ctx context.Context, id uuid.UUID) (entities.User,
 	if err != nil {
 		return entities.User{}, err
 	}
+	if err := requireAccountVisible(ctx, m); err != nil {
+		return entities.User{}, err
+	}
 	return adapters.UserEntityAdapter{Model: m}.ToEntity(), nil
 }
 
@@ -223,6 +226,14 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 	if err != nil {
 		return fmt.Errorf("could not load the user being updated: %w", err)
 	}
+	if err := requireAccountAuthority(ctx, stored); err != nil {
+		return err
+	}
+	if losesAdministrator(stored.Roles, u.Roles) {
+		if err := s.requireAnotherAdministrator(ctx, stored); err != nil {
+			return err
+		}
+	}
 
 	stored.FullName = u.FullName
 	stored.DisplayName = u.DisplayName
@@ -330,7 +341,34 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 	return nil
 }
 
+// losesAdministrator reports whether an update takes the administrator role
+// away. A nil list leaves the roles as they are.
+func losesAdministrator(current, requested []string) bool {
+	return requested != nil &&
+		entities.HasRole(current, entities.RoleAdmin) &&
+		!entities.HasRole(requested, entities.RoleAdmin)
+}
+
+// DeleteUser removes an account the caller has authority over.
+//
+// The last-administrator check reads, then the delete writes, without a lock
+// between them: two administrators deleting each other at the same instant
+// could both see the other one still there. That needs both to be each
+// other's only colleague and to act within milliseconds; the ordinary case —
+// somebody removing the last administrator, often themselves — is refused.
 func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	stored, err := s.repo.User().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := requireAccountAuthority(ctx, stored); err != nil {
+		return err
+	}
+	if entities.HasRole(stored.Roles, entities.RoleAdmin) {
+		if err := s.requireAnotherAdministrator(ctx, stored); err != nil {
+			return err
+		}
+	}
 	if err := s.repo.User().Delete(ctx, id); err != nil {
 		return err
 	}

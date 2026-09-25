@@ -52,3 +52,28 @@ func callerRoles(ctx context.Context) ([]string, bool) {
 	}
 	return nil, false
 }
+
+// callerOrganizations returns the organizations whoever a request is from
+// belongs to, and false when it carries nobody — system work, a maintenance
+// command. Only a local account carries its memberships; an identity
+// provider's token does not, and the tenant resolver refuses it before any
+// service is reached.
+func callerOrganizations(ctx context.Context) (map[uuid.UUID]bool, bool) {
+	var caller *entities.User
+	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
+	case entities.User:
+		caller = &u
+	case *entities.User:
+		caller = u
+	}
+	if caller == nil {
+		return nil, false
+	}
+	memberships := make(map[uuid.UUID]bool, len(caller.Organizations))
+	for _, org := range caller.Organizations {
+		if org != nil {
+			memberships[org.ID] = true
+		}
+	}
+	return memberships, true
+}
