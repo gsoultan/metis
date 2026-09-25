@@ -236,3 +236,16 @@ export function gettingStartedProgress(queries: GettingStartedQueries): GettingS
     },
   };
 }
+
+/**
+ * Where hiding the card is remembered: for one person, in one project.
+ *
+ * It was one key for the whole browser, so on a shared machine, or for
+ * somebody working in two projects, hiding it once hid it for everybody and
+ * everywhere, including projects nobody had started on. Undefined when either
+ * is unknown, since there is then nobody and nowhere to remember it for.
+ */
+export function dismissalKey(userId: string | undefined, projectId: string | null | undefined): string | undefined {
+  if (!userId || !projectId) return undefined;
+  return `metis-getting-started-dismissed:${userId}:${projectId}`;
+}

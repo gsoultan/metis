@@ -1,7 +1,7 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createElement } from 'react';
 
-import type { GettingStartedFacts, GettingStartedProgress } from '../domain/gettingStarted';
+import { dismissalKey, type GettingStartedFacts, type GettingStartedProgress } from '../domain/gettingStarted';
 import { standInForAppStore, userWithRoles } from '../test/appStoreStandIn';
 import { linkTargets, renderStatic, visibleText } from '../test/renderStatic';
 import { GettingStartedCard, GettingStartedTimeline } from './GettingStartedCard';
@@ -117,5 +117,65 @@ describe('a checklist that could not be checked', () => {
     expect(visibleText(html)).toContain("Could not check this project's progress");
     expect(visibleText(html)).toContain('Try again');
     expect(linkTargets(html)).toEqual([]);
+  });
+});
+
+/*
+ * Hiding the card was remembered for the whole browser. On a shared machine,
+ * or for somebody who works in two projects, hiding it once hid it for every
+ * person and every project, including ones nobody had started on. It is
+ * remembered for the person who hid it, in the project they hid it in.
+ */
+describe('hiding the card', () => {
+  type GlobalWithStorage = typeof globalThis & { localStorage?: Storage };
+  const originalStorage = (globalThis as GlobalWithStorage).localStorage;
+  let stored: Map<string, string>;
+
+  beforeEach(() => {
+    stored = new Map();
+    (globalThis as GlobalWithStorage).localStorage = {
+      get length() {
+        return stored.size;
+      },
+      clear: () => stored.clear(),
+      getItem: (key: string) => stored.get(key) ?? null,
+      key: (index: number) => [...stored.keys()][index] ?? null,
+      removeItem: (key: string) => {
+        stored.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        stored.set(key, value);
+      },
+    };
+  });
+
+  afterEach(() => {
+    (globalThis as GlobalWithStorage).localStorage = originalStorage;
+  });
+
+  const card = () =>
+    renderStatic(createElement(GettingStartedCard, { progress: known(NOTHING_DONE), onRetry: noRetry }));
+
+  it('is remembered for the person who hid it, in that project', async () => {
+    stored.set(dismissalKey('user-1', 'project-1') ?? '', 'true');
+    expect(visibleText(await card())).toBe('');
+  });
+
+  it('is not remembered in another project', async () => {
+    stored.set(dismissalKey('user-1', 'project-1') ?? '', 'true');
+    store.set({ ...SIGNED_IN, currentProjectId: 'project-2' });
+    expect(visibleText(await card())).toContain('Getting started');
+  });
+
+  it('is not remembered for somebody else on the same browser', async () => {
+    stored.set(dismissalKey('user-1', 'project-1') ?? '', 'true');
+    store.set({ ...SIGNED_IN, user: { ...userWithRoles(['ADMIN']), id: 'user-2' } });
+    expect(visibleText(await card())).toContain('Getting started');
+  });
+
+  /* What the card used to write when anybody hid it: one key for the browser. */
+  it('does not hide it for everybody because somebody once hid it on this browser', async () => {
+    stored.set('metis-getting-started-dismissed', 'true');
+    expect(visibleText(await card())).toContain('Getting started');
   });
 });

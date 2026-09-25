@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  dismissalKey,
   gettingStartedProgress,
   gettingStartedSteps,
   nextStep,
@@ -265,5 +266,24 @@ describe('a request that failed', () => {
     expect(gettingStartedProgress({ ...FRESH_PROJECT, definitions: refreshFailed })).toEqual(
       known({ ...NOTHING_DONE, processDeployed: true }),
     );
+  });
+});
+
+/* Where hiding the card is remembered: per person and project, never for the whole browser. */
+describe('where hiding the card is remembered', () => {
+  it('is a key of its own for each person in each project', () => {
+    const keys = new Set([
+      dismissalKey('user-1', 'project-1'),
+      dismissalKey('user-1', 'project-2'),
+      dismissalKey('user-2', 'project-1'),
+    ]);
+    expect(keys.size).toBe(3);
+  });
+
+  /* Without both there is nobody and nowhere to remember it for. */
+  it('is nowhere when the person or the project is not known', () => {
+    expect(dismissalKey(undefined, 'project-1')).toBeUndefined();
+    expect(dismissalKey('user-1', null)).toBeUndefined();
+    expect(dismissalKey('', 'project-1')).toBeUndefined();
   });
 });

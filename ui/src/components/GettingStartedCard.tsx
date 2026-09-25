@@ -20,6 +20,7 @@ import { ArrowRight, Check, RefreshCw } from 'lucide-react';
 import { useId, useState, type ComponentPropsWithRef } from 'react';
 
 import {
+  dismissalKey,
   gettingStartedSteps,
   nextStep,
   type GettingStartedFacts,
@@ -68,12 +69,11 @@ function TextAnchor(props: TextAnchorProps) {
 const ButtonLink = createLink(ButtonAnchor);
 const AnchorLink = createLink(TextAnchor);
 
-/** Where hiding the card is remembered. Per browser, like the chosen language. */
-const DISMISSED_STORAGE_KEY = 'metis-getting-started-dismissed';
-
-function readDismissed(): boolean {
+/** Whether this person hid the card in this project, per dismissalKey(). */
+function readDismissed(key: string | undefined): boolean {
+  if (key === undefined) return false;
   try {
-    return localStorage.getItem(DISMISSED_STORAGE_KEY) === 'true';
+    return localStorage.getItem(key) === 'true';
   } catch {
     // Private browsing, or storage turned off. Showing the card is the safe
     // answer for somebody who has not said they are finished with it.
@@ -81,9 +81,10 @@ function readDismissed(): boolean {
   }
 }
 
-function rememberDismissed(): void {
+function rememberDismissed(key: string | undefined): void {
+  if (key === undefined) return;
   try {
-    localStorage.setItem(DISMISSED_STORAGE_KEY, 'true');
+    localStorage.setItem(key, 'true');
   } catch {
     // Hidden for this visit all the same. It comes back next time, which is a
     // smaller failure than refusing to hide it.
@@ -108,7 +109,12 @@ interface GettingStartedCardProps {
 export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProps) {
   const titleId = useId();
   const viewer = useAppStore((state) => state.user);
-  const [dismissed, setDismissed] = useState(readDismissed);
+  const projectId = useAppStore((state) => state.currentProjectId);
+  // Read for whoever and wherever this is now: switching projects keeps the
+  // card mounted, and what was hidden in one project is not hidden in the next.
+  const key = dismissalKey(viewer?.id, projectId);
+  const [hiddenThisVisit, setHiddenThisVisit] = useState<ReadonlySet<string | undefined>>(new Set());
+  const dismissed = hiddenThisVisit.has(key) || readDismissed(key);
   if (dismissed || progress.state === 'loading') return null;
 
   // Failed, there are no steps to draw, so there is no next one either.
@@ -118,8 +124,8 @@ export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProp
   const doneCount = steps.filter((step) => step.done).length;
 
   const dismiss = () => {
-    rememberDismissed();
-    setDismissed(true);
+    rememberDismissed(key);
+    setHiddenThisVisit(new Set(hiddenThisVisit).add(key));
   };
 
   return (
