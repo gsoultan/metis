@@ -166,7 +166,7 @@ const supportTicket: ProcessTemplate = {
 const invoiceProcessing: ProcessTemplate = {
   id: 'invoice-processing',
   name: 'Invoice processing',
-  description: 'An invoice is checked automatically, approved by a person, then paid.',
+  description: 'An invoice is checked, approved by a person, then paid. The checking and the paying wait for a worker, a program of yours that picks up the work.',
   suggestedKey: 'invoice_processing',
   build: (makeId) => {
     const start = makeId();

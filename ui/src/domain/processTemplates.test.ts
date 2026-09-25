@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
-import { PROCESS_TEMPLATES, templateById, type BuiltTemplate } from './processTemplates';
+import { PROCESS_TEMPLATES, templateById, type BuiltTemplate, type ProcessTemplate } from './processTemplates';
 import { validateProcess } from './processValidation';
+import { workerTopic } from './serviceImplementation';
 
 /** Deterministic ids, so a failure names the shape rather than a uuid. */
 function counter() {
@@ -216,4 +217,28 @@ describe('no shape that only exists to be deleted', () => {
       }
     }
   });
+});
+
+/*
+ * What a template says it does is what somebody choosing one reads. The
+ * invoice template's automatic steps wait for a worker, and until one asks for
+ * the work every invoice stops at "Check the invoice". A description that says
+ * it is "checked automatically" promises what the template cannot do on its
+ * own, and does not say what the author has to provide.
+ */
+describe('what a template says about the steps a worker has to do', () => {
+  const workerSteps = (template: ProcessTemplate) =>
+    template.build(counter()).nodes.filter((n) => n.type === 'serviceTask' && workerTopic(n.data) !== '');
+
+  it('covers at least one template, so it tests something', () => {
+    expect(PROCESS_TEMPLATES.some((template) => workerSteps(template).length > 0)).toBe(true);
+  });
+
+  for (const template of PROCESS_TEMPLATES) {
+    if (workerSteps(template).length === 0) continue;
+    it(`${template.name} says a worker is needed, and does not call the work automatic`, () => {
+      expect(template.description).toMatch(/\bworker\b/i);
+      expect(template.description).not.toMatch(/automatic/i);
+    });
+  }
 });
