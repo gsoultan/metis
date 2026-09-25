@@ -61,6 +61,16 @@ a description saying what it means and where to look — an alert whose runbook 
 kubectl -n metis apply -f alerts.yaml
 ```
 
+The file also carries the recording rules the error-budget alerts compare
+(`metis:http_error_ratio:rate5m`, `rate30m`, `rate1h`, `rate6h`), and
+[`deploy/grafana/metis-slo.json`](../grafana/metis-slo.json) is a dashboard over
+the same numbers: availability and budget left over 30 days, burn rate, latency
+against the objectives, the engine's backlog, and the connection pools. Import
+it in Grafana and pick the Prometheus data source; it reads the recording rules,
+so load `alerts.yaml` first. Every metric the rules and the dashboard read is
+checked against the code by `tests/drift`, and every alert against a runbook
+entry in [`docs/runbooks.md`](../../docs/runbooks.md).
+
 **Name your scrape job something containing `metis`.** `MetisDown` matches on
 `up{job=~".*metis.*"}`, so a job called `bpm-engine` makes it match nothing and
 stay silent forever — an alert failing through a label rather than a threshold.

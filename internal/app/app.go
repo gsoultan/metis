@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
@@ -959,6 +960,24 @@ func (a *App) runServers(ctx context.Context) error {
 			func() bool { return features.Enabled(features.StrictTenantScope) },
 			tenantscope.DeniedSites,
 		))
+
+		// How far behind the engine is and how full its connection pools are,
+		// which the HTTP series cannot say: a job worker that stopped claiming
+		// looks like a system with nothing to do, and an exhausted pool looks
+		// like a slow API. Only with a storm connection — before setup there is
+		// no engine to watch; one set up through the wizard reports these from
+		// its next start.
+		if a.storm != nil {
+			metricsCollector.Registry().MustRegister(
+				metrics.NewEngineCollector(a.engineState),
+				metrics.NewPoolCollector("storm", a.storm.Main().Stat),
+			)
+		}
+		if a.db != nil {
+			if sqlDB, err := a.db.DB(); err == nil {
+				metricsCollector.Registry().MustRegister(collectors.NewDBStatsCollector(sqlDB, "gorm"))
+			}
+		}
 
 		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)
 		g.Go(func() error {

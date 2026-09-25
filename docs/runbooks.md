@@ -30,11 +30,19 @@ Every rule in `deploy/kubernetes/alerts.yaml` maps to an entry here.
 | `MetisDown` | Not being scraped for 2 minutes | [Metis is down](#metis-is-down) |
 | `MetisMetricsMissing` | Nothing is exporting metrics | [Metis is down](#metis-is-down) |
 | `MetisSchemaDrift` | A model has no migration | [A missing migration](#a-missing-migration) |
-| `MetisErrorBudgetBurning` | 5xx above the budget | [Errors above budget](#errors-above-the-budget) |
+| `MetisErrorBudgetBurning` | 5xx at 14.4× the budget's rate, over 1h and 5m | [Errors above budget](#errors-above-the-budget) |
+| `MetisErrorBudgetSlowBurn` | 5xx at 6× the budget's rate, over 6h and 30m | [Errors above budget](#errors-above-the-budget) |
+| `MetisErrorBudgetExhausting` | 5xx averaging over the budget for 3 days | [Errors above budget](#errors-above-the-budget) |
 | `MetisReadLatencyOverTarget` | Reads past 150ms p95 | [Slow](#everything-is-slow) |
 | `MetisActionLatencyOverTarget` | Actions past 500ms p95 | [Slow](#everything-is-slow) |
 | `MetisSaturated` | Near the in-flight ceiling | [Slow](#everything-is-slow) |
 | `MetisNoTraffic` | No requests for 15 minutes | [Quiet](#it-has-gone-quiet) |
+| `MetisJobsWaitingUnclaimed` | A due job has waited over 10 minutes | [Nobody is claiming](#jobs-are-due-and-nobody-is-claiming-them) |
+| `MetisJobLeasesNotReclaimed` | Expired leases unclaimed for 15 minutes | [Stuck in running](#a-job-stuck-in-running) |
+| `MetisIncidentsRising` | 10 more open incidents than 30 minutes ago | [Incidents piling up](#incidents-are-piling-up) |
+| `MetisEngineStateUnreadable` | The backlog gauges cannot be read | [Backlog unreadable](#the-engines-backlog-cannot-be-read) |
+| `MetisDatabasePoolSaturated` | Pool 90% in use and callers waiting | [Pool exhausted](#the-database-pool-is-exhausted) |
+| `MetisStrictTenantScopeDenied` | The strict scope denied a call site | [`strict-tenant-scope.md`](strict-tenant-scope.md) |
 
 ---
 
@@ -251,7 +259,19 @@ Then resolve the incidents. The work replays with the new credential.
 
 ## Errors above the budget
 
-`MetisErrorBudgetBurning` is 5xx responses past the 0.1% target.
+The budget is 0.1% of responses as 5xx over 30 days, and three alerts watch how
+fast it is going:
+
+- **`MetisErrorBudgetBurning`** pages: 14.4 times the allowed rate over both the
+  last hour and the last five minutes, which spends a month's budget in about two
+  days.
+- **`MetisErrorBudgetSlowBurn`** warns: 6 times the rate over six hours and
+  thirty minutes — a month's budget in five days.
+- **`MetisErrorBudgetExhausting`** is a ticket: the hourly ratio has averaged
+  over the budget for three days.
+
+The ratios are recorded as `metis:http_error_ratio:rate5m`, `rate30m`, `rate1h`
+and `rate6h`, which is what the SLO dashboard (`deploy/grafana/`) reads.
 
 ```promql
 sum by (route) (rate(metis_http_requests_total{status_class="5xx"}[5m]))
@@ -347,6 +367,177 @@ particular look exactly like an idle system:
 
 ---
 
+## Jobs are due and nobody is claiming them
+
+`MetisJobsWaitingUnclaimed`. A due job is claimed within one poll — two seconds
+by default (`METIS_JOB_POLL_INTERVAL`) — so a job ten minutes past its time
+means no worker is claiming. Timers are late and service tasks are not running,
+and from outside it looks like a quiet system.
+
+```promql
+metis_jobs_due
+metis_jobs_oldest_due_age_seconds
+```
+
+**Is it falling?** If `metis_jobs_due` is going down, the workers are claiming
+and cannot keep up — after an outage, or when many timers come due at once. It
+drains by itself at `METIS_JOB_WORKERS` (default 10) jobs at a time per replica.
+Raise the workers only as far as the database pool: above it they queue on
+connections instead of working.
+
+**Is it flat or growing?** Then nothing is claiming:
+
+1. **Are the workers running?** Each process logs `Job worker started` at boot,
+   with its worker count and poll interval. A process started with
+   `--reset-password` prints a password and exits without starting any.
+   ```bash
+   kubectl -n metis logs deploy/metis | grep -E "Job worker|could not read the pending jobs"
+   ```
+2. **Can they reach the database?** `could not read the pending jobs` in the
+   log, or `MetisDatabasePoolSaturated` firing, puts the problem there — see
+   [The database pool is exhausted](#the-database-pool-is-exhausted) and
+   [Database failover](#database-failover).
+3. **Are they all busy on something slow?** A step that takes minutes — a
+   partner that answers slowly, a script at its time limit — holds a worker for
+   that long. `SELECT node_id, count(*) FROM jobs WHERE status = 'running' GROUP
+   BY 1 ORDER BY 2 DESC;` shows what they are doing.
+
+---
+
+## Incidents are piling up
+
+`MetisIncidentsRising`: ten more incidents are open than half an hour ago. One
+incident is a job that ran out of retries; ten more at once are almost always
+one cause.
+
+```sql
+SELECT d.key AS process, i.node_id, left(i.error, 120) AS error, count(*)
+FROM incidents i
+LEFT JOIN process_definitions d ON d.id = i.definition_id
+WHERE i.status = 'open'
+GROUP BY 1, 2, 3
+ORDER BY 4 DESC
+LIMIT 20;
+```
+
+One row usually dominates. By what it says:
+
+- **A partner answering 5xx or not at all** — the partner is down. The circuit
+  breaker has already stopped the workers queueing on it; see `integration.md`.
+- **401 or 403** — a credential expired. See
+  [An expired connector credential](#an-expired-connector-credential).
+- **A step that never failed before a deploy** — the new version broke it. See
+  [Rolling back a release](#rolling-back-a-release).
+
+**Fix the cause before resolving.** Resolving an incident
+(`POST /api/v1/incidents/{id}/resolve`) replays the work; resolved while the
+cause is still there, it fails again and opens another.
+
+---
+
+## The engine's backlog cannot be read
+
+`MetisEngineStateUnreadable`. At each scrape the metrics endpoint counts the due
+jobs, the expired leases and the open incidents, with a two-second budget. While
+it cannot, `metis_engine_state_up` is 0, the backlog series are absent, and the
+alerts on them cannot fire — which is why this one exists.
+
+The log gives the reason: `Could not read the engine's backlog for the metrics
+endpoint`. Usually the database is unreachable (see
+[Database failover](#database-failover)); if it answers everything else, the
+counts are taking longer than two seconds, which on the `jobs` table means it
+needs vacuuming — see `postgresql.md`.
+
+---
+
+## The database pool is exhausted
+
+`MetisDatabasePoolSaturated`: nine in ten of a pool's connections are in use and
+callers are waiting for one. This is the step before requests time out waiting,
+while the database itself looks idle.
+
+```promql
+metis_db_pool_connections{state="acquired"}
+metis_db_pool_max_connections
+rate(metis_db_pool_acquire_waits_total[5m])
+```
+
+```sql
+-- What the connections are doing, longest transaction first.
+SELECT pid, now() - xact_start AS open_for, state, left(query, 80)
+FROM pg_stat_activity
+WHERE datname = current_database()
+ORDER BY xact_start NULLS LAST
+LIMIT 10;
+```
+
+- **`idle in transaction` near the top** is a transaction holding its
+  connection and doing nothing. That is a bug in whatever opened it; the
+  `open_for` column says how long it has been going on.
+- **The same query, active, many times** is a query that got slow — often a
+  plan that changed after a data or index change. `EXPLAIN (ANALYZE, BUFFERS)`
+  it.
+- **Nothing unusual, just many** is a pool too small for the load. Raise
+  `METIS_DB_MAX_OPEN_CONNS`, remembering it sizes two pools per process and that
+  PostgreSQL's `max_connections` is shared with everything else that connects.
+
+---
+
+## Out of memory
+
+The pod restarts, and its last state says `OOMKilled`:
+
+```bash
+kubectl -n metis describe pod -l app=metis | grep -A4 "Last State"
+```
+
+Work in flight is not lost: a job whose worker died is reclaimed when its lease
+runs out. What matters is finding what allocated, before it happens again.
+
+In order of likelihood:
+
+1. **A script.** The sandbox bounds a script's time and how many run at once
+   (`METIS_SCRIPT_CONCURRENCY`), and it cannot bound a script's memory — goja
+   has no heap limit (`security-plan.md` P0.2(c)). A script that ignored its
+   time budget is abandoned and keeps running; the log says `script ignored its
+   interrupt and was abandoned`, naming how long it was given. Find the step
+   and fix the script.
+2. **A very large value.** A service task response or a variable of many
+   megabytes is held in memory while the step runs, and again while it is
+   encrypted and written.
+   ```sql
+   SELECT id, octet_length(variables) AS bytes
+   FROM process_instances ORDER BY 2 DESC LIMIT 10;
+   ```
+3. **Open streams.** Each browser tab holds one; a process accepts 2048.
+
+Profile rather than guess. With `METIS_PPROF_ENABLED=true` the process serves
+pprof on loopback (`127.0.0.1:6060`):
+
+```bash
+kubectl -n metis port-forward deploy/metis 6060:6060 &
+go tool pprof -top http://localhost:6060/debug/pprof/heap
+```
+
+`GOMEMLIMIT` in `deploy/kubernetes/metis.yaml` (850MiB of a 1Gi limit) makes
+the garbage collector work harder near the ceiling. If you raise the container
+limit, keep `GOMEMLIMIT` at about 85% of it.
+
+---
+
+## Rotating secrets
+
+- **`JWT_SECRET`** — set a new value and restart. Every session ends and
+  everyone signs in again; no data is affected.
+- **`ENCRYPTION_KEY`** — **cannot be rotated today.** Every sealed value —
+  process and task variables, and the copies of them the engine keeps — is
+  encrypted with the one key, and there is no path that re-encrypts under a new
+  one. A new key makes everything sealed so far unreadable. If the key has
+  leaked, what protects the data is access to the database and its backups: the
+  key reads nothing without them. Rotation is recorded in the roadmap backlog
+  as missing.
+
+---
 ## Database failover
 
 Metis holds a pooled connection with a bounded lifetime
