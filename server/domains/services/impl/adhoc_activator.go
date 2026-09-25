@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic"
 	contracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // adHocActivator lets a knowledge worker run the steps inside an ad-hoc
@@ -31,11 +32,12 @@ import (
 //     re-checked it can never become true.
 type adHocActivator struct {
 	engine contracts.ExecutionEngine
+	uow    repocontracts.UnitOfWork
 }
 
 // NewAdHocActivator creates the activator used to drive an ad-hoc sub-process.
-func NewAdHocActivator(engine contracts.ExecutionEngine) contracts.AdHocActivator {
-	return &adHocActivator{engine: engine}
+func NewAdHocActivator(engine contracts.ExecutionEngine, uow repocontracts.UnitOfWork) contracts.AdHocActivator {
+	return &adHocActivator{engine: engine, uow: uow}
 }
 
 // ActivateTask starts one step inside an ad-hoc sub-process.
@@ -43,8 +45,20 @@ func NewAdHocActivator(engine contracts.ExecutionEngine) contracts.AdHocActivato
 // It is deliberately repeatable: BPMN allows a step inside an ad-hoc
 // sub-process to be run any number of times, so asking twice starts it twice
 // rather than being quietly ignored.
+//
+// It runs in one transaction on the locked instance. The token list is written
+// back whole, so an activation that read the instance before another one wrote
+// it would put back a list without the other's step — the step's task stays
+// offered while the instance forgets it is running. The lock makes two
+// activations take turns, and the checks below read what the previous one left.
 func (a *adHocActivator) ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string) error {
-	instance, err := a.engine.GetInstance(ctx, instanceID)
+	return a.uow.Do(ctx, func(txCtx context.Context) error {
+		return a.activate(txCtx, instanceID, subProcessNodeID, taskNodeID)
+	})
+}
+
+func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string) error {
+	instance, err := a.engine.GetInstanceForUpdate(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("activate %q: load instance %s: %w", taskNodeID, instanceID, err)
 	}
