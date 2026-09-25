@@ -96,6 +96,11 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 		return fmt.Errorf("could not encode the job's payload: %w", err)
 	}
 	mut := job.Mutate(row)
+	// The version as well as the node: a migration moves a job to another
+	// version of its process, and a job left naming the old one fires against
+	// a definition the instance no longer runs — a moved timer went looking
+	// for its new node in the old version and dismissed itself as stale.
+	mut.SetDefinitionID(uuid.UUID(j.DefinitionID))
 	mut.SetStatus(string(j.Status))
 	mut.SetPayload(payload)
 	mut.SetRetries(int64(j.Retries))
