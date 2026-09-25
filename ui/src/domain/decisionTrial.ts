@@ -46,9 +46,21 @@ export function withTrialValue(values: TrialValues, column: DecisionInputColumn,
   return { ...values, [column.id]: text };
 }
 
-/** The variables Try it sends: one per condition column as the table stands, under the name it reads now. */
+/**
+ * The variables Try it sends: one per condition column as the table stands,
+ * under the name it reads now.
+ *
+ * A column left blank is left out. A yes/no question nobody answered used to
+ * be sent as "no", and an empty box as empty text: answers nobody gave, to a
+ * table whose whole job is to tell those cases apart. Blank means "not given",
+ * as it does for the examples saved with the table.
+ */
 export function trialVariables(inputs: DecisionInputColumn[], values: TrialValues): ProcessVariables {
-  return Object.fromEntries(inputs.map((input) => [input.expression, trialValue(input, trialValueOf(values, input))]));
+  return Object.fromEntries(
+    inputs
+      .filter((input) => trialValueOf(values, input).trim() !== '')
+      .map((input) => [input.expression, trialValue(input, trialValueOf(values, input))]),
+  );
 }
 
 function trialValue(column: DecisionInputColumn, raw: string): string | number | boolean {

@@ -938,6 +938,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                       { value: 'true', label: 'Yes' },
                       { value: 'false', label: 'No' },
                     ]}
+                    placeholder="Not given"
+                    clearable
                   />
                 ) : (
                   <TextInput

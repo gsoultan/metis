@@ -50,6 +50,16 @@ describe('trialVariables', () => {
     expect(trialVariables([amount], typed)).toEqual({ amount: 500 });
   });
 
+  /**
+   * A yes/no question left unanswered was sent as "no", and an empty box as
+   * empty text: an answer nobody gave. Blank means not given, as it does for
+   * the examples saved with the table.
+   */
+  it('leaves out what was not filled in, rather than answering no', () => {
+    expect(trialVariables([amount, tier, urgent], withTrialValue({}, amount, '500'))).toEqual({ amount: 500 });
+    expect(trialVariables([amount], withTrialValue({}, amount, '  '))).toEqual({});
+  });
+
   it('reads what was typed as its column type says', () => {
     let typed = withTrialValue({}, amount, '500');
     typed = withTrialValue(typed, tier, 'GOLD');
