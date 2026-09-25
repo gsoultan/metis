@@ -23,6 +23,8 @@ type Cache[K comparable, V any] struct {
 	capacity int
 	entries  map[K]*list.Element
 	order    *list.List // front is most recently used
+	// evicted is told about every entry the cache lets go of, or is nil.
+	evicted func(K, V)
 }
 
 type pair[K comparable, V any] struct {
@@ -51,6 +53,19 @@ func entryOf[K comparable, V any](element *list.Element) (*pair[K, V], bool) {
 // raised to one: a cache that can hold nothing is a bug at the call site, and
 // silently disabling it there would be the same fail-open this package exists
 // to remove.
+// NewWithEviction is New with a function told about every entry the cache
+// lets go of — pushed out to stay within capacity, removed, or cleared — for a
+// value that holds something to release. A connection pool dropped from a cache
+// without being closed keeps its connections open for good.
+//
+// It is called after the cache's lock is released, so it may take its time
+// without holding up every other caller.
+func NewWithEviction[K comparable, V any](capacity int, evicted func(K, V)) *Cache[K, V] {
+	c := New[K, V](capacity)
+	c.evicted = evicted
+	return c
+}
+
 func New[K comparable, V any](capacity int) *Cache[K, V] {
 	if capacity < 1 {
 		capacity = 1
@@ -82,6 +97,13 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 
 // Put stores a value, evicting the least recently used entry when full.
 func (c *Cache[K, V]) Put(key K, value V) {
+	c.release(c.put(key, value))
+}
+
+// put stores the value and returns whatever it pushed out, so the eviction
+// function runs after the lock is released rather than while every other caller
+// waits on it.
+func (c *Cache[K, V]) put(key K, value V) []*pair[K, V] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -89,7 +111,7 @@ func (c *Cache[K, V]) Put(key K, value V) {
 		if entry, ok := entryOf[K, V](element); ok {
 			entry.value = value
 			c.order.MoveToFront(element)
-			return
+			return nil
 		}
 		// Unreachable: drop the corrupt element and fall through to store the
 		// value afresh, so a broken invariant costs a re-computation rather than
@@ -100,6 +122,7 @@ func (c *Cache[K, V]) Put(key K, value V) {
 
 	c.entries[key] = c.order.PushFront(&pair[K, V]{key: key, value: value})
 
+	var dropped []*pair[K, V]
 	for c.order.Len() > c.capacity {
 		oldest := c.order.Back()
 		if oldest == nil {
@@ -108,27 +131,60 @@ func (c *Cache[K, V]) Put(key K, value V) {
 		c.order.Remove(oldest)
 		if entry, ok := entryOf[K, V](oldest); ok {
 			delete(c.entries, entry.key)
+			dropped = append(dropped, entry)
 		}
+	}
+	return dropped
+}
+
+// release tells the eviction function about entries already out of the cache.
+func (c *Cache[K, V]) release(dropped []*pair[K, V]) {
+	if c.evicted == nil {
+		return
+	}
+	for _, entry := range dropped {
+		c.evicted(entry.key, entry.value)
 	}
 }
 
 // Remove drops an entry. Used when the thing behind it has changed or gone —
 // a cache that outlives its source is how a deleted definition keeps running.
 func (c *Cache[K, V]) Remove(key K) {
+	c.release(c.remove(key))
+}
+
+func (c *Cache[K, V]) remove(key K) []*pair[K, V] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if element, ok := c.entries[key]; ok {
-		c.order.Remove(element)
-		delete(c.entries, key)
+	element, ok := c.entries[key]
+	if !ok {
+		return nil
 	}
+	c.order.Remove(element)
+	delete(c.entries, key)
+	if entry, ok := entryOf[K, V](element); ok {
+		return []*pair[K, V]{entry}
+	}
+	return nil
 }
 
 // Clear empties the cache.
 func (c *Cache[K, V]) Clear() {
+	c.release(c.clear())
+}
+
+func (c *Cache[K, V]) clear() []*pair[K, V] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var dropped []*pair[K, V]
+	for element := c.order.Front(); element != nil; element = element.Next() {
+		if entry, ok := entryOf[K, V](element); ok {
+			dropped = append(dropped, entry)
+		}
+	}
 	c.entries = make(map[K]*list.Element, c.capacity)
 	c.order.Init()
+	return dropped
 }
 
 // Len reports how many entries are held.

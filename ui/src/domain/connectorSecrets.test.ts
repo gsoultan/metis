@@ -11,6 +11,32 @@ describe('connector secrets', () => {
     expect(isSensitiveKey('channel')).toBe(false);
   });
 
+  it('recognises the fragments this list used to be missing', () => {
+    // The server masked these and the form drew them as plain text.
+    for (const key of ['smtp_passwd', 'credentials', 'private_key', 'signature']) {
+      expect(isSensitiveKey(key)).toBe(true);
+    }
+  });
+
+  it('treats a connection string as a secret however it is spelled', () => {
+    // A database connection string carries the password to the whole database.
+    for (const key of ['dsn', 'DSN', 'connection_string', 'connectionString', 'Connection-String', 'conn_string', 'connection_uri']) {
+      expect(isSensitiveKey(key)).toBe(true);
+    }
+  });
+
+  it('treats a webhook URL as a secret', () => {
+    // Slack, Discord and Teams accept a post from anybody holding the URL.
+    expect(isSensitiveKey('webhook_url')).toBe(true);
+    expect(isSensitiveKey('webhookUrl')).toBe(true);
+  });
+
+  it('leaves the database lookup settings a person needs to read', () => {
+    for (const key of ['driver', 'statement_timeout_ms', 'max_rows', 'max_result_bytes']) {
+      expect(isSensitiveKey(key)).toBe(false);
+    }
+  });
+
   it('never displays the sentinel as though it were the value', () => {
     // The bug: the edit form pre-filled every field from instance.config, so
     // once the server started sending "__unchanged__" for secrets, that word

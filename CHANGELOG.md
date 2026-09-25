@@ -8,6 +8,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- **Database Lookup.** A process step can read rows from your own PostgreSQL,
+  MySQL or SQL Server database into one process variable, so the gateway or
+  decision table after it can decide on data the process does not carry. An
+  administrator connects the database once per project on the Connectors page;
+  the step's query uses `:named` values mapped from process variables; the
+  answer arrives as `x.row`, `x.rows`, `x.row_count` and `x.truncated`. See
+  *Looking something up in your own database* in `docs/integration.md`.
+
+  The query is written by whoever designs the process, so the connection's
+  login is the boundary that matters: give it SELECT on the tables lookups need
+  and nothing else. Every value is sent as a parameter; the query must be one
+  read; PostgreSQL and MySQL run it in a read-only transaction the database
+  enforces. **SQL Server has no read-only transaction** — there the login's own
+  permissions are what stop a write, and every lookup is rolled back rather
+  than committed. A connection whose login can see Metis's own tables is
+  refused.
+
+  New settings: `METIS_SQL_LOOKUP_MAX_CONNS` (default 4 per database per node),
+  `METIS_SQL_LOOKUP_MAX_POOLS` (default 32), and
+  `METIS_SQL_LOOKUP_ALLOWED_HOSTS` to hold lookups to a list of database hosts
+  — worth setting on a shared installation, where the project administrator who
+  sets up a connection is not whoever runs the servers.
+
+- **The Query author role.** Deploying a process with a database lookup in it
+  needs `QUERY_AUTHOR`, held beside Designer; administrators have it already.
+  It is created on the next start with no migration. Grant it on the Platform
+  access page to anybody who should deploy lookups.
+
+### Security
+
+- **A participant directory's database password was sent to the browser.** The
+  participant sources page masked a source's settings by the names of their
+  keys, and a PostgreSQL directory keeps its connection string — password
+  included — under `dsn`, which no rule recognised. Connection strings are now
+  masked however their key is spelled, and so are webhook URLs, which for
+  Slack, Discord and Teams are the whole credential. Anyone who has configured
+  a PostgreSQL participant directory should rotate that password: it has been
+  readable by anybody who could open the page.
+
+### Fixed
+
+- **Headers configured on an HTTP connection were never sent.** The Connectors
+  page saves them as text and the connector read only an object, so an
+  `Authorization` header typed into the form never left the server. A call that
+  succeeded without it will now carry it.
+- **A connector step dragged from the designer's palette had no circuit
+  breaker and ignored the connection's rate limit.** A limit set with
+  `rate_limit_per_minute` on a connection now applies to those steps too, so a
+  process that was calling faster than its limit will now be held to it.
+- A boolean setting on the connector form is a switch rather than a text box
+  that had to be typed "true".
+
 ## [0.3.0] - 2026-09-14
 
 A minor rather than a patch, and the largest release so far. It drops every

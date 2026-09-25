@@ -389,6 +389,16 @@ without a DSN and *13 failing packages* with one. `make test`, `make race` and
 `make strict-scope` now say so when it is unset. A local gate without a database
 proves strictly less than CI does.
 
+The database lookup's MySQL and SQL Server suites are gated the same way, on
+`METIS_TEST_MYSQL_DSN` and `METIS_TEST_SQLSERVER_DSN` — an administrator's
+connection to a server, on which each test creates its own database and a login
+that may only read it. CI runs both against service containers.
+
+**And a fourth:** `go test` prints `--- SKIP` only with `-v`. CI's "No suite skipped
+for want of a database" step ran without it until 2026-09-25, so it could not fail
+and every skip in the main job went unreported. Any check for skips has to run
+verbose.
+
 ---
 
 ## 5. Task summary format

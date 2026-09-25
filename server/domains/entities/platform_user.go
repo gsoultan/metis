@@ -60,5 +60,9 @@ func BuiltInPlatformRoles() []PlatformRole {
 			Name:        RoleOperator,
 			Description: "Runs the system day to day: resolves incidents, retries jobs, migrates instances.",
 		},
+		{
+			Name:        RoleQueryAuthor,
+			Description: "Deploys process models that look things up in a connected database.",
+		},
 	}
 }

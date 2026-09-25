@@ -19,6 +19,7 @@
  */
 
 import { isEndingNode, vocabularyFor } from './bpmnVocabulary';
+import { missingStepFields, type StepSchemas, unmappedParameters } from './connectorStep';
 
 export type IssueSeverity = 'error' | 'warning';
 
@@ -35,7 +36,7 @@ export interface ValidationIssue {
 export interface CheckableNode {
   id: string;
   type?: string;
-  data?: { label?: unknown; defaultFlow?: unknown };
+  data?: { label?: unknown; defaultFlow?: unknown; connector_id?: unknown };
 }
 
 /** The parts of a canvas edge these checks read. */
@@ -69,7 +70,48 @@ function choosesByCondition(type: string | undefined): boolean {
   return type === 'exclusiveGateway' || type === 'inclusiveGateway';
 }
 
-export function validateProcess(nodes: CheckableNode[], edges: CheckableEdge[]): ValidationIssue[] {
+/**
+ * What a step that fills in fields for its connector has left out.
+ *
+ * The server refuses to deploy a lookup with no query or nowhere to put its
+ * answer, and fails one whose query names a value the step never gives. Saying
+ * so here, on the step, is the difference between a red dot and a stack trace.
+ */
+function connectorStepIssues(nodes: CheckableNode[], stepSchemas: StepSchemas): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const node of nodes) {
+    const connectorId = typeof node.data?.connector_id === 'string' ? node.data.connector_id : '';
+    const schema = stepSchemas.get(connectorId);
+    if (!schema || !node.data) continue;
+    const data = node.data as Record<string, unknown>;
+
+    const missing = missingStepFields(data, schema);
+    if (missing.length > 0) {
+      issues.push({
+        message: `"${stepName(node)}" is missing ${missing.map((field) => `“${field.label}”`).join(' and ')}.`,
+        severity: 'error',
+        id: node.id,
+        suggestion: 'Fill it in on the step.',
+      });
+    }
+    const unmapped = unmappedParameters(data);
+    if (unmapped.length > 0) {
+      issues.push({
+        message: `The query in "${stepName(node)}" uses ${unmapped.map((name) => `:${name}`).join(', ')} without saying where the value comes from.`,
+        severity: 'error',
+        id: node.id,
+        suggestion: 'Give each one a value under Values on the step.',
+      });
+    }
+  }
+  return issues;
+}
+
+export function validateProcess(
+  nodes: CheckableNode[],
+  edges: CheckableEdge[],
+  stepSchemas: StepSchemas = new Map(),
+): ValidationIssue[] {
   if (nodes.length === 0) {
     return [{
       message: 'This process is empty.',
@@ -78,7 +120,7 @@ export function validateProcess(nodes: CheckableNode[], edges: CheckableEdge[]):
     }];
   }
 
-  const issues: ValidationIssue[] = [];
+  const issues: ValidationIssue[] = connectorStepIssues(nodes, stepSchemas);
   const starts = nodes.filter((n) => n.type === 'startEvent');
 
   if (starts.length === 0) {

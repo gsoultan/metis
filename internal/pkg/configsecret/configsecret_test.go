@@ -1,6 +1,9 @@
 package configsecret
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSensitiveKeysAreRecognisedHoweverTheyAreSpelled(t *testing.T) {
 	// Connector authors name these every way there is, so the match is on
@@ -18,10 +21,85 @@ func TestSensitiveKeysAreRecognisedHoweverTheyAreSpelled(t *testing.T) {
 	}
 }
 
+func TestAConnectionStringIsASecret(t *testing.T) {
+	// A connection string carries the database password, and a directory
+	// source's dsn was returned to the browser in clear because nothing in the
+	// list matched it. Every spelling a connector author reaches for.
+	for _, key := range []string{
+		"dsn", "DSN", "source_dsn", "databaseDsn",
+		"connection_string", "connectionString", "Connection-String", "connection string",
+		"conn_string", "connString",
+		"connection_uri", "connectionUri",
+	} {
+		if !IsSensitive(key) {
+			t.Errorf("%q was not treated as a secret", key)
+		}
+	}
+}
+
+func TestAWebhookURLIsASecret(t *testing.T) {
+	// Slack, Discord and Teams authenticate a post by the URL alone, so the
+	// URL is the credential. The catalogue declared these as password fields,
+	// which only changed the input the form drew.
+	for _, key := range []string{"webhook_url", "webhookUrl", "WEBHOOK-URL"} {
+		if !IsSensitive(key) {
+			t.Errorf("%q was not treated as a secret", key)
+		}
+	}
+}
+
+// TestNormalisingAKeyNeverUnmasksOne holds the new matcher to the one it
+// replaced: every key the old list masked, the new one must mask too. The old
+// matcher is written out here, frozen, because the point is to compare against
+// what shipped rather than against whatever the list says today.
+func TestNormalisingAKeyNeverUnmasksOne(t *testing.T) {
+	previous := []string{
+		"secret", "password", "passwd", "token", "apikey", "api_key",
+		"credential", "private", "signature", "key",
+	}
+	maskedBefore := func(key string) bool {
+		lower := strings.ToLower(key)
+		for _, fragment := range previous {
+			if strings.Contains(lower, fragment) {
+				return true
+			}
+		}
+		return false
+	}
+
+	corpus := []string{
+		"password", "Password", "smtp_password", "token", "authToken", "AUTH_TOKEN",
+		"apiKey", "api_key", "API-KEY", "API_KEY", "x-api_key-header", "secret",
+		"clientSecret", "webhook_secret", "privateKey", "private_key", "signature",
+		"credentials", "routing_key", "signing_key", "bot_token", "passwd",
+		"url", "channel", "from", "port", "host", "method", "timeout", "username",
+	}
+	for _, key := range corpus {
+		if maskedBefore(key) && !IsSensitive(key) {
+			t.Errorf("%q was masked before normalisation and is not now", key)
+		}
+	}
+}
+
+func TestSensitiveFragmentsIsACopy(t *testing.T) {
+	// The drift test reads this; a caller editing the slice it got back must
+	// not be able to change what the server masks.
+	fragments := SensitiveFragments()
+	fragments[0] = "nothing-matches-this"
+	if SensitiveFragments()[0] == "nothing-matches-this" {
+		t.Fatal("SensitiveFragments returned the package's own slice")
+	}
+}
+
 func TestOrdinarySettingsAreNotMasked(t *testing.T) {
 	// The person is on this page to check these. Masking them would make the
 	// form useless.
-	for _, key := range []string{"url", "channel", "from", "port", "host", "method", "timeout"} {
+	for _, key := range []string{
+		"url", "channel", "from", "port", "host", "method", "timeout",
+		// The database lookup connector's own settings: the person needs to
+		// read these to know what the connection will do.
+		"driver", "statement_timeout_ms", "max_rows", "max_result_bytes",
+	} {
 		if IsSensitive(key) {
 			t.Errorf("%q was treated as a secret", key)
 		}

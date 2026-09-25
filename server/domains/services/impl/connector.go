@@ -7,36 +7,34 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/gsoultan/metis/internal/pkg/tracing"
-	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
-	"github.com/gsoultan/metis/server/repositories/models"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"gopkg.in/yaml.v3"
-
 	"sync"
 	"time"
 
-	"github.com/gsoultan/metis/internal/pkg/httpclient"
-
-	"net"
-	"net/smtp"
-	"strconv"
-
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
+	"github.com/gsoultan/metis/server/domains/services/impl/sqlconnector"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"gopkg.in/yaml.v3"
 )
 
 type connectorService struct {
 	repo      repositories.Repository
 	executors map[string]servicecontracts.ConnectorExecutor
 }
+
+// connectorService still satisfies the contracts; asserted here because the
+// constructor now returns the concrete type and would no longer catch a drift.
+var _ servicecontracts.JobConnectorService = (*connectorService)(nil)
 
 // InstallManifest registers a connector described by a document.
 //
@@ -138,30 +136,37 @@ func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) (
 	return installed, nil
 }
 
+// NewConnectorService returns the concrete type, not the interface, so the
+// composition root can hand the job service the request runner as well as the
+// ConnectorService every other consumer gets — without the facade, which embeds
+// ConnectorService, gaining it too. The same reason NewDefinitionService returns
+// its concrete type.
 func NewConnectorService(
 	repo repositories.Repository,
-) servicecontracts.ConnectorService {
+) *connectorService {
 	s := &connectorService{
 		repo:      repo,
 		executors: make(map[string]servicecontracts.ConnectorExecutor),
 	}
 
-	// Register built-in executors.
+	// Register built-in executors, once each.
 	//
-	// email-smtp names the connectors-package implementation, which is the one
-	// the application runs. It used to be registered here as EmailSmtpExecutor
-	// and then overwritten by NewServiceFacade, so every test that built a
-	// connector service exercised one implementation while the application ran
-	// the other — and the two had drifted apart. Registering the shipped one
-	// here is what puts the SMTP test on the code that ships.
+	// http-json, slack-message and email-smtp name the connectors-package
+	// implementations, which are the ones the application runs. Each used to
+	// have a second implementation registered here and then overwritten by
+	// NewServiceFacade, so every test that built a connector service exercised
+	// code the application never ran — and the copies had drifted apart. The
+	// http-json copy parsed the headers the Connectors page saves as text; the
+	// one that shipped read only an object, so every header configured on that
+	// page was dropped, and the one test of headers passed against the copy.
 	//
-	// http-json and slack-message are still overridden in NewServiceFacade and
-	// still diverge the same way; their contracts differ in what they return,
-	// so unpicking that changes what a running process sees and is a separate
-	// decision. See the note in NewServiceFacade.
-	s.executors["http-json"] = &HttpJsonExecutor{}
-	s.executors["slack-message"] = &SlackMessageExecutor{}
-	s.executors["email-smtp"] = connectors.NewEmailConnector()
+	// NewServiceFacade is the only production caller of this constructor and it
+	// registered these same implementations, so a running process reads back
+	// exactly what it did before. What changed is which code the tests run.
+	s.executors[connectors.HTTPConnectorKey] = connectors.NewHTTPConnector(nil)
+	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
+	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
+	s.executors[sqlconnector.Key] = sqlconnector.New()
 	s.executors["rabbitmq-publish"] = NewRabbitMQExecutor()
 
 	// Discord Connector
@@ -188,7 +193,7 @@ func (s *connectorService) ListConnectors(ctx context.Context) ([]entities.Conne
 	}
 	res := make([]entities.Connector, len(ms))
 	for i, m := range ms {
-		res[i] = adapters.ConnectorEntityAdapter{Model: m}.ToEntity()
+		res[i] = withNodeSchema(adapters.ConnectorEntityAdapter{Model: m}.ToEntity())
 	}
 	return res, nil
 }
@@ -198,7 +203,25 @@ func (s *connectorService) GetConnector(ctx context.Context, id uuid.UUID) (enti
 	if err != nil {
 		return entities.Connector{}, err
 	}
-	return adapters.ConnectorEntityAdapter{Model: m}.ToEntity(), nil
+	return withNodeSchema(adapters.ConnectorEntityAdapter{Model: m}.ToEntity()), nil
+}
+
+// nodeSchemas are the fields a step fills in, for the built-ins that take a
+// step's own request.
+//
+// Compiled in and attached on read rather than stored beside the connection
+// schema. What a step asks for is code — it has to agree with the executor
+// that reads it — so a stored copy would be a second definition, and one that
+// an installation seeded under an older version would keep.
+var nodeSchemas = map[string]func() []entities.ConnectorProperty{
+	sqlconnector.Key: sqlconnector.NodeSchema,
+}
+
+func withNodeSchema(c entities.Connector) entities.Connector {
+	if schema, ok := nodeSchemas[c.Key]; ok {
+		c.NodeSchema = schema()
+	}
+	return c
 }
 
 func (s *connectorService) CreateConnector(ctx context.Context, c entities.Connector) (entities.Connector, error) {
@@ -361,13 +384,27 @@ func (s *connectorService) manifestFor(ctx context.Context, key string) (connect
 	return manifest, true
 }
 
-// ExecuteConnector runs one outbound integration call.
+// ExecuteConnector runs one outbound integration call with the process
+// variables as its payload.
+//
+// It is ExecuteConnectorRequest with nothing but variables, so there is one
+// path through a connector call rather than two that can drift apart.
+func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey string, config map[string]any, payload map[string]any) (map[string]any, error) {
+	return s.ExecuteConnectorRequest(ctx, connectorKey, config, servicecontracts.ConnectorRequest{Variables: payload})
+}
+
+// ExecuteConnectorRequest runs one outbound integration call.
 //
 // This is the span execution-plan.md §3.4 asks for. It is the boundary where
 // this system stops being in control: everything inside is our code, and
 // everything past it is somebody else's availability. When an instance has been
 // stuck for hours, this span is usually the answer.
-func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey string, config map[string]any, payload map[string]any) (map[string]any, error) {
+//
+// The request reaches an executor only if it implements RequestExecutor. Every
+// other executor, and every manifest, is called with the variables alone,
+// exactly as ExecuteConnector always called it.
+func (s *connectorService) ExecuteConnectorRequest(ctx context.Context, connectorKey string, config map[string]any, req servicecontracts.ConnectorRequest) (map[string]any, error) {
+	payload := req.Variables
 	ctx, span := tracing.Tracer().Start(ctx, "connector.execute",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(tracing.AttrConnectorKey.String(connectorKey)),
@@ -402,7 +439,7 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 		return nil, err
 	}
 
-	result, err := executor.Execute(ctx, config, payload)
+	result, err := execute(ctx, executor, config, req)
 	if err != nil {
 		// Recorded rather than merely returned: a connector failure is the most
 		// common cause of a stalled instance, and a trace that shows the call
@@ -413,6 +450,15 @@ func (s *connectorService) ExecuteConnector(ctx context.Context, connectorKey st
 	}
 	span.SetStatus(codes.Ok, "")
 	return result, nil
+}
+
+// execute hands the request to an executor that can take one, and the
+// variables to one that cannot.
+func execute(ctx context.Context, executor servicecontracts.ConnectorExecutor, config map[string]any, req servicecontracts.ConnectorRequest) (map[string]any, error) {
+	if requests, ok := executor.(servicecontracts.RequestExecutor); ok {
+		return requests.ExecuteRequest(ctx, config, req)
+	}
+	return executor.Execute(ctx, config, req.Variables)
 }
 
 func (s *connectorService) RegisterExecutor(key string, executor servicecontracts.ConnectorExecutor) {
@@ -526,6 +572,7 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 				{Key: "from", Label: "From Email", Type: "string", Required: true},
 			},
 		},
+		sqlconnector.CatalogueEntry(),
 	}
 
 	var failed error
@@ -545,66 +592,6 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 }
 
 // Built-in Executors
-
-type HttpJsonExecutor struct{}
-
-func (e *HttpJsonExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	url, _ := connectors.TextSetting(config, "url")
-	method, _ := connectors.TextSetting(config, "method")
-	if method == "" {
-		method = "POST"
-	}
-
-	// A payload that cannot be encoded is a broken request, not an empty one.
-	// Marshalling the error away sent `null` as the body and let the partner
-	// decide what that meant.
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("http-json: could not encode the request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Apply configured headers
-	if hStr, ok := config["headers"].(string); ok && hStr != "" {
-		var headers map[string]string
-		if err := json.Unmarshal([]byte(hStr), &headers); err == nil {
-			for k, v := range headers {
-				req.Header.Set(k, v)
-			}
-		}
-	}
-
-	resp, err := httpclient.Shared().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer closeResponse(resp.Body, "http-json")
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
-	}
-
-	respBody, err := readResponse(resp, "http-json")
-	if err != nil {
-		return nil, err
-	}
-
-	// A reply that is not JSON is not a failure — plenty of endpoints answer
-	// with nothing, or with text — but it does mean there are no output
-	// variables, and that is what an empty map says.
-	var result map[string]any
-	if len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, &result); err != nil {
-			log.Debug().Err(err).Msg("An http-json reply was not JSON; no output variables were taken from it")
-		}
-	}
-	return result, nil
-}
 
 // closeResponse closes a response body and says so when it could not.
 //
@@ -773,87 +760,6 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 	return map[string]any{"status": "sent"}, nil
 }
 
-type SlackMessageExecutor struct{}
-
-func (e *SlackMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
-	text, _ := connectors.TextSetting(payload, "text")
-	if text == "" {
-		text = "No message text provided"
-	}
-
-	slackPayload := map[string]any{
-		"text": text,
-	}
-	if channel, ok := config["channel"].(string); ok && channel != "" {
-		slackPayload["channel"] = channel
-	}
-
-	body, err := json.Marshal(slackPayload)
-	if err != nil {
-		return nil, fmt.Errorf("slack-message: could not encode the request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpclient.Shared().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer closeResponse(resp.Body, "slack-message")
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("slack-message: Slack returned %s", resp.Status)
-	}
-
-	return map[string]any{"status": "ok"}, nil
-}
-
-type EmailSmtpExecutor struct{}
-
-func (e *EmailSmtpExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	host, _ := connectors.TextSetting(config, "host")
-	portStr := connectors.PortSetting(config, "port")
-	username, _ := connectors.TextSetting(config, "username")
-	password, _ := connectors.TextSetting(config, "password")
-	from, _ := connectors.TextSetting(config, "from")
-
-	to, _ := connectors.TextSetting(payload, "to")
-	subject, _ := connectors.TextSetting(payload, "subject")
-	body, _ := connectors.TextSetting(payload, "body")
-
-	if host == "" || portStr == "" || username == "" || password == "" {
-		return nil, fmt.Errorf("SMTP configuration is incomplete")
-	}
-
-	if to == "" {
-		return nil, fmt.Errorf("recipient email 'to' is required in payload")
-	}
-
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid SMTP port: %w", err)
-	}
-
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	auth := smtp.PlainAuth("", username, password, host)
-
-	msg := []byte(fmt.Sprintf("To: %s\r\n"+
-		"Subject: %s\r\n"+
-		"\r\n"+
-		"%s\r\n", to, subject, body))
-
-	err = smtp.SendMail(addr, auth, from, []string{to}, msg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send email via SMTP: %w", err)
-	}
-
-	return map[string]any{"status": "sent"}, nil
-}
-
 type RabbitMQExecutor struct {
 	conns sync.Map // url -> *amqp.Connection
 }
@@ -957,5 +863,6 @@ func BuiltInConnectorKeys() []string {
 		"discord-message",
 		"sendgrid-email",
 		"ms-teams-message",
+		sqlconnector.Key,
 	}
 }

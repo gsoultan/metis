@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -151,7 +152,10 @@ func TestHttpJsonExecutor(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	executor := &impl.HttpJsonExecutor{}
+	// The implementation the application registers. This test used to build a
+	// second one that was registered and then overwritten, so it passed while
+	// the shipped connector dropped these very headers.
+	executor := connectors.NewHTTPConnector(nil)
 	ctx := context.Background()
 	config := map[string]any{
 		"url":     ts.URL,
@@ -177,7 +181,7 @@ func TestSlackMessageExecutor(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	executor := &impl.SlackMessageExecutor{}
+	executor := connectors.NewSlackConnector()
 	ctx := context.Background()
 	config := map[string]any{
 		"webhook_url": ts.URL,
@@ -188,7 +192,9 @@ func TestSlackMessageExecutor(t *testing.T) {
 
 	result, err := executor.Execute(ctx, config, payload)
 	assert.NoError(t, err)
-	assert.Equal(t, "ok", result["status"])
+	// {"ok": true} is what a running process has always read back: the
+	// {"status": "ok"} this used to assert came from a copy that never ran.
+	assert.Equal(t, true, result["ok"])
 }
 
 func TestConnectorService(t *testing.T) {
@@ -219,7 +225,7 @@ func TestConnectorService(t *testing.T) {
 
 		result, err := service.ExecuteConnector(context.Background(), "slack-message", config, payload)
 		assert.NoError(t, err)
-		assert.Equal(t, "ok", result["status"])
+		assert.Equal(t, true, result["ok"])
 	})
 
 	t.Run("ExecuteConnector_NotFound", func(t *testing.T) {

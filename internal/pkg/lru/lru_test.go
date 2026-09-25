@@ -112,3 +112,40 @@ func TestConcurrentUseIsSafe(t *testing.T) {
 		t.Fatalf("holding %d entries, want at most 64", c.Len())
 	}
 }
+
+// A value that holds something — a connection pool — has to be told when the
+// cache lets go of it, by any path, or what it holds is never released.
+func TestEvictedEntriesAreHandedBack(t *testing.T) {
+	var released []int
+	c := NewWithEviction[string, int](2, func(_ string, v int) { released = append(released, v) })
+
+	c.Put("a", 1)
+	c.Put("b", 2)
+	c.Put("c", 3) // pushes out a
+	if len(released) != 1 || released[0] != 1 {
+		t.Fatalf("pushed out %v, want [1]", released)
+	}
+	c.Put("c", 30) // a replacement is not an eviction
+	if len(released) != 1 {
+		t.Fatalf("replacing a value released %v", released)
+	}
+	c.Remove("b")
+	if len(released) != 2 || released[1] != 2 {
+		t.Fatalf("Remove released %v, want [1 2]", released)
+	}
+	c.Clear()
+	if len(released) != 3 || released[2] != 30 {
+		t.Fatalf("Clear released %v, want [1 2 30]", released)
+	}
+}
+
+// The eviction function runs outside the lock, so one that uses the cache —
+// or simply takes a while — does not deadlock or stall other callers.
+func TestTheEvictionFunctionMayUseTheCache(t *testing.T) {
+	var c *Cache[string, int]
+	c = NewWithEviction[string, int](1, func(string, int) { _ = c.Len() })
+	c.Put("a", 1)
+	c.Put("b", 2) // would deadlock if the callback ran under the lock
+	c.Remove("b")
+	c.Clear()
+}

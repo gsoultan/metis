@@ -14,11 +14,13 @@ import {
 import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
+import { clearedStepFields } from '../../domain/connectorStep';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
 import { asText, asTextMap } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { ConnectorCatalog, MappingTable, MultiInstanceConfig, NodeTestModal } from './CommonProperties';
+import { ConnectorStepFields } from './ConnectorStepFields';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -37,6 +39,11 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
   const connectors = connectorsData?.connectors ?? [];
   const selectedConnector = connectors.find((c) => c.id === asText(data.connector_id));
+  // A connector that asks the step for fields of its own — a database lookup's
+  // query — has them drawn here, and cannot be tried on its own: it runs as a
+  // step of a process, which says what to look up.
+  const stepSchema = selectedConnector?.node_schema ?? [];
+  const takesStepFields = stepSchema.length > 0;
 
   const options = [
     { value: 'push', label: 'Call a web address', description: 'We send the request and wait for the answer' },
@@ -65,7 +72,9 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
       {implementation === 'connector' && (
         !data.connector_id ? (
           <PropertySection title="Choose a connector">
-            <ConnectorCatalog onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '' })} />
+            <ConnectorCatalog
+              onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '', ...clearedStepFields() })}
+            />
           </PropertySection>
         ) : (
           <>
@@ -78,20 +87,24 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                       <Text size="xs" c="dimmed" lineClamp={2}>{selectedConnector.description}</Text>
                     </Box>
                     <Group gap={4} wrap="nowrap">
-                      <Button
-                        size="compact-xs"
-                        variant="light"
-                        leftSection={<Play size={12} />}
-                        onClick={() => setTestModalOpened(true)}
-                      >
-                        Try it
-                      </Button>
+                      {!takesStepFields && (
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          leftSection={<Play size={12} />}
+                          onClick={() => setTestModalOpened(true)}
+                        >
+                          Try it
+                        </Button>
+                      )}
                       <ActionIcon
                         aria-label="Remove this connector"
                         size="sm"
                         variant="subtle"
                         color="red"
-                        onClick={() => onUpdate({ connector_id: undefined, connector_instance_id: undefined })}
+                        onClick={() =>
+                          onUpdate({ connector_id: undefined, connector_instance_id: undefined, ...clearedStepFields() })
+                        }
                       >
                         <Trash2 size={14} />
                       </ActionIcon>
@@ -101,6 +114,9 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
               )}
             </PropertySection>
 
+            {takesStepFields ? (
+              <ConnectorStepFields schema={stepSchema} data={data as Record<string, unknown>} onUpdate={onUpdate} />
+            ) : (
             <PropertySection
               title="If the names differ"
               hint="Only needed when the connector calls things differently from your process."
@@ -120,6 +136,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                 onUpdate={(m) => onUpdate({ outputs: m })}
               />
             </PropertySection>
+            )}
           </>
         )
       )}

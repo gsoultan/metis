@@ -211,6 +211,18 @@ const PROPERTY_ALIASES: Record<string, string> = {
   calledProcessVersion: 'called_process_version',
 };
 
+/**
+ * The editor field an older editor writes a stored setting under, if any.
+ *
+ * A step field is written under the name the server stores it by. If an editor
+ * also holds it under a camelCase alias, a value loaded earlier would be
+ * renamed onto the same key on save and could outvote the edit, so a writer
+ * clears the alias as it sets the field.
+ */
+export function editorKeyFor(storedKey: string): string | undefined {
+  return Object.keys(PROPERTY_ALIASES).find((editorKey) => PROPERTY_ALIASES[editorKey] === storedKey);
+}
+
 function nodeProperties(d: BPMNNodeData): Record<string, unknown> {
   const out: Record<string, unknown> = { ...(d['properties'] as Record<string, unknown> ?? {}) };
   for (const [key, value] of Object.entries(d)) {

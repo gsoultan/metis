@@ -383,7 +383,7 @@ export interface ListLiveVersionsResponse {
 export interface ApiConnectorProperty {
   key: string;
   label: string;
-  /** string | password | boolean | number | select */
+  /** string | password | boolean | number | select | textarea, and mapping for a step field */
   type: string;
   description?: string;
   default_value?: string;
@@ -410,6 +410,12 @@ export interface ApiConnector {
   /** e.g. communication, utility */
   type?: string;
   schema?: ApiConnectorProperty[];
+  /**
+   * What a step using this connector fills in — a database lookup's query,
+   * its values, and where the answer goes. Absent for a connector a step only
+   * names.
+   */
+  node_schema?: ApiConnectorProperty[];
   created_at?: string;
 }
 

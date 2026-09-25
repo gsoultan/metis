@@ -15,7 +15,12 @@ type Connector struct {
 	Icon        string              `json:"icon,omitzero"` // Lucide icon name or SVG
 	Type        string              `json:"type"`          // e.g., "social", "utility", "communication"
 	Schema      []ConnectorProperty `json:"schema,omitzero"`
-	CreatedAt   time.Time           `json:"created_at,omitzero"`
+	// NodeSchema is what a step using this connector fills in, for a connector
+	// that takes a step's own request — a database lookup's query. Attached
+	// when the catalogue is read, never stored: it has to agree with the
+	// executor that reads it.
+	NodeSchema []ConnectorProperty `json:"node_schema,omitzero"`
+	CreatedAt  time.Time           `json:"created_at,omitzero"`
 }
 
 // ConnectorProperty defines the schema for a connector's configuration.

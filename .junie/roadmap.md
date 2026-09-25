@@ -734,6 +734,84 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): Executed `P2-INT-02` — a process can look something up in its own
+  database before it decides. Branch `database-lookup-connector`.
+  - **Reprioritization note.** This is P2 work landing while §11 item 1 — the staged rollout
+    of the strict tenant scope — is still open. Asked for directly by the product owner, so
+    taken out of order deliberately. The open P0 is an operational rollout (staging soak,
+    then production, then the default) rather than code, and nothing here changes it. The P0
+    defects this work uncovered were fixed first, in their own commits, ahead of the feature.
+  - **Problem.** A decision is only as good as the data the process carries, and the data that
+    matters usually lives in the customer's own database. Reaching it meant writing and hosting
+    an API in front of that database for an HTTP task to call.
+  - **Acceptance criteria**, each executable by a non-author and each covered by a test:
+    1. An administrator connects a project to PostgreSQL, MySQL or SQL Server once, on the
+       Connectors page; the connection string is encrypted at rest and never returned to a
+       browser.
+    2. A designer drags *Database Lookup* onto the canvas, writes a `SELECT` with `:named`
+       values, maps each to a process variable or FEEL expression, and names one variable for
+       the answer.
+    3. The answer is exactly one variable — `x.row`, `x.rows`, `x.row_count`, `x.truncated` —
+       and a gateway or decision table after the step routes on it
+       (`tests/sqlconnector/lookup_decision_test.go`: gold and silver customers take different
+       paths; an unknown one takes the default with no incident).
+    4. Deploying a process with a lookup needs the `QUERY_AUTHOR` role; a designer without it
+       is refused with the reason, at every deploy path including a lookup nested in a
+       sub-process.
+    5. A query that writes, runs two statements, reads files or reaches another server is
+       refused; values are only ever parameters; a lookup is stopped at its time limit and
+       bounded in rows and bytes; a login that can see Metis's own tables is refused.
+  - **Design.** A connector on the service-task path, not a new BPMN element — so it inherits
+    retries, incidents, error boundaries, the breaker and the rate limit, and reaches the
+    palette from its catalogue row. A step's own statement reaches the executor through
+    `ConnectorRequest` and an optional `RequestExecutor` interface; the ten existing executors
+    are called exactly as before (asserted). The request runner is deliberately kept off the
+    service facade, which every endpoint can reach.
+  - **Deliberate divergence from the plan, stated:** the query is written by the process's
+    designer, not by an administrator as a catalogue of named queries. Decided by the user
+    with the trade-off stated in writing: anybody who can deploy a lookup can read what the
+    connection's login can read. The login is therefore the boundary that matters; the docs
+    and the connector's own settings form say so.
+  - **Found and fixed on the way, all P0:**
+    - `P0-SEC` — a Postgres participant directory's DSN, password included, was returned to
+      the browser: `configsecret` had no fragment for a connection string. Also Slack, Discord
+      and Teams webhook URLs, which are the credential. The browser's copy of the list had
+      drifted four fragments behind; `tests/secretdrift` now holds the two together.
+    - `P0-REL` — headers typed into an HTTP connection were never sent: the catalogue saved
+      them as text and the shipped executor read only an object. The one test of headers ran a
+      second implementation that was registered and then overwritten. Each built-in is now
+      registered once, and the tests run the code that ships.
+    - `P0-REL` — a connector step dragged from the palette had no circuit breaker and no rate
+      limit: its target key was empty. Now keyed on project and connector, never the shared
+      catalogue id alone, which would couple one tenant's outage to another's.
+    - `P0-REL` — the CI step "No suite skipped for want of a database" could never fail: it ran
+      `go test` without `-v`, and `--- SKIP` is only printed with `-v`. Fixed, with
+      `tests/loadtest` excluded since its own job guards it. Every skip in the main job had
+      been going unreported.
+  - **Found and not fixed — for the backlog:**
+    - `P0-SEC` — `POST /api/v1/connectors/execute` needs only a login. Any signed-in account,
+      task-inbox participants included, can make the server connect wherever a
+      caller-supplied configuration points: SMTP, AMQP, HTTP (the last is egress-guarded,
+      the first two are not). The lookup refuses to connect through it, so this change adds
+      no exposure; the endpoint itself wants `designer` or `adminOnly`.
+    - The designer's "Try it" sends the connector's id where the endpoint expects its key, and
+      the step's input mapping where it expects the connection's settings; it cannot work for
+      any connector. Not offered for a lookup.
+    - A service task's SENDING/RECEIVING mapping tables write `inputs`/`outputs`, which no Go
+      code reads. Honouring them changes what every saved definition does; that is a
+      migration, not a cleanup.
+    - A RabbitMQ `url` can carry a password inside it and is not masked; fixing that needs
+      connectors to declare which fields are secret (`ConnectorProperty.Secret`) rather than
+      having it guessed from their names.
+  - Gate: `make gate` green with both test DSNs set — ui-build, build, vet, test (78 packages
+    ok), race (78 ok, no races), strict-scope (78 ok), tsc, eslint (0 errors), bun test (705
+    pass). Also golangci-lint 0 issues, govulncheck no reachable vulnerabilities, gitleaks no
+    findings. The MySQL and SQL Server suites run in CI against service containers; locally
+    they skip for want of a server.
+  - Perf proof (`sqlconnector.BenchmarkALookup`, Apple M5 Pro, PostgreSQL 17 on loopback): a
+    lookup on a kept pool ~104 µs / 7.4 KB / 116 allocs; opening a pool each time ~2.7 ms /
+    99.8 KB / 444 allocs. Loopback has no network or TLS handshake, so the real gap is larger.
+
 - 2026-09-22 (completed): The rest of the in-flight migration gaps — subscriptions,
   concurrency, resumability and segregation of duties. Closes §6 of
   [`../docs/process-change-in-flight.md`](../docs/process-change-in-flight.md).
