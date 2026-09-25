@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/go-sql-driver/mysql" // registers the driver for the count check
+	"github.com/go-sql-driver/mysql"
 
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -72,7 +72,12 @@ func TestMySQLRefusesAWriteEvenPastTheStatementCheck(t *testing.T) {
 
 func TestMySQLRunsOneStatementEvenWhenAskedForMore(t *testing.T) {
 	target := testutils.MySQLLookupDatabase(t, mysqlCustomers...)
-	conn, db := openForTest(t, mysqlConfig(target.AdminDSN+"&multiStatements=true"))
+	asked, err := mysql.ParseDSN(target.AdminDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked.MultiStatements = true
+	conn, db := openForTest(t, mysqlConfig(asked.FormatDSN()))
 	if _, err := lookup(testContext(t), db, conn, "SELECT 1; DELETE FROM customers", nil); err == nil {
 		t.Fatal("two statements ran as one query")
 	}

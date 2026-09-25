@@ -42,7 +42,7 @@ type LookupDatabase struct {
 
 // PostgresLookupDatabase builds one on the server METIS_TEST_POSTGRES_DSN
 // names, running setup in it as the administrator first.
-func PostgresLookupDatabase(t *testing.T, setup ...string) LookupDatabase {
+func PostgresLookupDatabase(t testing.TB, setup ...string) LookupDatabase {
 	t.Helper()
 	serverDSN := envvar.Get(PostgresDSNEnv)
 	if serverDSN == "" {
@@ -74,7 +74,7 @@ func PostgresLookupDatabase(t *testing.T, setup ...string) LookupDatabase {
 }
 
 // MySQLLookupDatabase builds one on the server METIS_TEST_MYSQL_DSN names.
-func MySQLLookupDatabase(t *testing.T, setup ...string) LookupDatabase {
+func MySQLLookupDatabase(t testing.TB, setup ...string) LookupDatabase {
 	t.Helper()
 	serverDSN := envvar.Get(MySQLDSNEnv)
 	if serverDSN == "" {
@@ -105,7 +105,7 @@ func MySQLLookupDatabase(t *testing.T, setup ...string) LookupDatabase {
 
 // SQLServerLookupDatabase builds one on the server METIS_TEST_SQLSERVER_DSN
 // names.
-func SQLServerLookupDatabase(t *testing.T, setup ...string) LookupDatabase {
+func SQLServerLookupDatabase(t testing.TB, setup ...string) LookupDatabase {
 	t.Helper()
 	serverDSN := envvar.Get(SQLServerDSNEnv)
 	if serverDSN == "" {
@@ -156,7 +156,7 @@ func mysqlDSN(server *mysql.Config, user, password, database string) string {
 
 // sqlServerDSN is the server's URL pointed at a database, and at another login
 // when one is given.
-func sqlServerDSN(t *testing.T, serverDSN, user, password, database string) string {
+func sqlServerDSN(t testing.TB, serverDSN, user, password, database string) string {
 	t.Helper()
 	u, err := url.Parse(serverDSN)
 	if err != nil {
@@ -171,7 +171,7 @@ func sqlServerDSN(t *testing.T, serverDSN, user, password, database string) stri
 	return u.String()
 }
 
-func openSQL(t *testing.T, driver, dsn string) *sql.DB {
+func openSQL(t testing.TB, driver, dsn string) *sql.DB {
 	t.Helper()
 	if driver == "pgx" {
 		config, err := pgx.ParseConfig(dsn)
@@ -190,7 +190,7 @@ func openSQL(t *testing.T, driver, dsn string) *sql.DB {
 	return db
 }
 
-func mustExec(t *testing.T, db *sql.DB, statement string) {
+func mustExec(t testing.TB, db *sql.DB, statement string) {
 	t.Helper()
 	if _, err := db.ExecContext(context.Background(), statement); err != nil {
 		t.Fatalf("%s: %v", statement, err)
@@ -203,7 +203,7 @@ func dropQuietly(db *sql.DB, statement string) {
 	_, _ = db.ExecContext(context.Background(), statement)
 }
 
-func randomHex(t *testing.T, bytes int) string {
+func randomHex(t testing.TB, bytes int) string {
 	t.Helper()
 	b := make([]byte, bytes)
 	if _, err := rand.Read(b); err != nil {
