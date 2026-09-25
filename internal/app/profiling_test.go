@@ -3,7 +3,11 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestProfilingEnabled(t *testing.T) {
@@ -88,5 +92,37 @@ func TestNewHTTPServer(t *testing.T) {
 
 	if server.MaxHeaderBytes != defaultHTTPMaxHeaderBytes {
 		t.Fatalf("unexpected max header bytes: got %d want %d", server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes)
+	}
+}
+
+// The mutex and block profiles were served and always empty: Go records
+// neither until a sampling rate is set, and nothing set one. A lock that
+// serialises the engine is exactly what they exist to find.
+func TestTheContentionProfilesRecordContention(t *testing.T) {
+	t.Cleanup(func() {
+		runtime.SetMutexProfileFraction(0)
+		runtime.SetBlockProfileRate(0)
+	})
+	handler := newPprofHandler()
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 2000 {
+				mu.Lock()
+				time.Sleep(10 * time.Microsecond)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+
+	for _, profile := range []string{"mutex", "block"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/debug/pprof/"+profile+"?debug=1", nil))
+		if !strings.Contains(recorder.Body.String(), "@ 0x") {
+			t.Errorf("the %s profile recorded nothing after eight goroutines fought over one lock", profile)
+		}
 	}
 }

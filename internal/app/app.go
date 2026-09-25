@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,7 +195,22 @@ func metricsEnabled() bool {
 	return enabled
 }
 
+// Contention sampling while profiling is on. Go records neither lock
+// contention nor blocking until a rate is set, so the mutex and block profiles
+// below were served and always empty. One contended lock in a hundred, and
+// blocking of 10µs or more, finds a lock that serialises the engine; the cost
+// is paid only while somebody has asked to profile.
+const (
+	mutexProfileFraction = 100
+	blockProfileRateNs   = 10_000
+)
+
+// newPprofHandler serves the profiles, and turns on the sampling two of them
+// need. It is built only when METIS_PPROF_ENABLED is set.
 func newPprofHandler() http.Handler {
+	runtime.SetMutexProfileFraction(mutexProfileFraction)
+	runtime.SetBlockProfileRate(blockProfileRateNs)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
