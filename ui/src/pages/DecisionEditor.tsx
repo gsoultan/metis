@@ -76,6 +76,8 @@ import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
   ANY_VALUE,
+  CELL_TEMPLATES,
+  COLUMN_TYPES,
   HIT_POLICIES,
   applyPastedGrid,
   describeCell,
@@ -103,48 +105,6 @@ import { useAppStore } from '../store/useAppStore';
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
-
-/**
- * Ready-made conditions, per column type.
- *
- * Someone writing their first table does not know that `]1..10]` excludes the
- * lower bound, and should not have to. Picking the sentence writes the notation.
- */
-const CELL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
-  string: [
-    { value: ANY_VALUE, label: 'Any value' },
-    { value: 'Approved', label: 'Exactly this word' },
-    { value: '"A", "B"', label: 'Either of two values' },
-    { value: 'not("A")', label: 'Anything except' },
-    { value: '""', label: 'Empty' },
-  ],
-  number: [
-    { value: ANY_VALUE, label: 'Any number' },
-    { value: '> 10', label: 'More than' },
-    { value: '>= 10', label: 'At least' },
-    { value: '< 10', label: 'Less than' },
-    { value: '[1..10]', label: 'Between, inclusive' },
-    { value: ']1..10]', label: 'Between, excluding the low end' },
-    { value: '10, 20', label: 'One of several' },
-  ],
-  boolean: [
-    { value: ANY_VALUE, label: 'Either' },
-    { value: 'true', label: 'Yes' },
-    { value: 'false', label: 'No' },
-  ],
-  date: [
-    { value: ANY_VALUE, label: 'Any date' },
-    { value: '> "2024-01-01"', label: 'After' },
-    { value: '< "2024-01-01"', label: 'Before' },
-  ],
-};
-
-const COLUMN_TYPES = [
-  { value: 'string', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'boolean', label: 'Yes / no' },
-  { value: 'date', label: 'Date' },
-];
 
 const RAIL_WIDTH = 340;
 

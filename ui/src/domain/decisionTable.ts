@@ -430,43 +430,6 @@ export function findProblems(
   return problems;
 }
 
-/**
- * A line's conditions with the spelling differences removed.
- *
- * `> 10` and `>10` are the same condition, and so are `"A"` and `'A'`. Two
- * lines that differ only in those are still the same line twice.
- */
-export function conditionSignature(rule: DecisionRuleRow): string {
-  return rule.input_entries.map(normaliseCell).join(' ');
-}
-
-/** One cell with whitespace outside quotes dropped and quotes unified. */
-export function normaliseCell(cell: string): string {
-  const text = cell.trim();
-  if (text === '' || text === ANY_VALUE) return ANY_VALUE;
-
-  let out = '';
-  let quote = '';
-  for (const character of text) {
-    if (quote) {
-      if (character === quote) {
-        quote = '';
-        out += '"';
-      } else {
-        out += character;
-      }
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      out += '"';
-    } else if (!/\s/.test(character)) {
-      out += character;
-    }
-  }
-  return out;
-}
-
 /** The table, in one sentence, for the person who has to trust it. */
 export function describeTable(
   hitPolicy: string,
