@@ -54,8 +54,6 @@ type EngineReader interface {
 	// open incidents and never about the status column.
 	InstanceAttention(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter, onPage []uuid.UUID) (entities.InstanceAttention, error)
 	ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUID) ([]entities.ProcessInstance, error)
-	// GetRootInstance walks the parent chain and returns the top-level ancestor.
-	GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error)
 	GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error)
 	GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]entities.AuditEntry, error)
 

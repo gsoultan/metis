@@ -33,8 +33,6 @@ const (
 // it — including the per-row problems, which are a normal outcome rather than a
 // failure.
 type Source interface {
-	// Kind says what this is, for reporting.
-	Kind() Kind
 	// Fetch reads the directory. An error means the source could not be read at
 	// all; rows that could not be used come back as problems in the result.
 	Fetch(ctx context.Context) (userimport.Result, error)

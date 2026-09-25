@@ -37,13 +37,6 @@ func (s *platformUserService) ListPlatformUsers(ctx context.Context) ([]entities
 	return s.accounts.List(ctx)
 }
 
-func (s *platformUserService) GetPlatformUser(ctx context.Context, id uuid.UUID) (entities.PlatformUser, error) {
-	if id == uuid.Nil {
-		return entities.PlatformUser{}, apierr.Invalidf("an account is required")
-	}
-	return s.accounts.Get(ctx, id)
-}
-
 // CreatePlatformUser adds an administrator.
 //
 // The password is hashed here and the plaintext never leaves this function: the

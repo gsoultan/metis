@@ -376,42 +376,6 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// Membership changes decide which tenant's data a caller can see, so a stale
-// entry is an access decision made against a grant that has been withdrawn.
-// Each of these drops the account rather than waiting out the entry's lifetime.
-
-func (s *userService) AssignOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
-	if err := s.repo.User().AddOrganization(ctx, userID, organizationID); err != nil {
-		return err
-	}
-	s.principals.forget(userID)
-	return nil
-}
-
-func (s *userService) UnassignOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
-	if err := s.repo.User().RemoveOrganization(ctx, userID, organizationID); err != nil {
-		return err
-	}
-	s.principals.forget(userID)
-	return nil
-}
-
-func (s *userService) AssignProject(ctx context.Context, userID, projectID uuid.UUID) error {
-	if err := s.repo.User().AddProject(ctx, userID, projectID); err != nil {
-		return err
-	}
-	s.principals.forget(userID)
-	return nil
-}
-
-func (s *userService) UnassignProject(ctx context.Context, userID, projectID uuid.UUID) error {
-	if err := s.repo.User().RemoveProject(ctx, userID, projectID); err != nil {
-		return err
-	}
-	s.principals.forget(userID)
-	return nil
-}
-
 // rejectIfIssuedBeforeCredentialsChanged refuses a token minted before this
 // account's password last changed.
 //

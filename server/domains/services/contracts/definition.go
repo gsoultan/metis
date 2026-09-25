@@ -64,7 +64,6 @@ type DefinitionService interface {
 	// ListDefinitionsPaged returns one page of a project's definitions.
 	ListDefinitionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[*entities.ProcessDefinition], error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error)
-	GetDefinitionByKey(ctx context.Context, key string) (*entities.ProcessDefinition, error)
 	DeleteDefinition(ctx context.Context, id uuid.UUID) error
 	ExportDefinition(ctx context.Context, id uuid.UUID) ([]byte, error)
 	ImportDefinition(ctx context.Context, projectID uuid.UUID, xml []byte) (uuid.UUID, error)

@@ -36,9 +36,4 @@ type UserService interface {
 
 	Login(ctx context.Context, username, password string) (entities.User, string, error) // Returns user and JWT token
 	ValidateToken(ctx context.Context, token string) (entities.User, error)
-
-	AssignOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
-	UnassignOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
-	AssignProject(ctx context.Context, userID, projectID uuid.UUID) error
-	UnassignProject(ctx context.Context, userID, projectID uuid.UUID) error
 }

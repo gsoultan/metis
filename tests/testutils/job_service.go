@@ -55,14 +55,6 @@ func (s *SynchronousJobService) EnqueueTimer(ctx context.Context, instance entit
 	return s.engine.Proceed(ctx, &instance, def, node.ID)
 }
 
-func (s *SynchronousJobService) EnqueueBoundaryTimer(ctx context.Context, instance entities.ProcessInstance, boundaryNode entities.Node, _ string) error {
-	def, err := s.engine.GetProcessDefinition(ctx, instance.Definition.ID)
-	if err != nil {
-		return err
-	}
-	return s.engine.ExecuteNode(ctx, &instance, def, boundaryNode.ID)
-}
-
 func (s *SynchronousJobService) StartWorkers(_ context.Context) {}
 
 // StopWorkers has nothing to wait for: this double runs each task inline at

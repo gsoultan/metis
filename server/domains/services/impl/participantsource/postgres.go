@@ -52,8 +52,6 @@ func NewPostgresSource(config PostgresConfig) *PostgresSource {
 	return &PostgresSource{Config: config}
 }
 
-func (s *PostgresSource) Kind() Kind { return KindPostgres }
-
 // Fetch runs the query and reads the rows it returned.
 func (s *PostgresSource) Fetch(ctx context.Context) (userimport.Result, error) {
 	query := strings.TrimSpace(s.Config.Query)

@@ -28,8 +28,6 @@ type HTTPSource struct{ Config HTTPConfig }
 
 func NewHTTPSource(config HTTPConfig) *HTTPSource { return &HTTPSource{Config: config} }
 
-func (s *HTTPSource) Kind() Kind { return KindHTTP }
-
 // Fetch calls the endpoint and reads what it returned.
 //
 // Through the shared guarded client, which is the point. The URL is

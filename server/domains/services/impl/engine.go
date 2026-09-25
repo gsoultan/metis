@@ -230,27 +230,6 @@ func (e *Engine) ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUI
 	return res, nil
 }
 
-// GetRootInstance walks the parent chain starting from instanceID and returns
-// the top-level ancestor. Stops if a cycle is detected (max 100 hops).
-func (e *Engine) GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error) {
-	const maxDepth = 100
-	current, err := e.GetInstance(ctx, instanceID)
-	if err != nil {
-		return entities.ProcessInstance{}, fmt.Errorf("GetRootInstance: load instance: %w", err)
-	}
-	for depth := range maxDepth {
-		if current.ParentInstance == nil {
-			return current, nil
-		}
-		parent, err := e.GetInstance(ctx, current.ParentInstance.ID)
-		if err != nil {
-			return entities.ProcessInstance{}, fmt.Errorf("GetRootInstance: load parent at depth %d: %w", depth, err)
-		}
-		current = parent
-	}
-	return current, nil
-}
-
 func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error) {
 	entries, err := e.repo.Audit().ListByInstance(ctx, instanceID)
 	if err != nil {
