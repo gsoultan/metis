@@ -76,6 +76,26 @@ describe('findCoverageGaps', () => {
     expect(report.truncated).toBe(true);
   });
 
+  /**
+   * Each column's values used to be cut to the first eight, with nothing said.
+   * A column with five thresholds has eleven values worth trying, so the top of
+   * the range was never looked at and a table missing it was reported whole.
+   */
+  it('looks at every threshold a column mentions, not the first few', () => {
+    const banded = [rule('< 10'), rule('[10..20['), rule('[20..30['), rule('[30..40['), rule('[40..50[')];
+    const report = findCoverageGaps([amount], banded);
+    expect(report.gaps.map((gap) => gap.values[0])).toEqual(['50', '51']);
+    expect(report.truncated).toBe(false);
+  });
+
+  it('says it stopped short when it stops at the most gaps it will report', () => {
+    // Twelve named tiers, none of them decided: more gaps than are reported.
+    const tiers = Array.from({ length: 12 }, (_, i) => `"T${i}"`).join(', ');
+    const report = findCoverageGaps([tier], [rule(`not(${tiers})`)]);
+    expect(report.gaps).toHaveLength(10);
+    expect(report.truncated).toBe(true);
+  });
+
   it('reports nothing for a table with no lines', () => {
     expect(findCoverageGaps([amount], []).gaps).toEqual([]);
   });

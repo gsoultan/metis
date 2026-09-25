@@ -38,7 +38,6 @@ export interface CoverageReport {
   notAnalysed: string[];
 }
 
-const MAX_SAMPLES_PER_COLUMN = 8;
 const MAX_COMBINATIONS = 400;
 const MAX_REPORTED_GAPS = 10;
 
@@ -73,7 +72,6 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
   }
 
   const total = columns.reduce((product, column) => product * Math.max(column.length, 1), 1);
-  const truncated = total > MAX_COMBINATIONS;
 
   const gaps: CoverageGap[] = [];
   let examined = 0;
@@ -96,7 +94,10 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
   };
   walk(0, []);
 
-  return { gaps, truncated, notAnalysed };
+  // Cut short means some combination was never looked at, whichever limit
+  // stopped the walk. Each column's values used to be trimmed to the first
+  // eight as well, and that was the one limit nobody was told about.
+  return { gaps, truncated: examined < total, notAnalysed };
 }
 
 /** Whether this analysis understands a cell well enough to trust its verdict. */
@@ -136,10 +137,7 @@ function samplesFor(column: DecisionInputColumn, cells: string[]): Sample[] {
       points.add(bound);
       points.add(bound + 1);
     }
-    return [...points]
-      .sort((a, b) => a - b)
-      .slice(0, MAX_SAMPLES_PER_COLUMN)
-      .map((value) => ({ value, label: String(value) }));
+    return [...points].sort((a, b) => a - b).map((value) => ({ value, label: String(value) }));
   }
 
   // Text: every literal the table mentions, plus one value it does not, which is
@@ -151,9 +149,7 @@ function samplesFor(column: DecisionInputColumn, cells: string[]): Sample[] {
       if (literal && literal !== ANY_VALUE) literals.add(literal);
     }
   }
-  const samples: Sample[] = [...literals]
-    .slice(0, MAX_SAMPLES_PER_COLUMN - 1)
-    .map((value) => ({ value, label: value }));
+  const samples: Sample[] = [...literals].map((value) => ({ value, label: value }));
   samples.push({ value: 'anything-else-entirely', label: 'anything else' });
   return samples;
 }
