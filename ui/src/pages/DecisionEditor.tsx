@@ -96,6 +96,7 @@ import {
 } from '../domain/decisionTable';
 import { findCoverageGaps, ruleForGap, type CoverageGap, type CoverageReport } from '../domain/decisionCoverage';
 import { findProblems } from '../domain/decisionProblems';
+import { trialTarget } from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
@@ -272,6 +273,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const updateDecision = useUpdateDecision();
   const evaluateDecision = useEvaluateDecision();
   const { data: impact } = useDecisionImpact(definitionId || null);
+  const target = trialTarget(existingDef?.decision);
 
   const [name, setName] = useState(search.name || 'New Decision');
   const [key, setKey] = useState(search.key || 'new_decision');
@@ -509,6 +511,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   };
 
   const handleTest = async () => {
+    if (!target) return;
     setIsTesting(true);
     setTestError(null);
     setTestResult(null);
@@ -527,7 +530,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     });
 
     try {
-      const response = await evaluateDecision.mutateAsync({ key, variables });
+      const response = await evaluateDecision.mutateAsync({ key: target.key, version: target.version, variables });
       if (response.err) {
         setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
@@ -911,7 +914,9 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 <Title order={6}>Try it</Title>
               </Group>
               <Text size="xs" c="dimmed">
-                Runs the saved table and highlights the lines that matched.
+                {target
+                  ? `Runs the saved version (v${target.version}) and highlights the lines that matched.`
+                  : 'Save the table first: Try it runs the saved version.'}
               </Text>
 
               {inputs.map((input) =>
@@ -947,6 +952,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 leftSection={<Play size={14} />}
                 onClick={handleTest}
                 loading={isTesting}
+                disabled={!target}
               >
                 Run
               </Button>
