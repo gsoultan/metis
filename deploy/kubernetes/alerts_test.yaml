@@ -246,3 +246,34 @@ tests:
       - eval_time: 10m
         alertname: MetisSchemaDrift
         exp_alerts: []
+
+  # -------------------------------------------------------------- tenancy
+  - interval: 1m
+    name: a denied call site fires while the strict scope is on
+    input_series:
+      - series: 'metis_strict_tenant_scope_enabled{job="metis", instance="10.0.0.1:9464"}'
+        values: '1+0x10'
+      - series: 'metis_strict_tenant_scope_denied_site{job="metis", instance="10.0.0.1:9464", site="impl.(*Engine).GetInstanceForUpdate (engine.go:189)"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MetisStrictTenantScopeDenied
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: A code path reached a repository with neither a tenant nor a system identity
+              description: >-
+                1 call site(s) on 10.0.0.1:9464 were denied by the strict tenant scope and got nothing back. Each is a path that has to carry an identity before the flag can stay on. The sites are listed on the metrics endpoint as metis_strict_tenant_scope_denied_site{site=...}, and in the log as "A repository query carried neither a tenant nor a system identity". See docs/strict-tenant-scope.md.
+
+  - interval: 1m
+    name: with the strict scope off nothing fires
+    input_series:
+      - series: 'metis_strict_tenant_scope_enabled{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MetisStrictTenantScopeDenied
+        exp_alerts: []

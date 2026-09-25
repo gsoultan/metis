@@ -53,9 +53,9 @@ Raising this is a decision to make deliberately, not a default to inherit.
 
 ## Alerting
 
-`alerts.yaml` is a `PrometheusRule` for kube-prometheus-stack. Six rules, each
-with a description saying what it means and where to look — an alert whose
-runbook is "ask whoever wrote it" gets silenced the first time it fires at 3am.
+`alerts.yaml` is a `PrometheusRule` for kube-prometheus-stack. Every rule carries
+a description saying what it means and where to look — an alert whose runbook is
+"ask whoever wrote it" gets silenced the first time it fires at 3am.
 
 ```bash
 kubectl -n metis apply -f alerts.yaml

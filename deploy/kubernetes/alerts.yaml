@@ -186,3 +186,29 @@ spec:
               return 500. Startup logs each one: `kubectl -n metis logs
               deploy/metis | grep "Schema drift"`. The fix is a numbered
               migration, not a restart — see docs/runbooks.md.
+
+    - name: metis.tenancy
+      rules:
+        - alert: MetisStrictTenantScopeDenied
+          # For the strict scope's staging soak (docs/strict-tenant-scope.md);
+          # silent while the flag is off, because nothing is denied then.
+          #
+          # Matched per instance, and it has to be said. The version first
+          # published was `enabled == 1 and count(denied_site) > 0`: `count`
+          # drops every label and a plain `and` matches on labels, so the right
+          # side matched no series on the left and the alert could never fire.
+          expr: >-
+            count by (job, instance) (metis_strict_tenant_scope_denied_site) > 0
+            and on (job, instance)
+            metis_strict_tenant_scope_enabled == 1
+          labels:
+            severity: warning
+          annotations:
+            summary: A code path reached a repository with neither a tenant nor a system identity
+            description: >-
+              {{ $value }} call site(s) on {{ $labels.instance }} were denied by
+              the strict tenant scope and got nothing back. Each is a path that
+              has to carry an identity before the flag can stay on. The sites
+              are listed on the metrics endpoint as
+              metis_strict_tenant_scope_denied_site{site=...}, and in the log as
+              "A repository query carried neither a tenant nor a system identity". See docs/strict-tenant-scope.md.
