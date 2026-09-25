@@ -723,7 +723,7 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	task.Type = node.Type
 	task.Priority = node.Priority
 	task.FormKey = node.FormKey
-	task.FormDefinition = stringProperty(node.Properties, "form_definition")
+	task.FormDefinition = entities.PropertyText(node.Properties, "form_definition")
 	task.CandidateUsers = slices.Clone(node.CandidateUsers)
 	task.CandidateGroups = slices.Clone(node.CandidateGroups)
 

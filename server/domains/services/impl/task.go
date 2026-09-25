@@ -392,7 +392,7 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 			Priority:        node.Priority,
 			DueDate:         dueDate,
 			FormKey:         node.FormKey,
-			FormDefinition:  node.GetStringProperty("form_definition"),
+			FormDefinition:  node.GetTextProperty("form_definition"),
 			Variables:       instance.Variables,
 			CreatedAt:       time.Now(),
 		}
