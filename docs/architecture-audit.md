@@ -346,13 +346,13 @@ then the tests named. Suites under `tests/` that need PostgreSQL run under
    Test: `go test ./server/interceptors/...`.
 7. **Delete unused functions:** `NullProcessObserver`
    (`server/domains/observers/impl/process.go:10-13`), `PassThroughHandler`
-   (`handlers/tasks.go:139-146`), `LocalUserID`
-   (`server/endpoints/principal/principal.go:73-79`), `NewCatchableError`
+   (`handlers/tasks.go:139-146`), `NewCatchableError`
    (`server/domains/entities/catchable_error.go:21`), `HumanizeError`
    (`server/domains/logic/errors.go:9`), `ToUUIDPtr`
    (`server/repositories/models/uuid.go:93`). Test: `make vet`. Not
-   `crypto.IsConfigured`, which this list named at first: key rotation
-   (`internal/app/reseal.go`) calls it now.
+   `crypto.IsConfigured` or `principal.LocalUserID`, which this list named at
+   first: key rotation (`internal/app/reseal.go`) calls the one, and the
+   self-service profile (`GET/PUT /api/v1/users/me`, #96) the other.
 8. **Delete interface methods nothing calls, tests included,** and their
    implementations: `GetDefinitionByKey` (`contracts/definition.go:67`,
    `impl/definition.go:432`); `ListTasksByAssignee` and `ListTasksByCandidates`

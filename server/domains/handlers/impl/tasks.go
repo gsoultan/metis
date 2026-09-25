@@ -143,12 +143,3 @@ func (h *ManualTaskHandler) DoExecute(ctx context.Context, instance *entities.Pr
 	// Like UserTask, ManualTask creates a task entry that must be completed.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node)
 }
-
-// PassThroughHandler handles tasks that don't have a specific implementation yet, acting as a passthrough.
-type PassThroughHandler struct {
-	engine contracts.EngineRunner
-}
-
-func (h *PassThroughHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
-	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
-}

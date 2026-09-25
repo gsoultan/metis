@@ -88,12 +88,3 @@ func FromUUIDPtr(id *uuid.UUID) *UUID {
 	converted := UUID(*id)
 	return &converted
 }
-
-// ToUUIDPtr converts an optional identifier back, preserving nil.
-func ToUUIDPtr(id *UUID) *uuid.UUID {
-	if id == nil {
-		return nil
-	}
-	converted := uuid.UUID(*id)
-	return &converted
-}

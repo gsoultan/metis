@@ -7,11 +7,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/observers/contracts"
 )
 
-// NullProcessObserver is a Null Object implementation of the ProcessObserver interface.
-type NullProcessObserver struct{}
-
-func (o *NullProcessObserver) OnEvent(_ context.Context, _ entities.ProcessEvent) {}
-
 type eventDispatcher struct {
 	observers []contracts.ProcessObserver
 }

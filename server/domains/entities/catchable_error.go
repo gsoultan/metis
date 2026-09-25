@@ -16,8 +16,3 @@ type CatchableError struct {
 func (e *CatchableError) Error() string {
 	return fmt.Sprintf("bpmn error [%s]: %s", e.Code, e.Message)
 }
-
-// NewCatchableError creates a CatchableError with the given code and message.
-func NewCatchableError(code, message string) *CatchableError {
-	return &CatchableError{Code: code, Message: message}
-}
