@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlercontracts "github.com/gsoultan/metis/server/domains/handlers/contracts"
@@ -100,7 +101,7 @@ func (e *Engine) StartSubProcess(ctx context.Context, projectID uuid.UUID, defin
 	return instanceID, err
 }
 
-func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error) {
+func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID, startNodeID string) (uuid.UUID, error) {
 	var m models.ProcessDefinitionModel
 	var err error
 	// Resolved within the project, not across the tenant: two projects in one
@@ -116,9 +117,9 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 	}
 	def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
 
-	startNode := def.GetStartNode()
-	if startNode == nil {
-		return uuid.Nil, fmt.Errorf("definition %s has no start event", definitionKey)
+	startNode, err := startNodeOf(def, startNodeID)
+	if err != nil {
+		return uuid.Nil, err
 	}
 
 	idObj, err := uuid.NewV7()
@@ -936,30 +937,97 @@ func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubs
 	})
 }
 
-// triggerStartEvents starts an instance of every definition in the project whose
-// start event declares propName == propValue (a signal or message start event).
+// triggerStartEvents starts one instance of each process in the project whose
+// live version has a top-level start event declaring propName == propValue — a
+// message or signal start event — and starts it at that event.
 //
-// A failure to start any one definition is returned. Previously both the list
-// error and every StartProcess error were discarded, so a signal that should
-// have started five processes could start none and report success.
+// It used to walk every stored version of every process and start an instance
+// for each version that matched, so a message started as many instances as
+// the process had versions; each of them was the live version, whether or not
+// the live version still listened; and each began at the definition's first
+// start event rather than the one that matched. One process, one start, at the
+// event that was triggered.
+//
+// A start event inside an event sub-process is not a way into a new instance —
+// it belongs to one already running, and reaches it through its subscription.
+//
+// Failures are collected rather than returned at the first: a broadcast owes
+// every process that listens its start, and one that fails must not silence
+// the rest.
 func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) error {
 	ms, err := e.repo.Definition().ListByProject(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("list definitions for project %s: %w", projectID, err)
 	}
 
+	considered := make(map[string]bool, len(ms))
+	var errs []error
 	for _, m := range ms {
-		def := adapters.DefinitionEntityAdapter{Model: m}.ToEntity()
-		for _, node := range def.Nodes {
-			if node.Type != entities.StartEvent || node.GetStringProperty(propName) != propValue {
-				continue
-			}
-			if _, err := e.StartProcess(ctx, projectID, def.Key, vars); err != nil {
-				return fmt.Errorf("start process %s from %s %q: %w", def.Key, propName, propValue, err)
-			}
+		if considered[m.Key] {
+			continue
+		}
+		considered[m.Key] = true
+		if err := e.startIfListening(ctx, projectID, m.Key, propName, propValue, vars); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// startIfListening starts key's live version at its start event declaring
+// propName == propValue, if it has one.
+func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key, propName, propValue string, vars map[string]any) error {
+	live, err := e.repo.Definition().GetLiveByProjectKey(ctx, projectID, key)
+	if errors.Is(err, apierr.ErrNotFound) {
+		// Nothing of this process is live, so nothing of it can start.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find the live version of %s: %w", key, err)
+	}
+	def := adapters.DefinitionEntityAdapter{Model: live}.ToEntity()
+	start := listeningStartEvent(def, propName, propValue)
+	if start == nil {
+		return nil
+	}
+	// The version is pinned to the one just read, so a deploy landing between
+	// this check and the start cannot swap in a version without this event.
+	err = e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		cmd := NewStartProcessCommand(e, projectID, key, def.Version, vars, uuid.Nil, "")
+		cmd.startNodeID = start.ID
+		return cmd.Execute(txCtx)
+	})
+	if err != nil {
+		return fmt.Errorf("start process %s from %s %q: %w", key, propName, propValue, err)
+	}
+	return nil
+}
+
+// listeningStartEvent returns the definition's top-level start event that
+// declares propName == propValue, or nil.
+func listeningStartEvent(def *entities.ProcessDefinition, propName, propValue string) *entities.Node {
+	for _, node := range def.Nodes {
+		if node.Type == entities.StartEvent && node.ParentID == "" && node.GetStringProperty(propName) == propValue {
+			return node
 		}
 	}
 	return nil
+}
+
+// startNodeOf returns the start event an instance begins at: the one named, or
+// the definition's default when none is.
+func startNodeOf(def *entities.ProcessDefinition, startNodeID string) (*entities.Node, error) {
+	if startNodeID == "" {
+		if start := def.GetStartNode(); start != nil {
+			return start, nil
+		}
+		return nil, fmt.Errorf("definition %s has no start event", def.Key)
+	}
+	start := def.FindNode(startNodeID)
+	if start == nil || start.Type != entities.StartEvent {
+		return nil, fmt.Errorf("definition %s has no start event %q", def.Key, startNodeID)
+	}
+	return start, nil
 }
 
 // TriggerEscalation walks from the throwing node up through its ancestors,

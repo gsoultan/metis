@@ -12,7 +12,7 @@ import (
 type engineInternal interface {
 	executeNodeInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
 	proceedInternal(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
-	startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error)
+	startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID, startNodeID string) (uuid.UUID, error)
 }
 
 // ExecuteNodeCommand encapsulates the execution of a single BPMN node.
@@ -58,7 +58,10 @@ type StartProcessCommand struct {
 	vars             map[string]any
 	parentInstanceID uuid.UUID
 	parentNodeID     string
-	InstanceID       uuid.UUID // Output field
+	// startNodeID names the start event to begin at; empty means the
+	// definition's default start.
+	startNodeID string
+	InstanceID  uuid.UUID // Output field
 }
 
 func NewStartProcessCommand(engine engineInternal, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) *StartProcessCommand {
@@ -66,7 +69,7 @@ func NewStartProcessCommand(engine engineInternal, projectID uuid.UUID, definiti
 }
 
 func (c *StartProcessCommand) Execute(ctx context.Context) error {
-	id, err := c.engine.startProcessInternal(ctx, c.projectID, c.definitionKey, c.version, c.vars, c.parentInstanceID, c.parentNodeID)
+	id, err := c.engine.startProcessInternal(ctx, c.projectID, c.definitionKey, c.version, c.vars, c.parentInstanceID, c.parentNodeID, c.startNodeID)
 	c.InstanceID = id
 	return err
 }
