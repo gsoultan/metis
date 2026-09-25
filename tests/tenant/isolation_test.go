@@ -140,8 +140,8 @@ func seedTenantFixture(t *testing.T, db *gorm.DB) tenantFixture {
 		&models.Subscription{Base: id(f.subscriptionA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Type: models.SubscriptionSignal, EventName: sharedSignal},
 		&models.Subscription{Base: id(f.subB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Type: models.SubscriptionSignal, EventName: sharedSignal},
 
-		&models.ExternalTaskModel{Base: id(f.externalTaskA), ProjectID: models.FromUUID(f.projectA), ProcessInstanceID: models.FromUUID(f.instanceA), Topic: sharedTopic},
-		&models.ExternalTaskModel{Base: id(f.extB), ProjectID: models.FromUUID(f.projectB), ProcessInstanceID: models.FromUUID(f.instanceB), Topic: sharedTopic},
+		&models.ExternalTaskModel{Base: id(f.externalTaskA), ProjectID: models.FromUUID(f.projectA), ProcessInstanceID: models.FromUUID(f.instanceA), Topic: sharedTopic, Retries: 3},
+		&models.ExternalTaskModel{Base: id(f.extB), ProjectID: models.FromUUID(f.projectB), ProcessInstanceID: models.FromUUID(f.instanceB), Topic: sharedTopic, Retries: 3},
 
 		&models.ConnectorInstance{Base: id(f.connectorInstA), ProjectID: models.FromUUID(f.projectA), ConnectorID: models.FromUUID(f.connectorID), Name: "conn A"},
 		&models.ConnectorInstance{Base: id(f.connInstB), ProjectID: models.FromUUID(f.projectB), ConnectorID: models.FromUUID(f.connectorID), Name: "conn B"},

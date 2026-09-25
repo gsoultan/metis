@@ -3,9 +3,11 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceContracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -91,32 +93,61 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 	})
 }
 
+// HandleFailure records a worker's failure to do an external task.
+//
+// retries is how many tries the worker says are left. With some left, the
+// task waits out retryTimeout (milliseconds) before it is offered again: the
+// wait was stored and never read, so the task went straight back to be failed
+// by whatever had just failed it. With none left, it raises an incident and is
+// no longer offered — it used to be logged and nothing else, so nobody was
+// told and the instance waited at the step with nothing to investigate.
+// Resolving the incident offers it again.
 func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUID, workerID string, errorMessage string, errorDetails string, retries int, retryTimeout int64) error {
-	m, err := s.repo.ExternalTask().Get(ctx, taskID)
-	if err != nil {
-		return err
-	}
+	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		m, err := s.repo.ExternalTask().Get(txCtx, taskID)
+		if err != nil {
+			return err
+		}
+		if m.WorkerID != workerID {
+			return fmt.Errorf("task %s is locked by another worker", taskID)
+		}
 
-	if m.WorkerID != workerID {
-		return fmt.Errorf("task %s is locked by another worker", taskID)
-	}
+		m.ErrorMessage = errorMessage
+		m.ErrorDetails = errorDetails
+		m.Retries = max(retries, 0)
+		m.RetryTimeout = retryTimeout
+		m.WorkerID = ""
+		m.LockExpiration = nil
+		if retries > 0 && retryTimeout > 0 {
+			// Held, with nobody holding it, until the wait is over.
+			until := time.Now().Add(time.Duration(retryTimeout) * time.Millisecond)
+			m.LockExpiration = &until
+		}
+		if err := s.repo.ExternalTask().Update(txCtx, m); err != nil {
+			return err
+		}
+		if retries > 0 {
+			return nil
+		}
 
-	m.ErrorMessage = errorMessage
-	m.ErrorDetails = errorDetails
-	m.Retries = retries
-	m.RetryTimeout = retryTimeout
-	m.WorkerID = ""
-	m.LockExpiration = nil
-
-	if retries <= 0 {
-		// Log incident?
 		log.Error().
 			Str("task_id", taskID.String()).
 			Str("error", errorMessage).
-			Msg("External task failed with no retries left")
-	}
-
-	return s.repo.ExternalTask().Update(ctx, m)
+			Msg("An external task failed with no retries left; an incident was raised")
+		incident := entities.Incident{
+			ID:        uuid.New(),
+			Instance:  &entities.ProcessInstance{ID: uuid.UUID(m.ProcessInstanceID)},
+			Node:      &entities.Node{ID: m.NodeID},
+			Error:     redaction.RedactText(strings.TrimSpace(errorMessage + "\n" + errorDetails)),
+			Status:    entities.IncidentOpen,
+			CreatedAt: time.Now(),
+		}
+		if instance, err := s.engine.GetInstance(txCtx, uuid.UUID(m.ProcessInstanceID)); err == nil && instance.Definition != nil {
+			incident.Definition = &entities.ProcessDefinition{ID: instance.Definition.ID}
+		}
+		_, err = s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
+		return err
+	})
 }
 
 func (s *externalTaskService) Create(ctx context.Context, task *entities.ExternalTask) error {

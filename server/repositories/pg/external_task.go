@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -141,14 +142,14 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic, worker
 			return err
 		}
 		now := time.Now().UTC()
-		// The expired test comes before the null test, and must: the
-		// generated builder drops the predicate after a null test inside Any,
-		// so the old order matched unlocked tasks only, and a task whose
-		// worker died holding it was never offered to anybody again.
+		// A lease that ran out — a worker that died, or a retry wait that is
+		// over — offers the task again. Retries above zero only: a task whose
+		// worker ran out of them has raised an incident, and is offered again
+		// when the incident is resolved, not before.
 		q := externaltask.New().
 			Where(externaltask.Topic.Eq(topic)).
 			Any(externaltask.LockExpiration.Lt(now), externaltask.LockExpiration.IsNull()).
-			Where(externaltask.Retries.Gte(0)).
+			Where(externaltask.Retries.Gt(0)).
 			Limit(int64(maxTasks)).
 			ForUpdateSkipLocked()
 		if !scope.unrestricted() {
@@ -291,4 +292,38 @@ func externalTaskFrom(row externaltask.Row) (*models.ExternalTaskModel, error) {
 		task.LockExpiration = &expiration
 	}
 	return task, nil
+}
+
+// ReofferStranded puts back on offer, with one try, every task that has run
+// out of retries without an open incident at its step.
+//
+// The fetch offers a task while it has retries left, and a failure reported
+// with none left raises an incident, whose resolution offers the task again.
+// A task at zero with no open incident is off offer with nothing to say so.
+// The release before this one left tasks that way, because its fetch offered
+// them anyway, and a replica still running it during a rolling deploy leaves
+// more. One try is what each had on offer; failing it again raises the
+// incident.
+//
+// Only open tasks are in the table, since completing one deletes it, so the
+// statement reads little.
+func (r *externalTaskRepository) ReofferStranded(ctx context.Context) (int64, error) {
+	if !entities.IsSystemContext(ctx) {
+		return 0, fmt.Errorf("%w: stranded external tasks span every tenant", apierr.ErrForbidden)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	reoffered, err := ex.Exec(ctx, `
+		UPDATE external_tasks AS t SET retries = 1, updated_at = $1
+		WHERE t.retries <= 0
+		  AND NOT EXISTS (
+		    SELECT 1 FROM incidents AS i
+		    WHERE i.instance_id = t.instance_id AND i.node_id = t.node_id AND i.status = $2)`,
+		[]any{time.Now().UTC(), string(models.IncidentOpen)})
+	if err != nil {
+		return 0, fmt.Errorf("could not re-offer stranded external tasks: %w", err)
+	}
+	return reoffered, nil
 }

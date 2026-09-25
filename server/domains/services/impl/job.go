@@ -364,6 +364,12 @@ func (s *jobService) ResolveIncident(ctx context.Context, incidentID uuid.UUID) 
 		if incident.Status == entities.IncidentResolved {
 			return nil
 		}
+		if incident.Job == nil || incident.Job.ID == uuid.Nil {
+			if err := s.offerExternalTaskAgain(txCtx, incident); err != nil {
+				return err
+			}
+			return s.markResolved(txCtx, incident)
+		}
 
 		mj, err := s.repo.Job().Get(txCtx, incident.Job.ID)
 		if err != nil {
@@ -380,13 +386,41 @@ func (s *jobService) ResolveIncident(ctx context.Context, incidentID uuid.UUID) 
 			return err
 		}
 
-		// Mark incident as resolved
-		incident.Status = entities.IncidentResolved
-		resolvedAt := time.Now()
-		incident.ResolvedAt = &resolvedAt
-
-		return s.repo.Incident().Update(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
+		return s.markResolved(txCtx, incident)
 	})
+}
+
+func (s *jobService) markResolved(ctx context.Context, incident entities.Incident) error {
+	incident.Status = entities.IncidentResolved
+	resolvedAt := time.Now()
+	incident.ResolvedAt = &resolvedAt
+	return s.repo.Incident().Update(ctx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
+}
+
+// offerExternalTaskAgain gives the external task behind an incident one more
+// try, so a worker fetches it again. The incident names the instance and the
+// step; the task is the one waiting there. None waiting — it was completed or
+// withdrawn since — leaves nothing to offer, and the incident still resolves.
+func (s *jobService) offerExternalTaskAgain(ctx context.Context, incident entities.Incident) error {
+	if incident.Instance == nil || incident.Node == nil {
+		return nil
+	}
+	tasks, err := s.repo.ExternalTask().ListByProcessInstance(ctx, incident.Instance.ID)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.NodeID != incident.Node.ID || task.Retries > 0 {
+			continue
+		}
+		task.Retries = 1
+		task.LockExpiration = nil
+		task.WorkerID = ""
+		if err := s.repo.ExternalTask().Update(ctx, task); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // executeServiceTask runs a service-task job end-to-end:
