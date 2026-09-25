@@ -292,6 +292,47 @@ paths:
 	}
 }
 
+// Importing a specification is one action, so it lands whole or not at all.
+// Operations the importer cannot read are still skipped, but an install that
+// fails among what it generated used to leave the ones before it installed and
+// the ones after it not — with an error that did not say which had failed.
+func TestAnImportThatCannotInstallEveryOperationInstallsNone(t *testing.T) {
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	// Somebody took the imported createPet further and marked it version 2, so
+	// the import's version 1 of it is refused.
+	custom := "key: petstore.createpet\nversion: 2\nrequest:\n  url: https://api.petstore.example/pets\n"
+	if _, err := svc.InstallManifest(ctx, []byte(custom)); err != nil {
+		t.Fatalf("install the customised operation: %v", err)
+	}
+
+	spec := []byte(`
+openapi: 3.0.3
+info: {title: Petstore, version: "1"}
+servers: [{url: "https://api.petstore.example"}]
+paths:
+  /pets:
+    get: {operationId: listPets, responses: {"200": {description: ok}}}
+    post: {operationId: createPet, responses: {"201": {description: ok}}}
+`)
+	_, err := svc.ImportOpenAPI(ctx, spec)
+	if err == nil {
+		t.Fatal("the import reported success although one of its operations could not be installed")
+	}
+	if !strings.Contains(err.Error(), "petstore.createpet") || !strings.Contains(err.Error(), "nothing") {
+		t.Errorf("the error does not say which operation failed and that nothing was installed: %v", err)
+	}
+
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Key != "petstore.createpet" || manifests[0].Version != 2 {
+		t.Errorf("after the failed import the catalogue holds %+v, want only the customised createPet at version 2", manifests)
+	}
+}
+
 // A manifest is stored as its author wrote it, so what an operator reads back is
 // what they installed — comments and all.
 func TestAManifestIsReadBackAsItWasWritten(t *testing.T) {

@@ -594,6 +594,11 @@ What comes out is a starting point, not a finished connector: you will rename
 things and delete the nine operations in ten you do not want. But it already
 calls the right endpoint with the right shape.
 
+An operation the importer cannot read is skipped, not an error. What it did
+generate is installed as one step: if any of it cannot be installed — an
+operation you took further and gave a higher `version` than the import's 1, for
+instance — none of it is, and the error names the operation that stopped it.
+
 ## Errors
 
 Failures are JSON with an HTTP status: `{"error": "…"}`. The SDK surfaces

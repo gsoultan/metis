@@ -96,6 +96,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   than the installed one is now refused with a 400 that names both versions.
   The same version again, which is how a document is fixed, and higher ones
   install as before.
+- **An OpenAPI import that failed part way left part of it installed.** The
+  operations before the failure stayed installed and the ones after it did
+  not, and the error did not say which operation had failed. The operations an
+  import generates are now installed in one transaction: if one cannot be
+  installed, none are, and the error names it. An operation the importer
+  cannot read is still skipped rather than failing the import.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

@@ -96,9 +96,12 @@ func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) err
 
 // ImportOpenAPI turns a specification into manifests and installs every one.
 //
-// All or nothing would be the wrong shape here: a document of forty operations
-// with one this importer cannot read should yield thirty-nine connectors, not a
-// refusal. The count of what was installed is the answer.
+// Reading the document is not all or nothing: one of forty operations this
+// importer cannot read yields thirty-nine connectors rather than a refusal, and
+// the count of what was installed is the answer. Installing what it generated
+// is. That is one action somebody took, so it lands in one transaction — an
+// install that fails part way used to leave the operations before it installed
+// and the ones after it not, with an error that did not say which had failed.
 func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error) {
 	manifests, err := connectors.ImportOpenAPI(document)
 	if err != nil {
@@ -106,18 +109,31 @@ func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) (
 	}
 
 	installed := make([]entities.ConnectorManifest, 0, len(manifests))
-	for _, manifest := range manifests {
-		encoded, marshalErr := yaml.Marshal(manifest)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("could not write the generated manifest for %q: %w", manifest.Key, marshalErr)
+	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		for _, manifest := range manifests {
+			one, installErr := s.installGenerated(ctx, manifest)
+			if installErr != nil {
+				return fmt.Errorf("could not install %q, so nothing from the specification was installed: %w",
+					manifest.Key, installErr)
+			}
+			installed = append(installed, one)
 		}
-		one, installErr := s.InstallManifest(ctx, encoded)
-		if installErr != nil {
-			return nil, installErr
-		}
-		installed = append(installed, one)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return installed, nil
+}
+
+// installGenerated installs a manifest the importer wrote, as the document an
+// author would have: what is stored and read back is YAML, like any other.
+func (s *connectorService) installGenerated(ctx context.Context, manifest connectors.Manifest) (entities.ConnectorManifest, error) {
+	encoded, err := yaml.Marshal(manifest)
+	if err != nil {
+		return entities.ConnectorManifest{}, fmt.Errorf("could not write the generated manifest: %w", err)
+	}
+	return s.InstallManifest(ctx, encoded)
 }
 
 // NewConnectorService returns the concrete type, not the interface, so the
