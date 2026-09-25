@@ -18,6 +18,15 @@ const (
 	// jobs, migrates instances.
 	RoleOperator = "OPERATOR"
 
+	// RoleQueryAuthor may deploy a process with a database lookup in it.
+	//
+	// A lookup carries SQL its author wrote, run against a database an
+	// administrator connected, with whatever that connection's login may read.
+	// That is more than designing a process, so it is a permission of its own —
+	// held beside RoleDesigner, not instead of it. An administrator has it
+	// already.
+	RoleQueryAuthor = "QUERY_AUTHOR"
+
 	// RoleUser participates in processes — the task inbox. Every authenticated
 	// principal is treated as at least a RoleUser, so endpoints that only need
 	// "signed in" should require no roles at all rather than requiring this.

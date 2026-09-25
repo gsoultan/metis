@@ -1,7 +1,7 @@
 /**
  * The roles a platform account can hold, with words for each.
  *
- * These are the three the server enforces, spelled the way it spells them.
+ * These are the roles the server enforces, spelled the way it spells them.
  * They used to be five lowercase tokens — admin, manager, developer, user,
  * viewer — of which exactly one matched anything: `admin`, and only because the
  * server compares case-insensitively. Granting "developer" looked like letting
@@ -34,6 +34,12 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
     value: 'OPERATOR',
     label: 'Operator',
     description: 'Resolves incidents, retries jobs and migrates running instances',
+  },
+  {
+    value: 'QUERY_AUTHOR',
+    label: 'Query author',
+    description:
+      'Deploys process models that look things up in a connected database — held beside Designer, since those steps carry their own SQL',
   },
 ];
 

@@ -68,6 +68,9 @@ func (s *definitionService) DeployDefinition(ctx context.Context, def *entities.
 	if !validator.IsValid() {
 		return uuid.Nil, fmt.Errorf("invalid definition: %s", strings.Join(validator.Errors(), "; "))
 	}
+	if err := authorizeLookups(ctx, def); err != nil {
+		return uuid.Nil, err
+	}
 
 	if def.ID == uuid.Nil {
 		id, err := uuid.NewV7()

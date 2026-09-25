@@ -40,7 +40,7 @@ func TestEveryRoleTheUIOffersIsOneTheServerEnforces(t *testing.T) {
 		t.Fatalf("found no role values in %s; the file's shape changed and this check no longer reads it", rolesFile)
 	}
 
-	server := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator}
+	server := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor}
 	for _, match := range matches {
 		role := match[1]
 		if !entities.HasRole(server, role) {
@@ -62,7 +62,7 @@ func TestEveryRoleTheServerEnforcesIsOneTheUIOffers(t *testing.T) {
 		ui = append(ui, match[1])
 	}
 
-	for _, role := range []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator} {
+	for _, role := range []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor} {
 		if !entities.HasRole(ui, role) {
 			t.Errorf("the server enforces %q, which the UI never offers: nobody can be granted it", role)
 		}
@@ -73,8 +73,8 @@ func TestEveryRoleTheServerEnforcesIsOneTheUIOffers(t *testing.T) {
 // constants the interceptors compare against from becoming two lists.
 func TestBuiltInRolesAreTheEnforcedVocabulary(t *testing.T) {
 	seeded := entities.BuiltInPlatformRoles()
-	if len(seeded) != 3 {
-		t.Fatalf("expected three built-in roles, got %d", len(seeded))
+	if len(seeded) != 4 {
+		t.Fatalf("expected four built-in roles, got %d", len(seeded))
 	}
 	var names []string
 	for _, role := range seeded {
@@ -83,7 +83,7 @@ func TestBuiltInRolesAreTheEnforcedVocabulary(t *testing.T) {
 			t.Errorf("the %s role has no description; the picker would show a bare token", role.Name)
 		}
 	}
-	for _, want := range []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator} {
+	for _, want := range []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor} {
 		if !entities.HasRole(names, want) {
 			t.Errorf("%q is enforced but not seeded: no account could ever hold it", want)
 		}

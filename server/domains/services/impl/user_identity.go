@@ -31,3 +31,24 @@ func LocalUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
 	}
 	return uuid.Nil, pkgauth.ErrUnauthorized
 }
+
+// callerRoles returns the roles of whoever a request is from, and false when it
+// carries nobody. Both ways of signing in are read — a local account and an
+// identity provider's token — since both reach the same checks.
+func callerRoles(ctx context.Context) ([]string, bool) {
+	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
+	case entities.User:
+		return u.Roles, true
+	case *entities.User:
+		if u != nil {
+			return u.Roles, true
+		}
+	case pkgauth.UserClaims:
+		return u.Roles, true
+	case *pkgauth.UserClaims:
+		if u != nil {
+			return u.Roles, true
+		}
+	}
+	return nil, false
+}

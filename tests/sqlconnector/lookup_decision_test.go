@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
@@ -99,14 +100,21 @@ func newHarness(t *testing.T) *harness {
 
 	h := &harness{ctx: ctx, engine: engine, jobSvc: jobSvc, taskSvc: taskSvc,
 		defSvc: serviceimpl.NewDefinitionService(repo), projectID: projectID, definitionK: "customer-routing"}
-	h.deploy(t)
+	// A designer who may also author queries: deploying a lookup needs both.
+	if _, err := h.defSvc.CreateDefinition(as(ctx, entities.RoleDesigner, entities.RoleQueryAuthor), h.definition()); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
 	return h
 }
 
-// deploy is the designer's part: the lookup step and the decision after it.
-func (h *harness) deploy(t *testing.T) {
-	t.Helper()
-	def := &entities.ProcessDefinition{
+// as is ctx on behalf of somebody holding roles.
+func as(ctx context.Context, roles ...string) context.Context {
+	return context.WithValue(ctx, pkgauth.UserContextKey, entities.User{ID: uuid.New(), Roles: roles})
+}
+
+// definition is the designer's part: the lookup step and the decision after it.
+func (h *harness) definition() *entities.ProcessDefinition {
+	return &entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projectID},
 		Key:     h.definitionK,
 		Name:    "Route by customer tier",
@@ -128,9 +136,6 @@ func (h *harness) deploy(t *testing.T) {
 			{ID: "to-gold", SourceRef: "choose", TargetRef: "gold", Condition: `customer.row.tier = "gold"`},
 			{ID: "to-standard", SourceRef: "choose", TargetRef: "standard"},
 		},
-	}
-	if _, err := h.defSvc.CreateDefinition(h.ctx, def); err != nil {
-		t.Fatalf("deploy: %v", err)
 	}
 }
 
