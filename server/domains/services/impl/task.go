@@ -202,9 +202,13 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 
 func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		// Held, like every other write to a task. A release that read the
+		// task while it was being completed waited for the completion's
+		// commit and then wrote its own copy back — "unclaimed" over
+		// "completed" — and the finished task was open again.
+		m, err := s.lockedTask(txCtx, id)
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		if task.Status != entities.TaskClaimed {
@@ -420,8 +424,10 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 
 func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Ensure task exists before updating
-		m, err := s.repo.Task().Get(txCtx, task.ID)
+		// Held for the reason UnclaimTask holds it: the whole row is written
+		// back, status included, so an unheld read could reopen a task
+		// completed in between.
+		m, err := s.lockedTask(txCtx, task.ID)
 		if err != nil {
 			return err
 		}
