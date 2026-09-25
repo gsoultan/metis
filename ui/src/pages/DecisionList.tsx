@@ -9,6 +9,7 @@ import {
   List,
   Loader,
   Modal,
+  Pagination,
   Skeleton,
   Stack,
   Table,
@@ -29,8 +30,9 @@ import { DecisionGraphSection } from '../components/DecisionGraphView';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
 import { hitPolicyOf } from '../domain/decisionTable';
+import { pageWindow } from '../domain/pageWindow';
 import { matchesQuery } from '../domain/textSearch';
-import { useAllDecisions, useDecisionImpact, useDecisions, useDeleteDecision } from '../hooks/useDecisions';
+import { useAllDecisions, useDecisionImpact, useDeleteDecision } from '../hooks/useDecisions';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiDecision } from '../services/types';
 import { useTranslation } from '../i18n/context';
@@ -38,17 +40,21 @@ import { useTranslation } from '../i18n/context';
 dayjs.extend(relativeTime);
 
 const COLUMNS = 5;
+const PAGE_SIZE = 25;
 
 export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => void, hideHeader?: boolean }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data, isLoading, error, refetch } = useDecisions();
-  // The graph needs every decision: one that another requires may be on a
-  // page this list has not loaded, and a loop may run through it.
+  // Every decision, for the list and the graph alike. The list used to load
+  // its first page of 25 and offer no way to the rest, and the graph needs
+  // them all: one that another requires may be past any page, and a loop may
+  // run through it.
   const everyDecision = useAllDecisions();
+  const { data, isLoading, error, refetch } = everyDecision;
   const deleteDecision = useDeleteDecision();
   const [wizardOpened, setWizardOpened] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [, startTransition] = useTransition();
   // The decision waiting for "yes, delete it", with what depends on it fetched
   // only once the question is asked.
@@ -99,8 +105,9 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
     return <ErrorState error={error} action="load your decision tables" onRetry={() => refetch()} />;
   }
 
-  const decisions = data?.decisions || [];
+  const decisions = data?.items ?? [];
   const shown = decisions.filter((def) => matchesQuery(searchQuery, def.name, def.key));
+  const listed = pageWindow(shown, page, PAGE_SIZE);
 
   return (
     <Stack gap="xl">
@@ -120,15 +127,13 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
           about which decision is made first — or that two of them depend on
           each other and neither can run. */}
       <DecisionGraphSection
-        decisions={(everyDecision.data?.items ?? []).map((def) => ({
+        decisions={decisions.map((def) => ({
           id: def.id,
           key: def.key,
           name: def.name,
           required_decisions: def.required_decisions,
         }))}
-        loading={everyDecision.isLoading}
-        failed={everyDecision.isError}
-        total={everyDecision.data?.truncated ? everyDecision.data.total : undefined}
+        total={data?.truncated ? data.total : undefined}
         onOpen={(id) => navigate({ to: '/decision-editor', search: { id } })}
       />
 
@@ -143,7 +148,10 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
             radius="md"
             onChange={(e) => {
               const value = e.currentTarget.value;
-              startTransition(() => setSearchQuery(value));
+              startTransition(() => {
+                setSearchQuery(value);
+                setPage(1);
+              });
             }}
           />
         </Box>
@@ -172,7 +180,7 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                shown.map((def) => (
+                listed.items.map((def) => (
                   <Table.Tr key={def.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -217,6 +225,33 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
+
+        {(listed.pageCount > 1 || data?.truncated) && (
+          <Group justify="space-between" p="md" gap="sm">
+            <Text size="xs" c="dimmed">
+              {listed.first}–{listed.last} of {shown.length}
+              {data?.truncated
+                ? `. Only the ${decisions.length} most recently created of this project's ${data.total} decisions are loaded.`
+                : ''}
+            </Text>
+            {listed.pageCount > 1 && (
+              <Pagination
+                size="sm"
+                value={listed.page}
+                onChange={setPage}
+                total={listed.pageCount}
+                getControlProps={(control) => ({
+                  'aria-label': {
+                    first: 'First page',
+                    last: 'Last page',
+                    next: 'Next page',
+                    previous: 'Previous page',
+                  }[control],
+                })}
+              />
+            )}
+          </Group>
+        )}
       </Card>
 
       <Modal
