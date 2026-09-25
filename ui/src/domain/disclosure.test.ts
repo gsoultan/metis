@@ -394,3 +394,19 @@ describe('the raw schema editor', () => {
     expect(rawEditorView(renamed, draft)).toEqual({ text: JSON.stringify(renamed, null, 2) });
   });
 });
+
+/**
+ * The designer reads the flag through a selector.
+ *
+ * Every task and gateway on the canvas subscribed to the whole store to read
+ * this one flag, so any write to the store, such as collapsing the sidebar or
+ * switching the theme, re-rendered every one of them.
+ */
+describe('the designer', () => {
+  it.each([['components/BPMNNodes.tsx'], ['components/DesignerSidebar.tsx']])(
+    '%s subscribes to the fields it reads, not to the whole store',
+    (path) => {
+      expect(readSource(path).match(/useAppStore\(\)/g) ?? []).toEqual([]);
+    },
+  );
+});

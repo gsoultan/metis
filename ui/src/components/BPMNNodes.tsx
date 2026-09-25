@@ -93,7 +93,7 @@ const ContextPad = ({ selected }: { selected?: boolean }) => {
  * Expert mode switches back to the specification terms.
  */
 function useNodeCaption(nodeType: string): string {
-  const { expertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
   const vocab = vocabularyFor(nodeType);
   if (!vocab) return nodeType;
   return expertMode ? vocab.bpmnName : vocab.plainName;
@@ -101,7 +101,7 @@ function useNodeCaption(nodeType: string): string {
 
 /** Explains a node on hover: what it does, plus its other name. */
 function NodeHelp({ nodeType, children }: { nodeType: string; children: React.ReactElement }) {
-  const { expertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
   const vocab = vocabularyFor(nodeType);
   if (!vocab) return children;
   return (

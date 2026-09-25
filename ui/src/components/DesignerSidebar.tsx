@@ -138,7 +138,7 @@ interface DesignerSidebarProps {
 
 export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   const [search, setSearch] = useState('');
-  const { expertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
   const { data: connectorsData, isLoading: connectorsLoading } = useConnectors();
   
   const onDragStart = (event: React.DragEvent, nodeType: string, initialData: Partial<BPMNNodeData> = {}) => {
