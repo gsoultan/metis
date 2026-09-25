@@ -1201,8 +1201,20 @@ func (a *App) serveGRPC(ctx context.Context, g *errgroup.Group, grpcServer *grpc
 			<-ctx.Done()
 			baseServer.GracefulStop()
 		}()
-		return baseServer.Serve(lis)
+		return serveGRPCUntilStopped(baseServer, lis)
 	})
+}
+
+// serveGRPCUntilStopped serves until the server is stopped.
+//
+// A stop that lands after the listener is bound but before Serve starts makes
+// Serve answer ErrServerStopped. That is a shutdown like any other, as
+// http.ErrServerClosed is for the HTTP listener, and not a failure of this one.
+func serveGRPCUntilStopped(server *grpc.Server, lis net.Listener) error {
+	if err := server.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+		return err
+	}
+	return nil
 }
 
 func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Server) {
