@@ -113,8 +113,10 @@ func (s *environmentService) UpdateEnvironment(ctx context.Context, env entities
 // DeleteEnvironment removes a runtime from the registry.
 //
 // The database it named is untouched. Removing the row stops the runtime being
-// served; deciding to destroy what it ran is a separate act, and not one a
-// delete button on a settings page should perform.
+// served: every replica notices within a few seconds and stops its port, its
+// workers and its connections (internal/app/environment_runtime.go). Deciding to
+// destroy what it ran is a separate act, and not one a delete button on a
+// settings page should perform.
 func (s *environmentService) DeleteEnvironment(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Environment().Delete(ctx, id)
 }

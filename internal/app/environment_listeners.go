@@ -57,6 +57,9 @@ func (a *App) serveEnvironments(ctx context.Context, g *errgroup.Group, handler 
 
 		address := fmt.Sprintf(":%d", row.Port)
 		name := row.Name
+		// Stopped with the rest of the environment when it is deleted or
+		// disabled, not only when the server shuts down.
+		environmentCtx := a.environments.run(ctx, id)
 		g.Go(func() error {
 			log.Info().
 				Str("environment", name).
@@ -65,7 +68,7 @@ func (a *App) serveEnvironments(ctx context.Context, g *errgroup.Group, handler 
 			server := newHTTPServer(address, environmentHandler(id, handler))
 
 			go func() {
-				<-ctx.Done()
+				<-environmentCtx.Done()
 				shutdownCtx, cancel := context.WithTimeoutCause(
 					context.WithoutCancel(ctx),
 					httpShutdownTimeout,
@@ -130,7 +133,7 @@ func (a *App) startEnvironmentWorkers(ctx context.Context) {
 		// worker reads through the GORM repositories today and the storm ones
 		// as the port lands, and a worker that carried only one binding would
 		// poll one database and write to another.
-		environmentCtx := db.Bind(ctx, id)
+		environmentCtx := db.Bind(a.environments.run(ctx, id), id)
 		a.svc.StartWorkers(environmentCtx)
 		// No second SSE fan-out. The bus is one table in the main database and
 		// every row on it carries the environment it belongs to, so one reader
