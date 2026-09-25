@@ -108,7 +108,11 @@ script uses it automatically when present:
 go install github.com/air-verse/air@latest
 ```
 
-Open the UI and the first run walks through the setup wizard.
+Open the UI and the first run walks through the setup wizard. A server started
+with `DATABASE_URL`, `ENCRYPTION_KEY` and `JWT_SECRET` already has its database
+and keys, so the wizard asks only for the organization and first administrator
+and writes no `config.yaml`. Either way it closes once the database holds an
+account.
 
 Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`docs/upgrading.md`](docs/upgrading.md).
 

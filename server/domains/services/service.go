@@ -139,7 +139,7 @@ func NewServiceFacade(
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine)
-	setupSvc := serviceimpl.NewSetupService(setupCallback)
+	setupSvc := serviceimpl.NewSetupService(setupCallback, repo.User())
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
 	// Resolve circular collaborators via functional options so the wiring is

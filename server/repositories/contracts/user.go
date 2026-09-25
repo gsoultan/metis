@@ -19,6 +19,13 @@ type UserRepository interface {
 	// instead would let any signed-in user name somebody else.
 	GetWithPasswordByID(ctx context.Context, id uuid.UUID) (models.UserModel, string, error)
 	ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error)
+
+	// HasAccounts reports whether any account exists at all.
+	//
+	// Installation-wide, like the lookup by username, and for a related reason:
+	// it answers whether this database already holds an installation, which
+	// setup has to know before there is anybody to scope the question by.
+	HasAccounts(ctx context.Context) (bool, error)
 	Create(ctx context.Context, u models.UserModel, passwordHash string) error
 
 	// SetPasswordHash replaces one user's password hash and touches nothing

@@ -1,5 +1,6 @@
 import { requestJSON } from "../shared/rest";
 import type { SetupRequest } from "../types";
+import type { SetupPeople } from "../../domain/setupWizard";
 import { raiseIfRefused } from "../raise";
 
 /**
@@ -16,6 +17,11 @@ import { raiseIfRefused } from "../raise";
  */
 export interface SetupStatus {
   is_initialized: boolean;
+  /**
+   * The server's environment names its database and both secrets, so the
+   * wizard asks only for the organization and its first administrator.
+   */
+  configured_by_environment?: boolean;
 }
 
 export const setupService = {
@@ -28,7 +34,8 @@ export const setupService = {
     return { status: data.status, err: data.err };
   },
 
-  async setup(req: SetupRequest, signal?: AbortSignal) {
+  /** A full request for the wizard, only the people for a server configured by its environment. */
+  async setup(req: SetupPeople | SetupRequest, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>("/setup", {
       method: "POST",
       body: req,

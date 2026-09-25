@@ -47,7 +47,7 @@ func TestSetupLeavesTheAdminAbleToSeeSomething(t *testing.T) {
 	// configured".
 	t.Chdir(t.TempDir())
 
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, nil)
 	ctx := context.Background()
 	if err := svc.Setup(ctx, contracts.SetupRequest{
 		AdminUsername:    "admin",
