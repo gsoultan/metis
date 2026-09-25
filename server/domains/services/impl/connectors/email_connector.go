@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/smtp"
 	"strings"
+
+	"github.com/gsoultan/metis/internal/pkg/mail"
 )
 
 const EmailConnectorKey = "email-smtp"
@@ -19,7 +21,7 @@ func NewEmailConnector() *EmailConnector {
 	return &EmailConnector{}
 }
 
-func (c *EmailConnector) Execute(_ context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
+func (c *EmailConnector) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
 	cfg, err := extractSMTPConfig(config)
 	if err != nil {
 		return nil, err
@@ -28,7 +30,7 @@ func (c *EmailConnector) Execute(_ context.Context, config map[string]any, paylo
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmail(cfg, recipients, msg); err != nil {
+	if err := sendEmail(ctx, cfg, recipients, msg); err != nil {
 		return nil, err
 	}
 	// "status": "sent" rather than "sent": true, because that is what the
@@ -113,13 +115,16 @@ func splitRecipients(to string) []string {
 // the "To:" header said otherwise and SMTP reported success. An approval
 // request for approver@example.com arrived in the noreply@ inbox and nothing
 // anywhere looked wrong.
-func sendEmail(cfg smtpConfig, recipients []string, msg []byte) error {
+//
+// Within the job's deadline: net/smtp's SendMail has none, and a mail server
+// that accepted the connection and went quiet held a worker slot for good.
+func sendEmail(ctx context.Context, cfg smtpConfig, recipients []string, msg []byte) error {
 	addr := cfg.host + ":" + cfg.port
 	var auth smtp.Auth
 	if cfg.username != "" {
 		auth = smtp.PlainAuth("", cfg.username, cfg.password, cfg.host)
 	}
-	if err := smtp.SendMail(addr, auth, cfg.from, recipients, msg); err != nil {
+	if err := mail.Send(ctx, addr, auth, cfg.from, recipients, msg); err != nil {
 		return fmt.Errorf("email connector: send mail: %w", err)
 	}
 	return nil

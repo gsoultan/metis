@@ -661,7 +661,7 @@ func (a *App) setupService(ctx context.Context) error {
 		}
 	})
 
-	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery()))
+	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
 
 	// How the event stream works out who a background event is for. The job
 	// worker and the timer sweep run under a system context with no tenant on
@@ -1256,7 +1256,7 @@ func sharedRateLimit(limiter contracts.TransportInterceptor) contracts.Transport
 // not. Both channels are opt-in through the environment, in the same shape as
 // WEBHOOK_ENDPOINTS: configure nothing and this is the plain service, which is
 // what every installation had before.
-func (a *App) notificationDelivery() servicecontracts.NotificationService {
+func (a *App) notificationDelivery(ctx context.Context) servicecontracts.NotificationService {
 	var channels []serviceimpl.NotificationChannel
 
 	if url := envvar.Get("NOTIFICATION_WEBHOOK_URL"); url != "" {
@@ -1286,5 +1286,19 @@ func (a *App) notificationDelivery() servicecontracts.NotificationService {
 		log.Info().Str("host", mail.Host).Msg("Notifications will also be emailed")
 	}
 
-	return serviceimpl.NewDeliveringNotificationService(a.svc, channels...)
+	// After the transaction that stored the notification commits, on a small
+	// background queue: delivering inside it held the engine's transaction —
+	// its connection and the task's row locks — for as long as a mail server
+	// took to answer.
+	schedule := serviceimpl.DeliverAfterCommit(ctx, a.repo.UnitOfWork().AfterCommit,
+		notificationDeliveryWorkers, notificationDeliveryQueue)
+	return serviceimpl.NewDeliveringNotificationService(a.svc, schedule, channels...)
 }
+
+// A few workers are plenty for notifications, which are small and not urgent to
+// the second; the queue absorbs a burst — a task created for everyone on a
+// team at once — without letting a mail server that is down grow it forever.
+const (
+	notificationDeliveryWorkers = 4
+	notificationDeliveryQueue   = 1024
+)

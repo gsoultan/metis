@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/mail"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
@@ -36,14 +37,23 @@ type NotificationChannel interface {
 type deliveringNotificationService struct {
 	contracts.NotificationService
 	channels []NotificationChannel
+	schedule DeliveryScheduler
 }
 
+// DeliveryScheduler decides when, and on which goroutine, a stored
+// notification is delivered.
+type DeliveryScheduler func(ctx context.Context, deliver func(context.Context))
+
+// DeliverNow delivers on the caller's goroutine, straight away. For a caller
+// with no transaction around it, and for tests.
+func DeliverNow(ctx context.Context, deliver func(context.Context)) { deliver(ctx) }
+
 // NewDeliveringNotificationService wraps a notification service so that what it
-// stores is also sent.
+// stores is also sent, when schedule says.
 //
 // With no channels it is the service it wraps, which is what an installation
 // that has configured nothing should get.
-func NewDeliveringNotificationService(inner contracts.NotificationService, channels ...NotificationChannel) contracts.NotificationService {
+func NewDeliveringNotificationService(inner contracts.NotificationService, schedule DeliveryScheduler, channels ...NotificationChannel) contracts.NotificationService {
 	live := make([]NotificationChannel, 0, len(channels))
 	for _, channel := range channels {
 		if channel != nil {
@@ -53,7 +63,10 @@ func NewDeliveringNotificationService(inner contracts.NotificationService, chann
 	if len(live) == 0 {
 		return inner
 	}
-	return &deliveringNotificationService{NotificationService: inner, channels: live}
+	if schedule == nil {
+		schedule = DeliverNow
+	}
+	return &deliveringNotificationService{NotificationService: inner, channels: live, schedule: schedule}
 }
 
 // Send stores the notification first, then delivers it.
@@ -64,10 +77,22 @@ func NewDeliveringNotificationService(inner contracts.NotificationService, chann
 // one place it was guaranteed to appear. A channel that fails is logged loudly
 // with which channel and which recipient, because "the email never arrived" is
 // otherwise unanswerable.
+//
+// Delivery is scheduled rather than done here. Send is called by the engine
+// while it creates, claims or assigns a task — inside that transaction — and
+// delivering there made a webhook or an SMTP conversation hold the
+// transaction's connection and the task's row locks for as long as somebody
+// else's server took to answer. It also delivered notifications for work a
+// rollback then undid.
 func (s *deliveringNotificationService) Send(ctx context.Context, n entities.Notification) error {
 	if err := s.NotificationService.Send(ctx, n); err != nil {
 		return err
 	}
+	s.schedule(ctx, func(deliveryCtx context.Context) { s.deliver(deliveryCtx, n) })
+	return nil
+}
+
+func (s *deliveringNotificationService) deliver(ctx context.Context, n entities.Notification) {
 	for _, channel := range s.channels {
 		if err := channel.Deliver(ctx, n); err != nil {
 			recipient := ""
@@ -80,7 +105,6 @@ func (s *deliveringNotificationService) Send(ctx context.Context, n entities.Not
 				Msg("A notification was stored but not delivered; it is in the notification centre and nowhere else")
 		}
 	}
-	return nil
 }
 
 // ─── webhook ────────────────────────────────────────────────────────────────
@@ -192,15 +216,18 @@ type AddressLookup func(ctx context.Context, username string) (string, error)
 type EmailNotificationChannel struct {
 	settings EmailSettings
 	address  AddressLookup
-	send     func(addr string, a smtp.Auth, from string, to []string, msg []byte) error
+	send     MailSender
 }
+
+// MailSender hands a message to an SMTP server, giving up at ctx's deadline.
+type MailSender func(ctx context.Context, addr string, a smtp.Auth, from string, to []string, msg []byte) error
 
 // EmailOption adjusts an email channel.
 type EmailOption func(*EmailNotificationChannel)
 
 // WithMailSender replaces the function that hands a message to the SMTP server.
 // It exists so a test can assert what would be sent without a mail server.
-func WithMailSender(send func(addr string, a smtp.Auth, from string, to []string, msg []byte) error) EmailOption {
+func WithMailSender(send MailSender) EmailOption {
 	return func(c *EmailNotificationChannel) { c.send = send }
 }
 
@@ -216,7 +243,7 @@ func NewEmailNotificationChannel(settings EmailSettings, address AddressLookup, 
 	if settings.Port == "" {
 		settings.Port = "587"
 	}
-	channel := &EmailNotificationChannel{settings: settings, address: address, send: smtp.SendMail}
+	channel := &EmailNotificationChannel{settings: settings, address: address, send: mail.Send}
 	for _, opt := range opts {
 		opt(channel)
 	}
@@ -258,7 +285,7 @@ func (c *EmailNotificationChannel) Deliver(ctx context.Context, n entities.Notif
 	// addressed it to itself for a while and every message went to the noreply
 	// mailbox, which is a mistake worth only making once.
 	addr := c.settings.Host + ":" + c.settings.Port
-	if err := c.send(addr, auth, c.settings.From, []string{to}, []byte(body.String())); err != nil {
+	if err := c.send(ctx, addr, auth, c.settings.From, []string{to}, []byte(body.String())); err != nil {
 		return fmt.Errorf("notification email: send to %s: %w", to, err)
 	}
 	return nil

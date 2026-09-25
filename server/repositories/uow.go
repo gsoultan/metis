@@ -38,3 +38,8 @@ func (u *stormUnitOfWork) Do(ctx context.Context, fn func(ctx context.Context) e
 func (u *stormUnitOfWork) Attempt(ctx context.Context, fn func(ctx context.Context) error) error {
 	return u.conn.Attempt(ctx, fn)
 }
+
+// AfterCommit runs fn once the transaction around ctx commits.
+func (u *stormUnitOfWork) AfterCommit(ctx context.Context, fn func()) {
+	stormdb.AfterCommit(ctx, fn)
+}

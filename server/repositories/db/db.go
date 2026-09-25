@@ -227,12 +227,14 @@ func (c *Conn) Transact(ctx context.Context, fn func(context.Context) error) (er
 		}
 	}()
 
-	if err := fn(withTx(ctx, pgxdrv.Tx{T: tx})); err != nil {
+	hooks := &commitHooks{}
+	if err := fn(withCommitHooks(withTx(ctx, pgxdrv.Tx{T: tx}), hooks)); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("could not commit: %w", err)
 	}
+	hooks.run()
 	return nil
 }
 
@@ -269,6 +271,14 @@ func (c *Conn) Attempt(ctx context.Context, fn func(context.Context) error) (err
 	saved, err := tx.T.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("could not take a savepoint: %w", err)
+	}
+	if hooks, ok := commitHooksFrom(ctx); ok {
+		mark := hooks.mark()
+		defer func() {
+			if err != nil {
+				hooks.rewind(mark)
+			}
+		}()
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
