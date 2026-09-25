@@ -224,3 +224,38 @@ func assertCustomerCount(t *testing.T, adminDSN string, want int) {
 		t.Fatalf("customers has %d rows, want %d: something was written", count, want)
 	}
 }
+
+func TestAPostgresLookupTakesAList(t *testing.T) {
+	target := testutils.PostgresLookupDatabase(t, customersTable...)
+	answer, err := testExecutor().ExecuteRequest(testContext(t), postgresConfig(target.DSN), servicecontracts.ConnectorRequest{
+		Statement:      "SELECT name FROM customers WHERE id IN (:ids) ORDER BY id",
+		Params:         map[string]any{"ids": []any{7.0, 8.0, 404.0}},
+		ResultVariable: "customers",
+	})
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	found, _ := answer["customers"].(map[string]any)
+	rows, _ := found[resultRows].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("got %v, want Acme and Globex", rows)
+	}
+	if first, _ := rows[0].(map[string]any); first["name"] != "Acme" {
+		t.Fatalf("first row %v", rows[0])
+	}
+}
+
+// The Connectors page's "Test" for a lookup reaches the database, and refuses
+// Metis's own the way a lookup would.
+func TestTestingAPostgresConnection(t *testing.T) {
+	target := testutils.PostgresLookupDatabase(t)
+	answer, err := testExecutor().Execute(testContext(t), postgresConfig(target.DSN), nil)
+	if err != nil || answer["status"] != "connected" {
+		t.Fatalf("got %v, %v", answer, err)
+	}
+
+	testutils.SetupTestConn(t)
+	if _, err := testExecutor().Execute(testContext(t), postgresConfig(os.Getenv(testutils.PostgresDSNEnv)), nil); !errors.Is(err, errOwnDatabase) {
+		t.Fatalf("testing a connection onto Metis's own tables was allowed: %v", err)
+	}
+}

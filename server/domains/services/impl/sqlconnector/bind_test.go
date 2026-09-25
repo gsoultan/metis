@@ -74,7 +74,7 @@ func TestParameterValues(t *testing.T) {
 		"true or false":                {value: true, want: true},
 		"a date":                       {value: when, want: when},
 		"no value":                     {value: nil, refused: true},
-		"a list":                       {value: []any{"a", "b"}, refused: true},
+		"a list of named values":       {value: []any{map[string]any{"a": 1.0}}, refused: true},
 		"a set of named values":        {value: map[string]any{"a": 1.0}, refused: true},
 		"a duration":                   {value: time.Minute, refused: true},
 	} {
@@ -100,5 +100,50 @@ func TestAParameterTheStepDoesNotSupplyIsRefusedNotNull(t *testing.T) {
 	_, _, err := bind("SELECT * FROM t WHERE id = :customer_id", map[string]any{"customerId": "7"}, postgresDialect{})
 	if err == nil || !strings.Contains(err.Error(), ":customer_id") {
 		t.Fatalf("a missing parameter was not named in the refusal: %v", err)
+	}
+}
+
+// WHERE id IN (:ids): one placeholder per value, in each server's own
+// spelling, every value still a parameter.
+func TestAListExpandsToOnePlaceholderPerValue(t *testing.T) {
+	statement := "SELECT * FROM customers WHERE id IN (:ids) OR parent_id IN (:ids)"
+	params := map[string]any{"ids": []any{7.0, 8.0}}
+
+	for _, tc := range []struct {
+		dialect   dialect
+		wantQuery string
+		wantArgs  int
+	}{
+		// PostgreSQL and SQL Server name a parameter twice with one binding.
+		{postgresDialect{}, "SELECT * FROM customers WHERE id IN ($1, $2) OR parent_id IN ($1, $2)", 2},
+		{sqlServerDialect{}, "SELECT * FROM customers WHERE id IN (@metis_p1, @metis_p2) OR parent_id IN (@metis_p1, @metis_p2)", 2},
+		// MySQL's ? binds once per occurrence.
+		{mysqlDialect{}, "SELECT * FROM customers WHERE id IN (?, ?) OR parent_id IN (?, ?)", 4},
+	} {
+		query, args, err := bind(statement, params, tc.dialect)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.dialect.label(), err)
+		}
+		if query != tc.wantQuery || len(args) != tc.wantArgs {
+			t.Errorf("%s: query %q with %d args", tc.dialect.label(), query, len(args))
+		}
+	}
+}
+
+func TestAListThatCannotBeBoundIsRefused(t *testing.T) {
+	tooMany := make([]any, maxListValues+1)
+	for i := range tooMany {
+		tooMany[i] = float64(i)
+	}
+	for name, list := range map[string][]any{
+		// IN () is not SQL, and a lookup on nothing finds nothing.
+		"an empty list":                {},
+		"a list longer than the limit": tooMany,
+		"a list with an empty value":   {7.0, nil},
+		"a list of lists":              {[]any{7.0}},
+	} {
+		if _, _, err := bind("SELECT * FROM t WHERE id IN (:ids)", map[string]any{"ids": list}, postgresDialect{}); err == nil {
+			t.Errorf("%s was bound", name)
+		}
 	}
 }

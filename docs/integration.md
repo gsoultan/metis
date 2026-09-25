@@ -394,6 +394,12 @@ A connection whose login can see Metis's own tables is refused before any
 query runs: pointed at Metis's database, a lookup would read every project's
 instances and every connection's settings.
 
+**Test** on the Connectors page opens the connection with every check a lookup
+gets — the host list, the settings it forces, the refusal above — and runs
+nothing of anybody's. On the designer, **Try it** runs one step's real query
+against the project's saved connection and shows what it would store; that
+needs the Query author role, as deploying does.
+
 ### The step — whoever designs the process
 
 Drag *Database Lookup* from the designer's **Connectors** group onto the canvas
@@ -408,7 +414,9 @@ and fill in:
 
 - **Values** — for each `:name`, the process value it takes: a variable name,
   or a FEEL expression such as `order.customer.id`. The designer offers each
-  `:name` the query uses as a one-click row.
+  `:name` the query uses as a one-click row. A value that is a list expands to
+  one parameter per item, for `WHERE id IN (:ids)`; an empty list is refused
+  rather than matching nothing, and a list may hold at most 1000 values.
 - **Store the answer as** — one variable name, say `customer`.
 
 The answer is one variable:

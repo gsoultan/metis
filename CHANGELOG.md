@@ -62,6 +62,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   — worth setting on a shared installation, where the project administrator who
   sets up a connection is not whoever runs the servers.
 
+- **A database lookup takes a list.** A value that is a list expands to one
+  parameter per item, for `WHERE id IN (:ids)`, still bound rather than written
+  into the query. An empty list is refused, not treated as matching nothing.
+- **Testing a database lookup's connection works.** The Connectors page's
+  "Test" answered that a lookup cannot run on its own; it now opens the
+  connection with every check a lookup gets and runs nothing of anybody's.
 - **The Query author role.** Deploying a process with a database lookup in it
   needs `QUERY_AUTHOR`, held beside Designer; administrators have it already.
   It is created on the next start with no migration. Grant it on the Platform

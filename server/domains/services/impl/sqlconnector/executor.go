@@ -22,8 +22,6 @@ const Key = "sql-query"
 const clientGrace = time.Second
 
 var (
-	errNoRequest = errors.New("the database lookup runs as a step in a process, which says what to look up; " +
-		"it cannot be run on its own")
 	errNoResultVariable  = errors.New("the step does not say which variable to store the lookup's answer in")
 	errBadResultVariable = errors.New("the variable a lookup's answer is stored in must start with a letter " +
 		"and use only letters, digits and underscores")
@@ -48,14 +46,31 @@ func New() *Executor {
 	return &Executor{pools: newPools(resolvePoolSettings(), resolveHostPolicy())}
 }
 
-// Execute is a connector call with no step behind it, and a lookup refuses
-// one without connecting anywhere.
+// Execute tests a connection: it is what the Connectors page's "Test" runs,
+// with the settings an administrator is filling in. It opens the pool — which
+// holds the host to the operator's list, forces the settings a lookup depends
+// on, and refuses a login that can see Metis's own tables — pings it, and runs
+// nothing of anybody's.
 //
-// That is where POST /connectors/execute arrives, with a configuration its
-// caller wrote. Connecting on that would let whoever may call it try any
-// database host and credential the server can reach.
-func (e *Executor) Execute(context.Context, map[string]any, map[string]any) (map[string]any, error) {
-	return nil, errNoRequest
+// It arrives only through POST /connectors/execute, which takes its caller's
+// configuration and is therefore an administrator's alone (endpoints.go; the
+// wiring test drives it through the real HTTP chain). The engine never calls
+// it: a lookup step comes in through ExecuteRequest.
+func (e *Executor) Execute(ctx context.Context, config map[string]any, _ map[string]any) (map[string]any, error) {
+	conn, err := connectionFrom(config)
+	if err != nil {
+		return nil, err
+	}
+	db, err := e.pools.get(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, conn.timeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return nil, describeFailure(conn, err)
+	}
+	return map[string]any{"status": "connected", "database": conn.dialect.label()}, nil
 }
 
 // ExecuteRequest runs one step's lookup and returns its answer under the
