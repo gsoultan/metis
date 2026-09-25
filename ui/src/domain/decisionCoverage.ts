@@ -17,7 +17,7 @@
  * because a coverage warning that is wrong teaches people to ignore coverage
  * warnings.
  */
-import { ANY_VALUE, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
+import { ANY_VALUE, newRuleRow, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
 
 /** One combination of inputs that no line covers. */
 export interface CoverageGap {
@@ -25,6 +25,12 @@ export interface CoverageGap {
   values: string[];
   /** The gap in words, for someone who did not write the table. */
   description: string;
+  /**
+   * Per column, the condition that covers this gap and nothing more: a line
+   * made of them decides exactly the cases that are missing, so it overlaps no
+   * existing line under any hit policy.
+   */
+  conditions: string[];
 }
 
 export interface CoverageReport {
@@ -47,6 +53,13 @@ export interface Sample {
   value: string | number | boolean;
   /** What a person reads. */
   label: string;
+  /**
+   * Every value the cells cannot tell apart from this one, in words: "more
+   * than 10 but less than 20". What holds for the sample holds for all of them.
+   */
+  standsFor: string;
+  /** The condition that matches exactly what the sample stands for. */
+  condition: string;
 }
 
 /**
@@ -86,6 +99,7 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
         gaps.push({
           values: chosen.map((sample) => sample.label),
           description: describeGap(inputs, chosen),
+          conditions: chosen.map((sample) => sample.condition),
         });
       }
       return;
@@ -122,8 +136,8 @@ export function understandsCell(cell: string): boolean {
 export function columnSamples(column: DecisionInputColumn, cells: string[]): Sample[] {
   if (column.type === 'boolean') {
     return [
-      { value: true, label: 'yes' },
-      { value: false, label: 'no' },
+      { value: true, label: 'yes', standsFor: 'yes', condition: 'true' },
+      { value: false, label: 'no', standsFor: 'no', condition: 'false' },
     ];
   }
 
@@ -140,9 +154,25 @@ export function columnSamples(column: DecisionInputColumn, cells: string[]): Sam
       if (literal && literal !== ANY_VALUE) literals.add(literal);
     }
   }
-  const samples: Sample[] = [...literals].map((value) => ({ value, label: value }));
-  samples.push({ value: 'anything-else-entirely', label: 'anything else' });
+  const named = [...literals];
+  const samples: Sample[] = named.map((value) => ({ value, label: value, standsFor: value, condition: quoted(value) }));
+  samples.push({
+    value: 'anything-else-entirely',
+    label: 'anything else',
+    standsFor: 'anything else',
+    condition: named.length > 0 ? `not(${named.map(quoted).join(', ')})` : ANY_VALUE,
+  });
   return samples;
+}
+
+/**
+ * Text as a cell spells it. Quoted, so that a word which happens to name a
+ * process variable is still read as the word; the other kind of quote when the
+ * text holds a double quote, which it can only have come from a cell quoted
+ * that way.
+ */
+function quoted(text: string): string {
+  return text.includes('"') ? `'${text}'` : `"${text}"`;
 }
 
 /** Every number a column's cells mention, lowest first. */
@@ -166,13 +196,27 @@ function thresholdsIn(cells: string[]): number[] {
  * there because that is where an off-by-one hides, the commonest gap there is.
  */
 function numberSamples(thresholds: number[]): Sample[] {
-  if (thresholds.length === 0) return [{ value: -1, label: '-1' }];
-  const values = [thresholds[0] - 1];
+  if (thresholds.length === 0) return [numberSample(-1, 'any number', ANY_VALUE)];
+  const lowest = thresholds[0];
+  const samples = [numberSample(lowest - 1, `less than ${lowest}`, `< ${lowest}`)];
   thresholds.forEach((threshold, index) => {
+    samples.push(numberSample(threshold, String(threshold), String(threshold)));
     const next = thresholds[index + 1];
-    values.push(threshold, next === undefined ? threshold + 1 : strictlyBetween(threshold, next));
+    samples.push(
+      next === undefined
+        ? numberSample(threshold + 1, `more than ${threshold}`, `> ${threshold}`)
+        : numberSample(
+            strictlyBetween(threshold, next),
+            `more than ${threshold} but less than ${next}`,
+            `]${threshold}..${next}[`,
+          ),
+    );
   });
-  return values.map((value) => ({ value, label: String(value) }));
+  return samples;
+}
+
+function numberSample(value: number, standsFor: string, condition: string): Sample {
+  return { value, label: String(value), standsFor, condition };
 }
 
 /**
@@ -275,6 +319,16 @@ function unquote(text: string): string {
 }
 
 function describeGap(inputs: DecisionInputColumn[], chosen: Sample[]): string {
-  const parts = chosen.map((sample, index) => `${inputs[index].label || inputs[index].expression} is ${sample.label}`);
+  const parts = chosen.map((sample, index) => `${inputs[index].label || inputs[index].expression} is ${sample.standsFor}`);
   return `Nothing decides when ${parts.join(' and ')}`;
+}
+
+/**
+ * The line that decides a gap: its conditions cover the missing cases and
+ * nothing else, and its results are left empty, because what the table should
+ * decide there is the author's call — the editor points out a line with no
+ * result until it has one.
+ */
+export function ruleForGap(gap: CoverageGap, id: string, outputCount: number): DecisionRuleRow {
+  return { ...newRuleRow(id, gap.conditions.length, outputCount), input_entries: [...gap.conditions] };
 }

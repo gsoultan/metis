@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cellMatcher, findCoverageGaps } from './decisionCoverage';
-import { ANY_VALUE, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
+import { cellMatcher, findCoverageGaps, ruleForGap } from './decisionCoverage';
+import { findOverlaps } from './decisionOverlaps';
+import { ANY_VALUE, type DecisionInputColumn, type DecisionOutputColumn, type DecisionRuleRow } from './decisionTable';
 
 const amount: DecisionInputColumn = { id: 'i1', label: 'Amount', expression: 'amount', type: 'number' };
 const tier: DecisionInputColumn = { id: 'i2', label: 'Tier', expression: 'tier', type: 'string' };
 const urgent: DecisionInputColumn = { id: 'i3', label: 'Urgent', expression: 'urgent', type: 'boolean' };
+const output: DecisionOutputColumn = { id: 'o1', label: 'Band', name: 'band', type: 'string' };
 
 function rule(...cells: string[]): DecisionRuleRow {
   return { id: cells.join('|'), input_entries: cells, output_entries: ['x'] };
@@ -172,5 +174,70 @@ describe('cellMatcher', () => {
     expect(cellMatches('true', true, 'boolean')).toBe(true);
     expect(cellMatches('true', false, 'boolean')).toBe(false);
     expect(cellMatches('false', false, 'boolean')).toBe(true);
+  });
+});
+
+/**
+ * A gap is a stretch of cases, not the one value that found it. `<= 10` and
+ * `> 20` leave everything above 10 and below 20 undecided, and 20 itself. The
+ * gap has to say so, because the line that fills it has to cover all of it.
+ */
+describe('a coverage gap', () => {
+  it('says which stretch of cases nothing decides', () => {
+    const report = findCoverageGaps([amount], [rule('<= 10'), rule('> 20')]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual([
+      'Nothing decides when Amount is more than 10 but less than 20',
+      'Nothing decides when Amount is 20',
+    ]);
+  });
+
+  it('says it for each column of a combination', () => {
+    const report = findCoverageGaps([amount, tier], [rule('< 100', '"GOLD"'), rule('>= 100', ANY_VALUE)]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual([
+      'Nothing decides when Amount is less than 100 and Tier is anything else',
+    ]);
+  });
+});
+
+describe('ruleForGap', () => {
+  const lineFor = (inputs: DecisionInputColumn[], rules: DecisionRuleRow[], gap = 0) =>
+    ruleForGap(findCoverageGaps(inputs, rules).gaps[gap], 'new', 1);
+
+  it('writes the conditions that decide exactly the missing cases', () => {
+    expect(lineFor([amount], [rule('< 100'), rule('> 100')]).input_entries).toEqual(['100']);
+    expect(lineFor([amount], [rule('<= 10'), rule('> 20')]).input_entries).toEqual([']10..20[']);
+    expect(lineFor([amount], [rule('>= 10')]).input_entries).toEqual(['< 10']);
+    expect(lineFor([amount], [rule('<= 10')]).input_entries).toEqual(['> 10']);
+    expect(lineFor([urgent], [rule('true')]).input_entries).toEqual(['false']);
+  });
+
+  it('covers a missing catch-all with everything the column does not name', () => {
+    expect(lineFor([tier], [rule('GOLD'), rule('"SILVER"')]).input_entries).toEqual(['not("GOLD", "SILVER")']);
+    expect(lineFor([amount, tier], [rule('< 100', '"GOLD"'), rule('>= 100', ANY_VALUE)]).input_entries).toEqual([
+      '< 100',
+      'not("GOLD")',
+    ]);
+  });
+
+  it('closes the gap without overlapping any line, so it is safe under every hit policy', () => {
+    const tables: [DecisionInputColumn[], DecisionRuleRow[]][] = [
+      [[amount], [rule('<= 10'), rule('> 20')]],
+      [[tier], [rule('GOLD'), rule('not("GOLD", "BRONZE")')]],
+      [[amount, tier], [rule('>= 100', '"GOLD"'), rule(ANY_VALUE, '"SILVER"'), rule('< 100', '"SILVER"')]],
+    ];
+    for (const [inputs, rules] of tables) {
+      const before = findCoverageGaps(inputs, rules);
+      const filled = [...rules, ruleForGap(before.gaps[0], 'new', 1)];
+      const after = findCoverageGaps(inputs, filled);
+      expect(after.gaps.map((gap) => gap.description)).not.toContain(before.gaps[0].description);
+      expect(findOverlaps('UNIQUE', inputs, [output], filled.map((line, i) => ({ ...line, output_entries: [`R${i}`] })))).toEqual(
+        findOverlaps('UNIQUE', inputs, [output], rules.map((line, i) => ({ ...line, output_entries: [`R${i}`] }))),
+      );
+    }
+  });
+
+  it('leaves the results for the author to fill in', () => {
+    const line = ruleForGap(findCoverageGaps([amount], [rule('< 100')]).gaps[0], 'new-line', 2);
+    expect(line).toEqual({ id: 'new-line', input_entries: ['100'], output_entries: ['', ''], description: '' });
   });
 });

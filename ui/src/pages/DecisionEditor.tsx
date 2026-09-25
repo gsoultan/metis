@@ -94,6 +94,7 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
+import { findCoverageGaps, ruleForGap, type CoverageGap, type CoverageReport } from '../domain/decisionCoverage';
 import { findProblems } from '../domain/decisionProblems';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
@@ -325,6 +326,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     [hitPolicy, inputs, outputs, rules],
   );
   const blocking = problems.filter((problem) => problem.severity === 'error');
+  const coverage = useMemo(() => findCoverageGaps(inputs, rules), [inputs, rules]);
   const summary = describeTable(hitPolicy, aggregation, inputs, outputs, rules.length);
 
   const addInput = () => {
@@ -344,6 +346,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   };
 
   const addRule = () => setRules([...rules, newRuleRow(uuidv4(), inputs.length, outputs.length)]);
+  const addRuleForGap = (gap: CoverageGap) => setRules([...rules, ruleForGap(gap, uuidv4(), outputs.length)]);
 
   const removeInput = (index: number) => {
     setInputs(inputs.filter((_, i) => i !== index));
@@ -899,6 +902,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
             </Stack>
           </Paper>
 
+          <CoverageCard report={coverage} ruleCount={rules.length} onAddLine={addRuleForGap} />
+
           <Paper radius="md" withBorder p="md">
             <Stack gap="sm">
               <Group gap={6}>
@@ -1167,5 +1172,108 @@ function ColumnHeader({
         </Stack>
       </Stack>
     </Table.Th>
+  );
+}
+
+/**
+ * The cases no line decides.
+ *
+ * A table that leaves a case undecided returns nothing for it, and the process
+ * carries on with the variable unset until something downstream fails for a
+ * reason that looks unrelated. The analysis was written and never shown; this
+ * is where it is shown, with a way to close each gap.
+ */
+function CoverageCard({
+  report,
+  ruleCount,
+  onAddLine,
+}: {
+  report: CoverageReport;
+  ruleCount: number;
+  onAddLine: (gap: CoverageGap) => void;
+}) {
+  return (
+    <Paper radius="md" withBorder p="md">
+      <Stack gap="sm">
+        <Group gap={6}>
+          <Title order={6}>Cases nothing decides</Title>
+          <Tooltip
+            label="Combinations of the values this table mentions that no line applies to. The process gets no value for them."
+            multiline
+            w={240}
+            withArrow
+          >
+            <Info size={13} color="var(--mantine-color-dimmed)" />
+          </Tooltip>
+        </Group>
+        <CoverageFindings report={report} ruleCount={ruleCount} onAddLine={onAddLine} />
+      </Stack>
+    </Paper>
+  );
+}
+
+function CoverageFindings({
+  report,
+  ruleCount,
+  onAddLine,
+}: {
+  report: CoverageReport;
+  ruleCount: number;
+  onAddLine: (gap: CoverageGap) => void;
+}) {
+  if (ruleCount === 0) {
+    return (
+      <Text size="xs" c="dimmed">
+        Nothing to check until the table has a line.
+      </Text>
+    );
+  }
+
+  // Refusing to guess is reported as such, not as a clean bill of health.
+  if (report.notAnalysed.length > 0) {
+    return (
+      <Text size="xs" c="dimmed">
+        Not checked: {report.notAnalysed.join(', ')} uses a condition this check cannot read, so it cannot tell whether
+        every case is decided.
+      </Text>
+    );
+  }
+
+  if (report.gaps.length === 0) {
+    return report.truncated ? (
+      <Text size="xs" c="dimmed">
+        No undecided case turned up, but the table has more combinations than this check tries.
+      </Text>
+    ) : (
+      <Group gap={6} wrap="nowrap">
+        <CircleCheck size={14} color="var(--mantine-color-green-6)" />
+        <Text size="xs">Every case has a line that decides it.</Text>
+      </Group>
+    );
+  }
+
+  return (
+    <Stack gap="xs">
+      {report.gaps.map((gap) => (
+        <Group key={gap.description} justify="space-between" wrap="nowrap" gap="xs" align="flex-start">
+          <Text size="xs">{gap.description}.</Text>
+          <Button
+            size="compact-xs"
+            variant="light"
+            leftSection={<Plus size={12} />}
+            aria-label={`Add a line for this case: ${gap.description}`}
+            onClick={() => onAddLine(gap)}
+            style={{ flexShrink: 0 }}
+          >
+            Add line
+          </Button>
+        </Group>
+      ))}
+      {report.truncated && (
+        <Text size="xs" c="dimmed">
+          There may be more: the check stopped before trying every combination.
+        </Text>
+      )}
+    </Stack>
   );
 }
