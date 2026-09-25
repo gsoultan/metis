@@ -80,8 +80,29 @@ func (r *taskRepository) ListByAssignee(ctx context.Context, assignee string) ([
 	return r.list(ctx, nil, []task.Pred{task.Assignee.Eq(assignee)})
 }
 
+// ListByInstance returns every task an instance has, newest first.
+//
+// Every one, not the store's first thousand. The engine acts on what this
+// returns — an interrupting deadline withdraws the open tasks of the activity
+// it ends, a migration moves the tasks on the nodes it renames — and an
+// activity that asks more than a thousand people at once used to leave the
+// oldest of them with work the process had abandoned.
 func (r *taskRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.TaskModel, error) {
-	return r.list(ctx, nil, []task.Pred{task.InstanceID.Eq(instanceID)})
+	q, ok, err := r.scopedQuery(ctx, nil, []task.Pred{task.InstanceID.Eq(instanceID)})
+	if err != nil || !ok {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The id breaks ties, so the cursor is a position: every task one
+	// transaction creates carries that transaction's timestamp.
+	rows, err := everyRow[task.Row](ctx, ex, q.Order(task.CreatedAt.Desc(), task.ID.Desc()))
+	if err != nil {
+		return nil, fmt.Errorf("could not list the instance's tasks: %w", err)
+	}
+	return tasksFrom(rows)
 }
 
 // ListWithFilters is the operational task list.
