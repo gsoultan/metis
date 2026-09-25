@@ -4,6 +4,7 @@ import { NODE_VOCABULARY } from './bpmnVocabulary';
 import { alsoKnownAs, GLOSSARY, glossarySearchSummary, searchGlossary } from './glossary';
 
 const firstMatch = (query: string) => searchGlossary(query)[0]?.term;
+const definitionOf = (term: string) => GLOSSARY.find((entry) => entry.term === term)?.definition ?? '';
 
 /*
  * Somebody who has read the BPMN specification searches for "Exclusive
@@ -51,8 +52,6 @@ describe('the words the rest of the product uses', () => {
  * until it is promoted" was wrong twice over.
  */
 describe('the versions, as Version history handles them', () => {
-  const definitionOf = (term: string) => GLOSSARY.find((entry) => entry.term === term)?.definition ?? '';
-
   it('says a staged version can be run to try it, without making it live', () => {
     expect(definitionOf('Staged version')).toMatch(/without making it live/i);
   });
@@ -64,6 +63,23 @@ describe('the versions, as Version history handles them', () => {
 
   it.each(['Staged version', 'Live version'])('uses the words on the buttons in %s, not "promote"', (term) => {
     expect(definitionOf(term)).not.toMatch(/promot/i);
+  });
+});
+
+/*
+ * A choice with no path to take does not always leave an incident behind. The
+ * engine refuses to guess a path, and what that refusal does depends on what
+ * led to the choice: after an automatic step the job fails and raises an
+ * incident, but after a person's task the completion itself is refused, so the
+ * task stays open and nothing is left for anybody to retry.
+ */
+describe('what an incident is', () => {
+  it('says a choice with no path raises one when an automatic step leads to it', () => {
+    expect(definitionOf('Incident')).toMatch(/automatic step leads to it/i);
+  });
+
+  it("says that after a person's task, completing the task is refused instead", () => {
+    expect(definitionOf('Incident')).toMatch(/completing the task is refused/i);
   });
 });
 

@@ -61,7 +61,7 @@ const PRODUCT_ENTRIES: GlossaryEntry[] = [
   {
     term: 'Incident',
     technicalName: 'Incident',
-    definition: 'A step that could not finish, so its instance waits there until somebody deals with it. Usually a call to another system that kept failing, or a choice with no path to take. Fix the cause, then retry the step.',
+    definition: 'A step that could not finish, so its instance waits there until somebody deals with it. Usually a call to another system that kept failing. A choice with no path to take raises one when an automatic step leads to it; when a person’s task leads to it, completing the task is refused instead, and the task stays open. Fix the cause, then retry the step.',
   },
   {
     term: 'Connection',
