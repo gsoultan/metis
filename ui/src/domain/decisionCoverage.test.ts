@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cellMatches, findCoverageGaps } from './decisionCoverage';
+import { cellMatcher, findCoverageGaps } from './decisionCoverage';
 import { ANY_VALUE, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
 
 const amount: DecisionInputColumn = { id: 'i1', label: 'Amount', expression: 'amount', type: 'number' };
@@ -121,7 +121,9 @@ describe('findCoverageGaps', () => {
  * Where it disagrees with the engine, the analysis built on it is wrong — so
  * the notations it claims to understand are pinned here.
  */
-describe('cellMatches', () => {
+describe('cellMatcher', () => {
+  const cellMatches = (cell: string, value: string | number | boolean, type: string) => cellMatcher(cell, type)(value);
+
   it('reads the comparisons', () => {
     expect(cellMatches('> 10', 11, 'number')).toBe(true);
     expect(cellMatches('> 10', 10, 'number')).toBe(false);

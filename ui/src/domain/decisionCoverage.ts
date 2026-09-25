@@ -42,7 +42,7 @@ const MAX_COMBINATIONS = 400;
 const MAX_REPORTED_GAPS = 10;
 
 /** A value to try, and how to say it. */
-interface Sample {
+export interface Sample {
   /** What the matcher sees. */
   value: string | number | boolean;
   /** What a person reads. */
@@ -64,23 +64,25 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
 
   for (let index = 0; index < inputs.length; index += 1) {
     const cells = rules.map((rule) => rule.input_entries[index] ?? '');
-    if (cells.some((cell) => !isUnderstood(cell))) {
+    if (cells.some((cell) => !understandsCell(cell))) {
       notAnalysed.push(inputs[index].label || inputs[index].expression);
       return { ...empty, notAnalysed };
     }
-    columns.push(samplesFor(inputs[index], cells));
+    columns.push(columnSamples(inputs[index], cells));
   }
 
   const total = columns.reduce((product, column) => product * Math.max(column.length, 1), 1);
 
   const gaps: CoverageGap[] = [];
   let examined = 0;
+  // Every cell is read once, not once per combination it is asked about.
+  const lines = rules.map((rule) => inputs.map((input, index) => cellMatcher(rule.input_entries[index] ?? '', input.type)));
 
   const walk = (position: number, chosen: Sample[]) => {
     if (gaps.length >= MAX_REPORTED_GAPS || examined >= MAX_COMBINATIONS) return;
     if (position === columns.length) {
       examined += 1;
-      if (!rules.some((rule) => ruleMatches(rule, chosen, inputs))) {
+      if (!lines.some((tests) => chosen.every((sample, index) => tests[index](sample.value)))) {
         gaps.push({
           values: chosen.map((sample) => sample.label),
           description: describeGap(inputs, chosen),
@@ -101,7 +103,7 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
 }
 
 /** Whether this analysis understands a cell well enough to trust its verdict. */
-function isUnderstood(cell: string): boolean {
+export function understandsCell(cell: string): boolean {
   const text = cell.trim();
   if (text === '' || text === ANY_VALUE) return true;
   if (/^(>=|<=|>|<|!=|=)?\s*-?\d+(\.\d+)?$/.test(text)) return true;
@@ -112,8 +114,12 @@ function isUnderstood(cell: string): boolean {
   return text.split(',').every((part) => /^\s*("[^"]*"|'[^']*'|[\w .-]+)\s*$/.test(part));
 }
 
-/** The values worth trying for one column. */
-function samplesFor(column: DecisionInputColumn, cells: string[]): Sample[] {
+/**
+ * The values worth trying for one column: one from every group of values its
+ * cells cannot tell apart, so that what holds for the sample holds for the
+ * group. The overlap check reads cells with the same samples.
+ */
+export function columnSamples(column: DecisionInputColumn, cells: string[]): Sample[] {
   if (column.type === 'boolean') {
     return [
       { value: true, label: 'yes' },
@@ -180,64 +186,69 @@ function strictlyBetween(low: number, high: number): number {
   return Number(((low + high) / 2).toPrecision(12));
 }
 
-function ruleMatches(rule: DecisionRuleRow, chosen: Sample[], inputs: DecisionInputColumn[]): boolean {
-  return chosen.every((sample, index) => cellMatches(rule.input_entries[index] ?? '', sample.value, inputs[index].type));
-}
+/** Whether a cell accepts a value. */
+export type CellTest = (value: string | number | boolean) => boolean;
 
 /**
- * Whether one cell accepts one value.
+ * Reads a cell into a test of whether it accepts a value.
  *
  * A partial reimplementation of the unary tests the engine runs, covering what
- * isUnderstood admits and nothing more.
+ * understandsCell admits and nothing more.
+ *
+ * The cell is read once and the test put to many values: the overlap check
+ * asks every cell of a column about every value worth trying, which for a long
+ * banded table is hundreds per cell, and reading the cell again for each of
+ * them was most of the check's time.
  */
-export function cellMatches(cell: string, value: string | number | boolean, type: string): boolean {
+export function cellMatcher(cell: string, type: string): CellTest {
   const text = cell.trim();
-  if (text === '' || text === ANY_VALUE) return true;
+  if (text === '' || text === ANY_VALUE) return () => true;
 
   if (type === 'boolean') {
-    if (/^true$/i.test(text)) return value === true;
-    if (/^false$/i.test(text)) return value === false;
-    return false;
+    if (/^true$/i.test(text)) return (value) => value === true;
+    if (/^false$/i.test(text)) return (value) => value === false;
+    return () => false;
   }
 
   const negated = text.match(/^not\((.+)\)$/);
-  if (negated) return !cellMatches(negated[1], value, type);
-
-  if (type === 'number' && typeof value === 'number') {
-    const range = text.match(/^([[\]])\s*(-?[\d.]+)\s*\.\.\s*(-?[\d.]+)\s*([[\]])$/);
-    if (range) {
-      const [, open, low, high, close] = range;
-      const lowOk = open === '[' ? value >= Number(low) : value > Number(low);
-      // `]` closes inclusively and `[` closes exclusively — the DMN spelling.
-      const highOk = close === ']' ? value <= Number(high) : value < Number(high);
-      return lowOk && highOk;
-    }
-    const comparison = text.match(/^(>=|<=|>|<|!=|=)?\s*(-?[\d.]+)$/);
-    if (comparison) {
-      const [, operator = '=', operand] = comparison;
-      const bound = Number(operand);
-      switch (operator) {
-        case '>':
-          return value > bound;
-        case '<':
-          return value < bound;
-        case '>=':
-          return value >= bound;
-        case '<=':
-          return value <= bound;
-        case '!=':
-          return value !== bound;
-        default:
-          return value === bound;
-      }
-    }
+  if (negated) {
+    const inner = cellMatcher(negated[1], type);
+    return (value) => !inner(value);
   }
 
+  const numeric = type === 'number' ? numberTest(text) : undefined;
   // A list, or a single literal.
-  return text
-    .split(',')
-    .map((part) => unquote(part.trim()))
-    .some((literal) => literal === String(value));
+  const literals = text.split(',').map((part) => unquote(part.trim()));
+  return (value) => (numeric && typeof value === 'number' ? numeric(value) : literals.includes(String(value)));
+}
+
+/** A range or a comparison, when that is what the cell is. */
+function numberTest(text: string): ((value: number) => boolean) | undefined {
+  const range = text.match(/^([[\]])\s*(-?[\d.]+)\s*\.\.\s*(-?[\d.]+)\s*([[\]])$/);
+  if (range) {
+    const [, open, low, high, close] = range;
+    const [from, to] = [Number(low), Number(high)];
+    // `]` closes inclusively and `[` closes exclusively — the DMN spelling.
+    return (value) => (open === '[' ? value >= from : value > from) && (close === ']' ? value <= to : value < to);
+  }
+  const comparison = text.match(/^(>=|<=|>|<|!=|=)?\s*(-?[\d.]+)$/);
+  if (!comparison) return undefined;
+  const [, operator = '=', operand] = comparison;
+  const bound = Number(operand);
+  switch (operator) {
+    case '>':
+      return (value) => value > bound;
+    case '<':
+      return (value) => value < bound;
+    case '>=':
+      return (value) => value >= bound;
+    case '<=':
+      return (value) => value <= bound;
+    case '!=':
+      return (value) => value !== bound;
+    default:
+      return (value) => value === bound;
+  }
 }
 
 function unquote(text: string): string {

@@ -96,3 +96,82 @@ describe('a catch-all line', () => {
     expect(aboutCatchAll('ANY', [rule([ANY_VALUE], ['LOW']), rule(['> 10'], ['"LOW"'])])).toEqual([]);
   });
 });
+
+/**
+ * Two lines collide when they can both apply to one case, not only when their
+ * text is the same. `> 10` and `> 20` both apply to 25; under UNIQUE that fails
+ * the decision at runtime, and the table used to pass the check.
+ */
+describe('lines that apply to the same case', () => {
+  const tier: DecisionInputColumn = { id: 'i2', label: 'Tier', expression: 'tier', type: 'string' };
+  const bigAndBigger = [rule(['> 10'], ['HIGH']), rule(['> 20'], ['LOW'])];
+  const errors = (hitPolicy: string, rules: DecisionRuleRow[], columns = inputs) =>
+    findProblems(hitPolicy, columns, outputs, rules).filter((p) => p.severity === 'error');
+
+  it('fail the table under UNIQUE, with a case that shows it', () => {
+    expect(errors('UNIQUE', bigAndBigger)).toEqual([
+      {
+        severity: 'error',
+        message:
+          'Lines 1 and 2 both apply when Amount is 21, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+      },
+    ]);
+  });
+
+  it('fail the table under ANY only when they give different results', () => {
+    expect(errors('ANY', bigAndBigger)).toEqual([
+      {
+        severity: 'error',
+        message:
+          'Lines 1 and 2 both apply when Amount is 21 but give different results. Lines that apply together must agree, so the decision fails there.',
+      },
+    ]);
+    expect(errors('ANY', [rule(['> 10'], ['HIGH']), rule(['> 20'], ['"HIGH"'])])).toEqual([]);
+  });
+
+  it('are a warning under FIRST when an earlier line hides a later one entirely', () => {
+    expect(findProblems('FIRST', inputs, outputs, bigAndBigger)).toContainEqual({
+      severity: 'warning',
+      message: 'Line 2 can never be reached: line 1 comes before it and applies to every case it does. Move it above line 1, or remove it.',
+    });
+    // The other way round, the narrower line comes first and both are reached.
+    const reachable = findProblems('FIRST', inputs, outputs, [...bigAndBigger].reverse());
+    expect(reachable.filter((p) => p.message.includes('never be reached'))).toEqual([]);
+  });
+
+  it('are only lines that overlap in every column', () => {
+    const gold = rule(['> 10', '"GOLD"'], ['HIGH']);
+    const silver = rule(['> 20', '"SILVER"'], ['LOW']);
+    expect(errors('UNIQUE', [gold, silver], [inputs[0], tier])).toEqual([]);
+
+    const goldToo = rule(['> 20', 'not("SILVER")'], ['LOW']);
+    expect(errors('UNIQUE', [gold, goldToo], [inputs[0], tier]).map((p) => p.message)).toEqual([
+      'Lines 1 and 2 both apply when Amount is 21 and Tier is GOLD, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+  });
+
+  it('leave touching ranges alone', () => {
+    expect(errors('UNIQUE', [rule(['<= 10'], ['LOW']), rule(['> 10'], ['HIGH'])])).toEqual([]);
+    expect(errors('UNIQUE', [rule(['[1..10['], ['LOW']), rule(['[10..20]'], ['HIGH'])])).toEqual([]);
+  });
+
+  /**
+   * A false alarm teaches people to ignore the check, so a cell the matcher
+   * cannot read makes the answer unknown, and unknown is not reported. The
+   * same text twice still overlaps, whatever it means.
+   */
+  it('say nothing about notation they cannot read', () => {
+    expect(errors('UNIQUE', [rule(['sum(items) > 10'], ['HIGH']), rule(['> 5'], ['LOW'])])).toEqual([]);
+    expect(errors('UNIQUE', [rule(['sum(items) > 10'], ['HIGH']), rule(['sum(items) > 10'], ['LOW'])])).toHaveLength(1);
+    // A column that is read proves them apart, whatever the other one says.
+    const apart = [rule(['< 5', 'lower(name) = "x"'], ['HIGH']), rule(['> 5', 'lower(name) = "y"'], ['LOW'])];
+    expect(errors('UNIQUE', apart, [inputs[0], tier])).toEqual([]);
+  });
+
+  it('are listed a few at a time, with a count of the rest', () => {
+    const everyLineOverlaps = Array.from({ length: 5 }, (_, i) => rule([`> ${i}`], [`R${i}`]));
+    const problems = errors('UNIQUE', everyLineOverlaps);
+    expect(problems).toHaveLength(6);
+    expect(problems[5].message).toBe('5 more pairs of lines overlap the same way.');
+  });
+});
