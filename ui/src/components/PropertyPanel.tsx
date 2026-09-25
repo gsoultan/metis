@@ -77,7 +77,7 @@ interface PropertyPanelProps {
   onClose: () => void;
   onDelete: () => void;
   updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
-  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void;
+  updateEdgeData: (id: string, data: Partial<BPMNEdgeData>) => void;
   edges?: Edge[];
   /** The whole diagram, so the panel can trace what data reaches this step. */
   nodes?: Node<BPMNNodeData>[];
@@ -265,7 +265,7 @@ export function PropertyPanel({
                                 'This text is what the arrow shows on the canvas.'
                               }
                               value={selectedEdge.data?.condition as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, e.target.value, { ...selectedEdge.data, condition: e.target.value })}
+                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, condition: e.target.value })}
                             />
                             <Textarea
                               label="Documentation"
@@ -274,7 +274,7 @@ export function PropertyPanel({
                               size="md"
                               minRows={4}
                               value={selectedEdge.data?.documentation as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, selectedEdge.label as string, { ...selectedEdge.data, documentation: e.target.value })}
+                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, documentation: e.target.value })}
                             />
                           </Stack>
                         )}
@@ -355,7 +355,7 @@ export function PropertyPanel({
                           if (selectedNode) {
                             updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
                           } else if (selectedEdge) {
-                            updateEdgeData(selectedEdge.id, selectedEdge.label as string, patch as Partial<BPMNEdgeData>);
+                            updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
                           }
                         }}
                       />
@@ -484,10 +484,9 @@ function EdgeConfigSection({
   updateEdgeData 
 }: { 
   selectedEdge: Edge, 
-  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void 
+  updateEdgeData: (id: string, data: Partial<BPMNEdgeData>) => void 
 }) {
   const data = selectedEdge.data || {};
-  const label = selectedEdge.label as string || '';
 
   return (
     <Stack gap="xl">
@@ -518,7 +517,7 @@ function EdgeConfigSection({
         
         <VisualConditionBuilder 
           condition={typeof data.condition === 'string' ? data.condition : ''} 
-          onChange={(c) => updateEdgeData(selectedEdge.id, label, { ...data, condition: c })} 
+          onChange={(c) => updateEdgeData(selectedEdge.id, { ...data, condition: c })} 
         />
       </Stack>
     </Stack>

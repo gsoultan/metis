@@ -14,6 +14,7 @@ import { notifications } from '@mantine/notifications';
 import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
 import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
+import { edgeWithData } from '../domain/edgeCaption';
 import { templateById } from '../domain/processTemplates';
 import { nextDeployStep, type DeployMode } from '../domain/versionRollout';
 import {
@@ -547,23 +548,19 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     );
   }, []);
 
-  const updateEdgeData = useCallback((id: string, label: string, data?: Partial<BPMNEdgeData>) => {
+  const updateEdgeData = useCallback((id: string, data: Partial<BPMNEdgeData>) => {
     setEdges((currentEdges) =>
       currentEdges.map((edge) => {
         if (edge.id !== id) {
           return edge;
         }
 
-        const mergedData = { ...edge.data, ...data };
         // The arrow's caption is the condition it carries, never a separate
         // string somebody typed: a sequence flow has no name on the server, so
         // a typed caption could not be saved, and the save mapper used to
         // deploy it as the condition instead. Deriving it here keeps the canvas
         // honest wherever the condition is edited from.
-        const caption = typeof mergedData.condition === 'string' && mergedData.condition !== ''
-          ? mergedData.condition
-          : '';
-        const updatedEdge = { ...edge, label: caption || label, data: mergedData };
+        const updatedEdge = edgeWithData(edge, data);
         setSelectedEdge((currentSelectedEdge) => {
           if (currentSelectedEdge?.id !== id) {
             return currentSelectedEdge;
