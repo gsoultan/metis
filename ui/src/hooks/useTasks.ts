@@ -34,7 +34,7 @@ export const useTasks = (page = 1, pageSize = 50, options: { enabled?: boolean }
  * process. Refetched when a task changes rather than polled.
  */
 export const useDeadlines = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   useInvalidateOnEvents(TASK_LIST_EVENTS, ['deadlines', currentProjectId]);
   return useQuery({
     queryKey: ['deadlines', currentProjectId],

@@ -139,7 +139,7 @@ const WAITING_EVENTS = ['ProcessStarted', 'ProcessCompleted', 'NodeReached', 'Ta
  * of instances every five seconds and still missed everything past the page.
  */
 export const useWaitingByStep = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   useInvalidateOnEvents(WAITING_EVENTS, ['waiting-by-step', currentProjectId]);
   return useQuery({
     queryKey: ['waiting-by-step', currentProjectId],
