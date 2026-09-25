@@ -714,7 +714,7 @@ func serviceCallTarget(def *entities.ProcessDefinition, node entities.Node) stri
 		// for the same reason — and nothing to share a breaker with.
 		return ""
 	}
-	if raw := node.GetStringProperty("http_url"); raw != "" {
+	if raw := node.HTTPURL(); raw != "" {
 		if parsed, err := url.Parse(raw); err == nil && parsed.Host != "" {
 			return "host:" + parsed.Host
 		}

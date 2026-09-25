@@ -14,6 +14,7 @@
  * snippet generated from them cannot disagree with the model.
  */
 import type { ApiNode } from '../services/types';
+import { workerTopic } from './serviceImplementation';
 
 /** Which side of the boundary does the work. */
 export type SurfaceRole =
@@ -89,7 +90,7 @@ export function readIntegrationSurface(nodes: readonly ApiNode[]): IntegrationSu
       nodeType: node.type,
     };
 
-    const topic = node.external_topic?.trim() ?? '';
+    const topic = workerTopic({ ...(node.properties ?? {}), external_topic: node.external_topic }).trim();
     if (topic !== '') {
       // Two service tasks may publish the same topic on purpose — one worker
       // serving both is the normal arrangement — so the topic is listed once

@@ -37,7 +37,7 @@ func NewHTTPServiceTaskRunner(client *http.Client) *HTTPServiceTaskRunner {
 // variables in payload into the request, and returning the output variables.
 // Returns nil, nil when the node has no http_url (simulated task).
 func (r *HTTPServiceTaskRunner) Run(ctx context.Context, node entities.Node, payload map[string]any) (map[string]any, error) {
-	url := node.GetStringProperty("http_url")
+	url := node.HTTPURL()
 	if url == "" {
 		return nil, nil // simulated / no-op task
 	}
