@@ -1,3 +1,4 @@
+import { splitRoles } from '../domain/roles';
 import type { ApiUser } from '../services/types';
 
 /** The user shape held in the app store. */
@@ -7,7 +8,10 @@ export interface StoreUser {
   displayName: string;
   organization: string;
   username: string;
+  /** Every role, joined for display. Decide access with `roles`, through hasRole. */
   role: string;
+  /** Every role the login reply listed. */
+  roles: string[];
   organizations?: Array<{ id: string; name: string }>;
   projects?: Array<{ id: string; name: string }>;
 }
@@ -37,6 +41,7 @@ export function toStoreUser(user: ApiUser): StoreUser {
     displayName: user.name || user.username,
     organization: organizations[0]?.name ?? '',
     role: Array.isArray(user.role) ? user.role.join(', ') : (user.role ?? ''),
+    roles: Array.isArray(user.role) ? [...user.role] : splitRoles(user.role ?? ''),
     organizations,
     projects: user.projects ?? [],
   };

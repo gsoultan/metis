@@ -17,6 +17,8 @@ import {
   ShieldOff
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { hasRole } from '../domain/access';
+import { PRIVILEGED_ROLE } from '../domain/roles';
 import { EnvironmentSettings } from '../components/EnvironmentSettings';
 import { PageHeader } from '../components/PageHeader';
 import { useTranslation } from '../i18n/context';
@@ -26,7 +28,7 @@ export function Settings() {
   // Environments are administrative: the list alone says where every runtime's
   // database lives. The server refuses a non-admin either way; hiding it here
   // is so nobody is shown a control that will only ever say no.
-  const isAdmin = useAppStore((state) => state.user?.role === 'ADMIN');
+  const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
   const theme = useAppStore((state) => state.theme);
   const toggleTheme = useAppStore((state) => state.toggleTheme);
   const expertMode = useAppStore((state) => state.expertMode);

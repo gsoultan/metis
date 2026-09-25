@@ -25,6 +25,8 @@ import {
   type ImportSummary,
   type Participant,
 } from '../domain/participantImport';
+import { hasRole } from '../domain/access';
+import { PRIVILEGED_ROLE } from '../domain/roles';
 import { matchesQuery } from '../domain/textSearch';
 import { useAppStore } from '../store/useAppStore';
 import {
@@ -56,7 +58,7 @@ const STANDING_COLOURS: Record<string, string> = {
  */
 export function ParticipantList() {
   const { t } = useTranslation();
-  const isAdmin = useAppStore((state) => state.user?.role === 'ADMIN');
+  const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
   const { data, isLoading, error, refetch } = useParticipants();
   const removeParticipant = useRemoveParticipant();
   // The person being removed, held while the confirmation is open. Removal is
