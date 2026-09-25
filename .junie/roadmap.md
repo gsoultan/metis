@@ -734,6 +734,16 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): Executed `P0-SEC-07` — a credential inside a value is masked.
+  A RabbitMQ connection's `url` carries the broker password (`amqp://user:password@host`),
+  and masking went by key name, so `ListConnectorInstances` — any signed-in account —
+  returned it in clear. `configsecret.CarriesCredential` now recognises a URL with a password
+  in its user information, or a query parameter named like a secret, whatever its key.
+  The whole value is masked rather than the password cut out, so there is no rebuilt-URL
+  format to get wrong. Test: `tests/connector/url_credential_test.go` — through the endpoint,
+  the broker url came back in clear before and is masked after; saving the form unchanged
+  keeps the stored url.
+
 - 2026-09-25 (completed): Executed `P0-SEC-06` — only an administrator can make the server
   connect somewhere. Found while building `P2-INT-02`.
   - **The hole.** `POST /api/v1/connectors/execute` runs a connector with a configuration its
@@ -819,9 +829,10 @@
     - A service task's SENDING/RECEIVING mapping tables write `inputs`/`outputs`, which no Go
       code reads. Honouring them changes what every saved definition does; that is a
       migration, not a cleanup.
-    - A RabbitMQ `url` can carry a password inside it and is not masked; fixing that needs
-      connectors to declare which fields are secret (`ConnectorProperty.Secret`) rather than
-      having it guessed from their names.
+    - A RabbitMQ `url` can carry a password inside it and is not masked. **Fixed in
+      `P0-SEC-07`, below** — by recognising a credential in the value rather than by a
+      declared `Secret` flag, which would have left every manifest-installed connector to
+      remember to declare it.
   - Gate: `make gate` green with both test DSNs set — ui-build, build, vet, test (78 packages
     ok), race (78 ok, no races), strict-scope (78 ok), tsc, eslint (0 errors), bun test (705
     pass). Also golangci-lint 0 issues, govulncheck no reachable vulnerabilities, gitleaks no

@@ -21,6 +21,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   for any connector and is refused for non-administrators.
 - The RabbitMQ connector kept one open connection per broker URL it was given,
   with no bound; it now keeps at most 32 and closes the rest.
+- **A RabbitMQ connection's password was returned to every signed-in account.**
+  The broker is configured with one `url` — `amqp://user:password@host` — and
+  connection settings were masked by the names of their keys, which "url" is
+  not. Listing a project's connections, which any signed-in account may do,
+  returned it in clear. A URL carrying a password, or a query parameter named
+  like a secret (`?api_key=`, `?token=`), is now masked whatever its key.
+  Anyone with a RabbitMQ connection configured should rotate that broker
+  password; saving the form unchanged keeps the stored URL.
 
 ### Added
 
