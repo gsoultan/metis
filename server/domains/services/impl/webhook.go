@@ -89,44 +89,53 @@ func (s *webhookService) Receive(ctx context.Context, delivery entities.WebhookD
 		return entities.WebhookOutcome{}, err
 	}
 
-	// The sender's own ID for this event, if it gave one. Without it there is no
-	// way to tell a retry from a new event, so the delivery is acted on every
-	// time — which is the behaviour of every webhook receiver that does not
-	// dedup, and worth saying out loud.
-	if delivery.DeliveryID != "" {
-		first, err := s.repo.Webhook().ClaimDelivery(ctx, uuid.UUID(hook.ID), delivery.DeliveryID)
-		if err != nil {
-			return entities.WebhookOutcome{}, err
-		}
-		if !first {
-			// Answered as success. A sender that gets an error retries, and
-			// retrying is exactly what produced this.
-			return entities.WebhookOutcome{Duplicate: true, MessageName: hook.MessageName}, nil
-		}
-	} else {
-		log.Warn().
-			Str("webhook", hook.Name).
-			Msg("A delivery carried no id, so a retry of it cannot be recognised and will be acted on again")
-	}
-
+	// Everything that can be refused without a database is refused first, so a
+	// delivery that was never going to be acted on leaves no trace.
 	payload, err := decodeWebhookPayload(delivery.Body)
 	if err != nil {
 		return entities.WebhookOutcome{}, err
 	}
-
 	correlationKey, err := correlationFrom(hook.CorrelationExpression, payload)
 	if err != nil {
 		return entities.WebhookOutcome{}, err
 	}
 
-	if err := s.engine.SendMessage(ctx, uuid.UUID(hook.ProjectID), hook.MessageName, correlationKey, payload); err != nil {
-		return entities.WebhookOutcome{}, fmt.Errorf("webhook: the delivery arrived but the message could not be sent: %w", err)
+	// Remembering the delivery and acting on it commit together. The delivery
+	// used to be remembered first, on its own, so one that then failed was
+	// remembered as delivered anyway: the sender's retry was answered
+	// "duplicate", the event was lost, and the sender had been told it
+	// arrived. Now a failed send forgets the delivery with it.
+	outcome := entities.WebhookOutcome{MessageName: hook.MessageName, CorrelationKey: correlationKey}
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		// The sender's own ID for this event, if it gave one. Without it there
+		// is no way to tell a retry from a new event, so the delivery is acted
+		// on every time — which is the behaviour of every webhook receiver that
+		// does not dedup, and worth saying out loud.
+		if delivery.DeliveryID != "" {
+			first, err := s.repo.Webhook().ClaimDelivery(txCtx, uuid.UUID(hook.ID), delivery.DeliveryID)
+			if err != nil {
+				return err
+			}
+			if !first {
+				// Answered as success. A sender that gets an error retries, and
+				// retrying is exactly what produced this.
+				outcome = entities.WebhookOutcome{Duplicate: true, MessageName: hook.MessageName}
+				return nil
+			}
+		} else {
+			log.Warn().
+				Str("webhook", hook.Name).
+				Msg("A delivery carried no id, so a retry of it cannot be recognised and will be acted on again")
+		}
+		if err := s.engine.SendMessage(txCtx, uuid.UUID(hook.ProjectID), hook.MessageName, correlationKey, payload); err != nil {
+			return fmt.Errorf("webhook: the delivery arrived but the message could not be sent: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return entities.WebhookOutcome{}, err
 	}
-
-	return entities.WebhookOutcome{
-		MessageName:    hook.MessageName,
-		CorrelationKey: correlationKey,
-	}, nil
+	return outcome, nil
 }
 
 // CreateWebhook registers an address, returning the token and the secret.

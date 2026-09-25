@@ -148,8 +148,13 @@ func (r *webhookRepository) ClaimDelivery(ctx context.Context, webhookID uuid.UU
 	ins.SetWebhookID(webhookID)
 	ins.SetDeliveryID(deliveryID)
 	ins.SetReceivedAt(time.Now().UTC())
+	// ON CONFLICT DO NOTHING rather than catching the unique violation. The
+	// claim runs in the transaction that acts on the delivery, and on
+	// PostgreSQL a statement that fails aborts its transaction: a retry that
+	// found the delivery already recorded could not then commit its answer.
+	ins.DoNothing()
 	if _, err := ins.Insert(ctx, ex); err != nil {
-		if errors.Is(err, runtime.ErrUniqueViolation) {
+		if errors.Is(err, runtime.ErrConflict) || errors.Is(err, runtime.ErrUniqueViolation) {
 			return false, nil
 		}
 		return false, fmt.Errorf("could not record the delivery: %w", err)
