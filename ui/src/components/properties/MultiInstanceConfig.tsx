@@ -13,13 +13,13 @@ const KNOWN_EXECUTIONS = [
 /**
  * The ways a loop can run, with the step's own among them.
  *
- * A step from an imported file can name a kind this editor does not offer.
- * It is listed under its own name, so the select shows what the step holds
- * rather than an empty box.
+ * A step from an imported file can name a kind the engine does not run. It is
+ * listed under its own name, so the select shows what the step holds rather
+ * than an empty box, and says it cannot run.
  */
 function executionOptions(current: string): Array<{ value: string; label: string }> {
   if (KNOWN_EXECUTIONS.some((option) => option.value === current)) return KNOWN_EXECUTIONS;
-  return [...KNOWN_EXECUTIONS, { value: current, label: `${current} (not recognised)` }];
+  return [...KNOWN_EXECUTIONS, { value: current, label: `${current} (cannot run)` }];
 }
 
 /**
@@ -32,9 +32,10 @@ function executionOptions(current: string): Array<{ value: string; label: string
  * boolean `isSequential` in place of the type, so nothing it wrote was ever
  * read: a task set to run once per item ran exactly once.
  *
- * Any type but an empty one and "none" counts as a loop here, as it does to
- * the engine. The editor used to count only the two it offers, so a step
- * set to repeat some other way showed an unticked box, as if it ran once.
+ * Any type but an empty one and "none" is shown as a loop, since the step is
+ * set to repeat. The editor used to count only the two it offers, so a step
+ * set to repeat some other way showed an unticked box, as if it ran once,
+ * when the engine refuses to deploy it.
  */
 export function MultiInstanceConfig({ data, onUpdate }: Pick<NodeConfigProps, 'data' | 'onUpdate'>) {
   const type = asText(data.multiInstanceType);

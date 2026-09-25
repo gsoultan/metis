@@ -178,10 +178,20 @@ describe('loopSummary', () => {
       .toBe('Set to repeat, but it names no list and no count, so it runs once.');
   });
 
-  it.each(['loop', 'constructor'])('shows a type this editor does not offer, %s, rather than hiding it', (type) => {
-    // The engine treats any type but "none" as a loop, so this is in effect.
-    expect(loopSummary({ multiInstanceType: type, collection: 'orders' }))
-      .toBe(`Set to repeat once for each item in orders as "${type}", which this editor does not recognise.`);
+  const CANNOT_RUN = (type: string) =>
+    `Set to repeat as "${type}", a kind of repeat that cannot run. ` +
+    'Deploying this process will be refused, and a version already deployed with it fails to start.';
+
+  it.each(['loop', 'constructor', 'Parallel'])('says a step set to repeat as %s cannot run, rather than hiding it', (type) => {
+    // The engine runs a loop in parallel or in sequence. It refuses any other
+    // kind at deploy, and fails a version stored before it did when started.
+    expect(loopSummary({ multiInstanceType: type, collection: 'orders' })).toBe(CANNOT_RUN(type));
+  });
+
+  it('says so even when it names nothing to go through', () => {
+    // The engine refuses the kind before it looks for a list or a count, so
+    // such a step does not run once: it does not run.
+    expect(loopSummary({ multiInstanceType: 'standard' })).toBe(CANNOT_RUN('standard'));
   });
 
   it('is what decides whether basic mode shows the loop', () => {

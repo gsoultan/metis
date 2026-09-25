@@ -73,11 +73,20 @@ describe.each(ACTIVITY_KINDS)('the panel for a %s', (kind) => {
     expect(labelledControl(render(kind, THREE_AT_ONCE, true), 'Loop Cardinality')?.value).toBe('3');
   });
 
-  it('shows a kind of repeat the editor does not recognise as it is, not as no repeat', () => {
+  it('shows a kind of repeat the engine cannot run as it is, not as no repeat', () => {
     const html = render(kind, { multiInstanceType: 'standard', collection: 'orders' }, true);
 
     expect(labelledControl(html, 'Multi-instance')).toHaveProperty('checked');
     expect(labelledControl(html, 'Execution')?.value).toContain('standard');
+  });
+
+  it('says a kind of repeat the engine cannot run will not deploy, in either mode', () => {
+    for (const expertMode of [false, true]) {
+      const text = visibleText(render(kind, { multiInstanceType: 'standard', collection: 'orders' }, expertMode));
+
+      expect(text).toContain('Set to repeat as "standard", a kind of repeat that cannot run.');
+      expect(text).toContain('Deploying this process will be refused');
+    }
   });
 
   it('says nothing about repeating in basic mode when the step runs once', () => {
