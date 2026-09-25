@@ -19,7 +19,7 @@ import {
   ThemeIcon,
   Container,
   Tabs,
-  Checkbox,
+  Switch,
   Paper,
 } from '@mantine/core';
 import {
@@ -136,7 +136,8 @@ export function PropertyPanel({
   instanceId = null,
   onViewInstance,
 }: PropertyPanelProps) {
-  const { expertMode, setExpertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
+  const setExpertMode = useAppStore((state) => state.setExpertMode);
 
   // Recomputed as the diagram changes: what reaches each step depends on every
   // step before it, so editing one changes the answer for the rest.
@@ -174,13 +175,16 @@ export function PropertyPanel({
             <Text size="xs" c="dimmed">{subtitle}</Text>
           </Box>
           <Group gap="xs" mr="xl">
-             {/* Expert mode swaps plain names for BPMN terms everywhere, so
-                 someone can learn the notation without being blocked by it. */}
-             <Text size="xs" c={expertMode ? "indigo" : "dimmed"}>BPMN names</Text>
-             <Checkbox 
-                aria-label="Show BPMN names"
-                checked={expertMode} 
-                onChange={(e) => setExpertMode(e.currentTarget.checked)}
+             {/* The same flag as the switch in the account menu, under the
+                 same name. This panel covers the whole screen, header and all,
+                 so it carries its own. It was labelled "BPMN names", which is
+                 only one of the things the flag changes: it also shows the raw
+                 schema and the API example, and makes advanced settings
+                 editable. */}
+             <Switch
+                label="Expert mode"
+                checked={expertMode}
+                onChange={(event) => setExpertMode(event.currentTarget.checked)}
                 size="xs"
                 color="indigo"
              />
@@ -423,8 +427,11 @@ export function PropertyPanel({
                   <Paper withBorder p="xl" radius="md" bg="blue.0" style={{ borderStyle: 'dashed' }}>
                     <Stack gap="xs" align="center" py="md">
                       <Info size={32} color="var(--mantine-color-blue-4)" />
-                      <Text fw={700} ta="center">Simplified View</Text>
-                      <Text size="xs" c="dimmed" ta="center">Advanced technical settings and API schemas are hidden. Toggle "Expert Mode" at the top to see them.</Text>
+                      <Text fw={700} ta="center">Simplified view</Text>
+                      <Text size="xs" c="dimmed" ta="center">
+                        Advanced settings appear here only once a step uses them. Turn on Expert mode at the top
+                        of this panel to change them, and to see the raw schema and an API example.
+                      </Text>
                     </Stack>
                   </Paper>
                 )}
