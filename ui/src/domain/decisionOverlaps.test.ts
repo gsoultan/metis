@@ -76,6 +76,8 @@ describe('findOverlaps', () => {
   it('does not block a table over a collision the engine would never see', () => {
     expect(messages('UNIQUE', [rule('"10"'), rule('10')])).toEqual([]);
     expect(messages('UNIQUE', [rule('TRUE'), rule('true')], [urgent])).toEqual([]);
+    // not( ) around something the matcher cannot read is itself unreadable.
+    expect(messages('UNIQUE', [rule('not(sum(items) > 10)'), rule('> 5')])).toEqual([]);
   });
 
   it('says nothing about a table of one line', () => {

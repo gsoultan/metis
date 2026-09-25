@@ -123,9 +123,18 @@ export function understandsCell(cell: string): boolean {
   if (/^(>=|<=|>|<|!=|=)?\s*-?\d+(\.\d+)?$/.test(text)) return true;
   if (/^[[\]]\s*-?[\d.]+\s*\.\.\s*-?[\d.]+\s*[[\]]$/.test(text)) return true;
   if (/^(true|false)$/i.test(text)) return true;
-  if (/^not\(.+\)$/.test(text)) return true;
+  // not( ) is only as readable as what it negates. It used to be accepted
+  // whatever it held, and `not(sum(items) > 10)` read as "anything but that
+  // text": a condition that matches nearly everything, and an overlap error
+  // that blocked Save over a table the check could not read.
+  const negated = text.match(/^not\((.+)\)$/);
+  if (negated) return understandsCell(negated[1]) && !isWildcardText(negated[1]);
   // A list, or a bare or quoted literal.
   return text.split(',').every((part) => /^\s*("[^"]*"|'[^']*'|[\w .-]+)\s*$/.test(part));
+}
+
+function isWildcardText(text: string): boolean {
+  return text.trim() === '' || text.trim() === ANY_VALUE;
 }
 
 /**

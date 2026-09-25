@@ -69,6 +69,12 @@ describe('findCoverageGaps', () => {
     expect(report.notAnalysed).toEqual(['Amount']);
   });
 
+  it('reads not( ) only around a condition it can read itself', () => {
+    const report = findCoverageGaps([amount], [rule('not(sum(items.price) > 10)')]);
+    expect(report.gaps).toEqual([]);
+    expect(report.notAnalysed).toEqual(['Amount']);
+  });
+
   it('says when the search was cut short rather than implying the table is fine', () => {
     // Enough distinct boundaries across enough columns to pass the cap.
     const wide: DecisionInputColumn[] = [amount, { ...tier, id: 'i2' }, { ...amount, id: 'i4', label: 'Weight' }];
