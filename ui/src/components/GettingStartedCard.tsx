@@ -12,12 +12,19 @@ import {
   Title,
   Tooltip,
   VisuallyHidden,
+  type AnchorProps,
+  type ButtonProps,
 } from '@mantine/core';
-import { Link } from '@tanstack/react-router';
+import { createLink, linkOptions } from '@tanstack/react-router';
 import { ArrowRight, Check } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useId, useState, type ComponentPropsWithRef } from 'react';
 
-import { gettingStartedSteps, nextStep, type GettingStartedFacts } from '../domain/gettingStarted';
+import {
+  gettingStartedSteps,
+  nextStep,
+  type GettingStartedFacts,
+  type GettingStartedStepId,
+} from '../domain/gettingStarted';
 
 /**
  * Getting started, drawn two ways: as a card somebody can put away, and as the
@@ -25,6 +32,39 @@ import { gettingStartedSteps, nextStep, type GettingStartedFacts } from '../doma
  * so the two cannot disagree about what is done. The rules are in
  * domain/gettingStarted.ts.
  */
+
+/**
+ * Where each step is done.
+ *
+ * Checked against the route tree: a route that does not exist, or one missing
+ * the search it requires, fails the typecheck here. The links used to be
+ * Mantine components given the router's Link as `component`, which types `to`
+ * as any string, and the two that go to Processes compiled without the tab
+ * that page requires.
+ */
+const STEP_LINKS = {
+  'deploy-process': linkOptions({ to: '/models', search: { tab: 'processes' } }),
+  'start-instance': linkOptions({ to: '/models', search: { tab: 'processes' } }),
+  'complete-task': linkOptions({ to: '/inbox' }),
+  'connect-system': linkOptions({ to: '/connectors' }),
+  'add-people': linkOptions({ to: '/people' }),
+} satisfies Record<GettingStartedStepId, unknown>;
+
+type ButtonAnchorProps = ButtonProps & Omit<ComponentPropsWithRef<'a'>, keyof ButtonProps>;
+
+/** A button drawn as the link it is, so it can be opened in a new tab and is announced as a link. */
+function ButtonAnchor(props: ButtonAnchorProps) {
+  return <Button component="a" {...props} />;
+}
+
+type TextAnchorProps = AnchorProps & Omit<ComponentPropsWithRef<'a'>, keyof AnchorProps>;
+
+function TextAnchor(props: TextAnchorProps) {
+  return <Anchor {...props} />;
+}
+
+const ButtonLink = createLink(ButtonAnchor);
+const AnchorLink = createLink(TextAnchor);
 
 /** Where hiding the card is remembered. Per browser, like the chosen language. */
 const DISMISSED_STORAGE_KEY = 'metis-getting-started-dismissed';
@@ -93,9 +133,9 @@ export function GettingStartedCard({ facts }: GettingStartedCardProps) {
       />
       <Stack gap="lg" mt="lg" align="flex-start">
         <GettingStartedTimeline facts={facts} />
-        <Button component={Link} to={next.to} rightSection={<ArrowRight size={16} />}>
+        <ButtonLink {...STEP_LINKS[next.id]} rightSection={<ArrowRight size={16} />}>
           {next.label}
-        </Button>
+        </ButtonLink>
       </Stack>
     </Card>
   );
@@ -140,10 +180,10 @@ export function GettingStartedTimeline({ facts, onNavigate }: GettingStartedTime
           bullet={step.done ? <Check size={12} aria-hidden /> : undefined}
           title={
             <Group gap="xs" wrap="nowrap">
-              <Anchor component={Link} to={step.to} onClick={onNavigate} size="sm" fw={600}>
+              <AnchorLink {...STEP_LINKS[step.id]} onClick={onNavigate} size="sm" fw={600}>
                 {step.done && <VisuallyHidden>Done: </VisuallyHidden>}
                 {step.label}
-              </Anchor>
+              </AnchorLink>
               {step.id === next?.id && <Badge size="xs" variant="light">Next</Badge>}
             </Group>
           }

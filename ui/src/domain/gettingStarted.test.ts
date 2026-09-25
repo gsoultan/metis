@@ -34,13 +34,14 @@ const FRESH_PROJECT: Required<GettingStartedSources> = {
 };
 
 describe('the steps', () => {
-  it('run in the order the product is first used, each with somewhere to go', () => {
-    expect(gettingStartedSteps(NOTHING_DONE).map((step) => [step.id, step.to])).toEqual([
-      ['deploy-process', '/models'],
-      ['start-instance', '/models'],
-      ['complete-task', '/inbox'],
-      ['connect-system', '/connectors'],
-      ['add-people', '/people'],
+  /* Where each is done is the card's to link to; see GettingStartedCard.test.ts. */
+  it('run in the order the product is first used', () => {
+    expect(gettingStartedSteps(NOTHING_DONE).map((step) => step.id)).toEqual([
+      'deploy-process',
+      'start-instance',
+      'complete-task',
+      'connect-system',
+      'add-people',
     ]);
   });
 
@@ -52,7 +53,6 @@ describe('the steps', () => {
   it('never asks for a project, which setup has already made', () => {
     for (const step of gettingStartedSteps(NOTHING_DONE)) {
       expect(`${step.label} ${step.description}`.toLowerCase()).not.toContain('project');
-      expect(step.to).not.toBe('/projects');
     }
   });
 
@@ -63,7 +63,6 @@ describe('the steps', () => {
    */
   it('says the templates are on the Dashboard, since the deploy step links to Processes', () => {
     const deploy = gettingStartedSteps(NOTHING_DONE).find((step) => step.id === 'deploy-process');
-    expect(deploy?.to).toBe('/models');
     expect(deploy?.description).toMatch(/templates? on the Dashboard/);
   });
 

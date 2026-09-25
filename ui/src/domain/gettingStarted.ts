@@ -23,9 +23,6 @@ export type GettingStartedStepId =
   | 'connect-system'
   | 'add-people';
 
-/** Where a step is done. Router paths, so a renamed route fails the typecheck where they are linked. */
-export type GettingStartedPath = '/models' | '/inbox' | '/connectors' | '/people';
-
 export interface GettingStartedFacts {
   /** Some version of some process has been deployed in the project. */
   processDeployed: boolean;
@@ -45,7 +42,6 @@ export interface GettingStartedStep {
   /** What the step is for, in one sentence, for somebody who has not done it. */
   description: string;
   done: boolean;
-  to: GettingStartedPath;
 }
 
 interface StepDefinition extends Omit<GettingStartedStep, 'done'> {
@@ -56,38 +52,33 @@ const STEPS: StepDefinition[] = [
   {
     id: 'deploy-process',
     label: 'Deploy a process',
-    // The link goes to Processes, where a new process is drawn. The templates
-    // are on the Dashboard only, so the sentence says so.
+    // It links to Processes, where a new process is drawn (see the card's
+    // STEP_LINKS). The templates are on the Dashboard only, so it says so.
     description: 'Draw one under Processes, or pick a template on the Dashboard, then deploy it so it can run.',
-    to: '/models',
     isDone: (facts) => facts.processDeployed,
   },
   {
     id: 'start-instance',
     label: 'Start an instance',
     description: 'Run your process once. Each run is an instance you can follow step by step.',
-    to: '/models',
     isDone: (facts) => facts.instanceStarted,
   },
   {
     id: 'complete-task',
     label: 'Complete a task',
     description: 'When a process needs a person, the task waits in the inbox until somebody completes it.',
-    to: '/inbox',
     isDone: (facts) => facts.taskCompleted,
   },
   {
     id: 'connect-system',
     label: 'Connect another system',
     description: 'Set up a connection, such as email or Slack, so your steps can call it.',
-    to: '/connectors',
     isDone: (facts) => facts.connectionSetUp,
   },
   {
     id: 'add-people',
     label: 'Add the people who do the work',
     description: 'Import the people your processes can assign tasks to.',
-    to: '/people',
     isDone: (facts) => facts.peopleAdded,
   },
 ];
