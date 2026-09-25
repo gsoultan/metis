@@ -194,10 +194,25 @@ FROM jobs WHERE status = 'running' AND lock_expires < now();
 ```
 
 Rows here are claimed by a worker that is gone. **They recover by themselves**:
-the claim is `WHERE status = pending OR lock_expires < now()`, so the next poll
-picks them up. If the list is long right after a deploy, that is the drain
-budget being exceeded — raise `METIS_SHUTDOWN_DRAIN` (default 20s) so a rollout
-waits for work it has already claimed.
+the worker's poll offers a running job whose lease has expired alongside the
+pending ones, and reclaiming it counts as an attempt. The job's work and its
+status commit together, so a reclaimed job whose work had already committed
+completes without doing it again.
+
+Until 2026-09-25 this paragraph was not true. The poll asked for pending jobs
+only, so these rows stayed running for good and the processes behind them hung
+with no incident. An installation upgraded from before then may have some; the
+first poll after the upgrade picks them up.
+
+A job that keeps losing its worker — reclaimed three times, or as many as its
+retries allow if that is more — is failed with an incident saying *the worker
+running this step stopped before it finished*. Treat that as the job killing
+the worker, not the other way round: look at what the step runs (a script, a
+call that returns something enormous) and at the pod's last OOM kill.
+
+If the list is long right after a deploy, that is the drain budget being
+exceeded — raise `METIS_SHUTDOWN_DRAIN` (default 20s) so a rollout waits for
+work it has already claimed.
 
 If `lock_expires` is in the *future* and the pod is gone, wait for it. Five
 minutes is the lease.

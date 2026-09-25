@@ -141,9 +141,13 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic, worker
 			return err
 		}
 		now := time.Now().UTC()
+		// The expired test comes before the null test, and must: the
+		// generated builder drops the predicate after a null test inside Any,
+		// so the old order matched unlocked tasks only, and a task whose
+		// worker died holding it was never offered to anybody again.
 		q := externaltask.New().
 			Where(externaltask.Topic.Eq(topic)).
-			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lt(now)).
+			Any(externaltask.LockExpiration.Lt(now), externaltask.LockExpiration.IsNull()).
 			Where(externaltask.Retries.Gte(0)).
 			Limit(int64(maxTasks)).
 			ForUpdateSkipLocked()

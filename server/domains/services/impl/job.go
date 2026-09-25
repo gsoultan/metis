@@ -300,128 +300,44 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		}
 	}()
 
-	var err error
+	if s.exhaustedByReclaim(ctx, &job) {
+		return
+	}
+
+	err := s.execute(ctx, job)
+	if err == nil {
+		// Completed in the same transaction as its work; see job_settlement.go.
+		return
+	}
+	if deferred, isDeferral := deferralOf(err); isDeferral {
+		// Not a failure: an error boundary must not catch this either — a rate
+		// limit is not something a process models a path for.
+		s.deferJob(ctx, job, deferred)
+		return
+	}
+	// Str rather than Err: the same URL-with-credentials reaches the log, and a
+	// log is as durable as the table.
+	log.Error().Str("error", redaction.RedactError(err)).Str("jobId", job.ID.String()).Msg("Job execution failed")
+	if s.tryErrorBoundaryRoute(ctx, job, err) {
+		return
+	}
+	s.recordFailure(ctx, job, err)
+}
+
+// execute does a job's work. Each kind marks the job completed inside the
+// transaction that does the work, so a job whose work committed can never be
+// found still running.
+func (s *jobService) execute(ctx context.Context, job entities.Job) error {
 	switch job.Type {
 	case entities.JobServiceTask:
-		err = s.executeServiceTask(ctx, job)
+		return s.executeServiceTask(ctx, job)
 	case entities.JobTimer:
-		err = s.executeTimer(ctx, job)
+		return s.executeTimer(ctx, job)
 	case entities.JobTimerBoundary:
-		err = s.executeTimerBoundary(ctx, job)
-	}
-
-	if deferred, isDeferral := deferralOf(err); isDeferral {
-		// Not a failure: put it back with a time on it and leave the attempt
-		// count alone. An error boundary must not catch this either — a rate
-		// limit is not something a process models a path for.
-		log.Info().
-			Str("jobId", job.ID.String()).
-			Dur("retryIn", deferred.after).
-			Msg(deferred.reason)
-		job.Status = entities.JobPending
-		job.NextRunAt = time.Now().Add(deferred.after)
-	} else if err != nil {
-		// Str rather than Err: the same URL-with-credentials reaches the log,
-		// and a log is as durable as the table.
-		log.Error().Str("error", redaction.RedactError(err)).Str("jobId", job.ID.String()).Msg("Job execution failed")
-		if s.tryErrorBoundaryRoute(ctx, job, err) {
-			job.Status = entities.JobCompleted
-		} else {
-			s.handleJobFailure(ctx, &job, err)
-		}
-	} else {
-		job.Status = entities.JobCompleted
-		if job.Type == entities.JobTimer || job.Type == entities.JobTimerBoundary {
-			s.rescheduleRepeatingTimer(ctx, &job)
-		}
-	}
-
-	job.UpdatedAt = time.Now()
-	// Detached: if the process is shutting down, `ctx` is already cancelled and
-	// this write would fail — leaving the row marked running under this
-	// worker's lock until the lease expires, which is how a deploy used to
-	// freeze in-flight work for five minutes.
-	writeCtx, cancel := detach(ctx, statusWriteBudget)
-	defer cancel()
-	if err := s.repo.Job().Update(writeCtx, adapters.JobModelAdapter{Job: job}.ToModel()); err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("failed to update job status")
-	}
-}
-
-// statusWriteBudget bounds the detached write above. Short: it is one UPDATE by
-// primary key, and a process that is shutting down should not hang on it.
-const statusWriteBudget = 5 * time.Second
-
-// tryErrorBoundaryRoute checks if a matching error boundary event exists for the
-// failed job's node and, if found, routes the process through it.
-// Returns true if the error was successfully handled by a boundary event.
-func (s *jobService) tryErrorBoundaryRoute(ctx context.Context, job entities.Job, jobErr error) bool {
-	def, err := s.engine.GetProcessDefinition(ctx, job.Definition.ID)
-	if err != nil {
-		return false
-	}
-
-	for _, boundary := range def.GetBoundaryEvents(job.Node.ID) {
-		if !s.errorMatcher.Matches(jobErr, *boundary) {
-			continue
-		}
-		instance, err := s.engine.GetInstance(ctx, job.Instance.ID)
-		if err != nil {
-			return false
-		}
-		if boundary.CancelActivity {
-			instance.RemoveTokenByNode(boundary)
-		}
-		if err := s.engine.ExecuteNode(ctx, &instance, def, boundary.ID); err != nil {
-			log.Error().Err(err).Str("boundaryNode", boundary.ID).Msg("error boundary execution failed")
-			return false
-		}
-		return true
-	}
-	return false
-}
-
-// handleJobFailure applies retry logic or creates an incident when a job fails
-// and no error boundary event caught it.
-func (s *jobService) handleJobFailure(ctx context.Context, job *entities.Job, jobErr error) {
-	job.Retries++
-	job.LastError = jobErr.Error()
-	if job.Retries < job.MaxRetries {
-		job.Status = entities.JobPending
-		// Exponential with jitter — see backoff.go for why the linear schedule
-		// this replaces made an outage worse rather than better.
-		job.NextRunAt = time.Now().Add(retryDelay(job.Retries))
-		return
-	}
-	job.Status = entities.JobFailed
-	s.createIncident(ctx, job, jobErr)
-}
-
-// createIncident persists an open incident record for a permanently failed job.
-func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobErr error) {
-	incID, err := uuid.NewV7()
-	if err != nil {
-		log.Error().Err(err).Msg("Could not generate an incident id; the incident was not recorded")
-		return
-	}
-	incident := entities.Incident{
-		ID:         incID,
-		Job:        job,
-		Instance:   &entities.ProcessInstance{ID: job.Instance.ID},
-		Definition: &entities.ProcessDefinition{ID: job.Definition.ID},
-		Node:       job.Node,
-		// Redacted, because this text is the one an operator actually reads: it
-		// is stored in the incident table and shown in the UI. A connector
-		// failure carries the URL it was calling, and Go's *url.Error includes
-		// the query string — so a manifest that puts an API key in a query
-		// parameter, which many APIs require, wrote that key into the database
-		// in plaintext every time the call failed to connect.
-		Error:     redaction.RedactText(jobErr.Error()),
-		Status:    entities.IncidentOpen,
-		CreatedAt: time.Now(),
-	}
-	if _, err := s.repo.Incident().Create(ctx, adapters.IncidentModelAdapter{Incident: incident}.ToModel()); err != nil {
-		log.Error().Err(err).Msg("failed to create incident")
+		return s.executeTimerBoundary(ctx, job)
+	default:
+		// A kind nothing runs used to be marked completed having done nothing.
+		return fmt.Errorf("a job of type %q has nothing that runs it", job.Type)
 	}
 }
 
@@ -525,6 +441,13 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		if err != nil {
 			return err
 		}
+		// A reclaimed job whose earlier attempt committed this advance and died
+		// before the job said so. Advancing again would not fail — removing a
+		// token that is not there is a no-op, and the outgoing flows would be
+		// followed a second time — so the token is checked instead.
+		if !tokenWaitsAt(&instance, node, job.IterationID) {
+			return s.completeJob(txCtx, job)
+		}
 		for k, v := range responseData {
 			instance.SetVariable(k, v)
 		}
@@ -536,7 +459,10 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		// For a node that runs once per item this has to say which iteration
 		// finished, or the engine cannot tell which of the node's tokens to
 		// retire and the process never moves past it.
-		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
+		if err := s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID); err != nil {
+			return err
+		}
+		return s.completeJob(txCtx, job)
 	})
 }
 
@@ -911,25 +837,7 @@ func timerTokenBearer(def *entities.ProcessDefinition, node *entities.Node) *ent
 // worker cannot be recalled — so relevance is decided when the timer fires,
 // against the tokens the engine maintains.
 func timerStillApplies(instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID, iterationID string) bool {
-	if instance.Status != entities.ProcessActive {
-		return false
-	}
-	node := timerTokenBearer(def, def.FindNode(nodeID))
-	if node == nil {
-		return false
-	}
-	tokens := instance.GetTokensByNode(node)
-	if iterationID == "" {
-		return len(tokens) > 0
-	}
-	// A node that runs once per item has a token per iteration; only the one
-	// this job was scheduled for counts.
-	for _, tk := range tokens {
-		if tk.IterationID == iterationID {
-			return true
-		}
-	}
-	return false
+	return tokenWaitsAt(instance, timerTokenBearer(def, def.FindNode(nodeID)), iterationID)
 }
 
 // rescheduleRepeatingTimer queues the next occurrence of a repeating timer.
@@ -939,19 +847,20 @@ func timerStillApplies(instance *entities.ProcessInstance, def *entities.Process
 // has to queue the next — and the relevance check in timerStillApplies stops the
 // chain naturally once the activity it belongs to has moved on, which is why an
 // interrupting timer needs no special case here.
-func (s *jobService) rescheduleRepeatingTimer(ctx context.Context, job *entities.Job) {
+//
+// Called inside the transaction that fired this occurrence, and only when it
+// fired. It used to run after every success, a skip included — so a repeating
+// boundary timer on an activity that had finished kept queuing occurrences
+// that found nothing to do, forever for an unbounded cycle — and in a
+// statement of its own, so a worker that died in between lost the chain or
+// fired an occurrence twice.
+func (s *jobService) rescheduleRepeatingTimer(ctx context.Context, def *entities.ProcessDefinition, job entities.Job) error {
 	if job.RepeatsRemaining == 0 || job.Node == nil {
-		return
-	}
-
-	def, err := s.engine.GetProcessDefinition(ctx, job.Definition.ID)
-	if err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Cannot reschedule repeating timer: definition unavailable")
-		return
+		return nil
 	}
 	node := def.FindNode(job.Node.ID)
 	if node == nil {
-		return
+		return nil
 	}
 
 	expr := node.GetStringProperty("timer_duration")
@@ -959,11 +868,17 @@ func (s *jobService) rescheduleRepeatingTimer(ctx context.Context, job *entities
 		expr = node.Condition
 	}
 	schedule, err := entities.ParseTimerSchedule(expr, time.Now())
-	if err != nil || schedule.Every <= 0 {
-		return
+	if err != nil {
+		// It parsed when the first occurrence was queued, and a deployed
+		// definition does not change, so this is a defect to raise rather than
+		// a chain of reminders to end without a word.
+		return fmt.Errorf("the timer %q cannot say when it next fires: %w", expr, err)
+	}
+	if schedule.Every <= 0 {
+		return nil
 	}
 
-	next := *job
+	next := job
 	next.ID = uuid.Nil
 	next.Status = entities.JobPending
 	next.NextRunAt = time.Now().Add(schedule.Every)
@@ -974,8 +889,9 @@ func (s *jobService) rescheduleRepeatingTimer(ctx context.Context, job *entities
 	}
 
 	if _, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: next}.ToModel()); err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).Msg("Cannot reschedule repeating timer")
+		return fmt.Errorf("could not queue the next occurrence of the timer: %w", err)
 	}
+	return nil
 }
 
 // executeTimerBoundary fires the boundary event node directly on the instance.
@@ -998,10 +914,16 @@ func (s *jobService) executeTimerBoundary(ctx context.Context, job entities.Job)
 				Str("instanceId", instance.ID.String()).
 				Str("boundaryNodeId", job.Node.ID).
 				Msg("Boundary timer came due after its activity had already moved on; skipping")
-			return nil
+			return s.completeJob(txCtx, job)
 		}
 
-		return s.engine.ExecuteNode(txCtx, &instance, def, job.Node.ID)
+		if err := s.engine.ExecuteNode(txCtx, &instance, def, job.Node.ID); err != nil {
+			return err
+		}
+		if err := s.rescheduleRepeatingTimer(txCtx, def, job); err != nil {
+			return err
+		}
+		return s.completeJob(txCtx, job)
 	})
 }
 
@@ -1025,12 +947,18 @@ func (s *jobService) executeTimer(ctx context.Context, job entities.Job) error {
 				Str("instanceId", instance.ID.String()).
 				Str("nodeId", job.Node.ID).
 				Msg("Timer came due after its branch was already resolved; skipping")
-			return nil
+			return s.completeJob(txCtx, job)
 		}
 
 		// For a node that runs once per item this has to say which iteration
 		// finished, or the engine cannot tell which of the node's tokens to
 		// retire and the process never moves past it.
-		return s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID)
+		if err := s.engine.ProceedIteration(txCtx, &instance, def, job.Node.ID, job.IterationID); err != nil {
+			return err
+		}
+		if err := s.rescheduleRepeatingTimer(txCtx, def, job); err != nil {
+			return err
+		}
+		return s.completeJob(txCtx, job)
 	})
 }
