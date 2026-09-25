@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
-  gettingStartedFacts,
+  gettingStartedProgress,
   gettingStartedSteps,
   nextStep,
   type GettingStartedFacts,
+  type GettingStartedProgress,
   type GettingStartedQueries,
 } from './gettingStarted';
 
@@ -29,11 +30,18 @@ const ADMINISTRATOR = { roles: ['ADMIN'] };
 
 /** A query that has answered this, for the project asked about. */
 function answered<T>(data: T) {
-  return { data, isPlaceholderData: false };
+  return { data, isPlaceholderData: false, isError: false };
 }
 
 /** A query still on its way, with nothing to show. */
-const LOADING = { data: undefined, isPlaceholderData: false };
+const LOADING = { data: undefined, isPlaceholderData: false, isError: false };
+
+/** A query whose request threw: the connections and people calls do when the server refuses. */
+const THREW = { data: undefined, isPlaceholderData: false, isError: true };
+
+const STILL_LOADING: GettingStartedProgress = { state: 'loading' };
+const FAILED: GettingStartedProgress = { state: 'failed' };
+const known = (facts: GettingStartedFacts): GettingStartedProgress => ({ state: 'known', facts });
 
 /** What the hooks return for a project set up a moment ago: every query answered, and empty. */
 const FRESH_PROJECT: GettingStartedQueries = {
@@ -166,7 +174,7 @@ describe('what to do next', () => {
 
 describe('reading the facts from what the interface already fetches', () => {
   it('finds nothing done in a project set up a moment ago', () => {
-    expect(gettingStartedFacts(FRESH_PROJECT)).toEqual(NOTHING_DONE);
+    expect(gettingStartedProgress(FRESH_PROJECT)).toEqual(known(NOTHING_DONE));
   });
 
   /*
@@ -177,7 +185,7 @@ describe('reading the facts from what the interface already fetches', () => {
   it.each(Object.keys(FRESH_PROJECT) as (keyof GettingStartedQueries)[])(
     'has no answer while %s is still loading',
     (source) => {
-      expect(gettingStartedFacts({ ...FRESH_PROJECT, [source]: LOADING })).toBeUndefined();
+      expect(gettingStartedProgress({ ...FRESH_PROJECT, [source]: LOADING })).toEqual(STILL_LOADING);
     },
   );
 
@@ -192,8 +200,11 @@ describe('reading the facts from what the interface already fetches', () => {
     ['definitions', { definitions: [{ id: 'from-the-last-project' }] }],
     ['instances', { instances: [{ id: 'from-the-last-project' }] }],
   ] as const)("has no answer while %s shows the last project's rows as a placeholder", (source, rows) => {
-    const facts = gettingStartedFacts({ ...FRESH_PROJECT, [source]: { data: rows, isPlaceholderData: true } });
-    expect(facts).toBeUndefined();
+    const progress = gettingStartedProgress({
+      ...FRESH_PROJECT,
+      [source]: { data: rows, isPlaceholderData: true, isError: false },
+    });
+    expect(progress).toEqual(STILL_LOADING);
   });
 
   it.each([
@@ -202,8 +213,8 @@ describe('reading the facts from what the interface already fetches', () => {
     ['connections', answered({ instances: [{ id: 'one' }] }), 'connectionSetUp'],
     ['people', answered({ participants: [{ id: 'one' }] }), 'peopleAdded'],
   ] as const)('counts one of %s', (source, query, fact) => {
-    const facts = gettingStartedFacts({ ...FRESH_PROJECT, [source]: query });
-    expect(facts).toEqual({ ...NOTHING_DONE, [fact]: true });
+    const progress = gettingStartedProgress({ ...FRESH_PROJECT, [source]: query });
+    expect(progress).toEqual(known({ ...NOTHING_DONE, [fact]: true }));
   });
 
   /*
@@ -214,8 +225,45 @@ describe('reading the facts from what the interface already fetches', () => {
    */
   it('counts completed tasks from the project statistics, however many tasks are newer', () => {
     const completed = (count: number) =>
-      gettingStartedFacts({ ...FRESH_PROJECT, statistics: answered({ stats: { completedTasks: count } }) });
-    expect(completed(1)?.taskCompleted).toBe(true);
-    expect(completed(0)?.taskCompleted).toBe(false);
+      gettingStartedProgress({ ...FRESH_PROJECT, statistics: answered({ stats: { completedTasks: count } }) });
+    expect(completed(1)).toEqual(known({ ...NOTHING_DONE, taskCompleted: true }));
+    expect(completed(0)).toEqual(known(NOTHING_DONE));
+  });
+});
+
+/*
+ * A request that failed is not an answer. Connections and people come from
+ * calls that throw when the server refuses; definitions, instances and the
+ * statistics carry the error inside a reply that otherwise reads as an empty
+ * list. The first kind left the checklist loading for good, and the second
+ * showed the step as not done to somebody who may well have done it.
+ */
+describe('a request that failed', () => {
+  it.each(Object.keys(FRESH_PROJECT) as (keyof GettingStartedQueries)[])(
+    'is a failure when the request for %s threw',
+    (source) => {
+      expect(gettingStartedProgress({ ...FRESH_PROJECT, [source]: THREW })).toEqual(FAILED);
+    },
+  );
+
+  it.each([
+    ['definitions', { definitions: [], err: 'You may not read this project' }],
+    ['instances', { instances: [], err: 'You may not read this project' }],
+    ['statistics', { stats: { completedTasks: 0 }, err: 'You may not read this project' }],
+  ] as const)('is a failure when the reply for %s carries an error', (source, reply) => {
+    expect(gettingStartedProgress({ ...FRESH_PROJECT, [source]: answered(reply) })).toEqual(FAILED);
+  });
+
+  /* Waiting for the rest cannot make the answer whole, so there is no point in waiting. */
+  it('is a failure straight away, while another request is still on its way', () => {
+    expect(gettingStartedProgress({ ...FRESH_PROJECT, connections: THREW, people: LOADING })).toEqual(FAILED);
+  });
+
+  /* A refresh that fails leaves the last answer standing, and that answer is still true. */
+  it('keeps the answer a query already has when only a later refresh failed', () => {
+    const refreshFailed = { data: { definitions: [{ id: 'one' }] }, isPlaceholderData: false, isError: true };
+    expect(gettingStartedProgress({ ...FRESH_PROJECT, definitions: refreshFailed })).toEqual(
+      known({ ...NOTHING_DONE, processDeployed: true }),
+    );
   });
 });

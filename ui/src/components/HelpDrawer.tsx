@@ -95,6 +95,6 @@ function ReferenceLinks() {
  * these requests are made when somebody opens Help and not on every page.
  */
 function GettingStartedProgress({ onNavigate }: { onNavigate: () => void }) {
-  const facts = useGettingStartedProgress();
-  return <GettingStartedTimeline facts={facts} onNavigate={onNavigate} />;
+  const { progress, retry } = useGettingStartedProgress();
+  return <GettingStartedTimeline progress={progress} onRetry={retry} onNavigate={onNavigate} />;
 }

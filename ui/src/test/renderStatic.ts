@@ -29,11 +29,14 @@ export async function renderStatic(element: ReactElement, queryClient: QueryClie
   );
 }
 
-/** The markup's text, without the tags or Mantine's style blocks. */
+const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#x27;': "'", '&#39;': "'" };
+
+/** The markup's text as a reader sees it: no tags, no Mantine style blocks, entities decoded. */
 export function visibleText(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<[^>]+>/g, ' ')
+    .replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (entity) => ENTITIES[entity])
     .replace(/\s+/g, ' ')
     .trim();
 }

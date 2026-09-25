@@ -15,10 +15,19 @@ beforeEach(() => {
   store.set({ user: userWithRoles(['ADMIN']), currentProjectId: PROJECT, token: 'a-session' });
 });
 
-/** A cache holding what the server answered, under the keys the hooks ask with. */
-function answered(entries: [readonly unknown[], unknown][]): QueryClient {
-  const client = new QueryClient();
+/**
+ * A cache holding what the server answered, under the keys the hooks ask with.
+ *
+ * Not retried on mount, so a query left failed is drawn failed: a real browser
+ * retries once, then shows the failure the same way.
+ */
+function answered(entries: [readonly unknown[], unknown][], failedKeys: (readonly unknown[])[] = []): QueryClient {
+  const client = new QueryClient({ defaultOptions: { queries: { retryOnMount: false } } });
   for (const [key, data] of entries) client.setQueryData(key, data);
+  for (const key of failedKeys) {
+    const query = client.getQueryCache().build(client, { queryKey: key });
+    query.setState({ ...query.state, status: 'error', error: new Error('The server refused'), errorUpdatedAt: Date.now() });
+  }
   return client;
 }
 
@@ -49,5 +58,25 @@ describe('Help, on whether a task has been completed', () => {
       ]),
     );
     expect(visibleText(html)).toContain('Done: Complete a task');
+  });
+});
+
+/*
+ * The connections and people requests throw when the server refuses. Help
+ * waited for them for good, drawing every step unticked as though still
+ * loading. It says what happened instead, and offers to try again.
+ */
+describe('Help, when a request for its progress fails', () => {
+  it('says it could not check, instead of drawing a checklist', async () => {
+    const withoutConnections = PROJECT_UNDER_WAY.filter(([key]) => key[0] !== 'connector-instances');
+    const html = await renderStatic(
+      createElement(HelpTabs, { onNavigate: () => {} }),
+      answered(
+        [...withoutConnections, [['stats', PROJECT], { stats: { completedTasks: 1 }, err: '' }]],
+        [['connector-instances', PROJECT]],
+      ),
+    );
+    expect(visibleText(html)).toContain("Could not check this project's progress");
+    expect(visibleText(html)).not.toContain('Done:');
   });
 });

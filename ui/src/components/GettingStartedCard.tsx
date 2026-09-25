@@ -16,13 +16,14 @@ import {
   type ButtonProps,
 } from '@mantine/core';
 import { createLink, linkOptions } from '@tanstack/react-router';
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight, Check, RefreshCw } from 'lucide-react';
 import { useId, useState, type ComponentPropsWithRef } from 'react';
 
 import {
   gettingStartedSteps,
   nextStep,
   type GettingStartedFacts,
+  type GettingStartedProgress,
   type GettingStartedStepId,
 } from '../domain/gettingStarted';
 import { useAppStore } from '../store/useAppStore';
@@ -90,26 +91,30 @@ function rememberDismissed(): void {
 }
 
 interface GettingStartedCardProps {
-  /** From gettingStartedFacts(). Undefined while any of its lists is loading. */
-  facts: GettingStartedFacts | undefined;
+  /** From useGettingStartedProgress(). */
+  progress: GettingStartedProgress;
+  /** Asks again for whatever failed. */
+  onRetry: () => void;
 }
 
 /**
  * The checklist for somebody new, until they have done it all or hidden it.
  *
- * Nothing is drawn until every fact is in. A card that appears with every step
- * unticked and then ticks them one by one tells somebody who has done it all
- * that they have done nothing.
+ * Nothing is drawn while the facts are on their way. A card that appears with
+ * every step unticked and then ticks them one by one tells somebody who has
+ * done it all that they have done nothing. If they cannot be had, the card
+ * says so rather than drawing a checklist it cannot vouch for.
  */
-export function GettingStartedCard({ facts }: GettingStartedCardProps) {
+export function GettingStartedCard({ progress, onRetry }: GettingStartedCardProps) {
   const titleId = useId();
   const viewer = useAppStore((state) => state.user);
   const [dismissed, setDismissed] = useState(readDismissed);
-  if (dismissed || !facts) return null;
+  if (dismissed || progress.state === 'loading') return null;
 
-  const steps = gettingStartedSteps(facts, viewer);
+  // Failed, there are no steps to draw, so there is no next one either.
+  const steps = progress.state === 'known' ? gettingStartedSteps(progress.facts, viewer) : [];
   const next = nextStep(steps);
-  if (!next) return null;
+  if (progress.state === 'known' && !next) return null;
   const doneCount = steps.filter((step) => step.done).length;
 
   const dismiss = () => {
@@ -122,24 +127,45 @@ export function GettingStartedCard({ facts }: GettingStartedCardProps) {
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Stack gap={2}>
           <Title order={4} id={titleId}>Getting started</Title>
-          <Text size="sm" c="dimmed">{doneCount} of {steps.length} done</Text>
+          {next && <Text size="sm" c="dimmed">{doneCount} of {steps.length} done</Text>}
         </Stack>
         <Tooltip label="Your progress stays under Help, the question mark at the top." withArrow>
           <CloseButton aria-label="Hide getting started" onClick={dismiss} />
         </Tooltip>
       </Group>
-      <Progress
-        value={(doneCount / steps.length) * 100}
-        mt="md"
-        aria-label={`${doneCount} of ${steps.length} getting started steps done`}
-      />
-      <Stack gap="lg" mt="lg" align="flex-start">
-        <GettingStartedTimeline facts={facts} />
-        <ButtonLink {...STEP_LINKS[next.id]} rightSection={<ArrowRight size={16} />}>
-          {next.label}
-        </ButtonLink>
-      </Stack>
+      {!next ? (
+        <ProgressUnknown onRetry={onRetry} />
+      ) : (
+        <>
+          <Progress
+            value={(doneCount / steps.length) * 100}
+            mt="md"
+            aria-label={`${doneCount} of ${steps.length} getting started steps done`}
+          />
+          <Stack gap="lg" mt="lg" align="flex-start">
+            <GettingStartedTimeline progress={progress} onRetry={onRetry} />
+            <ButtonLink {...STEP_LINKS[next.id]} rightSection={<ArrowRight size={16} />}>
+              {next.label}
+            </ButtonLink>
+          </Stack>
+        </>
+      )}
     </Card>
+  );
+}
+
+/** Said instead of a checklist when what has been done could not be found out. */
+function ProgressUnknown({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Stack gap="xs" mt="md" align="flex-start" role="alert">
+      <Text size="sm" fw={600}>Could not check this project's progress</Text>
+      <Text size="sm" c="dimmed">
+        Nothing is shown as done or not done until it can be. Trying again often resolves it.
+      </Text>
+      <Button variant="light" size="xs" leftSection={<RefreshCw size={14} />} onClick={onRetry}>
+        Try again
+      </Button>
+    </Stack>
   );
 }
 
@@ -153,8 +179,10 @@ const NO_PROGRESS_YET: GettingStartedFacts = {
 };
 
 interface GettingStartedTimelineProps {
-  /** From gettingStartedFacts(). Undefined while any of its lists is loading. */
-  facts: GettingStartedFacts | undefined;
+  /** From useGettingStartedProgress(). */
+  progress: GettingStartedProgress;
+  /** Asks again for whatever failed. */
+  onRetry: () => void;
   /** Called when a step's link is followed, so a drawer can close behind it. */
   onNavigate?: () => void;
 }
@@ -166,8 +194,10 @@ interface GettingStartedTimelineProps {
  * are drawn with nothing ticked and no step marked next, rather than calling
  * the first step next and then jumping once the answers land.
  */
-export function GettingStartedTimeline({ facts, onNavigate }: GettingStartedTimelineProps) {
+export function GettingStartedTimeline({ progress, onRetry, onNavigate }: GettingStartedTimelineProps) {
   const viewer = useAppStore((state) => state.user);
+  if (progress.state === 'failed') return <ProgressUnknown onRetry={onRetry} />;
+  const facts = progress.state === 'known' ? progress.facts : undefined;
   const steps = gettingStartedSteps(facts ?? NO_PROGRESS_YET, viewer);
   const next = facts ? nextStep(steps) : undefined;
   // The line fills down to the first step not done. Steps get done out of

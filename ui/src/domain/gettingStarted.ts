@@ -140,57 +140,99 @@ export interface QueryLike<T> {
    * this one loads: after a project switch, another project's rows.
    */
   isPlaceholderData: boolean;
+  /** The request threw. */
+  isError: boolean;
+}
+
+/** A reply that may carry the server's refusal inside it rather than as a failed request. */
+interface Reply {
+  err?: string;
 }
 
 /** The queries the facts are read from, each exactly as its hook returns it. */
 export interface GettingStartedQueries {
   /** `useDefinitions()`. */
-  definitions: QueryLike<{ definitions: readonly unknown[] }>;
+  definitions: QueryLike<Reply & { definitions: readonly unknown[] }>;
   /** `useInstances()`, with no filter. */
-  instances: QueryLike<{ instances: readonly unknown[] }>;
+  instances: QueryLike<Reply & { instances: readonly unknown[] }>;
   /**
    * `useProcessStatistics()`: completed tasks, counted across the whole
    * project. They used to be read from the newest 200 tasks, which missed a
    * completed task behind 200 open ones.
    */
-  statistics: QueryLike<{ stats?: { completedTasks?: number } }>;
+  statistics: QueryLike<Reply & { stats?: { completedTasks?: number } }>;
   /** `useConnectorInstances()`. */
-  connections: QueryLike<{ instances: readonly unknown[] }>;
+  connections: QueryLike<Reply & { instances: readonly unknown[] }>;
   /** `useParticipants()`. */
-  people: QueryLike<{ participants: readonly unknown[] }>;
+  people: QueryLike<Reply & { participants: readonly unknown[] }>;
 }
 
+/** What is known of the project's progress. */
+export type GettingStartedProgress =
+  | { state: 'loading' }
+  | { state: 'failed' }
+  | { state: 'known'; facts: GettingStartedFacts };
+
+const LOADING: GettingStartedProgress = { state: 'loading' };
+const FAILED: GettingStartedProgress = { state: 'failed' };
+
+/** One query's answer: its data, or why there is none. */
+type Answer<T> = { state: 'loading' } | { state: 'failed' } | { state: 'answered'; data: T };
+
 /**
- * A query's data once it answers what was asked.
+ * A query's data once it answers what was asked, or why it does not.
  *
- * Not a placeholder: the definitions and instances lists keep the previous
- * rows on screen while the next ones load, and after a project switch those
- * are the last project's. Counted as facts, they ticked "Deploy a process"
- * for a project that had deployed nothing.
+ * A placeholder is not an answer: the definitions and instances lists keep the
+ * previous rows on screen while the next ones load, and after a project switch
+ * those are the last project's. Counted as facts, they ticked "Deploy a
+ * process" for a project that had deployed nothing.
+ *
+ * A failure is not an answer either, and it comes two ways. The connections
+ * and people calls throw when the server refuses, which read as loading for
+ * good. Definitions, instances and the statistics carry the refusal inside a
+ * reply that otherwise reads as an empty list, which read as "not done". A
+ * refresh that fails after an answer leaves that answer standing, and it is
+ * still true, so it is kept.
  */
-function answer<T>(query: QueryLike<T>): T | undefined {
-  return query.isPlaceholderData ? undefined : query.data;
+function answer<T extends Reply>(query: QueryLike<T>): Answer<T> {
+  if (query.isPlaceholderData) return { state: 'loading' };
+  const data = query.data;
+  if (data !== undefined) return data.err ? { state: 'failed' } : { state: 'answered', data };
+  return query.isError ? { state: 'failed' } : { state: 'loading' };
 }
 
 /**
- * The facts, or undefined while any query is still on its way.
+ * The facts, or why there are none.
  *
  * All or nothing, because a checklist drawn from half its answers shows steps
  * as not done when they are only not loaded, and ticks them one by one as the
- * requests land.
+ * requests land. One failure fails it straight away: waiting for the rest
+ * cannot make the answer whole.
  */
-export function gettingStartedFacts(queries: GettingStartedQueries): GettingStartedFacts | undefined {
+export function gettingStartedProgress(queries: GettingStartedQueries): GettingStartedProgress {
   const definitions = answer(queries.definitions);
   const instances = answer(queries.instances);
   const statistics = answer(queries.statistics);
   const connections = answer(queries.connections);
   const people = answer(queries.people);
-  if (!definitions || !instances || !statistics || !connections || !people) return undefined;
+  if ([definitions, instances, statistics, connections, people].some((each) => each.state === 'failed')) return FAILED;
+  if (
+    definitions.state !== 'answered' ||
+    instances.state !== 'answered' ||
+    statistics.state !== 'answered' ||
+    connections.state !== 'answered' ||
+    people.state !== 'answered'
+  ) {
+    return LOADING;
+  }
   return {
-    processDeployed: definitions.definitions.length > 0,
-    instanceStarted: instances.instances.length > 0,
-    taskCompleted: (statistics.stats?.completedTasks ?? 0) > 0,
-    connectionSetUp: connections.instances.length > 0,
-    peopleAdded: people.participants.length > 0,
+    state: 'known',
+    facts: {
+      processDeployed: definitions.data.definitions.length > 0,
+      instanceStarted: instances.data.instances.length > 0,
+      taskCompleted: (statistics.data.stats?.completedTasks ?? 0) > 0,
+      connectionSetUp: connections.data.instances.length > 0,
+      peopleAdded: people.data.participants.length > 0,
+    },
   };
 }
