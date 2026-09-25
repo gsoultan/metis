@@ -1,13 +1,16 @@
 import {
+  Code,
   Group,
   MultiSelect,
   NumberInput,
   SegmentedControl,
   Select,
   Stack,
+  Text,
   TextInput,
 } from '@mantine/core';
 import { useState } from 'react';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
 import { useGroups, useUsers } from '../../hooks/useProcess';
 import { useAppStore } from '../../store/useAppStore';
 import { MultiInstanceConfig } from './CommonProperties';
@@ -44,7 +47,8 @@ function safeParse(value: string): unknown {
  * "Assignment Strategy" and "Execution Details".
  */
 export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const { currentOrganizationId, expertMode } = useAppStore();
+  const currentOrganizationId = useAppStore((state) => state.currentOrganizationId);
+  const expertMode = useAppStore((state) => state.expertMode);
   const { data: usersData } = useUsers(currentOrganizationId);
   const { data: groupsData } = useGroups(currentOrganizationId);
 
@@ -57,6 +61,7 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const [assignmentMode, setAssignmentMode] = useState(initialMode);
 
   const fields = asFormFields(data.formDefinition);
+  const formKey = advancedVisibility(expertMode, data.formKey);
 
   return (
     <Stack gap="xl">
@@ -150,20 +155,26 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </Group>
       </PropertySection>
 
-      {expertMode && (
-        <>
-          <PropertySection title="Form key" hint="Points at a form built outside this designer. Leave empty to use the fields above.">
-            <TextInput
-              aria-label="Form key"
-              placeholder="form_id"
-              value={asText(data.formKey)}
-              onChange={(e) => onUpdate({ formKey: e.target.value })}
-            />
-          </PropertySection>
-
-          <MultiInstanceConfig data={data} onUpdate={onUpdate} />
-        </>
+      {formKey === 'summary' && (
+        <PropertySection title="Form key" hint={CHANGE_IN_EXPERT_MODE}>
+          <Text size="sm">
+            Points at a form built outside this designer: <Code>{asText(data.formKey)}</Code>
+          </Text>
+        </PropertySection>
       )}
+
+      {formKey === 'edit' && (
+        <PropertySection title="Form key" hint="Points at a form built outside this designer. Leave empty to use the fields above.">
+          <TextInput
+            aria-label="Form key"
+            placeholder="form_id"
+            value={asText(data.formKey)}
+            onChange={(e) => onUpdate({ formKey: e.target.value })}
+          />
+        </PropertySection>
+      )}
+
+      {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
     </Stack>
   );
 }
