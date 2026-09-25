@@ -158,19 +158,26 @@ export interface RawEditorView {
 }
 
 /**
- * What the raw schema editor shows over a step's settings.
+ * The draft, while it still stands over the step's settings, or null.
  *
  * The draft stands while the step still has the settings it expects: after its
  * own update, and while it does not parse and so has changed nothing. A change
  * made anywhere else, such as the name field beside it, replaces the draft.
- * Kept, the draft would write its older settings back on the next keystroke.
+ * Kept, the draft would write its older settings back on the next keystroke,
+ * and it has to be dropped rather than set aside: when the step came back to
+ * the settings it expects, by a rename and a rename back, the old text and its
+ * error came back with them.
  */
+export function liveDraft(current: Record<string, unknown>, draft: RawDraft | null): RawDraft | null {
+  return draft !== null && draft.expects === settingsFingerprint(current) ? draft : null;
+}
+
+/** What the raw schema editor shows over a step's settings. */
 export function rawEditorView(current: Record<string, unknown>, draft: RawDraft | null): RawEditorView {
-  if (draft === null || draft.expects !== settingsFingerprint(current)) {
-    return { text: JSON.stringify(current, null, 2) };
-  }
-  const reading = readRawSettings(draft.text);
-  return reading.ok ? { text: draft.text } : { text: draft.text, problem: reading.problem };
+  const live = liveDraft(current, draft);
+  if (live === null) return { text: JSON.stringify(current, null, 2) };
+  const reading = readRawSettings(live.text);
+  return reading.ok ? { text: live.text } : { text: live.text, problem: reading.problem };
 }
 
 /**
