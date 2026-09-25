@@ -115,3 +115,44 @@ func TestAbsentThingsAreClientErrors(t *testing.T) {
 		})
 	}
 }
+
+// Completing a task that is already completed is a refusal, not a failure.
+//
+// The second of two submissions — a double click, a client resending a request
+// whose answer never arrived, the inbox's offline queue sending an approval a
+// colleague has already made — was answered 500. So each spent the error
+// budget, and the offline queue, which drops a refusal and resends a server
+// failure, resent the approval until it gave up and told the person it could
+// not be sent.
+func TestCompletingACompletedTaskIsRefusedNotAServerFailure(t *testing.T) {
+	h := newHarness(t)
+
+	var started struct {
+		InstanceID uuid.UUID `json:"instance_id"`
+	}
+	if code := h.call(http.MethodPost, "/api/v1/process/start", h.token,
+		map[string]any{"project_id": h.projID.String(), "definition_key": "slo-approval"}, &started); code != http.StatusOK {
+		t.Fatalf("start the approval: status %d", code)
+	}
+	var listed struct {
+		Tasks []struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"tasks"`
+	}
+	if code := h.call(http.MethodGet, "/api/v1/tasks?instance_id="+started.InstanceID.String(), h.token, nil, &listed); code != http.StatusOK || len(listed.Tasks) != 1 {
+		t.Fatalf("find the approval's task: status %d, %d tasks", code, len(listed.Tasks))
+	}
+
+	complete := "/api/v1/tasks/" + listed.Tasks[0].ID.String() + "/complete"
+	if code := h.call(http.MethodPost, complete, h.token, map[string]any{}, nil); code != http.StatusOK {
+		t.Fatalf("the first completion returned %d, want 200", code)
+	}
+	code := h.call(http.MethodPost, complete, h.token, map[string]any{}, nil)
+	if code >= 500 {
+		t.Fatalf("completing it again returned %d: that the task is done is the caller's news, and a 5xx spends "+
+			"the error budget and tells a client to send it again", code)
+	}
+	if code != http.StatusBadRequest {
+		t.Fatalf("completing it again returned %d, want 400, the refusal the task service gives a completed task elsewhere", code)
+	}
+}

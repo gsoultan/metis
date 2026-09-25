@@ -274,8 +274,12 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// Any authenticated user could therefore complete any unclaimed task in
 		// any project and inject arbitrary variables into the instance.
 		authorize := func(task entities.Task) error {
+			// A refusal, not a failure: the second of two submissions meets
+			// this, and a 5xx would tell its client to send it again. The
+			// inbox's offline queue shows the text to the person, so it names
+			// no id.
 			if task.Status == entities.TaskCompleted {
-				return fmt.Errorf("task %s is already completed", id)
+				return apierr.Invalidf("this task is already completed")
 			}
 			if task.Status == entities.TaskCanceled {
 				return fmt.Errorf("%w: task %s was cancelled and cannot be completed", ErrTaskForbidden, id)
