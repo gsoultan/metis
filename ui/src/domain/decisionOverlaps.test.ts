@@ -83,4 +83,21 @@ describe('findOverlaps', () => {
   it('says nothing about a table of one line', () => {
     expect(messages('UNIQUE', [rule('-')])).toEqual([]);
   });
+
+  /**
+   * `""` is the cell menu's "Empty", and the engine matches it against empty
+   * text like any other text. The check read it as matching nothing, so two
+   * lines both saying Empty, or Empty beside "anything but GOLD", were never
+   * compared, and a table the engine fails for an empty tier saved cleanly.
+   */
+  it('reads the Empty condition as the empty text', () => {
+    const tier: DecisionInputColumn = { id: 'i3', label: 'Tier', expression: 'tier', type: 'string' };
+    expect(messages('UNIQUE', [rule('""', 'A'), rule('""', 'B')], [tier])).toEqual([
+      'Lines 1 and 2 both apply when Tier is empty, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(messages('UNIQUE', [rule('"GOLD"', 'A'), rule('""', 'B'), rule('not("GOLD")', 'C')], [tier])).toEqual([
+      'Lines 2 and 3 both apply when Tier is empty, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(messages('UNIQUE', [rule('"GOLD"', 'A'), rule('""', 'B'), rule('not("GOLD", "")', 'C')], [tier])).toEqual([]);
+  });
 });

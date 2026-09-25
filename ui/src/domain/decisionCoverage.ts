@@ -159,12 +159,17 @@ export function columnSamples(column: DecisionInputColumn, cells: string[]): Sam
   const literals = new Set<string>();
   for (const cell of cells) {
     for (const part of cell.split(',')) {
-      const literal = unquote(part.trim().replace(/^not\(/, '').replace(/\)$/, ''));
-      if (literal && literal !== ANY_VALUE) literals.add(literal);
+      const text = part.trim().replace(/^not\(/, '').replace(/\)$/, '').trim();
+      // A blank part is no value, and a bare dash is "any value". Quoted, both
+      // are text: `""` is the cell menu's "Empty", which the engine matches
+      // against empty text like any other text, and was dropped here as if it
+      // were no value at all.
+      if (text === '' || text === ANY_VALUE) continue;
+      literals.add(unquote(text));
     }
   }
   const named = [...literals];
-  const samples: Sample[] = named.map((value) => ({ value, label: value, standsFor: value, condition: quoted(value) }));
+  const samples: Sample[] = named.map(textSample);
   samples.push({
     value: 'anything-else-entirely',
     label: 'anything else',
@@ -172,6 +177,12 @@ export function columnSamples(column: DecisionInputColumn, cells: string[]): Sam
     condition: named.length > 0 ? `not(${named.map(quoted).join(', ')})` : ANY_VALUE,
   });
   return samples;
+}
+
+/** A text value, said the way the cell menu says it: `""` is "empty". */
+function textSample(value: string): Sample {
+  const label = value === '' ? 'empty' : value;
+  return { value, label, standsFor: label, condition: quoted(value) };
 }
 
 /**

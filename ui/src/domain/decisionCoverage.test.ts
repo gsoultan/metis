@@ -247,3 +247,34 @@ describe('ruleForGap', () => {
     expect(line).toEqual({ id: 'new-line', input_entries: ['100'], output_entries: ['', ''], description: '' });
   });
 });
+
+/**
+ * `""` is the cell menu's "Empty": text with nothing in it, which the engine
+ * matches like any other text. The checks dropped it as if it were no value at
+ * all, so a line saying Empty decided nothing they could see: "anything else"
+ * was offered as a gap, and the line written for it, `not("GOLD")`, matches
+ * the empty text too — two lines for one case, which fails a table where only
+ * one may match.
+ */
+describe('the Empty condition', () => {
+  it('is a case the table decides, not a gap', () => {
+    const report = findCoverageGaps([tier], [rule('"GOLD"'), rule('""')]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual(['Nothing decides when Tier is anything else']);
+    expect(ruleForGap(report.gaps[0], 'new', 1).input_entries).toEqual(['not("GOLD", "")']);
+  });
+
+  it('is a gap of its own when no line decides it', () => {
+    const report = findCoverageGaps([tier], [rule('"GOLD"'), rule('not("GOLD", "")')]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual(['Nothing decides when Tier is empty']);
+    expect(ruleForGap(report.gaps[0], 'new', 1).input_entries).toEqual(['""']);
+  });
+
+  it('is read inside a list and inside not( ), and in either quote', () => {
+    expect(findCoverageGaps([tier], [rule('"GOLD", \'\''), rule('not("GOLD", "")')]).gaps).toEqual([]);
+  });
+
+  it('is text like any other: a quoted dash is the text "-", not "any value"', () => {
+    const report = findCoverageGaps([tier], [rule('"-"')]);
+    expect(ruleForGap(report.gaps[0], 'new', 1).input_entries).toEqual(['not("-")']);
+  });
+});
