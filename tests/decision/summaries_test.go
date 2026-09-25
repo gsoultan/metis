@@ -2,10 +2,13 @@ package decision_test
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
@@ -167,5 +170,23 @@ func TestDecisionListIsSearchedOnTheServer(t *testing.T) {
 		if !slices.Equal(keys, c.want) || page.Total != int64(len(c.want)) {
 			t.Errorf("search %q found %v (total %d), want %v", c.search, keys, page.Total, c.want)
 		}
+	}
+}
+
+// A search is matched against names and keys of at most 255 characters, so a
+// longer one can match nothing: it is refused rather than run, the way any
+// other malformed request is, instead of scanning the project's decisions for
+// text no decision can hold.
+func TestDecisionListRefusesASearchLongerThanAnyName(t *testing.T) {
+	w := newListWorld(t)
+	w.deploy(t, w.project, "tier", "Customer tier")
+
+	_, err := w.svc.ListDecisionsPaged(w.ctx, w.project, strings.Repeat("x", 256), repocontracts.Pagination{})
+	if !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Fatalf("a 256-character search: got %v, want an invalid-argument refusal", err)
+	}
+	page, err := w.svc.ListDecisionsPaged(w.ctx, w.project, strings.Repeat("é", 255), repocontracts.Pagination{})
+	if err != nil || page.Total != 0 {
+		t.Fatalf("a 255-character search: got %d results and %v, want none and no error", page.Total, err)
 	}
 }

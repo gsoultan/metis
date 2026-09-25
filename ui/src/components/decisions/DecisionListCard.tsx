@@ -19,6 +19,7 @@ import { ErrorState } from '../state';
 dayjs.extend(relativeTime);
 
 const COLUMNS = 5;
+const SEARCH_MAX_LENGTH = 255;
 
 export interface DecisionListCardProps {
   rows: ApiDecision[];
@@ -48,6 +49,8 @@ export function DecisionListCard(props: DecisionListCardProps) {
         <TextInput
           aria-label="Search decisions"
           placeholder="Search decisions…"
+          // The server refuses a search longer than any name or key can be.
+          maxLength={SEARCH_MAX_LENGTH}
           leftSection={<Search size={16} />}
           style={{ maxWidth: 400 }}
           variant="filled"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -85,9 +86,17 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	return s.tableEvaluator.EvaluateTable(ctx, decision, variables)
 }
 
+// maxDecisionSearch is the longest search a decision list runs: names and keys
+// are at most 255 characters, so a longer search matches nothing.
+const maxDecisionSearch = 255
+
 // ListDecisionsPaged returns one page of a project's decisions, for the same
 // reason definitions have one, narrowed by search when it is not empty.
 func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error) {
+	if utf8.RuneCountInString(search) > maxDecisionSearch {
+		return repocontracts.Page[entities.DecisionDefinition]{}, apierr.Invalidf(
+			"a search is at most %d characters, the longest a decision's name or key can be", maxDecisionSearch)
+	}
 	result, err := s.repo.Decision().ListByProjectPaged(ctx, projectID, search, page)
 	if err != nil {
 		return repocontracts.Page[entities.DecisionDefinition]{}, err
