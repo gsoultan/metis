@@ -33,7 +33,7 @@ type Engine struct {
 	repo           repositories.Repository
 	handlerFactory handlercontracts.NodeHandlerFactory
 	dispatcher     observerContracts.EventDispatcher
-	jobSvc         serviceContracts.JobService
+	jobSvc         serviceContracts.JobEnqueuer
 	varHistory     serviceContracts.VariableHistoryWriter
 	// Decoded definitions, bounded and keyed by tenant. See definition_cache.go.
 	definitions *definitionCache
@@ -45,8 +45,8 @@ type Engine struct {
 // mutable public setter methods on the Engine type.
 type EngineOption func(*Engine)
 
-// WithJobService injects the JobService used for timer and service-task enqueueing.
-func WithJobService(js serviceContracts.JobService) EngineOption {
+// WithJobService injects the JobEnqueuer the engine queues timers through.
+func WithJobService(js serviceContracts.JobEnqueuer) EngineOption {
 	return func(e *Engine) { e.jobSvc = js }
 }
 

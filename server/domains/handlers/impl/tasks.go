@@ -22,7 +22,7 @@ import (
 //     double-execution bug that occurred when connector code ran here AND in the
 //     job worker.
 type ServiceTaskHandler struct {
-	jobService          contracts.JobService
+	jobService          contracts.JobEnqueuer
 	externalTaskService contracts.ExternalTaskService
 }
 
@@ -58,7 +58,7 @@ type UserTaskHandler struct {
 
 	// decisionService resolves who should do the work, when the node says a
 	// decision table decides that rather than the diagram. See assignment.go.
-	decisionService contracts.DecisionService
+	decisionService contracts.DecisionEvaluator
 	auditWriter     contracts.AuditWriter
 }
 

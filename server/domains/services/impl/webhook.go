@@ -46,11 +46,11 @@ const deliveryRetention = 48 * time.Hour
 
 type webhookService struct {
 	repo   repositories.Repository
-	engine servicecontracts.ExecutionEngine
+	engine servicecontracts.EngineEventBus
 }
 
 // NewWebhookService creates the receiver for inbound webhook deliveries.
-func NewWebhookService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) servicecontracts.WebhookService {
+func NewWebhookService(repo repositories.Repository, engine servicecontracts.EngineEventBus) servicecontracts.WebhookService {
 	return &webhookService{repo: repo, engine: engine}
 }
 
