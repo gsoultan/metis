@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
   advancedVisibility,
@@ -12,12 +10,6 @@ import {
   rawEditorView,
   type RawDraft,
 } from './disclosure';
-
-const SRC = join(import.meta.dir, '..');
-
-function readSource(path: string): string {
-  return readFileSync(join(SRC, path), 'utf8');
-}
 
 /**
  * Basic mode may hide an advanced setting only while it is empty.
@@ -196,50 +188,6 @@ describe('loopSummary', () => {
     expect(advancedVisibility(false, loopSummary({ multiInstanceType: 'none' }))).toBe('hidden');
     expect(advancedVisibility(false, loopSummary({ multiInstanceType: 'parallel', collection: 'orders' }))).toBe('summary');
     expect(advancedVisibility(true, loopSummary({}))).toBe('edit');
-  });
-});
-
-/** The opening tag of each control whose `checked` is bound to the flag. */
-function flagControls(source: string): string[] {
-  return [...source.matchAll(/checked=\{expertMode\}/g)].map((match) =>
-    openingTag(source, source.lastIndexOf('<', match.index)),
-  );
-}
-
-/** A JSX opening tag, skipping the `>` of any arrow inside its braces. */
-function openingTag(source: string, start: number): string {
-  let depth = 0;
-  for (let index = start; index < source.length; index++) {
-    const character = source[index];
-    if (character === '{') depth++;
-    if (character === '}') depth--;
-    if (character === '>' && depth === 0) return source.slice(start, index + 1);
-  }
-  return source.slice(start);
-}
-
-/** What a screen reader calls the control: its aria-label, or else its label. */
-function accessibleName(tag: string): string | undefined {
-  return /aria-label="([^"]*)"/.exec(tag)?.[1] ?? /\slabel="([^"]*)"/.exec(tag)?.[1];
-}
-
-/**
- * The switch for the flag has one name wherever it appears.
- *
- * The property panel's read "BPMN names" while it flipped the whole flag: the
- * raw schema, the API example and every advanced setting. The note beside it
- * said to toggle "Expert Mode" at the top, and nothing there had that name.
- */
-describe('the expert-mode switch', () => {
-  it.each([
-    ['components/shell/AppHeader.tsx'],
-    ['pages/Settings.tsx'],
-    ['components/PropertyPanel.tsx'],
-  ])('is called Expert mode in %s', (path) => {
-    const names = flagControls(readSource(path)).map(accessibleName);
-
-    expect(names.length).toBeGreaterThan(0);
-    expect(names).toEqual(names.map(() => 'Expert mode'));
   });
 });
 

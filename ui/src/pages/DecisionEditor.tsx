@@ -1101,7 +1101,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 <Title order={6}>Advanced</Title>
                 <Switch
                   size="xs"
-                  label="Expert"
+                  label="Expert mode"
                   checked={expertMode}
                   onChange={(event) => setExpertMode(event.currentTarget.checked)}
                 />
