@@ -113,6 +113,18 @@ export function implementationOptions(expert: boolean, current: string): Impleme
   return [...offered, optionFor(current)];
 }
 
+/**
+ * Whether the panel lets the person change how a service task works.
+ *
+ * Basic mode chooses among the ways it offers. A step set another way, to run
+ * a script or in a way from outside this editor, is shown read-only there:
+ * the choice used to stay live, and choosing "Call a web address" on a script
+ * step dropped the script with no way back, since basic mode offers none.
+ */
+export function canChooseImplementation(expert: boolean, current: string): boolean {
+  return expert || BASIC_IMPLEMENTATIONS.some((option) => option.value === current);
+}
+
 function optionFor(value: string): ImplementationOption {
   const known = EXPERT_IMPLEMENTATIONS.find((option) => option.value === value);
   if (known) return known;

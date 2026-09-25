@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   advancedVisibility,
+  canChooseImplementation,
   editRawSettings,
   implementationOptions,
   listDetails,
@@ -114,6 +115,14 @@ describe('implementationOptions', () => {
 
   it('adds nothing for an empty value', () => {
     expect(values(false, '')).toEqual(['push', 'connector', 'external']);
+  });
+
+  it('lets basic mode change only a way it offers', () => {
+    expect(canChooseImplementation(false, 'push')).toBe(true);
+    expect(canChooseImplementation(false, 'script')).toBe(false);
+    expect(canChooseImplementation(false, 'soap')).toBe(false);
+    expect(canChooseImplementation(true, 'script')).toBe(true);
+    expect(canChooseImplementation(true, 'soap')).toBe(true);
   });
 
   it('describes every way it offers', () => {

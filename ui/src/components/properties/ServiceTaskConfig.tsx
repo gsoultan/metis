@@ -16,7 +16,7 @@ import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE, implementationOptions } from '../../domain/disclosure';
+import { advancedVisibility, canChooseImplementation, CHANGE_IN_EXPERT_MODE, implementationOptions } from '../../domain/disclosure';
 import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
@@ -49,21 +49,25 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const takesStepFields = stepSchema.length > 0;
 
   const options = implementationOptions(expertMode, implementation);
+  const chosen = options.find((option) => option.value === implementation);
+  const choosable = canChooseImplementation(expertMode, implementation);
   const script = implementation === 'script' ? advancedVisibility(expertMode, data.script) : 'hidden';
 
   return (
     <Stack gap="xl">
-      <PropertySection title="What it calls" hint="Everything below follows from this.">
-        <Select
-          aria-label="Implementation"
-          data={options.map(({ value, label }) => ({ value, label }))}
-          value={implementation}
-          onChange={(val) => onUpdate({ implementation: val })}
-          allowDeselect={false}
-        />
-        <Text size="xs" c="dimmed">
-          {options.find((option) => option.value === implementation)?.description}
-        </Text>
+      <PropertySection title="What it calls" hint={choosable ? 'Everything below follows from this.' : CHANGE_IN_EXPERT_MODE}>
+        {choosable ? (
+          <Select
+            aria-label="Implementation"
+            data={options.map(({ value, label }) => ({ value, label }))}
+            value={implementation}
+            onChange={(val) => onUpdate({ implementation: val })}
+            allowDeselect={false}
+          />
+        ) : (
+          <Text size="sm" fw={500}>{chosen?.label}</Text>
+        )}
+        <Text size="xs" c="dimmed">{chosen?.description}</Text>
       </PropertySection>
 
       {implementation === 'connector' && (
