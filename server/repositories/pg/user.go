@@ -216,6 +216,30 @@ func (r *userRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, pass
 	return nil
 }
 
+// SetProfile writes how an account is named and reached, and nothing else.
+//
+// The UPDATE names three columns. Update would write every one from what its
+// caller read — so an owner renaming themselves at the moment an administrator
+// took a role away would write the old roles back, and undo the demotion.
+func (r *userRepository) SetProfile(ctx context.Context, u models.UserModel) error {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	row, err := r.row(ctx, user.ID.Eq(uuid.UUID(u.ID)))
+	if err != nil {
+		return err
+	}
+	mut := user.Mutate(row)
+	mut.SetFullName(u.FullName)
+	mut.SetDisplayName(u.DisplayName)
+	mut.SetEmail(u.Email)
+	if err := mut.Update(ctx, ex); err != nil {
+		return fmt.Errorf("could not save the profile: %w", err)
+	}
+	return nil
+}
+
 // Update saves an account's profile.
 //
 // The password hash is deliberately not written here. It has its own method, so

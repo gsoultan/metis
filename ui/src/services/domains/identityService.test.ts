@@ -53,6 +53,49 @@ describe("identityService writes", () => {
     ).rejects.toThrow("group name in use");
   });
 
+  test("updateOwnProfile saves to the caller's own profile, not to an account named by id", async () => {
+    // PUT /users/{id} is an administrator's, so the Profile page's save failed
+    // for everybody else.
+    const stub = stubFetch({});
+    restore = stub.restore;
+    await identityService.updateOwnProfile({ full_name: "Dana Scully", display_name: "Dana", email: "dana@example.com" });
+
+    expect(stub.sent[0].method).toBe("PUT");
+    expect(stub.sent[0].url.endsWith("/users/me")).toBe(true);
+    expect((stub.sent[0].body as { user: unknown }).user).toEqual({
+      full_name: "Dana Scully",
+      display_name: "Dana",
+      email: "dana@example.com",
+    });
+  });
+
+  test("updateOwnProfile sends the three fields and nothing else it is handed", async () => {
+    const stub = stubFetch({});
+    restore = stub.restore;
+    const handed = { full_name: "Dana", display_name: "Dana", email: "", roles: ["ADMIN"], organization: "Other", id: "u-2" };
+    await identityService.updateOwnProfile(handed);
+
+    const user = (stub.sent[0].body as { user: Record<string, unknown> }).user;
+    expect(Object.keys(user).sort()).toEqual(["display_name", "email", "full_name"]);
+  });
+
+  test("updateOwnProfile raises the refusal instead of returning it", async () => {
+    ({ restore } = stubFetch({ error: "invalid argument: the email has to be a single address" }, 400));
+    await expect(
+      identityService.updateOwnProfile({ full_name: "Dana", display_name: "Dana", email: "dana at example" }),
+    ).rejects.toThrow("single address");
+  });
+
+  test("getOwnProfile reads the caller's own profile", async () => {
+    const stub = stubFetch({ user: { id: "u-1", username: "dana", email: "dana@example.com" } });
+    restore = stub.restore;
+    const { user } = await identityService.getOwnProfile();
+
+    expect(stub.sent[0].method).toBe("GET");
+    expect(stub.sent[0].url.endsWith("/users/me")).toBe(true);
+    expect(user?.email).toBe("dana@example.com");
+  });
+
   test("createGroup and updateGroup send the group's roles", async () => {
     const stub = stubFetch({ group: { id: "g-1" } });
     restore = stub.restore;

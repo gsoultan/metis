@@ -5,8 +5,11 @@ import (
 	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/google/uuid"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/endpoints/principal"
 )
 
 type Endpoints struct {
@@ -19,6 +22,11 @@ type Endpoints struct {
 
 	// ChangePassword rotates the caller's own password.
 	ChangePassword endpoint.Endpoint
+
+	// GetOwnProfile and UpdateOwnProfile read and edit the caller's own name
+	// and email, for anybody signed in.
+	GetOwnProfile    endpoint.Endpoint
+	UpdateOwnProfile endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -31,6 +39,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ListUsers:  MakeListUsersEndpoint(s),
 
 		ChangePassword: MakeChangePasswordEndpoint(s),
+
+		GetOwnProfile:    MakeGetOwnProfileEndpoint(s),
+		UpdateOwnProfile: MakeUpdateOwnProfileEndpoint(s),
 	}
 }
 
@@ -130,4 +141,45 @@ func MakeChangePasswordEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			Err: s.ChangePassword(ctx, userID, req.CurrentPassword, req.NewPassword),
 		}, nil
 	}
+}
+
+// MakeGetOwnProfileEndpoint returns the signed-in account's own record.
+func MakeGetOwnProfileEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		if _, ok := request.(GetOwnProfileRequest); !ok {
+			return nil, fmt.Errorf("user: expected a GetOwnProfileRequest, got %T", request)
+		}
+		userID, err := ownAccountID(ctx)
+		if err != nil {
+			return GetOwnProfileResponse{Err: err}, nil
+		}
+		u, err := s.GetOwnProfile(ctx, userID)
+		return GetOwnProfileResponse{User: u, Err: err}, nil
+	}
+}
+
+// MakeUpdateOwnProfileEndpoint lets a signed-in account change its own name
+// and email. Whose they are comes from the session, as for ChangePassword.
+func MakeUpdateOwnProfileEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(UpdateOwnProfileRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a UpdateOwnProfileRequest, got %T", request)
+		}
+		userID, err := ownAccountID(ctx)
+		if err != nil {
+			return UpdateOwnProfileResponse{Err: err}, nil
+		}
+		return UpdateOwnProfileResponse{Err: s.UpdateOwnProfile(ctx, userID, req.User)}, nil
+	}
+}
+
+// ownAccountID is the account the session belongs to. An identity provider's
+// principal has no account here; the tenant resolver refuses it before this
+// is reached, and this refuses it as well rather than guess at one.
+func ownAccountID(ctx context.Context) (uuid.UUID, error) {
+	if id := principal.LocalUserID(ctx); id != uuid.Nil {
+		return id, nil
+	}
+	return uuid.Nil, pkgauth.ErrUnauthorized
 }

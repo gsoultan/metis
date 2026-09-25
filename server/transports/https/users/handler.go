@@ -28,6 +28,22 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// The caller's own profile, for the same reason. A literal segment is more
+	// specific than {id}, so the mux sends these here and not to the
+	// administrative handlers below — which is where "me" used to land, as an
+	// id that failed to parse.
+	m.Handle("GET /api/v1/users/me", httptransport.NewServer(
+		eps.GetOwnProfile,
+		decodeGetOwnProfileRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("PUT /api/v1/users/me", httptransport.NewServer(
+		eps.UpdateOwnProfile,
+		decodeUpdateOwnProfileRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/users", httptransport.NewServer(
 		eps.CreateUser,
 		decodeCreateUserRequest,
@@ -111,6 +127,18 @@ func decodeDeleteUserRequest(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	return user.DeleteUserRequest{ID: id}, nil
+}
+
+func decodeGetOwnProfileRequest(_ context.Context, _ *http.Request) (any, error) {
+	return user.GetOwnProfileRequest{}, nil
+}
+
+func decodeUpdateOwnProfileRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.UpdateOwnProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("could not read the request body: %v", err)
+	}
+	return req, nil
 }
 
 func decodeChangePasswordRequest(_ context.Context, r *http.Request) (any, error) {
