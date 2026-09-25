@@ -82,7 +82,6 @@ import {
   applyPastedGrid,
   describeCell,
   describeTable,
-  findProblems,
   formatOutputValue,
   hitPolicyOf,
   moveRule,
@@ -95,6 +94,7 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
+import { findProblems } from '../domain/decisionProblems';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
