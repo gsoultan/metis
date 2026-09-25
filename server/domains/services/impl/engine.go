@@ -261,9 +261,11 @@ func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (en
 	frequencies := make(map[string]int)
 	seen := make(map[string]bool)
 
-	// Audit logs are usually ordered by timestamp desc. We want chronological order.
-	for i := len(entries) - 1; i >= 0; i-- {
-		entry := entries[i]
+	// The trail comes oldest first (ListByInstance orders by created_at), so a
+	// walk from the front is the order the steps were reached in. This walked it
+	// from the back, on the belief that it came newest first, and reported every
+	// path end to start.
+	for _, entry := range entries {
 		if entry.Type == entities.EventNodeReached && entry.NodeID != "" {
 			frequencies[entry.NodeID]++
 			if !seen[entry.NodeID] {
