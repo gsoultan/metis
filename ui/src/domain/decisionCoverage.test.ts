@@ -88,6 +88,21 @@ describe('findCoverageGaps', () => {
     expect(report.truncated).toBe(false);
   });
 
+  /**
+   * The value tried past a threshold was the threshold plus one. When the next
+   * threshold is closer than that, the space between the two was never tried:
+   * `<= 10` and `>= 11` leave an amount of 10.50 undecided.
+   */
+  it('tries a value between two thresholds, however close they are', () => {
+    expect(findCoverageGaps([amount], [rule('<= 10'), rule('>= 11')]).gaps.map((gap) => gap.values[0])).toEqual([
+      '10.5',
+    ]);
+    expect(findCoverageGaps([amount], [rule('<= 10'), rule('> 10.5')]).gaps.map((gap) => gap.values[0])).toEqual([
+      '10.25',
+      '10.5',
+    ]);
+  });
+
   it('says it stopped short when it stops at the most gaps it will report', () => {
     // Twelve named tiers, none of them decided: more gaps than are reported.
     const tiers = Array.from({ length: 12 }, (_, i) => `"T${i}"`).join(', ');

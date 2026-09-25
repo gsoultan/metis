@@ -122,22 +122,7 @@ function samplesFor(column: DecisionInputColumn, cells: string[]): Sample[] {
   }
 
   if (column.type === 'number') {
-    const bounds = new Set<number>();
-    for (const cell of cells) {
-      for (const match of cell.matchAll(/-?\d+(\.\d+)?/g)) {
-        bounds.add(Number(match[0]));
-      }
-    }
-    const sorted = [...bounds].sort((a, b) => a - b);
-    const points = new Set<number>();
-    // Below everything, then each boundary and just past it. That set catches an
-    // off-by-one at a threshold, which is the commonest gap there is.
-    points.add((sorted[0] ?? 0) - 1);
-    for (const bound of sorted) {
-      points.add(bound);
-      points.add(bound + 1);
-    }
-    return [...points].sort((a, b) => a - b).map((value) => ({ value, label: String(value) }));
+    return numberSamples(thresholdsIn(cells));
   }
 
   // Text: every literal the table mentions, plus one value it does not, which is
@@ -152,6 +137,47 @@ function samplesFor(column: DecisionInputColumn, cells: string[]): Sample[] {
   const samples: Sample[] = [...literals].map((value) => ({ value, label: value }));
   samples.push({ value: 'anything-else-entirely', label: 'anything else' });
   return samples;
+}
+
+/** Every number a column's cells mention, lowest first. */
+function thresholdsIn(cells: string[]): number[] {
+  const thresholds = new Set<number>();
+  for (const cell of cells) {
+    for (const match of cell.matchAll(/-?\d+(\.\d+)?/g)) {
+      thresholds.add(Number(match[0]));
+    }
+  }
+  return [...thresholds].sort((a, b) => a - b);
+}
+
+/**
+ * One value from each stretch of the number line that no cell tells apart:
+ * below every threshold, each threshold itself, one value strictly between
+ * each pair of neighbours, and one above them all.
+ *
+ * Every cell this analysis reads changes its answer only at a threshold, so a
+ * value from a stretch speaks for the whole stretch. The threshold itself is
+ * there because that is where an off-by-one hides, the commonest gap there is.
+ */
+function numberSamples(thresholds: number[]): Sample[] {
+  if (thresholds.length === 0) return [{ value: -1, label: '-1' }];
+  const values = [thresholds[0] - 1];
+  thresholds.forEach((threshold, index) => {
+    const next = thresholds[index + 1];
+    values.push(threshold, next === undefined ? threshold + 1 : strictlyBetween(threshold, next));
+  });
+  return values.map((value) => ({ value, label: String(value) }));
+}
+
+/**
+ * The next whole number when there is room for one, which reads naturally,
+ * and the midpoint when there is not. Plus one used to be tried regardless, and
+ * past a threshold less than one away it skipped the stretch in between.
+ */
+function strictlyBetween(low: number, high: number): number {
+  if (low + 1 < high) return low + 1;
+  // Rounded so that 0.1 and 0.2 give 0.15 rather than 0.15000000000000002.
+  return Number(((low + high) / 2).toPrecision(12));
 }
 
 function ruleMatches(rule: DecisionRuleRow, chosen: Sample[], inputs: DecisionInputColumn[]): boolean {
