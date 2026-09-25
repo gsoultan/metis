@@ -32,6 +32,7 @@ import {
 import type { ActionRow } from '../domain/instanceMigration';
 import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
 import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
+import { migrationNotice } from '../domain/migrationOutcome';
 import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
 import { VersionChangesTable } from './VersionChangesTable';
@@ -152,25 +153,26 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   const handleApply = async () => {
     if (!source || !target) return;
     try {
-      const result = await apply.mutateAsync({
+      const reply = await apply.mutateAsync({
         source: source.id,
         target: target.id,
         mapping: toNodeMapping(rows),
         acknowledge: accepted,
         actions: toNodeActions(actionRows),
       });
-      if (result.err) {
-        setRefused(result.err);
+      if (reply.err) {
+        setRefused(reply.err);
         return;
       }
-      notifications.show({
-        title: 'Moved',
-        message: `${plan?.instances ?? 0} instances now run on v${target.version}.`,
-        color: 'green',
-      });
-      close();
+      // Said from the server's reply, not from the preview on screen: see
+      // migrationNotice.
+      const notice = migrationNotice(reply, target.version);
+      notifications.show({ title: notice.title, message: notice.message, color: notice.color });
+      if (notice.closes) close();
     } catch (error: unknown) {
-      setRefused(errorMessage(error, 'The instances could not be moved.'));
+      // Not "could not be moved": the server moves instances one at a time,
+      // and one that stops part-way has moved some. Its message says how many.
+      setRefused(errorMessage(error, 'The server did not confirm the move.'));
     }
   };
 

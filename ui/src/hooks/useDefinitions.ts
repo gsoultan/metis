@@ -197,7 +197,9 @@ export const useMigrateInstances = () => {
   return useMutation({
     mutationFn: ({ source, target, mapping, acknowledge, actions }: MigrationArgs) =>
       processService.migrateInstances(source, target, mapping, false, acknowledge ?? [], actions ?? {}),
-    onSuccess: () => {
+    // Settled, not only succeeded: the server moves instances one at a time,
+    // so an apply that fails part-way has already moved some of them.
+    onSettled: () => {
       // Instances, the inbox and the version history all change: a task that was
       // on one node is now on another, and the instance names a different
       // version. Leaving any of them cached shows work where it no longer is.
