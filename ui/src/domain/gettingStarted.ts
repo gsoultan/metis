@@ -6,9 +6,10 @@
  * project", which setup has already done for everybody who can read it. A
  * checklist that cannot say where you are is a paragraph.
  *
- * Every step here is answered from something the interface already fetches:
- * the project's processes, instances, tasks, connections and people. Progress
- * is read, not remembered, so a step a colleague did, or one done in another
+ * Every step here is answered from what the server already reports: the
+ * project's processes and instances, its statistics' count of completed tasks,
+ * its connections, and whether it has anybody in its directory. Progress is
+ * read, not remembered, so a step a colleague did, or one done in another
  * browser, is ticked all the same, and there is nothing to keep in step.
  *
  * The order is the first loop through the product: build a process, run it, do
@@ -164,7 +165,7 @@ export interface GettingStartedQueries {
   statistics: QueryLike<Reply & { stats?: { completedTasks?: number } }>;
   /** `useConnectorInstances()`. */
   connections: QueryLike<Reply & { instances: readonly unknown[] }>;
-  /** `useParticipants()`. */
+  /** `useParticipants({ limit: 1 })`: whether there is anybody, which is one row. */
   people: QueryLike<Reply & { participants: readonly unknown[] }>;
 }
 
