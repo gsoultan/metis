@@ -10,6 +10,7 @@ import {
   nextDeployStep,
   nextVersionNumber,
   pendingCutovers,
+  promotionFacts,
   rolloutOutcome,
   rowVersions,
   shouldAskRollout,
@@ -266,5 +267,80 @@ describe('nextDeployStep', () => {
     const accepted: typeof warning[] = [];
     expect(nextDeployStep(accepted, [v(1, true, 3)])).toBe('ask');
     expect(nextDeployStep(accepted, [])).toBe('live');
+  });
+});
+
+describe('promotionFacts', () => {
+  // v5 is live and has four quotations in flight; v2 is still draining one.
+  // Somebody rolls back to v3.
+  const now = new Date('2026-09-25T09:00:00Z');
+  const formatTime = (at: Date) => at.toISOString().slice(0, 16).replace('T', ' ');
+  const versions = [
+    { version: 5, live: true, running_instances: 4, total_instances: 9 },
+    { version: 4, live: false, running_instances: 0, total_instances: 0 },
+    { version: 3, live: false, running_instances: 0, total_instances: 6 },
+    { version: 2, live: false, running_instances: 1, total_instances: 30 },
+  ];
+  const facts = (list = versions, target = 3) => promotionFacts(list, target, { now, formatTime });
+
+  it('says it changes where new instances start, however they are started', () => {
+    // Checked against the engine: a message or signal start, and a call from
+    // another process that names no version, all resolve the live version.
+    expect(facts()[0]).toBe(
+      'From now on, new instances start on v3, including ones started by a message, a signal, ' +
+        'or another process that calls this one without naming a version.',
+    );
+  });
+
+  it('says what happens to everything already running, on every version', () => {
+    // The server writes one row on the release timeline and touches no
+    // instance. Instances pin the version they started on.
+    expect(facts()).toContain(
+      'Nothing already running is moved, stopped or restarted: the 4 instances on v5 finish on v5, ' +
+        'and the 1 on v2 finishes on v2.',
+    );
+  });
+
+  it('says so even when the live version has nothing running', () => {
+    const quiet = versions.map((v) => (v.version === 5 ? { ...v, running_instances: 0 } : v));
+    expect(facts(quiet)).toContain(
+      'Nothing already running is moved, stopped or restarted: the 1 instance on v2 finishes on v2.',
+    );
+  });
+
+  it('says how to move the work on the version being rolled back from', () => {
+    expect(facts()).toContain(
+      'To move the 4 on v5 onto v3 as well, use "Move work" on v5 once v3 is live.',
+    );
+  });
+
+  it('does not point at moving work when going forward', () => {
+    // Letting the old version drain is the normal path; the escape hatch is
+    // offered to somebody undoing a mistake, not to every promotion.
+    const forward = [...versions, { version: 6, live: false, running_instances: 0, total_instances: 0 }];
+    expect(facts(forward, 6).some((fact) => fact.includes('Move work'))).toBe(false);
+  });
+
+  it('says the version it replaces is kept', () => {
+    expect(facts()).toContain('v5 is not deleted, and can be made live again from this list.');
+  });
+
+  it('warns that a cutover already scheduled still happens', () => {
+    // Promoting writes a row for now; the scheduled row is later, so the
+    // timeline reaches it and the rollback is undone at that moment.
+    const scheduled = [
+      ...versions,
+      { version: 6, live: false, running_instances: 0, total_instances: 0,
+        scheduled_for: '2026-10-01T22:00:00Z', scheduled_release_id: 'r-6' },
+    ];
+    expect(facts(scheduled)).toContain(
+      'v6 is still scheduled to take over at 2026-10-01 22:00. From then, new instances start on v6, ' +
+        'not v3. Cancel it under Scheduled changes to keep v3 live.',
+    );
+  });
+
+  it('says nothing is affected when nothing is running', () => {
+    const idle = versions.map((v) => ({ ...v, running_instances: 0 }));
+    expect(facts(idle)).toContain('Nothing is running on any version, so no instance is affected.');
   });
 });

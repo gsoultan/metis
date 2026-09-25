@@ -94,6 +94,69 @@ export function isRollback(versions: VersionStatus[], version: number): boolean 
   return live !== null && version < live.version;
 }
 
+/** What the confirmation needs besides the versions: the moment, and how to write one. */
+export interface PromotionContext {
+  now: Date;
+  formatTime: (at: Date) => string;
+}
+
+/**
+ * Exactly what making `target` live does, one fact per line, for the
+ * confirmation that asks.
+ *
+ * Checked against the server rather than assumed. Promoting writes one row on
+ * the release timeline, effective now, and touches no instance: every
+ * instance pins the version it started on (PromoteDefinitionVersion →
+ * releaseAt). New instances resolve the live version however they start — by
+ * hand, from a message or a signal, or from a call activity that names no
+ * version. And the timeline is read as "the newest row whose moment has
+ * passed", so a cutover already scheduled for later still happens and undoes
+ * this one when it does. The dialog said the first of these and only the
+ * first; the rest are the ones people act on wrongly.
+ */
+export function promotionFacts(versions: SchedulableVersion[], target: number, context: PromotionContext): string[] {
+  const live = liveVersion(versions);
+  const replaced = live !== null && live.version !== target ? live : null;
+  const facts = [
+    `From now on, new instances start on v${target}, including ones started by a message, a signal, ` +
+      'or another process that calls this one without naming a version.',
+    runningFact(versions),
+  ];
+  // Only for a rollback: the instances on the version being left are the ones
+  // somebody rolling back is worried about, and "they finish on it" is the
+  // alarming half of the answer. Going forward, letting them drain is the
+  // normal path, and pointing at the escape hatch would invite using it.
+  if (replaced && replaced.running_instances > 0 && isRollback(versions, target)) {
+    facts.push(
+      `To move the ${replaced.running_instances} on v${replaced.version} onto v${target} as well, ` +
+        `use "Move work" on v${replaced.version} once v${target} is live.`,
+    );
+  }
+  if (replaced) facts.push(`v${replaced.version} is not deleted, and can be made live again from this list.`);
+  for (const cutover of pendingCutovers(versions)) {
+    if (cutover.version === target || cutover.at.getTime() <= context.now.getTime()) continue;
+    facts.push(
+      `v${cutover.version} is still scheduled to take over at ${context.formatTime(cutover.at)}. ` +
+        `From then, new instances start on v${cutover.version}, not v${target}. ` +
+        `Cancel it under Scheduled changes to keep v${target} live.`,
+    );
+  }
+  return facts;
+}
+
+/** Every version with work in flight, newest first, and what happens to that work: nothing. */
+function runningFact(versions: VersionStatus[]): string {
+  const running = versions.filter((v) => v.running_instances > 0).sort((a, b) => b.version - a.version);
+  if (running.length === 0) return 'Nothing is running on any version, so no instance is affected.';
+  const parts = running.map((v, index) => {
+    const one = v.running_instances === 1;
+    const noun = index > 0 ? '' : one ? ' instance' : ' instances';
+    return `the ${v.running_instances}${noun} on v${v.version} ${one ? 'finishes' : 'finish'} on v${v.version}`;
+  });
+  const listed = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+  return `Nothing already running is moved, stopped or restarted: ${listed}.`;
+}
+
 /**
  * A plain-language account of what a deploy will do, for the dialog that asks.
  *

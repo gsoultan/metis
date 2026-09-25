@@ -32,6 +32,7 @@ import {
   isRollback,
   liveVersion,
   pendingCutovers,
+  promotionFacts,
   versionState,
 } from '../domain/versionRollout';
 import {
@@ -54,6 +55,8 @@ export type DefinitionRef = { id: string; key: string; name: string; version: nu
 // first: this component says "in 3 days" about a scheduled cutover, and
 // dayjs.extend is global and idempotent.
 dayjs.extend(relativeTime);
+
+const formatCutover = (at: Date) => dayjs(at).format('D MMM YYYY, HH:mm');
 
 interface VersionHistoryModalProps {
   /** The process key whose history to show, or null when closed. */
@@ -342,15 +345,12 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
                   ? `Roll back to v${confirming.version}?`
                   : `Make v${confirming.version} the live version?`}
               </Text>
-              <Text size="xs">
-                New instances will start on v{confirming.version}.
-                {live && live.version !== confirming.version && live.running_instances > 0 && (
-                  <>
-                    {' '}The {live.running_instances === 1 ? 'one instance' : `${live.running_instances} instances`} running
-                    on v{live.version} {live.running_instances === 1 ? 'finishes' : 'finish'} on v{live.version} — nothing is moved.
-                  </>
-                )}
-              </Text>
+              {/* What the server does, checked against it: see promotionFacts. */}
+              <Stack gap={2}>
+                {promotionFacts(versions, confirming.version, { now: new Date(), formatTime: formatCutover }).map((fact) => (
+                  <Text key={fact} size="xs">{fact}</Text>
+                ))}
+              </Stack>
               {(() => {
                 // What changes for instances started after this. Phrased in the
                 // direction being travelled: a step the older version still has
