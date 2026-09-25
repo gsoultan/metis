@@ -8,7 +8,7 @@ import (
 
 // CompensatableActivity records a completed activity that can be undone as part
 // of a Saga compensation. Activities are tracked in reverse-completion order so
-// the SagaCoordinator can roll them back in the correct sequence.
+// they can be rolled back in the correct sequence.
 type CompensatableActivity struct {
 	// ID is the unique record ID.
 	ID uuid.UUID
