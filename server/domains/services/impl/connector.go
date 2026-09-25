@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
+	"github.com/gsoultan/metis/internal/pkg/lru"
 	"github.com/gsoultan/metis/internal/pkg/tracing"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -24,6 +25,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/singleflight"
 	"gopkg.in/yaml.v3"
 )
 
@@ -760,12 +762,64 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 	return map[string]any{"status": "sent"}, nil
 }
 
+// maxBrokerConnections bounds the connections the RabbitMQ connector keeps
+// open, one per broker URL.
+//
+// It was an unbounded map. Until the execute endpoint required an
+// administrator, any signed-in account could grow it — every distinct URL that
+// answered left a connection open for good — and even now a connection whose URL
+// nobody uses any more, because a connection's settings changed, was never let
+// go. One pushed out is closed.
+const maxBrokerConnections = 32
+
 type RabbitMQExecutor struct {
-	conns sync.Map // url -> *amqp.Connection
+	conns *lru.Cache[string, *amqp.Connection]
+	// dialing makes concurrent first publishes to one URL share a dial. Each
+	// used to dial its own, and the one stored second replaced — and leaked —
+	// the connection stored first.
+	dialing singleflight.Group
 }
 
 func NewRabbitMQExecutor() *RabbitMQExecutor {
-	return &RabbitMQExecutor{}
+	return &RabbitMQExecutor{conns: lru.NewWithEviction(maxBrokerConnections, closeBrokerConnection)}
+}
+
+// closeBrokerConnection closes a connection the cache let go of, in the
+// background: Close waits on the broker, and the publish that pushed it out
+// should not.
+func closeBrokerConnection(_ string, conn *amqp.Connection) {
+	go func() {
+		if err := conn.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
+			log.Debug().Err(err).Msg("A RabbitMQ connection pushed out of the cache did not close cleanly")
+		}
+	}()
+}
+
+// connection returns an open connection to url, dialling at most once however
+// many publishes ask at the same moment.
+func (e *RabbitMQExecutor) connection(url string) (*amqp.Connection, error) {
+	if conn, held := e.conns.Get(url); held && !conn.IsClosed() {
+		return conn, nil
+	}
+	dialed, err, _ := e.dialing.Do(url, func() (any, error) {
+		if conn, held := e.conns.Get(url); held && !conn.IsClosed() {
+			return conn, nil
+		}
+		conn, err := amqp.Dial(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+		}
+		e.conns.Put(url, conn)
+		return conn, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	conn, ok := dialed.(*amqp.Connection)
+	if !ok {
+		return nil, errors.New("failed to connect to RabbitMQ: the shared dial returned no connection")
+	}
+	return conn, nil
 }
 
 func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
@@ -778,26 +832,9 @@ func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, p
 		return nil, fmt.Errorf("RabbitMQ URL is required")
 	}
 
-	var conn *amqp.Connection
-	if v, ok := e.conns.Load(url); ok {
-		// The pool is keyed by URL and only this executor writes to it, so the
-		// stored type is ours — but a sync.Map is untyped, and a bare assertion
-		// here would take the worker down rather than reconnecting.
-		pooled, isConnection := v.(*amqp.Connection)
-		if !isConnection || pooled.IsClosed() {
-			e.conns.Delete(url)
-		} else {
-			conn = pooled
-		}
-	}
-
-	if conn == nil {
-		var err error
-		conn, err = amqp.Dial(url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-		}
-		e.conns.Store(url, conn)
+	conn, err := e.connection(url)
+	if err != nil {
+		return nil, err
 	}
 
 	ch, err := conn.Channel()

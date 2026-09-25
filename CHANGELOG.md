@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **Any signed-in account could make the server connect wherever it liked.**
+  `POST /api/v1/connectors/execute` runs a connector with a configuration its
+  caller writes, and it needed only a login. The SMTP and AMQP connectors dial
+  their host directly, so an account that only ever opens the task inbox could
+  point one at any host and port on the network Metis sits in — and read from
+  the error whether something was listening. It now requires an administrator.
+  The Connectors page's connection test, its only working caller, is an
+  administrator's page already. The designer's "Try it" button was not working
+  for any connector and is refused for non-administrators.
+- The RabbitMQ connector kept one open connection per broker URL it was given,
+  with no bound; it now keeps at most 32 and closes the rest.
+
 ### Added
 
 - **Database Lookup.** A process step can read rows from your own PostgreSQL,

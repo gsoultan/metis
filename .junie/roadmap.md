@@ -734,6 +734,25 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): Executed `P0-SEC-06` — only an administrator can make the server
+  connect somewhere. Found while building `P2-INT-02`.
+  - **The hole.** `POST /api/v1/connectors/execute` runs a connector with a configuration its
+    caller writes, and was wired to `protected` — signed in, nothing more. The SMTP and AMQP
+    connectors dial directly (no egress guard), so any account could point one at any host
+    and port and read from the error whether something listened: a port scanner, run from
+    inside the network Metis sits in. Proven through the real HTTP chain: a `USER` account
+    made the server open a connection to a listener on 127.0.0.1 and got `send mail: EOF`
+    back.
+  - **Fix.** `adminOnly`. Not an egress guard on SMTP and AMQP: that guard refuses private
+    networks by default, and an organisation's mail relay is normally on one. The connection
+    test on the Connectors page is the only working caller and is an administrator's page.
+  - **Also.** The RabbitMQ connector's per-URL connection map was unbounded and kept stale
+    connections for good; it is a bounded LRU now, closing what it pushes out, with dials
+    shared so two first publishes cannot leak a connection between them.
+  - Test: `tests/connector/execute_authorization_test.go` — a listener stands in for an
+    internal host; `USER`, `OPERATOR` and `DESIGNER` are refused and it sees no connection,
+    `ADMIN` still reaches it. Fails before (three connections), passes after.
+
 - 2026-09-25 (completed): Executed `P2-INT-02` — a process can look something up in its own
   database before it decides. Branch `database-lookup-connector`.
   - **Reprioritization note.** This is P2 work landing while §11 item 1 — the staged rollout
@@ -789,7 +808,7 @@
       `tests/loadtest` excluded since its own job guards it. Every skip in the main job had
       been going unreported.
   - **Found and not fixed — for the backlog:**
-    - `P0-SEC` — `POST /api/v1/connectors/execute` needs only a login. Any signed-in account,
+    - `P0-SEC` — **fixed in `P0-SEC-06`, below.** `POST /api/v1/connectors/execute` needs only a login. Any signed-in account,
       task-inbox participants included, can make the server connect wherever a
       caller-supplied configuration points: SMTP, AMQP, HTTP (the last is egress-guarded,
       the first two are not). The lookup refuses to connect through it, so this change adds
