@@ -1,6 +1,7 @@
 import { Alert, NumberInput, Select, Stack, Text } from '@mantine/core';
 
-import { useDecisions } from '../../hooks/useProcess';
+import { decisionOptions } from '../../domain/decisionPicker';
+import { useDecisionSummaries } from '../../hooks/useDecisions';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { asNumber, asText, asTextMap } from '../../types/bpmn';
 import { MappingTable } from './CommonProperties';
@@ -15,9 +16,13 @@ import { PropertySection } from './PropertySection';
  * than as "DMN Configuration" and a "Decision Key".
  */
 export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const { data: decisionsData } = useDecisions();
-  const decisions = decisionsData?.decisions ?? [];
+  // Every decision of the project, once each: the picker was filled from the
+  // first page of the list — 25 rows, a row per version — so a decision saved
+  // twice was offered twice, which the Select refuses, and a decision past the
+  // first 25 rows could not be chosen.
+  const { data: listed } = useDecisionSummaries();
   const chosen = asText(data.decision_key);
+  const options = decisionOptions(listed?.items ?? [], chosen);
   const version = asNumber(data.decision_version);
 
   return (
@@ -28,17 +33,19 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
       >
         <Select
           label="Decision table"
-          placeholder={decisions.length ? 'Choose a decision' : 'No decisions in this project yet'}
-          data={decisions.map((decision) => ({
-            value: decision.key,
-            label: decision.name || decision.key,
-          }))}
-          value={chosen}
+          placeholder={options.length ? 'Choose a decision' : 'No decisions in this project yet'}
+          data={options}
+          value={chosen || null}
           onChange={(value) => onUpdate({ decision_key: value })}
-          disabled={decisions.length === 0}
+          disabled={options.length === 0}
           searchable
           clearable
         />
+        {listed?.truncated && (
+          <Text size="xs" c="dimmed">
+            This project has {listed.total} decisions; the list holds the first {listed.items.length}, in order of key.
+          </Text>
+        )}
 
         <NumberInput
           label="Version"
