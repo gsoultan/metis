@@ -23,7 +23,11 @@ interface Stage {
 
 const stage: Stage = { listCalls: [], rows: [], total: 0, summaries: { isLoading: false, isError: false } };
 
+// The rest of the module stays as it is, for any other test file that imports
+// it: a module stood in for here stays stood in for the rest of the run.
+const decisionHooks = await import('../hooks/useDecisions');
 mock.module('../hooks/useDecisions', () => ({
+  ...decisionHooks,
   useDecisions: (...args: unknown[]) => {
     stage.listCalls.push(args);
     return {

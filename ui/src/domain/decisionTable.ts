@@ -249,7 +249,7 @@ const NUMBER_PATTERN = /^-?\d+(\.\d+)?$/;
  * `10` produces the text "10", not the number ten: the author chose "Text" and
  * a downstream condition comparing it to a string must keep working.
  */
-export function parseOutputValue(raw: string, type: string): unknown {
+export function parseOutputValue(raw: string, type: string): string | number | boolean {
   const text = raw.trim();
   if (text === '') return '';
 

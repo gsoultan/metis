@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { DecisionInputColumn, DecisionRuleRow } from './decisionTable';
+import { testsToPayload } from './decisionTests';
 import {
   describeMatchedLines,
   matchedLines,
@@ -167,6 +168,70 @@ describe('tableFingerprint', () => {
 
   it('changes with any line', () => {
     expect(tableFingerprint({ ...payload, rules: [{ id: 'r1', inputs: ['> 20'], outputs: [5] }] })).not.toBe(
+      tableFingerprint(payload),
+    );
+  });
+});
+
+/**
+ * Try it and the examples saved with the table are two ways to ask the same
+ * question, and they read a typed value differently: Try it kept the quotes
+ * and the spaces around text, and read `1e3` and `0x10` as numbers, where an
+ * example reads them as the engine's own notation does — so the same value
+ * could pass as an example and fail in Try it.
+ */
+describe('a value typed into Try it', () => {
+  const amount: DecisionInputColumn = { id: 'i1', label: 'Amount', expression: 'amount', type: 'number' };
+  const tier: DecisionInputColumn = { id: 'i2', label: 'Tier', expression: 'tier', type: 'string' };
+  const urgent: DecisionInputColumn = { id: 'i3', label: 'Urgent', expression: 'urgent', type: 'boolean' };
+
+  it.each([
+    ['Tier', '"GOLD"', tier],
+    ['Tier', ' GOLD ', tier],
+    ['Tier', "'GOLD'", tier],
+    ['Amount', '1e3', amount],
+    ['Amount', '0x10', amount],
+    ['Amount', ' 500 ', amount],
+    ['Amount', '12.50', amount],
+    ['Urgent', 'true', urgent],
+  ] as const)('reads %s %p as an example reads it', (_, typed, column) => {
+    const asExample = testsToPayload([{ id: 't', name: 'x', inputs: { [column.expression]: typed }, expected: {} }], [column], []);
+    expect(trialVariables([column], withTrialValue({}, column, typed))).toEqual(asExample[0].inputs);
+  });
+});
+
+/**
+ * Relabelling a column or writing a note changes nothing the table decides,
+ * but it made a Try-it answer stale and cleared its highlight.
+ */
+describe('what makes a Try-it answer stale', () => {
+  const payload = {
+    name: 'Discount',
+    key: 'discount',
+    hit_policy: 'FIRST',
+    inputs: [{ id: 'i1', label: 'Amount', expression: 'amount', type: 'number' }],
+    outputs: [{ id: 'o1', label: 'Discount', name: 'discount', type: 'number' }],
+    rules: [{ id: 'r1', inputs: ['> 10'], outputs: [5], description: 'bulk orders' }],
+  };
+
+  it('is not a new label or a note', () => {
+    const relabelled = {
+      ...payload,
+      inputs: [{ ...payload.inputs[0], label: 'Order amount' }],
+      outputs: [{ ...payload.outputs[0], label: 'Percent off' }],
+      rules: [{ ...payload.rules[0], description: 'orders of more than ten' }],
+    };
+    expect(tableFingerprint(relabelled)).toBe(tableFingerprint(payload));
+  });
+
+  it('is anything the engine reads', () => {
+    expect(tableFingerprint({ ...payload, inputs: [{ ...payload.inputs[0], expression: 'total' }] })).not.toBe(
+      tableFingerprint(payload),
+    );
+    expect(tableFingerprint({ ...payload, outputs: [{ ...payload.outputs[0], name: 'rate' }] })).not.toBe(
+      tableFingerprint(payload),
+    );
+    expect(tableFingerprint({ ...payload, rules: [{ ...payload.rules[0], outputs: [6] }] })).not.toBe(
       tableFingerprint(payload),
     );
   });

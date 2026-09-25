@@ -8,7 +8,7 @@
  * a different way.
  */
 import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
-import type { DecisionInputColumn, DecisionRuleRow } from './decisionTable';
+import { parseOutputValue, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
 
 /** A stored decision, as much of one as Try it needs to name it. */
 export interface TrialTarget {
@@ -59,14 +59,12 @@ export function trialVariables(inputs: DecisionInputColumn[], values: TrialValue
   return Object.fromEntries(
     inputs
       .filter((input) => trialValueOf(values, input).trim() !== '')
-      .map((input) => [input.expression, trialValue(input, trialValueOf(values, input))]),
+      // Read the way an example saved with the table reads it (testsToPayload):
+      // the same value typed in either place is the same question. Try it kept
+      // the quotes and spaces around text, and read `1e3` and `0x10` as numbers
+      // the engine's own notation does not have.
+      .map((input) => [input.expression, parseOutputValue(trialValueOf(values, input), input.type)]),
   );
-}
-
-function trialValue(column: DecisionInputColumn, raw: string): string | number | boolean {
-  if (column.type === 'boolean') return raw === 'true';
-  if (column.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) return Number(raw);
-  return raw;
 }
 
 /** A Try-it answer, and the two tables it was an answer about. */
@@ -107,10 +105,23 @@ function ranAsShown(outcome: TrialOutcome): boolean {
   return outcome.table === outcome.savedTable;
 }
 
-/** The parts of a table that decide its answers, as one comparable string. */
+/**
+ * The parts of a table that decide its answers, as one comparable string.
+ *
+ * Headings and notes are left out: they change nothing the table decides, and
+ * relabelling a column or writing a note made an answer stale and cleared its
+ * highlight.
+ */
 export function tableFingerprint(payload: CreateDecisionPayload): string {
   const { hit_policy, aggregation, required_decisions, inputs, outputs, rules } = payload;
-  return JSON.stringify({ hit_policy, aggregation, required_decisions, inputs, outputs, rules });
+  return JSON.stringify({
+    hit_policy,
+    aggregation,
+    required_decisions,
+    inputs: inputs?.map(({ id, expression, type }) => ({ id, expression, type })),
+    outputs: outputs?.map(({ id, name, type, values }) => ({ id, name, type, values })),
+    rules: rules?.map(({ id, inputs: conditions, outputs: results }) => ({ id, conditions, results })),
+  });
 }
 
 /**

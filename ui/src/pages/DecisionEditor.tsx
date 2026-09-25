@@ -1168,7 +1168,7 @@ function ColumnHeader({
  * reason that looks unrelated. The analysis was written and never shown; this
  * is where it is shown, with a way to close each gap.
  */
-function CoverageCard({
+export function CoverageCard({
   report,
   ruleCount,
   onAddLine,
@@ -1245,7 +1245,9 @@ function CoverageFindings({
             size="compact-xs"
             variant="light"
             leftSection={<Plus size={12} />}
-            aria-label={`Add a line for this case: ${gap.description}`}
+            // The name starts with what the button shows, so "Add line" said
+            // aloud finds it (WCAG 2.5.3, label in name).
+            aria-label={`Add line for this case: ${gap.description}`}
             onClick={() => onAddLine(gap)}
             style={{ flexShrink: 0 }}
           >
