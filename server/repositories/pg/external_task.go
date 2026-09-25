@@ -31,7 +31,7 @@ func (r *externalTaskRepository) Create(ctx context.Context, task *models.Extern
 	if err != nil {
 		return err
 	}
-	variables, err := jsonOf(task.Variables)
+	variables, err := sealedJSONOf(task.Variables)
 	if err != nil {
 		return fmt.Errorf("could not encode the task's variables: %w", err)
 	}
@@ -79,7 +79,7 @@ func (r *externalTaskRepository) Update(ctx context.Context, task *models.Extern
 	if err != nil {
 		return err
 	}
-	variables, err := jsonOf(task.Variables)
+	variables, err := sealedJSONOf(task.Variables)
 	if err != nil {
 		return fmt.Errorf("could not encode the task's variables: %w", err)
 	}
@@ -265,7 +265,7 @@ func applyLock(setWorker func(string), clearWorker func(), setExpiry func(time.T
 }
 
 func externalTaskFrom(row externaltask.Row) (*models.ExternalTaskModel, error) {
-	variables, err := mapOf(row.Variables)
+	variables, err := sealedMapOf(row.Variables)
 	if err != nil {
 		return nil, fmt.Errorf("could not decode an external task's variables: %w", err)
 	}

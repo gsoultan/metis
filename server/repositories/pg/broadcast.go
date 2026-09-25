@@ -33,9 +33,15 @@ func (r *broadcastRepository) Publish(ctx context.Context, origin string, scope 
 	if err != nil {
 		return err
 	}
+	// Sealed: an event announcing a process carries its variables, and this
+	// table holds them for as long as a replica might still need to catch up.
+	sealed, err := sealedText(payload)
+	if err != nil {
+		return fmt.Errorf("could not seal the broadcast event: %w", err)
+	}
 	ins := broadcastevent.Create()
 	ins.SetOrigin(origin)
-	ins.SetPayload(payload)
+	ins.SetPayload(sealed)
 	ins.SetCreatedAt(time.Now().UTC())
 	if scope.Organization != uuid.Nil {
 		ins.SetOrganizationID(scope.Organization)
@@ -68,10 +74,14 @@ func (r *broadcastRepository) Since(ctx context.Context, origin string, afterID 
 	}
 	out := make([]models.BroadcastEventModel, 0, len(rows))
 	for _, row := range rows {
+		payload, err := openedText(row.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("could not open broadcast event %d: %w", row.ID, err)
+		}
 		event := models.BroadcastEventModel{
 			ID:        row.ID,
 			Origin:    row.Origin,
-			Payload:   row.Payload,
+			Payload:   payload,
 			CreatedAt: row.CreatedAt,
 		}
 		if organization, ok := row.OrganizationID.Get(); ok {

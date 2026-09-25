@@ -26,8 +26,9 @@ waiting on, a payment half-made, an approval someone believes they granted.
 
 Two things are **not** in the database and are lost independently:
 
-- **`ENCRYPTION_KEY`.** Process and task variables are encrypted at rest. A database backup
-  without this key restores rows that cannot be read. **Back it up separately, and never in
+- **`ENCRYPTION_KEY`.** Process and task variables are encrypted at rest, and so is every
+  copy the engine keeps of them — history, audit trail, queued work, recorded responses. A
+  database backup without this key restores rows that cannot be read. **Back it up separately, and never in
   the same store as the database backup** — one compromise should not yield both.
 - **`config.yaml`**, which holds the connection string and JWT secret.
 

@@ -33,7 +33,7 @@ func (r *jobRepository) Create(ctx context.Context, j models.JobModel) (uuid.UUI
 	if err != nil {
 		return uuid.Nil, err
 	}
-	payload, err := jsonOf(j.Payload)
+	payload, err := sealedJSONOf(j.Payload)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not encode the job's payload: %w", err)
 	}
@@ -91,7 +91,7 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 	if !found {
 		return fmt.Errorf("%w: no such job", apierr.ErrNotFound)
 	}
-	payload, err := jsonOf(j.Payload)
+	payload, err := sealedJSONOf(j.Payload)
 	if err != nil {
 		return fmt.Errorf("could not encode the job's payload: %w", err)
 	}
@@ -232,7 +232,7 @@ func jobsFrom(rows []job.Row) ([]models.JobModel, error) {
 }
 
 func jobFrom(row job.Row) (models.JobModel, error) {
-	payload, err := mapOf(row.Payload)
+	payload, err := sealedMapOf(row.Payload)
 	if err != nil {
 		return models.JobModel{}, fmt.Errorf("could not decode a job's payload: %w", err)
 	}
