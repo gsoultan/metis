@@ -823,6 +823,35 @@
       removes it after a day. Meanwhile every retry with that key waits out the 10s budget
       and fails.
 
+- 2026-09-25 (completed): 90-day plan Phase 2, "UX improvements" — the core paths that
+  were broken outright, before any new UX. Branch `roadmap-core-ux`, stacked on
+  `roadmap-engine-reliability`. Each fix has a test, or a type or lint guard, that the code
+  before it fails.
+  - **A form built in the designer never reached its task** (HUM-11). The designer saves
+    a form as a list of fields, and the task copied it with a string-only read that
+    answers "" for a list. Task creation and migration now keep text as it is and encode
+    anything else as JSON.
+  - **The task inbox never updated live** (HUM-16). It opened an `EventSource`, which
+    cannot send the Authorization header, so the events endpoint answered 401. It uses
+    the authenticated stream now, also listens for withdrawn tasks, and ESLint refuses
+    `new EventSource`.
+  - **"Deploy Anyway" staged instead of deploying** (MOD-04). The button passed its click
+    event as the `stage` flag, and it also skipped the question a clean deploy asks when a
+    live version would be replaced. The deploy mode is a required `'live' | 'staged'`, so
+    passing a click handler is a type error, and both buttons share `nextDeployStep`.
+  - **Importing a BPMN file always failed** (MOD-08): no project was sent. Non-Latin-1 names
+    also broke both directions: `btoa` threw on import, and `atob` garbled the export.
+  - **Saving a decision table erased its examples** (DMN-10), and the examples panel was
+    never mounted. Loading and saving are now a pair, so an untouched table saves back what
+    was stored.
+  - **The versions page named the oldest promoted version as live** (DEF-09), and did not
+    tell a scheduled cutover from one that had happened.
+  - **Execution paths came back end to start** (OPS-02). The code assumed the audit trail
+    comes newest first, and it comes oldest first.
+  - **Not done, and why:** DMN-06 (saving a decision rewrites that version in place) is an
+    open question in the PRD: whether saving should always create a new version, with
+    drafts kept separately. It waits for that decision.
+
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
