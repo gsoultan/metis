@@ -20,6 +20,7 @@ import {
   Select,
   Stack,
   Stepper,
+  Switch,
   Text,
   Textarea,
   TextInput,
@@ -216,6 +217,17 @@ function ConfigField({ prop, value, keepsStored, onChange }: ConfigFieldProps) {
       );
     case 'textarea':
       return <Textarea {...common} value={shown} onChange={(e) => onText(e.currentTarget.value)} autosize minRows={3} />;
+    case 'boolean':
+      // Stored as text, like every other setting here. It used to fall through
+      // to a text box, so the only way to turn one on was to type "true".
+      return (
+        <Switch
+          label={prop.label}
+          description={common.description}
+          checked={shown === 'true'}
+          onChange={(e) => onChange(e.currentTarget.checked ? 'true' : 'false')}
+        />
+      );
     default:
       return <TextInput {...common} value={shown} onChange={(e) => onText(e.currentTarget.value)} />;
   }

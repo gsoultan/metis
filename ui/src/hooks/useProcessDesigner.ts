@@ -27,6 +27,7 @@ import {
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
 import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappers/definitionMapper';
+import { stepSchemasOf } from '../domain/connectorStep';
 import { hasBlockingIssues, validateProcess } from '../domain/processValidation';
 import {
   buildDraft,
@@ -37,6 +38,7 @@ import {
   shouldOfferDraft,
   type DesignerDraft,
 } from '../domain/designerDraft';
+import { useConnectors } from './useConnectors';
 import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -184,7 +186,11 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   const { data: versionData } = useDefinitionVersions(processKey || null);
   const exportMutation = useExportDefinition();
   const importMutation = useImportDefinition();
-  const issues = useMemo(() => validateProcess(nodes, edges), [nodes, edges]);
+  // Which connectors ask a step for fields of its own, so a lookup with no
+  // query is flagged on the step rather than refused by the server.
+  const { data: connectorsData } = useConnectors();
+  const stepSchemas = useMemo(() => stepSchemasOf(connectorsData?.connectors ?? []), [connectorsData]);
+  const issues = useMemo(() => validateProcess(nodes, edges, stepSchemas), [nodes, edges, stepSchemas]);
 
   // FE-ARCH-5: Sub-hook for undo/redo history management.
   const { history, historyIndex, pushToHistory, undo: undoHistory, redo: redoHistory } =

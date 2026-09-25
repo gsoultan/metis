@@ -166,3 +166,57 @@ describe('what stops a deploy', () => {
     expect(hasBlockingIssues([{ message: 'x', severity: 'error' }])).toBe(true);
   });
 });
+
+describe('a step that fills in fields for its connector', () => {
+  const schemas = new Map([
+    [
+      'lookup-id',
+      [
+        { key: 'connector_statement', label: 'Query', type: 'textarea', required: true },
+        { key: 'connector_params', label: 'Values', type: 'mapping' },
+        { key: 'result_variable', label: 'Store the answer as', type: 'string', required: true },
+      ],
+    ],
+  ]);
+  const lookupProcess = (data: Record<string, unknown>) => ({
+    nodes: [
+      node('s', 'startEvent', { label: 'Order received' }),
+      node('l', 'serviceTask', { label: 'Look up the customer', connector_id: 'lookup-id', ...data }),
+      node('e', 'endEvent', { label: 'Done' }),
+    ],
+    edges: [edge('f1', 's', 'l'), edge('f2', 'l', 'e')],
+  });
+
+  it('blocks a lookup with no query and nowhere to put the answer, naming the step', () => {
+    const { nodes, edges } = lookupProcess({});
+    const issues = validateProcess(nodes, edges, schemas);
+    expect(hasBlockingIssues(issues)).toBe(true);
+    expect(issues[0].message).toBe('"Look up the customer" is missing “Query” and “Store the answer as”.');
+    expect(issues[0].id).toBe('l');
+  });
+
+  it('blocks a query that uses a value the step never gives', () => {
+    const { nodes, edges } = lookupProcess({
+      connector_statement: 'SELECT tier FROM customers WHERE id = :customer_id',
+      result_variable: 'customer',
+    });
+    const issues = validateProcess(nodes, edges, schemas);
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'The query in "Look up the customer" uses :customer_id without saying where the value comes from.',
+    ]);
+  });
+
+  it('is content with a complete lookup', () => {
+    const { nodes, edges } = lookupProcess({
+      connector_statement: 'SELECT tier FROM customers WHERE id = :customer_id',
+      connector_params: { customer_id: 'customerId' },
+      result_variable: 'customer',
+    });
+    expect(validateProcess(nodes, edges, schemas)).toEqual([]);
+  });
+
+  it('leaves every other step alone, and checks nothing without the catalogue', () => {
+    const { nodes, edges } = lookupProcess({});
+    expect(validateProcess(nodes, edges)).toEqual([]);
+  });
+});
