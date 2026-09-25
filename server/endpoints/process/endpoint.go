@@ -24,6 +24,7 @@ type Endpoints struct {
 	GetAuditLogs         endpoint.Endpoint
 	ExportOCEL           endpoint.Endpoint
 	GetProcessStatistics endpoint.Endpoint
+	WaitingByStep        endpoint.Endpoint
 	ActivateAdHocTask    endpoint.Endpoint
 	BroadcastSignal      endpoint.Endpoint
 	SendMessage          endpoint.Endpoint
@@ -40,6 +41,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		GetAuditLogs:         MakeGetAuditLogsEndpoint(s),
 		ExportOCEL:           MakeExportOCELEndpoint(s),
 		GetProcessStatistics: MakeGetProcessStatisticsEndpoint(s),
+		WaitingByStep:        MakeWaitingByStepEndpoint(s),
 		ActivateAdHocTask:    MakeActivateAdHocTaskEndpoint(s),
 		BroadcastSignal:      MakeBroadcastSignalEndpoint(s),
 		SendMessage:          MakeSendMessageEndpoint(s),
@@ -416,4 +418,20 @@ func optionalUUID(raw string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("%q is not a valid id: %w", raw, err)
 	}
 	return id, nil
+}
+
+// MakeWaitingByStepEndpoint says where a project's running work is sitting.
+func MakeWaitingByStepEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(WaitingByStepRequest)
+		if !ok {
+			return nil, fmt.Errorf("process: expected a WaitingByStepRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return WaitingByStepResponse{Err: apierr.Invalidf("project id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		processes, err := s.WaitingByStep(ctx, projectID)
+		return WaitingByStepResponse{Processes: processes, Err: err}, nil
+	}
 }

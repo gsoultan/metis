@@ -19,3 +19,23 @@ describe("processRuntimeService.startProcess", () => {
     expect(instance_id).toBe("i-1");
   });
 });
+
+describe("processRuntimeService.waitingByStep", () => {
+  let restore = () => {};
+  afterEach(() => restore());
+
+  test("asks the server for the project's waiting work and returns its processes", async () => {
+    const stub = stubFetch({ processes: [{ key: "quotation", name: "Quotation approval", instances: 2, steps: [{ node_id: "review", waiting: 2 }] }] });
+    restore = stub.restore;
+    const processes = await processRuntimeService.waitingByStep("p-1");
+    expect(stub.sent[0].url).toContain("/projects/p-1/waiting");
+    expect(processes).toHaveLength(1);
+    expect(processes[0].steps?.[0]).toEqual({ node_id: "review", waiting: 2 });
+  });
+
+  test("raises a refusal rather than drawing an empty heat map", async () => {
+    const stub = stubFetch({ err: "forbidden" });
+    restore = stub.restore;
+    await expect(processRuntimeService.waitingByStep("p-1")).rejects.toThrow("forbidden");
+  });
+});

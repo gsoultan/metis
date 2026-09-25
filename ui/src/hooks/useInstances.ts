@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import { useInvalidateOnEvents } from './useEventStream';
 
 // The queryFn ternary returned the service's real result on one branch and a
 // hand-written literal on the other. TypeScript widened that union to `{}`,
@@ -126,3 +127,21 @@ export const useInstances = (page = 1, pageSize = 25, filter: InstanceFilter = {
  * grouped count.
  */
 export const LIVE_REFRESH_MS = 5000;
+/** The events after which work may have moved to another step. */
+const WAITING_EVENTS = ['ProcessStarted', 'ProcessCompleted', 'NodeReached', 'TaskCreated', 'TaskCompleted', 'TaskCanceled'] as const;
+
+/**
+ * Where the current project's running work is sitting, for the heat map.
+ *
+ * Refetched when work moves rather than polled: the old heat map polled a page
+ * of instances every five seconds and still missed everything past the page.
+ */
+export const useWaitingByStep = () => {
+  const { currentProjectId } = useAppStore();
+  useInvalidateOnEvents(WAITING_EVENTS, ['waiting-by-step', currentProjectId]);
+  return useQuery({
+    queryKey: ['waiting-by-step', currentProjectId],
+    queryFn: ({ signal }) => processService.waitingByStep(currentProjectId as string, signal),
+    enabled: !!currentProjectId,
+  });
+};

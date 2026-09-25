@@ -199,3 +199,14 @@ type ExecuteScriptResponse struct {
 }
 
 func (r ExecuteScriptResponse) Failed() error { return r.Err }
+
+type WaitingByStepRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type WaitingByStepResponse struct {
+	Processes []entities.WaitingProcess `json:"processes"`
+	Err       error                     `json:"err,omitzero"`
+}
+
+func (r WaitingByStepResponse) Failed() error { return r.Err }

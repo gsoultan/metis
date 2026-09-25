@@ -54,6 +54,17 @@ func RegisterHandlers(m *http.ServeMux, eps process.Endpoints, options []httptra
 		options...,
 	))
 
+	// Where a project's running work is sitting now, counted on the server
+	// across all of it. The dashboard's heat map reads this.
+	m.Handle("GET /api/v1/projects/{id}/waiting", httptransport.NewServer(
+		eps.WaitingByStep,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return process.WaitingByStepRequest{ProjectID: r.PathValue("id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+
 	m.Handle("GET /api/v1/instances/{id}/subprocesses", httptransport.NewServer(
 		eps.ListSubProcesses,
 		decodeListSubProcessesRequest,

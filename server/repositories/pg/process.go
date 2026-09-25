@@ -677,3 +677,74 @@ func instanceFrom(row processinstance.Row) (models.ProcessInstanceModel, error) 
 	}
 	return m, nil
 }
+
+// WaitingByStep counts where a project's running work is sitting, per process
+// and step, and — in the rows with no step — how many instances each process
+// has running.
+//
+// One grouped query over the tokens rather than a page of instances sent to
+// the browser to count: the dashboard's heat map counted the newest 25, so at
+// volume the longest-stuck work was the first to fall off it.
+func (r *processRepository) WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]contracts.WaitingRow, error) {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT d.key,
+	                 (array_agg(d.name ORDER BY d.version DESC))[1],
+	                 COALESCE(t->>'node_id', ''),
+	                 count(*),
+	                 count(DISTINCT p.id),
+	                 GROUPING(t->>'node_id')
+	            FROM process_instances p
+	            JOIN process_definitions d ON d.id = p.definition_id
+	           CROSS JOIN LATERAL jsonb_array_elements(
+	                   CASE WHEN jsonb_typeof(p.tokens::jsonb) = 'array' THEN p.tokens::jsonb ELSE '[]'::jsonb END) AS t
+	           WHERE p.deleted_at IS NULL
+	             AND p.status IN ($1, $2)
+	             AND COALESCE(t->>'status', '') <> $3`
+	args := []any{string(models.ProcessActive), string(models.ProcessSuspended), string(models.TokenCompleted)}
+	if scoped != nil {
+		args = append(args, uuidsToRaw(scoped))
+		query += fmt.Sprintf(" AND p.project_id = ANY($%d)", len(args))
+	}
+	query += ` GROUP BY GROUPING SETS ((d.key, t->>'node_id'), (d.key))`
+
+	rows, err := ex.Query(ctx, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("could not count the waiting work: %w", err)
+	}
+	defer rows.Close()
+	var out []contracts.WaitingRow
+	for rows.Next() {
+		values := rows.RawValues()
+		if len(values) < 6 {
+			continue
+		}
+		var row contracts.WaitingRow
+		var grouped int64
+		row.ProcessKey, row.ProcessName = string(values[0]), string(values[1])
+		if err := scanInt(values[3:4], &row.Waiting); err != nil {
+			return nil, err
+		}
+		if err := scanInt(values[4:5], &row.Instances); err != nil {
+			return nil, err
+		}
+		if err := scanInt(values[5:6], &grouped); err != nil {
+			return nil, err
+		}
+		// A process total has no step; a step row names one.
+		if grouped == 0 {
+			row.NodeID = string(values[2])
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("could not count the waiting work: %w", err)
+	}
+	return out, nil
+}

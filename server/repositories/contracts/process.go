@@ -64,7 +64,21 @@ func (f InstanceFilter) Any() bool {
 }
 
 // ProcessRepository defines the BPM process instance operations.
+// WaitingRow is how much work sits on one step of one process, or — with an
+// empty NodeID — on the whole process.
+type WaitingRow struct {
+	ProcessKey  string
+	ProcessName string
+	NodeID      string
+	Waiting     int64
+	Instances   int64
+}
+
 type ProcessRepository interface {
+	// WaitingByStep counts the live tokens of running instances per process
+	// and step. It is scoped to the caller's tenant like every project read.
+	WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]WaitingRow, error)
+
 	Create(ctx context.Context, instance models.ProcessInstanceModel) (uuid.UUID, error)
 	Get(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error)
 	GetForUpdate(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error)

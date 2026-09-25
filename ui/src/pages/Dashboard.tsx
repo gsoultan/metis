@@ -25,6 +25,7 @@ import {
   useProjects,
   useProcessStatistics,
   useInstances,
+  useWaitingByStep,
 } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
@@ -39,7 +40,7 @@ import { useTasks } from '../hooks/useTasks';
 import { csvFilename } from '../domain/csv';
 import { slaReport, slaReportCsv, slaSummary, type ReportableTask } from '../domain/slaReport';
 import { taskCompletion } from '../domain/dashboardFigures';
-import { heatColor, heatSummary, processHeat } from '../domain/processHeatmap';
+import { heatColor, heatFromWaiting, heatSummary } from '../domain/processHeatmap';
 
 /**
  * A single headline number.
@@ -128,8 +129,10 @@ export function Dashboard() {
 
   // Where the running work is sitting. The instance list already says which
   // step each instance is on, one row at a time; this asks it the other way
-  // round, which is the direction that finds a bottleneck.
-  const heat = useMemo(() => processHeat(instancesData?.instances ?? []), [instancesData?.instances]);
+  // round, which is the direction that finds a bottleneck. Counted on the
+  // server across all of it; it used to be counted here from one page.
+  const { data: waiting } = useWaitingByStep();
+  const heat = useMemo(() => heatFromWaiting(waiting ?? []), [waiting]);
   
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a

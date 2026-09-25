@@ -1,9 +1,11 @@
 package impl
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -137,4 +139,40 @@ func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uui
 		PendingTasks:       int(pendingTasks),
 		CompletedTasks:     int(counts["completed tasks"]),
 	}, nil
+}
+
+// WaitingByStep says where the project's running work is sitting now.
+func (s *projectService) WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]entities.WaitingProcess, error) {
+	rows, err := s.repo.Process().WaitingByStep(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[string]*entities.WaitingProcess{}
+	var order []string
+	for _, row := range rows {
+		process, ok := byKey[row.ProcessKey]
+		if !ok {
+			process = &entities.WaitingProcess{Key: row.ProcessKey, Name: row.ProcessName}
+			byKey[row.ProcessKey] = process
+			order = append(order, row.ProcessKey)
+		}
+		if row.NodeID == "" {
+			process.Instances = int(row.Instances)
+			continue
+		}
+		process.Steps = append(process.Steps, entities.WaitingStep{NodeID: row.NodeID, Waiting: int(row.Waiting)})
+	}
+	out := make([]entities.WaitingProcess, 0, len(order))
+	for _, key := range order {
+		process := byKey[key]
+		// The step holding the most first: that is where somebody looks.
+		slices.SortFunc(process.Steps, func(a, b entities.WaitingStep) int {
+			return cmp.Or(cmp.Compare(b.Waiting, a.Waiting), cmp.Compare(a.NodeID, b.NodeID))
+		})
+		out = append(out, *process)
+	}
+	slices.SortFunc(out, func(a, b entities.WaitingProcess) int {
+		return cmp.Or(cmp.Compare(b.Instances, a.Instances), cmp.Compare(a.Name, b.Name))
+	})
+	return out, nil
 }
