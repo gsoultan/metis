@@ -68,6 +68,12 @@ export interface ApplyState {
   fresh: boolean;
   /** Why the plan could not be worked out, when it could not. */
   error: string | null;
+  /**
+   * Whether an apply is already on its way. The button disables itself a
+   * render after the press, which leaves room for a second one; the dialog
+   * checks this in the press itself, before anything is sent.
+   */
+  applying: boolean;
 }
 
 /**
@@ -81,7 +87,8 @@ export interface ApplyState {
  * preview-first dialog exists to prevent.
  */
 export function canApply(state: ApplyState): boolean {
-  return state.fresh && state.error === null && isApplicable(state.plan) && (state.plan?.instances ?? 0) > 0;
+  return !state.applying && state.fresh && state.error === null
+    && isApplicable(state.plan) && (state.plan?.instances ?? 0) > 0;
 }
 
 /** Total tasks that would move — the number that means "people affected". */

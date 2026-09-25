@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { AlertTriangle, ArrowRight, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import {
   actionConsequence,
@@ -118,6 +118,11 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   const planned = useMigrationPlan(request);
   const plan = planned.plan;
   const apply = useMigrateInstances();
+  // Set in the press itself, before anything is sent. `apply.isPending`
+  // disables the button a render later, and a double click or a held Enter
+  // lands in between: the move was sent twice, and every instance the second
+  // run re-read as still running got a second "migrated" entry on its trail.
+  const applying = useRef(false);
 
   // Closing is abandoning the plan: the next opening, of this pair or another,
   // starts from nothing.
@@ -129,10 +134,12 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   };
 
   const open = source !== null && target !== null;
-  const ready = canApply({ plan, fresh: planned.fresh, error: planned.error });
+  const ready = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: apply.isPending });
 
   const handleApply = async () => {
-    if (!request || !target || !ready) return;
+    const pressable = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: applying.current });
+    if (!request || !target || !pressable) return;
+    applying.current = true;
     setApplyError(null);
     try {
       const reply = await apply.mutateAsync(request);
@@ -154,6 +161,8 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
       // counts instances that are no longer there. Running the same move again
       // carries on from where it stopped, and that needs a plan of what is left.
       planned.replan();
+    } finally {
+      applying.current = false;
     }
   };
 

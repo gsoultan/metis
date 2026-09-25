@@ -156,17 +156,25 @@ describe('canApply', () => {
     // the plan in hand answers the request before that, and the one for this
     // request is still being worked out. Pressing "Move" now would apply
     // something nobody has seen a plan for.
-    expect(canApply({ plan: plan(), fresh: false, error: null })).toBe(false);
+    expect(canApply({ plan: plan(), fresh: false, error: null, applying: false })).toBe(false);
   });
 
   it('applies a plan that answers what is on screen', () => {
-    expect(canApply({ plan: plan(), fresh: true, error: null })).toBe(true);
+    expect(canApply({ plan: plan(), fresh: true, error: null, applying: false })).toBe(true);
+  });
+
+  it('does not apply a second time while the first apply is on its way', () => {
+    // A double click, or Enter held on the button, used to send the move
+    // twice: the button only disabled itself a render later. The server does
+    // not refuse the second, and every instance it re-reads as still running
+    // gets a second "migrated" entry on its trail.
+    expect(canApply({ plan: plan(), fresh: true, error: null, applying: true })).toBe(false);
   });
 
   it('does not apply a plan that refuses, has nothing to move, or could not be worked out', () => {
-    expect(canApply({ plan: plan({ refusals: ['nowhere to put approve'] }), fresh: true, error: null })).toBe(false);
-    expect(canApply({ plan: plan({ instances: 0, moves: [] }), fresh: true, error: null })).toBe(false);
-    expect(canApply({ plan: null, fresh: true, error: 'version 5 has no node for a→b' })).toBe(false);
+    expect(canApply({ plan: plan({ refusals: ['nowhere to put approve'] }), fresh: true, error: null, applying: false })).toBe(false);
+    expect(canApply({ plan: plan({ instances: 0, moves: [] }), fresh: true, error: null, applying: false })).toBe(false);
+    expect(canApply({ plan: null, fresh: true, error: 'version 5 has no node for a→b', applying: false })).toBe(false);
   });
 });
 
