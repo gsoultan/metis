@@ -96,10 +96,23 @@ import {
 } from '../domain/decisionTable';
 import { findCoverageGaps, ruleForGap, type CoverageGap, type CoverageReport } from '../domain/decisionCoverage';
 import { findProblems } from '../domain/decisionProblems';
-import { trialTarget, trialValueOf, trialVariables, withTrialValue, type TrialValues } from '../domain/decisionTrial';
+import {
+  describeMatchedLines,
+  matchedLines,
+  tableFingerprint,
+  trialStanding,
+  trialTarget,
+  trialValueOf,
+  trialVariables,
+  withTrialValue,
+  type TrialOutcome,
+  type TrialStanding,
+  type TrialValues,
+} from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
+import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
 /** A caught value is `unknown`; take its message when it has one. */
@@ -291,8 +304,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const [savedPayload, setSavedPayload] = useState<string | null>(null);
 
   const [testInputs, setTestInputs] = useState<TrialValues>({});
-  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
-  const [matchedRules, setMatchedRules] = useState<number[]>([]);
+  const [outcome, setOutcome] = useState<TrialOutcome | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
 
@@ -462,6 +474,15 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   );
   const hasUnsavedChanges = JSON.stringify(payload) !== savedPayload;
 
+  // What a Try-it answer is about. It runs the stored table, so its highlight
+  // holds only while the table on screen is the one it ran against.
+  const table = useMemo(() => tableFingerprint(payload), [payload]);
+  const savedTable = useMemo(
+    () => (savedPayload ? tableFingerprint(JSON.parse(savedPayload) as CreateDecisionPayload) : null),
+    [savedPayload],
+  );
+  const highlighted = matchedLines(outcome, rules, table);
+
   const handleSave = async () => {
     if (blocking.length > 0) {
       notifications.show({
@@ -506,8 +527,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     if (!target) return;
     setIsTesting(true);
     setTestError(null);
-    setTestResult(null);
-    setMatchedRules([]);
+    setOutcome(null);
 
     const variables = trialVariables(inputs, testInputs);
 
@@ -516,8 +536,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       if (response.err) {
         setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
-        setTestResult(response.result?.values ?? {});
-        setMatchedRules(response.matchedRules ?? []);
+        setOutcome({
+          values: response.result?.values ?? {},
+          ruleIds: response.matchedRuleIds,
+          positions: response.matchedRules,
+          table,
+          ranAsShown: table === savedTable,
+        });
       }
     } catch (err: unknown) {
       setTestError(errorMessage(err, 'Could not evaluate the decision'));
@@ -654,7 +679,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
                 <Table.Tbody>
                   {rules.map((rule, ruleIndex) => {
-                    const matched = matchedRules.includes(ruleIndex);
+                    const matched = highlighted.includes(ruleIndex);
                     return (
                       <Table.Tr key={rule.id} bg={matched ? 'var(--mantine-color-orange-0)' : undefined}>
                         <Table.Td ta="center">
@@ -943,54 +968,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 </Alert>
               )}
 
-              {testResult && (
-                <Card
-                  withBorder
-                  radius="sm"
-                  p="xs"
-                  bg={matchedRules.length === 0 ? 'var(--mantine-color-yellow-0)' : 'var(--mantine-color-gray-0)'}
-                >
-                  <Stack gap={6}>
-                    {/*
-                      Nothing matching is not a success. It used to be reported
-                      under a green tick beside an empty result, so a table that
-                      quietly decides nothing looked like a table that worked —
-                      and the process carries on with the variable unset.
-                    */}
-                    <Group gap={6}>
-                      {matchedRules.length === 0 ? (
-                        <AlertCircle size={14} color="var(--mantine-color-yellow-7)" />
-                      ) : (
-                        <CircleCheck size={14} color="var(--mantine-color-green-6)" />
-                      )}
-                      <Text size="xs" fw={600}>
-                        {matchedRules.length === 0
-                          ? 'No line matched'
-                          : `Line ${matchedRules.map((index) => index + 1).join(', ')} matched`}
-                      </Text>
-                    </Group>
-
-                    {matchedRules.length === 0 ? (
-                      <Text size="xs" c="dimmed">
-                        The process would get no value for{' '}
-                        {outputs.map((output) => output.label).filter(Boolean).join(', ') || 'this table'}
-                        . Add a line that catches this case, or a catch-all line at the bottom.
-                      </Text>
-                    ) : (
-                      /* Results named the way the columns are, rather than raw JSON. */
-                      <Stack gap={2}>
-                        {outputs.map((output) => (
-                          <Group key={output.id} gap={6} wrap="nowrap">
-                            <Text size="xs" c="dimmed">{output.label || output.name}:</Text>
-                            <Text size="xs" fw={600}>
-                              {formatOutputValue(testResult[output.name])}
-                            </Text>
-                          </Group>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                </Card>
+              {outcome && (
+                <TrialAnswer
+                  outcome={outcome}
+                  standing={trialStanding(outcome, table)}
+                  lines={highlighted}
+                  outputs={outputs}
+                />
               )}
             </Stack>
           </Paper>
@@ -1261,5 +1245,84 @@ function CoverageFindings({
         </Text>
       )}
     </Stack>
+  );
+}
+
+/**
+ * What Try it decided, pinned to the table it ran.
+ *
+ * The line numbers are the lines on screen the answer points at. An answer
+ * that no longer describes the screen says so, rather than pointing at lines
+ * that have changed under it.
+ */
+function TrialAnswer({
+  outcome,
+  standing,
+  lines,
+  outputs,
+}: {
+  outcome: TrialOutcome;
+  standing: TrialStanding;
+  lines: number[];
+  outputs: DecisionOutputColumn[];
+}) {
+  if (standing === 'stale') {
+    return (
+      <Text size="xs" c="dimmed">
+        The table has changed since this ran, so its answer is no longer shown. Save, and run it again.
+      </Text>
+    );
+  }
+
+  const decided = outcome.positions.length > 0;
+  return (
+    <Card withBorder radius="sm" p="xs" bg={decided ? 'var(--mantine-color-gray-0)' : 'var(--mantine-color-yellow-0)'}>
+      <Stack gap={6}>
+        {/*
+          Nothing matching is not a success. It used to be reported under a
+          green tick beside an empty result, so a table that quietly decides
+          nothing looked like a table that worked — and the process carries on
+          with the variable unset.
+        */}
+        <Group gap={6}>
+          {decided ? (
+            <CircleCheck size={14} color="var(--mantine-color-green-6)" />
+          ) : (
+            <AlertCircle size={14} color="var(--mantine-color-yellow-7)" />
+          )}
+          <Text size="xs" fw={600}>
+            {decided ? describeMatchedLines(lines) : 'No line matched'}
+          </Text>
+        </Group>
+
+        {standing === 'saved-only' && (
+          <Text size="xs" c="dimmed">
+            This is what the saved version decides. Your changes are not saved yet, so they are not part of it.
+          </Text>
+        )}
+
+        {decided ? (
+          /* Results named the way the columns are, rather than raw JSON. */
+          <Stack gap={2}>
+            {outputs.map((output) => (
+              <Group key={output.id} gap={6} wrap="nowrap">
+                <Text size="xs" c="dimmed">
+                  {output.label || output.name}:
+                </Text>
+                <Text size="xs" fw={600}>
+                  {formatOutputValue(outcome.values[output.name])}
+                </Text>
+              </Group>
+            ))}
+          </Stack>
+        ) : (
+          <Text size="xs" c="dimmed">
+            The process would get no value for{' '}
+            {outputs.map((output) => output.label).filter(Boolean).join(', ') || 'this table'}. Add a line that
+            catches this case, or a catch-all line at the bottom.
+          </Text>
+        )}
+      </Stack>
+    </Card>
   );
 }

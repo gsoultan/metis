@@ -7,8 +7,8 @@
  * inline from whatever was on screen at the time, and got each of them wrong in
  * a different way.
  */
-import type { ProcessVariables } from '../services/types';
-import type { DecisionInputColumn } from './decisionTable';
+import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
+import type { DecisionInputColumn, DecisionRuleRow } from './decisionTable';
 
 /** A stored decision, as much of one as Try it needs to name it. */
 export interface TrialTarget {
@@ -55,4 +55,61 @@ function trialValue(column: DecisionInputColumn, raw: string): string | number |
   if (column.type === 'boolean') return raw === 'true';
   if (column.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) return Number(raw);
   return raw;
+}
+
+/** A Try-it answer, and the table that was on screen when it was asked. */
+export interface TrialOutcome {
+  values: Record<string, unknown>;
+  /** The stored lines that decided, by id. */
+  ruleIds: string[];
+  /** The same lines, by position in the stored table. */
+  positions: number[];
+  /** tableFingerprint of the table on screen when it ran. */
+  table: string;
+  /** Whether that was the stored table, which is what ran. */
+  ranAsShown: boolean;
+}
+
+/** The parts of a table that decide its answers, as one comparable string. */
+export function tableFingerprint(payload: CreateDecisionPayload): string {
+  const { hit_policy, aggregation, required_decisions, inputs, outputs, rules } = payload;
+  return JSON.stringify({ hit_policy, aggregation, required_decisions, inputs, outputs, rules });
+}
+
+/**
+ * Where a Try-it answer stands against the table on screen: current, an answer
+ * about the saved version when the screen held changes that were not saved,
+ * or stale once the table has changed since it ran.
+ */
+export type TrialStanding = 'current' | 'saved-only' | 'stale';
+
+export function trialStanding(outcome: TrialOutcome, table: string): TrialStanding {
+  if (outcome.table !== table) return 'stale';
+  return outcome.ranAsShown ? 'current' : 'saved-only';
+}
+
+/**
+ * The lines on screen a Try-it answer points at.
+ *
+ * By id, because an id names the same line wherever it has moved, and a
+ * position only counts lines in the stored table. Positions are used only for
+ * lines stored without an id, and only when the stored table is what is on
+ * screen. Nothing once the table has changed since it ran: the answer was
+ * about a table that is no longer there.
+ */
+export function matchedLines(outcome: TrialOutcome | null, rules: DecisionRuleRow[], table: string): number[] {
+  if (!outcome || trialStanding(outcome, table) === 'stale') return [];
+  if (outcome.ruleIds.length > 0) {
+    const decided = new Set(outcome.ruleIds);
+    return rules.flatMap((rule, index) => (decided.has(rule.id) ? [index] : []));
+  }
+  return outcome.ranAsShown ? outcome.positions.filter((position) => position < rules.length) : [];
+}
+
+/** The lines an answer points at, as a heading: "Line 3 matched", "Lines 2 and 5 matched". */
+export function describeMatchedLines(lines: number[]): string {
+  if (lines.length === 0) return 'A line of the saved version matched';
+  const numbers = lines.map((line) => line + 1);
+  if (numbers.length === 1) return `Line ${numbers[0]} matched`;
+  return `Lines ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]} matched`;
 }

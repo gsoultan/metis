@@ -28,7 +28,11 @@ type MutationResponse = {
 };
 
 type EvaluateDecisionResponse = {
-  result?: DecisionResult;
+  /**
+   * matched_rule_ids is on entities.DecisionResult and not yet on the shared
+   * DecisionResult type; it is read here, where it is used.
+   */
+  result?: DecisionResult & { matched_rule_ids?: string[] };
   err?: string;
 };
 
@@ -105,8 +109,10 @@ export const decisionService = {
     return {
       result: data.result,
       // Which lines of the table produced the answer, so the editor can show
-      // the reasoning rather than only the outcome.
+      // the reasoning rather than only the outcome. Positions count lines in
+      // the stored table; ids name them, and survive lines being moved.
       matchedRules: data.result?.matched_rules ?? [],
+      matchedRuleIds: data.result?.matched_rule_ids ?? [],
       err: data.err,
     };
   },
