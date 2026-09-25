@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { describeHours, slaReport, slaReportCsv, slaSummary, type ReportableTask } from './slaReport';
+import { urgencyOf } from './taskUrgency';
 
 const NOW = new Date('2026-09-23T12:00:00Z');
 
@@ -64,8 +65,8 @@ describe('slaReport', () => {
     );
 
     expect(report.byAssignee).toEqual([
-      { name: 'ollie', breached: 2, worstHoursLate: 20 },
-      { name: 'Unassigned', breached: 2, worstHoursLate: 5 },
+      { name: 'ollie', breached: 2, worstHoursLate: 20, worstLateBy: '20 hours' },
+      { name: 'Unassigned', breached: 2, worstHoursLate: 5, worstLateBy: '5 hours' },
     ]);
   });
 
@@ -79,8 +80,8 @@ describe('slaReport', () => {
       NOW,
     );
     expect(report.byProcess).toEqual([
-      { name: 'Onboarding', breached: 2, worstHoursLate: 40 },
-      { name: 'Quotation approval', breached: 1, worstHoursLate: 10 },
+      { name: 'Onboarding', breached: 2, worstHoursLate: 40, worstLateBy: '40 hours' },
+      { name: 'Quotation approval', breached: 1, worstHoursLate: 10, worstLateBy: '10 hours' },
     ]);
   });
 });
@@ -137,5 +138,21 @@ describe('slaReportCsv', () => {
 
   it('writes a header even when nothing is late', () => {
     expect(slaReportCsv(slaReport([], NOW))).toBe('Task,Process,Assignee,Due,Hours late');
+  });
+});
+
+describe('withdrawn and late', () => {
+  const now = new Date('2026-09-25T12:00:00Z');
+
+  it('does not count a withdrawn task as breached', () => {
+    const report = slaReport([{ id: 't1', name: 'Approve', status: 'canceled', dueDate: '2026-09-20T12:00:00Z' }], now);
+    expect(report.breached).toHaveLength(0);
+  });
+
+  it('says how late a task is the same way the inbox does', () => {
+    // Sixty hours read "3 days" in the inbox and "2 days" here.
+    const task = { id: 't1', name: 'Approve', status: 'claimed', dueDate: '2026-09-23T00:00:00Z' };
+    const report = slaReport([task], now);
+    expect(slaSummary(report)).toContain(urgencyOf(task, now).label.replace('Overdue by ', ''));
   });
 });

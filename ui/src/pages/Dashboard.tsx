@@ -37,7 +37,7 @@ import { useTranslation } from '../i18n/context';
 import { useMemo } from 'react';
 import { useTasks } from '../hooks/useTasks';
 import { csvFilename } from '../domain/csv';
-import { slaReport, slaReportCsv, slaSummary, describeHours, type ReportableTask } from '../domain/slaReport';
+import { slaReport, slaReportCsv, slaSummary, type ReportableTask } from '../domain/slaReport';
 import { heatColor, heatSummary, processHeat } from '../domain/processHeatmap';
 
 /**
@@ -315,7 +315,7 @@ export function Dashboard() {
                 <Group key={group.name} justify="space-between" wrap="nowrap">
                   <Text size="xs">{group.name}</Text>
                   <Text size="xs" c="dimmed">
-                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                    {group.breached} late, worst {group.worstLateBy}
                   </Text>
                 </Group>
               ))}
@@ -326,7 +326,7 @@ export function Dashboard() {
                 <Group key={group.name} justify="space-between" wrap="nowrap">
                   <Text size="xs">{group.name}</Text>
                   <Text size="xs" c="dimmed">
-                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                    {group.breached} late, worst {group.worstLateBy}
                   </Text>
                 </Group>
               ))}

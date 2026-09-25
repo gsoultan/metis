@@ -1,5 +1,5 @@
 import { toCsv, type CsvValue } from './csv';
-import { urgencyOf, type UrgencyInput } from './taskUrgency';
+import { describeSpan, urgencyOf, type UrgencyInput } from './taskUrgency';
 
 /**
  * Which work has missed its deadline, and whose it is.
@@ -31,6 +31,8 @@ export interface BreachedTask {
   dueDate: string;
   /** Whole hours past the deadline. Negative means it has not passed yet. */
   hoursLate: number;
+  /** How late, in the words the inbox uses for the same task. */
+  lateBy: string;
 }
 
 /** How much is late, per person or per process. */
@@ -39,6 +41,8 @@ export interface BreachGroup {
   breached: number;
   /** The worst one in this group, in whole hours. */
   worstHoursLate: number;
+  /** The worst one in this group, in words. */
+  worstLateBy: string;
 }
 
 export interface SlaReport {
@@ -81,13 +85,15 @@ export function slaReport(tasks: readonly ReportableTask[], now: Date = new Date
     }
 
     const due = new Date(task.dueDate);
+    const late = (now.getTime() - due.getTime()) / HOUR;
     breached.push({
       id: task.id,
       name: task.name ?? task.nodeId ?? task.id,
       assignee: task.assignee?.trim() ? task.assignee : UNASSIGNED,
       processName: task.processName?.trim() ? task.processName : 'Unknown process',
       dueDate: task.dueDate,
-      hoursLate: Math.floor((now.getTime() - due.getTime()) / HOUR),
+      hoursLate: Math.floor(late),
+      lateBy: describeHours(late),
     });
   }
 
@@ -111,10 +117,13 @@ function groupBreaches(breached: readonly BreachedTask[], key: (task: BreachedTa
     const group = groups.get(name);
     if (group) {
       group.breached += 1;
-      group.worstHoursLate = Math.max(group.worstHoursLate, task.hoursLate);
+      if (task.hoursLate > group.worstHoursLate) {
+        group.worstHoursLate = task.hoursLate;
+        group.worstLateBy = task.lateBy;
+      }
       continue;
     }
-    groups.set(name, { name, breached: 1, worstHoursLate: task.hoursLate });
+    groups.set(name, { name, breached: 1, worstHoursLate: task.hoursLate, worstLateBy: task.lateBy });
   }
   return [...groups.values()].sort(
     (a, b) => b.breached - a.breached || b.worstHoursLate - a.worstHoursLate || a.name.localeCompare(b.name),
@@ -136,15 +145,16 @@ export function slaSummary(report: SlaReport): string {
   }
   const count = report.breached.length;
   const worst = report.breached[0];
-  return `${count} ${count === 1 ? 'task is' : 'tasks are'} past their deadline, the oldest by ${describeHours(worst.hoursLate)}.`;
+  return `${count} ${count === 1 ? 'task is' : 'tasks are'} past their deadline, the oldest by ${worst.lateBy}.`;
 }
 
-/** Hours as something readable — days once there are enough of them. */
+/**
+ * Hours as something readable — days once there are enough of them — in the
+ * inbox's words, so the same lateness reads the same wherever it is shown.
+ */
 export function describeHours(hours: number): string {
   if (hours < 1) return 'less than an hour';
-  if (hours < 48) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
-  const days = Math.floor(hours / 24);
-  return `${days} days`;
+  return describeSpan(hours);
 }
 
 /** The report as a spreadsheet, one row per breached task. */
