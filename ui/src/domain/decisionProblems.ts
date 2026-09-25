@@ -10,6 +10,7 @@ import {
   ANY_VALUE,
   hitPolicyOf,
   normalizeCell,
+  parseOutputValue,
   type DecisionInputColumn,
   type DecisionOutputColumn,
   type DecisionRuleRow,
@@ -67,16 +68,9 @@ export function findProblems(
     problems.push({ severity: 'warning', message: 'The table has no lines, so it will never decide anything.' });
   }
 
+  problems.push(...catchAllProblems(hitPolicy, outputs, rules));
+
   rules.forEach((rule, index) => {
-    const everythingIsWild = rule.input_entries.every((cell) => cell.trim() === '' || cell.trim() === ANY_VALUE);
-    if (everythingIsWild && rules.length > 1 && index < rules.length - 1) {
-      problems.push({
-        severity: 'warning',
-        message: `Line ${index + 1} matches everything, so no line below it can ever be reached${
-          policy?.ordered ? '' : ' under this hit policy'
-        }. Catch-all lines belong last.`,
-      });
-    }
     if (rule.output_entries.every((cell) => cell.trim() === '')) {
       problems.push({ severity: 'warning', message: `Line ${index + 1} has no result.` });
     }
@@ -99,4 +93,80 @@ export function findProblems(
   });
 
   return problems;
+}
+
+/** A line with nothing in any condition: it applies to every case. */
+function isCatchAll(rule: DecisionRuleRow): boolean {
+  return rule.input_entries.every((cell) => cell.trim() === '' || cell.trim() === ANY_VALUE);
+}
+
+/**
+ * What a catch-all line costs, which depends on the hit policy.
+ *
+ * Only when the first match wins does it hide the lines below it. Under UNIQUE
+ * it applies alongside every other line, so any case another line decides
+ * fails the decision, wherever the catch-all sits. Under ANY the lines it
+ * applies alongside must agree with it. A policy that ranks or collects its
+ * matches simply counts it among them, which is what a default is for.
+ */
+function catchAllProblems(hitPolicy: string, outputs: DecisionOutputColumn[], rules: DecisionRuleRow[]): TableProblem[] {
+  if (rules.length < 2) return [];
+  const catchAlls = rules.flatMap((rule, index) => (isCatchAll(rule) ? [index] : []));
+
+  switch (hitPolicy) {
+    case 'FIRST': {
+      // Only the first one: everything below it, other catch-alls included, is
+      // already out of reach.
+      const first = catchAlls[0];
+      if (first === undefined || first === rules.length - 1) return [];
+      return [
+        {
+          severity: 'warning',
+          message: `Line ${first + 1} matches everything, so no line below it can ever be reached. Catch-all lines belong last.`,
+        },
+      ];
+    }
+    case 'UNIQUE': {
+      const firstWins = hitPolicyOf('FIRST')?.label ?? 'FIRST';
+      return catchAlls.map((index) => ({
+        severity: 'error',
+        message: `Line ${index + 1} matches everything, so it applies alongside every other line, and only one line may match: every case another line decides fails the decision. Give it conditions of its own, or choose “${firstWins}” and keep it last.`,
+      }));
+    }
+    case 'ANY':
+      return catchAlls.flatMap((index) => disagreementWithCatchAll(index, outputs, rules));
+    default:
+      return [];
+  }
+}
+
+function disagreementWithCatchAll(catchAll: number, outputs: DecisionOutputColumn[], rules: DecisionRuleRow[]): TableProblem[] {
+  const disagreeing = rules.flatMap((rule, index) =>
+    index !== catchAll && !sameResults(rules[catchAll], rule, outputs) ? [index + 1] : [],
+  );
+  if (disagreeing.length === 0) return [];
+  const which = disagreeing.length === 1 ? `line ${disagreeing[0]} gives` : `lines ${joinNumbers(disagreeing)} give`;
+  return [
+    {
+      severity: 'error',
+      message: `Line ${catchAll + 1} matches everything, so it applies alongside every other line, and ${which} a different result. Lines that apply together must agree, so those cases fail the decision.`,
+    },
+  ];
+}
+
+/**
+ * Whether two lines produce the same values, compared as the engine compares
+ * them: as stored, so `"LOW"` and `LOW` are the same result.
+ */
+function sameResults(a: DecisionRuleRow, b: DecisionRuleRow, outputs: DecisionOutputColumn[]): boolean {
+  return outputs.every(
+    (output, index) =>
+      parseOutputValue(a.output_entries[index] ?? '', output.type) ===
+      parseOutputValue(b.output_entries[index] ?? '', output.type),
+  );
+}
+
+function joinNumbers(numbers: number[]): string {
+  if (numbers.length === 1) return String(numbers[0]);
+  return `${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`;
 }
