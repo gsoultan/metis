@@ -40,6 +40,8 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 	}
 	if n.Type == "" {
 		v.errors = append(v.errors, fmt.Sprintf("Flow node %s has no type", n.ID))
+	} else if !n.Type.Known() {
+		v.errors = append(v.errors, fmt.Sprintf("Flow node %s has type %q, which the engine cannot run", n.ID, n.Type))
 	}
 }
 
