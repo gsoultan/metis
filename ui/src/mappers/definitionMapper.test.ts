@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { editRawSettings, rawEditorView } from '../domain/disclosure';
+import { editRawSettings, rawEditorView } from '../domain/rawSettings';
 import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from './definitionMapper';
 
 /**

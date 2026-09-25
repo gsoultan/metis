@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Edge } from '@xyflow/react';
 
 import type { BPMNEdgeData } from '../types/bpmn';
-import { editRawSettings } from './disclosure';
+import { editRawSettings } from './rawSettings';
 import { edgeWithData } from './edgeCaption';
 
 const conditioned: Edge<BPMNEdgeData> = {

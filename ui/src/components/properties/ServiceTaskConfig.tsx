@@ -16,7 +16,8 @@ import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
-import { advancedVisibility, canChooseImplementation, CHANGE_IN_EXPERT_MODE, implementationOptions } from '../../domain/disclosure';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
+import { canChooseImplementation, implementationOptions } from '../../domain/implementationOptions';
 import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';

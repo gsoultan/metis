@@ -1,6 +1,7 @@
 import { Text } from '@mantine/core';
 
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE, loopSummary } from '../../domain/disclosure';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
+import { loopSummary } from '../../domain/loopSummary';
 import { useAppStore } from '../../store/useAppStore';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { MultiInstanceConfig } from './MultiInstanceConfig';

@@ -20,7 +20,7 @@ import { useState } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
-import { listDetails } from '../domain/disclosure';
+import { listDetails } from '../domain/listDetails';
 import { useOrganizations } from '../hooks/useOrganization';
 import { useCreateProject, useDeleteProject, useProjects, useUpdateProject } from '../hooks/useProcess';
 import { failureMessage } from '../services/shared/errors';

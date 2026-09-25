@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { editRawSettings, liveDraft, rawEditorView, type RawDraft } from '../domain/disclosure';
+import { editRawSettings, liveDraft, rawEditorView, type RawDraft } from '../domain/rawSettings';
 
 /** What the raw schema editor shows, and what typing in it does. */
 export interface RawSettingsEditor {
