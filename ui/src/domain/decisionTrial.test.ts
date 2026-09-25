@@ -8,6 +8,7 @@ import {
   staleNote,
   tableFingerprint,
   trialOutcome,
+  trialRequest,
   trialStanding,
   trialTarget,
   trialValueOf,
@@ -29,6 +30,22 @@ describe('trialTarget', () => {
 
   it('runs nothing for a table that has never been saved', () => {
     expect(trialTarget(undefined)).toBeNull();
+  });
+});
+
+describe('trialRequest', () => {
+  const amount: DecisionInputColumn = { id: 'i1', label: 'Amount', expression: 'amount', type: 'number' };
+
+  it('asks for the stored key and version, with a value per condition on screen', () => {
+    expect(trialRequest({ key: 'discount', version: 3 }, [amount], withTrialValue({}, amount, '500'))).toEqual({
+      key: 'discount',
+      version: 3,
+      variables: { amount: 500 },
+    });
+  });
+
+  it('asks for nothing when there is no stored table to run', () => {
+    expect(trialRequest(null, [amount], {})).toBeNull();
   });
 });
 

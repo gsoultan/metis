@@ -67,6 +67,23 @@ export function trialVariables(inputs: DecisionInputColumn[], values: TrialValue
   );
 }
 
+/** What Try it asks the server to run. */
+export interface TrialRequest {
+  key: string;
+  version: number;
+  variables: ProcessVariables;
+}
+
+/**
+ * The request Try it sends: the stored table the editor loaded, at the version
+ * it loaded, with a value for each condition column on screen. Nothing for a
+ * table that was never saved. The page sent the key typed into the editor with
+ * no version, and so could run another table, or another version of this one.
+ */
+export function trialRequest(target: TrialTarget | null, inputs: DecisionInputColumn[], values: TrialValues): TrialRequest | null {
+  return target ? { key: target.key, version: target.version, variables: trialVariables(inputs, values) } : null;
+}
+
 /** A Try-it answer, and the two tables it was an answer about. */
 export interface TrialOutcome {
   values: Record<string, unknown>;

@@ -23,7 +23,6 @@ import {
   Alert,
   Badge,
   Button,
-  Card,
   Center,
   Code,
   Divider,
@@ -52,10 +51,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronsUpDown,
-  CircleCheck,
-  FlaskConical,
   Info,
-  Play,
   Plus,
   Save,
   Trash2,
@@ -73,6 +69,8 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import { DecisionTests } from '../components/DecisionTests';
+import { CoverageCard } from '../components/decisions/CoverageCard';
+import { TrialPanel } from '../components/decisions/TrialPanel';
 import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
@@ -83,7 +81,6 @@ import {
   applyPastedGrid,
   describeCell,
   describeTable,
-  formatOutputValue,
   hitPolicyOf,
   moveRule,
   newRuleRow,
@@ -95,27 +92,18 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
-import {
-  ruleForGap,
-  whyNotChecked,
-  type CoverageGap,
-  type CoverageReport,
-} from '../domain/decisionCoverage';
+import { ruleForGap, type CoverageGap } from '../domain/decisionCoverage';
 import { coverageCheckKey, coverageFor, overlapCheckKey, overlapsFor } from '../domain/decisionChecks';
 import { findProblems, findStructureProblems, type TableProblem } from '../domain/decisionProblems';
 import {
-  describeMatchedLines,
   matchedLines,
   staleNote,
   tableFingerprint,
   trialOutcome,
+  trialRequest,
   trialStanding,
   trialTarget,
-  trialValueOf,
-  trialVariables,
-  withTrialValue,
   type TrialOutcome,
-  type TrialStanding,
   type TrialValues,
 } from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
@@ -542,15 +530,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   };
 
   const handleTest = async () => {
-    if (!target) return;
+    const request = trialRequest(target, inputs, testInputs);
+    if (!request) return;
     setIsTesting(true);
     setTestError(null);
     setOutcome(null);
 
-    const variables = trialVariables(inputs, testInputs);
-
     try {
-      const response = await evaluateDecision.mutateAsync({ key: target.key, version: target.version, variables });
+      const response = await evaluateDecision.mutateAsync(request);
       if (response.err) {
         setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
@@ -926,73 +913,24 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
           <CoverageCard report={coverage} ruleCount={rules.length} onAddLine={addRuleForGap} />
 
-          <Paper radius="md" withBorder p="md">
-            <Stack gap="sm">
-              <Group gap={6}>
-                <FlaskConical size={15} color="var(--mantine-color-orange-6)" />
-                <Title order={6}>Try it</Title>
-              </Group>
-              <Text size="xs" c="dimmed">
-                {target
-                  ? `Runs the saved version (v${target.version}) and highlights the lines that matched.`
-                  : 'Save the table first: Try it runs the saved version.'}
-              </Text>
-
-              {inputs.map((input) =>
-                input.type === 'boolean' ? (
-                  <Select
-                    key={input.id}
-                    size="xs"
-                    label={input.label}
-                    value={trialValueOf(testInputs, input)}
-                    onChange={(next) => setTestInputs(withTrialValue(testInputs, input, next ?? ''))}
-                    data={[
-                      { value: 'true', label: 'Yes' },
-                      { value: 'false', label: 'No' },
-                    ]}
-                    placeholder="Not given"
-                    clearable
-                  />
-                ) : (
-                  <TextInput
-                    key={input.id}
-                    size="xs"
-                    label={input.label}
-                    placeholder={input.type === 'number' ? '100' : 'Sample value'}
-                    value={trialValueOf(testInputs, input)}
-                    onChange={(event) => setTestInputs(withTrialValue(testInputs, input, event.currentTarget.value))}
-                  />
-                ),
-              )}
-
-              <Button
-                size="xs"
-                color="orange"
-                leftSection={<Play size={14} />}
-                onClick={handleTest}
-                loading={isTesting}
-                disabled={!target}
-              >
-                Run
-              </Button>
-
-              {testError && (
-                <Alert variant="light" color="red" icon={<AlertCircle size={14} />} py="xs">
-                  <Text size="xs">{testError}</Text>
-                </Alert>
-              )}
-
-              {outcome && (
-                <TrialAnswer
-                  outcome={outcome}
-                  standing={trialStanding(outcome, table, savedTable)}
-                  staleReason={staleNote(table, savedTable)}
-                  lines={highlighted}
-                  outputs={outputs}
-                />
-              )}
-            </Stack>
-          </Paper>
+          <TrialPanel
+            target={target}
+            inputs={inputs}
+            outputs={outputs}
+            values={testInputs}
+            onValues={setTestInputs}
+            onRun={handleTest}
+            running={isTesting}
+            error={testError}
+            answer={
+              outcome && {
+                outcome,
+                standing: trialStanding(outcome, table, savedTable),
+                staleReason: staleNote(table, savedTable),
+                lines: highlighted,
+              }
+            }
+          />
 
           {/* The examples were stored with the table and shown nowhere, and
               every save wiped them. They are saved with the table now, and run
@@ -1157,191 +1095,5 @@ function ColumnHeader({
         </Stack>
       </Stack>
     </Table.Th>
-  );
-}
-
-/**
- * The cases no line decides.
- *
- * A table that leaves a case undecided returns nothing for it, and the process
- * carries on with the variable unset until something downstream fails for a
- * reason that looks unrelated. The analysis was written and never shown; this
- * is where it is shown, with a way to close each gap.
- */
-export function CoverageCard({
-  report,
-  ruleCount,
-  onAddLine,
-}: {
-  report: CoverageReport;
-  ruleCount: number;
-  onAddLine: (gap: CoverageGap) => void;
-}) {
-  return (
-    <Paper radius="md" withBorder p="md">
-      <Stack gap="sm">
-        <Group gap={6}>
-          <Title order={6}>Cases nothing decides</Title>
-          <Tooltip
-            label="Combinations of the values this table mentions that no line applies to. The process gets no value for them."
-            multiline
-            w={240}
-            withArrow
-          >
-            <Info size={13} color="var(--mantine-color-dimmed)" />
-          </Tooltip>
-        </Group>
-        <CoverageFindings report={report} ruleCount={ruleCount} onAddLine={onAddLine} />
-      </Stack>
-    </Paper>
-  );
-}
-
-function CoverageFindings({
-  report,
-  ruleCount,
-  onAddLine,
-}: {
-  report: CoverageReport;
-  ruleCount: number;
-  onAddLine: (gap: CoverageGap) => void;
-}) {
-  if (ruleCount === 0) {
-    return (
-      <Text size="xs" c="dimmed">
-        Nothing to check until the table has a line.
-      </Text>
-    );
-  }
-
-  // Refusing to guess is reported as such, not as a clean bill of health.
-  if (report.notAnalysed.length > 0) {
-    return (
-      <Text size="xs" c="dimmed">
-        {whyNotChecked(report)}
-      </Text>
-    );
-  }
-
-  if (report.gaps.length === 0) {
-    return report.truncated ? (
-      <Text size="xs" c="dimmed">
-        No undecided case turned up, but the table has more combinations than this check tries.
-      </Text>
-    ) : (
-      <Group gap={6} wrap="nowrap">
-        <CircleCheck size={14} color="var(--mantine-color-green-6)" />
-        <Text size="xs">Every case has a line that decides it.</Text>
-      </Group>
-    );
-  }
-
-  return (
-    <Stack gap="xs">
-      {report.gaps.map((gap) => (
-        <Group key={gap.description} justify="space-between" wrap="nowrap" gap="xs" align="flex-start">
-          <Text size="xs">{gap.description}.</Text>
-          <Button
-            size="compact-xs"
-            variant="light"
-            leftSection={<Plus size={12} />}
-            // The name starts with what the button shows, so "Add line" said
-            // aloud finds it (WCAG 2.5.3, label in name).
-            aria-label={`Add line for this case: ${gap.description}`}
-            onClick={() => onAddLine(gap)}
-            style={{ flexShrink: 0 }}
-          >
-            Add line
-          </Button>
-        </Group>
-      ))}
-      {report.truncated && (
-        <Text size="xs" c="dimmed">
-          There may be more: the check stopped before trying every combination.
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
-/**
- * What Try it decided, pinned to the table it ran.
- *
- * The line numbers are the lines on screen the answer points at. An answer
- * that no longer describes the screen says so, rather than pointing at lines
- * that have changed under it.
- */
-function TrialAnswer({
-  outcome,
-  standing,
-  staleReason,
-  lines,
-  outputs,
-}: {
-  outcome: TrialOutcome;
-  standing: TrialStanding;
-  /** What to say when the answer is stale. */
-  staleReason: string;
-  lines: number[];
-  outputs: DecisionOutputColumn[];
-}) {
-  if (standing === 'stale') {
-    return (
-      <Text size="xs" c="dimmed">
-        {staleReason}
-      </Text>
-    );
-  }
-
-  const decided = outcome.positions.length > 0;
-  return (
-    <Card withBorder radius="sm" p="xs" bg={decided ? 'var(--mantine-color-gray-0)' : 'var(--mantine-color-yellow-0)'}>
-      <Stack gap={6}>
-        {/*
-          Nothing matching is not a success. It used to be reported under a
-          green tick beside an empty result, so a table that quietly decides
-          nothing looked like a table that worked — and the process carries on
-          with the variable unset.
-        */}
-        <Group gap={6}>
-          {decided ? (
-            <CircleCheck size={14} color="var(--mantine-color-green-6)" />
-          ) : (
-            <AlertCircle size={14} color="var(--mantine-color-yellow-7)" />
-          )}
-          <Text size="xs" fw={600}>
-            {decided ? describeMatchedLines(lines) : 'No line matched'}
-          </Text>
-        </Group>
-
-        {standing === 'saved-only' && (
-          <Text size="xs" c="dimmed">
-            This is what the saved version decides. Your changes are not saved yet, so they are not part of it.
-          </Text>
-        )}
-
-        {decided ? (
-          /* Results named the way the columns are, rather than raw JSON. */
-          <Stack gap={2}>
-            {outputs.map((output) => (
-              <Group key={output.id} gap={6} wrap="nowrap">
-                <Text size="xs" c="dimmed">
-                  {output.label || output.name}:
-                </Text>
-                <Text size="xs" fw={600}>
-                  {formatOutputValue(outcome.values[output.name])}
-                </Text>
-              </Group>
-            ))}
-          </Stack>
-        ) : (
-          <Text size="xs" c="dimmed">
-            The process would get no value for{' '}
-            {outputs.map((output) => output.label).filter(Boolean).join(', ') || 'this table'}. Add a line that
-            catches this case, or a catch-all line at the bottom.
-          </Text>
-        )}
-      </Stack>
-    </Card>
   );
 }
