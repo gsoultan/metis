@@ -4,6 +4,7 @@ import { useDefinitions, useSubProcesses } from '../../hooks/useProcess';
 import { asNumber, asText, asTextMap } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { MappingTable } from './CommonProperties';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -93,6 +94,8 @@ export function CallActivityConfig({ data, nodeId, onUpdate, instanceId, onViewI
           onUpdate={(m) => onUpdate({ out_mapping: m })}
         />
       </PropertySection>
+
+      <LoopSettings data={data} onUpdate={onUpdate} />
     </Stack>
   );
 }

@@ -37,20 +37,10 @@ import { SmartTroubleshooter } from './SmartTroubleshooter';
 import { BusinessTimeline } from './BusinessTimeline';
 import { HelpTooltip, VisualConditionBuilder } from './LowCodeComponents';
 import { useAppStore } from '../store/useAppStore';
-import { UserTaskConfig } from './properties/UserTaskConfig';
-import { ManualTaskConfig } from './properties/ManualTaskConfig';
-import { BusinessRuleTaskConfig } from './properties/BusinessRuleTaskConfig';
-import { CallActivityConfig } from './properties/CallActivityConfig';
-import { ServiceTaskConfig } from './properties/ServiceTaskConfig';
-import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
-import { ThrowEventConfig } from './properties/ThrowEventConfig';
-import { EventConfig } from './properties/EventConfig';
-import { StartEventConfig } from './properties/StartEventConfig';
 import { DataFlowPanel } from './properties/DataFlowPanel';
+import { CONFIG_REGISTRY } from './properties/nodeConfigRegistry';
 import { PropertySection } from './properties/PropertySection';
 import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
-import { GatewayConfig } from './properties/GatewayConfig';
-import { SubProcessConfig } from './properties/SubProcessConfig';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
 import { editRawSettings, rawEditorView, type RawDraft } from '../domain/disclosure';
@@ -80,35 +70,6 @@ export interface NodeConfigProps {
   /** Provided to CallActivityConfig for sub-process instance viewing. */
   onViewInstance?: (id: string, defId: string) => void;
 }
-
-/** Node type string → property config component. */
-const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
-  userTask: UserTaskConfig,
-  manualTask: ManualTaskConfig,
-  businessRuleTask: BusinessRuleTaskConfig,
-  callActivity: CallActivityConfig,
-  serviceTask: ServiceTaskConfig,
-  scriptTask: ScriptTaskConfig,
-  intermediateCatchEvent: EventConfig,
-  // The throwing events get their own panel: EventConfig asks what a step
-  // *waits for*, which is the wrong question for one that announces something.
-  intermediateThrowEvent: ThrowEventConfig,
-  errorEndEvent: ThrowEventConfig,
-  escalationThrowEvent: ThrowEventConfig,
-  compensationThrowEvent: ThrowEventConfig,
-  boundaryEvent: EventConfig,
-  signalEvent: EventConfig,
-  messageEvent: EventConfig,
-  timerEvent: EventConfig,
-  startEvent: StartEventConfig,
-  exclusiveGateway: GatewayConfig,
-  inclusiveGateway: GatewayConfig,
-  eventBasedGateway: GatewayConfig,
-  // A sub-process had no panel at all, so the one decision that changes how it
-  // runs — whether its steps are driven by the diagram or by a person — could
-  // only be made by importing a file that already said so.
-  subProcess: SubProcessConfig,
-};
 
 interface PropertyPanelProps {
   selectedNode: Node<BPMNNodeData> | null;
