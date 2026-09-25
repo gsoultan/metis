@@ -160,13 +160,20 @@
   - [ ] `ServiceFacade` orchestration-only compliance verified across domains.
   - [ ] Small, consumer-centric interface compliance audit completed.
   - [ ] Pattern usage audit (`Repository`, `UnitOfWork`, `Strategy`, `Adapter`, `Decorator`, `Observer`) completed.
-- [ ] 3. Performance & Memory Strategy
+- [x] 3. Performance & Memory Strategy — every item below is done; the parent was
+      left unticked, and two of the completed items (`P1-OPT-06`, `P1-OPT-07`) were
+      missing from the list though the session log records them. Reconciled
+      2026-09-25. How to measure and profile now is `docs/performance.md`: the
+      PowerShell harness the 2026-03-24 entries cite (`tests/performance/`) no
+      longer exists, and `tests/loadtest` with pprof replaces it.
   - [x] `pprof` CPU/heap baseline under load established.
   - [x] `P1-OPT-01` setup-status request-path overhead trim completed (middleware wrap reuse).
   - [x] `P1-OPT-02` connection-churn guardrails completed (explicit HTTP server keep-alive settings + sustained-load verification).
   - [x] `P1-OPT-03` regex compile hotspot audit and caching/precompile optimization completed.
   - [x] `P1-OPT-04` setup-status rate-limit transient-overhead reduction completed (in-place window updates + client key fast-path parsing).
   - [x] `P1-OPT-05` setup-status auth public-path lookup optimization completed (linear scan replaced with map lookup + auth header parse allocation trim).
+  - [x] `P1-OPT-06` optional-auth transient-allocation reduction completed (`strings.Cut` in place of a per-request `strings.Split`).
+  - [x] `P1-OPT-07` slice preallocation for the high-frequency gRPC list-response mappers completed.
   - [x] `O(n^2)` hot loops replaced with map-based lookups where needed.
   - [x] Slice preallocation pass completed on profiled hot paths.
   - [x] Re-marshal/transient allocation reduction pass completed.
@@ -211,6 +218,9 @@
         503 from `/readyz`, and full recovery afterwards (parked external task completes,
         the instance finishes, fresh work starts). Broker reconnect is covered at the unit
         level in `messaging_test.go`; the network dimension is the proxy itself.
+        **Corrected 2026-09-25:** nothing starts the RabbitMQ bridge or the inbound
+        consumer (INT-15), so in a running server there is no broker connection for
+        that reconnect logic to recover. The unit tests cover code that does not run.
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
@@ -313,7 +323,13 @@
   - [ ] Medium-priority UX items (5-8) delivered.
   - [ ] Lower-priority UX items (9-12) delivered.
 - [ ] 8. 90-Day Execution Plan
-  - [ ] Phase 1 complete (`baseline profiling + SLO dashboard`, `top 5 bottlenecks`, `critical security gaps`).
+  - [x] Phase 1 complete (`baseline profiling + SLO dashboard`, `top 5 bottlenecks`, `critical security gaps`).
+        Profiling: the pprof baseline and `P1-OPT-01`–`08`, and contention profiles
+        that record something (2026-09-25). SLO dashboard: `deploy/grafana/metis-slo.json`
+        over recorded burn-rate ratios. Bottlenecks, each measured before it was
+        fixed: the job claim query (18.8ms → 0.04ms at 100,000 due), the retention
+        sweeps (by ctid), the storm pool's constructor and size, and the `P1-OPT`
+        request-path items. Security: the eight P0s of 2026-09-25.
   - [ ] Phase 2 complete (`architecture cleanup`, `high-value UX improvements`).
   - [ ] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`).
 
@@ -851,6 +867,39 @@
   - **Not done, and why:** DMN-06 (saving a decision rewrites that version in place) is an
     open question in the PRD: whether saving should always create a new version, with
     drafts kept separately. It waits for that decision.
+
+- 2026-09-25 (completed): 90-day plan Phase 1, "baseline profiling + SLO dashboard" —
+  what the engine does when nobody is watching it. Branch `roadmap-observability`,
+  stacked on `roadmap-core-ux`.
+  - **The strict scope's soak alert could never fire.** `count` drops every label and a
+    plain `and` matches on labels, so the documented expression was always empty. It is
+    in `alerts.yaml` now, unit-tested and matched per instance.
+  - **The engine's backlog and pools are measured**: due jobs and the oldest one's age,
+    expired leases, open incidents, and both connection pools. An unreadable backlog
+    reports `up 0` rather than an empty queue. Each has an alert and a runbook entry.
+  - **The error budget is watched by burn rate** (14.4×, 6×, and a 3-day average) over
+    recorded ratios, with `deploy/grafana/metis-slo.json` over the same numbers. The
+    old alert paged at 1× — a system spending its budget exactly as planned.
+  - **The storm pool ignored the documented pool size and bypassed storm's
+    constructor.** Its size came from the machine's CPU count, and a text query mode —
+    common behind PgBouncer — would have decoded booleans inverted instead of being
+    refused. Environments' pools lacked the health checks too. One constructor now
+    serves both.
+  - **The mutex and block profiles were always empty**: no sampling rate was set.
+  - `tests/drift` now fails when an alert has no runbook, when an annotation names a
+    runbook section that does not exist, or when a rule or dashboard panel reads a
+    metric the code does not export — which promtool's tests cannot catch.
+  - Runbooks for out of memory and secret rotation, `docs/performance.md`, the
+    security plan's status, §9.3 reconciled, the broker-reconnect claim corrected,
+    and the tests moved off the pre-rename variable names before that fallback expires.
+  - **Found and not fixed — for the backlog:**
+    - **`ENCRYPTION_KEY` cannot be rotated.** Sealed values are encrypted under the
+      one key and nothing re-encrypts them, so a leaked key cannot be retired. The
+      ciphertext is already prefix-tagged, which is the start of a keyring: new key
+      for writes, old keys for reads, and a batched re-encryption.
+    - The engine gauges read the main database only; an environment's jobs are not
+      counted.
+    - No broker/DLQ runbook: the consumer it would cover is never started (INT-15).
 
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
