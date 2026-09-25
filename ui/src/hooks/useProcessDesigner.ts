@@ -43,6 +43,7 @@ import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 import type { ApiNode, ApiFlow } from '../services/types';
+import { fromBase64 } from '../services/shared/bytes';
 // The issue shape lives beside the checks that produce it. Re-exported here
 // because the designer page and the checklist modal import it from the hook.
 export type { ValidationIssue } from '../domain/processValidation';
@@ -313,7 +314,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
           notifications.show({ title: 'Export failed', message: 'The server returned no BPMN XML', color: 'red' });
           return;
         }
-        const xml = atob(data.xml);
+        const xml = fromBase64(data.xml);
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
