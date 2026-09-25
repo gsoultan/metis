@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'bun:test';
 
-import { PROCESS_TEMPLATES, templateById } from './processTemplates';
+import { PROCESS_TEMPLATES, templateById, type BuiltTemplate } from './processTemplates';
+import { validateProcess } from './processValidation';
 
 /** Deterministic ids, so a failure names the shape rather than a uuid. */
 function counter() {
   let n = 0;
   return () => `n${++n}`;
+}
+
+/**
+ * The template as it is once the author has made the decisions it leaves
+ * open: every path out of a gateway says when it is taken.
+ */
+function withDecisionsMade(built: BuiltTemplate): BuiltTemplate {
+  const gateways = new Set(built.nodes.filter((n) => n.type.endsWith('Gateway')).map((n) => n.id));
+  return {
+    ...built,
+    edges: built.edges.map((e) =>
+      gateways.has(e.source) ? { ...e, data: { ...e.data, condition: 'decided by the author' } } : e,
+    ),
+  };
 }
 
 describe('every template is a process somebody could deploy', () => {
@@ -83,6 +98,26 @@ describe('every template is a process somebody could deploy', () => {
           expect((n.data.label as string).length).toBeGreaterThan(0);
         }
       });
+    });
+  }
+});
+
+/*
+ * The designer's own validator is the bar a template has to clear.
+ *
+ * A template leaves one thing open on purpose: which way each gateway goes.
+ * The designer reports those as errors when the template lands, and that is
+ * the point, because it takes the author straight to the decisions only they
+ * can make. Anything else the validator finds is a defect the template shipped
+ * with, and an author who starts from a template assumes it has none. The
+ * invoice template's two automatic steps were pointed at nothing, so every
+ * invoice passed through "Check the invoice" unchecked.
+ */
+describe('nothing to fix but the decisions a template leaves to you', () => {
+  for (const template of PROCESS_TEMPLATES) {
+    it(`${template.name} has no errors and no warnings once its paths say when they are taken`, () => {
+      const { nodes, edges } = withDecisionsMade(template.build(counter()));
+      expect(validateProcess(nodes, edges)).toEqual([]);
     });
   }
 });
