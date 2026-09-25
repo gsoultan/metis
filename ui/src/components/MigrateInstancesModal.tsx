@@ -16,28 +16,29 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { AlertTriangle, ArrowRight, Plus, ShieldAlert, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   actionConsequence,
+  canApply,
   carriedNodes,
   heldTasksAffected,
-  isApplicable,
   movedNodes,
   planSummary,
   removedNodesSummary,
   toNodeActions,
   toNodeMapping,
 } from '../domain/instanceMigration';
-import type { ActionRow } from '../domain/instanceMigration';
+import type { ActionRow, MigrationRequest } from '../domain/instanceMigration';
 import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
 import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
 import { migrationNotice } from '../domain/migrationOutcome';
 import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
-import { useDefinition, useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
+import { useDefinition, useMigrateInstances } from '../hooks/useDefinitions';
+import { useMigrationPlan } from '../hooks/useMigrationPlan';
 import { VersionChangesTable } from './VersionChangesTable';
 import { errorMessage } from '../services/shared/errors';
-import type { ApiMigrationPlan, NodeActionKind } from '../services/types';
+import type { NodeActionKind } from '../services/types';
 
 /** A version, as this dialog needs to name it. */
 export interface MigrationVersionRef {
@@ -67,8 +68,9 @@ let nextRowId = 0;
  * until you press the button that says apply.
  */
 export function MigrateInstancesModal({ source, target, processKey, onClose }: MigrateInstancesModalProps) {
-  const [plan, setPlan] = useState<ApiMigrationPlan | null>(null);
-  const [refused, setRefused] = useState<string | null>(null);
+  // Why the last apply did not finish, kept apart from the plan's own refusal:
+  // the plan is worked out again afterwards, and must not wipe the reason.
+  const [applyError, setApplyError] = useState<string | null>(null);
   // What somebody has said here — the mapping, the holds they accepted, the
   // nodes they decided rather than moved — and the pair of versions they said
   // it about. Mapping and decisions stay separate instructions: the server
@@ -102,66 +104,41 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     if (!pair) return;
     setWritten((current) => editDraft(draftFor(current, pair), change, proposal));
   };
+  // What pressing "Move" would send, and the plan that answers it — kept
+  // together, so a plan for an earlier edit can be shown but never applied.
+  const request: MigrationRequest | null = source && target
+    ? {
+      source: source.id,
+      target: target.id,
+      mapping: toNodeMapping(rows),
+      acknowledge: accepted,
+      actions: toNodeActions(actionRows),
+    }
+    : null;
+  const planned = useMigrationPlan(request);
+  const plan = planned.plan;
+  const apply = useMigrateInstances();
+
   // Closing is abandoning the plan: the next opening, of this pair or another,
   // starts from nothing.
   const close = () => {
     setWritten(null);
+    setApplyError(null);
+    planned.reset();
     onClose();
   };
 
-  const preview = usePlanInstanceMigration();
-  const apply = useMigrateInstances();
-
   const open = source !== null && target !== null;
-
-  // The plan is fetched on open and re-fetched whenever the mapping changes,
-  // because a mapping that strands a task must stop saying "ready to apply" the
-  // moment it does.
-  useEffect(() => {
-    if (!source || !target) {
-      setPlan(null);
-      setRefused(null);
-      return;
-    }
-    let cancelled = false;
-    preview
-      .mutateAsync({
-        source: source.id,
-        target: target.id,
-        mapping: toNodeMapping(rows),
-        acknowledge: accepted,
-        actions: toNodeActions(actionRows),
-      })
-      .then((result) => {
-        if (cancelled) return;
-        setPlan(result.plan ?? null);
-        setRefused(result.err ?? null);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setPlan(null);
-        setRefused(errorMessage(error, 'The plan could not be worked out.'));
-      });
-    return () => {
-      cancelled = true;
-    };
-    // preview is a stable mutation object; including it would refetch on every
-    // render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted), JSON.stringify(actionRows)]);
+  const ready = canApply({ plan, fresh: planned.fresh, error: planned.error });
 
   const handleApply = async () => {
-    if (!source || !target) return;
+    if (!request || !target || !ready) return;
+    setApplyError(null);
     try {
-      const reply = await apply.mutateAsync({
-        source: source.id,
-        target: target.id,
-        mapping: toNodeMapping(rows),
-        acknowledge: accepted,
-        actions: toNodeActions(actionRows),
-      });
+      const reply = await apply.mutateAsync(request);
       if (reply.err) {
-        setRefused(reply.err);
+        setApplyError(reply.err);
+        planned.replan();
         return;
       }
       // Said from the server's reply, not from the preview on screen: see
@@ -172,7 +149,11 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     } catch (error: unknown) {
       // Not "could not be moved": the server moves instances one at a time,
       // and one that stops part-way has moved some. Its message says how many.
-      setRefused(errorMessage(error, 'The server did not confirm the move.'));
+      setApplyError(errorMessage(error, 'The server did not confirm the move.'));
+      // Whatever it moved has left the source version, so the plan in hand
+      // counts instances that are no longer there. Running the same move again
+      // carries on from where it stopped, and that needs a plan of what is left.
+      planned.replan();
     }
   };
 
@@ -180,7 +161,6 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   const carried = plan ? carriedNodes(plan) : [];
   const removedSummary = plan ? removedNodesSummary(plan) : null;
   const held = plan ? heldTasksAffected(plan) : 0;
-  const ready = isApplicable(plan) && (plan?.instances ?? 0) > 0 && refused === null;
 
   return (
     <Modal
@@ -203,7 +183,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           </Text>
         </Alert>
 
-        {preview.isPending && !plan && (
+        {!planned.fresh && !plan && (
           <Group gap="xs">
             <Loader size="xs" />
             <Text size="sm" c="dimmed">Working out what would move…</Text>
@@ -236,9 +216,15 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           </Stack>
         )}
 
-        {refused && (
+        {applyError && (
           <Alert color="red" icon={<AlertTriangle size={16} />} radius="md">
-            <Text size="sm">{refused}</Text>
+            <Text size="sm">{applyError}</Text>
+          </Alert>
+        )}
+
+        {planned.error && (
+          <Alert color="red" icon={<AlertTriangle size={16} />} radius="md">
+            <Text size="sm">{planned.error}</Text>
           </Alert>
         )}
 
@@ -503,6 +489,12 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         </Stack>
 
         <Group justify="flex-end">
+          {!planned.fresh && plan !== null && (
+            <Group gap={6} mr="auto">
+              <Loader size="xs" />
+              <Text size="xs" c="dimmed">Working out the plan for this change…</Text>
+            </Group>
+          )}
           <Button variant="subtle" color="gray" onClick={close}>Cancel</Button>
           <Button
             color="orange"

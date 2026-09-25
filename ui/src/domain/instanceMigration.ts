@@ -35,6 +35,55 @@ export function isApplicable(plan: ApiMigrationPlan | null): boolean {
   return plan !== null && (plan.refusals?.length ?? 0) === 0;
 }
 
+/** Everything a migration request says, as sent. */
+export interface MigrationRequest {
+  source: string;
+  target: string;
+  mapping: Record<string, string>;
+  acknowledge: string[];
+  actions: Record<string, ApiNodeAction>;
+}
+
+/**
+ * A request as one comparable string, so a plan can be kept with the request
+ * it answers. Built from what is sent rather than from the editor's rows: a
+ * blank row changes nothing the server sees, and must not make the plan stale.
+ */
+export function migrationRequestKey(request: MigrationRequest): string {
+  const sorted = <T>(record: Record<string, T>) => Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify([
+    request.source,
+    request.target,
+    sorted(request.mapping),
+    [...request.acknowledge].sort(),
+    sorted(request.actions),
+  ]);
+}
+
+/** What the apply button goes by. */
+export interface ApplyState {
+  /** The last plan worked out for these two versions. */
+  plan: ApiMigrationPlan | null;
+  /** Whether that plan answers exactly the request on screen. */
+  fresh: boolean;
+  /** Why the plan could not be worked out, when it could not. */
+  error: string | null;
+}
+
+/**
+ * Whether pressing apply would apply the plan somebody is looking at.
+ *
+ * Only a fresh one. The dialog used to keep the last plan it had and leave
+ * "Move" enabled on it while the plan for the next edit was on its way — so a
+ * press in that moment applied a mapping, an acknowledgement or a target that
+ * no plan on screen described. The server re-plans and refuses what is not
+ * applicable, but an applicable plan nobody has read is exactly what a
+ * preview-first dialog exists to prevent.
+ */
+export function canApply(state: ApplyState): boolean {
+  return state.fresh && state.error === null && isApplicable(state.plan) && (state.plan?.instances ?? 0) > 0;
+}
+
 /** Total tasks that would move — the number that means "people affected". */
 export function tasksAffected(plan: ApiMigrationPlan): number {
   return (plan.moves ?? []).reduce((total, move) => total + move.tasks, 0);
