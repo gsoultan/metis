@@ -27,11 +27,23 @@ func NewConnectorManifestRepository(c *db.Conn) contracts.ConnectorManifestRepos
 }
 
 func (r *connectorManifestRepository) GetByKey(ctx context.Context, key string) (models.ConnectorManifestModel, error) {
+	return r.byKey(ctx, key, false)
+}
+
+func (r *connectorManifestRepository) GetByKeyForUpdate(ctx context.Context, key string) (models.ConnectorManifestModel, error) {
+	return r.byKey(ctx, key, true)
+}
+
+func (r *connectorManifestRepository) byKey(ctx context.Context, key string, forUpdate bool) (models.ConnectorManifestModel, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return models.ConnectorManifestModel{}, err
 	}
-	row, found, err := connectormanifest.New().Where(connectormanifest.Key.Eq(key)).One(ctx, ex)
+	q := connectormanifest.New().Where(connectormanifest.Key.Eq(key))
+	if forUpdate {
+		q = q.ForUpdate()
+	}
+	row, found, err := q.One(ctx, ex)
 	if err != nil {
 		return models.ConnectorManifestModel{}, fmt.Errorf("could not read the connector manifest: %w", err)
 	}

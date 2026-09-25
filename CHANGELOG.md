@@ -86,6 +86,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Installing a connector's document again switched it back on.** An
+  administrator who switched a connector off and then fixed its document found
+  it running again. Installing over an installed manifest now keeps the switch
+  it had; only a new one is installed switched on.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

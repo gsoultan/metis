@@ -556,7 +556,9 @@ specification. Both are in the UI, on the Connectors page.
 
 A manifest is stored as its author wrote it and read back the same way, comments
 and all. Installing an existing key **replaces** it, because installing again is
-how a manifest is fixed. A manifest can carry the key of a built-in connector,
+how a manifest is fixed. It keeps the switch it had: a connector somebody
+switched off stays off when its document is fixed, and only a new one is
+installed switched on. A manifest can carry the key of a built-in connector,
 which is how one is replaced without a redeploy.
 
 Manifests are read from the database on every call rather than cached, so a

@@ -149,6 +149,45 @@ func TestASwitchedOffManifestIsNotUsed(t *testing.T) {
 	}
 }
 
+// Installing again is how an author fixes a document. An administrator who
+// switched a connector off — the partner asked us to stop calling it — and then
+// fixed its document has not asked for it to be switched back on.
+func TestReinstallingASwitchedOffManifestLeavesItOff(t *testing.T) {
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+
+	var called int
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer api.Close()
+
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	installed, err := svc.InstallManifest(ctx, []byte("key: crm.v\nversion: 1\nrequest:\n  url: \""+api.URL+"/old\"\n"))
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !installed.Enabled {
+		t.Fatal("a manifest installed for the first time was switched off")
+	}
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Fatalf("switch off: %v", err)
+	}
+
+	fixed, err := svc.InstallManifest(ctx, []byte("key: crm.v\nversion: 1\nrequest:\n  url: \""+api.URL+"/fixed\"\n"))
+	if err != nil {
+		t.Fatalf("installing the fixed document: %v", err)
+	}
+	if fixed.Enabled {
+		t.Error("installing a fixed document switched the connector back on")
+	}
+	if _, err := svc.ExecuteConnector(ctx, "crm.v", nil, nil); err == nil || called != 0 {
+		t.Errorf("the switched-off connector was called %d times after its document was fixed (err=%v)", called, err)
+	}
+}
+
 // A manifest replaces a built-in under the same key. That is what "without a
 // redeploy" means: the Go connector stays in the binary and stops being used.
 func TestAManifestReplacesABuiltIn(t *testing.T) {

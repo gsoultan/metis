@@ -20,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 	"github.com/gsoultan/metis/server/domains/services/impl/sqlconnector"
 	"github.com/gsoultan/metis/server/repositories"
-	"github.com/gsoultan/metis/server/repositories/models"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/codes"
@@ -45,39 +44,24 @@ var _ servicecontracts.JobConnectorService = (*connectorService)(nil)
 // somebody installs it, not when an instance reaches it at 3am.
 //
 // Installing an existing key replaces it, because installing again is how an
-// author fixes a manifest.
+// author fixes a manifest — and keeps whether it is switched on, which is the
+// administrator's decision rather than the document's.
 func (s *connectorService) InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error) {
 	manifest, err := connectors.ParseManifest(document)
 	if err != nil {
 		return entities.ConnectorManifest{}, err
 	}
 
-	m := models.ConnectorManifestModel{
-		Key:      manifest.Key,
-		Name:     manifest.Name,
-		Version:  manifest.Version,
-		Document: string(document),
-		Enabled:  true,
-	}
-	if err := s.repo.ConnectorManifest().Upsert(ctx, m); err != nil {
-		return entities.ConnectorManifest{}, err
-	}
-
-	// Read back rather than returning what was sent. Installing an existing key
-	// keeps that row's id, so the id the caller needs — to switch this
-	// connector off, or delete it — is the stored one and not the one this
-	// function might have generated.
-	stored, err := s.repo.ConnectorManifest().GetByKey(ctx, manifest.Key)
+	var installed entities.ConnectorManifest
+	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		var installErr error
+		installed, installErr = s.install(ctx, manifest, document)
+		return installErr
+	})
 	if err != nil {
 		return entities.ConnectorManifest{}, err
 	}
-	return entities.ConnectorManifest{
-		ID:      uuid.UUID(stored.ID),
-		Key:     stored.Key,
-		Name:    stored.Name,
-		Version: stored.Version,
-		Enabled: stored.Enabled,
-	}, nil
+	return installed, nil
 }
 
 // ListManifests returns the installed manifests, without their documents.
@@ -88,9 +72,7 @@ func (s *connectorService) ListManifests(ctx context.Context) ([]entities.Connec
 	}
 	out := make([]entities.ConnectorManifest, len(list))
 	for i, m := range list {
-		out[i] = entities.ConnectorManifest{
-			ID: uuid.UUID(m.ID), Key: m.Key, Name: m.Name, Version: m.Version, Enabled: m.Enabled,
-		}
+		out[i] = manifestEntity(m)
 	}
 	return out, nil
 }
