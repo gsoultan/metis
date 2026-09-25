@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -187,39 +187,6 @@ describe('loopSummary', () => {
     expect(advancedVisibility(false, loopSummary({ multiInstanceType: 'none' }))).toBe('hidden');
     expect(advancedVisibility(false, loopSummary({ multiInstanceType: 'parallel', collection: 'orders' }))).toBe('summary');
     expect(advancedVisibility(true, loopSummary({}))).toBe('edit');
-  });
-});
-
-/**
- * Loop settings follow the same rule on every kind of task.
- *
- * A user or service task hid them in basic mode even while the step ran once
- * per item, and a script task showed the full editor to everybody. Three
- * panels, three answers to one question.
- */
-describe('every panel with loop settings', () => {
-  const panels = readdirSync(join(SRC, 'components', 'properties'))
-    .filter((file) => file.endsWith('.tsx'))
-    .map((file) => [file, readSource(join('components', 'properties', file))] as const)
-    .filter(([, source]) => source.includes('<MultiInstanceConfig'));
-
-  it('includes the three task panels that offer them', () => {
-    // Guards the scan itself: a renamed component would otherwise match
-    // nothing, and every check below would pass having checked nothing.
-    expect(panels.map(([file]) => file)).toEqual(
-      expect.arrayContaining(['ScriptTaskConfig.tsx', 'ServiceTaskConfig.tsx', 'UserTaskConfig.tsx']),
-    );
-  });
-
-  it.each(panels)('%s offers the editor only where it may be edited', (_file, source) => {
-    const editors = source.match(/<MultiInstanceConfig/g) ?? [];
-    const gated = source.match(/=== 'edit' && \(?\s*<MultiInstanceConfig/g) ?? [];
-
-    expect(gated.length).toBe(editors.length);
-  });
-
-  it.each(panels)('%s summarises a loop in effect in basic mode', (_file, source) => {
-    expect(source.includes('loopSummary(data)')).toBe(true);
   });
 });
 

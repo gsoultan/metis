@@ -3,11 +3,10 @@ import { Play } from 'lucide-react';
 import { useState } from 'react';
 
 import { VariablePicker } from '../LowCodeComponents';
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE, loopSummary } from '../../domain/disclosure';
-import { useAppStore } from '../../store/useAppStore';
 import { asText } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
-import { MultiInstanceConfig, ScriptTestModal } from './CommonProperties';
+import { ScriptTestModal } from './CommonProperties';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 import { SCRIPT_TEMPLATES } from './scriptTemplates';
 
@@ -20,10 +19,7 @@ import { SCRIPT_TEMPLATES } from './scriptTemplates';
  */
 export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const [testModalOpened, setTestModalOpened] = useState(false);
-  const expertMode = useAppStore((state) => state.expertMode);
   const script = asText(data.script);
-  const repeats = loopSummary(data);
-  const loop = advancedVisibility(expertMode, repeats);
 
   return (
     <Stack gap="xl">
@@ -94,13 +90,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </Group>
       </PropertySection>
 
-      {loop === 'summary' && (
-        <PropertySection title="Repeats" hint={CHANGE_IN_EXPERT_MODE}>
-          <Text size="sm">{repeats}</Text>
-        </PropertySection>
-      )}
-
-      {loop === 'edit' && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
+      <LoopSettings data={data} onUpdate={onUpdate} />
 
       <ScriptTestModal
         opened={testModalOpened}
