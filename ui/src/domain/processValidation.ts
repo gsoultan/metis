@@ -18,7 +18,7 @@
  * what to do about it.
  */
 
-import { isEndingNode, vocabularyFor } from './bpmnVocabulary';
+import { NODE_VOCABULARY, isEndingNode, vocabularyFor } from './bpmnVocabulary';
 import { missingStepFields, type StepSchemas, unmappedParameters } from './connectorStep';
 
 export type IssueSeverity = 'error' | 'warning';
@@ -107,6 +107,69 @@ function connectorStepIssues(nodes: CheckableNode[], stepSchemas: StepSchemas): 
   return issues;
 }
 
+/**
+ * Every name a step that calls another system can be pointed at something by.
+ *
+ * The property panel shows a web address from httpUrl, http_url or url, and a
+ * topic from externalTopic, external_topic or topic (ServiceTaskConfig). Read
+ * fewer here and the warning below would fire on a step the panel shows as set
+ * up.
+ */
+const CALL_TARGET_KEYS = [
+  'httpUrl', 'http_url', 'url',
+  'connector_id', 'connector_instance_id', 'connectorInstanceId',
+  'externalTopic', 'external_topic', 'topic',
+];
+
+function isFilledIn(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Steps that call another system and are pointed at nothing.
+ *
+ * The engine does not treat that as a mistake. With no topic the step becomes
+ * a job; with no connector the job falls through to the web call; and with no
+ * web address the web call returns nothing, successfully. The instance carries
+ * on as though the work were done, and nothing anywhere says it was not.
+ *
+ * A script does not count as something to call. The engine runs scripts only
+ * on a "Work something out" step, and on this kind of step stores one and
+ * ignores it. Telling the person who wrote it that the step "does not call
+ * anything" would read as wrong, so they are told why instead.
+ *
+ * A warning, not an error: a placeholder is a legitimate way to sketch a
+ * process before the system it calls exists.
+ */
+function unpointedServiceTaskIssues(nodes: CheckableNode[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const node of nodes) {
+    if (node.type !== 'serviceTask') continue;
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    if (CALL_TARGET_KEYS.some((key) => isFilledIn(data[key]))) continue;
+    issues.push(isFilledIn(data.script) ? ignoredScriptIssue(node) : callsNothingIssue(node));
+  }
+  return issues;
+}
+
+function callsNothingIssue(node: CheckableNode): ValidationIssue {
+  return {
+    message: `"${stepName(node)}" does not call anything, so the process would pass through it without doing the work.`,
+    severity: 'warning',
+    id: node.id,
+    suggestion: 'Under “What it calls”, give it a web address, choose a connector, or name a topic for a worker to pick up.',
+  };
+}
+
+function ignoredScriptIssue(node: CheckableNode): ValidationIssue {
+  return {
+    message: `The script in "${stepName(node)}" will never run: this kind of step only calls other systems, and it is not pointed at one.`,
+    severity: 'warning',
+    id: node.id,
+    suggestion: `Move the script to a “${NODE_VOCABULARY.scriptTask.plainName}” step, which does run it.`,
+  };
+}
+
 export function validateProcess(
   nodes: CheckableNode[],
   edges: CheckableEdge[],
@@ -120,7 +183,10 @@ export function validateProcess(
     }];
   }
 
-  const issues: ValidationIssue[] = connectorStepIssues(nodes, stepSchemas);
+  const issues: ValidationIssue[] = [
+    ...connectorStepIssues(nodes, stepSchemas),
+    ...unpointedServiceTaskIssues(nodes),
+  ];
   const starts = nodes.filter((n) => n.type === 'startEvent');
 
   if (starts.length === 0) {

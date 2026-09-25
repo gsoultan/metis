@@ -160,6 +160,86 @@ describe('a gateway that cannot decide', () => {
   });
 });
 
+/*
+ * A step that calls another system and is pointed at nothing. The engine does
+ * not treat that as a mistake: with no topic, no connector and no web address
+ * there is nothing to call, so the step finishes at once and the instance
+ * carries on as though the work were done. The invoice template shipped that
+ * way, and the designer said nothing.
+ */
+describe('a step that calls another system but is pointed at nothing', () => {
+  const serviceProcess = (data: Record<string, unknown>) => ({
+    nodes: [
+      node('s', 'startEvent', { label: 'Invoice received' }),
+      node('c', 'serviceTask', { label: 'Check the invoice', ...data }),
+      node('e', 'endEvent', { label: 'Invoice paid' }),
+    ],
+    edges: [edge('f1', 's', 'c'), edge('f2', 'c', 'e')],
+  });
+
+  it('warns, naming the step and where to fix it', () => {
+    const { nodes, edges } = serviceProcess({});
+    expect(validateProcess(nodes, edges)).toEqual([
+      {
+        message: '"Check the invoice" does not call anything, so the process would pass through it without doing the work.',
+        severity: 'warning',
+        id: 'c',
+        suggestion: 'Under “What it calls”, give it a web address, choose a connector, or name a topic for a worker to pick up.',
+      },
+    ]);
+  });
+
+  /* A placeholder is a legitimate way to sketch a process before the system it calls exists. */
+  it('does not stop a deploy', () => {
+    const { nodes, edges } = serviceProcess({});
+    expect(hasBlockingIssues(validateProcess(nodes, edges))).toBe(false);
+  });
+
+  it('counts a setting left blank as not set', () => {
+    const { nodes, edges } = serviceProcess({ implementation: 'push', httpUrl: '   ', externalTopic: '' });
+    expect(validateProcess(nodes, edges).map((issue) => issue.id)).toEqual(['c']);
+  });
+
+  /* Every spelling the property panel reads, so the warning never contradicts what the panel shows. */
+  it.each([
+    ['a web address', { implementation: 'push', httpUrl: 'https://erp.example.com/invoices/check' }],
+    ['a web address as the server stores it', { http_url: 'https://erp.example.com/invoices/check' }],
+    ['a web address from an older designer', { url: 'https://erp.example.com/invoices/check' }],
+    ['a connector', { implementation: 'connector', connector_id: 'catalogue-slack' }],
+    ['a particular connection', { connector_instance_id: 'connection-7' }],
+    ['a topic for a worker', { implementation: 'external', externalTopic: 'check-invoice' }],
+    ['a topic as the server stores it', { external_topic: 'check-invoice' }],
+    ['a topic from an older designer', { topic: 'check-invoice' }],
+  ])('is satisfied by %s', (_, data) => {
+    const { nodes, edges } = serviceProcess(data);
+    expect(validateProcess(nodes, edges)).toEqual([]);
+  });
+
+  /*
+   * The engine runs a script only on a "Work something out" step. On this kind
+   * of step it is stored and ignored, so "does not call anything" would read as
+   * wrong to the person who wrote the script. They are told why instead.
+   */
+  it('explains that a script on this kind of step never runs', () => {
+    const { nodes, edges } = serviceProcess({ implementation: 'script', script: 'vars.total = 42;' });
+    expect(validateProcess(nodes, edges)).toEqual([
+      {
+        message: 'The script in "Check the invoice" will never run: this kind of step only calls other systems, and it is not pointed at one.',
+        severity: 'warning',
+        id: 'c',
+        suggestion: 'Move the script to a “Work something out” step, which does run it.',
+      },
+    ]);
+  });
+
+  it('leaves every other kind of step alone', () => {
+    const { nodes, edges } = straightThrough();
+    nodes.push(node('m', 'manualTask', { label: 'File the paperwork' }));
+    edges.push(edge('f3', 'a', 'm'), edge('f4', 'm', 'e'));
+    expect(validateProcess(nodes, edges)).toEqual([]);
+  });
+});
+
 describe('what stops a deploy', () => {
   it('is errors, not warnings', () => {
     expect(hasBlockingIssues([{ message: 'x', severity: 'warning' }])).toBe(false);
