@@ -69,3 +69,19 @@ export function namedControl(html: string, name: string): Control | undefined {
   }
   return undefined;
 }
+
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/**
+ * Whether the element starting at `index` sits inside one with a hidden
+ * attribute, and so is on the page but not shown.
+ */
+export function isHiddenAt(html: string, index: number): boolean {
+  const open: boolean[] = [];
+  for (const match of html.slice(0, index).matchAll(/<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g)) {
+    const [, closing, name, attributes, selfClosing] = match;
+    if (closing) open.pop();
+    else if (!selfClosing && !VOID_ELEMENTS.has(name.toLowerCase())) open.push(/\shidden(?:=|\s|$)/.test(attributes));
+  }
+  return open.includes(true);
+}

@@ -10,7 +10,6 @@ import {
   Box,
   Button,
   Divider,
-  Alert,
   Modal,
   Grid,
   Title,
@@ -20,15 +19,12 @@ import {
   Container,
   Tabs,
   Switch,
-  Paper,
 } from '@mantine/core';
 import {
   Settings,
   LayoutGrid,
   Trash2,
   Info,
-  Code,
-  AlertCircle,
   Play,
   History,
 } from 'lucide-react';
@@ -40,7 +36,7 @@ import { useAppStore } from '../store/useAppStore';
 import { DataFlowPanel } from './properties/DataFlowPanel';
 import { CONFIG_REGISTRY } from './properties/nodeConfigRegistry';
 import { PropertySection } from './properties/PropertySection';
-import { RawSchemaEditor } from './RawSchemaEditor';
+import { RawSchemaCard } from './RawSchemaCard';
 import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
@@ -336,49 +332,17 @@ export function PropertyPanel({
                   />
                 )}
 
-                {expertMode && (
-                  <Card withBorder radius="md" p="xl" shadow="sm">
-                    <Stack gap="md">
-                      <Group gap="xs" mb="xs">
-                        <ThemeIcon variant="light" color="orange">
-                          <Code size={18} />
-                        </ThemeIcon>
-                        <Text fw={700} size="lg">Raw Schema</Text>
-                      </Group>
-                      
-                      <Text size="xs" c="dimmed">Underlying JSON structure of this element</Text>
-                      
-                      <RawSchemaEditor
-                        key={selectedNode?.id ?? selectedEdge?.id}
-                        settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
-                        onApply={(patch) => {
-                          if (selectedNode) {
-                            updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
-                          } else if (selectedEdge) {
-                            updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
-                          }
-                        }}
-                      />
-                      
-                      <Alert color="orange" icon={<AlertCircle size={16} />} py="xs">
-                        <Text size="10px" fw={500}>Caution: Manual JSON modification may cause unexpected behavior if properties are invalid.</Text>
-                      </Alert>
-                    </Stack>
-                  </Card>
-                )}
-                
-                {!expertMode && (
-                  <Paper withBorder p="xl" radius="md" bg="blue.0" style={{ borderStyle: 'dashed' }}>
-                    <Stack gap="xs" align="center" py="md">
-                      <Info size={32} color="var(--mantine-color-blue-4)" />
-                      <Text fw={700} ta="center">Simplified view</Text>
-                      <Text size="xs" c="dimmed" ta="center">
-                        Advanced settings appear here only once a step uses them. Turn on Expert mode at the top
-                        of this panel to change them, and to see the raw schema and an API example.
-                      </Text>
-                    </Stack>
-                  </Paper>
-                )}
+                <RawSchemaCard
+                  key={selectedNode?.id ?? selectedEdge?.id}
+                  settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
+                  onApply={(patch) => {
+                    if (selectedNode) {
+                      updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
+                    } else if (selectedEdge) {
+                      updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
+                    }
+                  }}
+                />
               </Stack>
             </Grid.Col>
           </Grid>
