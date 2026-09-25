@@ -1,4 +1,6 @@
 import type { ApiDefinition, ApiNode } from '../services/types';
+import { diffFlows, type FlowChange } from './flowDiff';
+import { indexVersion, settingDifferences, stepSettings, type VersionIndex } from './stepSettings';
 
 /**
  * What changed between two versions of a process.
@@ -35,48 +37,41 @@ export interface NodeChange {
   /**
    * What differs, in words, for a node that is in both.
    *
-   * Only the properties that change what the node *does* or who does it — a
-   * node that moved on the canvas has not changed in any sense a migration
-   * cares about, and saying so would bury the ones that did.
+   * Every setting that changes what the node *does* or who does it — its
+   * script, its condition, the web address it calls, how long it waits, the
+   * fields on its form — and nothing that does not: a node that moved on the
+   * canvas has not changed in any sense a migration cares about, and saying so
+   * would bury the ones that did. See stepSettings.ts.
    */
   differences: string[];
 }
 
 export interface VersionDiff {
   changes: NodeChange[];
+  /** The paths between steps that were added, removed, re-pointed or re-conditioned. */
+  flows: FlowChange[];
 }
 
-/** The fields worth comparing, and how to read each one out of a node. */
-const COMPARED: ReadonlyArray<{ label: string; read: (node: ApiNode) => string }> = [
-  { label: 'name', read: (n) => n.name ?? '' },
-  { label: 'type', read: (n) => n.type ?? '' },
-  { label: 'assignee', read: (n) => n.assignee ?? '' },
-  { label: 'candidate users', read: (n) => (n.candidate_users ?? []).map((u) => u.username).sort().join(', ') },
-  { label: 'candidate groups', read: (n) => (n.candidate_groups ?? []).map((g) => g.name).sort().join(', ') },
-  { label: 'due date', read: (n) => n.due_date ?? '' },
-  { label: 'form', read: (n) => n.form_key ?? '' },
-];
-
 /**
- * Compares two versions node by node.
+ * Compares two versions node by node, and path by path.
  *
  * Node id is identity, which is what the engine uses too: a mapping is from one
  * id to another, and a node that keeps its id across a version is the same node
  * as far as running work is concerned however much else about it changed.
  */
 export function diffVersions(before: ApiDefinition | null, after: ApiDefinition | null): VersionDiff {
-  const beforeNodes = new Map((before?.nodes ?? []).map((node) => [node.id, node]));
-  const afterNodes = new Map((after?.nodes ?? []).map((node) => [node.id, node]));
+  const was = indexVersion(before);
+  const now = indexVersion(after);
 
   const changes: NodeChange[] = [];
 
-  for (const [id, node] of beforeNodes) {
-    const counterpart = afterNodes.get(id);
+  for (const [id, node] of was.nodes) {
+    const counterpart = now.nodes.get(id);
     if (!counterpart) {
       changes.push({ id, kind: 'removed', before: node, differences: [] });
       continue;
     }
-    const differences = describeDifferences(node, counterpart);
+    const differences = describeDifferences(node, counterpart, was, now);
     changes.push({
       id,
       kind: differences.length > 0 ? 'changed' : 'unchanged',
@@ -86,13 +81,13 @@ export function diffVersions(before: ApiDefinition | null, after: ApiDefinition 
     });
   }
 
-  for (const [id, node] of afterNodes) {
-    if (beforeNodes.has(id)) continue;
+  for (const [id, node] of now.nodes) {
+    if (was.nodes.has(id)) continue;
     changes.push({ id, kind: 'added', after: node, differences: [] });
   }
 
   changes.sort((a, b) => rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id));
-  return { changes };
+  return { changes, flows: diffFlows(was, now) };
 }
 
 /**
@@ -107,15 +102,8 @@ function rank(kind: NodeChangeKind): number {
   return ORDER.indexOf(kind);
 }
 
-function describeDifferences(before: ApiNode, after: ApiNode): string[] {
-  const differences: string[] = [];
-  for (const field of COMPARED) {
-    const was = field.read(before);
-    const now = field.read(after);
-    if (was === now) continue;
-    differences.push(`${field.label}: ${was === '' ? '(none)' : was} → ${now === '' ? '(none)' : now}`);
-  }
-  return differences;
+function describeDifferences(before: ApiNode, after: ApiNode, was: VersionIndex, now: VersionIndex): string[] {
+  return settingDifferences(stepSettings(before, was), stepSettings(after, now));
 }
 
 /** The nodes whose work needs somewhere to go, in the order shown. */
@@ -135,22 +123,26 @@ export function landingChoices(diff: VersionDiff): ApiNode[] {
  * One sentence for the top of the diff.
  *
  * Counts rather than a list: the list is right underneath, and what somebody
- * wants first is whether this is a rename or a rewrite.
+ * wants first is whether this is a rename or a rewrite. Every count names what
+ * it counts, now that "2 added" could be steps or paths.
  */
 export function diffSummary(diff: VersionDiff): string {
-  const counted = (kind: NodeChangeKind) => diff.changes.filter((change) => change.kind === kind).length;
-  const removed = counted('removed');
-  const added = counted('added');
-  const changed = counted('changed');
-
-  if (removed === 0 && added === 0 && changed === 0) {
-    return 'The two versions have the same steps, configured the same way.';
+  const parts = [...counted(diff.changes, 'step'), ...counted(diff.flows, 'path')];
+  if (parts.length === 0) {
+    return 'The two versions have the same steps and paths, configured the same way.';
   }
-  const parts: string[] = [];
-  if (removed > 0) parts.push(`${removed} step${removed === 1 ? '' : 's'} removed`);
-  if (added > 0) parts.push(`${added} added`);
-  if (changed > 0) parts.push(`${changed} changed`);
   return `${parts.join(', ')}.`;
+}
+
+const COUNTED: Array<'removed' | 'added' | 'changed'> = ['removed', 'added', 'changed'];
+
+function counted(changes: ReadonlyArray<{ kind: string }>, noun: string): string[] {
+  const tally = new Map<string, number>();
+  for (const change of changes) tally.set(change.kind, (tally.get(change.kind) ?? 0) + 1);
+  return COUNTED.filter((kind) => (tally.get(kind) ?? 0) > 0).map((kind) => {
+    const count = tally.get(kind) ?? 0;
+    return `${count} ${noun}${count === 1 ? '' : 's'} ${kind}`;
+  });
 }
 
 /**
@@ -201,5 +193,20 @@ export function rolloutEffect(diff: VersionDiff, rollingBack: boolean): string[]
         break;
     }
   }
+  for (const change of diff.flows) {
+    lines.push(pathEffect(change, rollingBack));
+  }
   return lines;
+}
+
+/** The same, for a path: which way new instances go now, in the direction travelled. */
+function pathEffect(change: FlowChange, rollingBack: boolean): string {
+  switch (change.kind) {
+    case 'removed':
+      return `There is no longer a path ${change.route}.`;
+    case 'added':
+      return rollingBack ? `The path ${change.route} is back.` : `There is a new path ${change.route}.`;
+    default:
+      return `The path ${change.route} changes: ${change.differences.join('; ')}.`;
+  }
 }

@@ -363,7 +363,8 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
                 if (effects.length === 0) {
                   return (
                     <Text size="xs" c="dimmed">
-                      The steps are the same as v{live?.version}; only the version number changes.
+                      The steps, their settings and the paths between them are the same as v{live?.version};
+                      only the version number changes.
                     </Text>
                   );
                 }

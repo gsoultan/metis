@@ -32,6 +32,7 @@ import {
 import type { ActionRow } from '../domain/instanceMigration';
 import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
+import { VersionChangesTable } from './VersionChangesTable';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiMigrationPlan, NodeActionKind } from '../services/types';
 
@@ -214,14 +215,12 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         {plan && <Text size="sm">{planSummary(plan)}</Text>}
 
         {/*
-          What actually changed between the two versions.
-          
+          What actually changed between the two versions — steps, the paths
+          between them, and every setting that changes what a step does.
+
           The mapping below asks where the work on a removed step should go, and
           answering that without seeing the diff meant reading node ids off a
-          diagram in another tab. Removed steps come first because those are the
-          ones holding work; changed ones next, because a step whose approver
-          moved alters what the migration means even though nothing has to be
-          mapped for it.
+          diagram in another tab.
         */}
         {(before.isLoading || after.isLoading) && (
           <Group gap="xs">
@@ -229,44 +228,13 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
             <Text size="sm" c="dimmed">Comparing the two versions…</Text>
           </Group>
         )}
-        {!before.isLoading && !after.isLoading && diff.changes.length > 0 && (
+        {!before.isLoading && !after.isLoading && (diff.changes.length > 0 || diff.flows.length > 0) && (
           <Stack gap={4}>
             <Group gap="xs" justify="space-between">
               <Text size="sm" fw={600}>What changed</Text>
               <Text size="xs" c="dimmed">{diffSummary(diff)}</Text>
             </Group>
-            <Table verticalSpacing="xs" horizontalSpacing="sm">
-              <Table.Tbody>
-                {diff.changes
-                  .filter((change) => change.kind !== 'unchanged')
-                  .map((change) => (
-                    <Table.Tr key={change.id}>
-                      <Table.Td width={110}>
-                        <Badge
-                          size="sm"
-                          variant="light"
-                          color={
-                            change.kind === 'removed' ? 'red' : change.kind === 'added' ? 'green' : 'yellow'
-                          }
-                        >
-                          {change.kind}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td>
-                        <Text size="xs" ff="monospace">{change.id}</Text>
-                        {(change.before?.name ?? change.after?.name) && (
-                          <Text size="xs" c="dimmed">{change.before?.name ?? change.after?.name}</Text>
-                        )}
-                      </Table.Td>
-                      <Table.Td>
-                        {change.differences.map((difference) => (
-                          <Text key={difference} size="xs" c="dimmed">{difference}</Text>
-                        ))}
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-              </Table.Tbody>
-            </Table>
+            <VersionChangesTable diff={diff} />
           </Stack>
         )}
 
