@@ -30,6 +30,8 @@ import {
   toNodeMapping,
 } from '../domain/instanceMigration';
 import type { ActionRow } from '../domain/instanceMigration';
+import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
+import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
 import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances, usePlanInstanceMigration } from '../hooks/useDefinitions';
 import { VersionChangesTable } from './VersionChangesTable';
@@ -51,13 +53,6 @@ interface MigrateInstancesModalProps {
   onClose: () => void;
 }
 
-interface MappingRow {
-  /** Stable across edits, so a row keeps its focus when another is removed. */
-  id: number;
-  from: string;
-  to: string;
-}
-
 /** Row ids are only unique within one open dialog, which is all they are for. */
 let nextRowId = 0;
 
@@ -71,17 +66,13 @@ let nextRowId = 0;
  * until you press the button that says apply.
  */
 export function MigrateInstancesModal({ source, target, processKey, onClose }: MigrateInstancesModalProps) {
-  const [rows, setRows] = useState<MappingRow[]>([]);
   const [plan, setPlan] = useState<ApiMigrationPlan | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
-  // Accepted holds, by node id. Cleared whenever the mapping changes: an
-  // acknowledgement is of a specific plan, and carrying it across an edit is
-  // how somebody accepts something they never read.
-  const [accepted, setAccepted] = useState<string[]>([]);
-  // Nodes whose work is decided rather than moved. Separate state from the
-  // mapping rows because they are separate instructions: the server refuses a
-  // node that carries both, and merging them here would hide that.
-  const [actionRows, setActionRows] = useState<ActionRow[]>([]);
+  // What somebody has said here — the mapping, the holds they accepted, the
+  // nodes they decided rather than moved — and the pair of versions they said
+  // it about. Mapping and decisions stay separate instructions: the server
+  // refuses a node that carries both, and merging them here would hide that.
+  const [written, setWritten] = useState<MigrationDraft | null>(null);
 
   // Both versions, so the mapping can be picked from what actually exists
   // rather than typed. The node ids are on the definitions already; nothing new
@@ -94,6 +85,28 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   );
   const gone = removedNodes(diff);
   const landing = landingChoices(diff);
+  // One step out and one in is a rename, and the only reading of it — so it is
+  // proposed until somebody edits the mapping. Anything less certain is left
+  // blank on purpose: a wrong guess pre-filled is the row nobody re-reads.
+  const proposal = useMemo(() => proposedRows(proposeMapping(diff)), [diff]);
+
+  // The draft for the pair on screen, derived rather than reset: a draft
+  // written for another pair is never shown, or sent, for this one.
+  const pair = source && target ? versionPair(source.id, target.id) : null;
+  const draft = pair ? draftFor(written, pair) : null;
+  const rows = draft ? mappingOf(draft, proposal) : [];
+  const accepted = draft?.accepted ?? [];
+  const actionRows = draft?.actions ?? [];
+  const edit = (change: DraftEdit) => {
+    if (!pair) return;
+    setWritten((current) => editDraft(draftFor(current, pair), change, proposal));
+  };
+  // Closing is abandoning the plan: the next opening, of this pair or another,
+  // starts from nothing.
+  const close = () => {
+    setWritten(null);
+    onClose();
+  };
 
   const preview = usePlanInstanceMigration();
   const apply = useMigrateInstances();
@@ -136,23 +149,6 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source?.id, target?.id, JSON.stringify(rows), JSON.stringify(accepted), JSON.stringify(actionRows)]);
 
-  // One step out and one in is a rename, and the only reading of it — so it is
-  // filled in. Anything less certain is left blank on purpose: a wrong guess
-  // pre-filled is the row nobody re-reads.
-  useEffect(() => {
-    const proposed = proposeMapping(diff);
-    const entries = Object.entries(proposed);
-    if (entries.length === 0) return;
-    setRows((current) => (current.length > 0 ? current
-      : entries.map(([from, to]) => ({ id: nextRowId++, from, to }))));
-  }, [diff]);
-
-  // A mapping edit invalidates every acknowledgement made against the old one.
-  useEffect(() => {
-    setAccepted([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(rows.map((row) => `${row.from}->${row.to}`))]);
-
   const handleApply = async () => {
     if (!source || !target) return;
     try {
@@ -172,7 +168,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         message: `${plan?.instances ?? 0} instances now run on v${target.version}.`,
         color: 'green',
       });
-      onClose();
+      close();
     } catch (error: unknown) {
       setRefused(errorMessage(error, 'The instances could not be moved.'));
     }
@@ -187,7 +183,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   return (
     <Modal
       opened={open}
-      onClose={onClose}
+      onClose={close}
       size="lg"
       radius="md"
       title={
@@ -283,11 +279,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                   key={hold.node_id}
                   checked={accepted.includes(hold.node_id)}
                   onChange={(event) =>
-                    setAccepted((current) =>
-                      event.currentTarget.checked
-                        ? [...current, hold.node_id]
-                        : current.filter((id) => id !== hold.node_id),
-                    )
+                    edit({ type: 'accept', nodeId: hold.node_id, accepted: event.currentTarget.checked })
                   }
                   label={
                     <Text size="xs">
@@ -365,7 +357,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
               size="compact-xs"
               variant="subtle"
               leftSection={<Plus size={12} />}
-              onClick={() => setActionRows((current) => [...current, { from: '', kind: '', reason: '' }])}
+              onClick={() => edit({ type: 'actions', change: (current) => [...current, { from: '', kind: '', reason: '' }] })}
             >
               Add
             </Button>
@@ -378,7 +370,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           )}
           {actionRows.map((row, index) => {
             const update = (patch: Partial<ActionRow>) =>
-              setActionRows((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+              edit({ type: 'actions', change: (current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)) });
             return (
               <Stack key={index} gap={4}>
                 <Group gap="xs" wrap="nowrap" align="flex-start">
@@ -417,7 +409,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                     size="sm"
                     variant="subtle"
                     color="gray"
-                    onClick={() => setActionRows((current) => current.filter((_, i) => i !== index))}
+                    onClick={() => edit({ type: 'actions', change: (current) => current.filter((_, i) => i !== index) })}
                   >
                     <Trash2 size={14} />
                   </ActionIcon>
@@ -446,7 +438,10 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
               size="compact-xs"
               variant="subtle"
               leftSection={<Plus size={12} />}
-              onClick={() => setRows((current) => [...current, { id: nextRowId++, from: '', to: '' }])}
+              onClick={() => {
+                const id = nextRowId++;
+                edit({ type: 'mapping', change: (current) => [...current, { id, from: '', to: '' }] });
+              }}
             >
               Add
             </Button>
@@ -468,7 +463,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                 value={row.from === '' ? null : row.from}
                 onChange={(value) => {
                   const next = value ?? '';
-                  setRows((current) => current.map((r, i) => (i === index ? { ...r, from: next } : r)));
+                  edit({ type: 'mapping', change: (current) => current.map((r, i) => (i === index ? { ...r, from: next } : r)) });
                 }}
                 searchable
                 style={{ flex: 1 }}
@@ -485,7 +480,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                 value={row.to === '' ? null : row.to}
                 onChange={(value) => {
                   const next = value ?? '';
-                  setRows((current) => current.map((r, i) => (i === index ? { ...r, to: next } : r)));
+                  edit({ type: 'mapping', change: (current) => current.map((r, i) => (i === index ? { ...r, to: next } : r)) });
                 }}
                 searchable
                 style={{ flex: 1 }}
@@ -496,7 +491,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
                   variant="subtle"
                   color="red"
                   aria-label={`Remove mapping row ${index + 1}`}
-                  onClick={() => setRows((current) => current.filter((_, i) => i !== index))}
+                  onClick={() => edit({ type: 'mapping', change: (current) => current.filter((_, i) => i !== index) })}
                 >
                   <Trash2 size={14} />
                 </ActionIcon>
@@ -506,7 +501,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         </Stack>
 
         <Group justify="flex-end">
-          <Button variant="subtle" color="gray" onClick={onClose}>Cancel</Button>
+          <Button variant="subtle" color="gray" onClick={close}>Cancel</Button>
           <Button
             color="orange"
             disabled={!ready}
