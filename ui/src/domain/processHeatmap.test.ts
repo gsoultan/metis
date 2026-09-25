@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { busiestStep, heatColor, heatFromWaiting, heatSummary, type WaitingProcess } from './processHeatmap';
+import { busiestStep, heatColor, heatFromWaiting, heatmapCsv, heatSummary, type WaitingProcess } from './processHeatmap';
 
 const waiting = (key: string, name: string, instances: number, steps: Array<[string, number]>): WaitingProcess => ({
   key,
@@ -97,5 +97,21 @@ describe('heatColor', () => {
     expect(heatColor(0.5)).toBe('orange');
     expect(heatColor(0.2)).toBe('blue');
     expect(heatColor(0)).toBe('blue');
+  });
+});
+
+describe('heatmapCsv', () => {
+  it('writes one row per step, as the dashboard lists them', () => {
+    const heat = heatFromWaiting([
+      { key: 'quotation', name: 'Quotation approval', instances: 5, steps: [{ node_id: 'managerReview', waiting: 3 }, { node_id: 'finance', waiting: 2 }] },
+    ]);
+    expect(heatmapCsv(heat)).toBe(
+      'Process,Step,Waiting\r\nQuotation approval,Manager Review,3\r\nQuotation approval,Finance,2',
+    );
+  });
+
+  it('keeps a process name a spreadsheet would run as a formula as text', () => {
+    const heat = heatFromWaiting([{ key: 'x', name: '=HYPERLINK("http://evil")', instances: 1, steps: [{ node_id: 'a', waiting: 1 }] }]);
+    expect(heatmapCsv(heat).split('\r\n')[1].startsWith(`"'=HYPERLINK`)).toBe(true);
   });
 });

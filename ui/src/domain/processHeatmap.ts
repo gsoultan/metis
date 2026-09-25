@@ -1,3 +1,4 @@
+import { toCsv } from './csv';
 import { humanizeNodeId } from './instanceList';
 
 /**
@@ -128,4 +129,17 @@ export function heatColor(intensity: number): string {
   if (intensity >= 0.66) return 'red';
   if (intensity >= 0.33) return 'orange';
   return 'blue';
+}
+
+/**
+ * Where the work is waiting, as a spreadsheet: one row per step, busiest
+ * process first, as the dashboard shows it. The deadline report could be taken
+ * away and passed on; this could not, although it is the one that says where
+ * to send help.
+ */
+export function heatmapCsv(heat: readonly ProcessHeat[]): string {
+  const rows = heat.flatMap((process) =>
+    process.nodes.map((node) => [process.processName, node.label, node.waiting]),
+  );
+  return toCsv(['Process', 'Step', 'Waiting'], rows);
 }

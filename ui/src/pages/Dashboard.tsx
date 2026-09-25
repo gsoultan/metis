@@ -37,10 +37,10 @@ import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
 import { useMemo } from 'react';
 import { useDeadlines } from '../hooks/useTasks';
-import { csvFilename } from '../domain/csv';
+import { csvBlob, csvFilename } from '../domain/csv';
 import { slaReportCsv, slaReportFromDeadlines, slaSummary } from '../domain/slaReport';
 import { taskCompletion } from '../domain/dashboardFigures';
-import { heatColor, heatFromWaiting, heatSummary } from '../domain/processHeatmap';
+import { heatColor, heatFromWaiting, heatmapCsv, heatSummary } from '../domain/processHeatmap';
 
 /**
  * A single headline number.
@@ -346,9 +346,19 @@ export function Dashboard() {
       <Card shadow="sm" radius="lg" withBorder mb="xl">
         <Group justify="space-between" mb="md">
           <Title order={4}>Where work is waiting</Title>
-          <Button component={Link} to="/instances" variant="subtle" size="xs">
-            {t('dash.viewAllInstances')}
-          </Button>
+          <Group gap="xs">
+            <Button
+              variant="subtle"
+              size="xs"
+              disabled={heat.length === 0}
+              onClick={() => downloadCsv(heatmapCsv(heat), csvFilename('waiting-work'))}
+            >
+              Export CSV
+            </Button>
+            <Button component={Link} to="/instances" variant="subtle" size="xs">
+              {t('dash.viewAllInstances')}
+            </Button>
+          </Group>
         </Group>
 
         <Text size="sm" c={heat.length > 0 ? undefined : 'dimmed'} mb={heat.length > 0 ? 'md' : 0}>
@@ -472,7 +482,7 @@ export function Dashboard() {
  * report matters most.
  */
 function downloadCsv(contents: string, filename: string) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8;' });
+  const blob = csvBlob(contents);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
