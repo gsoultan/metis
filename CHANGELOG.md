@@ -32,6 +32,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **The strict tenant scope's rollout is on the metrics endpoint.**
+  `metis_strict_tenant_scope_enabled` says whether the flag is on, and
+  `metis_strict_tenant_scope_denied_site` is one series per code path that
+  reached a repository with no identity, labelled with that path. Staging soaks
+  become a dashboard and an alert instead of reading logs for a line that
+  appears once per site; `docs/strict-tenant-scope.md` has the alert rule.
+
 - **Database Lookup.** A process step can read rows from your own PostgreSQL,
   MySQL or SQL Server database into one process variable, so the gateway or
   decision table after it can decide on data the process does not carry. An

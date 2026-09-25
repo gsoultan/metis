@@ -734,6 +734,16 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
+  The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
+  log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
+  reports, at scrape time, whether the flag is on and one series per denied site, labelled
+  with the site — both, because zero denied sites reads as "clean" only while the flag is
+  actually on. Bounded by code, not traffic: sites are keyed by program counter. The
+  metrics endpoint is its own opt-in listener, not the API port, so naming code paths there
+  is an operator's view. Not done here, and not doable from code: the soak against a real
+  workload, production, and retiring the flag.
+
 - 2026-09-25 (completed): Executed `P0-SEC-07` — a credential inside a value is masked.
   A RabbitMQ connection's `url` carries the broker password (`amqp://user:password@host`),
   and masking went by key name, so `ListConnectorInstances` — any signed-in account —
@@ -1079,7 +1089,12 @@
    test). The integration coverage that had to exist before the flag could be flipped now
    does — `tests/strictscope`, entering through the real HTTP chain and the job worker —
    so what is left is the staged rollout: staging with the flag on, watching for queries
-   that suddenly return nothing, then production, then the default.
+   that suddenly return nothing, then production, then the default. **2026-09-25:** the
+   watching no longer needs the logs — `metis_strict_tenant_scope_enabled` and one
+   `metis_strict_tenant_scope_denied_site` series per denied path are on the metrics
+   endpoint, with an alert rule in `docs/strict-tenant-scope.md`. What remains is
+   operational and needs a real workload: the staging soak, production for a release
+   cycle, then deleting the flag.
 2. ~~**P0 Reliability remainder**~~ — the connector contract tier landed
    (`tests/connector/contract_test.go`), which was the last missing tier. Outage
    simulation and feature flags had already landed.
