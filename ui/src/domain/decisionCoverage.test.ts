@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cellMatcher, findCoverageGaps, ruleForGap, whyNotChecked } from './decisionCoverage';
+import { cellMatcher } from './decisionCells';
+import { findCoverageGaps, ruleForGap, whyNotChecked } from './decisionCoverage';
 import { findOverlaps } from './decisionOverlaps';
 import { ANY_VALUE, type DecisionInputColumn, type DecisionOutputColumn, type DecisionRuleRow } from './decisionTable';
 

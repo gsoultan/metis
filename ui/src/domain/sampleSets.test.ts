@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cellMatcher, columnSamples, understandsCell } from './decisionCoverage';
+import { cellMatcher, understandsCell } from './decisionCells';
+import { columnSamples } from './decisionSamples';
 import type { DecisionInputColumn } from './decisionTable';
 import {
   WorkBudget,

@@ -11,7 +11,8 @@
  * word numbers. Without the span the check took most of a second on a table of
  * two thousand lines, on every keystroke.
  */
-import { thresholdsIn, type CellTest, type Sample } from './decisionCoverage';
+import type { CellTest } from './decisionCells';
+import { thresholdsIn, type Sample } from './decisionSamples';
 
 /** The samples one cell accepts: a bit per sample, and the words that hold any. */
 export interface SampleSet {

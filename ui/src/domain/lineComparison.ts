@@ -11,7 +11,8 @@
  * A cell in notation the matcher does not read makes an answer unknown rather
  * than false, and the check reports nothing it cannot back.
  */
-import { cellMatcher, columnSamples, understandsCell, type Sample } from './decisionCoverage';
+import { cellMatcher, understandsCell } from './decisionCells';
+import { columnSamples, type Sample } from './decisionSamples';
 import { ANY_VALUE, normalizeCell, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
 import {
   firstShared,
