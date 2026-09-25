@@ -71,6 +71,11 @@ export default defineConfig([
         message:
           'Style Mantine components with Mantine props (c, bg, radius, fw), not Tailwind utilities. ' +
           'Tailwind is for layout: flex, grid, gap, responsive composition.',
+      }, {
+        selector: "NewExpression[callee.name='EventSource']",
+        message:
+          'EventSource cannot send the Authorization header, so the events endpoint answers 401 and the ' +
+          'page silently stops updating. Use useEventStream or useInvalidateOnEvents.',
       }],
       // An underscore prefix is the conventional way to say "deliberately
       // unused" — for a parameter required by a signature, or a destructured

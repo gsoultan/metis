@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { notifications } from '@mantine/notifications';
 import { byUrgency } from '../domain/taskUrgency';
 import { runBulk, summarise } from '../domain/bulkAction';
@@ -18,6 +18,8 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import type { Task } from '../services/types';
 import type { ProcessVariables } from '../services/types';
+import { TASK_LIST_EVENTS } from '../domain/taskEvents';
+import { useInvalidateOnEvents } from './useEventStream';
 
 /**
  * The value a column sorts on.
@@ -83,25 +85,10 @@ export function useTaskInbox() {
   const [taskToReassign, setTaskToReassign] = useState<Task | null>(null);
   const [newAssignee, setNewAssignee] = useState<string | null>(null);
 
-  useEffect(() => {
-    const eventSource = new EventSource('/api/v1/events');
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (
-          data.type === 'TaskCreated' || 
-          data.type === 'TaskCompleted' || 
-          data.type === 'TaskClaimed' || 
-          data.type === 'TaskUpdated'
-        ) {
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
-        }
-      } catch (err) {
-        console.error('Failed to parse SSE event:', err);
-      }
-    };
-    return () => eventSource.close();
-  }, [queryClient]);
+  // Through the authenticated stream. This opened an EventSource, which cannot
+  // send the Authorization header, so the events endpoint answered 401 and the
+  // inbox never updated live: new work appeared only on reload.
+  useInvalidateOnEvents(TASK_LIST_EVENTS, ['tasks']);
   
   // Paging state lives here rather than in the page component, so the query
   // key and the controls cannot disagree about which page is showing.
