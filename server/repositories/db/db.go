@@ -15,10 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/dbpool"
 	"github.com/gsoultan/storm/runtime"
 	"github.com/gsoultan/storm/runtime/pgxdrv"
 	"github.com/jackc/pgx/v5"
@@ -44,10 +46,24 @@ type Conn struct {
 }
 
 // Open connects to the main database.
-//
-// The pool comes from storm's constructor rather than pgxpool directly, because
-// that is what installs the fast parameter encoders the generated code assumes.
 func Open(ctx context.Context, dsn string) (*Conn, error) {
+	pool, err := NewPool(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the main database: %w", err)
+	}
+	return &Conn{main: pool, envs: map[uuid.UUID]*pgxpool.Pool{}}, nil
+}
+
+// NewPool opens a pool the way every pool the storm repositories read through
+// has to be opened. The main database's and each environment's come from here,
+// so the two cannot drift apart.
+//
+// Through storm's constructor, which installs the parameter encoders the
+// generated code assumes and refuses the text query modes its scanners cannot
+// read — under those, a boolean decodes inverted without an error. The comment
+// here always said the pool came from storm's constructor; the code called
+// pgxpool directly, so neither held.
+func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the connection string: %w", err)
@@ -70,11 +86,17 @@ func Open(ctx context.Context, dsn string) (*Conn, error) {
 	// will notice until it is used.
 	config.MaxConnLifetime = 30 * time.Minute
 
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("could not open the main database: %w", err)
+	// Sized by the same setting as the GORM pool. It was left to pgx's default
+	// — the larger of 4 and the machine's CPU count — so the pool carrying most
+	// of the engine's queries ignored METIS_DB_MAX_OPEN_CONNS, and on a large
+	// node each replica could open far more connections than anyone had
+	// planned for. A connection string that names pool_max_conns still wins:
+	// that is somebody saying so on purpose.
+	if !strings.Contains(dsn, "pool_max_conns") {
+		config.MaxConns = int32(dbpool.Resolve("postgres").MaxOpenConns) //nolint:gosec // dbpool bounds it to 1,000,000
 	}
-	return &Conn{main: pool, envs: map[uuid.UUID]*pgxpool.Pool{}}, nil
+
+	return pgxdrv.NewPoolConfig(ctx, config)
 }
 
 // Main is the pool for the main database, for the migration runner and for
