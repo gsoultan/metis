@@ -20,13 +20,21 @@ const webhookTimeout = 10 * time.Second
 type WebhookObserver struct {
 	endpoints []string
 	client    *http.Client
+	// afterCommit runs a send once the transaction the event was raised in
+	// has committed, and never if it rolls back.
+	afterCommit func(ctx context.Context, fn func())
 }
 
-// NewWebhookObserver creates a new WebhookObserver.
-func NewWebhookObserver(endpoints []string) *WebhookObserver {
+// NewWebhookObserver creates a new WebhookObserver that sends what commits.
+//
+// Events are dispatched inside the transaction that produced them, and this
+// posted them there and then: a transaction that rolled back had still told
+// the outside world the step happened. afterCommit is the unit of work's.
+func NewWebhookObserver(endpoints []string, afterCommit func(ctx context.Context, fn func())) *WebhookObserver {
 	return &WebhookObserver{
-		endpoints: endpoints,
-		client:    &http.Client{Timeout: webhookTimeout},
+		endpoints:   endpoints,
+		client:      &http.Client{Timeout: webhookTimeout},
+		afterCommit: afterCommit,
 	}
 }
 
@@ -47,9 +55,11 @@ func (o *WebhookObserver) OnEvent(ctx context.Context, event entities.ProcessEve
 	// that cannot be correlated with the event that caused it is not much use at
 	// 3am.
 	detached := context.WithoutCancel(ctx)
-	for _, url := range o.endpoints {
-		go o.sendWebhook(detached, url, payload)
-	}
+	o.afterCommit(ctx, func() {
+		for _, url := range o.endpoints {
+			go o.sendWebhook(detached, url, payload)
+		}
+	})
 }
 
 func (o *WebhookObserver) sendWebhook(ctx context.Context, url string, payload []byte) {

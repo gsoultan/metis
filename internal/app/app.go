@@ -697,7 +697,7 @@ func (a *App) setupService(ctx context.Context) error {
 	webhookEndpoints := envvar.Get("WEBHOOK_ENDPOINTS")
 	if webhookEndpoints != "" {
 		endpointsList := strings.Split(webhookEndpoints, ",")
-		dispatcher.Register(impl.NewWebhookObserver(endpointsList))
+		dispatcher.Register(impl.NewWebhookObserver(endpointsList, a.repo.UnitOfWork().AfterCommit))
 		log.Info().Int("count", len(endpointsList)).Msg("Registered Webhook Observer")
 	}
 
