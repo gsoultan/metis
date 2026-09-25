@@ -188,7 +188,9 @@ func (r *subscriptionRepository) list(ctx context.Context, preds ...subscription
 		}
 		q = q.Where(subscription.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	// Every row, not the store's first thousand: a signal is owed to every
+	// instance waiting for it, and a migration moves every one an instance has.
+	rows, err := everyRow[subscription.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not read subscriptions: %w", err)
 	}
