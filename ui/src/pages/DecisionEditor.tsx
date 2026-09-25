@@ -94,7 +94,13 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
-import { findCoverageGaps, ruleForGap, type CoverageGap, type CoverageReport } from '../domain/decisionCoverage';
+import {
+  findCoverageGaps,
+  ruleForGap,
+  whyNotChecked,
+  type CoverageGap,
+  type CoverageReport,
+} from '../domain/decisionCoverage';
 import { findProblems } from '../domain/decisionProblems';
 import {
   describeMatchedLines,
@@ -1205,8 +1211,7 @@ function CoverageFindings({
   if (report.notAnalysed.length > 0) {
     return (
       <Text size="xs" c="dimmed">
-        Not checked: {report.notAnalysed.join(', ')} uses a condition this check cannot read, so it cannot tell whether
-        every case is decided.
+        {whyNotChecked(report)}
       </Text>
     );
   }

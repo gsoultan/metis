@@ -42,6 +42,11 @@ export interface CoverageReport {
   truncated: boolean;
   /** Columns whose notation this analysis did not understand. */
   notAnalysed: string[];
+  /**
+   * Of those, the ones that compare numbers without being a number column —
+   * a new column is Text — which a change of type makes readable.
+   */
+  needsNumberType: string[];
 }
 
 const MAX_COMBINATIONS = 400;
@@ -69,19 +74,20 @@ export interface Sample {
  * considered.
  */
 export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionRuleRow[]): CoverageReport {
-  const empty: CoverageReport = { gaps: [], truncated: false, notAnalysed: [] };
+  const empty: CoverageReport = { gaps: [], truncated: false, notAnalysed: [], needsNumberType: [] };
   if (inputs.length === 0 || rules.length === 0) return empty;
 
-  const notAnalysed: string[] = [];
   const columns: Sample[][] = [];
 
   for (let index = 0; index < inputs.length; index += 1) {
+    const input = inputs[index];
     const cells = rules.map((rule) => rule.input_entries[index] ?? '');
-    if (cells.some((cell) => !understandsCell(cell))) {
-      notAnalysed.push(inputs[index].label || inputs[index].expression);
-      return { ...empty, notAnalysed };
+    if (cells.some((cell) => !understandsCell(cell, input.type))) {
+      const label = input.label || input.expression;
+      const needsNumber = input.type !== 'number' && cells.some(comparesNumbers);
+      return { ...empty, notAnalysed: [label], needsNumberType: needsNumber ? [label] : [] };
     }
-    columns.push(columnSamples(inputs[index], cells));
+    columns.push(columnSamples(input, cells));
   }
 
   const total = columns.reduce((product, column) => product * Math.max(column.length, 1), 1);
@@ -113,24 +119,55 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
   // Cut short means some combination was never looked at, whichever limit
   // stopped the walk. Each column's values used to be trimmed to the first
   // eight as well, and that was the one limit nobody was told about.
-  return { gaps, truncated: examined < total, notAnalysed };
+  return { gaps, truncated: examined < total, notAnalysed: [], needsNumberType: [] };
 }
 
-/** Whether this analysis understands a cell well enough to trust its verdict. */
-export function understandsCell(cell: string): boolean {
+const NUMBER_LITERAL = /^-?\d+(\.\d+)?$/;
+const COMPARISON = /^(>=|<=|>|<|!=|=)\s*-?\d+(\.\d+)?$/;
+const RANGE = /^[[\]]\s*-?[\d.]+\s*\.\.\s*-?[\d.]+\s*[[\]]$/;
+
+/**
+ * Whether this analysis understands a cell well enough to trust its verdict.
+ *
+ * The column's type decides how much of the notation it reads. A comparison or
+ * a range compares numbers, and the samples tried for any other column are
+ * words, so in a Text column — which a new column is — `> 5` used to be read as
+ * the text "> 5". The engine compares it with whatever number the process
+ * supplies, so the checks built on that reading described a table that does
+ * not exist.
+ */
+export function understandsCell(cell: string, type: string): boolean {
   const text = cell.trim();
   if (text === '' || text === ANY_VALUE) return true;
-  if (/^(>=|<=|>|<|!=|=)?\s*-?\d+(\.\d+)?$/.test(text)) return true;
-  if (/^[[\]]\s*-?[\d.]+\s*\.\.\s*-?[\d.]+\s*[[\]]$/.test(text)) return true;
-  if (/^(true|false)$/i.test(text)) return true;
+  if (COMPARISON.test(text) || RANGE.test(text)) return type === 'number';
+  if (NUMBER_LITERAL.test(text) || /^(true|false)$/i.test(text)) return true;
   // not( ) is only as readable as what it negates. It used to be accepted
   // whatever it held, and `not(sum(items) > 10)` read as "anything but that
   // text": a condition that matches nearly everything, and an overlap error
   // that blocked Save over a table the check could not read.
   const negated = text.match(/^not\((.+)\)$/);
-  if (negated) return understandsCell(negated[1]) && !isWildcardText(negated[1]);
+  if (negated) return understandsCell(negated[1], type) && !isWildcardText(negated[1]);
   // A list, or a bare or quoted literal.
   return text.split(',').every((part) => /^\s*("[^"]*"|'[^']*'|[\w .-]+)\s*$/.test(part));
+}
+
+/**
+ * Why the check said nothing, and what would let it: "not checked" alone leaves
+ * the author guessing, and the commonest reason — comparing numbers in a
+ * column that is not a number column — has a one-click fix.
+ */
+export function whyNotChecked(report: CoverageReport): string {
+  const columns = report.notAnalysed.join(', ');
+  if (report.needsNumberType.length > 0) {
+    return `Not checked: ${report.needsNumberType.join(', ')} compares numbers but is not a Number column. Make it a Number column and the check can read it.`;
+  }
+  return `Not checked: ${columns} uses a condition this check cannot read, so it cannot tell whether every case is decided.`;
+}
+
+/** Whether a cell compares numbers — `> 5`, `[1..10]`, either under not( ) — rather than naming values. */
+export function comparesNumbers(cell: string): boolean {
+  const text = cell.trim().replace(/^not\((.+)\)$/, '$1').trim();
+  return COMPARISON.test(text) || RANGE.test(text);
 }
 
 function isWildcardText(text: string): boolean {

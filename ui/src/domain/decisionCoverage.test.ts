@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { cellMatcher, findCoverageGaps, ruleForGap } from './decisionCoverage';
+import { cellMatcher, findCoverageGaps, ruleForGap, whyNotChecked } from './decisionCoverage';
 import { findOverlaps } from './decisionOverlaps';
 import { ANY_VALUE, type DecisionInputColumn, type DecisionOutputColumn, type DecisionRuleRow } from './decisionTable';
 
@@ -67,6 +67,9 @@ describe('findCoverageGaps', () => {
     const report = findCoverageGaps([amount], [rule('sum(items.price) > 10')]);
     expect(report.gaps).toEqual([]);
     expect(report.notAnalysed).toEqual(['Amount']);
+    expect(whyNotChecked(report)).toBe(
+      'Not checked: Amount uses a condition this check cannot read, so it cannot tell whether every case is decided.',
+    );
   });
 
   it('reads not( ) only around a condition it can read itself', () => {
@@ -320,5 +323,55 @@ describe('a yes/no column', () => {
     expect(unique([rule('true, false'), rule('true')]).map((problem) => problem.message)).toEqual([
       'Lines 1 and 2 both apply when Urgent is yes, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
     ]);
+  });
+});
+
+/**
+ * A comparison compares numbers. In a Text column — which is what a new column
+ * is — `> 5` was read as the text "> 5", so the checks invented a gap for
+ * "anything else", and Add line wrote `not("> 5", "<= 5")`: a condition the
+ * engine matches for every number, beside the line that already decides it.
+ */
+describe('comparisons in a column that is not a number', () => {
+  const score: DecisionInputColumn = { id: 'i4', label: 'Score', expression: 'score', type: 'string' };
+
+  it('leave the column unchecked, and say it needs to be a number', () => {
+    const report = findCoverageGaps([score], [rule('> 5'), rule('<= 5')]);
+    expect(report.gaps).toEqual([]);
+    expect(report.notAnalysed).toEqual(['Score']);
+    expect(report.needsNumberType).toEqual(['Score']);
+    expect(whyNotChecked(report)).toBe(
+      'Not checked: Score compares numbers but is not a Number column. Make it a Number column and the check can read it.',
+    );
+  });
+
+  it('are left unchecked in a range, under not( ), and in a date column too', () => {
+    expect(findCoverageGaps([score], [rule('[1..10]')]).notAnalysed).toEqual(['Score']);
+    expect(findCoverageGaps([score], [rule('not(> 5)')]).notAnalysed).toEqual(['Score']);
+    const due: DecisionInputColumn = { id: 'i5', label: 'Due', expression: 'due', type: 'date' };
+    expect(findCoverageGaps([due], [rule('>= 3')]).needsNumberType).toEqual(['Due']);
+  });
+
+  it('are not described as text in an overlap', () => {
+    const unique = (rules: DecisionRuleRow[]) =>
+      findOverlaps('UNIQUE', [score], [output], rules.map((line, i) => ({ ...line, output_entries: [`R${i}`] }))).map(
+        (problem) => problem.message,
+      );
+    // Both apply to every number above 5, which the check can say without
+    // claiming to know which values those are.
+    expect(unique([rule('> 5'), rule('> 5')])).toEqual([
+      'Lines 1 and 2 both apply to some of the same cases, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(unique([rule('> 5'), rule('not("<= 5")')])).toEqual([]);
+  });
+
+  it('are still read in a number column', () => {
+    const report = findCoverageGaps([amount], [rule('> 5'), rule('< 5')]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual(['Nothing decides when Amount is 5']);
+    expect(report.needsNumberType).toEqual([]);
+  });
+
+  it('do not include a plain number, which is a value in any column', () => {
+    expect(findCoverageGaps([score], [rule('10'), rule('"GOLD"')]).notAnalysed).toEqual([]);
   });
 });

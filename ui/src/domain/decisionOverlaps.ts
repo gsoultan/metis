@@ -86,11 +86,12 @@ export function findOverlaps(
 
 function readColumn(input: DecisionInputColumn, index: number, rules: DecisionRuleRow[]): ColumnReading {
   const cells = rules.map((rule) => rule.input_entries[index] ?? '');
-  const samples = columnSamples(input, cells.filter(understandsCell));
+  const readable = (cell: string) => understandsCell(cell, input.type);
+  const samples = columnSamples(input, cells.filter(readable));
   return {
     label: input.label || input.expression,
     samples,
-    accepts: cells.map((cell) => (understandsCell(cell) ? acceptedSamples(cell, input.type, samples) : null)),
+    accepts: cells.map((cell) => (readable(cell) ? acceptedSamples(cell, input.type, samples) : null)),
     wild: cells.map(isWildcard),
     normalized: cells.map(normalizeCell),
   };
