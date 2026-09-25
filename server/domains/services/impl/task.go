@@ -224,11 +224,10 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 
 func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		task, err := s.openTaskForHandOver(txCtx, id, "delegated")
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		task.Status = entities.TaskDelegated
 		task.Assignee = &entities.User{Username: userID}
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
@@ -445,11 +444,10 @@ func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error 
 
 func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		task, err := s.openTaskForHandOver(txCtx, id, "assigned")
 		if err != nil {
 			return err
 		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		task.Assignee = &entities.User{Username: userID}
 		task.Status = entities.TaskClaimed
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
@@ -466,6 +464,35 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 		}, task, EventTaskAssigned, userID)
 		return nil
 	})
+}
+
+// openTaskForHandOver reads a task about to be delegated or assigned, under
+// its instance's lock, and refuses one nobody can work on any more.
+//
+// Both hand-overs set the status without asking what it was, so a completed
+// task could be handed on — reopened — and completed again, running
+// everything after it a second time. The lock is the one completion takes:
+// without it, a hand-over that read the task open while it was being completed
+// would write it back open anyway.
+func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, action string) (entities.Task, error) {
+	m, err := s.repo.Task().Get(ctx, id)
+	if err != nil {
+		return entities.Task{}, fmt.Errorf("failed to get task: %w", err)
+	}
+	if _, err := s.engine.GetInstanceForUpdate(ctx, uuid.UUID(m.InstanceID)); err != nil {
+		return entities.Task{}, err
+	}
+	if m, err = s.repo.Task().Get(ctx, id); err != nil {
+		return entities.Task{}, fmt.Errorf("failed to re-read task %s: %w", id, err)
+	}
+	task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+	switch task.Status {
+	case entities.TaskCompleted:
+		return entities.Task{}, apierr.Invalidf("this task is completed; it cannot be %s", action)
+	case entities.TaskCanceled:
+		return entities.Task{}, apierr.Invalidf("this task was withdrawn; it cannot be %s", action)
+	}
+	return task, nil
 }
 
 // announce raises a task event and writes the task's audit entry for it.
