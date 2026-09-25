@@ -138,13 +138,13 @@ type GetProcessStatisticsRequest struct {
 }
 
 type GetProcessStatisticsResponse struct {
-	ActiveInstances    int            `json:"active_instances"`
-	CompletedInstances int            `json:"completed_instances"`
-	FailedInstances    int            `json:"failed_instances"`
-	TotalTasks         int            `json:"total_tasks"`
-	PendingTasks       int            `json:"pending_tasks"`
-	NodeFrequencies    map[string]int `json:"node_frequencies,omitzero"`
-	Err                error          `json:"err,omitzero"`
+	ActiveInstances    int   `json:"active_instances"`
+	CompletedInstances int   `json:"completed_instances"`
+	FailedInstances    int   `json:"failed_instances"`
+	TotalTasks         int   `json:"total_tasks"`
+	PendingTasks       int   `json:"pending_tasks"`
+	CompletedTasks     int   `json:"completed_tasks"`
+	Err                error `json:"err,omitzero"`
 }
 
 func (r GetProcessStatisticsResponse) Failed() error { return r.Err }

@@ -328,7 +328,7 @@ func MakeGetProcessStatisticsEndpoint(s services.ServiceFacade) endpoint.Endpoin
 			FailedInstances:    stats.FailedInstances,
 			TotalTasks:         stats.TotalTasks,
 			PendingTasks:       stats.PendingTasks,
-			NodeFrequencies:    stats.NodeFrequencies,
+			CompletedTasks:     stats.CompletedTasks,
 		}, nil
 	}
 }

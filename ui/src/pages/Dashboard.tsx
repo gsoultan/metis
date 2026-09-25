@@ -38,6 +38,7 @@ import { useMemo } from 'react';
 import { useTasks } from '../hooks/useTasks';
 import { csvFilename } from '../domain/csv';
 import { slaReport, slaReportCsv, slaSummary, type ReportableTask } from '../domain/slaReport';
+import { taskCompletion } from '../domain/dashboardFigures';
 import { heatColor, heatSummary, processHeat } from '../domain/processHeatmap';
 
 /**
@@ -147,8 +148,6 @@ export function Dashboard() {
    */
   const stats = statsData?.stats;
   const activeInstances = stats?.activeInstances ?? 0;
-  const totalTasks = stats?.totalTasks ?? 0;
-  const pendingTasks = stats?.pendingTasks ?? 0;
 
   /*
    * Deliberately NOT stats.failedInstances, which counts instances whose
@@ -211,9 +210,7 @@ export function Dashboard() {
     );
   }
 
-  const completionRate = totalTasks > 0 
-    ? Math.round(((totalTasks - pendingTasks) / totalTasks) * 100) 
-    : 0;
+  const completion = taskCompletion(stats ?? {});
 
   return (
     <Stack gap="xl">
@@ -254,11 +251,11 @@ export function Dashboard() {
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
             title={t('dash.tasksCompleted')}
-            value={`${completionRate}%`}
+            value={`${completion.rate}%`}
             icon={CheckCircle}
             color="orange"
-            progress={completionRate}
-            progressLabel={t('dash.tasksProgress', { done: totalTasks - pendingTasks, total: totalTasks })}
+            progress={completion.rate}
+            progressLabel={t('dash.tasksProgress', { done: completion.done, total: completion.total })}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>

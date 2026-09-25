@@ -59,6 +59,7 @@ func encodeGRPCGetStatsResponse(_ context.Context, response any) (any, error) {
 		FailedInstances:    clamp.Int32(resp.FailedInstances),
 		TotalTasks:         clamp.Int32(resp.TotalTasks),
 		PendingTasks:       clamp.Int32(resp.PendingTasks),
+		CompletedTasks:     clamp.Int32(resp.CompletedTasks),
 		Error:              common.ErrString(resp.Err),
 	}, nil
 }

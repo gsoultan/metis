@@ -12,7 +12,6 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/rs/zerolog/log"
 )
 
 type projectService struct {
@@ -114,6 +113,9 @@ func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uui
 		{"failed", func() (int64, error) { return s.repo.Process().CountByStatus(ctx, projectID, models.ProcessFailed) }},
 		{"tasks", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, "") }},
 		{"unclaimed", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, models.TaskUnclaimed) }},
+		{"completed tasks", func() (int64, error) {
+			return s.repo.Task().CountByStatus(ctx, projectID, models.TaskCompleted)
+		}},
 	} {
 		value, err := wanted.read()
 		if err != nil {
@@ -124,27 +126,15 @@ func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uui
 	active, completed, failed := counts["active"], counts["completed"], counts["failed"]
 	totalTasks, pendingTasks := counts["tasks"], counts["unclaimed"]
 
-	nodeFreqs := make(map[string]int)
-	if projectID != uuid.Nil {
-		// The step heat map is decoration on top of the counts. Losing it is
-		// worth a log line rather than a failed dashboard.
-		ms, auditErr := s.repo.Audit().ListByProject(ctx, projectID)
-		if auditErr != nil {
-			log.Warn().Err(auditErr).Msg("Could not read the audit trail for the step heat map")
-		}
-		for _, m := range ms {
-			if m.NodeID != "" {
-				nodeFreqs[m.NodeID]++
-			}
-		}
-	}
-
+	// There used to be a step heat map here, built by reading the project's
+	// whole audit trail on every dashboard load — work that grows with the
+	// project's history — and no transport ever sent it.
 	return entities.ProcessStatistics{
 		ActiveInstances:    int(active),
 		CompletedInstances: int(completed),
 		FailedInstances:    int(failed),
 		TotalTasks:         int(totalTasks),
 		PendingTasks:       int(pendingTasks),
-		NodeFrequencies:    nodeFreqs,
+		CompletedTasks:     int(counts["completed tasks"]),
 	}, nil
 }

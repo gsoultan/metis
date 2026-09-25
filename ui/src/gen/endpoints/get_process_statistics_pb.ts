@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file endpoints/get_process_statistics.proto.
  */
 export const file_endpoints_get_process_statistics: GenFile = /*@__PURE__*/
-  fileDesc("CiZlbmRwb2ludHMvZ2V0X3Byb2Nlc3Nfc3RhdGlzdGljcy5wcm90bxIHcHJvY2VzcyIxChtHZXRQcm9jZXNzU3RhdGlzdGljc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCSKqAQocR2V0UHJvY2Vzc1N0YXRpc3RpY3NSZXNwb25zZRIYChBhY3RpdmVfaW5zdGFuY2VzGAEgASgFEhsKE2NvbXBsZXRlZF9pbnN0YW5jZXMYAiABKAUSGAoQZmFpbGVkX2luc3RhbmNlcxgDIAEoBRITCgt0b3RhbF90YXNrcxgEIAEoBRIVCg1wZW5kaW5nX3Rhc2tzGAUgASgFEg0KBWVycm9yGAYgASgJQp0BCgtjb20ucHJvY2Vzc0IZR2V0UHJvY2Vzc1N0YXRpc3RpY3NQcm90b1ABWjdnaXRodWIuY29tL2dzb3VsdGFuL21ldGlzL2FwaS9wcm90by9lbmRwb2ludHM7ZW5kcG9pbnRzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z");
+  fileDesc("CiZlbmRwb2ludHMvZ2V0X3Byb2Nlc3Nfc3RhdGlzdGljcy5wcm90bxIHcHJvY2VzcyIxChtHZXRQcm9jZXNzU3RhdGlzdGljc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCSLDAQocR2V0UHJvY2Vzc1N0YXRpc3RpY3NSZXNwb25zZRIYChBhY3RpdmVfaW5zdGFuY2VzGAEgASgFEhsKE2NvbXBsZXRlZF9pbnN0YW5jZXMYAiABKAUSGAoQZmFpbGVkX2luc3RhbmNlcxgDIAEoBRITCgt0b3RhbF90YXNrcxgEIAEoBRIVCg1wZW5kaW5nX3Rhc2tzGAUgASgFEg0KBWVycm9yGAYgASgJEhcKD2NvbXBsZXRlZF90YXNrcxgHIAEoBUKdAQoLY29tLnByb2Nlc3NCGUdldFByb2Nlc3NTdGF0aXN0aWNzUHJvdG9QAVo3Z2l0aHViLmNvbS9nc291bHRhbi9tZXRpcy9hcGkvcHJvdG8vZW5kcG9pbnRzO2VuZHBvaW50c6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw");
 
 /**
  * @generated from message process.GetProcessStatisticsRequest
@@ -62,6 +62,11 @@ export type GetProcessStatisticsResponse = Message<"process.GetProcessStatistics
    * @generated from field: string error = 6;
    */
   error: string;
+
+  /**
+   * @generated from field: int32 completed_tasks = 7;
+   */
+  completedTasks: number;
 };
 
 /**

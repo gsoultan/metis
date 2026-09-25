@@ -73,6 +73,7 @@ type GetProcessStatisticsResponse struct {
 	TotalTasks         int32                  `protobuf:"varint,4,opt,name=total_tasks,json=totalTasks,proto3" json:"total_tasks,omitempty"`
 	PendingTasks       int32                  `protobuf:"varint,5,opt,name=pending_tasks,json=pendingTasks,proto3" json:"pending_tasks,omitempty"`
 	Error              string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	CompletedTasks     int32                  `protobuf:"varint,7,opt,name=completed_tasks,json=completedTasks,proto3" json:"completed_tasks,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -149,6 +150,13 @@ func (x *GetProcessStatisticsResponse) GetError() string {
 	return ""
 }
 
+func (x *GetProcessStatisticsResponse) GetCompletedTasks() int32 {
+	if x != nil {
+		return x.CompletedTasks
+	}
+	return 0
+}
+
 var File_endpoints_get_process_statistics_proto protoreflect.FileDescriptor
 
 const file_endpoints_get_process_statistics_proto_rawDesc = "" +
@@ -156,7 +164,7 @@ const file_endpoints_get_process_statistics_proto_rawDesc = "" +
 	"&endpoints/get_process_statistics.proto\x12\aprocess\"<\n" +
 	"\x1bGetProcessStatisticsRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x01 \x01(\tR\tprojectId\"\x81\x02\n" +
+	"project_id\x18\x01 \x01(\tR\tprojectId\"\xaa\x02\n" +
 	"\x1cGetProcessStatisticsResponse\x12)\n" +
 	"\x10active_instances\x18\x01 \x01(\x05R\x0factiveInstances\x12/\n" +
 	"\x13completed_instances\x18\x02 \x01(\x05R\x12completedInstances\x12)\n" +
@@ -164,7 +172,8 @@ const file_endpoints_get_process_statistics_proto_rawDesc = "" +
 	"\vtotal_tasks\x18\x04 \x01(\x05R\n" +
 	"totalTasks\x12#\n" +
 	"\rpending_tasks\x18\x05 \x01(\x05R\fpendingTasks\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05errorB\x9d\x01\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\x12'\n" +
+	"\x0fcompleted_tasks\x18\a \x01(\x05R\x0ecompletedTasksB\x9d\x01\n" +
 	"\vcom.processB\x19GetProcessStatisticsProtoP\x01Z7github.com/gsoultan/metis/api/proto/endpoints;endpoints\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
