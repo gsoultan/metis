@@ -237,7 +237,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 	decisionSvc := serviceimpl.NewDecisionService(repo, serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), audit)),
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), audit)),
 		serviceimpl.WithJobService(jobSvc),
 	)
 

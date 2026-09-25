@@ -33,7 +33,7 @@ func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Co
 	decisionSvc := serviceimpl.NewDecisionService(repo, serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc,
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc,
 			repo.Subscription(), serviceimpl.NewAuditWriter(repo.Audit()))),
 		serviceimpl.WithJobService(jobSvc),
 	)

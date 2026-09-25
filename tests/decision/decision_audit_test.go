@@ -192,7 +192,7 @@ func buildBusinessRuleHarness(t *testing.T, audit servicecontracts.AuditWriter) 
 
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), audit)),
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), audit)),
 		serviceimpl.WithJobService(jobSvc),
 	)
 

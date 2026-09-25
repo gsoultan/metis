@@ -203,7 +203,7 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc,
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc,
 			repo.Subscription(), serviceimpl.NewAuditWriter(repo.Audit()),
 		)),
 		serviceimpl.WithJobService(jobSvc),

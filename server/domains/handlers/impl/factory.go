@@ -13,7 +13,6 @@ type nodeHandlerFactory struct {
 	jobService          servicecontracts.JobService
 	externalTaskService servicecontracts.ExternalTaskService
 	decisionService     servicecontracts.DecisionService
-	connectorService    servicecontracts.ConnectorService
 	subRepo             contracts.SubscriptionRepository
 	auditWriter         servicecontracts.AuditWriter
 }
@@ -33,7 +32,6 @@ func NewNodeHandlerFactory(
 	jobService servicecontracts.JobService,
 	externalTaskService servicecontracts.ExternalTaskService,
 	decisionService servicecontracts.DecisionService,
-	connectorService servicecontracts.ConnectorService,
 	subRepo contracts.SubscriptionRepository,
 	auditWriter servicecontracts.AuditWriter,
 ) handlercontracts.NodeHandlerFactory {
@@ -43,7 +41,6 @@ func NewNodeHandlerFactory(
 		jobService:          jobService,
 		externalTaskService: externalTaskService,
 		decisionService:     decisionService,
-		connectorService:    connectorService,
 		subRepo:             subRepo,
 		auditWriter:         auditWriter,
 	}

@@ -153,7 +153,7 @@ func NewServiceFacade(
 	// no such row to arbitrate it — a single-owner background consumer — and is
 	// the intended mechanism there. See docs/recovery.md §2.1.
 	jobSvc := serviceimpl.NewJobService(repo, engine, connectorSvc, serviceimpl.NewNoOpLocker(), impl.NewErrorBoundaryMatcher())
-	handlerFactory := impl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), auditWriter)
+	handlerFactory := impl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), auditWriter)
 	// After the engine, because a migration that skips a node advances the
 	// instance through the engine rather than reimplementing the advance.
 	migrationSvc := serviceimpl.NewMigrationService(repo, engine)
