@@ -40,8 +40,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const connectors = connectorsData?.connectors ?? [];
   const selectedConnector = connectors.find((c) => c.id === asText(data.connector_id));
   // A connector that asks the step for fields of its own — a database lookup's
-  // query — has them drawn here, and cannot be tried on its own: it runs as a
-  // step of a process, which says what to look up.
+  // query — has them drawn here.
   const stepSchema = selectedConnector?.node_schema ?? [];
   const takesStepFields = stepSchema.length > 0;
 
@@ -87,16 +86,14 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                       <Text size="xs" c="dimmed" lineClamp={2}>{selectedConnector.description}</Text>
                     </Box>
                     <Group gap={4} wrap="nowrap">
-                      {!takesStepFields && (
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          leftSection={<Play size={12} />}
-                          onClick={() => setTestModalOpened(true)}
-                        >
-                          Try it
-                        </Button>
-                      )}
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        leftSection={<Play size={12} />}
+                        onClick={() => setTestModalOpened(true)}
+                      >
+                        Try it
+                      </Button>
                       <ActionIcon
                         aria-label="Remove this connector"
                         size="sm"
@@ -195,7 +192,6 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
       {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
 
       <NodeTestModal
-        nodeId="test"
         data={data}
         opened={testModalOpened}
         onClose={() => setTestModalOpened(false)}

@@ -154,3 +154,22 @@ type DeleteManifestResponse struct {
 }
 
 func (r DeleteManifestResponse) Failed() error { return r.Err }
+
+// TryConnectorStepRequest asks for one run of a connector step, against its
+// project's saved connection. It carries the step's properties rather than a
+// connection: what the step sends is the caller's to choose, where it goes is
+// not.
+type TryConnectorStepRequest struct {
+	ProjectID  string         `json:"project_id"`
+	StepName   string         `json:"step_name,omitzero"`
+	Properties map[string]any `json:"properties"`
+	Variables  map[string]any `json:"variables"`
+}
+
+// TryConnectorStepResponse is what the step would have stored.
+type TryConnectorStepResponse struct {
+	Variables map[string]any `json:"variables,omitzero"`
+	Err       error          `json:"err,omitzero"`
+}
+
+func (r TryConnectorStepResponse) Failed() error { return r.Err }

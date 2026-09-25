@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
-import type { ApiConnector, ApiConnectorInstance, CreateConnectorInstancePayload, CreateConnectorPayload } from '../services/types';
+import type {
+  ApiConnector,
+  ApiConnectorInstance,
+  CreateConnectorInstancePayload,
+  CreateConnectorPayload,
+  TryConnectorStepRequest,
+} from '../services/types';
 
 export const useConnectors = () => {
   return useQuery({
@@ -90,6 +96,16 @@ export const useExecuteConnector = () => {
   return useMutation({
     mutationFn: ({ connectorKey, config, payload }: { connectorKey: string; config: Record<string, unknown>; payload: Record<string, unknown> }) =>
       processService.executeConnector(connectorKey, config, payload),
+  });
+};
+
+/**
+ * Runs one connector step once against its project's saved connection. For the
+ * designer's "Try it": real, and recorded on no process.
+ */
+export const useTryConnectorStep = () => {
+  return useMutation({
+    mutationFn: (request: TryConnectorStepRequest) => processService.tryConnectorStep(request),
   });
 };
 

@@ -11,12 +11,13 @@ import (
 
 // answeringExecutor records what it was sent and answers with a fixed reply.
 type answeringExecutor struct {
-	sent  map[string]any
-	reply map[string]any
+	config map[string]any
+	sent   map[string]any
+	reply  map[string]any
 }
 
-func (e *answeringExecutor) Execute(_ context.Context, _, payload map[string]any) (map[string]any, error) {
-	e.sent = payload
+func (e *answeringExecutor) Execute(_ context.Context, config, payload map[string]any) (map[string]any, error) {
+	e.config, e.sent = config, payload
 	return maps.Clone(e.reply), nil
 }
 

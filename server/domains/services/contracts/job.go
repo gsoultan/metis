@@ -41,9 +41,18 @@ type IncidentManager interface {
 	ResolveIncident(ctx context.Context, incidentID uuid.UUID) error
 }
 
+// ConnectorStepTrier runs one connector step once, outside any process.
+type ConnectorStepTrier interface {
+	// TryConnectorStep runs the step as the job would — against its project's
+	// saved connection, with its mappings — and returns what the step would
+	// store. No job, no service call record, no process touched.
+	TryConnectorStep(ctx context.Context, projectID uuid.UUID, node entities.Node, variables map[string]any) (map[string]any, error)
+}
+
 // JobService composes all job-related operations.
 type JobService interface {
 	JobEnqueuer
 	JobWorker
 	IncidentManager
+	ConnectorStepTrier
 }

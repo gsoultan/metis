@@ -236,7 +236,11 @@ export function editorKeyFor(storedKey: string): string | undefined {
   return Object.keys(PROPERTY_ALIASES).find((editorKey) => PROPERTY_ALIASES[editorKey] === storedKey);
 }
 
-function nodeProperties(d: BPMNNodeData): Record<string, unknown> {
+/**
+ * A node's settings under the names the server stores them by — what a deploy
+ * sends, and what trying one step sends.
+ */
+export function nodeProperties(d: BPMNNodeData): Record<string, unknown> {
   const out: Record<string, unknown> = { ...(d['properties'] as Record<string, unknown> ?? {}) };
   for (const [key, value] of Object.entries(d)) {
     if (value === undefined || CANVAS_ONLY_KEYS.has(key)) continue;

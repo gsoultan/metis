@@ -29,9 +29,11 @@ import {
   Info,
 } from 'lucide-react';
 import { useState } from 'react';
-import { useConnectors, useExecuteConnector, useExecuteScript } from '../../hooks/useProcess';
+import { useConnectors, useExecuteScript, useTryConnectorStep } from '../../hooks/useProcess';
+import { nodeProperties } from '../../mappers/definitionMapper';
+import { useAppStore } from '../../store/useAppStore';
 import type { ApiConnector } from '../../services/types';
-import { asText, asTextMap, type BPMNNodeData } from '../../types/bpmn';
+import { asText, type BPMNNodeData } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
 
 /** A caught value is `unknown`; take its message when it has one. */
@@ -249,22 +251,22 @@ export function ConnectorCatalog({ onSelect }: { onSelect: (connector: ApiConnec
   );
 }
 
-export function NodeTestModal({ 
-  nodeId: _nodeId, 
-  data, 
-  opened, 
-  onClose 
-}: { 
-  nodeId: string, 
-  data: BPMNNodeData, 
-  opened: boolean, 
-  onClose: () => void 
+export function NodeTestModal({
+  data,
+  opened,
+  onClose,
+}: {
+  data: BPMNNodeData,
+  opened: boolean,
+  onClose: () => void
 }) {
-  const executeConnector = useExecuteConnector();
+  const tryStep = useTryConnectorStep();
   const executeScript = useExecuteScript();
+  const { currentProjectId } = useAppStore();
   const [testVars, setTestVars] = useState('{}');
   const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
+  const isConnector = data.implementation === 'connector';
 
   const runTest = async () => {
     try {
@@ -272,13 +274,16 @@ export function NodeTestModal({
       setError(null);
       setResult(null);
 
-      if (data.implementation === 'connector') {
-        const res = await executeConnector.mutateAsync({
-          connectorKey: asText(data.connector_id),
-          config: asTextMap(data.inputs),
-          payload: variables,
-        });
-        setResult(res);
+      if (isConnector) {
+        if (!currentProjectId) {
+          throw new Error('Choose a project first: a step is tried against the connection its project saved.');
+        }
+        setResult(await tryStep.mutateAsync({
+          projectId: currentProjectId,
+          stepName: asText(data.label),
+          properties: nodeProperties(data),
+          variables,
+        }));
       } else if (data.implementation === 'script') {
          const res = await executeScript.mutateAsync({
            script: asText(data.script),
@@ -293,27 +298,36 @@ export function NodeTestModal({
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Test Execution" size="lg">
+    <Modal opened={opened} onClose={onClose} title={isConnector ? 'Try this step' : 'Test Execution'} size="lg">
       <Stack gap="md">
-        <Alert color="blue" icon={<Info size={16} />}>
-          <Text size="xs">This will execute the logic in an isolated sandbox with the provided variables.</Text>
-        </Alert>
+        {isConnector ? (
+          <Alert color="yellow" icon={<AlertCircle size={16} />}>
+            <Text size="xs">
+              This runs the step once, for real, against this project&apos;s saved connection — whatever it sends
+              is sent. Nothing is recorded on any process.
+            </Text>
+          </Alert>
+        ) : (
+          <Alert color="blue" icon={<Info size={16} />}>
+            <Text size="xs">This will execute the logic in an isolated sandbox with the provided variables.</Text>
+          </Alert>
+        )}
 
-        <TextInput 
-          label="Test Variables (JSON)" 
+        <TextInput
+          label="Test Variables (JSON)"
           placeholder='{"key": "value"}'
           value={testVars}
           onChange={(e) => setTestVars(e.target.value)}
         />
 
-        <Button 
-          fullWidth 
-          onClick={runTest} 
-          loading={executeConnector.isPending || executeScript.isPending}
+        <Button
+          fullWidth
+          onClick={runTest}
+          loading={tryStep.isPending || executeScript.isPending}
           leftSection={<Play size={16} />}
           color="indigo"
         >
-          Run Script
+          {isConnector ? 'Run it once' : 'Run Script'}
         </Button>
 
         {error && (
@@ -324,7 +338,7 @@ export function NodeTestModal({
 
         {result != null && (
           <Box>
-            <Text size="xs" fw={700} mb={4}>Resulting Variables:</Text>
+            <Text size="xs" fw={700} mb={4}>{isConnector ? 'What the step would store:' : 'Resulting Variables:'}</Text>
             <MantineCode block color="green" style={{ maxHeight: '200px', overflow: 'auto' }}>
               {JSON.stringify(result, null, 2)}
             </MantineCode>

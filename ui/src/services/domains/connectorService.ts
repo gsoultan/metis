@@ -4,6 +4,7 @@ import type {
   ApiConnectorInstance,
   CreateConnectorInstancePayload,
   CreateConnectorPayload,
+  TryConnectorStepRequest,
 } from "../types";
 import { raiseIfRefused } from "../raise";
 
@@ -105,6 +106,25 @@ export const connectorService = {
       signal,
     });
     return raiseIfRefused(data).result;
+  },
+
+  /**
+   * Runs one connector step once, against the connection its project saved,
+   * and returns what the step would store. It is real: whatever the step sends
+   * is sent. Nothing is recorded on any process.
+   */
+  async tryConnectorStep(request: TryConnectorStepRequest, signal?: AbortSignal) {
+    const data = await requestJSON<ConnectorResultResponse>("/connectors/try-step", {
+      method: "POST",
+      body: {
+        project_id: request.projectId,
+        step_name: request.stepName,
+        properties: request.properties,
+        variables: request.variables,
+      },
+      signal,
+    });
+    return raiseIfRefused(data).variables ?? {};
   },
 
   async executeScript(

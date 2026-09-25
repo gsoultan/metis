@@ -80,6 +80,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **"Try it" on a connector step works.** It sent the connector's id where the
+  server expected its key, and the step's mappings where it expected a
+  connection, so it failed for every connector. It now runs the step once
+  against the connection its project saved, with the step's mappings, and shows
+  what the step would store (`POST /api/v1/connectors/try-step`, designers and
+  administrators). It is real — a Slack step posts — and says so; nothing is
+  recorded on any process. Trying a database lookup needs the Query author role,
+  as deploying one does.
 - **Mappings set on a connector step were ignored.** The designer's "If the
   names differ" tables saved them under names the server never read, so a step
   configured to rename a value did not. The engine now reads `input_mapping` and
