@@ -7,6 +7,7 @@
  * FE-ARCH-6: buildDefinitionPayload is extracted here and has fully typed
  * input (Node<BPMNNodeData>[]) and output (CreateDefinitionPayload).
  */
+import { migrateConnectorMappings } from '../domain/connectorMappings';
 import type { Edge, Node } from '@xyflow/react';
 import type { BPMNEdgeData, BPMNNodeData } from '../types/bpmn';
 import type {
@@ -22,7 +23,19 @@ import type {
 
 /** Map server-side ApiNode objects to React Flow nodes with typed BPMNNodeData. */
 export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
-  return rawNodes.map((node) => ({
+  return rawNodes.map((rawNode) => {
+    // A connector step from an older designer has its mappings under names
+    // the engine never read; they are moved when the step is opened, and take
+    // effect when it is next deployed. See migrateConnectorMappings.
+    const node: ApiNode = rawNode.type === 'serviceTask' && rawNode.properties
+      ? { ...rawNode, properties: migrateConnectorMappings(rawNode.properties as Record<string, unknown>) as ApiNode['properties'] }
+      : rawNode;
+    return mapLoadedNode(node);
+  });
+}
+
+function mapLoadedNode(node: ApiNode): Node<BPMNNodeData> {
+  return {
     id: node.id,
     type: node.type,
     position: { x: node.x, y: node.y },
@@ -93,7 +106,7 @@ export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
       // Raw property bag for round-trip preservation
       properties: node.properties,
     } as BPMNNodeData,
-  }));
+  };
 }
 
 /** Map server-side ApiFlow objects to React Flow edges with typed BPMNEdgeData. */

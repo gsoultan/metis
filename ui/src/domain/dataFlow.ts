@@ -75,13 +75,19 @@ function producedNames(node: Node<BPMNNodeData>, sample: Record<string, unknown>
       return Object.keys(sample);
 
     case 'serviceTask': {
-      // output_<theirs> = <ours>: the names the response is stored under.
+      // A connector step's output_mapping: the names its answer is stored under.
+      const outputs = data.output_mapping ?? data.outputMapping;
+      if (outputs && typeof outputs === 'object' && Object.keys(outputs).length > 0) {
+        return Object.keys(outputs as Record<string, unknown>);
+      }
+      // output_<theirs> = <ours>: an HTTP step's.
       const mapped = Object.entries(properties)
-        .filter(([key]) => key.startsWith('output_'))
+        .filter(([key]) => key.startsWith('output_') && key !== 'output_mapping')
         .map(([, value]) => asText(value))
         .filter(Boolean);
       if (mapped.length > 0) return mapped;
-      const result = asText(data.resultVariable);
+      // A database lookup's one answer variable.
+      const result = asText(data.result_variable ?? data.resultVariable);
       return result ? [result] : [];
     }
 

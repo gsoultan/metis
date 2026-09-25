@@ -837,8 +837,10 @@
       the step's input mapping where it expects the connection's settings; it cannot work for
       any connector. Not offered for a lookup.
     - A service task's SENDING/RECEIVING mapping tables write `inputs`/`outputs`, which no Go
-      code reads. Honouring them changes what every saved definition does; that is a
-      migration, not a cleanup.
+      code reads. **Fixed 2026-09-25** without the migration risk: the engine honours
+      `input_mapping`/`output_mapping` on connector steps (keys nothing had written there),
+      and the designer moves an older step's tables to them when it is opened — so a
+      deployed definition changes only when somebody deploys it again.
     - A RabbitMQ `url` can carry a password inside it and is not masked. **Fixed in
       `P0-SEC-07`, below** — by recognising a credential in the value rather than by a
       declared `Secret` flag, which would have left every manifest-installed connector to

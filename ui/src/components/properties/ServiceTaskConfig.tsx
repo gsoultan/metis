@@ -14,7 +14,7 @@ import {
 import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { clearedStepFields } from '../../domain/connectorStep';
+import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
 import { asText, asTextMap } from '../../types/bpmn';
@@ -119,21 +119,21 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
             ) : (
             <PropertySection
               title="If the names differ"
-              hint="Only needed when the connector calls things differently from your process."
+              hint="Leave these empty to send every process value and keep the whole answer. List anything, and only what is listed is sent or kept."
             >
               <MappingTable
                 title="SENDING"
-                sourceLabel="Your variable"
-                targetLabel="Their field"
-                mapping={asTextMap(data.inputs)}
-                onUpdate={(m) => onUpdate({ inputs: m })}
+                sourceLabel="Their field"
+                targetLabel="From the process"
+                mapping={asTextMap(stepFieldValue(data as Record<string, unknown>, 'input_mapping'))}
+                onUpdate={(m) => onUpdate(stepFieldPatch('input_mapping', m))}
               />
               <MappingTable
                 title="RECEIVING"
-                sourceLabel="Their field"
-                targetLabel="Store it as"
-                mapping={asTextMap(data.outputs)}
-                onUpdate={(m) => onUpdate({ outputs: m })}
+                sourceLabel="Store it as"
+                targetLabel="From their answer"
+                mapping={asTextMap(stepFieldValue(data as Record<string, unknown>, 'output_mapping'))}
+                onUpdate={(m) => onUpdate(stepFieldPatch('output_mapping', m))}
               />
             </PropertySection>
             )}

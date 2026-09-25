@@ -121,6 +121,27 @@ describe('what a step is read to produce', () => {
     expect(names(flow.get('lookup')!.produces)).toEqual(['companyStatus', 'creditScore']);
   });
 
+  it('takes a connector step’s output mapping, under the names it stores', () => {
+    const nodes = [
+      node('start', 'startEvent'),
+      node('company', 'serviceTask', {
+        connector_id: 'c',
+        output_mapping: { creditScore: 'credit_score', isActive: 'status = "active"' },
+      }),
+    ];
+    const flow = computeDataFlow(nodes, [edge('start', 'company')]);
+    expect(names(flow.get('company')!.produces)).toEqual(['creditScore', 'isActive']);
+  });
+
+  it('takes a database lookup’s one answer variable', () => {
+    const nodes = [
+      node('start', 'startEvent'),
+      node('lookup', 'serviceTask', { connector_id: 'db', result_variable: 'customer' }),
+    ];
+    const flow = computeDataFlow(nodes, [edge('start', 'lookup')]);
+    expect(names(flow.get('lookup')!.produces)).toEqual(['customer']);
+  });
+
   it('takes a form’s fields', () => {
     const nodes = [
       node('start', 'startEvent'),

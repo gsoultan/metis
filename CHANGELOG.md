@@ -80,6 +80,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Mappings set on a connector step were ignored.** The designer's "If the
+  names differ" tables saved them under names the server never read, so a step
+  configured to rename a value did not. The engine now reads `input_mapping` and
+  `output_mapping` on a connector step — the same target → source maps a
+  decision uses, FEEL included — and with either set, only the listed fields are
+  sent or kept, as an HTTP step's mappings have always worked. A definition
+  already deployed is unaffected: its mappings move to the new names when it is
+  opened in the designer, and take effect when it is next deployed.
 - **Headers configured on an HTTP connection were never sent.** The Connectors
   page saves them as text and the connector read only an object, so an
   `Authorization` header typed into the form never left the server. A call that
