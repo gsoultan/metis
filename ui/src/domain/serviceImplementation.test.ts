@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { serviceImplementation, storedWebAddress, storedWorkerTopic, webAddress, workerTopic } from './serviceImplementation';
+import {
+  connection,
+  serviceImplementation,
+  storedWebAddress,
+  storedWorkerTopic,
+  webAddress,
+  workerTopic,
+} from './serviceImplementation';
 
 // The same cases as tests/bpmn/service_task_implementation_test.go: what the
 // panel shows is what the engine runs.
@@ -35,5 +42,13 @@ describe('serviceImplementation', () => {
     const worker = { implementation: 'external', externalTopic: 'ship-parcel', http_url: 'https://stale.example' };
     expect(webAddress(worker)).toBe('');
     expect(workerTopic(worker)).toBe('ship-parcel');
+  });
+
+  it('gives a connector step its connection, and any other step none', () => {
+    expect(connection({ implementation: 'connector', connector_id: 'slack' })).toBe('slack');
+    expect(connection({ connector_instance_id: 'connection-7' })).toBe('connection-7');
+    expect(connection({ connectorInstanceId: 'connection-7' })).toBe('connection-7');
+    expect(connection({ implementation: 'push', connector_id: 'slack', httpUrl: 'https://stale.example' })).toBe('');
+    expect(connection({ implementation: 'external', connector_id: 'slack', externalTopic: 'ship-parcel' })).toBe('');
   });
 });

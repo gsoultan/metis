@@ -6,6 +6,7 @@ import {
   validateProcess,
   type CheckableEdge,
   type CheckableNode,
+  type ValidationIssue,
 } from './processValidation';
 
 const node = (id: string, type: string, data: Record<string, unknown> = {}): CheckableNode => ({
@@ -161,13 +162,17 @@ describe('a gateway that cannot decide', () => {
 });
 
 /*
- * A step that calls another system and is pointed at nothing. The engine does
- * not treat that as a mistake: with no topic, no connector and no web address
- * there is nothing to call, so the step finishes at once and the instance
- * carries on as though the work were done. The invoice template shipped that
- * way, and the designer said nothing.
+ * A step that calls another system and has nothing to call.
+ *
+ * What it calls is the modeller's choice under "What it calls", decided the
+ * way the engine decides it (serviceImplementation.ts, mirroring
+ * entities.Node.Implementation): the recorded choice, or with none recorded,
+ * whatever the settings point at. A setting typed under an earlier choice
+ * stays on the step when the choice changes, and the engine ignores it — so it
+ * must not silence the warning either. It used to: any web address, topic or
+ * connector anywhere on the step counted, whatever the step was set to do.
  */
-describe('a step that calls another system but is pointed at nothing', () => {
+describe('a step that calls another system but has nothing to call', () => {
   const serviceProcess = (data: Record<string, unknown>) => ({
     nodes: [
       node('s', 'startEvent', { label: 'Invoice received' }),
@@ -176,58 +181,102 @@ describe('a step that calls another system but is pointed at nothing', () => {
     ],
     edges: [edge('f1', 's', 'c'), edge('f2', 'c', 'e')],
   });
+  const issuesFor = (data: Record<string, unknown>) => {
+    const { nodes, edges } = serviceProcess(data);
+    return validateProcess(nodes, edges);
+  };
 
+  const ADDRESS = 'https://erp.example.com/invoices/check';
+
+  const NO_ADDRESS: ValidationIssue = {
+    message: '"Check the invoice" is set to call a web address but has none, so the process would pass through it without doing the work.',
+    severity: 'warning',
+    id: 'c',
+    suggestion: 'Fill in “Web address” on the step, or under “What it calls” choose a connector or a worker instead.',
+  };
+  /* The engine refuses to run a worker step with no topic, so this one fails rather than passing through. */
+  const NO_TOPIC: ValidationIssue = {
+    message: '"Check the invoice" waits for a worker but names no topic, so no worker could pick it up and the process would fail when it gets there.',
+    severity: 'warning',
+    id: 'c',
+    suggestion: 'Fill in “Topic” on the step with the name your worker asks for work under.',
+  };
+  const NO_CONNECTOR: ValidationIssue = {
+    message: '"Check the invoice" is set to use a connector but none is chosen, so the process would pass through it without doing the work.',
+    severity: 'warning',
+    id: 'c',
+    suggestion: 'Choose one under “Choose a connector” on the step.',
+  };
+  const SCRIPT_NEVER_RUNS: ValidationIssue = {
+    message: '"Check the invoice" is set to run a script, but a script never runs on a step that calls another system, so the process would pass through it without doing the work.',
+    severity: 'warning',
+    id: 'c',
+    suggestion: 'Move the script to a “Work something out” step, which does run it, or under “What it calls” choose what this step should call.',
+  };
+
+  /* Nothing recorded and nothing set: the engine takes it for a web call with no address, which does nothing. */
   it('warns, naming the step and where to fix it', () => {
-    const { nodes, edges } = serviceProcess({});
-    expect(validateProcess(nodes, edges)).toEqual([
-      {
-        message: '"Check the invoice" does not call anything, so the process would pass through it without doing the work.',
-        severity: 'warning',
-        id: 'c',
-        suggestion: 'Under “What it calls”, give it a web address, choose a connector, or name a topic for a worker to pick up.',
-      },
-    ]);
+    expect(issuesFor({})).toEqual([NO_ADDRESS]);
   });
 
   /* A placeholder is a legitimate way to sketch a process before the system it calls exists. */
   it('does not stop a deploy', () => {
-    const { nodes, edges } = serviceProcess({});
-    expect(hasBlockingIssues(validateProcess(nodes, edges))).toBe(false);
+    expect(hasBlockingIssues(issuesFor({}))).toBe(false);
   });
 
   it('counts a setting left blank as not set', () => {
-    const { nodes, edges } = serviceProcess({ implementation: 'push', httpUrl: '   ', externalTopic: '' });
-    expect(validateProcess(nodes, edges).map((issue) => issue.id)).toEqual(['c']);
+    expect(issuesFor({ implementation: 'push', httpUrl: '   ', externalTopic: '' })).toEqual([NO_ADDRESS]);
   });
 
-  /* Every spelling the property panel reads, so the warning never contradicts what the panel shows. */
+  /* Every spelling the engine reads, for the choice that uses it. */
   it.each([
-    ['a web address', { implementation: 'push', httpUrl: 'https://erp.example.com/invoices/check' }],
-    ['a web address as the server stores it', { http_url: 'https://erp.example.com/invoices/check' }],
-    ['a web address from an older designer', { url: 'https://erp.example.com/invoices/check' }],
+    ['a web address', { implementation: 'push', httpUrl: ADDRESS }],
+    ['a web address as the server stores it', { http_url: ADDRESS }],
+    ['a web address from an older designer', { url: ADDRESS }],
+    ['a web address from an older designer, on a step chosen to call one', { implementation: 'push', url: ADDRESS }],
     ['a connector', { implementation: 'connector', connector_id: 'catalogue-slack' }],
     ['a particular connection', { connector_instance_id: 'connection-7' }],
     ['a topic for a worker', { implementation: 'external', externalTopic: 'check-invoice' }],
     ['a topic as the server stores it', { external_topic: 'check-invoice' }],
     ['a topic from an older designer', { topic: 'check-invoice' }],
+    ['a topic from an older designer, on a step chosen to wait for a worker', { implementation: 'external', topic: 'check-invoice' }],
   ])('is satisfied by %s', (_, data) => {
-    const { nodes, edges } = serviceProcess(data);
-    expect(validateProcess(nodes, edges)).toEqual([]);
+    expect(issuesFor(data)).toEqual([]);
+  });
+
+  /* The case that used to pass: a setting the chosen way of working never reads. */
+  it.each([
+    ['a topic left over, on a step chosen to call a web address', { implementation: 'push', externalTopic: 'check-invoice' }, NO_ADDRESS],
+    ['a web address left over, on a step chosen to wait for a worker', { implementation: 'external', httpUrl: ADDRESS }, NO_TOPIC],
+    ['a web address from an older designer, on a step chosen to wait for a worker', { implementation: 'external', url: ADDRESS }, NO_TOPIC],
+    ['a connector left over, on a step chosen to wait for a worker', { implementation: 'external', connector_id: 'catalogue-slack' }, NO_TOPIC],
+    ['a web address left over, on a step chosen to use a connector', { implementation: 'connector', http_url: ADDRESS }, NO_CONNECTOR],
+    ['a topic from an older designer, on a step chosen to use a connector', { implementation: 'connector', topic: 'check-invoice' }, NO_CONNECTOR],
+  ])('warns about %s', (_, data, expected) => {
+    expect(issuesFor(data)).toEqual([expected]);
   });
 
   /*
    * The engine runs a script only on a "Work something out" step. On this kind
-   * of step it is stored and ignored, so "does not call anything" would read as
-   * wrong to the person who wrote the script. They are told why instead.
+   * of step it never does, whatever else is set, so the warning says that
+   * rather than "does not call anything".
    */
-  it('explains that a script on this kind of step never runs', () => {
-    const { nodes, edges } = serviceProcess({ implementation: 'script', script: 'vars.total = 42;' });
-    expect(validateProcess(nodes, edges)).toEqual([
+  it.each([
+    ['with a script written', { implementation: 'script', script: 'vars.total = 42;' }],
+    ['with none written yet', { implementation: 'script' }],
+    ['with a web address left over', { implementation: 'script', script: 'vars.total = 42;', httpUrl: ADDRESS }],
+  ])('warns that a step chosen to run a script never runs it, %s', (_, data) => {
+    expect(issuesFor(data)).toEqual([SCRIPT_NEVER_RUNS]);
+  });
+
+  /* A choice the engine does not know does nothing either: it is not a worker step, and only a web call reads an address. */
+  it('warns about a choice Metis does not know', () => {
+    expect(issuesFor({ implementation: 'carrier-pigeon', httpUrl: ADDRESS })).toEqual([
       {
-        message: 'The script in "Check the invoice" will never run: this kind of step only calls other systems, and it is not pointed at one.',
+        message: '"Check the invoice" does not call anything, so the process would pass through it without doing the work.',
         severity: 'warning',
         id: 'c',
-        suggestion: 'Move the script to a “Work something out” step, which does run it.',
+        suggestion: 'Under “What it calls”, choose how it does its work.',
       },
     ]);
   });

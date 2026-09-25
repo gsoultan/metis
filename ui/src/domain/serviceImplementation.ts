@@ -17,7 +17,7 @@ export function serviceImplementation(data: Readonly<Record<string, unknown>>): 
   const chosen = asText(data.implementation);
   if (chosen !== '') return chosen;
   if (storedWorkerTopic(data) !== '') return 'external';
-  if (firstText(data.connector_id, data.connector_instance_id, data.connectorInstanceId) !== '') return 'connector';
+  if (storedConnection(data) !== '') return 'connector';
   return 'push';
 }
 
@@ -29,6 +29,15 @@ export function workerTopic(data: Readonly<Record<string, unknown>>): string {
 /** The web address the step calls, or '' when it calls none. */
 export function webAddress(data: Readonly<Record<string, unknown>>): string {
   return serviceImplementation(data) === 'push' ? storedWebAddress(data) : '';
+}
+
+/**
+ * The connector or connection the step calls through, or '' when it uses
+ * none. A catalogue connector (`connector_id`) is resolved to the project's
+ * connection to it when the step runs; `connector_instance_id` names one.
+ */
+export function connection(data: Readonly<Record<string, unknown>>): string {
+  return serviceImplementation(data) === 'connector' ? storedConnection(data) : '';
 }
 
 /**
@@ -45,6 +54,14 @@ export function storedWorkerTopic(data: Readonly<Record<string, unknown>>): stri
  */
 export function storedWebAddress(data: Readonly<Record<string, unknown>>): string {
   return firstText(data.httpUrl, data.http_url, data.url);
+}
+
+/**
+ * The connector or connection as stored, whatever the step does. The editor
+ * holds a chosen connection as `connectorInstanceId` until it is saved.
+ */
+export function storedConnection(data: Readonly<Record<string, unknown>>): string {
+  return firstText(data.connector_id, data.connector_instance_id, data.connectorInstanceId);
 }
 
 /**
