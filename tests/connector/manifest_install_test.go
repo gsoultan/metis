@@ -364,3 +364,31 @@ func TestABrokenManifestIsRefusedAtInstall(t *testing.T) {
 
 var _ = errors.Is
 var _ = gorm.ErrRecordNotFound
+
+// A document that is not a connector is the sender's mistake, and a 400 says
+// so. It was a 500: that pages somebody over a typo, and spends the error
+// budget the engine's own failures are measured against.
+func TestADocumentThatIsNotAConnectorIsTheSendersMistake(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	ctx := t.Context()
+
+	for name, install := range map[string]func() error{
+		"a manifest with no key or address": func() error {
+			_, err := svc.InstallManifest(ctx, []byte("version: 1\nname: Nothing to call\n"))
+			return err
+		},
+		"a manifest that is not YAML": func() error {
+			_, err := svc.InstallManifest(ctx, []byte("key: [unclosed"))
+			return err
+		},
+		"a specification that is not OpenAPI": func() error {
+			_, err := svc.ImportOpenAPI(ctx, []byte("{not json or yaml"))
+			return err
+		},
+	} {
+		if err := install(); !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Errorf("%s: %v, want it refused as invalid input", name, err)
+		}
+	}
+}

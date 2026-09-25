@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/gsoultan/metis/internal/pkg/lru"
 	"github.com/gsoultan/metis/internal/pkg/tracing"
@@ -49,7 +50,9 @@ var _ servicecontracts.JobConnectorService = (*connectorService)(nil)
 func (s *connectorService) InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error) {
 	manifest, err := connectors.ParseManifest(document)
 	if err != nil {
-		return entities.ConnectorManifest{}, err
+		// A document nobody could install is the sender's mistake: a 400,
+		// not a 500 that pages somebody and spends the error budget.
+		return entities.ConnectorManifest{}, apierr.Invalidf("%v", err)
 	}
 
 	var installed entities.ConnectorManifest
@@ -105,7 +108,9 @@ func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) err
 func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error) {
 	manifests, err := connectors.ImportOpenAPI(document)
 	if err != nil {
-		return nil, err
+		// As for a manifest: a specification that cannot be read is the
+		// sender's mistake.
+		return nil, apierr.Invalidf("%v", err)
 	}
 
 	installed := make([]entities.ConnectorManifest, 0, len(manifests))
