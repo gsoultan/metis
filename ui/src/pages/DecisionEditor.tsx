@@ -105,7 +105,9 @@ import { findProblems } from '../domain/decisionProblems';
 import {
   describeMatchedLines,
   matchedLines,
+  staleNote,
   tableFingerprint,
+  trialOutcome,
   trialStanding,
   trialTarget,
   trialValueOf,
@@ -481,13 +483,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const hasUnsavedChanges = JSON.stringify(payload) !== savedPayload;
 
   // What a Try-it answer is about. It runs the stored table, so its highlight
-  // holds only while the table on screen is the one it ran against.
+  // holds only while the table on screen, and the stored table, are the ones
+  // it ran against: a save replaces the stored table and the answer with it.
   const table = useMemo(() => tableFingerprint(payload), [payload]);
   const savedTable = useMemo(
     () => (savedPayload ? tableFingerprint(JSON.parse(savedPayload) as CreateDecisionPayload) : null),
     [savedPayload],
   );
-  const highlighted = matchedLines(outcome, rules, table);
+  const highlighted = matchedLines(outcome, rules, table, savedTable);
 
   const handleSave = async () => {
     if (blocking.length > 0) {
@@ -542,13 +545,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       if (response.err) {
         setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
-        setOutcome({
-          values: response.result?.values ?? {},
-          ruleIds: response.matchedRuleIds,
-          positions: response.matchedRules,
-          table,
-          ranAsShown: table === savedTable,
-        });
+        setOutcome(trialOutcome(response, table, savedTable));
       }
     } catch (err: unknown) {
       setTestError(errorMessage(err, 'Could not evaluate the decision'));
@@ -979,7 +976,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
               {outcome && (
                 <TrialAnswer
                   outcome={outcome}
-                  standing={trialStanding(outcome, table)}
+                  standing={trialStanding(outcome, table, savedTable)}
+                  staleReason={staleNote(table, savedTable)}
                   lines={highlighted}
                   outputs={outputs}
                 />
@@ -1265,18 +1263,21 @@ function CoverageFindings({
 function TrialAnswer({
   outcome,
   standing,
+  staleReason,
   lines,
   outputs,
 }: {
   outcome: TrialOutcome;
   standing: TrialStanding;
+  /** What to say when the answer is stale. */
+  staleReason: string;
   lines: number[];
   outputs: DecisionOutputColumn[];
 }) {
   if (standing === 'stale') {
     return (
       <Text size="xs" c="dimmed">
-        The table has changed since this ran, so its answer is no longer shown. Save, and run it again.
+        {staleReason}
       </Text>
     );
   }

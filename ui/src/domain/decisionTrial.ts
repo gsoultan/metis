@@ -69,7 +69,7 @@ function trialValue(column: DecisionInputColumn, raw: string): string | number |
   return raw;
 }
 
-/** A Try-it answer, and the table that was on screen when it was asked. */
+/** A Try-it answer, and the two tables it was an answer about. */
 export interface TrialOutcome {
   values: Record<string, unknown>;
   /** The stored lines that decided, by id. */
@@ -78,8 +78,33 @@ export interface TrialOutcome {
   positions: number[];
   /** tableFingerprint of the table on screen when it ran. */
   table: string;
-  /** Whether that was the stored table, which is what ran. */
-  ranAsShown: boolean;
+  /**
+   * tableFingerprint of the stored table when it ran — the one that answered.
+   * A save replaces it, and the answer is then about a table nobody holds.
+   */
+  savedTable: string | null;
+}
+
+/** What the server answered, as much of it as an outcome keeps. */
+export interface TrialResponse {
+  result?: { values?: Record<string, unknown> };
+  matchedRules: number[];
+  matchedRuleIds: string[];
+}
+
+/** An answer, pinned to the table on screen and the stored table as they were when it ran. */
+export function trialOutcome(response: TrialResponse, table: string, savedTable: string | null): TrialOutcome {
+  return {
+    values: response.result?.values ?? {},
+    ruleIds: response.matchedRuleIds,
+    positions: response.matchedRules,
+    table,
+    savedTable,
+  };
+}
+
+function ranAsShown(outcome: TrialOutcome): boolean {
+  return outcome.table === outcome.savedTable;
 }
 
 /** The parts of a table that decide its answers, as one comparable string. */
@@ -91,13 +116,24 @@ export function tableFingerprint(payload: CreateDecisionPayload): string {
 /**
  * Where a Try-it answer stands against the table on screen: current, an answer
  * about the saved version when the screen held changes that were not saved,
- * or stale once the table has changed since it ran.
+ * or stale once either table has changed since it ran.
+ *
+ * The stored table counts as much as the one on screen. It was left out, so an
+ * answer from before a save stayed up after it, still saying the changes were
+ * not saved, about a stored table the save had replaced.
  */
 export type TrialStanding = 'current' | 'saved-only' | 'stale';
 
-export function trialStanding(outcome: TrialOutcome, table: string): TrialStanding {
-  if (outcome.table !== table) return 'stale';
-  return outcome.ranAsShown ? 'current' : 'saved-only';
+export function trialStanding(outcome: TrialOutcome, table: string, savedTable: string | null): TrialStanding {
+  if (outcome.table !== table || outcome.savedTable !== savedTable) return 'stale';
+  return ranAsShown(outcome) ? 'current' : 'saved-only';
+}
+
+/** Why a stale answer is not shown, and what brings one back. */
+export function staleNote(table: string, savedTable: string | null): string {
+  return table === savedTable
+    ? 'The saved table has changed since this ran, so its answer is no longer shown. Run it again.'
+    : 'The table has changed since this ran, so its answer is no longer shown. Save, and run it again.';
 }
 
 /**
@@ -109,13 +145,18 @@ export function trialStanding(outcome: TrialOutcome, table: string): TrialStandi
  * screen. Nothing once the table has changed since it ran: the answer was
  * about a table that is no longer there.
  */
-export function matchedLines(outcome: TrialOutcome | null, rules: DecisionRuleRow[], table: string): number[] {
-  if (!outcome || trialStanding(outcome, table) === 'stale') return [];
+export function matchedLines(
+  outcome: TrialOutcome | null,
+  rules: DecisionRuleRow[],
+  table: string,
+  savedTable: string | null,
+): number[] {
+  if (!outcome || trialStanding(outcome, table, savedTable) === 'stale') return [];
   if (outcome.ruleIds.length > 0) {
     const decided = new Set(outcome.ruleIds);
     return rules.flatMap((rule, index) => (decided.has(rule.id) ? [index] : []));
   }
-  return outcome.ranAsShown ? outcome.positions.filter((position) => position < rules.length) : [];
+  return ranAsShown(outcome) ? outcome.positions.filter((position) => position < rules.length) : [];
 }
 
 /** The lines an answer points at, as a heading: "Line 3 matched", "Lines 2 and 5 matched". */

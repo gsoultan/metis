@@ -4,7 +4,10 @@ import type { DecisionInputColumn, DecisionRuleRow } from './decisionTable';
 import {
   describeMatchedLines,
   matchedLines,
+  staleNote,
   tableFingerprint,
+  trialOutcome,
+  trialStanding,
   trialTarget,
   trialValueOf,
   trialVariables,
@@ -75,34 +78,69 @@ describe('trialVariables', () => {
  */
 describe('matchedLines', () => {
   const line = (id: string): DecisionRuleRow => ({ id, input_entries: ['-'], output_entries: ['x'] });
+  // Unless a test says otherwise the stored table was what was on screen.
   const outcome = (over: Partial<TrialOutcome>): TrialOutcome => ({
     values: {},
     ruleIds: [],
     positions: [],
     table: 'as run',
-    ranAsShown: true,
+    savedTable: 'as run',
     ...over,
   });
 
   it('finds the lines that decided by id, wherever they now sit', () => {
     // Stored as a, b, c; c decided. On screen, before saving, c was moved to the top.
-    const decided = outcome({ ruleIds: ['c'], positions: [2], ranAsShown: false });
-    expect(matchedLines(decided, [line('c'), line('a'), line('b')], 'as run')).toEqual([0]);
+    const decided = outcome({ ruleIds: ['c'], positions: [2], savedTable: 'stored' });
+    expect(matchedLines(decided, [line('c'), line('a'), line('b')], 'as run', 'stored')).toEqual([0]);
   });
 
   it('clears once the table has changed since it ran', () => {
     const decided = outcome({ ruleIds: ['b'], positions: [1] });
-    expect(matchedLines(decided, [line('a'), line('b')], 'edited since')).toEqual([]);
+    expect(matchedLines(decided, [line('a'), line('b')], 'edited since', 'as run')).toEqual([]);
   });
 
   it('uses positions only for lines stored without an id, and only when the stored table was on screen', () => {
     const rows = [line(''), line('')];
-    expect(matchedLines(outcome({ positions: [1] }), rows, 'as run')).toEqual([1]);
-    expect(matchedLines(outcome({ positions: [1], ranAsShown: false }), rows, 'as run')).toEqual([]);
+    expect(matchedLines(outcome({ positions: [1] }), rows, 'as run', 'as run')).toEqual([1]);
+    expect(matchedLines(outcome({ positions: [1], savedTable: 'stored' }), rows, 'as run', 'stored')).toEqual([]);
   });
 
   it('highlights nothing before anything has run', () => {
-    expect(matchedLines(null, [line('a')], 'as run')).toEqual([]);
+    expect(matchedLines(null, [line('a')], 'as run', 'as run')).toEqual([]);
+  });
+});
+
+/**
+ * Try it runs the stored table. Run it with changes on screen and the answer
+ * is the stored table's; save, and that stored table is gone — replaced by
+ * what is on screen. The answer stayed up as "what the saved version decides.
+ * Your changes are not saved yet", about a table that was no longer saved, and
+ * its old lines stayed highlighted.
+ */
+describe('a Try-it answer after a save', () => {
+  const ranWithChangesOnScreen = trialOutcome(
+    { result: { values: { band: 'LOW' } }, matchedRules: [0], matchedRuleIds: ['a'] },
+    'edited',
+    'stored',
+  );
+  const rows: DecisionRuleRow[] = [{ id: 'a', input_entries: ['-'], output_entries: ['x'] }];
+
+  it('is about the saved version until the table is saved', () => {
+    expect(trialStanding(ranWithChangesOnScreen, 'edited', 'stored')).toBe('saved-only');
+  });
+
+  it('is stale once the stored table it ran against has been saved over', () => {
+    expect(trialStanding(ranWithChangesOnScreen, 'edited', 'edited')).toBe('stale');
+    expect(matchedLines(ranWithChangesOnScreen, rows, 'edited', 'edited')).toEqual([]);
+  });
+
+  it('says to run it again, not to save, when there is nothing left to save', () => {
+    expect(staleNote('edited', 'edited')).toBe(
+      'The saved table has changed since this ran, so its answer is no longer shown. Run it again.',
+    );
+    expect(staleNote('edited again', 'edited')).toBe(
+      'The table has changed since this ran, so its answer is no longer shown. Save, and run it again.',
+    );
   });
 });
 
