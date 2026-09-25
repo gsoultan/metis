@@ -120,9 +120,10 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 
 | Variable | Purpose |
 | :-- | :-- |
-| `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured, and refuses a weak one — see below. Rotating it makes existing variables unreadable. |
+| `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured, and refuses a weak one — see below. Changing it alone makes existing variables unreadable; rotate it with `ENCRYPTION_KEY_PREVIOUS` and `metis --reseal` ([`docs/runbooks.md`](docs/runbooks.md), "Rotating secrets"). |
+| `ENCRYPTION_KEY_PREVIOUS` | The key being rotated away from. Read with, never written with, so data sealed under it still opens while `metis --reseal` seals it again under `ENCRYPTION_KEY`. Remove it once `metis --reseal-check` passes. |
 | `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. A weak one is forgeable into an administrator's token. |
-| `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused. For an existing installation that cannot rotate `ENCRYPTION_KEY` without losing data; warns on every boot. |
+| `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused, while a weak `ENCRYPTION_KEY` is rotated to a strong one; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. Required unless `config.yaml` names a database; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
 | `METIS_GRPC_ADDRESS` | gRPC listen address. **Unset means no gRPC listener**, which is the default: it applies none of the HTTP chain — no authentication, rate or body limit — so only the calls that need no sign-in answer on it. The same services are served over HTTP through Connect. |
@@ -191,8 +192,10 @@ The server refuses to start otherwise. A weak secret is not a degraded mode —
 it behaves exactly like a strong one until somebody guesses it offline, and
 then it is total: a `JWT_SECRET` becomes an administrator's token, an
 `ENCRYPTION_KEY` turns a stolen backup back into plaintext. If you are upgrading
-an installation that cannot rotate its key, `METIS_ALLOW_WEAK_SECRETS=true`
-starts it while you plan a re-encryption.
+an installation with a weak `ENCRYPTION_KEY`, rotate it to a strong one — the
+old key goes in `ENCRYPTION_KEY_PREVIOUS` and `metis --reseal` moves the data
+([`docs/runbooks.md`](docs/runbooks.md), "Rotating secrets").
+`METIS_ALLOW_WEAK_SECRETS=true` starts it on the weak key in the meantime.
 
 `docker-compose.yml` is for evaluation: the secrets in it are literals. Generate
 real ones for anything else, and back `ENCRYPTION_KEY` up separately from the

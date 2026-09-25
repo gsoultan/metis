@@ -94,8 +94,11 @@ func (c *Config) DecryptConnectionString(passphrase string) (string, error) {
 		return "", fmt.Errorf("ENCRYPTION_KEY environment variable or config encryption_key is required to decrypt the database connection string")
 	}
 
+	// Or with a previous key: after ENCRYPTION_KEY is rotated, and before
+	// --reseal has sealed this again, the connection string is still under the
+	// old one, and without it the server cannot reach its database at all.
 	key := crypto.DeriveKey(keyToUse)
-	plaintext, err := crypto.DecryptWithKey(c.Database.EncryptedConnection, key)
+	plaintext, err := crypto.DecryptWithKeyOrPrevious(c.Database.EncryptedConnection, key)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt connection string: %w", err)
 	}

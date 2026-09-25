@@ -178,9 +178,11 @@ stringData:
   DATABASE_URL: "host=db.internal user=metis password=… dbname=metis port=5432 sslmode=require"
 ```
 
-Rotating `ENCRYPTION_KEY` makes existing encrypted data — process variables and
-connector credentials — unreadable. It is not a routine operation; treat it as a
-migration with a plan, not a password change.
+Changing `ENCRYPTION_KEY` on its own makes existing encrypted data — process
+variables and connector credentials — unreadable. Rotate it instead: the old
+key goes in `ENCRYPTION_KEY_PREVIOUS` for reading, and `metis --reseal` seals
+everything again under the new one. The procedure is in
+[`runbooks.md`](runbooks.md), "Rotating secrets".
 
 The rest of the deployment is in [`../deploy/kubernetes/`](../deploy/kubernetes/),
 including `GOMEMLIMIT`, the probes and the resource limits, each with a comment

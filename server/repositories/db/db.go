@@ -99,6 +99,19 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pgxdrv.NewPoolConfig(ctx, config)
 }
 
+// EnvironmentPools returns every open environment's pool, for maintenance that
+// has to reach each database — resealing after a key rotation is one: the
+// sealed data of a runtime lives in that runtime's database.
+func (c *Conn) EnvironmentPools() map[uuid.UUID]*pgxpool.Pool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	pools := make(map[uuid.UUID]*pgxpool.Pool, len(c.envs))
+	for id, pool := range c.envs {
+		pools[id] = pool
+	}
+	return pools
+}
+
 // Main is the pool for the main database, for the migration runner and for
 // anything that legitimately works across environments.
 func (c *Conn) Main() *pgxpool.Pool { return c.main }

@@ -529,13 +529,40 @@ limit, keep `GOMEMLIMIT` at about 85% of it.
 
 - **`JWT_SECRET`** — set a new value and restart. Every session ends and
   everyone signs in again; no data is affected.
-- **`ENCRYPTION_KEY`** — **cannot be rotated today.** Every sealed value —
-  process and task variables, and the copies of them the engine keeps — is
-  encrypted with the one key, and there is no path that re-encrypts under a new
-  one. A new key makes everything sealed so far unreadable. If the key has
-  leaked, what protects the data is access to the database and its backups: the
-  key reads nothing without them. Rotation is recorded in the roadmap backlog
-  as missing.
+- **`ENCRYPTION_KEY`** — the old key stays installed for reading while every
+  sealed value is sealed again under the new one:
+
+  1. Generate a new key: `openssl rand -hex 32`.
+  2. Put it where the current key lives, and the old key in
+     `ENCRYPTION_KEY_PREVIOUS`:
+     - configured by environment: `ENCRYPTION_KEY` = new key;
+     - configured by `config.yaml`: its `encryption_key` = new key. The file
+       wins over `ENCRYPTION_KEY`, so changing only the variable does nothing.
+  3. Restart. Everything written from now on uses the new key, and data sealed
+     under the old one still reads. The log warns on every start while
+     `ENCRYPTION_KEY_PREVIOUS` is set.
+  4. Reseal, with the same configuration as the server:
+     ```bash
+     kubectl -n metis exec deploy/metis -- /usr/local/bin/metis --reseal
+     ```
+     It reads every text, json, jsonb and bytea column of every table, in the
+     main database and in each environment's, plus the connection string in
+     `config.yaml`. Every sealed value it finds under the old key is sealed
+     again under the new one. It is safe while the server runs: a row is
+     rewritten only if it has not changed since it was read.
+  5. `metis --reseal-check` exits 0 once nothing is left under the old key, and
+     fails, saying how many values remain, until then. Run `--reseal` again if
+     it fails. Then remove `ENCRYPTION_KEY_PREVIOUS` and restart.
+
+  Values reported as **unreadable** open under neither key. The log names each
+  column. In a column of sealed data they were sealed under a key this
+  installation no longer has, and were unreadable before the rotation. In a
+  column of names or text they are values that only begin like sealed ones.
+
+  **Backups taken before the reseal are still sealed under the old key.** If
+  the key is being retired because it leaked, those backups are exposed to
+  whoever has it. Keep the old key for exactly as long as you keep those
+  backups.
 
 ---
 ## Database failover
