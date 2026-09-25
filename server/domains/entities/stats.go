@@ -1,5 +1,11 @@
 package entities
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
 // ProcessStatistics represents high-level metrics for a project or the system.
 type ProcessStatistics struct {
 	ActiveInstances    int `json:"active_instances"`
@@ -27,4 +33,28 @@ type WaitingProcess struct {
 type WaitingStep struct {
 	NodeID  string `json:"node_id"`
 	Waiting int    `json:"waiting"`
+}
+
+// Deadlines is a project's open work as far as deadlines go.
+type Deadlines struct {
+	// Tasks are the open tasks with a due date, soonest first, at most as many
+	// as the server sends. The overdue ones come before any that are not.
+	Tasks []DeadlineTask `json:"tasks"`
+	// WithDeadline and WithoutDeadline count all of the project's open tasks,
+	// not only the ones sent.
+	WithDeadline    int `json:"with_deadline"`
+	WithoutDeadline int `json:"without_deadline"`
+}
+
+// DeadlineTask is one open task with a due date, and the process it is part of.
+type DeadlineTask struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	NodeID      string    `json:"node_id"`
+	Status      string    `json:"status"`
+	Priority    int       `json:"priority"`
+	Assignee    string    `json:"assignee,omitzero"`
+	DueDate     time.Time `json:"due_date"`
+	ProcessKey  string    `json:"process_key"`
+	ProcessName string    `json:"process_name"`
 }

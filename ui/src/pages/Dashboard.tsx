@@ -36,9 +36,9 @@ import { StatsLoadingState, ErrorState } from '../components/state';
 import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
 import { useMemo } from 'react';
-import { useTasks } from '../hooks/useTasks';
+import { useDeadlines } from '../hooks/useTasks';
 import { csvFilename } from '../domain/csv';
-import { slaReport, slaReportCsv, slaSummary, type ReportableTask } from '../domain/slaReport';
+import { slaReportCsv, slaReportFromDeadlines, slaSummary } from '../domain/slaReport';
 import { taskCompletion } from '../domain/dashboardFigures';
 import { heatColor, heatFromWaiting, heatSummary } from '../domain/processHeatmap';
 
@@ -117,15 +117,14 @@ export function Dashboard() {
   const { data: defs } = useDefinitions();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const { data: instancesData } = useInstances();
-  // A page of open work, for the deadline report below. The inbox already
+  // The open work with a deadline, for the report below. The inbox already
   // tells one person that one task is late; nothing answered "how much is
-  // late, and whose" for somebody who has to do something about it.
-  const { data: tasksData } = useTasks(1, 200);
+  // late, and whose" for somebody who has to do something about it. Read on
+  // the server across all of it: a page of the task list held the newest 200
+  // tasks of any status, and named no process.
+  const { data: deadlines } = useDeadlines();
 
-  const report = useMemo(
-    () => slaReport((tasksData?.tasks ?? []).map(toReportableTask)),
-    [tasksData?.tasks],
-  );
+  const report = useMemo(() => slaReportFromDeadlines(deadlines ?? {}), [deadlines]);
 
   // Where the running work is sitting. The instance list already says which
   // step each instance is on, one row at a time; this asks it the other way
@@ -464,35 +463,6 @@ export function Dashboard() {
   );
 }
 
-
-/**
- * Reads a task from the API as the deadline report needs it.
- *
- * The report deliberately takes a small shape of its own rather than the API
- * type: it is arithmetic over four fields, and coupling it to the wire format
- * would mean a field rename breaking a calculation that does not care.
- */
-function toReportableTask(task: {
-  id: string;
-  name?: string;
-  nodeId?: string;
-  status?: string;
-  priority?: number;
-  dueDate?: string | null;
-  assignee?: { username?: string } | null;
-  instance?: { definition?: { name?: string; key?: string } | null } | null;
-}): ReportableTask {
-  return {
-    id: task.id,
-    name: task.name,
-    nodeId: task.nodeId,
-    status: task.status,
-    priority: task.priority,
-    dueDate: task.dueDate,
-    assignee: task.assignee?.username ?? null,
-    processName: task.instance?.definition?.name || task.instance?.definition?.key,
-  };
-}
 
 /**
  * Hands the browser a file.

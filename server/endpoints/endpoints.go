@@ -243,6 +243,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	processEndpoints.GetAuditLogs = protected("GetAuditLogs")(processEndpoints.GetAuditLogs)
 	processEndpoints.GetProcessStatistics = protected("GetProcessStatistics")(processEndpoints.GetProcessStatistics)
 	processEndpoints.WaitingByStep = protected("WaitingByStep")(processEndpoints.WaitingByStep)
+	processEndpoints.Deadlines = protected("Deadlines")(processEndpoints.Deadlines)
 	processEndpoints.ActivateAdHocTask = operator("ActivateAdHocTask")(processEndpoints.ActivateAdHocTask)
 	processEndpoints.BroadcastSignal = operator("BroadcastSignal")(processEndpoints.BroadcastSignal)
 	processEndpoints.SendMessage = protected("SendMessage")(processEndpoints.SendMessage)

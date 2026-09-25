@@ -18,4 +18,7 @@ type ProjectService interface {
 	// WaitingByStep says where the project's running work is sitting now, per
 	// process, busiest first.
 	WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]entities.WaitingProcess, error)
+	// Deadlines reads the project's open work with a due date, soonest first,
+	// and counts all of its open work.
+	Deadlines(ctx context.Context, projectID uuid.UUID) (entities.Deadlines, error)
 }

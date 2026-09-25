@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { describeHours, slaReport, slaReportCsv, slaSummary, type ReportableTask } from './slaReport';
+import { describeHours, slaReport, slaReportCsv, slaReportFromDeadlines, slaSummary, type ReportableTask } from './slaReport';
 import { urgencyOf } from './taskUrgency';
 
 const NOW = new Date('2026-09-23T12:00:00Z');
@@ -154,5 +154,51 @@ describe('withdrawn and late', () => {
     const task = { id: 't1', name: 'Approve', status: 'claimed', dueDate: '2026-09-23T00:00:00Z' };
     const report = slaReport([task], now);
     expect(slaSummary(report)).toContain(urgencyOf(task, now).label.replace('Overdue by ', ''));
+  });
+});
+
+// The dashboard built the report from the first page of the task list: the
+// newest 200 tasks of any status, from rows that name no process. With three
+// late tasks and 205 newer ones, the page held none of the late ones and every
+// task on it was "Unknown process". It is built from the server's read now.
+describe('slaReportFromDeadlines', () => {
+  const now = new Date('2026-09-25T12:00:00Z');
+  const late = (id: string, due: string) => ({
+    id,
+    name: 'Review',
+    node_id: 'review',
+    status: 'unclaimed',
+    due_date: due,
+    process_key: 'quotation',
+    process_name: 'Quotation approval',
+  });
+
+  it('names the process of each late task', () => {
+    const report = slaReportFromDeadlines(
+      { tasks: [late('t-1', '2026-09-20T12:00:00Z')], with_deadline: 1, without_deadline: 205 },
+      now,
+    );
+    expect(report.breached.map((task) => task.processName)).toEqual(['Quotation approval']);
+    expect(report.byProcess.map((group) => group.name)).toEqual(['Quotation approval']);
+  });
+
+  it('counts the open work with no deadline as the server does, since none of it is sent', () => {
+    const report = slaReportFromDeadlines({ tasks: [], with_deadline: 0, without_deadline: 205 }, now);
+    expect(report.withoutDeadline).toBe(205);
+  });
+
+  it('says how many later deadlines were not sent', () => {
+    const report = slaReportFromDeadlines(
+      { tasks: [late('t-1', '2026-09-20T12:00:00Z')], with_deadline: 501, without_deadline: 0 },
+      now,
+    );
+    expect(report.laterDeadlinesNotShown).toBe(500);
+    expect(slaSummary(report)).toContain('500 more open tasks have a later deadline and are not listed.');
+  });
+
+  it('falls back to the process key when the process has no name', () => {
+    const task = { ...late('t-1', '2026-09-20T12:00:00Z'), process_name: '' };
+    const report = slaReportFromDeadlines({ tasks: [task], with_deadline: 1 }, now);
+    expect(report.breached[0].processName).toBe('quotation');
   });
 });

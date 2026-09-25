@@ -39,3 +39,29 @@ describe("processRuntimeService.waitingByStep", () => {
     await expect(processRuntimeService.waitingByStep("p-1")).rejects.toThrow("forbidden");
   });
 });
+
+describe("processRuntimeService.deadlines", () => {
+  let restore = () => {};
+  afterEach(() => restore());
+
+  test("asks the server for the project's open work with a deadline", async () => {
+    const stub = stubFetch({
+      deadlines: {
+        tasks: [{ id: "t-1", name: "Review", due_date: "2020-01-01T00:00:00Z", process_name: "Quotation approval" }],
+        with_deadline: 1,
+        without_deadline: 205,
+      },
+    });
+    restore = stub.restore;
+    const deadlines = await processRuntimeService.deadlines("p-1");
+    expect(stub.sent[0].url).toContain("/projects/p-1/deadlines");
+    expect(deadlines.tasks?.[0].process_name).toBe("Quotation approval");
+    expect(deadlines.without_deadline).toBe(205);
+  });
+
+  test("raises a refusal rather than reporting that nothing is late", async () => {
+    const stub = stubFetch({ err: "forbidden" });
+    restore = stub.restore;
+    await expect(processRuntimeService.deadlines("p-1")).rejects.toThrow("forbidden");
+  });
+});

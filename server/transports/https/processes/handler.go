@@ -65,6 +65,17 @@ func RegisterHandlers(m *http.ServeMux, eps process.Endpoints, options []httptra
 		options...,
 	))
 
+	// A project's open work with a due date, soonest first, and how much open
+	// work it has in all. The dashboard's deadline report reads this.
+	m.Handle("GET /api/v1/projects/{id}/deadlines", httptransport.NewServer(
+		eps.Deadlines,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return process.DeadlinesRequest{ProjectID: r.PathValue("id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+
 	m.Handle("GET /api/v1/instances/{id}/subprocesses", httptransport.NewServer(
 		eps.ListSubProcesses,
 		decodeListSubProcessesRequest,

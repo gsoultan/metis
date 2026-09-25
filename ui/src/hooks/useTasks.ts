@@ -1,8 +1,10 @@
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { TASK_LIST_EVENTS } from '../domain/taskEvents';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ProcessVariables } from '../services/types';
+import { useInvalidateOnEvents } from './useEventStream';
 
 type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
 
@@ -23,6 +25,21 @@ export const useTasks = (page = 1, pageSize = 50, options: { enabled?: boolean }
         ? processService.listTasks(currentProjectId, { page, pageSize }, signal)
         : Promise.resolve(NO_TASKS),
     enabled: !!currentProjectId && (options.enabled ?? true),
+  });
+};
+
+/**
+ * The current project's open work with a deadline, for the dashboard's report:
+ * read on the server across all of it, soonest first, each task naming its
+ * process. Refetched when a task changes rather than polled.
+ */
+export const useDeadlines = () => {
+  const { currentProjectId } = useAppStore();
+  useInvalidateOnEvents(TASK_LIST_EVENTS, ['deadlines', currentProjectId]);
+  return useQuery({
+    queryKey: ['deadlines', currentProjectId],
+    queryFn: ({ signal }) => processService.deadlines(currentProjectId as string, signal),
+    enabled: !!currentProjectId,
   });
 };
 

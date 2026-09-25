@@ -176,3 +176,30 @@ func (s *projectService) WaitingByStep(ctx context.Context, projectID uuid.UUID)
 	})
 	return out, nil
 }
+
+// deadlineLimit is the most open tasks with a due date the dashboard is sent.
+// They come soonest first, so every overdue task arrives before any that is
+// not, unless more than this many are overdue.
+const deadlineLimit = 500
+
+// Deadlines reads the project's open work with a due date, soonest first, and
+// counts all of its open work.
+func (s *projectService) Deadlines(ctx context.Context, projectID uuid.UUID) (entities.Deadlines, error) {
+	rows, counts, err := s.repo.Task().Deadlines(ctx, projectID, deadlineLimit)
+	if err != nil {
+		return entities.Deadlines{}, err
+	}
+	out := entities.Deadlines{
+		Tasks:           make([]entities.DeadlineTask, 0, len(rows)),
+		WithDeadline:    int(counts.WithDeadline),
+		WithoutDeadline: int(counts.WithoutDeadline),
+	}
+	for _, row := range rows {
+		out.Tasks = append(out.Tasks, entities.DeadlineTask{
+			ID: row.TaskID, Name: row.Name, NodeID: row.NodeID, Status: row.Status,
+			Priority: int(row.Priority), Assignee: row.Assignee, DueDate: row.DueDate,
+			ProcessKey: row.ProcessKey, ProcessName: row.ProcessName,
+		})
+	}
+	return out, nil
+}

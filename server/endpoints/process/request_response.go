@@ -210,3 +210,14 @@ type WaitingByStepResponse struct {
 }
 
 func (r WaitingByStepResponse) Failed() error { return r.Err }
+
+type DeadlinesRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type DeadlinesResponse struct {
+	Deadlines entities.Deadlines `json:"deadlines"`
+	Err       error              `json:"err,omitzero"`
+}
+
+func (r DeadlinesResponse) Failed() error { return r.Err }
