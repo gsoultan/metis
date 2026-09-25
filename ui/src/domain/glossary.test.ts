@@ -134,6 +134,33 @@ describe('searching', () => {
     expect(terms).toContain(NODE_VOCABULARY.businessRuleTask.plainName);
   });
 
+  /*
+   * Accents are folded away before comparing, the way "Sub-Process" loses its
+   * hyphen: somebody on a French or Indonesian keyboard, or half-remembering a
+   * spelling, types "décision" and means "decision". They used to be deleted
+   * instead, so "décision" searched for "dcision" and found nothing.
+   */
+  it('folds accents, so "décision" finds the decision table', () => {
+    expect(searchGlossary('décision').map((entry) => entry.term)).toContain('Decision table');
+    expect(firstMatch('Déploy')).toBe('Deploy');
+  });
+
+  /* Only accented letters is still letters, searched as what they fold to rather than ignored. */
+  it('searches a query of only accented letters as the letters they fold to', () => {
+    expect(searchGlossary('é')).toEqual(searchGlossary('e'));
+  });
+
+  /*
+   * Something typed that no name could contain, such as punctuation, is a
+   * search that found nothing. Listing every entry for it read as though
+   * everything had matched, and the line under the box said "N terms". Only
+   * an empty box lists everything.
+   */
+  it('finds nothing for a query of only symbols, rather than listing everything', () => {
+    expect(searchGlossary('?!')).toEqual([]);
+    expect(searchGlossary(' - ')).toEqual([]);
+  });
+
   it('answers nothing for a word it does not know', () => {
     expect(searchGlossary('blockchain')).toEqual([]);
   });

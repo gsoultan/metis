@@ -97,12 +97,20 @@ export function alsoKnownAs(entry: GlossaryEntry): string | undefined {
 }
 
 /**
- * Letters and digits only, lower-cased, so "Sub-Process", "sub process" and
- * "subprocess" compare equal. People type the name they half-remember, not
- * the one the specification hyphenates.
+ * Letters and digits only, lower-cased and without accents, so "Sub-Process",
+ * "sub process" and "subprocess" compare equal, and "décision" finds
+ * "decision". People type the name they half-remember, on the keyboard they
+ * have, not the one the specification hyphenates.
+ *
+ * Accents are folded (decomposed, then the marks dropped) rather than deleted
+ * with the letter they sit on. Letters of any script are kept.
  */
 function normalized(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 /** How well an entry matches, best first. */
@@ -134,12 +142,15 @@ function matchRank(item: SearchableEntry, needle: string): number {
 /**
  * The entries that match, the ones named by the query first.
  *
- * An empty query lists everything. Within each rank the alphabetical order
+ * An empty box lists everything. Something typed that no name could contain,
+ * such as punctuation alone, matches nothing: listing everything for it read
+ * as though everything had matched. Within each rank the alphabetical order
  * stands, because sorting is stable.
  */
 export function searchGlossary(query: string): GlossaryEntry[] {
+  if (query.trim() === '') return GLOSSARY;
   const needle = normalized(query);
-  if (needle === '') return GLOSSARY;
+  if (needle === '') return [];
   return SEARCHABLE
     .map((item) => ({ entry: item.entry, rank: matchRank(item, needle) }))
     .filter((match) => match.rank !== NO_MATCH)
