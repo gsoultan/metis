@@ -56,6 +56,17 @@ describe('the steps', () => {
     }
   });
 
+  /*
+   * The templates are on the Dashboard and nowhere else. The deploy step links
+   * to Processes, so telling somebody there to "start from a template" sent
+   * them looking for something that page does not have.
+   */
+  it('says the templates are on the Dashboard, since the deploy step links to Processes', () => {
+    const deploy = gettingStartedSteps(NOTHING_DONE).find((step) => step.id === 'deploy-process');
+    expect(deploy?.to).toBe('/models');
+    expect(deploy?.description).toMatch(/templates? on the Dashboard/);
+  });
+
   it('says what each step is for, in a sentence', () => {
     for (const step of gettingStartedSteps(NOTHING_DONE)) {
       expect(step.label.length).toBeGreaterThan(0);

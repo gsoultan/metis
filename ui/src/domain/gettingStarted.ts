@@ -56,7 +56,9 @@ const STEPS: StepDefinition[] = [
   {
     id: 'deploy-process',
     label: 'Deploy a process',
-    description: 'Draw one in the designer, or start from a template, then deploy it so it can run.',
+    // The link goes to Processes, where a new process is drawn. The templates
+    // are on the Dashboard only, so the sentence says so.
+    description: 'Draw one under Processes, or pick a template on the Dashboard, then deploy it so it can run.',
     to: '/models',
     isDone: (facts) => facts.processDeployed,
   },
