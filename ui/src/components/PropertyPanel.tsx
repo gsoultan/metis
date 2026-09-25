@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Stack,
   Group,
@@ -53,6 +53,7 @@ import { GatewayConfig } from './properties/GatewayConfig';
 import { SubProcessConfig } from './properties/SubProcessConfig';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { editRawSettings, rawEditorView, type RawDraft } from '../domain/disclosure';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 /**
@@ -386,32 +387,14 @@ export function PropertyPanel({
                       
                       <Text size="xs" c="dimmed">Underlying JSON structure of this element</Text>
                       
-                      <Textarea
-                        label="Raw Node Schema"
-                        description="Modify properties directly in JSON format"
-                        placeholder="Raw JSON data"
-                        minRows={40}
-                        autosize
-                        maxRows={80}
-                        styles={{ 
-                          input: { 
-                            fontFamily: 'monospace', 
-                            fontSize: '11px', 
-                            backgroundColor: 'var(--mantine-color-dark-8)',
-                            color: 'var(--mantine-color-gray-3)'
-                          } 
-                        }}
-                        value={JSON.stringify(selectedNode ? selectedNode.data : selectedEdge?.data || {}, null, 2)}
-                        onChange={(e) => {
-                          try {
-                            const parsed = JSON.parse(e.target.value);
-                            if (selectedNode) {
-                              updateNodeData(selectedNode.id, parsed);
-                            } else if (selectedEdge) {
-                              updateEdgeData(selectedEdge.id, selectedEdge.label as string, parsed);
-                            }
-                          } catch {
-                            // Silently ignore parse errors while typing
+                      <RawSchemaEditor
+                        key={selectedNode?.id ?? selectedEdge?.id}
+                        settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
+                        onApply={(patch) => {
+                          if (selectedNode) {
+                            updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
+                          } else if (selectedEdge) {
+                            updateEdgeData(selectedEdge.id, selectedEdge.label as string, patch as Partial<BPMNEdgeData>);
                           }
                         }}
                       />
@@ -464,6 +447,50 @@ export function PropertyPanel({
         </Container>
       </Box>
     </Modal>
+  );
+}
+
+/**
+ * An element's settings as JSON, for someone who knows what they hold.
+ *
+ * What is typed stays as typed and applies once it parses. The text used to be
+ * rebuilt from the settings on every keystroke, so a keystroke that left the
+ * JSON invalid vanished as it was typed, and no new key could be started.
+ */
+function RawSchemaEditor({
+  settings,
+  onApply,
+}: {
+  settings: Record<string, unknown>,
+  onApply: (patch: Record<string, unknown>) => void,
+}) {
+  const [draft, setDraft] = useState<RawDraft | null>(null);
+  const view = rawEditorView(settings, draft);
+
+  return (
+    <Textarea
+      label="Raw Node Schema"
+      description="Changes apply as soon as the JSON is valid"
+      placeholder="Raw JSON data"
+      minRows={40}
+      autosize
+      maxRows={80}
+      styles={{
+        input: {
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          backgroundColor: 'var(--mantine-color-dark-8)',
+          color: 'var(--mantine-color-gray-3)'
+        }
+      }}
+      value={view.text}
+      error={view.problem}
+      onChange={(event) => {
+        const edit = editRawSettings(settings, event.currentTarget.value);
+        setDraft(edit.draft);
+        if (edit.patch !== undefined) onApply(edit.patch);
+      }}
+    />
   );
 }
 
