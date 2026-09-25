@@ -86,10 +86,12 @@ COPY --from=build /out/metis /usr/local/bin/metis
 # filesystem can be mounted read-only.
 USER nonroot:nonroot
 
-# 8080 HTTP (API + embedded UI), 8081 gRPC. Metrics default to loopback :9464
-# and are deliberately not exposed; publish them explicitly via
-# METIS_METRICS_ADDRESS if something needs to scrape across a pod network.
-EXPOSE 8080 8081
+# 8080 HTTP (API + embedded UI). gRPC is off unless METIS_GRPC_ADDRESS is set,
+# and is not exposed: it applies none of the HTTP chain's authentication or
+# limits. Metrics default to loopback :9464 and are deliberately not exposed
+# either; publish them explicitly via METIS_METRICS_ADDRESS if something needs
+# to scrape across a pod network.
+EXPOSE 8080
 
 # No HEALTHCHECK: the image has no shell or curl to run one with, and every
 # orchestrator that matters prefers its own probe. Point it at /readyz — which

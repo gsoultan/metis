@@ -85,9 +85,9 @@ One command runs the backend and the UI together:
 
 - UI on **http://localhost:5273**, API on **:8273**, gRPC on **:8274**
 - Deliberately not 5173/8080/8081: those are what every other project on a
-  developer's machine is already using. Production still listens on 8080 and
-  8081 — this is only what the development script asks for. Override with
-  `UI_PORT`, `API_PORT` or `GRPC_PORT`
+  developer's machine is already using. Production listens on 8080, and on a
+  gRPC port only when `METIS_GRPC_ADDRESS` names one — the development script
+  does. Override with `UI_PORT`, `API_PORT` or `GRPC_PORT`
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
@@ -125,7 +125,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused. For an existing installation that cannot rotate `ENCRYPTION_KEY` without losing data; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. Required unless `config.yaml` names a database; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
-| `METIS_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
+| `METIS_GRPC_ADDRESS` | gRPC listen address. **Unset means no gRPC listener**, which is the default: it applies none of the HTTP chain — no authentication, rate or body limit — so only the calls that need no sign-in answer on it. The same services are served over HTTP through Connect. |
 | `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
 | `METIS_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
 | `METIS_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |

@@ -127,7 +127,6 @@ const (
 	envMetricsAddress     = "METIS_METRICS_ADDRESS"
 
 	defaultHTTPAddress = ":8080"
-	defaultGRPCAddress = ":8081"
 	envHTTPAddress     = "METIS_HTTP_ADDRESS"
 	envGRPCAddress     = "METIS_GRPC_ADDRESS"
 
@@ -1036,27 +1035,7 @@ func (a *App) runServers(ctx context.Context) error {
 	// beside a server that is already up, rather than instead of one.
 	a.serveEnvironments(ctx, g, httpHandler)
 
-	// gRPC Server
-	grpcAddress := resolveAddress(envGRPCAddress, defaultGRPCAddress)
-	g.Go(func() error {
-		// ListenConfig rather than net.Listen so the listener is bound under the
-		// server's context and shutdown can interrupt a slow bind.
-		var lc net.ListenConfig
-		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
-		if err != nil {
-			return err
-		}
-		baseServer := grpc.NewServer()
-		a.registerGRPCServices(baseServer, grpcServer)
-
-		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
-
-		go func() {
-			<-ctx.Done()
-			baseServer.GracefulStop()
-		}()
-		return baseServer.Serve(lis)
-	})
+	a.serveGRPC(ctx, g, grpcServer)
 
 	err := g.Wait()
 
@@ -1086,6 +1065,46 @@ func (a *App) runServers(ctx context.Context) error {
 // timeout pre-empting it.
 func ShutdownDrainBudget() time.Duration {
 	return serviceimpl.ShutdownDrain() + 5*time.Second
+}
+
+// serveGRPC starts the gRPC listener, if one was asked for.
+//
+// Off unless METIS_GRPC_ADDRESS names an address. It used to listen on :8081 by
+// default, published by the image, docker-compose and the Kubernetes manifest,
+// while applying none of the HTTP chain: no authentication, no rate or body
+// limit, no idempotency. Every protected call failed closed for want of a
+// principal, so it served no legitimate client — and every public one answered
+// anybody who could reach the port, creating organizations included until that
+// endpoint moved to administrators.
+func (a *App) serveGRPC(ctx context.Context, g *errgroup.Group, grpcServer *grpcs.Server) {
+	grpcAddress := strings.TrimSpace(envvar.Get(envGRPCAddress))
+	if grpcAddress == "" {
+		log.Info().Msg("gRPC is off; set " + envGRPCAddress + " to serve it")
+		return
+	}
+	log.Warn().Str("addr", grpcAddress).Msg(
+		"gRPC applies no authentication, rate limit or body limit of its own; " +
+			"only the calls that need no sign-in answer on it")
+
+	g.Go(func() error {
+		// ListenConfig rather than net.Listen so the listener is bound under the
+		// server's context and shutdown can interrupt a slow bind.
+		var lc net.ListenConfig
+		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
+		if err != nil {
+			return err
+		}
+		baseServer := grpc.NewServer()
+		a.registerGRPCServices(baseServer, grpcServer)
+
+		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
+
+		go func() {
+			<-ctx.Done()
+			baseServer.GracefulStop()
+		}()
+		return baseServer.Serve(lis)
+	})
 }
 
 func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Server) {
