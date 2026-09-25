@@ -1,18 +1,15 @@
-import { useMemo, useState, useTransition } from 'react';
-import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Tabs, Text, TextInput, ThemeIcon } from '@mantine/core';
+import { useMemo } from 'react';
+import { AppShell, Box, Button } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BookOpen, ExternalLink, FolderGit2, Lightbulb, Search } from 'lucide-react';
+import { FolderGit2 } from 'lucide-react';
 import React from 'react';
-import { GettingStartedTimeline } from '../components/GettingStartedCard';
+import { HelpDrawer } from '../components/HelpDrawer';
 import { AppHeader, Sidebar } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
-import { gettingStartedFacts } from '../domain/gettingStarted';
-import { alsoKnownAs, glossarySearchSummary, searchGlossary, type GlossaryEntry } from '../domain/glossary';
 import { useOrganizations } from '../hooks/useOrganization';
-import { useParticipants } from '../hooks/useParticipants';
-import { useConnectorInstances, useDefinitions, useInstances, useProjects, useTasks } from '../hooks/useProcess';
+import { useProjects } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 
 interface MainLayoutProps {
@@ -160,162 +157,4 @@ export function MainLayout({ children }: MainLayoutProps) {
       <HelpDrawer opened={helpOpened} onClose={closeHelp} />
     </AppShell>
   );
-}
-
-/**
- * Help: where to start, and what the words mean.
- *
- * Two tabs rather than one long page, because they are read for different
- * reasons: the checklist while somebody is new, the glossary whenever a word
- * on some screen stops them.
- */
-function HelpDrawer({ opened, onClose }: { opened: boolean; onClose: () => void }) {
-  return (
-    <Drawer opened={opened} onClose={onClose} position="right" size="md" title={<Text fw={600}>Help</Text>}>
-      <Tabs defaultValue="getting-started">
-        <Tabs.List grow mb="lg">
-          <Tabs.Tab value="getting-started">Getting started</Tabs.Tab>
-          <Tabs.Tab value="glossary">Glossary</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="getting-started">
-          <Stack gap="xl">
-            <GettingStartedProgress onNavigate={onClose} />
-            <DesignerSearchTip />
-            <Divider label="Reference" labelPosition="center" />
-            <ReferenceLinks />
-          </Stack>
-        </Tabs.Panel>
-        <Tabs.Panel value="glossary">
-          <GlossaryPanel />
-        </Tabs.Panel>
-      </Tabs>
-    </Drawer>
-  );
-}
-
-function DesignerSearchTip() {
-  return (
-    <Paper p="md" radius="md" bg="var(--mantine-color-blue-light)">
-      <Group align="flex-start" wrap="nowrap" gap="sm">
-        <ThemeIcon variant="light" color="blue" size="sm">
-          <Lightbulb size={14} />
-        </ThemeIcon>
-        <Text size="sm">
-          In the process designer, press <b>Cmd + K</b> (or Ctrl + K) to search nodes and actions.
-        </Text>
-      </Group>
-    </Paper>
-  );
-}
-
-const REFERENCE_LINKS = [
-  { label: 'BPMN 2.0 specification', href: 'https://www.omg.org/spec/BPMN/2.0/' },
-  { label: 'Project repository', href: 'https://github.com/gsoultan/metis' },
-];
-
-function ReferenceLinks() {
-  return (
-    <Stack gap="xs">
-      {REFERENCE_LINKS.map((link) => (
-        <Button
-          key={link.href}
-          variant="light"
-          component="a"
-          href={link.href}
-          target="_blank"
-          rel="noreferrer noopener"
-          leftSection={<BookOpen size={16} />}
-          rightSection={<ExternalLink size={14} />}
-          justify="flex-start"
-        >
-          {link.label}
-        </Button>
-      ))}
-    </Stack>
-  );
-}
-
-/**
- * The glossary, found by either name.
- *
- * The input is left uncontrolled and the filter runs in a transition, so the
- * letters appear as they are typed and the list follows.
- */
-function GlossaryPanel() {
-  const [query, setQuery] = useState('');
-  const [, startTransition] = useTransition();
-  const entries = searchGlossary(query);
-
-  return (
-    <Stack gap="sm">
-      <TextInput
-        aria-label="Search the glossary"
-        placeholder="Search, for example gateway or live version"
-        leftSection={<Search size={16} />}
-        onChange={(event) => {
-          const value = event.currentTarget.value;
-          startTransition(() => setQuery(value));
-        }}
-      />
-      <Text size="xs" c="dimmed" aria-live="polite">
-        {glossarySearchSummary(entries.length)}
-      </Text>
-      <Box component="dl" m={0}>
-        {entries.map((entry) => (
-          <GlossaryItem key={entry.term} entry={entry} />
-        ))}
-      </Box>
-    </Stack>
-  );
-}
-
-function GlossaryItem({ entry }: { entry: GlossaryEntry }) {
-  const otherName = alsoKnownAs(entry);
-  return (
-    <Box mb="md">
-      <Text component="dt" size="sm" fw={600}>
-        {entry.term}
-        {otherName && (
-          <Text span size="xs" c="dimmed" fw={400}>
-            {' '}· also called {otherName}
-          </Text>
-        )}
-      </Text>
-      <Text component="dd" size="sm" m={0}>
-        {entry.definition}
-      </Text>
-      {entry.example && (
-        <Text component="dd" size="xs" c="dimmed" m={0} mt={2}>
-          For example: {entry.example}
-        </Text>
-      )}
-    </Box>
-  );
-}
-
-/**
- * Getting started, ticked from what this project has actually done.
- *
- * It lives inside the drawer, which renders its content only while open, so
- * these requests are made when somebody opens Help and not on every page. The
- * hooks and arguments are the ones the dashboard uses, so a list it has already
- * loaded comes from the cache rather than being asked for again.
- */
-function GettingStartedProgress({ onNavigate }: { onNavigate: () => void }) {
-  const { data: definitions } = useDefinitions();
-  // Not live: this only asks whether any instance exists, and a live list
-  // polls every few seconds.
-  const { data: instances } = useInstances(1, 25, {}, false);
-  const { data: tasks } = useTasks(1, 200);
-  const { data: connections } = useConnectorInstances();
-  const { data: people } = useParticipants();
-  const facts = gettingStartedFacts({
-    definitions: definitions?.definitions,
-    instances: instances?.instances,
-    tasks: tasks?.tasks,
-    connections: connections?.instances,
-    people: people?.participants,
-  });
-
-  return <GettingStartedTimeline facts={facts} onNavigate={onNavigate} />;
 }

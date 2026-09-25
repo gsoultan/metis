@@ -31,7 +31,7 @@ const ADMINISTRATOR = { roles: ['ADMIN'] };
 const FRESH_PROJECT: Required<GettingStartedSources> = {
   definitions: [],
   instances: [],
-  tasks: [],
+  completedTasks: 0,
   connections: [],
   people: [],
 };
@@ -183,12 +183,14 @@ describe('reading the facts from what the interface already fetches', () => {
     expect(facts).toEqual({ ...NOTHING_DONE, [fact]: true });
   });
 
-  /* A task that is waiting, or claimed and still open, is not a task somebody completed. */
-  it('counts only a completed task as a task completed', () => {
-    const open = gettingStartedFacts({ ...FRESH_PROJECT, tasks: [{ status: 'unclaimed' }, { status: 'claimed' }] });
-    expect(open?.taskCompleted).toBe(false);
-
-    const finished = gettingStartedFacts({ ...FRESH_PROJECT, tasks: [{ status: 'claimed' }, { status: 'completed' }] });
-    expect(finished?.taskCompleted).toBe(true);
+  /*
+   * "Complete a task" was read from the newest 200 tasks, so a project with
+   * 200 open tasks newer than its one completed task was told nobody had
+   * completed one. The project statistics count completed tasks across all of
+   * it, and the dashboard loads them anyway.
+   */
+  it('counts completed tasks from the project statistics, however many tasks are newer', () => {
+    expect(gettingStartedFacts({ ...FRESH_PROJECT, completedTasks: 1 })?.taskCompleted).toBe(true);
+    expect(gettingStartedFacts({ ...FRESH_PROJECT, completedTasks: 0 })?.taskCompleted).toBe(false);
   });
 });

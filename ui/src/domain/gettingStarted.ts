@@ -143,19 +143,16 @@ export interface GettingStartedSources {
   /** `useInstances()` → `data.instances`, with no filter. */
   instances?: readonly unknown[];
   /**
-   * `useTasks(1, 200)` → `data.tasks`: the newest tasks, in every state. A
-   * project whose only completed tasks are older than that page is missed. A
-   * project with that much open work is well past getting started.
+   * `useProcessStatistics()` → `data.stats.completedTasks`: counted across the
+   * whole project. It used to be read from the newest 200 tasks, which missed
+   * a completed task behind 200 open ones.
    */
-  tasks?: readonly { status?: string }[];
+  completedTasks?: number;
   /** `useConnectorInstances()` → `data.instances`. */
   connections?: readonly unknown[];
   /** `useParticipants()` → `data.participants`. */
   people?: readonly unknown[];
 }
-
-/** A task's status once somebody has completed it, as the server writes it. */
-const COMPLETED_TASK_STATUS = 'completed';
 
 /**
  * The facts, or undefined while any list is still on its way.
@@ -165,12 +162,12 @@ const COMPLETED_TASK_STATUS = 'completed';
  * requests land.
  */
 export function gettingStartedFacts(sources: GettingStartedSources): GettingStartedFacts | undefined {
-  const { definitions, instances, tasks, connections, people } = sources;
-  if (!definitions || !instances || !tasks || !connections || !people) return undefined;
+  const { definitions, instances, completedTasks, connections, people } = sources;
+  if (!definitions || !instances || completedTasks === undefined || !connections || !people) return undefined;
   return {
     processDeployed: definitions.length > 0,
     instanceStarted: instances.length > 0,
-    taskCompleted: tasks.some((task) => task.status === COMPLETED_TASK_STATUS),
+    taskCompleted: completedTasks > 0,
     connectionSetUp: connections.length > 0,
     peopleAdded: people.length > 0,
   };

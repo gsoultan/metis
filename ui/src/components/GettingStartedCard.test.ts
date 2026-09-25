@@ -2,40 +2,17 @@ import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createElement } from 'react';
 
 import type { GettingStartedFacts } from '../domain/gettingStarted';
-import { useAppStore } from '../store/useAppStore';
+import { standInForAppStore, userWithRoles } from '../test/appStoreStandIn';
 import { linkTargets, renderStatic, visibleText } from '../test/renderStatic';
 import { GettingStartedCard, GettingStartedTimeline } from './GettingStartedCard';
 
-/*
- * The store, stood in for. A server render reads a zustand store's initial
- * state, never what a test sets on it, so the module is replaced for this
- * file and put back after it: bun's module mocks outlive the file otherwise.
- */
-type AppState = ReturnType<typeof useAppStore.getState>;
-type SignedInUser = NonNullable<AppState['user']>;
+const store = standInForAppStore((specifier, factory) => mock.module(specifier, factory));
+afterAll(() => store.restore());
 
-const realUseAppStore = useAppStore;
-let signedIn: Partial<AppState> = {};
-
-function useStandInStore(selector?: (state: AppState) => unknown) {
-  const state = signedIn as AppState;
-  return selector ? selector(state) : state;
-}
-
-mock.module('../store/useAppStore', () => ({
-  useAppStore: Object.assign(useStandInStore, { getState: () => signedIn as AppState }),
-}));
-
-afterAll(() => {
-  mock.module('../store/useAppStore', () => ({ useAppStore: realUseAppStore }));
-});
-
-function userWith(roles: string[]): SignedInUser {
-  return { id: 'user-1', name: 'Ana', displayName: 'Ana', organization: 'Acme', username: 'ana', role: roles.join(','), roles };
-}
+const SIGNED_IN = { user: userWithRoles(['ADMIN']), currentProjectId: 'project-1' };
 
 beforeEach(() => {
-  signedIn = { user: userWith(['ADMIN']), currentProjectId: 'project-1' };
+  store.set(SIGNED_IN);
 });
 
 const NOTHING_DONE: GettingStartedFacts = {
@@ -92,19 +69,19 @@ describe('where each step is done', () => {
  */
 describe('the steps somebody is shown', () => {
   it('are only starting an instance and completing a task, for somebody with no role', async () => {
-    signedIn = { ...signedIn, user: userWith([]) };
+    store.set({ ...SIGNED_IN, user: userWithRoles([]) });
     const html = await renderStatic(createElement(GettingStartedTimeline, { facts: NOTHING_DONE }));
     expect(linkTargets(html)).toEqual(['/models?tab=processes', '/inbox']);
   });
 
   it('leave out setting up a connection, for a designer', async () => {
-    signedIn = { ...signedIn, user: userWith(['DESIGNER']) };
+    store.set({ ...SIGNED_IN, user: userWithRoles(['DESIGNER']) });
     const html = await renderStatic(createElement(GettingStartedTimeline, { facts: NOTHING_DONE }));
     expect(linkTargets(html)).toEqual(['/models?tab=processes', '/models?tab=processes', '/inbox', '/people']);
   });
 
   it('are counted on the card, and the card goes once they are done', async () => {
-    signedIn = { ...signedIn, user: userWith([]) };
+    store.set({ ...SIGNED_IN, user: userWithRoles([]) });
     const started = await renderStatic(
       createElement(GettingStartedCard, { facts: { ...NOTHING_DONE, instanceStarted: true } }),
     );
