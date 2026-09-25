@@ -105,6 +105,14 @@ jobs:
       # how the connector shipped a claim of production-ready messaging with no
       # test that a message was ever delivered.
       METIS_TEST_RABBITMQ_URL: "amqp://guest:guest@127.0.0.1:5672/"
+      # The database lookup's MySQL and SQL Server suites. Each test creates a
+      # database and a login that may only read it, on these servers, as the
+      # connector's documentation asks of a real one. MySQL 8.4 authenticates
+      # with caching_sha2_password, which the driver will only complete over
+      # TLS on a first login, hence tls=skip-verify against the container's own
+      # certificate.
+      METIS_TEST_MYSQL_DSN: "root:gobpm@tcp(127.0.0.1:3306)/?tls=skip-verify"
+      METIS_TEST_SQLSERVER_DSN: "sqlserver://sa:GobpmTest2026x@127.0.0.1:1433?encrypt=disable"
 
     services:
       postgres:
@@ -132,6 +140,37 @@ jobs:
           --health-interval 10s
           --health-timeout 10s
           --health-retries 18
+
+      # Lookup targets, not Metis's own database: Metis runs on PostgreSQL
+      # only, but a process can read a customer's MySQL or SQL Server.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: gobpm
+        ports:
+          - 3306:3306
+        # Over TCP, not the socket: the image answers on the socket during
+        # initialisation, before the server a test connects to is up.
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pgobpm --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          # Meets SQL Server's password policy, and has nothing a shell would
+          # read in the health check below.
+          MSSQL_SA_PASSWORD: GobpmTest2026x
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P GobpmTest2026x -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 30
 
     steps:
       - name: Checkout
@@ -198,10 +237,17 @@ jobs:
       # guards. Asserted rather than eyeballed, and -count=1 above because a
       # cached run prints no test lines at all — so the assertion would pass by
       # having nothing to read.
+      #
+      # -v for the same reason, and this step ran without it until the database
+      # lookup's suites were added: go test prints "--- SKIP" only in verbose
+      # mode, so the grep had nothing to find on any run and every skip in this
+      # job went unreported. tests/loadtest is left out because it skips on
+      # every pull request by design; the loadtest job runs it, with -v, and
+      # fails on a skip there.
       - name: No suite skipped for want of a database
         run: |
           set -o pipefail
-          go test -count=1 -p 2 ./... 2>&1 | tee /tmp/suite.log
+          go test -count=1 -v -p 2 $(go list ./... | grep -v /tests/loadtest) 2>&1 | tee /tmp/suite.log
           if grep -q -- "--- SKIP" /tmp/suite.log; then
             echo "::error::A test skipped, which means its DSN did not reach it:"
             grep -- "--- SKIP" /tmp/suite.log

@@ -358,6 +358,113 @@ The choice lands on the instance timeline, naming the table, its version and the
 line that applied — "why did this land on the CFO's desk?" is the question asked
 about approvals more than any other.
 
+## Looking something up in your own database
+
+A decision is only as good as the data the process carries, and the data that
+matters — a customer's tier, an account's balance, how many invoices are open —
+usually lives in a database of your own. The **Database Lookup** connector reads
+it directly, so a step can fetch it and the gateway or decision table after it
+can use it, without an API written in front of the database first.
+
+### Setting up the connection — an administrator, once per project
+
+On the **Connectors** page, connect *Database Lookup*:
+
+| Setting | |
+| :-- | :-- |
+| Database | `postgres`, `mysql` (MySQL or MariaDB), or `sqlserver` |
+| Connection string | as that database's driver takes it — `postgres://user:pass@host/db`, `user:pass@tcp(host:3306)/db`, `sqlserver://user:pass@host:1433?database=db`. Stored encrypted, and never sent back to a browser. |
+| Time limit | milliseconds, default 5000, at most 30000. The database stops a query that runs longer. |
+| Most rows | default 500, at most 10000. |
+| Most data | bytes, default 262144, at most 1048576. The answer is stored with the process. |
+
+**Connect as a login that can read only the tables your lookups need.** The
+queries are written by whoever designs the process, so that login's permissions
+are the boundary that matters most — everything else below is a second line
+behind it. On PostgreSQL:
+
+```sql
+CREATE ROLE metis_lookup LOGIN PASSWORD '...';
+GRANT CONNECT ON DATABASE crm TO metis_lookup;
+GRANT USAGE ON SCHEMA public TO metis_lookup;
+GRANT SELECT ON customers, invoices TO metis_lookup;
+```
+
+A connection whose login can see Metis's own tables is refused before any
+query runs: pointed at Metis's database, a lookup would read every project's
+instances and every connection's settings.
+
+### The step — whoever designs the process
+
+Drag *Database Lookup* from the designer's **Connectors** group onto the canvas
+and fill in:
+
+- **Query** — one `SELECT` (or `WITH ... SELECT`). Write each value that comes
+  from the process as `:name`:
+
+  ```sql
+  SELECT name, tier, credit_limit FROM customers WHERE id = :customer_id
+  ```
+
+- **Values** — for each `:name`, the process value it takes: a variable name,
+  or a FEEL expression such as `order.customer.id`. The designer offers each
+  `:name` the query uses as a one-click row.
+- **Store the answer as** — one variable name, say `customer`.
+
+The answer is one variable:
+
+| | |
+| :-- | :-- |
+| `customer.row` | the first row — absent when nothing was found |
+| `customer.rows` | every row |
+| `customer.row_count` | how many |
+| `customer.truncated` | whether a limit stopped the read |
+
+So the gateway after it reads `customer.row.tier = "gold"`, and a decision
+table takes `customer.row.credit_limit` as an input. Finding nothing is an
+answer, not an incident: `customer.row_count = 0` is how a gateway asks.
+
+Numbers stay numbers, so `credit_limit > 1000` compares numbers. An integer too
+large for a JSON number, or a decimal of more than fifteen significant digits,
+arrives as text rather than as a slightly different number. Dates arrive as
+`2026-09-24`, timestamps as RFC 3339, and JSON columns as the structure they
+hold.
+
+### Who may deploy one
+
+A lookup carries SQL its author wrote, so deploying a process with one in it
+needs the **Query author** role, held beside Designer — an administrator has it
+already. Grant it on the **Platform access** page. A designer without it can
+still design the step; the deploy is refused, and says why.
+
+### What is checked, and what that is worth
+
+- Values from the process are only ever sent as parameters, never written into
+  the query.
+- The query must be one statement that reads. Anything that writes, changes a
+  schema, runs other code, reads files or reaches another server is refused —
+  anywhere in the query, not only at the start — and so are comments.
+- On **PostgreSQL** and **MySQL** the query runs in a read-only transaction the
+  database itself enforces, and one query can only ever be one statement.
+- **SQL Server has no read-only transaction.** There the statement check and the
+  login's own permissions are what stand in the way; every lookup's transaction
+  is rolled back rather than committed, so a change to a table that got past
+  both is undone, but one with effects outside the database is not. On SQL
+  Server, a read-only login is not a recommendation.
+- On SQL Server, the check for Metis's own tables sees only the database the
+  connection opens. Do not give the lookup's login access to Metis's database on
+  the same server.
+
+### For whoever runs Metis
+
+| Variable | Default | |
+| :-- | :-- | :-- |
+| `METIS_SQL_LOOKUP_MAX_CONNS` | 4 | connections one Metis node holds to one lookup database. Across a cluster, multiply by the nodes — that is the number to agree with whoever runs that database. |
+| `METIS_SQL_LOOKUP_MAX_POOLS` | 32 | lookup databases one node keeps a pool open to. |
+| `METIS_SQL_LOOKUP_ALLOWED_HOSTS` | any | comma-separated hosts a lookup may reach. On a shared installation the project administrator who sets up a connection is not whoever runs the servers; list the hosts to stop one project pointing a lookup at any database the server can reach. |
+
+An idle node gives its connections back after two minutes.
+
 ## Writing a connector without writing Go
 
 A connector is a document. It says what to call, how to authenticate, what goes
