@@ -547,18 +547,21 @@ func (s *jobService) callOnce(
 			job.Node.ID, target, state)
 	}
 
-	key := idempotency.ForServiceCall(job.Instance.ID, job.Node.ID, job.IterationID)
-
+	visit := models.UUID(job.ID)
 	record, err := s.repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
 		InstanceID:     models.UUID(job.Instance.ID),
 		NodeID:         job.Node.ID,
 		IterationID:    job.IterationID,
+		JobID:          &visit,
 		ProjectID:      projectIDOf(def),
-		IdempotencyKey: key,
-	})
+		IdempotencyKey: idempotency.ForServiceCall(job.Instance.ID, job.Node.ID, job.IterationID, job.ID),
+	}, job.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
+	// The record's key, not one computed afresh: a call recorded by an earlier
+	// version keeps the key it was first sent with.
+	key := record.IdempotencyKey
 
 	if record.Status == models.ServiceCallCompleted {
 		log.Info().

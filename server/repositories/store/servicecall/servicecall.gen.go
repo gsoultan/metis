@@ -25,6 +25,7 @@ type Row struct {
 	UpdatedAt      time.Time
 	InstanceID     [16]byte
 	ProjectID      [16]byte
+	JobID          runtime.Null[[16]byte]
 	NodeID         string
 	IterationID    string
 	IdempotencyKey string
@@ -70,7 +71,7 @@ const (
 	opNotExists runtime.Op = 26
 )
 
-const nCols = 13
+const nCols = 14
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -221,48 +222,55 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.raws[q.nr] = r.ProjectID
 		q.nr++
 	case 5:
+		if int(q.nr) >= len(q.raws) {
+			q.over = true
+			return
+		}
+		q.raws[q.nr] = r.JobID.V
+		q.nr++
+	case 6:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.NodeID
 		q.ns++
-	case 6:
+	case 7:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.IterationID
 		q.ns++
-	case 7:
+	case 8:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.IdempotencyKey
 		q.ns++
-	case 8:
+	case 9:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.Status
 		q.ns++
-	case 9:
+	case 10:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.Attempts)
 		q.nn++
-	case 11:
+	case 12:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.CompletedAt.V
 		q.ntm++
-	case 12:
+	case 13:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -434,14 +442,15 @@ var (
 	UpdatedAt      = TimeCol{2}
 	InstanceID     = UUIDCol{3}
 	ProjectID      = UUIDCol{4}
-	NodeID         = TextCol{5}
-	IterationID    = TextCol{6}
-	IdempotencyKey = TextCol{7}
-	Status         = TextCol{8}
-	Attempts       = Int64Col{9}
-	Response       = JSONCol{10}
-	CompletedAt    = NullTimeCol{11}
-	DeletedAt      = NullTimeCol{12}
+	JobID          = NullUUIDCol{5}
+	NodeID         = TextCol{6}
+	IterationID    = TextCol{7}
+	IdempotencyKey = TextCol{8}
+	Status         = TextCol{9}
+	Attempts       = Int64Col{10}
+	Response       = JSONCol{11}
+	CompletedAt    = NullTimeCol{12}
+	DeletedAt      = NullTimeCol{13}
 )
 
 // UUIDCol addresses a uuid column.
@@ -483,6 +492,29 @@ func (h TimeCol) Gt(v time.Time) Pred    { return Pred{col: h.c, op: opGt, tim: 
 func (h TimeCol) Gte(v time.Time) Pred   { return Pred{col: h.c, op: opGte, tim: v} }
 func (h TimeCol) Lt(v time.Time) Pred    { return Pred{col: h.c, op: opLt, tim: v} }
 func (h TimeCol) Lte(v time.Time) Pred   { return Pred{col: h.c, op: opLte, tim: v} }
+
+// NullUUIDCol addresses a uuid column.
+type NullUUIDCol struct{ c uint8 }
+
+func (h NullUUIDCol) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h NullUUIDCol) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h NullUUIDCol) AscNullsFirst() Sort {
+	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
+}
+func (h NullUUIDCol) DescNullsLast() Sort {
+	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
+}
+
+func (h NullUUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
+func (h NullUUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
+func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+
+// NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
+// comparison NULL for every row and the result empty —
+// PostgreSQL's rule for NOT IN, not storm's.
+func (h NullUUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+func (h NullUUIDCol) IsNull() Pred             { return Pred{col: h.c, op: opIsNull} }
+func (h NullUUIDCol) IsNotNull() Pred          { return Pred{col: h.c, op: opIsNotNull} }
 
 // TextCol addresses a varchar(191) column.
 type TextCol struct{ c uint8 }
@@ -739,12 +771,12 @@ func (q *Query) leaf(p Pred) {
 			q.anyRaw[q.nar] = p.anyRaw
 			q.nar++
 		case 5:
-			if int(q.nas) >= 3 {
+			if int(q.nar) >= 3 {
 				q.over = true
 				return
 			}
-			q.anyStr[q.nas] = p.anyStr
-			q.nas++
+			q.anyRaw[q.nar] = p.anyRaw
+			q.nar++
 		case 6:
 			if int(q.nas) >= 3 {
 				q.over = true
@@ -767,13 +799,20 @@ func (q *Query) leaf(p Pred) {
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
 		case 9:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 10:
 			if int(q.nai64) >= 3 {
 				q.over = true
 				return
 			}
 			q.anyI64[q.nai64] = p.anyI64
 			q.nai64++
-		case 10:
+		case 11:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -825,12 +864,12 @@ func (q *Query) leaf(p Pred) {
 		q.raws[q.nr] = p.raw
 		q.nr++
 	case 5:
-		if int(q.ns) >= 6 {
+		if int(q.nr) >= 4 {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = p.str
-		q.ns++
+		q.raws[q.nr] = p.raw
+		q.nr++
 	case 6:
 		if int(q.ns) >= 6 {
 			q.over = true
@@ -853,27 +892,34 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 9:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 10:
 		if int(q.nn) >= 6 {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = p.num
 		q.nn++
-	case 10:
+	case 11:
 		if int(q.njs) >= 2 {
 			q.over = true
 			return
 		}
 		q.jsns[q.njs] = p.jsn
 		q.njs++
-	case 11:
+	case 12:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 12:
+	case 13:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -909,6 +955,12 @@ func (q Query) ProjectIDEq(v [16]byte) Query             { return q.Where(Projec
 func (q Query) ProjectIDNotEq(v [16]byte) Query          { return q.Where(ProjectID.NotEq(v)) }
 func (q Query) ProjectIDIn(v ...[16]byte) Query          { return q.Where(ProjectID.In(v...)) }
 func (q Query) ProjectIDNotIn(v ...[16]byte) Query       { return q.Where(ProjectID.NotIn(v...)) }
+func (q Query) JobIDEq(v [16]byte) Query                 { return q.Where(JobID.Eq(v)) }
+func (q Query) JobIDNotEq(v [16]byte) Query              { return q.Where(JobID.NotEq(v)) }
+func (q Query) JobIDIn(v ...[16]byte) Query              { return q.Where(JobID.In(v...)) }
+func (q Query) JobIDNotIn(v ...[16]byte) Query           { return q.Where(JobID.NotIn(v...)) }
+func (q Query) JobIDIsNull() Query                       { return q.Where(JobID.IsNull()) }
+func (q Query) JobIDIsNotNull() Query                    { return q.Where(JobID.IsNotNull()) }
 func (q Query) NodeIDEq(v string) Query                  { return q.Where(NodeID.Eq(v)) }
 func (q Query) NodeIDNotEq(v string) Query               { return q.Where(NodeID.NotEq(v)) }
 func (q Query) NodeIDGt(v string) Query                  { return q.Where(NodeID.Gt(v)) }
@@ -983,7 +1035,7 @@ func (q Query) DeletedAtIsNotNull() Query                { return q.Where(Delete
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "instance_id", "project_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at" FROM "service_calls"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "instance_id", "project_id", "job_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at" FROM "service_calls"`
 const countPrefix = `SELECT count(*) FROM "service_calls"`
 const existsPrefix = `SELECT 1 FROM "service_calls"`
 const existsSuffix = ` LIMIT 1`
@@ -1050,6 +1102,12 @@ var orderTable = [nCols][4]string{
 		"\"project_id\" ASC NULLS FIRST",
 		"\"project_id\" DESC NULLS LAST",
 	},
+	{ // job_id
+		"\"job_id\"",
+		"\"job_id\" DESC",
+		"\"job_id\" ASC NULLS FIRST",
+		"\"job_id\" DESC NULLS LAST",
+	},
 	{ // node_id
 		"\"node_id\"",
 		"\"node_id\" DESC",
@@ -1108,6 +1166,7 @@ var identTable = [nCols]string{
 	"\"updated_at\"",
 	"\"instance_id\"",
 	"\"project_id\"",
+	"\"job_id\"",
 	"\"node_id\"",
 	"\"iteration_id\"",
 	"\"idempotency_key\"",
@@ -1148,7 +1207,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [13][27]runtime.Frag{
+var fragTable = [14][27]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1291,6 +1350,35 @@ var fragTable = [13][27]runtime.Frag{
 		{},
 		{},
 		{},
+		{},
+		{},
+	},
+	{ // job_id
+		{}, // opNone
+		{A: "\"job_id\" = $", B: ""},
+		{A: "\"job_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"job_id\" = ANY($", B: ")"},
+		{A: "\"job_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"job_id\" IS NULL", B: ""},
+		{A: "\"job_id\" IS NOT NULL", B: ""},
 		{},
 		{},
 	},
@@ -1686,14 +1774,15 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.UpdatedAt = runtime.Timestamptz(rv[2])
 	copy(r.InstanceID[:], rv[3])
 	copy(r.ProjectID[:], rv[4])
-	r.NodeID = sl.Str(rv[5])
-	r.IterationID = sl.Str(rv[6])
-	r.IdempotencyKey = sl.Str(rv[7])
-	r.Status = sl.Str(rv[8])
-	r.Attempts = runtime.Int8(rv[9])
-	r.Response = runtime.JSON(runtime.JSONB(rv[10], sl))
-	r.CompletedAt = runtime.Nullable(rv[11], runtime.Timestamptz)
-	r.DeletedAt = runtime.Nullable(rv[12], runtime.Timestamptz)
+	r.JobID = runtime.Nullable(rv[5], runtime.UUID)
+	r.NodeID = sl.Str(rv[6])
+	r.IterationID = sl.Str(rv[7])
+	r.IdempotencyKey = sl.Str(rv[8])
+	r.Status = sl.Str(rv[9])
+	r.Attempts = runtime.Int8(rv[10])
+	r.Response = runtime.JSON(runtime.JSONB(rv[11], sl))
+	r.CompletedAt = runtime.Nullable(rv[12], runtime.Timestamptz)
+	r.DeletedAt = runtime.Nullable(rv[13], runtime.Timestamptz)
 	return nil
 }
 
@@ -1777,9 +1866,9 @@ func (q Query) bindPreds(b *binder) []any {
 				v = append(v, &b.anyRaw[nar])
 				nar++
 			case 5:
-				b.anyStr[nas] = q.anyStr[nas]
-				v = append(v, &b.anyStr[nas])
-				nas++
+				b.anyRaw[nar] = q.anyRaw[nar]
+				v = append(v, &b.anyRaw[nar])
+				nar++
 			case 6:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
@@ -1793,10 +1882,14 @@ func (q Query) bindPreds(b *binder) []any {
 				v = append(v, &b.anyStr[nas])
 				nas++
 			case 9:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 10:
 				b.anyI64[nai64] = q.anyI64[nai64]
 				v = append(v, &b.anyI64[nai64])
 				nai64++
-			case 10:
+			case 11:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
@@ -1825,9 +1918,9 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.raws[nr])
 			nr++
 		case 5:
-			b.strs[ns] = q.strs[ns]
-			v = append(v, &b.strs[ns])
-			ns++
+			b.raws[nr] = q.raws[nr]
+			v = append(v, &b.raws[nr])
+			nr++
 		case 6:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
@@ -1841,18 +1934,22 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.strs[ns])
 			ns++
 		case 9:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 10:
 			b.nums[nn] = q.nums[nn]
 			v = append(v, &b.nums[nn])
 			nn++
-		case 10:
+		case 11:
 			b.jsns[njs] = q.jsns[njs]
 			v = append(v, &b.jsns[njs])
 			njs++
-		case 11:
+		case 12:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 12:
+		case 13:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -1993,7 +2090,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "service_calls" ("id", "created_at", "updated_at", "instance_id", "project_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id", "created_at", "updated_at", "instance_id", "project_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at"`
+const insertSQL = `INSERT INTO "service_calls" ("id", "created_at", "updated_at", "instance_id", "project_id", "job_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING "id", "created_at", "updated_at", "instance_id", "project_id", "job_id", "node_id", "iteration_id", "idempotency_key", "status", "attempts", "response", "completed_at", "deleted_at"`
 
 const updatePrefix = `UPDATE "service_calls" SET `
 const deletePrefix = `DELETE FROM "service_calls"`
@@ -2004,23 +2101,25 @@ const (
 	dUpdatedAt      uint64 = 1 << 0
 	dInstanceID     uint64 = 1 << 1
 	dProjectID      uint64 = 1 << 2
-	dNodeID         uint64 = 1 << 3
-	dIterationID    uint64 = 1 << 4
-	dIdempotencyKey uint64 = 1 << 5
-	dStatus         uint64 = 1 << 6
-	dAttempts       uint64 = 1 << 7
-	dResponse       uint64 = 1 << 8
-	dCompletedAt    uint64 = 1 << 9
-	dDeletedAt      uint64 = 1 << 10
+	dJobID          uint64 = 1 << 3
+	dNodeID         uint64 = 1 << 4
+	dIterationID    uint64 = 1 << 5
+	dIdempotencyKey uint64 = 1 << 6
+	dStatus         uint64 = 1 << 7
+	dAttempts       uint64 = 1 << 8
+	dResponse       uint64 = 1 << 9
+	dCompletedAt    uint64 = 1 << 10
+	dDeletedAt      uint64 = 1 << 11
 )
 
-const nUpdatable = 11
+const nUpdatable = 12
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"updated_at\" = $", B: ""},      // updated_at
 	{A: "\"instance_id\" = $", B: ""},     // instance_id
 	{A: "\"project_id\" = $", B: ""},      // project_id
+	{A: "\"job_id\" = $", B: ""},          // job_id
 	{A: "\"node_id\" = $", B: ""},         // node_id
 	{A: "\"iteration_id\" = $", B: ""},    // iteration_id
 	{A: "\"idempotency_key\" = $", B: ""}, // idempotency_key
@@ -2045,17 +2144,18 @@ const (
 	iUpdatedAt      uint64 = 1 << 2
 	iInstanceID     uint64 = 1 << 3
 	iProjectID      uint64 = 1 << 4
-	iNodeID         uint64 = 1 << 5
-	iIterationID    uint64 = 1 << 6
-	iIdempotencyKey uint64 = 1 << 7
-	iStatus         uint64 = 1 << 8
-	iAttempts       uint64 = 1 << 9
-	iResponse       uint64 = 1 << 10
-	iCompletedAt    uint64 = 1 << 11
-	iDeletedAt      uint64 = 1 << 12
+	iJobID          uint64 = 1 << 5
+	iNodeID         uint64 = 1 << 6
+	iIterationID    uint64 = 1 << 7
+	iIdempotencyKey uint64 = 1 << 8
+	iStatus         uint64 = 1 << 9
+	iAttempts       uint64 = 1 << 10
+	iResponse       uint64 = 1 << 11
+	iCompletedAt    uint64 = 1 << 12
+	iDeletedAt      uint64 = 1 << 13
 )
 
-const nInsertable = 13
+const nInsertable = 14
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2064,6 +2164,7 @@ var insCols = [nInsertable]string{
 	"\"updated_at\"",
 	"\"instance_id\"",
 	"\"project_id\"",
+	"\"job_id\"",
 	"\"node_id\"",
 	"\"iteration_id\"",
 	"\"idempotency_key\"",
@@ -2080,7 +2181,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"service_calls\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"project_id\", \"node_id\", \"iteration_id\", \"idempotency_key\", \"status\", \"attempts\", \"response\", \"completed_at\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"project_id\", \"job_id\", \"node_id\", \"iteration_id\", \"idempotency_key\", \"status\", \"attempts\", \"response\", \"completed_at\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2126,6 +2227,18 @@ func (m *Mut) SetInstanceID(v [16]byte) {
 func (m *Mut) SetProjectID(v [16]byte) {
 	m.row.ProjectID = v
 	m.dirty |= dProjectID
+}
+
+func (m *Mut) SetJobID(v [16]byte) {
+	m.row.JobID = runtime.Null[[16]byte]{V: v, Valid: true}
+	m.dirty |= dJobID
+}
+
+// SetJobIDNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetJobIDNull() {
+	m.row.JobID = runtime.Null[[16]byte]{}
+	m.dirty |= dJobID
 }
 
 func (m *Mut) SetNodeID(v string) {
@@ -2232,6 +2345,18 @@ func (n *Ins) SetProjectID(v [16]byte) {
 	n.set |= iProjectID
 }
 
+func (n *Ins) SetJobID(v [16]byte) {
+	n.row.JobID = runtime.Null[[16]byte]{V: v, Valid: true}
+	n.set |= iJobID
+}
+
+// SetJobIDNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetJobIDNull() {
+	n.row.JobID = runtime.Null[[16]byte]{}
+	n.set |= iJobID
+}
+
 func (n *Ins) SetNodeID(v string) {
 	n.row.NodeID = v
 	n.set |= iNodeID
@@ -2327,12 +2452,12 @@ func upsertTail(conflict uint8, mask uint64) string {
 // row that collides, which a test inserting distinct rows never sees.
 var conflictSpecs = []string{
 	" ON CONFLICT (\"id\")",
-	" ON CONFLICT (\"instance_id\", \"node_id\", \"iteration_id\")",
+	" ON CONFLICT (\"instance_id\", \"node_id\", \"iteration_id\", \"job_id\")",
 }
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 11)
+	set := make([]string, 0, 12)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2345,27 +2470,30 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "project_id")
 		}
 		if mask&(1<<5) != 0 {
-			set = append(set, "node_id")
+			set = append(set, "job_id")
 		}
 		if mask&(1<<6) != 0 {
-			set = append(set, "iteration_id")
+			set = append(set, "node_id")
 		}
 		if mask&(1<<7) != 0 {
-			set = append(set, "idempotency_key")
+			set = append(set, "iteration_id")
 		}
 		if mask&(1<<8) != 0 {
-			set = append(set, "status")
+			set = append(set, "idempotency_key")
 		}
 		if mask&(1<<9) != 0 {
-			set = append(set, "attempts")
+			set = append(set, "status")
 		}
 		if mask&(1<<10) != 0 {
-			set = append(set, "response")
+			set = append(set, "attempts")
 		}
 		if mask&(1<<11) != 0 {
-			set = append(set, "completed_at")
+			set = append(set, "response")
 		}
 		if mask&(1<<12) != 0 {
+			set = append(set, "completed_at")
+		}
+		if mask&(1<<13) != 0 {
 			set = append(set, "deleted_at")
 		}
 	case 1:
@@ -2375,22 +2503,22 @@ func assignable(i uint8, mask uint64) []string {
 		if mask&(1<<4) != 0 {
 			set = append(set, "project_id")
 		}
-		if mask&(1<<7) != 0 {
+		if mask&(1<<8) != 0 {
 			set = append(set, "idempotency_key")
 		}
-		if mask&(1<<8) != 0 {
+		if mask&(1<<9) != 0 {
 			set = append(set, "status")
 		}
-		if mask&(1<<9) != 0 {
+		if mask&(1<<10) != 0 {
 			set = append(set, "attempts")
 		}
-		if mask&(1<<10) != 0 {
+		if mask&(1<<11) != 0 {
 			set = append(set, "response")
 		}
-		if mask&(1<<11) != 0 {
+		if mask&(1<<12) != 0 {
 			set = append(set, "completed_at")
 		}
-		if mask&(1<<12) != 0 {
+		if mask&(1<<13) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2407,12 +2535,12 @@ func (n *Ins) OnConflictID() *Ins {
 	return n
 }
 
-// OnConflictInstanceIDNodeIDIterationID upserts on the unique index over (instance_id, node_id, iteration_id).
+// OnConflictInstanceIDNodeIDIterationIDJobID upserts on the unique index over (instance_id, node_id, iteration_id, job_id).
 //
 // The row that already exists keeps every column this insert did
 // not assign. Follow with DoNothing() to leave it untouched
 // entirely.
-func (n *Ins) OnConflictInstanceIDNodeIDIterationID() *Ins {
+func (n *Ins) OnConflictInstanceIDNodeIDIterationIDJobID() *Ins {
 	n.conflict = 4
 	return n
 }
@@ -2454,6 +2582,7 @@ var assignFor = map[string]string{
 	"updated_at":      "\"updated_at\" = EXCLUDED.\"updated_at\"",
 	"instance_id":     "\"instance_id\" = EXCLUDED.\"instance_id\"",
 	"project_id":      "\"project_id\" = EXCLUDED.\"project_id\"",
+	"job_id":          "\"job_id\" = EXCLUDED.\"job_id\"",
 	"node_id":         "\"node_id\" = EXCLUDED.\"node_id\"",
 	"iteration_id":    "\"iteration_id\" = EXCLUDED.\"iteration_id\"",
 	"idempotency_key": "\"idempotency_key\" = EXCLUDED.\"idempotency_key\"",
@@ -2516,20 +2645,22 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 4:
 			args = append(args, n.row.ProjectID)
 		case 5:
-			args = append(args, n.row.NodeID)
+			args = append(args, n.row.JobID.Arg())
 		case 6:
-			args = append(args, n.row.IterationID)
+			args = append(args, n.row.NodeID)
 		case 7:
-			args = append(args, n.row.IdempotencyKey)
+			args = append(args, n.row.IterationID)
 		case 8:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.IdempotencyKey)
 		case 9:
-			args = append(args, n.row.Attempts)
+			args = append(args, n.row.Status)
 		case 10:
-			args = append(args, n.row.Response)
+			args = append(args, n.row.Attempts)
 		case 11:
-			args = append(args, n.row.CompletedAt.Arg())
+			args = append(args, n.row.Response)
 		case 12:
+			args = append(args, n.row.CompletedAt.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2568,12 +2699,13 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 13)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.ProjectID)
+	args = append(args, r.JobID.Arg())
 	args = append(args, r.NodeID)
 	args = append(args, r.IterationID)
 	args = append(args, r.IdempotencyKey)
@@ -2613,6 +2745,7 @@ var copyCols = []string{
 	"updated_at",
 	"instance_id",
 	"project_id",
+	"job_id",
 	"node_id",
 	"iteration_id",
 	"idempotency_key",
@@ -2627,7 +2760,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [13]any
+	buf  [14]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2650,14 +2783,15 @@ func (s *rowSource) Values() []any {
 	s.buf[2] = &r.UpdatedAt
 	s.buf[3] = &r.InstanceID
 	s.buf[4] = &r.ProjectID
-	s.buf[5] = &r.NodeID
-	s.buf[6] = &r.IterationID
-	s.buf[7] = &r.IdempotencyKey
-	s.buf[8] = &r.Status
-	s.buf[9] = &r.Attempts
-	s.buf[10] = &r.Response
-	s.buf[11] = r.CompletedAt.Ptr()
-	s.buf[12] = r.DeletedAt.Ptr()
+	s.buf[5] = r.JobID.Ptr()
+	s.buf[6] = &r.NodeID
+	s.buf[7] = &r.IterationID
+	s.buf[8] = &r.IdempotencyKey
+	s.buf[9] = &r.Status
+	s.buf[10] = &r.Attempts
+	s.buf[11] = &r.Response
+	s.buf[12] = r.CompletedAt.Ptr()
+	s.buf[13] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2701,13 +2835,15 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 10
 	mask |= 1 << 11
 	mask |= 1 << 12
+	mask |= 1 << 13
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 13)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.ProjectID)
+	args = append(args, r.JobID.Arg())
 	args = append(args, r.NodeID)
 	args = append(args, r.IterationID)
 	args = append(args, r.IdempotencyKey)
@@ -2760,20 +2896,22 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 4:
 			args = append(args, n.row.ProjectID)
 		case 5:
-			args = append(args, n.row.NodeID)
+			args = append(args, n.row.JobID.Arg())
 		case 6:
-			args = append(args, n.row.IterationID)
+			args = append(args, n.row.NodeID)
 		case 7:
-			args = append(args, n.row.IdempotencyKey)
+			args = append(args, n.row.IterationID)
 		case 8:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.IdempotencyKey)
 		case 9:
-			args = append(args, n.row.Attempts)
+			args = append(args, n.row.Status)
 		case 10:
-			args = append(args, n.row.Response)
+			args = append(args, n.row.Attempts)
 		case 11:
-			args = append(args, n.row.CompletedAt.Arg())
+			args = append(args, n.row.Response)
 		case 12:
+			args = append(args, n.row.CompletedAt.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2824,20 +2962,22 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 2:
 			args = append(args, m.row.ProjectID)
 		case 3:
-			args = append(args, m.row.NodeID)
+			args = append(args, m.row.JobID.Arg())
 		case 4:
-			args = append(args, m.row.IterationID)
+			args = append(args, m.row.NodeID)
 		case 5:
-			args = append(args, m.row.IdempotencyKey)
+			args = append(args, m.row.IterationID)
 		case 6:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.IdempotencyKey)
 		case 7:
-			args = append(args, m.row.Attempts)
+			args = append(args, m.row.Status)
 		case 8:
-			args = append(args, m.row.Response)
+			args = append(args, m.row.Attempts)
 		case 9:
-			args = append(args, m.row.CompletedAt.Arg())
+			args = append(args, m.row.Response)
 		case 10:
+			args = append(args, m.row.CompletedAt.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -2915,20 +3055,22 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 2:
 			args = append(args, m.row.ProjectID)
 		case 3:
-			args = append(args, m.row.NodeID)
+			args = append(args, m.row.JobID.Arg())
 		case 4:
-			args = append(args, m.row.IterationID)
+			args = append(args, m.row.NodeID)
 		case 5:
-			args = append(args, m.row.IdempotencyKey)
+			args = append(args, m.row.IterationID)
 		case 6:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.IdempotencyKey)
 		case 7:
-			args = append(args, m.row.Attempts)
+			args = append(args, m.row.Status)
 		case 8:
-			args = append(args, m.row.Response)
+			args = append(args, m.row.Attempts)
 		case 9:
-			args = append(args, m.row.CompletedAt.Arg())
+			args = append(args, m.row.Response)
 		case 10:
+			args = append(args, m.row.CompletedAt.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

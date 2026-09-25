@@ -76,21 +76,21 @@ var FlushOrder = map[string]int{
 	"process_definition_releases": 21,
 	"process_definitions":         22,
 	"process_instances":           23,
-	"service_calls":               24,
-	"tasks":                       25,
-	"user_organizations":          26,
-	"user_projects":               27,
-	"variable_snapshots":          28,
-	"webhook_deliveries":          29,
-	"workflow_group_memberships":  30,
-	"audit_logs":                  31,
-	"broadcast_events":            32,
-	"compensatable_activities":    33,
-	"deployment_resources":        34,
-	"event_subscriptions":         35,
-	"external_tasks":              36,
-	"jobs":                        37,
-	"notifications":               38,
+	"tasks":                       24,
+	"user_organizations":          25,
+	"user_projects":               26,
+	"variable_snapshots":          27,
+	"webhook_deliveries":          28,
+	"workflow_group_memberships":  29,
+	"audit_logs":                  30,
+	"broadcast_events":            31,
+	"compensatable_activities":    32,
+	"deployment_resources":        33,
+	"event_subscriptions":         34,
+	"external_tasks":              35,
+	"jobs":                        36,
+	"notifications":               37,
+	"service_calls":               38,
 	"incidents":                   39,
 }
 
@@ -4918,6 +4918,131 @@ func (p ServiceCallWithInstanceQuery) All(ctx context.Context, ex runtime.Execut
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "service_calls", "process_instances")
 		}
 		out[i].Instance = targets[j]
+	}
+	return out, nil
+}
+
+// ServiceCallWithJobRow is service_calls with its Job loaded.
+type ServiceCallWithJobRow struct {
+	servicecall.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Job, which is different from having one that failed to load.
+	Job *job.Row
+}
+
+type ServiceCallWithJobQuery struct {
+	q servicecall.Query
+}
+
+// ServiceCallWithJob starts the plan.
+func ServiceCallWithJob() ServiceCallWithJobQuery {
+	return ServiceCallWithJobQuery{q: servicecall.New()}
+}
+
+func (p ServiceCallWithJobQuery) Where(ps ...servicecall.Pred) ServiceCallWithJobQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) WhereIf(cond bool, pr servicecall.Pred) ServiceCallWithJobQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) Any(ps ...servicecall.Pred) ServiceCallWithJobQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) Not(pr servicecall.Pred) ServiceCallWithJobQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) NotAny(ps ...servicecall.Pred) ServiceCallWithJobQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) Order(ts ...servicecall.Sort) ServiceCallWithJobQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) Limit(n int64) ServiceCallWithJobQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p ServiceCallWithJobQuery) Offset(n int64) ServiceCallWithJobQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p ServiceCallWithJobQuery) After(r ServiceCallWithJobRow) ServiceCallWithJobQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p ServiceCallWithJobQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p ServiceCallWithJobQuery) All(ctx context.Context, ex runtime.Executor) ([]ServiceCallWithJobRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]ServiceCallWithJobRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = ServiceCallWithJobRow{Row: r}
+		key, ok := r.JobID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := job.New().Unordered().
+		Where(job.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.JobID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "service_calls", "jobs")
+		}
+		out[i].Job = &targets[j]
 	}
 	return out, nil
 }

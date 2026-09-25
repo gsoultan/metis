@@ -130,7 +130,10 @@ func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	ctx := entities.WithSystemContext(t.Context())
 
 	instanceID := uuid.New()
-	call, err := repo.ServiceCall().Begin(ctx, models.ServiceCallModel{InstanceID: models.UUID(instanceID), NodeID: "charge"})
+	visit := models.UUID(uuid.New())
+	call, err := repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
+		InstanceID: models.UUID(instanceID), NodeID: "charge", JobID: &visit,
+	}, time.Now())
 	if err != nil {
 		t.Fatalf("record the call: %v", err)
 	}
