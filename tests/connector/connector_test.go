@@ -26,7 +26,7 @@ import (
 // alongside internal services would.
 func allowLoopbackEgress(t *testing.T) {
 	t.Helper()
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 }
 
 // MockConnectorRepository is a mock for contracts.ConnectorRepository

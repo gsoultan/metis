@@ -190,7 +190,7 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 	// are on 127.0.0.1, so the tests opt in for themselves rather than the guard
 	// being relaxed anywhere it matters. It is read per dial, so setting it here
 	// takes effect.
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
 
 	engine := serviceimpl.NewExecutionEngine(repo, observerimpl.NewEventDispatcher())

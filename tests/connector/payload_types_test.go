@@ -21,7 +21,7 @@ import (
 // reads, because "it must be a string" is an assumption none of them can make
 // about input the engine did not write.
 func TestAnExecutorSurvivesAPayloadOfTheWrongType(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	// Values a BPMN mapping produces without anybody intending anything unusual:
 	// a number from an arithmetic expression, a boolean from a gateway, a list

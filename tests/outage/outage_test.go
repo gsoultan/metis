@@ -13,7 +13,7 @@
 // server/domains/services/impl/messaging_test.go (the consumer reconnect
 // loop); the network dimension is this same proxy.
 //
-// Requires GOBPM_TEST_POSTGRES_DSN, like every test that needs a real engine
+// Requires METIS_TEST_POSTGRES_DSN, like every test that needs a real engine
 // underneath — see AGENTS.md §4.
 package outage
 

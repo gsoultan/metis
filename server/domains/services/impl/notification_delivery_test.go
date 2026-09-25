@@ -22,7 +22,7 @@ import (
 // to the same policy — which is the point, and why the test has to say so.
 func allowLoopbackEgress(t *testing.T) {
 	t.Helper()
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 }
 
 // Delivering a notification out of the application.

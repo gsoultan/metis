@@ -18,7 +18,7 @@ import (
 // registry was a map in memory — so a connector installed on one replica was
 // unknown to the others and gone on the next deploy.
 func TestAnInstalledManifestSurvivesARestart(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	var called int
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -74,7 +74,7 @@ response:
 // Installing again is how an author fixes a manifest, so it must replace rather
 // than fail — and the fix has to be what is called next.
 func TestInstallingTheSameKeyAgainReplacesIt(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	var lastPath string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ func TestInstallingTheSameKeyAgainReplacesIt(t *testing.T) {
 // defines it — deleting loses the manifest, and a switched-off connector is one
 // somebody can switch back on.
 func TestASwitchedOffManifestIsNotUsed(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{}`))
@@ -152,7 +152,7 @@ func TestASwitchedOffManifestIsNotUsed(t *testing.T) {
 // A manifest replaces a built-in under the same key. That is what "without a
 // redeploy" means: the Go connector stays in the binary and stops being used.
 func TestAManifestReplacesABuiltIn(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	var called bool
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
