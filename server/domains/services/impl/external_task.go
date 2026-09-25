@@ -64,8 +64,11 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 			return err
 		}
 
-		// 2. Fetch instance and definition
-		instance, err := s.engine.GetInstance(txCtx, task.ProcessInstance.ID)
+		// 2. Fetch instance and definition, holding the instance. It is written
+		// back whole below, and two branches whose workers finished at the same
+		// moment each wrote a token list without the other's progress in it:
+		// the join then waited for a branch that had finished.
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, task.ProcessInstance.ID)
 		if err != nil {
 			return err
 		}
