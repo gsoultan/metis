@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { collectPages, type CollectedPages, type ListPage } from '../domain/allPages';
 import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
-import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
+import type { ApiDecision, CreateDecisionPayload, ProcessVariables } from '../services/types';
 
 type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
 
@@ -21,6 +22,43 @@ export const useDecisions = (page = 1, pageSize = 25) => {
     placeholderData: (previous) => previous,
   });
 };
+
+/**
+ * How much of a project's decisions a view that needs all of them loads: five
+ * pages of the largest page the server serves (MaxPageSize). Past that the
+ * result says it stopped short.
+ */
+const ALL_DECISIONS_PAGE_SIZE = 200;
+const ALL_DECISIONS_MAX_PAGES = 5;
+
+const NO_DECISIONS: CollectedPages<ApiDecision> = { items: [], truncated: false, total: 0 };
+
+/**
+ * Every decision in the current project, up to that bound, for a view that
+ * cannot work from a page: the dependency graph cannot tell a decision that
+ * does not exist from one on the next page.
+ */
+export const useAllDecisions = () => {
+  const { currentProjectId } = useAppStore();
+  return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
+    queryKey: ['decisions', currentProjectId, 'all'],
+    queryFn: ({ signal }) =>
+      currentProjectId
+        ? collectPages((page) => decisionPage(currentProjectId, page, signal), ALL_DECISIONS_MAX_PAGES)
+        : Promise.resolve(NO_DECISIONS),
+    enabled: !!currentProjectId,
+  });
+};
+
+async function decisionPage(projectId: string, page: number, signal: AbortSignal): Promise<ListPage<ApiDecision>> {
+  const listed = await processService.listDecisions(projectId, { page, pageSize: ALL_DECISIONS_PAGE_SIZE }, signal);
+  return {
+    items: listed.decisions,
+    hasMore: listed.pageInfo?.hasMore ?? false,
+    total: listed.pageInfo?.total ?? listed.decisions.length,
+  };
+}
 
 export const useDecision = (id: string | null) => {
   return useQuery({

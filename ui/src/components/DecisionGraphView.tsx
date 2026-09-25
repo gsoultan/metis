@@ -9,7 +9,7 @@
  *
  * Both are visible here before anything runs.
  */
-import { Alert, Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 
 import { buildDecisionGraph, type GraphDecision } from '../domain/decisionGraph';
@@ -130,9 +130,16 @@ export function DecisionGraphView({
 export function DecisionGraphSection({
   decisions,
   onOpen,
+  loading = false,
+  failed = false,
+  total,
 }: {
   decisions: GraphDecision[];
   onOpen?: (id: string) => void;
+  loading?: boolean;
+  failed?: boolean;
+  /** How many decisions the project has, when that is more than were loaded. */
+  total?: number;
 }) {
   return (
     <Card withBorder radius="lg" p="xl">
@@ -143,8 +150,58 @@ export function DecisionGraphSection({
             A decision may require others. This is the order they are decided in.
           </Text>
         </div>
-        <DecisionGraphView decisions={decisions} onOpen={onOpen} />
+        <GraphBody decisions={decisions} onOpen={onOpen} loading={loading} failed={failed} total={total} />
       </Stack>
     </Card>
+  );
+}
+
+/**
+ * The graph, or why there is none yet. An empty graph while the decisions are
+ * still loading, or when they could not be loaded, would read as "nothing
+ * depends on anything".
+ */
+function GraphBody({
+  decisions,
+  onOpen,
+  loading,
+  failed,
+  total,
+}: {
+  decisions: GraphDecision[];
+  onOpen?: (id: string) => void;
+  loading: boolean;
+  failed: boolean;
+  total?: number;
+}) {
+  if (loading) {
+    return (
+      <Group gap="xs">
+        <Loader size="xs" />
+        <Text size="sm" c="dimmed">
+          Loading the decisions…
+        </Text>
+      </Group>
+    );
+  }
+  if (failed) {
+    return (
+      <Text size="sm" c="red.7">
+        The decisions could not be loaded, so how they fit together cannot be shown.
+      </Text>
+    );
+  }
+  return (
+    <Stack gap="md">
+      {total !== undefined && (
+        <Alert variant="light" color="yellow" icon={<AlertTriangle size={16} />} py="xs">
+          <Text size="sm">
+            This project has {total} decisions and the graph shows the {decisions.length} most recently created. A
+            dependency on one of the others shows as missing here, and a loop through them is not found.
+          </Text>
+        </Alert>
+      )}
+      <DecisionGraphView decisions={decisions} onOpen={onOpen} />
+    </Stack>
   );
 }

@@ -30,7 +30,7 @@ import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/state';
 import { hitPolicyOf } from '../domain/decisionTable';
 import { matchesQuery } from '../domain/textSearch';
-import { useDecisionImpact, useDecisions, useDeleteDecision } from '../hooks/useDecisions';
+import { useAllDecisions, useDecisionImpact, useDecisions, useDeleteDecision } from '../hooks/useDecisions';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiDecision } from '../services/types';
 import { useTranslation } from '../i18n/context';
@@ -43,6 +43,9 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useDecisions();
+  // The graph needs every decision: one that another requires may be on a
+  // page this list has not loaded, and a loop may run through it.
+  const everyDecision = useAllDecisions();
   const deleteDecision = useDeleteDecision();
   const [wizardOpened, setWizardOpened] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,12 +120,15 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
           about which decision is made first — or that two of them depend on
           each other and neither can run. */}
       <DecisionGraphSection
-        decisions={decisions.map((def) => ({
+        decisions={(everyDecision.data?.items ?? []).map((def) => ({
           id: def.id,
           key: def.key,
           name: def.name,
           required_decisions: def.required_decisions,
         }))}
+        loading={everyDecision.isLoading}
+        failed={everyDecision.isError}
+        total={everyDecision.data?.truncated ? everyDecision.data.total : undefined}
         onOpen={(id) => navigate({ to: '/decision-editor', search: { id } })}
       />
 
