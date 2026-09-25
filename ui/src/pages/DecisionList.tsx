@@ -131,6 +131,7 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
           id: def.id,
           key: def.key,
           name: def.name,
+          version: def.version,
           required_decisions: def.required_decisions,
         }))}
         total={data?.truncated ? data.total : undefined}

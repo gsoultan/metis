@@ -17,6 +17,8 @@ export interface GraphDecision {
   id: string;
   key: string;
   name?: string;
+  /** Which version of the key this is; the newest is the one the engine evaluates. */
+  version?: number;
   required_decisions?: string[];
 }
 
@@ -58,7 +60,8 @@ export interface DecisionGraph {
  * one that requires it — because that is the order they are evaluated in, and a
  * graph drawn against evaluation order is one nobody can read.
  */
-export function buildDecisionGraph(decisions: GraphDecision[]): DecisionGraph {
+export function buildDecisionGraph(allVersions: GraphDecision[]): DecisionGraph {
+  const decisions = newestPerKey(allVersions);
   const byKey = new Map<string, GraphDecision>();
   for (const decision of decisions) byKey.set(decision.key, decision);
 
@@ -89,6 +92,25 @@ export function buildDecisionGraph(decisions: GraphDecision[]): DecisionGraph {
   }
 
   return { nodes, edges, cycles };
+}
+
+/**
+ * One decision per key: its newest version.
+ *
+ * A key names its newest version to the engine, both when one decision
+ * requires another and when a step asks for the current version. A project's
+ * list holds every version of a table, newest first, and the graph kept the
+ * last one it met for each key, the oldest, and drew the rest as decisions of
+ * their own: the dependencies it showed, and the loops it found, could belong
+ * to versions nothing evaluates any more.
+ */
+function newestPerKey(decisions: GraphDecision[]): GraphDecision[] {
+  const newest = new Map<string, GraphDecision>();
+  for (const decision of decisions) {
+    const held = newest.get(decision.key);
+    if (!held || (decision.version ?? 0) > (held.version ?? 0)) newest.set(decision.key, decision);
+  }
+  return [...newest.values()];
 }
 
 /**

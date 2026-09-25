@@ -113,3 +113,30 @@ describe('missing dependencies', () => {
     expect(graph.edges).toEqual([]);
   });
 });
+
+/**
+ * A key names its newest version to the engine. The list holds every version
+ * of a table, newest first, and the graph kept the last one it saw for each
+ * key: the oldest. It drew every version as a decision of its own, with the
+ * dependencies of versions the engine no longer evaluates.
+ */
+describe('versions of one decision', () => {
+  it('are drawn once, as the newest', () => {
+    const graph = buildDecisionGraph([
+      { id: 'price-2', key: 'price', name: 'price', version: 2, required_decisions: [] },
+      { id: 'price-1', key: 'price', name: 'price', version: 1, required_decisions: ['risk'] },
+      { id: 'risk-1', key: 'risk', name: 'risk', version: 1 },
+    ]);
+    expect(graph.nodes.map((node) => node.id)).toEqual(['price-2', 'risk-1']);
+    expect(graph.edges).toEqual([]);
+  });
+
+  it('find no loop that only an old version had', () => {
+    const graph = buildDecisionGraph([
+      { id: 'a-2', key: 'a', version: 2, required_decisions: [] },
+      { id: 'a-1', key: 'a', version: 1, required_decisions: ['b'] },
+      { id: 'b-1', key: 'b', version: 1, required_decisions: ['a'] },
+    ]);
+    expect(graph.cycles).toEqual([]);
+  });
+});
