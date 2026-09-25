@@ -155,6 +155,19 @@ describe('cellMatcher', () => {
     expect(cellMatches('GOLD', 'SILVER', 'string')).toBe(false);
   });
 
+  /**
+   * The engine never finds a string equal to a number, and reads only
+   * lower-case true and false as yes and no. The matcher said otherwise, so the
+   * checks built on it reported overlaps, and coverage, the engine does not have.
+   */
+  it('reads a literal with its type, as the engine does', () => {
+    expect(cellMatches('"10"', 10, 'number')).toBe(false);
+    expect(cellMatches('10', '10', 'string')).toBe(false);
+    expect(cellMatches('TRUE', true, 'boolean')).toBe(false);
+    expect(cellMatches('10, 20', 20, 'number')).toBe(true);
+    expect(cellMatches('"A", B', 'B', 'string')).toBe(true);
+  });
+
   it('reads booleans', () => {
     expect(cellMatches('true', true, 'boolean')).toBe(true);
     expect(cellMatches('true', false, 'boolean')).toBe(false);

@@ -205,8 +205,10 @@ export function cellMatcher(cell: string, type: string): CellTest {
   if (text === '' || text === ANY_VALUE) return () => true;
 
   if (type === 'boolean') {
-    if (/^true$/i.test(text)) return (value) => value === true;
-    if (/^false$/i.test(text)) return (value) => value === false;
+    // Only the lower-case words are yes and no to the engine. `TRUE` is a bare
+    // word, which it reads as text, and text is never equal to a boolean.
+    if (text === 'true') return (value) => value === true;
+    if (text === 'false') return (value) => value === false;
     return () => false;
   }
 
@@ -217,9 +219,22 @@ export function cellMatcher(cell: string, type: string): CellTest {
   }
 
   const numeric = type === 'number' ? numberTest(text) : undefined;
-  // A list, or a single literal.
-  const literals = text.split(',').map((part) => unquote(part.trim()));
-  return (value) => (numeric && typeof value === 'number' ? numeric(value) : literals.includes(String(value)));
+  // A list, or a single literal. Compared with its type, as the engine
+  // compares: `"10"` is text and never equals the number 10, and a bare `10`
+  // is a number and never equals the text "10".
+  const literals = text.split(',').map(literalValue);
+  return (value) => (numeric && typeof value === 'number' ? numeric(value) : literals.includes(value));
+}
+
+/** One literal as the engine reads it: quoted text, a number, true or false, or a bare word read as text. */
+function literalValue(part: string): string | number | boolean {
+  const text = part.trim();
+  if (text.length >= 2 && (text.startsWith('"') || text.startsWith("'")) && text.endsWith(text[0])) {
+    return text.slice(1, -1);
+  }
+  if (/^-?\d+(\.\d+)?$/.test(text)) return Number(text);
+  if (text === 'true' || text === 'false') return text === 'true';
+  return text;
 }
 
 /** A range or a comparison, when that is what the cell is. */

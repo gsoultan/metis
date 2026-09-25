@@ -68,6 +68,16 @@ describe('findOverlaps', () => {
     expect(messages('COLLECT', [rule('> 10'), rule('> 20')])).toEqual([]);
   });
 
+  /**
+   * An error here disables Save, so a collision the engine does not have is a
+   * table nobody can save. `"10"` is text, and the engine never finds text
+   * equal to a number: that line matches no amount at all.
+   */
+  it('does not block a table over a collision the engine would never see', () => {
+    expect(messages('UNIQUE', [rule('"10"'), rule('10')])).toEqual([]);
+    expect(messages('UNIQUE', [rule('TRUE'), rule('true')], [urgent])).toEqual([]);
+  });
+
   it('says nothing about a table of one line', () => {
     expect(messages('UNIQUE', [rule('-')])).toEqual([]);
   });
