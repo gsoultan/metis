@@ -10,7 +10,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import { useState } from 'react';
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE, loopSummary } from '../../domain/disclosure';
 import { useGroups, useUsers } from '../../hooks/useProcess';
 import { useAppStore } from '../../store/useAppStore';
 import { MultiInstanceConfig } from './CommonProperties';
@@ -62,6 +62,8 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
   const fields = asFormFields(data.formDefinition);
   const formKey = advancedVisibility(expertMode, data.formKey);
+  const repeats = loopSummary(data);
+  const loop = advancedVisibility(expertMode, repeats);
 
   return (
     <Stack gap="xl">
@@ -174,7 +176,13 @@ export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </PropertySection>
       )}
 
-      {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
+      {loop === 'summary' && (
+        <PropertySection title="Repeats" hint={CHANGE_IN_EXPERT_MODE}>
+          <Text size="sm">{repeats}</Text>
+        </PropertySection>
+      )}
+
+      {loop === 'edit' && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
     </Stack>
   );
 }

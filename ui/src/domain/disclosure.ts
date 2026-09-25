@@ -9,6 +9,8 @@
  * mode is where it is changed.
  */
 
+import { asNumber, asText } from '../types/bpmn';
+
 /** How the property panel shows one advanced setting. */
 export type AdvancedVisibility = 'edit' | 'summary' | 'hidden';
 
@@ -36,6 +38,48 @@ function isSet(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === 'object') return Object.keys(value).length > 0;
   return true;
+}
+
+const PACE: ReadonlyMap<string, string> = new Map([
+  ['parallel', 'all at the same time'],
+  ['sequential', 'one after another'],
+]);
+
+/**
+ * What a step's loop settings make it do, in a sentence, or undefined when it
+ * runs once.
+ *
+ * Read the way the engine reads them. A step repeats for any multi-instance
+ * type except an empty one and "none", so a type this editor does not offer,
+ * from an imported file, is still a loop in effect. A list to go through wins
+ * over a fixed count. A completion condition, once set, is what ends the loop,
+ * in place of every run having finished.
+ */
+export function loopSummary(data: Record<string, unknown>): string | undefined {
+  const type = asText(data.multiInstanceType);
+  if (type === '' || type === 'none') return undefined;
+
+  const collection = asText(data.collection);
+  const count = asNumber(data.loopCardinality);
+  const times = collection !== '' ? `once for each item in ${collection}` : timesFor(count);
+  if (times === undefined) return 'Set to repeat, but it names no list and no count, so it runs once.';
+
+  const pace = PACE.get(type);
+  const sentences = [
+    pace === undefined
+      ? `Set to repeat ${times} as "${type}", which this editor does not recognise.`
+      : `Runs ${times}, ${pace}.`,
+  ];
+  const itemName = asText(data.elementVariable);
+  if (collection !== '' && itemName !== '') sentences.push(`Each run sees its item as ${itemName}.`);
+  const doneWhen = asText(data.completionCondition);
+  if (doneWhen !== '') sentences.push(`Moves on once this is true: ${doneWhen}.`);
+  return sentences.join(' ');
+}
+
+function timesFor(count: number): string | undefined {
+  if (count <= 0) return undefined;
+  return count === 1 ? 'once' : `${count} times`;
 }
 
 /** One way a service task can do its work. */

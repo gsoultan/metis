@@ -16,7 +16,7 @@ import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE, implementationOptions } from '../../domain/disclosure';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE, implementationOptions, loopSummary } from '../../domain/disclosure';
 import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
@@ -49,6 +49,8 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
   const options = implementationOptions(expertMode, implementation);
   const script = implementation === 'script' ? advancedVisibility(expertMode, data.script) : 'hidden';
+  const repeats = loopSummary(data);
+  const loop = advancedVisibility(expertMode, repeats);
 
   return (
     <Stack gap="xl">
@@ -194,7 +196,13 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </PropertySection>
       )}
 
-      {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
+      {loop === 'summary' && (
+        <PropertySection title="Repeats" hint={CHANGE_IN_EXPERT_MODE}>
+          <Text size="sm">{repeats}</Text>
+        </PropertySection>
+      )}
+
+      {loop === 'edit' && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
 
       <NodeTestModal
         data={data}
