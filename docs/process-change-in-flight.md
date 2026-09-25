@@ -255,6 +255,11 @@ POST /api/v1/definitions/versions/migrate
 { "node_mapping": {...}, "acknowledge": ["opsApprove"] }
 ```
 
+**Every request is a dry run unless it says `"dry_run": false`.** The reply is the plan
+either way; only an explicit `false` applies it. Until 2026-09-25 the flag was read the
+other way round from how it is documented here — a request that left it out, like the
+examples on this page, moved the instances.
+
 Three properties make this worth having:
 
 - **Only pending instances count.** An instance that already gave the approval waived
