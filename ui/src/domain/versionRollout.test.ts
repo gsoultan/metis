@@ -7,6 +7,7 @@ import {
   isFutureCutover,
   isRollback,
   liveVersion,
+  nextDeployStep,
   nextVersionNumber,
   pendingCutovers,
   rolloutOutcome,
@@ -236,5 +237,34 @@ describe('canDelete', () => {
 
   it('refuses the live version even with nothing running yet', () => {
     expect(canDelete({ ...v(3, true, 0), total_instances: 0 })).toBe(false);
+  });
+});
+
+describe('nextDeployStep', () => {
+  const error = { severity: 'error' as const, message: 'No end event' };
+  const warning = { severity: 'warning' as const, message: 'A step has no name' };
+
+  it('holds a deploy that would not run', () => {
+    expect(nextDeployStep([error, warning], [v(1, true, 0)])).toBe('held');
+  });
+
+  it('shows the warnings before deploying', () => {
+    expect(nextDeployStep([warning], [v(1, true, 0)])).toBe('review');
+  });
+
+  it('asks whether to go live when a live version would be replaced', () => {
+    expect(nextDeployStep([], [v(1, true, 3)])).toBe('ask');
+  });
+
+  it('deploys live when there is nothing to replace', () => {
+    expect(nextDeployStep([], [])).toBe('live');
+  });
+
+  it('carries accepted warnings on to the question a clean deploy gets', () => {
+    // "Deploy Anyway" deployed on the spot, and staged: the question was
+    // skipped and the answer came out as the opposite of the button's name.
+    const accepted: typeof warning[] = [];
+    expect(nextDeployStep(accepted, [v(1, true, 3)])).toBe('ask');
+    expect(nextDeployStep(accepted, [])).toBe('live');
   });
 });

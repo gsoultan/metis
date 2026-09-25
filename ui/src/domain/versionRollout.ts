@@ -13,6 +13,8 @@
  * until its last instance finishes.
  */
 
+import { hasBlockingIssues, type ValidationIssue } from './processValidation';
+
 /** One deployed version, as the versions endpoint reports it. */
 export interface VersionStatus {
   version: number;
@@ -222,4 +224,23 @@ export function canSchedule(version: SchedulableVersion): boolean {
  */
 export function canDelete(version: SchedulableVersion): boolean {
   return !version.live && (version.total_instances ?? 0) === 0;
+}
+
+/** Whether a deploy puts the new version live or saves it beside the live one. */
+export type DeployMode = 'live' | 'staged';
+
+/**
+ * What pressing Deploy does next.
+ *
+ * `held` when something would stop the process running, `review` when there is
+ * something worth reading first, `ask` when a live version would be replaced,
+ * otherwise straight to a live deploy. Accepting the warnings is asking again
+ * with none of them, so it reaches the same question a clean deploy does.
+ */
+export type DeployStep = 'held' | 'review' | 'ask' | 'live';
+
+export function nextDeployStep(issues: ValidationIssue[], versions: VersionStatus[]): DeployStep {
+  if (hasBlockingIssues(issues)) return 'held';
+  if (issues.length > 0) return 'review';
+  return shouldAskRollout(versions) ? 'ask' : 'live';
 }
