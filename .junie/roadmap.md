@@ -734,6 +734,52 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): 90-day plan Phase 1, "fix critical security gaps" — eight P0s
+  found by auditing the code against §2, §7 and §8 before starting any of them. Each is its
+  own commit with a test that fails against the code before it; branch `roadmap-open-items`.
+  - **Setup never closed on a container deployment** (IAM-08). "Set up" meant config.yaml
+    existed, which a server started from `DATABASE_URL` never writes — and on a read-only
+    root cannot. The wizard stayed open to anybody: with the credentials the evaluation
+    stack publishes it minted an administrator inside the live database. It now closes once
+    the running database has any account, seeds only an empty database under an advisory
+    lock, and — when the environment names the database and both secrets — asks only for
+    the organization and first administrator and writes nothing. That also made the
+    container first run work at all: it used to fail writing config.yaml every time.
+    Driven end to end against the built binary from a read-only directory.
+  - **gRPC listened on :8081 by default with no authentication**, published by the image,
+    compose and the manifest; `CreateOrganization` sat on the public chain beside it
+    (SEC-01/IAM-16). gRPC is opt-in (`METIS_GRPC_ADDRESS`), the endpoint is admin-only, and
+    the wiring test asserts the public set exhaustively.
+  - **An administrator of one organization could read, change or delete another's
+    accounts** — its last administrator included. Scoped to the caller's organizations, and
+    nobody may remove an organization's last administrator.
+  - **A business rule task could run another tenant's decision table** (DMN-12): the key
+    lookup was unscoped under the system identity the job worker uses. Decisions are
+    resolved in the process's project.
+  - **A job left running by a dead worker was never picked up again**, and neither was an
+    external task whose lease expired — the latter because the generated query builder drops
+    the predicate after a null test inside `Any` (a storm defect; worked around by order).
+    Reclaiming is counted as an attempt, a job's status commits with its work, and a service
+    task checks its token before advancing — without that, reclaiming advanced processes
+    twice. Claim query measured before choosing its shape (18.8ms vs 0.04ms at 100,000 due).
+  - **Notification delivery made network calls inside the engine's transactions** (arch
+    veto), SMTP with no timeout at all. Delivered after commit on a bounded queue; both SMTP
+    paths have a deadline.
+  - **Each open browser tab held one of the API's 128 backpressure slots**, and streams were
+    recorded as hour-long GETs in the SLO histogram. Streams have their own caps, a
+    heartbeat, and their own gauge.
+  - **Eight tables held plaintext copies of encrypted variables** (SEC-05). Sealed; the
+    README now says exactly what is encrypted, including that older audit rows are not.
+  - **Found and not fixed here** — for the backlog, in roadmap order:
+    - Three merged PRs never reached `main`: #75 (rollback wording), #78 (withdrawal
+      notifications) and #82 (the step heatmap) were merged into base branches that had
+      already been squash-merged. The repository deletes no head branch on merge, so
+      GitHub did not retarget the stacked PRs. §7 item 6 above describes #78 as shipped.
+    - The storm query builder mishandles `Any(IsNull, …)`; report it upstream.
+    - Historic rows written before sealing stay in plaintext until rewritten; a batched
+      backfill would close it.
+    - P0.2(c) (a memory bound for scripts) is still open — see `security-plan.md`.
+
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
