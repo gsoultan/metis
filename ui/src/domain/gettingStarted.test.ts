@@ -5,7 +5,7 @@ import {
   gettingStartedSteps,
   nextStep,
   type GettingStartedFacts,
-  type GettingStartedSources,
+  type GettingStartedQueries,
 } from './gettingStarted';
 
 const NOTHING_DONE: GettingStartedFacts = {
@@ -27,13 +27,21 @@ const EVERYTHING_DONE: GettingStartedFacts = {
 /** Somebody who may do every step. */
 const ADMINISTRATOR = { roles: ['ADMIN'] };
 
-/** What the hooks return for a project set up a moment ago: every list loaded, and empty. */
-const FRESH_PROJECT: Required<GettingStartedSources> = {
-  definitions: [],
-  instances: [],
-  completedTasks: 0,
-  connections: [],
-  people: [],
+/** A query that has answered this, for the project asked about. */
+function answered<T>(data: T) {
+  return { data, isPlaceholderData: false };
+}
+
+/** A query still on its way, with nothing to show. */
+const LOADING = { data: undefined, isPlaceholderData: false };
+
+/** What the hooks return for a project set up a moment ago: every query answered, and empty. */
+const FRESH_PROJECT: GettingStartedQueries = {
+  definitions: answered({ definitions: [] }),
+  instances: answered({ instances: [] }),
+  statistics: answered({ stats: { completedTasks: 0 } }),
+  connections: answered({ instances: [] }),
+  people: answered({ participants: [] }),
 };
 
 describe('the steps', () => {
@@ -166,20 +174,35 @@ describe('reading the facts from what the interface already fetches', () => {
    * done" while the requests are in flight would flash a checklist of undone
    * steps at somebody who has done them all.
    */
-  it.each(Object.keys(FRESH_PROJECT) as (keyof GettingStartedSources)[])(
+  it.each(Object.keys(FRESH_PROJECT) as (keyof GettingStartedQueries)[])(
     'has no answer while %s is still loading',
     (source) => {
-      expect(gettingStartedFacts({ ...FRESH_PROJECT, [source]: undefined })).toBeUndefined();
+      expect(gettingStartedFacts({ ...FRESH_PROJECT, [source]: LOADING })).toBeUndefined();
     },
   );
 
+  /*
+   * The definitions and instances lists keep the previous rows on screen while
+   * the next ones load, so a table does not collapse on every page. After a
+   * project switch those rows are the last project's: counted as facts, they
+   * ticked "Deploy a process" for a project that has deployed nothing, until
+   * its own answer landed. A placeholder is not an answer.
+   */
   it.each([
-    ['definitions', 'processDeployed'],
-    ['instances', 'instanceStarted'],
-    ['connections', 'connectionSetUp'],
-    ['people', 'peopleAdded'],
-  ] as const)('counts one of %s as %s', (source, fact) => {
-    const facts = gettingStartedFacts({ ...FRESH_PROJECT, [source]: [{ id: 'one' }] });
+    ['definitions', { definitions: [{ id: 'from-the-last-project' }] }],
+    ['instances', { instances: [{ id: 'from-the-last-project' }] }],
+  ] as const)("has no answer while %s shows the last project's rows as a placeholder", (source, rows) => {
+    const facts = gettingStartedFacts({ ...FRESH_PROJECT, [source]: { data: rows, isPlaceholderData: true } });
+    expect(facts).toBeUndefined();
+  });
+
+  it.each([
+    ['definitions', answered({ definitions: [{ id: 'one' }] }), 'processDeployed'],
+    ['instances', answered({ instances: [{ id: 'one' }] }), 'instanceStarted'],
+    ['connections', answered({ instances: [{ id: 'one' }] }), 'connectionSetUp'],
+    ['people', answered({ participants: [{ id: 'one' }] }), 'peopleAdded'],
+  ] as const)('counts one of %s', (source, query, fact) => {
+    const facts = gettingStartedFacts({ ...FRESH_PROJECT, [source]: query });
     expect(facts).toEqual({ ...NOTHING_DONE, [fact]: true });
   });
 
@@ -190,7 +213,9 @@ describe('reading the facts from what the interface already fetches', () => {
    * it, and the dashboard loads them anyway.
    */
   it('counts completed tasks from the project statistics, however many tasks are newer', () => {
-    expect(gettingStartedFacts({ ...FRESH_PROJECT, completedTasks: 1 })?.taskCompleted).toBe(true);
-    expect(gettingStartedFacts({ ...FRESH_PROJECT, completedTasks: 0 })?.taskCompleted).toBe(false);
+    const completed = (count: number) =>
+      gettingStartedFacts({ ...FRESH_PROJECT, statistics: answered({ stats: { completedTasks: count } }) });
+    expect(completed(1)?.taskCompleted).toBe(true);
+    expect(completed(0)?.taskCompleted).toBe(false);
   });
 });

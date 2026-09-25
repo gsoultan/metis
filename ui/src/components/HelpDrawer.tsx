@@ -1,9 +1,7 @@
 import { Button, Divider, Drawer, Group, Paper, Stack, Tabs, Text, ThemeIcon } from '@mantine/core';
 import { BookOpen, ExternalLink, Lightbulb } from 'lucide-react';
 
-import { gettingStartedFacts } from '../domain/gettingStarted';
-import { useParticipants } from '../hooks/useParticipants';
-import { useConnectorInstances, useDefinitions, useInstances, useProcessStatistics } from '../hooks/useProcess';
+import { useGettingStartedProgress } from '../hooks/useGettingStarted';
 import { GettingStartedTimeline } from './GettingStartedCard';
 import { GlossaryPanel } from './GlossaryPanel';
 
@@ -94,27 +92,9 @@ function ReferenceLinks() {
  * Getting started, ticked from what this project has actually done.
  *
  * It lives inside the drawer, which renders its content only while open, so
- * these requests are made when somebody opens Help and not on every page. The
- * hooks and arguments are the ones the dashboard uses, so a list it has already
- * loaded comes from the cache rather than being asked for again.
+ * these requests are made when somebody opens Help and not on every page.
  */
 function GettingStartedProgress({ onNavigate }: { onNavigate: () => void }) {
-  const { data: definitions } = useDefinitions();
-  // Not live: this only asks whether any instance exists, and a live list
-  // polls every few seconds.
-  const { data: instances } = useInstances(1, 25, {}, false);
-  // Counted across the project. The newest 200 tasks missed a completed one
-  // behind 200 open ones.
-  const { data: statistics } = useProcessStatistics();
-  const { data: connections } = useConnectorInstances();
-  const { data: people } = useParticipants();
-  const facts = gettingStartedFacts({
-    definitions: definitions?.definitions,
-    instances: instances?.instances,
-    completedTasks: statistics?.stats?.completedTasks,
-    connections: connections?.instances,
-    people: people?.participants,
-  });
-
+  const facts = useGettingStartedProgress();
   return <GettingStartedTimeline facts={facts} onNavigate={onNavigate} />;
 }

@@ -132,43 +132,65 @@ export function nextStep(steps: readonly GettingStartedStep[]): GettingStartedSt
   return steps.find((step) => !step.done);
 }
 
-/**
- * The lists the facts are read from, each exactly as its hook returns it.
- *
- * Undefined means not loaded yet, which is different from an empty list.
- */
-export interface GettingStartedSources {
-  /** `useDefinitions()` → `data.definitions`. */
-  definitions?: readonly unknown[];
-  /** `useInstances()` → `data.instances`, with no filter. */
-  instances?: readonly unknown[];
+/** The parts of a query's result the facts are read from. TanStack Query's result has them. */
+export interface QueryLike<T> {
+  data: T | undefined;
   /**
-   * `useProcessStatistics()` → `data.stats.completedTasks`: counted across the
-   * whole project. It used to be read from the newest 200 tasks, which missed
-   * a completed task behind 200 open ones.
+   * True while `data` is the previous request's answer, kept on screen while
+   * this one loads: after a project switch, another project's rows.
    */
-  completedTasks?: number;
-  /** `useConnectorInstances()` → `data.instances`. */
-  connections?: readonly unknown[];
-  /** `useParticipants()` → `data.participants`. */
-  people?: readonly unknown[];
+  isPlaceholderData: boolean;
+}
+
+/** The queries the facts are read from, each exactly as its hook returns it. */
+export interface GettingStartedQueries {
+  /** `useDefinitions()`. */
+  definitions: QueryLike<{ definitions: readonly unknown[] }>;
+  /** `useInstances()`, with no filter. */
+  instances: QueryLike<{ instances: readonly unknown[] }>;
+  /**
+   * `useProcessStatistics()`: completed tasks, counted across the whole
+   * project. They used to be read from the newest 200 tasks, which missed a
+   * completed task behind 200 open ones.
+   */
+  statistics: QueryLike<{ stats?: { completedTasks?: number } }>;
+  /** `useConnectorInstances()`. */
+  connections: QueryLike<{ instances: readonly unknown[] }>;
+  /** `useParticipants()`. */
+  people: QueryLike<{ participants: readonly unknown[] }>;
 }
 
 /**
- * The facts, or undefined while any list is still on its way.
+ * A query's data once it answers what was asked.
+ *
+ * Not a placeholder: the definitions and instances lists keep the previous
+ * rows on screen while the next ones load, and after a project switch those
+ * are the last project's. Counted as facts, they ticked "Deploy a process"
+ * for a project that had deployed nothing.
+ */
+function answer<T>(query: QueryLike<T>): T | undefined {
+  return query.isPlaceholderData ? undefined : query.data;
+}
+
+/**
+ * The facts, or undefined while any query is still on its way.
  *
  * All or nothing, because a checklist drawn from half its answers shows steps
  * as not done when they are only not loaded, and ticks them one by one as the
  * requests land.
  */
-export function gettingStartedFacts(sources: GettingStartedSources): GettingStartedFacts | undefined {
-  const { definitions, instances, completedTasks, connections, people } = sources;
-  if (!definitions || !instances || completedTasks === undefined || !connections || !people) return undefined;
+export function gettingStartedFacts(queries: GettingStartedQueries): GettingStartedFacts | undefined {
+  const definitions = answer(queries.definitions);
+  const instances = answer(queries.instances);
+  const statistics = answer(queries.statistics);
+  const connections = answer(queries.connections);
+  const people = answer(queries.people);
+  if (!definitions || !instances || !statistics || !connections || !people) return undefined;
   return {
-    processDeployed: definitions.length > 0,
-    instanceStarted: instances.length > 0,
-    taskCompleted: completedTasks > 0,
-    connectionSetUp: connections.length > 0,
-    peopleAdded: people.length > 0,
+    processDeployed: definitions.definitions.length > 0,
+    instanceStarted: instances.instances.length > 0,
+    taskCompleted: (statistics.stats?.completedTasks ?? 0) > 0,
+    connectionSetUp: connections.instances.length > 0,
+    peopleAdded: people.participants.length > 0,
   };
 }
