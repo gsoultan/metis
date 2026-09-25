@@ -4,6 +4,7 @@ import { useAuditLogs } from '../hooks/useProcess';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { asText } from '../types/bpmn';
+import { describeDecision } from '../domain/decisionNarrative';
 import { timelineKind } from '../domain/timelineKind';
 
 dayjs.extend(relativeTime);
@@ -59,6 +60,21 @@ const getEventColor = (type: string) => {
   }
 };
 
+/** A decision, as a sentence and the version of the policy that made it. */
+function DecisionDetail({ data }: { data?: Record<string, unknown> }) {
+  const narrative = describeDecision(data);
+  return (
+    <Group gap={6} wrap="wrap">
+      <Text size="xs">{narrative.sentence}</Text>
+      {narrative.version && (
+        <Badge size="xs" variant="light" color="grape" styles={{ label: { textTransform: 'none' } }}>
+          {narrative.version}
+        </Badge>
+      )}
+    </Group>
+  );
+}
+
 export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   const { data, isLoading } = useAuditLogs(instanceId);
 
@@ -112,26 +128,10 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
                 )}
                 {/* A decision is the one entry where "what changed" is not the
                     interesting part. Which table decided, which version of it
-                    was in force, and which line applied are what somebody comes
-                    back to this timeline for. */}
-                {entry.type === 'decision_evaluated' && (
-                  <Group gap={6} wrap="wrap">
-                    <Badge size="xs" variant="light" color="grape">
-                      {asText(entry.data?.decision_key)} v{asText(entry.data?.decision_version)}
-                    </Badge>
-                    {Array.isArray(entry.data?.matched_rule_ids) && entry.data.matched_rule_ids.length > 0 && (
-                      <Badge size="xs" variant="outline" color="grape">
-                        {entry.data.matched_rule_ids.length === 1 ? 'rule' : 'rules'}{' '}
-                        {entry.data.matched_rule_ids.map((id) => asText(id)).join(', ')}
-                      </Badge>
-                    )}
-                    {entry.data?.outputs != null && (
-                      <Text size="xs" c="dimmed" ff="monospace">
-                        {JSON.stringify(entry.data.outputs)}
-                      </Text>
-                    )}
-                  </Group>
-                )}
+                    was in force, and what it decided are what somebody comes
+                    back to this timeline for — said in words, where it used to
+                    be the audit record verbatim: a key, rule ids and JSON. */}
+                {entry.type === 'decision_evaluated' && <DecisionDetail data={entry.data} />}
                 {entry.type === 'TaskClaimed' && Boolean(entry.data?.assignee) && (
                   <Badge size="xs" variant="light" color="indigo">
                     Assignee: {asText(entry.data?.assignee)}
