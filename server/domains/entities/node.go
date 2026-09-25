@@ -53,6 +53,19 @@ type Node struct {
 	Flows      []*SequenceFlow `json:"flows,omitzero"`
 }
 
+// KnownMultiInstanceType reports whether the engine can run a step that
+// repeats this way: in parallel, in sequence, or not at all, which an empty
+// value also means. Any other value used to mark the loop started and then
+// start neither kind, and the instance waited for good.
+func KnownMultiInstanceType(loop string) bool {
+	switch loop {
+	case "", "none", "parallel", "sequential":
+		return true
+	default:
+		return false
+	}
+}
+
 func (n *Node) GetStringProperty(key string) string {
 	if n.Properties == nil {
 		return ""

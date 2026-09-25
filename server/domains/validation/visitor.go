@@ -43,6 +43,10 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 	} else if !n.Type.Known() {
 		v.errors = append(v.errors, fmt.Sprintf("Flow node %s has type %q, which the engine cannot run", n.ID, n.Type))
 	}
+	if !entities.KnownMultiInstanceType(n.MultiInstanceType) {
+		v.errors = append(v.errors, fmt.Sprintf(
+			"Flow node %s repeats %q, which the engine cannot run; a step repeats parallel, sequential or none", n.ID, n.MultiInstanceType))
+	}
 }
 
 func (v *Visitor) VisitSequenceFlow(sf *entities.SequenceFlow) {
