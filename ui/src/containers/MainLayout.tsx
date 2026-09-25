@@ -1,14 +1,17 @@
 import { useMemo } from 'react';
-import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Text, ThemeIcon, Timeline, Title } from '@mantine/core';
+import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, useLocation } from '@tanstack/react-router';
 import { BookOpen, ExternalLink, FolderGit2, Lightbulb } from 'lucide-react';
 import React from 'react';
+import { GettingStartedTimeline } from '../components/GettingStartedCard';
 import { AppHeader, Sidebar } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
+import { gettingStartedFacts } from '../domain/gettingStarted';
 import { useOrganizations } from '../hooks/useOrganization';
-import { useProjects } from '../hooks/useProcess';
+import { useParticipants } from '../hooks/useParticipants';
+import { useConnectorInstances, useDefinitions, useInstances, useProjects, useTasks } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 
 interface MainLayoutProps {
@@ -166,23 +169,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             </Group>
           </Paper>
 
-          <Box>
-            <Title order={5} mb="md">Getting started</Title>
-            <Timeline active={-1} bulletSize={22} lineWidth={2}>
-              <Timeline.Item title="Create a project">
-                <Text c="dimmed" size="xs">Projects group related processes, decisions and tasks.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Design a process">
-                <Text c="dimmed" size="xs">Model the flow of work with the drag-and-drop designer.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Connect other systems">
-                <Text c="dimmed" size="xs">Call an API, send a message, or hand work to an external worker.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Deploy and watch it run">
-                <Text c="dimmed" size="xs">Start instances and follow them from the Instances view.</Text>
-              </Timeline.Item>
-            </Timeline>
-          </Box>
+          <GettingStartedProgress onNavigate={closeHelp} />
 
           <Divider label="Reference" labelPosition="center" />
 
@@ -215,5 +202,37 @@ export function MainLayout({ children }: MainLayoutProps) {
         </Stack>
       </Drawer>
     </AppShell>
+  );
+}
+
+/**
+ * Getting started, ticked from what this project has actually done.
+ *
+ * It lives inside the drawer, which renders its content only while open, so
+ * these requests are made when somebody opens Help and not on every page. The
+ * hooks and arguments are the ones the dashboard uses, so a list it has already
+ * loaded comes from the cache rather than being asked for again.
+ */
+function GettingStartedProgress({ onNavigate }: { onNavigate: () => void }) {
+  const { data: definitions } = useDefinitions();
+  // Not live: this only asks whether any instance exists, and a live list
+  // polls every few seconds.
+  const { data: instances } = useInstances(1, 25, {}, false);
+  const { data: tasks } = useTasks(1, 200);
+  const { data: connections } = useConnectorInstances();
+  const { data: people } = useParticipants();
+  const facts = gettingStartedFacts({
+    definitions: definitions?.definitions,
+    instances: instances?.instances,
+    tasks: tasks?.tasks,
+    connections: connections?.instances,
+    people: people?.participants,
+  });
+
+  return (
+    <Box>
+      <Title order={5} mb="md">Getting started</Title>
+      <GettingStartedTimeline facts={facts} onNavigate={onNavigate} />
+    </Box>
   );
 }

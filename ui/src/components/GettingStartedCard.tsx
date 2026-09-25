@@ -17,12 +17,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowRight, Check } from 'lucide-react';
 import { useId, useState } from 'react';
 
-import {
-  gettingStartedSteps,
-  nextStep,
-  type GettingStartedFacts,
-  type GettingStartedStep,
-} from '../domain/gettingStarted';
+import { gettingStartedSteps, nextStep, type GettingStartedFacts } from '../domain/gettingStarted';
 
 /**
  * Getting started, drawn two ways: as a card somebody can put away, and as the
@@ -97,7 +92,7 @@ export function GettingStartedCard({ facts }: GettingStartedCardProps) {
         aria-label={`${doneCount} of ${steps.length} getting started steps done`}
       />
       <Stack gap="lg" mt="lg" align="flex-start">
-        <GettingStartedTimeline steps={steps} />
+        <GettingStartedTimeline facts={facts} />
         <Button component={Link} to={next.to} rightSection={<ArrowRight size={16} />}>
           {next.label}
         </Button>
@@ -106,15 +101,32 @@ export function GettingStartedCard({ facts }: GettingStartedCardProps) {
   );
 }
 
+/** The steps drawn before anything is known about them: nothing ticked. */
+const NO_PROGRESS_YET: GettingStartedFacts = {
+  processDeployed: false,
+  instanceStarted: false,
+  taskCompleted: false,
+  connectionSetUp: false,
+  peopleAdded: false,
+};
+
 interface GettingStartedTimelineProps {
-  steps: GettingStartedStep[];
+  /** From gettingStartedFacts(). Undefined while any of its lists is loading. */
+  facts: GettingStartedFacts | undefined;
   /** Called when a step's link is followed, so a drawer can close behind it. */
   onNavigate?: () => void;
 }
 
-/** Every step, each linked to where it is done, with the ones done ticked. */
-export function GettingStartedTimeline({ steps, onNavigate }: GettingStartedTimelineProps) {
-  const next = nextStep(steps);
+/**
+ * Every step, each linked to where it is done, with the ones done ticked.
+ *
+ * Until the facts are in, the steps are still worth reading as a guide. They
+ * are drawn with nothing ticked and no step marked next, rather than calling
+ * the first step next and then jumping once the answers land.
+ */
+export function GettingStartedTimeline({ facts, onNavigate }: GettingStartedTimelineProps) {
+  const steps = gettingStartedSteps(facts ?? NO_PROGRESS_YET);
+  const next = facts ? nextStep(steps) : undefined;
   // The line fills down to the first step not done. Steps get done out of
   // order, so each one's own tick is what says it is done.
   const firstOpen = steps.findIndex((step) => !step.done);
