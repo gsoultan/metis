@@ -37,3 +37,34 @@ describe("decisionService.evaluateDecision", () => {
     expect(sent[0].body).toEqual({ project_id: "p1", key: "band", variables: {}, version: 3 });
   });
 });
+
+/**
+ * The list is searched and paged on the server, and the views that need every
+ * decision read the keys alone. Both used to read full tables — every version,
+ * every line, every example — to show a page or draw a graph.
+ */
+describe("decisionService lists", () => {
+  let restore = () => {};
+  afterEach(() => restore());
+
+  test("sends a search with the page it asks for, and leaves a blank one out", async () => {
+    let sent;
+    ({ restore, sent } = stubFetch({ decisions: [], page: { total: 0, page: 2, page_size: 25, has_more: false } }));
+    await decisionService.listDecisions("p1", { page: 2, pageSize: 25, search: " gold " });
+    await decisionService.listDecisions("p1", { page: 1, pageSize: 25, search: "  " });
+    expect(new URL(sent[0].url, "http://x").search).toBe("?project_id=p1&page=2&page_size=25&q=gold");
+    expect(new URL(sent[1].url, "http://x").search).toBe("?project_id=p1&page=1&page_size=25");
+  });
+
+  test("reads the decision keys from their own list, without the tables", async () => {
+    let sent;
+    ({ restore, sent } = stubFetch({
+      summaries: [{ id: "d1", key: "risk", name: "Risk", version: 3, required_decisions: ["score"] }],
+      page: { total: 1, page: 1, page_size: 200, has_more: false },
+    }));
+    const listed = await decisionService.listDecisionSummaries("p1", { page: 1, pageSize: 200 });
+    expect(new URL(sent[0].url, "http://x").pathname).toEndWith("/decisions/summaries");
+    expect(listed.summaries).toEqual([{ id: "d1", key: "risk", name: "Risk", version: 3, required_decisions: ["score"] }]);
+    expect(listed.pageInfo?.total).toBe(1);
+  });
+});

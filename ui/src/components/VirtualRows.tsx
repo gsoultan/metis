@@ -22,8 +22,9 @@
  * engages where it earns its keep.
  */
 import { Table } from '@mantine/core';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ReactNode, RefObject } from 'react';
+
+import { useVirtualWindow } from './virtualWindow';
 
 /**
  * Below this many rows, nothing is virtualized.
@@ -57,10 +58,10 @@ export function VirtualRows<T>({
    */
   scrollRef: RefObject<HTMLDivElement | null>;
 }) {
-  const virtualizer = useVirtualizer({
+  const virtualizer = useVirtualWindow({
     count: items.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    scrollRef,
+    estimatedSize: ESTIMATED_ROW_HEIGHT,
     overscan: OVERSCAN,
     // Disabled below the threshold so the hook still runs — hooks cannot be
     // called conditionally — while doing no work.

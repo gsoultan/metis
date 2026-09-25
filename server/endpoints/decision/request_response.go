@@ -8,6 +8,10 @@ import (
 type ListDecisionsRequest struct {
 	ProjectID string `json:"project_id,omitzero"`
 
+	// Search keeps the decisions whose name or key contains it, ignoring case.
+	// Empty lists them all.
+	Search string `json:"q,omitzero"`
+
 	// Zero means "no paging requested" — the first page at the server default.
 	Page     int `json:"page,omitzero"`
 	PageSize int `json:"page_size,omitzero"`
@@ -29,6 +33,22 @@ type PageInfo struct {
 }
 
 func (r ListDecisionsResponse) Failed() error { return r.Err }
+
+// ListDecisionSummariesRequest asks for one page of a project's decision keys.
+type ListDecisionSummariesRequest struct {
+	ProjectID string `json:"project_id,omitzero"`
+	Page      int    `json:"page,omitzero"`
+	PageSize  int    `json:"page_size,omitzero"`
+}
+
+// ListDecisionSummariesResponse carries each key as its newest version.
+type ListDecisionSummariesResponse struct {
+	Page      *PageInfo                  `json:"page,omitempty"`
+	Summaries []entities.DecisionSummary `json:"summaries,omitzero"`
+	Err       error                      `json:"err,omitzero"`
+}
+
+func (r ListDecisionSummariesResponse) Failed() error { return r.Err }
 
 type GetDecisionRequest struct {
 	ID string `json:"id"`

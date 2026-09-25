@@ -107,7 +107,7 @@ func TestDecisionsPaged_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	seedDecisions(t, repo, ctx, projectID, 137)
 
-	page, err := repo.Decision().ListByProjectPaged(ctx, projectID, contracts.Pagination{Page: 3, PageSize: 50})
+	page, err := repo.Decision().ListByProjectPaged(ctx, projectID, "", contracts.Pagination{Page: 3, PageSize: 50})
 	if err != nil {
 		t.Fatalf("page 3: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestDefinitionsPaged_WorksUnderTenantScoping(t *testing.T) {
 		t.Errorf("definitions: %d rows of %d, want 5 of 12", len(defs.Items), defs.Total)
 	}
 
-	decisions, err := repo.Decision().ListByProjectPaged(scoped, projectID, contracts.Pagination{Page: 1, PageSize: 5})
+	decisions, err := repo.Decision().ListByProjectPaged(scoped, projectID, "", contracts.Pagination{Page: 1, PageSize: 5})
 	if err != nil {
 		t.Fatalf("decisions under tenant scoping: %v", err)
 	}

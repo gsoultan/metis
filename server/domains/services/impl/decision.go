@@ -86,9 +86,9 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 }
 
 // ListDecisionsPaged returns one page of a project's decisions, for the same
-// reason definitions have one.
-func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error) {
-	result, err := s.repo.Decision().ListByProjectPaged(ctx, projectID, page)
+// reason definitions have one, narrowed by search when it is not empty.
+func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error) {
+	result, err := s.repo.Decision().ListByProjectPaged(ctx, projectID, search, page)
 	if err != nil {
 		return repocontracts.Page[entities.DecisionDefinition]{}, err
 	}
@@ -97,6 +97,26 @@ func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid
 		decisions[i] = adapters.DecisionEntityAdapter{Model: m}.ToEntity()
 	}
 	return repocontracts.NewPage(decisions, result.Total, page), nil
+}
+
+// ListDecisionSummaries returns one page of a project's decision keys, each as
+// its newest version, without the tables.
+func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error) {
+	result, err := s.repo.Decision().ListLatestByProject(ctx, projectID, page)
+	if err != nil {
+		return repocontracts.Page[entities.DecisionSummary]{}, err
+	}
+	summaries := make([]entities.DecisionSummary, len(result.Items))
+	for i, m := range result.Items {
+		summaries[i] = entities.DecisionSummary{
+			ID:                uuid.UUID(m.ID),
+			Key:               m.Key,
+			Name:              m.Name,
+			Version:           m.Version,
+			RequiredDecisions: m.RequiredDecisions,
+		}
+	}
+	return repocontracts.NewPage(summaries, result.Total, page), nil
 }
 
 func (s *decisionService) ListDecisions(ctx context.Context, projectID uuid.UUID) ([]entities.DecisionDefinition, error) {

@@ -17,6 +17,14 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 		common.EncodeResponse,
 		options...,
 	))
+	// Every key once, as its newest version, without the tables: for the
+	// dependency graph and a step's decision picker.
+	m.Handle("GET /api/v1/decisions/summaries", httptransport.NewServer(
+		eps.ListSummaries,
+		decodeListDecisionSummariesRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/decisions", httptransport.NewServer(
 		eps.CreateDecision,
 		decodeCreateDecisionRequest,
@@ -66,6 +74,16 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 func decodeListDecisionsRequest(_ context.Context, r *http.Request) (any, error) {
 	page, pageSize := common.PageParams(r)
 	return decision.ListDecisionsRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		Search:    r.URL.Query().Get("q"),
+		Page:      page,
+		PageSize:  pageSize,
+	}, nil
+}
+
+func decodeListDecisionSummariesRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
+	return decision.ListDecisionSummariesRequest{
 		ProjectID: r.URL.Query().Get("project_id"),
 		Page:      page,
 		PageSize:  pageSize,

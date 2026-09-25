@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -284,6 +285,41 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 					return idsOf(rows, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: []uuid.UUID{f.notificationA, f.systemNotification},
+			},
+			// Both organizations hold a decision under the same key; the other
+			// one's is the newer version, so a summary that picked the newest
+			// row regardless of tenant would answer with it.
+			{
+				name: "decision keys of another tenant's project",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, f.projectB, contracts.Pagination{})
+					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "decision keys across all projects",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, uuid.Nil, contracts.Pagination{})
+					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.decisionA},
+			},
+			{
+				name: "a decision search in another tenant's project",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListByProjectPaged(ctx, f.projectB, "dec", contracts.Pagination{})
+					return idsOf(page.Items, func(m models.DecisionDefinitionModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: nil,
+			},
+			{
+				name: "a decision search across all projects",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListByProjectPaged(ctx, uuid.Nil, "dec", contracts.Pagination{})
+					return idsOf(page.Items, func(m models.DecisionDefinitionModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.decisionA},
 			},
 		}
 
