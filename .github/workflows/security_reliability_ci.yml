@@ -243,11 +243,13 @@ jobs:
       # mode, so the grep had nothing to find on any run and every skip in this
       # job went unreported. tests/loadtest is left out because it skips on
       # every pull request by design; the loadtest job runs it, with -v, and
-      # fails on a skip there.
+      # fails on a skip there. A pipe into xargs rather than $(go list ...): under
+      # pipefail a failing go list fails the step, where a substitution would
+      # hand go test an empty list and pass.
       - name: No suite skipped for want of a database
         run: |
           set -o pipefail
-          go test -count=1 -v -p 2 $(go list ./... | grep -v /tests/loadtest) 2>&1 | tee /tmp/suite.log
+          go list ./... | grep -v /tests/loadtest | xargs go test -count=1 -v -p 2 2>&1 | tee /tmp/suite.log
           if grep -q -- "--- SKIP" /tmp/suite.log; then
             echo "::error::A test skipped, which means its DSN did not reach it:"
             grep -- "--- SKIP" /tmp/suite.log
