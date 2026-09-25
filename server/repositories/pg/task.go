@@ -23,6 +23,17 @@ func NewTaskRepository(c *db.Conn) contracts.TaskRepository {
 }
 
 func (r *taskRepository) Get(ctx context.Context, id uuid.UUID) (models.TaskModel, error) {
+	return r.one(ctx, id, false)
+}
+
+// GetForUpdate reads a task and holds its row until the transaction ends, so a
+// decision made from the read — claim it, hand it over — cannot be overtaken by
+// another made from the same read.
+func (r *taskRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (models.TaskModel, error) {
+	return r.one(ctx, id, true)
+}
+
+func (r *taskRepository) one(ctx context.Context, id uuid.UUID, forUpdate bool) (models.TaskModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
 		return models.TaskModel{}, err
@@ -37,6 +48,9 @@ func (r *taskRepository) Get(ctx context.Context, id uuid.UUID) (models.TaskMode
 			return models.TaskModel{}, fmt.Errorf("%w: no such task", apierr.ErrNotFound)
 		}
 		q = q.Where(task.ProjectID.In(uuidsToRaw(scope.projects)...))
+	}
+	if forUpdate {
+		q = q.ForUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {

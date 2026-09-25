@@ -90,13 +90,19 @@ func (s *taskService) ListTasksByCandidates(ctx context.Context, userID string, 
 
 func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		// Holding the task's row. A claim read the task, saw it unclaimed and
+		// wrote it claimed with nothing held in between, so claims made at the
+		// same moment all read it unclaimed and were all told it was theirs.
+		m, err := s.lockedTask(txCtx, id)
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+		if task.Status == entities.TaskClaimed || task.Status == entities.TaskDelegated {
+			return apierr.Invalidf("somebody else has already claimed this task")
+		}
 		if task.Status != entities.TaskUnclaimed {
-			return fmt.Errorf("task %s is not unclaimed (current status: %s)", id, task.Status)
+			return apierr.Invalidf("this task is %s; there is nothing to claim", task.Status)
 		}
 
 		if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
@@ -466,24 +472,18 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 	})
 }
 
-// openTaskForHandOver reads a task about to be delegated or assigned, under
-// its instance's lock, and refuses one nobody can work on any more.
+// openTaskForHandOver reads a task about to be delegated or assigned, holding
+// its row, and refuses one nobody can work on any more.
 //
 // Both hand-overs set the status without asking what it was, so a completed
 // task could be handed on — reopened — and completed again, running
-// everything after it a second time. The lock is the one completion takes:
-// without it, a hand-over that read the task open while it was being completed
-// would write it back open anyway.
+// everything after it a second time. Holding the row matters as much as the
+// check: completion writes it too, so a hand-over that read the task open
+// while it was being completed would otherwise write it back open.
 func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, action string) (entities.Task, error) {
-	m, err := s.repo.Task().Get(ctx, id)
+	m, err := s.lockedTask(ctx, id)
 	if err != nil {
-		return entities.Task{}, fmt.Errorf("failed to get task: %w", err)
-	}
-	if _, err := s.engine.GetInstanceForUpdate(ctx, uuid.UUID(m.InstanceID)); err != nil {
 		return entities.Task{}, err
-	}
-	if m, err = s.repo.Task().Get(ctx, id); err != nil {
-		return entities.Task{}, fmt.Errorf("failed to re-read task %s: %w", id, err)
 	}
 	task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 	switch task.Status {
@@ -493,6 +493,18 @@ func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, act
 		return entities.Task{}, apierr.Invalidf("this task was withdrawn; it cannot be %s", action)
 	}
 	return task, nil
+}
+
+// lockedTask reads a task and holds its row, so what is decided from the read
+// cannot be overtaken by another decision made from the same read. Everything
+// that competes for a task — a claim, a hand-over, completion, a migration
+// moving it — writes that row, so holding it is what makes them take turns.
+func (s *taskService) lockedTask(ctx context.Context, id uuid.UUID) (models.TaskModel, error) {
+	m, err := s.repo.Task().GetForUpdate(ctx, id)
+	if err != nil {
+		return models.TaskModel{}, fmt.Errorf("failed to get task: %w", err)
+	}
+	return m, nil
 }
 
 // announce raises a task event and writes the task's audit entry for it.
