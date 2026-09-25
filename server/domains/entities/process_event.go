@@ -20,6 +20,14 @@ type ProcessEvent struct {
 	// particular person, which is what every dispatch that does not set it
 	// means. Nothing that consumes Variables changes.
 	Assignee string `json:"assignee,omitzero"`
+	// Audited says the code that raised this event wrote its audit entry
+	// itself, so the audit observer must not write a second one.
+	//
+	// The task service records each task action with who performed it, which
+	// the event does not carry, and raised the event as well — so every claim,
+	// release and completion was in the trail twice. Not sent to browsers: it is
+	// about the trail, not about what happened.
+	Audited bool `json:"-"`
 }
 
 const (

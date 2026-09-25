@@ -4,6 +4,7 @@ import { useAuditLogs } from '../hooks/useProcess';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { asText } from '../types/bpmn';
+import { timelineKind } from '../domain/timelineKind';
 
 dayjs.extend(relativeTime);
 
@@ -12,20 +13,23 @@ interface BusinessTimelineProps {
 }
 
 const getEventIcon = (type: string) => {
-  switch (type) {
-    case 'ProcessStarted':
+  switch (timelineKind(type)) {
+    case 'started':
       return <Play size={14} />;
-    case 'NodeReached':
+    case 'reached':
       return <FastForward size={14} />;
-    case 'TaskCreated':
+    case 'available':
       return <Clock size={14} />;
-    case 'TaskClaimed':
+    case 'claimed':
+    case 'released':
+    case 'assigned':
+    case 'delegated':
       return <User size={14} />;
-    case 'TaskCompleted':
+    case 'completed':
       return <Check size={14} />;
-    case 'ProcessCompleted':
+    case 'ended':
       return <Square size={14} />;
-    case 'decision_evaluated':
+    case 'decision':
       return <Scale size={14} />;
     default:
       return <AlertCircle size={14} />;
@@ -33,20 +37,22 @@ const getEventIcon = (type: string) => {
 };
 
 const getEventColor = (type: string) => {
-  switch (type) {
-    case 'ProcessStarted':
+  switch (timelineKind(type)) {
+    case 'started':
       return 'blue';
-    case 'TaskCreated':
+    case 'available':
       return 'yellow';
-    case 'TaskClaimed':
+    case 'claimed':
+    case 'assigned':
+    case 'delegated':
       return 'indigo';
-    case 'TaskCompleted':
+    case 'completed':
       return 'green';
-    case 'ProcessCompleted':
+    case 'ended':
       return 'teal';
-    case 'IncidentCreated':
+    case 'incident':
       return 'red';
-    case 'decision_evaluated':
+    case 'decision':
       return 'grape';
     default:
       return 'gray';
