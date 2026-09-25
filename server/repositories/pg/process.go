@@ -119,8 +119,29 @@ func (r *processRepository) ListByProject(ctx context.Context, projectID uuid.UU
 	return r.list(ctx, scoped, nil)
 }
 
+// ListByDefinition returns every instance of one version, newest first.
+//
+// Every one, not the store's first thousand: a migration moves each running
+// instance of the version it retires, and one started before a thousand others
+// finished used to be outside the window — never moved, and out of reach of a
+// second run too, since the finished ones stay on the version.
 func (r *processRepository) ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]models.ProcessInstanceModel, error) {
-	return r.list(ctx, nil, []processinstance.Pred{processinstance.DefinitionID.Eq(definitionID)})
+	q, ok, err := r.scopedQuery(ctx, nil, []processinstance.Pred{processinstance.DefinitionID.Eq(definitionID)})
+	if err != nil || !ok {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The id breaks ties, so the cursor is a position: two instances can start
+	// in the same microsecond.
+	rows, err := everyRow[processinstance.Row](ctx, ex,
+		q.Order(processinstance.CreatedAt.Desc(), processinstance.ID.Desc()))
+	if err != nil {
+		return nil, fmt.Errorf("could not list the instances of a version: %w", err)
+	}
+	return instancesFrom(rows)
 }
 
 func (r *processRepository) ListByParent(ctx context.Context, parentInstanceID uuid.UUID) ([]models.ProcessInstanceModel, error) {
@@ -480,8 +501,11 @@ func (r *processRepository) CountInstancesByDefinitions(ctx context.Context, def
 		}
 		count := counts[definitionID]
 		count.Total += total
-		if models.ProcessStatus(values[1]) == models.ProcessActive {
+		switch models.ProcessStatus(values[1]) {
+		case models.ProcessActive:
 			count.Running += total
+		case models.ProcessSuspended:
+			count.Suspended += total
 		}
 		counts[definitionID] = count
 	}

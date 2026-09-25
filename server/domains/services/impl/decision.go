@@ -290,28 +290,42 @@ func (s *decisionService) processesUsing(ctx context.Context, decision entities.
 		if len(nodes) == 0 {
 			continue
 		}
-
-		instances, err := s.repo.Process().ListByDefinition(ctx, uuid.UUID(m.ID))
-		if err != nil {
-			return nil, fmt.Errorf("could not check which instances use the decision: %w", err)
-		}
-		running := 0
-		for _, instance := range instances {
-			// Suspended counts as running: it is stopped, not finished, and
-			// resuming it must not meet a policy that changed underneath it.
-			if instance.Status == models.ProcessActive || instance.Status == models.ProcessSuspended {
-				running++
-			}
-		}
-
 		usages = append(usages, entities.DecisionUsage{
-			DefinitionID:     uuid.UUID(m.ID),
-			DefinitionKey:    m.Key,
-			DefinitionName:   m.Name,
-			Version:          m.Version,
-			Steps:            nodes,
-			RunningInstances: running,
+			DefinitionID:   uuid.UUID(m.ID),
+			DefinitionKey:  m.Key,
+			DefinitionName: m.Name,
+			Version:        m.Version,
+			Steps:          nodes,
 		})
+	}
+	return s.countRunning(ctx, usages)
+}
+
+// countRunning fills in how many instances of each process are still running,
+// in one grouped count.
+//
+// Counted, not listed. Reading the instances to count them read a thousand at
+// most — the store's default limit — so a running instance started before a
+// thousand others finished was not counted, and the decision it still needed
+// could be deleted. Reading all of them instead would load every instance a
+// version ever had to answer one number.
+func (s *decisionService) countRunning(ctx context.Context, usages []entities.DecisionUsage) ([]entities.DecisionUsage, error) {
+	if len(usages) == 0 {
+		return usages, nil
+	}
+	ids := make([]uuid.UUID, len(usages))
+	for i, usage := range usages {
+		ids[i] = usage.DefinitionID
+	}
+	counts, err := s.repo.Process().CountInstancesByDefinitions(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("could not check which instances use the decision: %w", err)
+	}
+	for i := range usages {
+		count := counts[usages[i].DefinitionID]
+		// Suspended counts as running: it is stopped, not finished, and
+		// resuming it must not meet a policy that changed underneath it.
+		usages[i].RunningInstances = int(count.Running + count.Suspended)
 	}
 	return usages, nil
 }
