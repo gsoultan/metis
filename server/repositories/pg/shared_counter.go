@@ -87,10 +87,11 @@ func (r *sharedCounterRepository) Prune(ctx context.Context, before time.Time) (
 	if err != nil {
 		return 0, err
 	}
-	removed, err := ex.Exec(ctx,
-		"DELETE FROM shared_counters WHERE window_start < $1", []any{before.UTC()})
+	removed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM shared_counters WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM shared_counters WHERE window_start < $1 LIMIT $2))`, before.UTC())
 	if err != nil {
-		return 0, fmt.Errorf("could not prune shared counters: %w", err)
+		return removed, fmt.Errorf("could not prune shared counters: %w", err)
 	}
 	return removed, nil
 }
