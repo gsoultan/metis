@@ -17,7 +17,7 @@ const NO_TASKS: AllTasksResult = { tasks: [], pageInfo: undefined };
  * board — stop fetching every task in the project while it is in table mode.
  */
 export const useTasks = (page = 1, pageSize = 50, options: { enabled?: boolean } = {}) => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useQuery({
     queryKey: ['tasks', currentProjectId, page, pageSize],
     queryFn: ({ signal }) =>
@@ -65,7 +65,7 @@ export const useTasksByAssignee = (assignee: string, page = 1, pageSize = 25) =>
  * served from another's cache.
  */
 export const useTasksByCandidates = (page = 1, pageSize = 25) => {
-  const { user } = useAppStore();
+  const user = useAppStore((state) => state.user);
   return useQuery({
     queryKey: ['tasks', 'candidates', user?.id ?? '', page, pageSize],
     queryFn: ({ signal }) => processService.listTasksByCandidates({ page, pageSize }, signal),
@@ -95,7 +95,7 @@ export const useResolveIncident = () => {
 
 export const useStartProcess = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ definitionKey, variables, version }: { definitionKey: string; variables?: ProcessVariables; version?: number }) =>
       currentProjectId

@@ -49,7 +49,7 @@ export const useDeleteConnector = () => {
 };
 
 export const useConnectorInstances = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
     queryKey: ['connector-instances', currentProjectId],
@@ -61,7 +61,7 @@ export const useConnectorInstances = () => {
 
 export const useCreateConnectorInstance = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: (instance: CreateConnectorInstancePayload) => processService.createConnectorInstance(instance),
     onSuccess: () => {
@@ -72,7 +72,7 @@ export const useCreateConnectorInstance = () => {
 
 export const useUpdateConnectorInstance = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: (instance: ApiConnectorInstance) => processService.updateConnectorInstance(instance),
     onSuccess: () => {
@@ -83,7 +83,7 @@ export const useUpdateConnectorInstance = () => {
 
 export const useDeleteConnectorInstance = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: (id: string) => processService.deleteConnectorInstance(id),
     onSuccess: () => {

@@ -187,7 +187,7 @@ export function NodeTestModal({
 }) {
   const tryStep = useTryConnectorStep();
   const executeScript = useExecuteScript();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const [testVars, setTestVars] = useState('{}');
   const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);

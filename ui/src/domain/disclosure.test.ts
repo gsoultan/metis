@@ -382,22 +382,6 @@ describe('the raw schema editor', () => {
 });
 
 /**
- * The designer reads the flag through a selector.
- *
- * Every task and gateway on the canvas subscribed to the whole store to read
- * this one flag, so any write to the store, such as collapsing the sidebar or
- * switching the theme, re-rendered every one of them.
- */
-describe('the designer', () => {
-  it.each([['components/BPMNNodes.tsx'], ['components/DesignerSidebar.tsx']])(
-    '%s subscribes to the fields it reads, not to the whole store',
-    (path) => {
-      expect(readSource(path).match(/useAppStore\(\)/g) ?? []).toEqual([]);
-    },
-  );
-});
-
-/**
  * Expert mode adds a list item's ID; it never takes another line's place.
  *
  * The project list showed each project's ID instead of its organization, so

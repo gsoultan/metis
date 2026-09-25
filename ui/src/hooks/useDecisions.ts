@@ -9,7 +9,7 @@ type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
 type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
 
 export const useDecisions = (page = 1, pageSize = 25) => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
     queryKey: ['decisions', currentProjectId, page, pageSize],
@@ -35,7 +35,7 @@ export const useDecision = (id: string | null) => {
 };
 
 export const useCreateDecision = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (params: CreateDecisionPayload) =>
@@ -73,7 +73,7 @@ export const useDeleteDecision = () => {
 
 /** Runs a saved table in the current project — the one the editor saves into. */
 export const useEvaluateDecision = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ key, variables, version }: { key: string; variables: ProcessVariables; version?: number }) =>
       processService.evaluateDecision(currentProjectId ?? '', key, variables, version),

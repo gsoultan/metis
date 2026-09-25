@@ -178,7 +178,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   const [offeredDraft, setOfferedDraft] = useState<DesignerDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const { data: loadedData } = useDefinition(definitionId || null);
   const { data: pathData } = useExecutionPath(instanceId || null);
   const { data: instanceData } = useInstance(instanceId || null);
