@@ -17,6 +17,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
+	"github.com/gsoultan/metis/server/domains/services/impl/sqlconnector"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -165,6 +166,7 @@ func NewConnectorService(
 	s.executors[connectors.HTTPConnectorKey] = connectors.NewHTTPConnector(nil)
 	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
 	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
+	s.executors[sqlconnector.Key] = sqlconnector.New()
 	s.executors["rabbitmq-publish"] = NewRabbitMQExecutor()
 
 	// Discord Connector
@@ -191,7 +193,7 @@ func (s *connectorService) ListConnectors(ctx context.Context) ([]entities.Conne
 	}
 	res := make([]entities.Connector, len(ms))
 	for i, m := range ms {
-		res[i] = adapters.ConnectorEntityAdapter{Model: m}.ToEntity()
+		res[i] = withNodeSchema(adapters.ConnectorEntityAdapter{Model: m}.ToEntity())
 	}
 	return res, nil
 }
@@ -201,7 +203,25 @@ func (s *connectorService) GetConnector(ctx context.Context, id uuid.UUID) (enti
 	if err != nil {
 		return entities.Connector{}, err
 	}
-	return adapters.ConnectorEntityAdapter{Model: m}.ToEntity(), nil
+	return withNodeSchema(adapters.ConnectorEntityAdapter{Model: m}.ToEntity()), nil
+}
+
+// nodeSchemas are the fields a step fills in, for the built-ins that take a
+// step's own request.
+//
+// Compiled in and attached on read rather than stored beside the connection
+// schema. What a step asks for is code — it has to agree with the executor
+// that reads it — so a stored copy would be a second definition, and one that
+// an installation seeded under an older version would keep.
+var nodeSchemas = map[string]func() []entities.ConnectorProperty{
+	sqlconnector.Key: sqlconnector.NodeSchema,
+}
+
+func withNodeSchema(c entities.Connector) entities.Connector {
+	if schema, ok := nodeSchemas[c.Key]; ok {
+		c.NodeSchema = schema()
+	}
+	return c
 }
 
 func (s *connectorService) CreateConnector(ctx context.Context, c entities.Connector) (entities.Connector, error) {
@@ -552,6 +572,7 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 				{Key: "from", Label: "From Email", Type: "string", Required: true},
 			},
 		},
+		sqlconnector.CatalogueEntry(),
 	}
 
 	var failed error
@@ -842,5 +863,6 @@ func BuiltInConnectorKeys() []string {
 		"discord-message",
 		"sendgrid-email",
 		"ms-teams-message",
+		sqlconnector.Key,
 	}
 }
