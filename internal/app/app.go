@@ -694,6 +694,9 @@ func (a *App) setupService(ctx context.Context) error {
 	dispatcher := impl.NewEventDispatcher()
 	dispatcher.Register(impl.NewAuditLogObserver(a.repo.Audit()))
 	a.sse = impl.NewSSEObserver()
+	// Each hint waits for the work it points at to commit, and is dropped if
+	// that work rolls back.
+	a.sse.DeliverAfterCommitWith(a.repo.UnitOfWork().AfterCommit)
 	dispatcher.Register(a.sse)
 
 	// Register Webhook Observer if endpoints are provided

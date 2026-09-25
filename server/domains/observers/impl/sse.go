@@ -41,6 +41,11 @@ type SSEObserver struct {
 	// organization does not change, and the alternative is a database read on
 	// the path that produced the event.
 	orgOfProject map[uuid.UUID]uuid.UUID
+
+	// afterCommit holds an event back until the transaction that produced it
+	// has committed, and drops it if that transaction rolls back. Nil in tests
+	// that deliver at once. See DeliverAfterCommitWith.
+	afterCommit func(ctx context.Context, fn func())
 }
 
 func NewSSEObserver() *SSEObserver {
@@ -74,9 +79,38 @@ func (o *SSEObserver) ResolveProjectsWith(resolve func(ctx context.Context, proj
 	o.resolveProject = resolve
 }
 
+// DeliverAfterCommitWith has each event wait for the transaction that
+// produced it. Set at composition, where the unit of work lives.
+//
+// An event is a hint to refetch. Sent from inside the transaction, a browser
+// that refetched at once read the state from before and got no second hint,
+// and a hint about work that then rolled back pointed at something that never
+// happened: a completion whose next step failed still told the inbox the task
+// was done.
+func (o *SSEObserver) DeliverAfterCommitWith(afterCommit func(ctx context.Context, fn func())) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.afterCommit = afterCommit
+}
+
 // OnEvent delivers a process event to the browsers it belongs to.
+//
+// Scoped and encoded now, from the event as it stands and the context that
+// produced it; only the delivery waits for the commit.
 func (o *SSEObserver) OnEvent(ctx context.Context, event entities.ProcessEvent) {
-	o.BroadcastTo(o.scopeOf(ctx, event), event)
+	scope := o.scopeOf(ctx, event)
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	o.mu.RLock()
+	afterCommit := o.afterCommit
+	o.mu.RUnlock()
+	if afterCommit == nil {
+		o.BroadcastTo(scope, json.RawMessage(payload))
+		return
+	}
+	afterCommit(ctx, func() { o.BroadcastTo(scope, json.RawMessage(payload)) })
 }
 
 // BroadcastTo encodes one event and delivers it within a scope.
