@@ -268,14 +268,11 @@ export function cellMatcher(cell: string, type: string): CellTest {
   const text = cell.trim();
   if (text === '' || text === ANY_VALUE) return () => true;
 
-  if (type === 'boolean') {
-    // Only the lower-case words are yes and no to the engine. `TRUE` is a bare
-    // word, which it reads as text, and text is never equal to a boolean.
-    if (text === 'true') return (value) => value === true;
-    if (text === 'false') return (value) => value === false;
-    return () => false;
-  }
-
+  // A yes/no column is read like any other: literalValue takes only the
+  // lower-case words as yes and no, as the engine does — `TRUE` is a bare word,
+  // which it reads as text, and text never equals a boolean. The column used to
+  // stop here with true and false, so `not(true)` and `true, false` matched no
+  // answer at all.
   const negated = text.match(/^not\((.+)\)$/);
   if (negated) {
     const inner = cellMatcher(negated[1], type);

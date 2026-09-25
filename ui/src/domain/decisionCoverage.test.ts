@@ -278,3 +278,47 @@ describe('the Empty condition', () => {
     expect(ruleForGap(report.gaps[0], 'new', 1).input_entries).toEqual(['not("-")']);
   });
 });
+
+/**
+ * A yes/no column read `true` and `false` and nothing else: `not(true)`,
+ * `not(false)` and `true, false` matched no answer at all, though the checks
+ * called them readable. So "not yes" was reported as leaving "no" undecided,
+ * Add line wrote `false` beside it, and the engine then failed every "no" on
+ * two lines where only one may match.
+ */
+describe('a yes/no column', () => {
+  it('is decided by not(true) for no, and by a list for both', () => {
+    expect(findCoverageGaps([urgent], [rule('true'), rule('not(true)')]).gaps).toEqual([]);
+    expect(findCoverageGaps([urgent], [rule('not(false)'), rule('false')]).gaps).toEqual([]);
+    expect(findCoverageGaps([urgent], [rule('true, false')]).gaps).toEqual([]);
+  });
+
+  it('still finds the answer nothing decides', () => {
+    const report = findCoverageGaps([urgent], [rule('not(false)')]);
+    expect(report.gaps.map((gap) => gap.description)).toEqual(['Nothing decides when Urgent is no']);
+    expect(ruleForGap(report.gaps[0], 'new', 1).input_entries).toEqual(['false']);
+  });
+
+  it('is matched the way the engine matches it', () => {
+    const cellMatches = (cell: string, value: boolean) => cellMatcher(cell, 'boolean')(value);
+    expect(cellMatches('not(true)', false)).toBe(true);
+    expect(cellMatches('not(true)', true)).toBe(false);
+    expect(cellMatches('not(false)', true)).toBe(true);
+    expect(cellMatches('true, false', false)).toBe(true);
+    // Upper case is a bare word, which the engine reads as text.
+    expect(cellMatches('TRUE', true)).toBe(false);
+    expect(cellMatches('not(TRUE)', true)).toBe(true);
+  });
+
+  it('has its overlaps found under not( ) as well', () => {
+    const unique = (rules: DecisionRuleRow[]) =>
+      findOverlaps('UNIQUE', [urgent], [output], rules.map((line, i) => ({ ...line, output_entries: [`R${i}`] })));
+    expect(unique([rule('true'), rule('not(true)')])).toEqual([]);
+    expect(unique([rule('not(true)'), rule('not(true)')]).map((problem) => problem.message)).toEqual([
+      'Lines 1 and 2 both apply when Urgent is no, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(unique([rule('true, false'), rule('true')]).map((problem) => problem.message)).toEqual([
+      'Lines 1 and 2 both apply when Urgent is yes, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+  });
+});
