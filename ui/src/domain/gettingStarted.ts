@@ -16,6 +16,9 @@
  * for it to call, and people to give its work to.
  */
 
+import { hasRole, type RoleHolder } from './access';
+import { DESIGNER_ROLE, PRIVILEGED_ROLE } from './roles';
+
 export type GettingStartedStepId =
   | 'deploy-process'
   | 'start-instance'
@@ -45,12 +48,25 @@ export interface GettingStartedStep {
 }
 
 interface StepDefinition extends Omit<GettingStartedStep, 'done'> {
+  /**
+   * The roles the server lets do it (server/endpoints/endpoints.go), any one
+   * of which will do. Empty means anybody signed in.
+   */
+  doneBy: readonly string[];
   isDone: (facts: GettingStartedFacts) => boolean;
 }
+
+/** CreateDefinition and ImportParticipants are designer() endpoints. */
+const DESIGNERS = [PRIVILEGED_ROLE, DESIGNER_ROLE];
+/** CreateConnectorInstance is adminOnly(). */
+const ADMINISTRATORS = [PRIVILEGED_ROLE];
+/** StartProcess and completing a task are protected(): a sign-in is enough. */
+const ANYBODY: readonly string[] = [];
 
 const STEPS: StepDefinition[] = [
   {
     id: 'deploy-process',
+    doneBy: DESIGNERS,
     label: 'Deploy a process',
     // It links to Processes, where a new process is drawn (see the card's
     // STEP_LINKS). The templates are on the Dashboard only, so it says so.
@@ -59,32 +75,50 @@ const STEPS: StepDefinition[] = [
   },
   {
     id: 'start-instance',
+    doneBy: ANYBODY,
     label: 'Start an instance',
     description: 'Run your process once. Each run is an instance you can follow step by step.',
     isDone: (facts) => facts.instanceStarted,
   },
   {
     id: 'complete-task',
+    doneBy: ANYBODY,
     label: 'Complete a task',
     description: 'When a process needs a person, the task waits in the inbox until somebody completes it.',
     isDone: (facts) => facts.taskCompleted,
   },
   {
     id: 'connect-system',
+    doneBy: ADMINISTRATORS,
     label: 'Connect another system',
     description: 'Set up a connection, such as email or Slack, so your steps can call it.',
     isDone: (facts) => facts.connectionSetUp,
   },
   {
     id: 'add-people',
+    doneBy: DESIGNERS,
     label: 'Add the people who do the work',
     description: 'Import the people your processes can assign tasks to.',
     isDone: (facts) => facts.peopleAdded,
   },
 ];
 
-export function gettingStartedSteps(facts: GettingStartedFacts): GettingStartedStep[] {
-  return STEPS.map(({ isDone, ...step }) => ({ ...step, done: isDone(facts) }));
+/**
+ * The steps this viewer can do, each ticked if it has been done, by anybody.
+ *
+ * A step the server would refuse them is left out rather than shown with a
+ * link to the page where they would be refused. Somebody with no role is left
+ * with starting an instance and completing a task, and the card counts and
+ * finishes on those. This decides what is shown, never what is allowed.
+ */
+export function gettingStartedSteps(facts: GettingStartedFacts, viewer: RoleHolder | null | undefined): GettingStartedStep[] {
+  return STEPS
+    .filter((step) => mayDo(viewer, step))
+    .map(({ isDone, doneBy: _doneBy, ...step }) => ({ ...step, done: isDone(facts) }));
+}
+
+function mayDo(viewer: RoleHolder | null | undefined, step: StepDefinition): boolean {
+  return step.doneBy.length === 0 || step.doneBy.some((role) => hasRole(viewer, role));
 }
 
 /**

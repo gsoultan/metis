@@ -25,6 +25,7 @@ import {
   type GettingStartedFacts,
   type GettingStartedStepId,
 } from '../domain/gettingStarted';
+import { useAppStore } from '../store/useAppStore';
 
 /**
  * Getting started, drawn two ways: as a card somebody can put away, and as the
@@ -102,10 +103,11 @@ interface GettingStartedCardProps {
  */
 export function GettingStartedCard({ facts }: GettingStartedCardProps) {
   const titleId = useId();
+  const viewer = useAppStore((state) => state.user);
   const [dismissed, setDismissed] = useState(readDismissed);
   if (dismissed || !facts) return null;
 
-  const steps = gettingStartedSteps(facts);
+  const steps = gettingStartedSteps(facts, viewer);
   const next = nextStep(steps);
   if (!next) return null;
   const doneCount = steps.filter((step) => step.done).length;
@@ -165,7 +167,8 @@ interface GettingStartedTimelineProps {
  * the first step next and then jumping once the answers land.
  */
 export function GettingStartedTimeline({ facts, onNavigate }: GettingStartedTimelineProps) {
-  const steps = gettingStartedSteps(facts ?? NO_PROGRESS_YET);
+  const viewer = useAppStore((state) => state.user);
+  const steps = gettingStartedSteps(facts ?? NO_PROGRESS_YET, viewer);
   const next = facts ? nextStep(steps) : undefined;
   // The line fills down to the first step not done. Steps get done out of
   // order, so each one's own tick is what says it is done.

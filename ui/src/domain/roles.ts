@@ -46,6 +46,9 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
 /** The administrator's role: the badge that stands out, and what administrative pages ask for. */
 export const PRIVILEGED_ROLE = 'ADMIN';
 
+/** The role that authors and deploys models, and imports the people they assign work to. */
+export const DESIGNER_ROLE = 'DESIGNER';
+
 /**
  * The word for a role token.
  *
