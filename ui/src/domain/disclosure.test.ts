@@ -344,6 +344,15 @@ describe('the raw schema editor', () => {
     expect(rawEditorView(step, draft).problem).toBeTruthy();
   });
 
+  it('refuses one setting under two names, which would save only one of them', () => {
+    // httpUrl is the panel's name for http_url. With both in the text the
+    // editor would show two addresses and the step would save one.
+    const { draft, patch } = editRawSettings(step, '{"httpUrl": "https://a.example", "http_url": "https://b.example"}');
+
+    expect(patch).toBeUndefined();
+    expect(rawEditorView(step, draft).problem).toContain('"httpUrl" and "http_url" are the same setting');
+  });
+
   it('refuses an empty box rather than clearing every setting', () => {
     const { draft, patch } = editRawSettings(step, '');
 

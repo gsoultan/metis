@@ -105,13 +105,13 @@ describe('what a step is read to produce', () => {
   it('takes a service task’s output mappings, under the names they are stored as', () => {
     const nodes = [
       node('start', 'startEvent'),
+      // As a step opened from the server holds them: each setting once, on
+      // the step itself.
       node('lookup', 'serviceTask', {
-        properties: {
-          http_url: 'https://example.invalid',
-          input_companyNumber: 'registration_id',
-          output_credit_score: 'creditScore',
-          output_status: 'companyStatus',
-        },
+        httpUrl: 'https://example.invalid',
+        input_companyNumber: 'registration_id',
+        output_credit_score: 'creditScore',
+        output_status: 'companyStatus',
       }),
     ];
     const flow = computeDataFlow(nodes, [edge('start', 'lookup')]);

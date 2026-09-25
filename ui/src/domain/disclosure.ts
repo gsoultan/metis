@@ -9,6 +9,7 @@
  * mode is where it is changed.
  */
 
+import { storedName } from '../mappers/settingNames';
 import { asNumber, asText } from '../types/bpmn';
 
 /** How the property panel shows one advanced setting. */
@@ -203,7 +204,27 @@ function readRawSettings(text: string): RawReading {
   if (!isPlainObject(parsed)) {
     return { ok: false, problem: 'A step\'s settings are one object, in braces, so this has not been applied.' };
   }
+  // Saved, both names become one, and one of the two values is lost, while
+  // the editor goes on showing both.
+  const twins = namesOfOneSetting(parsed);
+  if (twins !== undefined) {
+    return {
+      ok: false,
+      problem: `"${twins[0]}" and "${twins[1]}" are the same setting, so this has not been applied. Keep one of them.`,
+    };
+  }
   return { ok: true, settings: parsed };
+}
+
+/** Two keys that are saved as one setting, if the settings hold any. */
+function namesOfOneSetting(settings: Record<string, unknown>): [string, string] | undefined {
+  const seen = new Map<string, string>();
+  for (const key of Object.keys(settings)) {
+    const earlier = seen.get(storedName(key));
+    if (earlier !== undefined) return [earlier, key];
+    seen.set(storedName(key), key);
+  }
+  return undefined;
 }
 
 /**

@@ -14,8 +14,6 @@
 export interface BaseBPMNNodeData {
   label: string;
   documentation?: string;
-  /** Raw property bag preserved from the server round-trip. */
-  properties?: Record<string, unknown>;
   /** Set by the instance viewer to show execution state. */
   status?: 'active' | 'completed' | 'pending';
   /** Heatmap overlay value (execution frequency). */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from './definitionMapper';
+import { editRawSettings, rawEditorView } from '../domain/disclosure';
+import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from './definitionMapper';
 
 /**
  * Saving a process, and opening it again.
@@ -375,5 +376,130 @@ describe('imported diagram geometry', () => {
     ] as Edges);
 
     expect(payload.flows[0].waypoints).toEqual([]);
+  });
+});
+
+type Loaded = ReturnType<typeof mapLoadedNodes>[number];
+
+/** A step as the designer opens it from the server. */
+function loaded(type: string, properties: Record<string, unknown>): Loaded {
+  const [step] = mapLoadedNodes([
+    { id: 'step', name: 'Step', type, x: 0, y: 0, properties },
+  ] as Parameters<typeof mapLoadedNodes>[0]);
+  return step;
+}
+
+/** The step's settings as the raw editor shows them. */
+function shownIn(step: Loaded): Record<string, unknown> {
+  return JSON.parse(rawEditorView(step.data, null).text) as Record<string, unknown>;
+}
+
+/** Edits the settings as shown, types the result into the raw editor, and merges it as the designer does. */
+function afterRawEdit(step: Loaded, edit: (shown: Record<string, unknown>) => void): Loaded {
+  const shown = shownIn(step);
+  edit(shown);
+  const { patch } = editRawSettings(step.data, JSON.stringify(shown, null, 2));
+  return { ...step, data: { ...step.data, ...patch } };
+}
+
+function savedStep(step: Loaded) {
+  return buildDefinitionPayload('A process', 'a-process', [step] as Nodes, [] as Edges).nodes[0];
+}
+
+/**
+ * The raw editor shows a step's settings, and saving sends exactly those.
+ *
+ * A step opened from the server held each setting up to three times: under
+ * its stored name, under the panel's camelCase name, and again in a nested
+ * copy of everything the server sent, which saving started from. Deleting
+ * http_url and httpUrl in the raw editor left the nested copy, so the address
+ * was saved all the same. A rename left it too, under the old name.
+ */
+describe('what the raw editor shows is what is saved', () => {
+  const address = { implementation: 'push', http_url: 'https://old.example/notify' };
+
+  it('drops a loaded setting that is deleted in the raw editor', () => {
+    const edited = afterRawEdit(loaded('serviceTask', address), (shown) => {
+      delete shown.http_url;
+      delete shown.httpUrl;
+    });
+
+    expect(savedStep(edited).properties).not.toHaveProperty('http_url');
+  });
+
+  it('saves a loaded setting renamed in the raw editor under its new name only', () => {
+    const edited = afterRawEdit(loaded('serviceTask', address), (shown) => {
+      shown.endpoint = shown.httpUrl ?? shown.http_url;
+      delete shown.http_url;
+      delete shown.httpUrl;
+    });
+
+    expect(savedStep(edited).properties).toMatchObject({ endpoint: 'https://old.example/notify' });
+    expect(savedStep(edited).properties).not.toHaveProperty('http_url');
+  });
+
+  it('shows each loaded setting once', () => {
+    // Every setting the loader gave a second name to, and some it did not,
+    // each with a value found nowhere else.
+    const stored = [
+      'implementation', 'connector_instance_id', 'lock_duration', 'http_url', 'http_method', 'headers',
+      'input_mapping', 'output_mapping', 'result_variable', 'event_type', 'timer_type', 'timer_duration',
+      'signal_name', 'message_name', 'correlation_key', 'condition_expression', 'escalation_code',
+      'activity_ref', 'non_interrupting', 'form_definition', 'decision_key', 'called_process_key', 'auth_token',
+    ];
+    const properties = Object.fromEntries(stored.map((key) => [key, `value-of-${key}`]));
+    const text = rawEditorView(loaded('serviceTask', properties).data, null).text;
+
+    for (const key of stored) {
+      expect(text.split(`"value-of-${key}"`).length - 1, key).toBe(1);
+    }
+    expect(savedStep(loaded('serviceTask', properties)).properties).toEqual(properties);
+  });
+});
+
+describe('a step opened from the server', () => {
+  it('saves a decision table mapping changed in the panel', () => {
+    // The panel writes the mapping under the name the server stores it by.
+    // The loader had also put the old mapping under inputMapping, which
+    // saving sends as input_mapping too, after it, so the edit was lost.
+    const rule = loaded('businessRuleTask', { decision_key: 'risk', input_mapping: { score: 'creditScore' } });
+    const edited = { ...rule, data: { ...rule.data, input_mapping: { score: 'riskScore' } } };
+
+    expect(savedStep(edited).properties.input_mapping).toEqual({ score: 'riskScore' });
+  });
+});
+
+describe('a draft kept in the browser by an earlier version', () => {
+  // Opened when steps held a setting up to three times, then edited in the
+  // panel: the panel's copy is the new one, and the others are stale.
+  const draft = [{
+    id: 'rule',
+    type: 'businessRuleTask',
+    position: { x: 0, y: 0 },
+    data: {
+      label: 'Rule',
+      nodeType: 'businessRuleTask',
+      decision_key: 'risk',
+      input_mapping: { score: 'riskScore' },
+      inputMapping: { score: 'creditScore' },
+      http_url: 'https://old.example',
+      httpUrl: 'https://new.example',
+      properties: { decision_key: 'risk', input_mapping: { score: 'creditScore' }, deleted_since: 'gone' },
+    },
+  }] as Nodes;
+
+  it('holds each setting once, as the panel last showed it', () => {
+    const [restored] = restoredNodes(draft);
+
+    expect(Object.keys(restored.data)).not.toEqual(expect.arrayContaining(['properties']));
+    expect(Object.keys(restored.data)).not.toEqual(expect.arrayContaining(['inputMapping']));
+    expect(Object.keys(restored.data)).not.toEqual(expect.arrayContaining(['http_url']));
+  });
+
+  it('saves what the panel showed, and nothing deleted since', () => {
+    const saved = savedStep(restoredNodes(draft)[0]);
+
+    expect(saved.properties).toMatchObject({ input_mapping: { score: 'riskScore' }, http_url: 'https://new.example' });
+    expect(saved.properties).not.toHaveProperty('deleted_since');
   });
 });

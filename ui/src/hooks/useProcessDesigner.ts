@@ -26,7 +26,7 @@ import {
   useInstance,
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
-import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappers/definitionMapper';
+import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from '../mappers/definitionMapper';
 import { stepSchemasOf } from '../domain/connectorStep';
 import { validateProcess } from '../domain/processValidation';
 import {
@@ -764,7 +764,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   /** Applies the draft the person chose to restore. */
   const restoreDraft = useCallback(() => {
     if (!offeredDraft) return;
-    setNodes(offeredDraft.nodes as typeof nodes);
+    setNodes(restoredNodes(offeredDraft.nodes as typeof nodes));
     setEdges(offeredDraft.edges as typeof edges);
     if (offeredDraft.processName) setProcessName(offeredDraft.processName);
     if (offeredDraft.processKey) setProcessKey(offeredDraft.processKey);

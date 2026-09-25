@@ -7,7 +7,7 @@
  * that carry a request of their own.
  */
 
-import { editorKeyFor } from '../mappers/definitionMapper';
+import { editorKeyFor } from '../mappers/settingNames';
 import type { ApiConnector, ApiConnectorProperty } from '../services/types';
 
 /** The step fields of each connector that has any, by connector id. */
