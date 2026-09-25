@@ -8,14 +8,20 @@ import { errorMessage } from '../services/shared/errors';
 
 type ParticipantsResult = Awaited<ReturnType<typeof processService.listParticipants>>;
 
-/** The people this project's processes can assign work to. */
-export const useParticipants = () => {
+/**
+ * The people this project's processes can assign work to.
+ *
+ * `limit` asks for at most that many, under a key of its own beneath the
+ * project's, so an import or a removal refreshes it with the whole list.
+ */
+export const useParticipants = (options: { limit?: number } = {}) => {
   const { currentProjectId, token } = useAppStore();
+  const { limit } = options;
   return useQuery({
-    queryKey: ['participants', currentProjectId],
+    queryKey: limit ? ['participants', currentProjectId, { limit }] : ['participants', currentProjectId],
     queryFn: ({ signal }) =>
       currentProjectId && token
-        ? processService.listParticipants(currentProjectId, signal)
+        ? processService.listParticipants(currentProjectId, signal, { limit })
         : Promise.resolve({ participants: [], err: '' } as ParticipantsResult),
     enabled: !!currentProjectId && !!token,
   });

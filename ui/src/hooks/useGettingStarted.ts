@@ -8,10 +8,14 @@ import { useParticipants } from './useParticipants';
  * What the current project has done of getting started, for the Help drawer
  * and the Dashboard alike, so the two cannot disagree.
  *
- * The queries and their arguments are the Dashboard's own, so on the
- * Dashboard they are answered from its cache rather than asked for twice. Each
- * query goes to gettingStartedProgress whole, placeholder and error flags and
- * all; picking `data` out here is how another project's rows came to be
+ * Each thing is asked for as a count or a single row where it can be: the
+ * completed tasks from the project statistics, one person rather than the
+ * directory. The definitions, instances and statistics are asked with the
+ * Dashboard's own keys, so on the Dashboard they come from its cache rather
+ * than being asked for twice.
+ *
+ * Each query goes to gettingStartedProgress whole, placeholder and error flags
+ * and all; picking `data` out here is how another project's rows came to be
  * counted.
  */
 export function useGettingStartedProgress(): { progress: GettingStartedProgress; retry: () => void } {
@@ -21,7 +25,9 @@ export function useGettingStartedProgress(): { progress: GettingStartedProgress;
   const instances = useInstances(1, 25, {}, false);
   const statistics = useProcessStatistics();
   const connections = useConnectorInstances();
-  const people = useParticipants();
+  // Whether there is anybody, which is one row. The directory can be
+  // thousands, and this is asked every time Help opens.
+  const people = useParticipants({ limit: 1 });
 
   const progress = gettingStartedProgress({ definitions, instances, statistics, connections, people });
   // Asks again for whatever failed, whether it threw or answered with an error.

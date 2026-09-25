@@ -72,7 +72,7 @@ func TestSyncingFromASavedSource(t *testing.T) {
 		t.Fatalf("the recorded run should say what happened, got %+v", sources[0].LastRun)
 	}
 
-	listed, err := people.ListWorkflowUsers(t.Context(), projectID)
+	listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
 	if err != nil {
 		t.Fatalf("list participants: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestWhatHappensToSomebodyTheSourceStopsNaming(t *testing.T) {
 				t.Errorf("expected %d deactivated, got %d", tc.wantDeactived, summary.Deactivated)
 			}
 
-			listed, err := people.ListWorkflowUsers(t.Context(), projectID)
+			listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
 			if err != nil {
 				t.Fatalf("list: %v", err)
 			}

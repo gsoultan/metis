@@ -38,7 +38,7 @@ const PROJECT_UNDER_WAY: [readonly unknown[], unknown][] = [
   [['definitions', PROJECT, 1, 25], { ...noRows, definitions: [{ id: 'd1', key: 'invoice' }] }],
   [['instances', PROJECT, 1, 25, '', '', false], { ...noRows, instances: [{ id: 'i1' }], statusCounts: [], needsAttentionTotal: 0, needsAttentionIds: [] }],
   [['connector-instances', PROJECT], { instances: [], err: '' }],
-  [['participants', PROJECT], { participants: [], err: '' }],
+  [['participants', PROJECT, { limit: 1 }], { participants: [], err: '' }],
 ];
 
 /*
@@ -78,5 +78,22 @@ describe('Help, when a request for its progress fails', () => {
     );
     expect(visibleText(html)).toContain("Could not check this project's progress");
     expect(visibleText(html)).not.toContain('Done:');
+  });
+});
+
+/*
+ * Help asks whether the project has done each thing, which is a question
+ * about one row or a count. It used to download the whole people directory,
+ * and the newest 200 tasks, every time it was opened.
+ */
+describe('what Help asks the server for', () => {
+  it('asks for one person and the task counts, not the directory or a page of tasks', async () => {
+    const client = answered(PROJECT_UNDER_WAY);
+    await renderStatic(createElement(HelpTabs, { onNavigate: () => {} }), client);
+    const asked = client.getQueryCache().getAll().map((query) => JSON.stringify(query.queryKey));
+    expect(asked).toContain(JSON.stringify(['participants', PROJECT, { limit: 1 }]));
+    expect(asked).not.toContain(JSON.stringify(['participants', PROJECT]));
+    expect(asked).toContain(JSON.stringify(['stats', PROJECT]));
+    expect(asked.some((key) => key.startsWith('["tasks"'))).toBe(false);
   });
 });

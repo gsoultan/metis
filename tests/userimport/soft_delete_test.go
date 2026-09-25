@@ -129,7 +129,7 @@ func TestRemovingSomebodyTakesThemOutOfTheDirectory(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 
-	people, err := svc.ListWorkflowUsers(ctx, projectID)
+	people, err := svc.ListWorkflowUsers(ctx, projectID, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

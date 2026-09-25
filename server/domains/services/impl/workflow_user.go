@@ -23,11 +23,11 @@ func NewWorkflowUserService(participants repocontracts.WorkflowUserRepository) s
 	return &workflowUserService{participants: participants}
 }
 
-func (s *workflowUserService) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowUser, error) {
+func (s *workflowUserService) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
 	if projectID == uuid.Nil {
 		return nil, apierr.Invalidf("a project is required")
 	}
-	return s.participants.ListByProject(ctx, projectID)
+	return s.participants.ListByProject(ctx, projectID, limit)
 }
 
 // ImportWorkflowUsers reads a CSV of participants into a project.
@@ -225,7 +225,7 @@ func (s *workflowUserService) RemoveWorkflowUser(ctx context.Context, projectID,
 		return apierr.Invalidf("a participant is required")
 	}
 
-	people, err := s.participants.ListByProject(ctx, projectID)
+	people, err := s.participants.ListByProject(ctx, projectID, 0)
 	if err != nil {
 		return err
 	}

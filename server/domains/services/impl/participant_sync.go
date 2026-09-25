@@ -163,7 +163,7 @@ func (s *participantSyncService) deactivateMissing(ctx context.Context, projectI
 		named[row.Username] = struct{}{}
 	}
 
-	existing, err := s.directory.ListByProject(ctx, projectID)
+	existing, err := s.directory.ListByProject(ctx, projectID, 0)
 	if err != nil {
 		return 0, err
 	}
