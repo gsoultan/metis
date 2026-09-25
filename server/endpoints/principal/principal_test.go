@@ -59,3 +59,26 @@ func TestHasRoleDeniesWhenAbsent(t *testing.T) {
 		t.Fatal("USER not reported as USER")
 	}
 }
+
+// Every administrator-only endpoint checks the role ignoring case, and accounts
+// written by the older role picker hold "admin". HasRole compared exactly, so
+// the same administrator passed an endpoint's gate and was then refused the
+// administrator's override inside it.
+func TestHasRoleIgnoresCaseAsTheEndpointGatesDo(t *testing.T) {
+	cases := []struct {
+		name      string
+		held      string
+		principal any
+	}{
+		{"a local account", "admin", entities.User{Username: "olga", Roles: []string{"admin"}}},
+		{"an identity provider's token", "Admin", pkgauth.UserClaims{Subject: "sub-1", Roles: []string{"Admin"}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.WithValue(t.Context(), pkgauth.UserContextKey, c.principal)
+			if !HasRole(ctx, entities.RoleAdmin) {
+				t.Fatalf("%s holding %q is not reported as %s", c.name, c.held, entities.RoleAdmin)
+			}
+		})
+	}
+}

@@ -80,6 +80,12 @@ func LocalUserID(ctx context.Context) uuid.UUID {
 
 // HasRole reports whether the caller carries the role. Absent principal,
 // absent roles: false. Absent constraint means deny.
+//
+// Case is ignored, through entities.HasRole, because that is how the role
+// check on every administrator-only endpoint compares — and accounts written
+// by the older role picker hold "admin". Compared exactly here, the same
+// administrator passed the endpoint's gate and was refused the override
+// inside it.
 func HasRole(ctx context.Context, role string) bool {
 	var roles []string
 	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
@@ -96,10 +102,5 @@ func HasRole(ctx context.Context, role string) bool {
 			roles = u.Roles
 		}
 	}
-	for _, r := range roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
+	return entities.HasRole(roles, role)
 }
