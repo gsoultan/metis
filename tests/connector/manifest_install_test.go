@@ -4,10 +4,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/tests/testutils"
 	"gorm.io/gorm"
 )
@@ -185,6 +188,50 @@ func TestReinstallingASwitchedOffManifestLeavesItOff(t *testing.T) {
 	}
 	if _, err := svc.ExecuteConnector(ctx, "crm.v", nil, nil); err == nil || called != 0 {
 		t.Errorf("the switched-off connector was called %d times after its document was fixed (err=%v)", called, err)
+	}
+}
+
+// An older document installed over a newer one quietly takes a connector back
+// to behaviour somebody had moved on from — usually a stale copy found in a
+// download folder. The same version again is how a document is fixed, and a
+// later one is an upgrade; only going back is refused.
+func TestAnOlderVersionIsNotInstalledOverANewerOne(t *testing.T) {
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	newer := "key: crm.u\nversion: 3\nrequest:\n  url: https://example.com/v3\n"
+	if _, err := svc.InstallManifest(ctx, []byte(newer)); err != nil {
+		t.Fatalf("install version 3: %v", err)
+	}
+
+	_, err := svc.InstallManifest(ctx, []byte("key: crm.u\nversion: 2\nrequest:\n  url: https://example.com/v2\n"))
+	if err == nil {
+		t.Fatal("version 2 was installed over version 3")
+	}
+	if !errors.Is(err, apierr.ErrInvalidArgument) || common.CodeFrom(err) != http.StatusBadRequest {
+		t.Errorf("the refusal is not a 400 (status %d): %v", common.CodeFrom(err), err)
+	}
+	if !strings.Contains(err.Error(), "version 3") || !strings.Contains(err.Error(), "version 2") {
+		t.Errorf("the refusal does not name both versions: %v", err)
+	}
+	if got, readErr := svc.GetManifestDocument(ctx, "crm.u"); readErr != nil || got != newer {
+		t.Errorf("after the refusal the installed document is %q (err=%v), want version 3 untouched", got, readErr)
+	}
+
+	for _, document := range []string{
+		"key: crm.u\nversion: 3\nrequest:\n  url: https://example.com/v3-fixed\n",
+		"key: crm.u\nversion: 4\nrequest:\n  url: https://example.com/v4\n",
+	} {
+		if _, err := svc.InstallManifest(ctx, []byte(document)); err != nil {
+			t.Fatalf("installing %q was refused: %v", document, err)
+		}
+	}
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Version != 4 {
+		t.Errorf("catalogue = %+v, want one entry at version 4", manifests)
 	}
 }
 

@@ -90,6 +90,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   administrator who switched a connector off and then fixed its document found
   it running again. Installing over an installed manifest now keeps the switch
   it had; only a new one is installed switched on.
+- **An older connector document could be installed over a newer one.** It
+  replaced the newer version without a word, taking every step that uses the
+  connector back to the older behaviour. A document whose `version` is lower
+  than the installed one is now refused with a 400 that names both versions.
+  The same version again, which is how a document is fixed, and higher ones
+  install as before.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

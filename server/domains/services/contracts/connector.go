@@ -63,7 +63,8 @@ type ConnectorService interface {
 type ConnectorManifestManager interface {
 	// InstallManifest validates and stores a manifest. Installing an existing
 	// key replaces it, because installing again is how an author fixes one,
-	// and keeps whether it is switched on.
+	// and keeps whether it is switched on. A lower version than the one
+	// installed is refused.
 	InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error)
 
 	// ImportOpenAPI turns a specification into manifests and installs them all.

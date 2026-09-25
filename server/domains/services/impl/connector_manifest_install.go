@@ -22,6 +22,11 @@ func (s *connectorService) install(ctx context.Context, manifest connectors.Mani
 	if err != nil {
 		return entities.ConnectorManifest{}, err
 	}
+	if installed {
+		if err := refuseDowngrade(current, manifest); err != nil {
+			return entities.ConnectorManifest{}, err
+		}
+	}
 
 	if err := store.Upsert(ctx, models.ConnectorManifestModel{
 		Key:      manifest.Key,
@@ -62,6 +67,23 @@ func installedManifest(ctx context.Context, store repocontracts.ConnectorManifes
 	default:
 		return models.ConnectorManifestModel{}, false, err
 	}
+}
+
+// refuseDowngrade stops an older document replacing a newer one.
+//
+// Installing over a manifest is how it is fixed, so the same version is
+// allowed, and a later one is an upgrade. An earlier one is almost always a
+// stale copy, and installing it quietly takes every step that names the key
+// back to behaviour somebody had moved on from. Refused rather than skipped,
+// so whoever installed it hears why nothing changed.
+func refuseDowngrade(current models.ConnectorManifestModel, incoming connectors.Manifest) error {
+	if incoming.Version >= current.Version {
+		return nil
+	}
+	return apierr.Invalidf(
+		"%q is installed at version %d, and this document is version %d; installing it would put back "+
+			"an older connector. Install version %d or later to change it",
+		incoming.Key, current.Version, incoming.Version, current.Version)
 }
 
 // manifestEntity is a stored manifest as the catalogue lists it: without its
