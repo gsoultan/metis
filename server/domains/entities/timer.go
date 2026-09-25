@@ -156,6 +156,25 @@ func ParseTimerExpression(expr string, now time.Time) (time.Time, error) {
 		"timer %q is not a recognised ISO-8601 duration (PT1H), date (2026-01-01T12:00:00Z) or Go duration (1h30m)", expr)
 }
 
+// ResolveDueDate reads a node's due date against the moment its task appeared.
+//
+// Anything a timer accepts is accepted here — an ISO-8601 duration (PT24H), a
+// date (2026-03-01), an instant — because the designer offers both of the
+// first two, and task creation used to read RFC 3339 only: the suggestions it
+// offered were dropped without a word, leaving a task nobody would ever see as
+// late. A repeating cycle has no single deadline and, like an expression
+// nothing can read, yields none.
+func ResolveDueDate(raw string, from time.Time) *time.Time {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	due, err := ParseTimerExpression(raw, from)
+	if err != nil {
+		return nil
+	}
+	return &due
+}
+
 // isRepeatingCycle reports whether expr is an ISO-8601 repeating interval,
 // which starts with R optionally followed by a repeat count and a slash.
 func isRepeatingCycle(expr string) bool {

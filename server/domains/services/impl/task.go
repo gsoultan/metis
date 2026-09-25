@@ -379,12 +379,7 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 		candidateUsers := node.CandidateUsers
 		candidateGroups := node.CandidateGroups
 
-		var dueDate *time.Time
-		if node.DueDate != "" {
-			if t, err := time.Parse(time.RFC3339, node.DueDate); err == nil {
-				dueDate = &t
-			}
-		}
+		dueDate := entities.ResolveDueDate(node.DueDate, time.Now())
 
 		task := entities.Task{
 			ID:              idObj,

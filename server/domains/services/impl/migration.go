@@ -727,12 +727,13 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	task.CandidateUsers = slices.Clone(node.CandidateUsers)
 	task.CandidateGroups = slices.Clone(node.CandidateGroups)
 
-	task.DueDate = nil
-	if node.DueDate != "" {
-		if due, err := time.Parse(time.RFC3339, node.DueDate); err == nil {
-			task.DueDate = &due
-		}
+	// A duration counts from when the task appeared, not from the move: moving
+	// work to another version must not quietly extend its deadline.
+	appeared := task.CreatedAt
+	if appeared.IsZero() {
+		appeared = time.Now()
 	}
+	task.DueDate = entities.ResolveDueDate(node.DueDate, appeared)
 
 	// The claim does not survive the move. Whoever held this task claimed the
 	// step that was deleted, not the one they are now looking at.
