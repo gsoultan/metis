@@ -298,6 +298,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   a lone word that is another column's name now means that column.
   `docs/upgrading.md` (*Decision cells see the rest of the case*) has a query
   that lists them.
+- **The decision editor told an author to put working conditions in quotes.**
+  When the table checks could not read a column (a cell calling a function,
+  say) and the column also had a line with `-`, as every new line does, the
+  coverage card said the column "has text the engine cannot read without
+  quotes": it took the dash for unquoted text. Quoting the cells as told would
+  have turned them into plain words. The dash no longer counts, and the card
+  says only that it could not check the column.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

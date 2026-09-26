@@ -64,10 +64,14 @@ function readablePart(part: string): boolean {
  * Whether a cell holds unquoted text the engine cannot read as text — more
  * than one plain word, a dash or a dot, a digit first, or a keyword such as
  * `in` — which quotes would make readable. `null` is left out: unquoted, it
- * means no value at all, which may be what was meant.
+ * means no value at all, which may be what was meant. So is the dash that means
+ * any value, which sits in every new line: it was taken for unquoted text
+ * beside any cell the check could not read, and such a table was told to quote
+ * its cells.
  */
 export function needsQuotes(cell: string): boolean {
   const text = cell.trim().replace(/^not\((.+)\)$/, '$1');
+  if (isWildcardText(text)) return false;
   return text.split(',').some((part) => {
     const word = part.trim();
     if (word === 'null' || word === '_input' || /^-\s*\d/.test(word)) return false;
