@@ -18,6 +18,11 @@ type ConnectorManifestRepository interface {
 	// ends, for an install that decides what to write from what is there.
 	GetByKeyForUpdate(ctx context.Context, key string) (models.ConnectorManifestModel, error)
 
+	// GetForUpdate reads a manifest by id and holds its row until the
+	// transaction ends, for a switch or a removal that must act on the
+	// document as it stands.
+	GetForUpdate(ctx context.Context, id uuid.UUID) (models.ConnectorManifestModel, error)
+
 	List(ctx context.Context) ([]models.ConnectorManifestModel, error)
 
 	// Upsert installs a manifest, replacing any earlier one with the same key.

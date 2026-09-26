@@ -609,12 +609,12 @@ jobs:
         if: always()
         run: docker rm -f metis-ci || true
 
-      # The manifest is a deployment people apply, so a typo in it is an
+      # The manifests are deployments people apply, so a typo in one is an
       # outage on their cluster rather than a red build here. Validated
       # against the real Kubernetes schemas, in the job that already proves
-      # the image the manifest refers to.
-      - name: Validate the Kubernetes manifest
-        run: go run github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0 -strict -summary deploy/kubernetes/metis.yaml
+      # the image the manifests refer to.
+      - name: Validate the Kubernetes manifests
+        run: go run github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0 -strict -summary deploy/kubernetes/metis.yaml deploy/kubernetes/canary.yaml
 
       # A rules file with a bad expression is worse than no rules file: it
       # loads, it looks like coverage, and the alert never fires. promtool

@@ -235,10 +235,12 @@ func TestAnOlderVersionIsNotInstalledOverANewerOne(t *testing.T) {
 	}
 }
 
-// A manifest replaces a built-in under the same key. That is what "without a
-// redeploy" means: the Go connector stays in the binary and stops being used.
+// A manifest replaces a built-in under the same key, where the operator allows
+// it. That is what "without a redeploy" means: the Go connector stays in the
+// binary and stops being used.
 func TestAManifestReplacesABuiltIn(t *testing.T) {
 	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "true")
 
 	var called bool
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -259,6 +261,82 @@ func TestAManifestReplacesABuiltIn(t *testing.T) {
 	}
 	if !called {
 		t.Error("the built-in answered instead of the installed manifest")
+	}
+}
+
+// A manifest under a built-in's key replaces that connector in every step of
+// every organization that uses it, so it is not something installing a
+// document may do by itself: without the operator's say-so it is refused, and
+// the refusal names the key.
+func TestAManifestUnderABuiltInsKeyIsRefusedUnlessTheOperatorAllowsIt(t *testing.T) {
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "")
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	for _, key := range serviceimpl.BuiltInConnectorKeys() {
+		_, err := svc.InstallManifest(ctx, []byte("key: "+key+"\nversion: 1\nrequest:\n  url: https://example.com\n"))
+		if err == nil {
+			t.Errorf("a manifest took the built-in %q", key)
+			continue
+		}
+		if common.CodeFrom(err) != http.StatusBadRequest {
+			t.Errorf("%s: the refusal is not a 400 (status %d): %v", key, common.CodeFrom(err), err)
+		}
+		if !strings.Contains(err.Error(), `"`+key+`"`) || !strings.Contains(err.Error(), "METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE") {
+			t.Errorf("%s: the refusal does not name the key and the setting: %v", key, err)
+		}
+	}
+
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 0 {
+		t.Errorf("after the refusals the catalogue holds %+v, want nothing", manifests)
+	}
+}
+
+// Switching a manifest on puts it back in every step that names its key, which
+// for a built-in's key is taking that connector over again: the same decision
+// as installing it, and the operator's to make. A manifest installed under a
+// built-in's key while overrides were allowed — or before this release — and
+// then switched off is not switched back on once they are not.
+func TestAManifestUnderABuiltInsKeyIsNotSwitchedBackOnUnlessTheOperatorAllowsIt(t *testing.T) {
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "true")
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	installed, err := svc.InstallManifest(ctx, []byte("key: http-json\nversion: 1\nrequest:\n  url: https://example.com\n"))
+	if err != nil {
+		t.Fatalf("install under the built-in's key while overrides are allowed: %v", err)
+	}
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Fatalf("switch off: %v", err)
+	}
+
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "")
+	err = svc.SetManifestEnabled(ctx, installed.ID, true)
+	if err == nil {
+		t.Fatal("a manifest under the built-in's key was switched back on without the operator allowing overrides")
+	}
+	if common.CodeFrom(err) != http.StatusBadRequest {
+		t.Errorf("the refusal is not a 400 (status %d): %v", common.CodeFrom(err), err)
+	}
+	if !strings.Contains(err.Error(), `"http-json"`) || !strings.Contains(err.Error(), "METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE") {
+		t.Errorf("the refusal does not name the key and the setting: %v", err)
+	}
+
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Enabled {
+		t.Errorf("after the refusal the catalogue holds %+v, want the manifest still switched off", manifests)
+	}
+
+	// Switching it off is always allowed: it hands the key back to the built-in.
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Errorf("switching an override off again was refused: %v", err)
 	}
 }
 

@@ -83,3 +83,7 @@ func (s *organizationService) UpdateOrganization(ctx context.Context, id uuid.UU
 func (s *organizationService) DeleteOrganization(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Organization().Delete(ctx, id)
 }
+
+func (s *organizationService) CountOrganizations(ctx context.Context) (int64, error) {
+	return s.repo.Organization().Count(ctx)
+}

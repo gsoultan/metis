@@ -747,9 +747,16 @@ func Schema(models []any) []Migration {
 			},
 		},
 		{
-			// 24 is taken by a migration that lands separately. A number is an
-			// identity, so the gap is harmless and a second 24 would not be:
-			// the runner refuses the whole list, and the server does not start.
+			Version: 24,
+			Name:    "no group membership crosses organizations",
+			// A one-off: AddMembership now refuses an account from outside the
+			// group's organization, and this removes the ones added before it
+			// did, logging each. Transactional, so the removals and the record
+			// that they were made land together.
+			Transactional: true,
+			Run:           removeCrossOrganizationMemberships,
+		},
+		{
 			Version: 25,
 			Name:    "webhooks set up before v2 signatures accept legacy ones for ninety days",
 			// A webhook signature covered the body alone, so a captured delivery

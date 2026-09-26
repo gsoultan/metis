@@ -210,3 +210,42 @@ function pathEffect(change: FlowChange, rollingBack: boolean): string {
       return `The path ${change.route} changes: ${change.differences.join('; ')}.`;
   }
 }
+
+/** One version as a dialog has loaded it, for comparing. */
+export interface LoadedVersion {
+  /** How the version is named on screen, e.g. "v3". */
+  label: string;
+  loading: boolean;
+  failed: boolean;
+  definition: ApiDefinition | null | undefined;
+}
+
+/** Whether two loaded versions can be compared yet, and the comparison when they can. */
+export type Comparison =
+  | { kind: 'loading' }
+  | { kind: 'failed'; missing: string[] }
+  | { kind: 'ready'; diff: VersionDiff };
+
+/**
+ * Compares two versions as the dialogs load them.
+ *
+ * A version that failed to load was compared against nothing, so every step of
+ * the other read as removed or added: a total rewrite, shown as a fact. It
+ * says which could not be loaded instead.
+ */
+export function compareLoaded(before: LoadedVersion, after: LoadedVersion): Comparison {
+  if (before.loading || after.loading) return { kind: 'loading' };
+  const missing = [before, after].filter((v) => v.failed || !v.definition).map((v) => v.label);
+  if (missing.length > 0) return { kind: 'failed', missing };
+  return { kind: 'ready', diff: diffVersions(before.definition ?? null, after.definition ?? null) };
+}
+
+/** What a dialog says when a comparison failed. */
+export function comparisonFailure(missing: string[]): string {
+  return `Could not load ${missing.join(' and ')}, so the changes cannot be listed. Close this and open it again to retry.`;
+}
+
+/** The comparison to act on: the real one when there is one, and no changes otherwise. */
+export function diffOf(comparison: Comparison): VersionDiff {
+  return comparison.kind === 'ready' ? comparison.diff : { changes: [], flows: [] };
+}

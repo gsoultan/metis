@@ -95,6 +95,17 @@ const PATTERNS: Array<{ match: RegExp; explain: (matched: RegExpMatchArray) => I
     }),
   },
   {
+    // Before the pattern below, which it would otherwise fall into: the
+    // connection is still there, and recreating it would not help.
+    match: /catalogue no longer offers/i,
+    explain: () => ({
+      cause: 'The connector this step uses was switched off or removed on the Connectors page.',
+      suggestion:
+        'An administrator can switch it back on, or install its document again — the step and its connection are kept. Or point the step at another connector.',
+      worthRetrying: false,
+    }),
+  },
+  {
     match: /connector .*not found|connector lookup failed/i,
     explain: () => ({
       cause: 'The step names a connection that no longer exists.',

@@ -35,22 +35,42 @@ func (r *connectorManifestRepository) GetByKeyForUpdate(ctx context.Context, key
 }
 
 func (r *connectorManifestRepository) byKey(ctx context.Context, key string, forUpdate bool) (models.ConnectorManifestModel, error) {
-	ex, err := r.conn.conn.Executor(ctx)
+	row, found, err := r.one(ctx, connectormanifest.Key.Eq(key), forUpdate)
 	if err != nil {
 		return models.ConnectorManifestModel{}, err
-	}
-	q := connectormanifest.New().Where(connectormanifest.Key.Eq(key))
-	if forUpdate {
-		q = q.ForUpdate()
-	}
-	row, found, err := q.One(ctx, ex)
-	if err != nil {
-		return models.ConnectorManifestModel{}, fmt.Errorf("could not read the connector manifest: %w", err)
 	}
 	if !found {
 		return models.ConnectorManifestModel{}, fmt.Errorf("%w: no manifest for %q", apierr.ErrNotFound, key)
 	}
 	return manifestFrom(row), nil
+}
+
+func (r *connectorManifestRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (models.ConnectorManifestModel, error) {
+	row, found, err := r.one(ctx, connectormanifest.ID.Eq(id), true)
+	if err != nil {
+		return models.ConnectorManifestModel{}, err
+	}
+	if !found {
+		return models.ConnectorManifestModel{}, fmt.Errorf("%w: no such connector manifest", apierr.ErrNotFound)
+	}
+	return manifestFrom(row), nil
+}
+
+// one reads a single installed manifest, holding its row when forUpdate.
+func (r *connectorManifestRepository) one(ctx context.Context, pred connectormanifest.Pred, forUpdate bool) (connectormanifest.Row, bool, error) {
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return connectormanifest.Row{}, false, err
+	}
+	q := connectormanifest.New().Where(pred)
+	if forUpdate {
+		q = q.ForUpdate()
+	}
+	row, found, err := q.One(ctx, ex)
+	if err != nil {
+		return connectormanifest.Row{}, false, fmt.Errorf("could not read the connector manifest: %w", err)
+	}
+	return row, found, nil
 }
 
 func (r *connectorManifestRepository) List(ctx context.Context) ([]models.ConnectorManifestModel, error) {

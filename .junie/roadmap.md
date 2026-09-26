@@ -347,11 +347,13 @@
   - [x] Phase 2 complete (`architecture cleanup`, `high-value UX improvements`).
         Cleanup: the audit and its eight cheap fixes; transactions and idempotency in
         #93–#95. UX: #89 and #96–#102.
-  - [ ] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`). Load/chaos:
+  - [x] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`). Load/chaos:
         #103. Hardening: key rotation (#91) and the fixes since. Playbooks: the
-        runbooks (`docs/runbooks.md`), held to the alerts by a drift test. The canary
-        rollout waits on a decision: flags are installation-wide, and an organization
-        cohort needs a tenant where the flag is read.
+        runbooks (`docs/runbooks.md`), held to the alerts by a drift test. Canary
+        (decided 2026-09-26: a deployment-level canary, while flags stay
+        installation-wide): `deploy/kubernetes/canary.yaml`, judged by two alerts
+        that compare its 5xx and read latency with the stable track's, with the
+        procedure in the runbooks and `tests/drift` holding its pod to the stable one.
 
 #### 10. Session Execution Log
 
