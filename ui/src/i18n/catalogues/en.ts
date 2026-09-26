@@ -142,7 +142,7 @@ const en: Catalogue = {
   'dash.timeline': 'Business Timeline',
   'dash.recentActivity': 'Recent Activity',
   'dash.viewAllInstances': 'View all instances',
-  'dash.generateReport': 'Generate Report',
+  'dash.generateReport': 'Print or save as PDF',
   'dash.noActivity': 'No recent activity',
   'dash.noActivityHint': 'Start a process to see the activity timeline here.',
   'dash.readyTitle': 'Ready to automate?',

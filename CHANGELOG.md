@@ -32,6 +32,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **The dashboard prints as a report.** "Print or save as PDF", where a
+  disabled "Generate Report" used to be, opens the browser's print dialog on a
+  report of the project: the headline figures, every late task with who holds
+  it and by how much, and every step where work is waiting. It lists all of
+  them, where the dashboard shows the top few. The figures are the ones the
+  dashboard read, the same as its CSV exports. "Save as PDF" in the dialog is
+  the PDF export; nothing new is installed, and names print as text, whatever
+  they contain.
 - **The strict tenant scope's rollout is on the metrics endpoint.**
   `metis_strict_tenant_scope_enabled` says whether the flag is on, and
   `metis_strict_tenant_scope_denied_site` is one series per code path that
