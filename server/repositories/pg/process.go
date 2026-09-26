@@ -148,6 +148,40 @@ func (r *processRepository) ListByParent(ctx context.Context, parentInstanceID u
 	return r.list(ctx, nil, []processinstance.Pred{processinstance.ParentInstanceID.Eq(parentInstanceID)})
 }
 
+// instanceScanBatchSize bounds how many instances a scan holds at once: each
+// carries its decrypted variables and its tokens.
+const instanceScanBatchSize = 100
+
+// ScanByStatus walks every instance in one state, in key order, a batch at a
+// time.
+//
+// For work that must reach all of them, like a one-time repair at upgrade. A
+// list stops at the store's thousand rows, and holding every running instance
+// at once is bounded by how much work the installation has rather than by
+// anything this process chose. The key order stays put while the visitor
+// rewrites what it is handed, as long as it leaves the state alone.
+func (r *processRepository) ScanByStatus(ctx context.Context, status models.ProcessStatus, visit func([]models.ProcessInstanceModel) error) error {
+	q, ok, err := r.scopedQuery(ctx, nil, []processinstance.Pred{processinstance.Status.Eq(string(status))})
+	if err != nil || !ok {
+		return err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	err = everyBatch(ctx, ex, q.Order(processinstance.ID.Asc()), instanceScanBatchSize, func(rows []processinstance.Row) error {
+		batch, err := instancesFrom(rows)
+		if err != nil {
+			return err
+		}
+		return visit(batch)
+	})
+	if err != nil {
+		return fmt.Errorf("could not scan the %s instances: %w", status, err)
+	}
+	return nil
+}
+
 func (r *processRepository) ListPaged(ctx context.Context, f contracts.InstanceFilter, p contracts.Pagination) (contracts.Page[models.ProcessInstanceModel], error) {
 	return r.pagedWithAttention(ctx, uuid.Nil, nil, f, p)
 }
