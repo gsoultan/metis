@@ -501,9 +501,20 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
     try {
       if (definitionId) {
-        await updateDecision.mutateAsync({ id: definitionId, ...payload });
+        const saved = await updateDecision.mutateAsync({ id: definitionId, ...payload });
         setSavedPayload(JSON.stringify(payload));
-        notifications.show({ title: 'Saved', message: `${name} updated. Try it below.`, color: 'green' });
+        notifications.show({
+          title: saved.newVersion ? `Saved as v${saved.version}` : 'Nothing to save',
+          message: saved.newVersion
+            ? `${name} v${saved.version} holds your changes; the version you edited is kept as it was. Try it below.`
+            : `${name} is the same as v${saved.version}, so no new version was made.`,
+          color: saved.newVersion ? 'green' : 'gray',
+        });
+        // The edit is a new version with its own id: go on editing that one,
+        // so Try it runs what was just saved and the next save starts from it.
+        if (saved.id !== definitionId) {
+          navigate({ to: '/decision-editor', search: { id: saved.id }, replace: true });
+        }
       } else {
         const created = await createDecision.mutateAsync(payload);
         notifications.show({ title: 'Saved', message: `${name} created. Try it below.`, color: 'green' });

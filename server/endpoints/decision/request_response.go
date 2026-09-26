@@ -78,7 +78,15 @@ type UpdateDecisionRequest struct {
 }
 
 type UpdateDecisionResponse struct {
-	Err error `json:"err,omitzero"`
+	// ID and Version name the version the save resulted in. A save never
+	// changes the version it was sent to — it stores the edit as the key's
+	// next version — so the id the caller sent no longer names what it now
+	// holds. NewVersion is false when the table was unchanged and nothing was
+	// stored.
+	ID         uuid.UUID `json:"id,omitzero"`
+	Version    int       `json:"version,omitzero"`
+	NewVersion bool      `json:"new_version"`
+	Err        error     `json:"err,omitzero"`
 }
 
 func (r UpdateDecisionResponse) Failed() error { return r.Err }

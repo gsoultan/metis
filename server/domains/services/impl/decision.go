@@ -165,38 +165,11 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 		return uuid.Nil, fmt.Errorf("decision key is required")
 	}
 
-	if d.ID == uuid.Nil {
-		id, err := uuid.NewV7()
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("could not generate a decision id: %w", err)
-		}
-		d.ID = id
-	}
-
-	// The version series is per project, matching the unique index, so the
-	// allocator needs the same project the adapter is about to write.
-	var projectID uuid.UUID
-	if d.Project != nil {
-		projectID = d.Project.ID
-	}
-
-	err := allocateVersion(ctx, s.repo.UnitOfWork(), "decision "+d.Key,
-		func(ctx context.Context) (int, error) {
-			return s.repo.Decision().NextVersion(ctx, projectID, d.Key)
-		},
-		func(txCtx context.Context, version int) error {
-			d.Version = version
-			return s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel())
-		})
+	saved, err := s.storeNewVersion(ctx, d)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	return d.ID, nil
-}
-
-func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d entities.DecisionDefinition) error {
-	d.ID = id
-	return s.repo.Decision().Update(ctx, id, adapters.DecisionModelAdapter{Decision: d}.ToModel())
+	return saved.ID, nil
 }
 
 // DeleteDecision removes a decision table, unless something still needs it.

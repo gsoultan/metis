@@ -60,6 +60,24 @@ type MutationResponse = {
   err?: string;
 };
 
+type UpdateDecisionResponse = {
+  id?: string;
+  version?: number;
+  new_version?: boolean;
+  err?: string;
+};
+
+/**
+ * What saving an edit did. A save never changes the version it was sent to:
+ * the edit becomes the key's next version, so the id that was edited no longer
+ * names what it now holds. `newVersion` is false when nothing had changed.
+ */
+export interface SavedDecision {
+  id: string;
+  version: number;
+  newVersion: boolean;
+}
+
 type EvaluateDecisionResponse = {
   /**
    * matched_rule_ids is on entities.DecisionResult and not yet on the shared
@@ -101,12 +119,14 @@ export const decisionService = {
     return { id: raiseIfRefused(data).id };
   },
 
-  async updateDecision(id: string, params: CreateDecisionPayload) {
-    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
-      method: "PUT",
-      body: { decision: params },
-    });
-    return { err: raiseIfRefused(data).err };
+  async updateDecision(id: string, params: CreateDecisionPayload): Promise<SavedDecision> {
+    const data = raiseIfRefused(
+      await requestJSON<UpdateDecisionResponse>(`/decisions/${id}`, {
+        method: "PUT",
+        body: { decision: params },
+      }),
+    );
+    return { id: data.id ?? id, version: data.version ?? 0, newVersion: data.new_version ?? false };
   },
 
   async deleteDecision(id: string) {

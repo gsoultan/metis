@@ -168,34 +168,6 @@ func (r *decisionRepository) Create(ctx context.Context, d models.DecisionDefini
 	return nil
 }
 
-func (r *decisionRepository) Update(ctx context.Context, id uuid.UUID, d models.DecisionDefinitionModel) error {
-	if _, err := r.Get(ctx, id); err != nil {
-		return err
-	}
-	ex, err := r.conn.conn.Executor(ctx)
-	if err != nil {
-		return err
-	}
-	row, found, err := decisiondefinition.New().Where(decisiondefinition.ID.Eq(id)).One(ctx, ex)
-	if err != nil {
-		return fmt.Errorf("could not read the decision: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("%w: no such decision", apierr.ErrNotFound)
-	}
-	mut := decisiondefinition.Mutate(row)
-	mut.SetName(d.Name)
-	mut.SetHitPolicy(d.HitPolicy)
-	setOrNullString(mut.SetAggregation, mut.SetAggregationNull, d.Aggregation)
-	if err := encodeDecision(mut.SetRequiredDecisions, mut.SetInputs, mut.SetOutputs, mut.SetRules, mut.SetTests, d); err != nil {
-		return err
-	}
-	if err := mut.Update(ctx, ex); err != nil {
-		return fmt.Errorf("could not update the decision: %w", err)
-	}
-	return nil
-}
-
 func (r *decisionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if _, err := r.Get(ctx, id); err != nil {
 		return err

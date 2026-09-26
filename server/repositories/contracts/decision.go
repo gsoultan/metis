@@ -39,7 +39,9 @@ type DecisionRepository interface {
 	// decides which one keeps it.
 	NextVersion(ctx context.Context, projectID uuid.UUID, key string) (int, error)
 
+	// Create stores a new version. There is no Update: a stored version is
+	// what the instances that evaluated it were decided under, so it is never
+	// changed — an edit is the key's next version.
 	Create(ctx context.Context, definition models.DecisionDefinitionModel) error
-	Update(ctx context.Context, id uuid.UUID, definition models.DecisionDefinitionModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

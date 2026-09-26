@@ -487,20 +487,6 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				},
 			},
 			{
-				name: "rewrite another tenant's decision",
-				write: func() error {
-					return pg.NewDecisionRepository(testutils.StormConn(db)).Update(ctx, f.decisionB,
-						models.DecisionDefinitionModel{ProjectID: models.FromUUID(f.projectA), Name: "stolen"})
-				},
-				unchanged: func() bool {
-					var m models.DecisionDefinitionModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.decisionB)).Error; err != nil {
-						t.Fatalf("reload decision: %v", err)
-					}
-					return m.Name == "dec B" && uuid.UUID(m.ProjectID) == f.projectB
-				},
-			},
-			{
 				name: "delete another tenant's connector instance",
 				write: func() error {
 					return pg.NewConnectorInstanceRepository(testutils.StormConn(db)).Delete(ctx, f.connInstB)
