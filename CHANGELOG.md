@@ -331,6 +331,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A refusal over Connect was answered as a server fault.** The Connect API
+  handed on the refusals of the checks every call passes — signing in, the
+  role check, the organization check — as errors Connect had not made, and
+  Connect sends those as `unknown`, an HTTP 500. A member calling a method only
+  an administrator may call was told the server had failed, the error budget
+  counted it, and a client retried a call that could never succeed. Each now
+  carries the code its REST twin answers with — `permission_denied`,
+  `unauthenticated`, `invalid_argument` or `not_found` — and the message is
+  redacted as REST redacts it. A service's own refusal still travels in the
+  reply's `error` field, as it always has over Connect.
 - **Authentication errors lost a word to the redactor.** Errors and logs pass
   through a redactor that hides whatever follows a secret's name and a colon,
   so `missing or invalid token: the ID token names no issuer` read
