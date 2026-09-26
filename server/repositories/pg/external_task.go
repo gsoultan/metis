@@ -31,7 +31,7 @@ func (r *externalTaskRepository) Create(ctx context.Context, task *models.Extern
 	if err != nil {
 		return err
 	}
-	variables, err := jsonOf(task.Variables)
+	variables, err := sealedJSONOf(task.Variables)
 	if err != nil {
 		return fmt.Errorf("could not encode the task's variables: %w", err)
 	}
@@ -79,7 +79,7 @@ func (r *externalTaskRepository) Update(ctx context.Context, task *models.Extern
 	if err != nil {
 		return err
 	}
-	variables, err := jsonOf(task.Variables)
+	variables, err := sealedJSONOf(task.Variables)
 	if err != nil {
 		return fmt.Errorf("could not encode the task's variables: %w", err)
 	}
@@ -141,9 +141,13 @@ func (r *externalTaskRepository) FetchAndLock(ctx context.Context, topic, worker
 			return err
 		}
 		now := time.Now().UTC()
+		// The expired test comes before the null test, and must: the
+		// generated builder drops the predicate after a null test inside Any,
+		// so the old order matched unlocked tasks only, and a task whose
+		// worker died holding it was never offered to anybody again.
 		q := externaltask.New().
 			Where(externaltask.Topic.Eq(topic)).
-			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lt(now)).
+			Any(externaltask.LockExpiration.Lt(now), externaltask.LockExpiration.IsNull()).
 			Where(externaltask.Retries.Gte(0)).
 			Limit(int64(maxTasks)).
 			ForUpdateSkipLocked()
@@ -261,7 +265,7 @@ func applyLock(setWorker func(string), clearWorker func(), setExpiry func(time.T
 }
 
 func externalTaskFrom(row externaltask.Row) (*models.ExternalTaskModel, error) {
-	variables, err := mapOf(row.Variables)
+	variables, err := sealedMapOf(row.Variables)
 	if err != nil {
 		return nil, fmt.Errorf("could not decode an external task's variables: %w", err)
 	}

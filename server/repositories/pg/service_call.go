@@ -92,7 +92,7 @@ func (r *serviceCallRepository) Complete(ctx context.Context, id uuid.UUID, resp
 	if err != nil {
 		return err
 	}
-	encoded, err := jsonOf(response)
+	encoded, err := sealedJSONOf(response)
 	if err != nil {
 		return fmt.Errorf("could not encode the service call's response: %w", err)
 	}
@@ -136,7 +136,7 @@ func (r *serviceCallRepository) Get(ctx context.Context, instanceID uuid.UUID, n
 }
 
 func serviceCallFrom(row servicecall.Row) (models.ServiceCallModel, error) {
-	response, err := mapOf(row.Response)
+	response, err := sealedMapOf(row.Response)
 	if err != nil {
 		return models.ServiceCallModel{}, fmt.Errorf("could not decode a service call's response: %w", err)
 	}

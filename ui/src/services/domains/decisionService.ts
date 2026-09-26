@@ -86,7 +86,12 @@ export const decisionService = {
     return { err: raiseIfRefused(data).err };
   },
 
+  /**
+   * Runs a saved table. The project says whose table the key names: keys are
+   * unique per project, so the server refuses a key on its own.
+   */
   async evaluateDecision(
+    projectId: string,
     key: string,
     variables: ProcessVariables = {},
     version: number = 0,
@@ -94,7 +99,7 @@ export const decisionService = {
   ) {
     const data = await requestJSON<EvaluateDecisionResponse>("/decisions/evaluate", {
       method: "POST",
-      body: { key, variables, version },
+      body: { project_id: projectId, key, variables, version },
       signal,
     });
     return {

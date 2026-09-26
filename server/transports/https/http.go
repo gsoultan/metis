@@ -1,7 +1,6 @@
 package https
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/gsoultan/metis/server/interceptors/tenant"
 
-	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/endpoints"
@@ -57,63 +55,8 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 
 	// SSE Endpoint
 	if sseObserver != nil {
-		m.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
-			if origin := corsOrigin(parseCORSOrigins(envvar.Get(envCORSOrigins)), r.Header.Get("Origin")); origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Vary", "Origin")
-			}
-
-			// The scope is taken from the request, never from what the client
-			// asked for: the organization comes from the token the auth
-			// middleware validated, and the environment from the listener this
-			// connection arrived on. A client that could name its own audience
-			// would name somebody else's.
-			// The tenant is resolved here rather than read off the context:
-			// the endpoint chain that normally resolves it does not run for
-			// this handler, which is mounted straight on the mux so the
-			// connection can stay open.
-			streamCtx := r.Context()
-			if tc, ok := tenant.ResolveFromContext(streamCtx); ok {
-				streamCtx = entities.WithTenantContext(streamCtx, tc)
-			}
-			ch := sseObserver.AddClient(entities.SSEScopeFrom(streamCtx))
-			defer sseObserver.RemoveClient(ch)
-
-			// Send the headers now rather than with the first event.
-			//
-			// Without this the response is buffered until something happens, so
-			// EventSource stays in CONNECTING on a quiet installation: the
-			// browser cannot tell a working stream from a broken one, onopen
-			// never fires, and any proxy with a header-read timeout closes the
-			// connection before the first event ever arrives.
-			flusher, canFlush := w.(http.Flusher)
-			if canFlush {
-				w.WriteHeader(http.StatusOK)
-				flusher.Flush()
-			}
-
-			ctx := r.Context()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case msg := <-ch:
-					// A failed write means the client is gone. Carrying on would
-					// spin this goroutine against a dead connection for as long
-					// as events keep arriving — one leaked per disconnect.
-					if _, err := fmt.Fprint(w, msg); err != nil {
-						log.Debug().Err(err).Msg("An event stream client went away mid-write")
-						return
-					}
-					if canFlush {
-						flusher.Flush()
-					}
-				}
-			}
-		})
+		m.HandleFunc("GET "+EventStreamPath, eventStreamHandler(sseObserver,
+			newEventStreamLimit(maxEventStreams, maxEventStreamsPerAccount)))
 	}
 
 	// Connect RPC

@@ -16,7 +16,11 @@ kubectl -n metis apply -f metis.yaml
 ```
 
 Then open the service and the first request walks through the setup wizard.
-There is no default account.
+There is no default account. The secret above already names the database and
+both keys, so the wizard asks only for the organization and its first
+administrator, and writes nothing to the read-only root. It closes for good as
+soon as that account exists — the wizard is anonymous, so finish it before
+exposing the service.
 
 ## Four things that are easy to get wrong
 

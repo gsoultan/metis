@@ -2,8 +2,8 @@ package impl
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/secrets"
@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/gorms"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"github.com/gsoultan/metis/internal/pkg/dbpool"
@@ -32,18 +33,74 @@ import (
 // so the application can hot-swap its connection without requiring a restart.
 type OnSetupCompleteFunc func(targetDB *gorm.DB)
 
+// ErrAlreadySetUp refuses setup on an installation that has been set up.
+//
+// Forbidden rather than a server error: the request was answered correctly, and
+// a 5xx would spend the error budget on somebody knocking on a closed door.
+var ErrAlreadySetUp = fmt.Errorf("%w: this installation is already set up; sign in instead", apierr.ErrForbidden)
+
+// ErrDatabaseInUse refuses to seed a database that already holds accounts.
+var ErrDatabaseInUse = fmt.Errorf(
+	"%w: this database already holds a Metis installation, and setup only initializes an empty one; "+
+		"to run on it, point DATABASE_URL at it and sign in", apierr.ErrForbidden)
+
 type setupService struct {
 	onSetupComplete OnSetupCompleteFunc
+	installation    contracts.InstallationProbe
+	// setUp is sticky: an installation never becomes un-set-up, and the status
+	// is asked on every page load, so once it has been seen the question
+	// stops costing a query.
+	setUp atomic.Bool
 }
 
-func NewSetupService(onSetupComplete OnSetupCompleteFunc) contracts.SetupService {
-	return &setupService{onSetupComplete: onSetupComplete}
+// NewSetupService builds the first-run wizard.
+//
+// installation is the database the server is running on. "Set up" used to mean
+// only that config.yaml existed, and a server configured by its environment
+// never writes one — so on every container deployment, which runs on a
+// read-only root, the wizard stayed open for good: anonymous, in front of a
+// database full of somebody's processes. Nil answers from the file alone, for
+// tests with no database to ask.
+func NewSetupService(onSetupComplete OnSetupCompleteFunc, installation contracts.InstallationProbe) contracts.SetupService {
+	return &setupService{onSetupComplete: onSetupComplete, installation: installation}
 }
 
-func (s *setupService) GetSetupStatus(_ context.Context) (contracts.SetupStatus, error) {
+func (s *setupService) GetSetupStatus(ctx context.Context) (contracts.SetupStatus, error) {
+	setUp, err := s.isSetUp(ctx)
+	if err != nil {
+		return contracts.SetupStatus{}, err
+	}
 	return contracts.SetupStatus{
-		IsInitialized: config.Exists(config.DefaultConfigPath),
+		IsInitialized:           setUp,
+		ConfiguredByEnvironment: configuredByEnvironment(),
 	}, nil
+}
+
+// isSetUp reports whether this installation has been set up: it has a
+// config.yaml, or somebody can already sign in to the database it runs on.
+//
+// A failure to ask is an error, not a "no". Answering "not set up" because the
+// database did not reply would open the wizard at the moment nobody can tell
+// whether it should be.
+func (s *setupService) isSetUp(ctx context.Context) (bool, error) {
+	if s.setUp.Load() {
+		return true, nil
+	}
+	if config.Exists(config.DefaultConfigPath) {
+		s.setUp.Store(true)
+		return true, nil
+	}
+	if s.installation == nil {
+		return false, nil
+	}
+	held, err := s.installation.HasAccounts(ctx)
+	if err != nil {
+		return false, fmt.Errorf("could not tell whether this installation is set up: %w", err)
+	}
+	if held {
+		s.setUp.Store(true)
+	}
+	return held, nil
 }
 
 func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) error {
@@ -52,21 +109,22 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 		return err
 	}
 	if status.IsInitialized {
-		return errors.New("system already configured: config.yaml exists")
+		return ErrAlreadySetUp
 	}
 
-	if err := validateSetupRequest(req); err != nil {
+	target := setupTargetFor(req)
+	if err := validateSetupRequest(req, target); err != nil {
 		return err
 	}
 
 	// 1. Open a connection to the TARGET database and seed initial data
-	targetDB, cleanup, err := openTargetDatabase(req)
+	targetDB, cleanup, err := openTargetDatabase(target)
 	if err != nil {
 		return fmt.Errorf("failed to connect to target database: %w", err)
 	}
 
 	// 2. Run migrations on the target database
-	if err := migrateTargetDatabase(ctx, targetDB, req); err != nil {
+	if err := migrateTargetDatabase(ctx, targetDB, target); err != nil {
 		cleanup()
 		return fmt.Errorf("failed to migrate target database: %w", err)
 	}
@@ -75,6 +133,14 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	if err := seedTargetDatabase(targetDB, req); err != nil {
 		cleanup()
 		return err
+	}
+
+	// The server already runs on this database with these secrets: there is
+	// no file to write, no key to install and nothing to swap to.
+	if target.fromEnvironment {
+		cleanup()
+		s.setUp.Store(true)
+		return nil
 	}
 
 	// 4. Generate and save config.yaml with encrypted connection string
@@ -116,6 +182,14 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 		return contracts.TestConnectionResult{
 			Success: false,
 			Message: "This installation is already configured. Test a database connection from Settings → Environments.",
+		}
+	}
+	// The wizard has no database step to test when the environment names the
+	// database, and a probe nobody needs is only a probe.
+	if status.ConfiguredByEnvironment {
+		return contracts.TestConnectionResult{
+			Success: false,
+			Message: "This server's database is set by DATABASE_URL, so there is no connection to test here.",
 		}
 	}
 
@@ -164,15 +238,27 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 	return contracts.TestConnectionResult{Success: true, Message: "Connection successful"}
 }
 
-func validateSetupRequest(req contracts.SetupRequest) error {
+func validateSetupRequest(req contracts.SetupRequest, target setupTarget) error {
 	if req.AdminUsername == "" || req.AdminPassword == "" || req.AdminFullName == "" || req.AdminPublicName == "" || req.OrganizationName == "" {
-		return errors.New("admin username, password, full name, public name and organization name are required")
+		return apierr.Invalidf("admin username, password, full name, public name and organization name are required")
 	}
+	// The environment's database and secrets were checked when the server
+	// started — it refuses weak ones — and whatever the request says about
+	// either is not what setup will use.
+	if target.fromEnvironment {
+		return nil
+	}
+	return validateWizardConfiguration(req)
+}
+
+// validateWizardConfiguration checks the database and the secrets the wizard
+// is about to write into config.yaml.
+func validateWizardConfiguration(req contracts.SetupRequest) error {
 	if req.DatabaseDriver == "" {
-		return errors.New("database driver is required")
+		return apierr.Invalidf("database driver is required")
 	}
 	if !config.SupportedDriver(req.DatabaseDriver) {
-		return fmt.Errorf("this runs on PostgreSQL; %q is not a database engine it supports", req.DatabaseDriver)
+		return apierr.Invalidf("this runs on PostgreSQL; %q is not a database engine it supports", req.DatabaseDriver)
 	}
 	// Validated here, before saveConfiguration encrypts anything with the key.
 	//
@@ -189,17 +275,17 @@ func validateSetupRequest(req contracts.SetupRequest) error {
 	// with it, a weak key has no safe remedy.
 	if !secrets.Allowed() {
 		if err := secrets.Validate("encryption key", req.EncryptionKey); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
 		}
 		if err := secrets.Validate("JWT secret", req.JWTSecret); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
 		}
 	}
 	if req.EncryptionKey == "" {
-		return errors.New("encryption key is required")
+		return apierr.Invalidf("encryption key is required")
 	}
 	if req.JWTSecret == "" {
-		return errors.New("jwt secret is required")
+		return apierr.Invalidf("jwt secret is required")
 	}
 	return nil
 }
@@ -245,9 +331,8 @@ func buildDatabaseFields(req contracts.SetupRequest) config.DatabaseFields {
 	}
 }
 
-func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
-	dsn := config.BuildConnectionString(req.DatabaseDriver, buildDatabaseFields(req))
-	dialector, err := gorms.Dialector(req.DatabaseDriver, dsn)
+func openTargetDatabase(target setupTarget) (*gorm.DB, func(), error) {
+	dialector, err := gorms.Dialector(target.driver, target.dsn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -284,7 +369,7 @@ func openTargetDatabase(req contracts.SetupRequest) (*gorm.DB, func(), error) {
 // recording a single version, and the first boot afterwards would treat a brand
 // new database as one that had never been migrated — replaying every data
 // migration over it, including the one that walks every process instance.
-func migrateTargetDatabase(ctx context.Context, db *gorm.DB, req contracts.SetupRequest) error {
+func migrateTargetDatabase(ctx context.Context, db *gorm.DB, target setupTarget) error {
 	// Only the schema migrations. The data migrations need the repository layer,
 	// which setup does not have here, and they repair rows written by older
 	// versions of the engine — of which a database created seconds ago has none.
@@ -293,7 +378,7 @@ func migrateTargetDatabase(ctx context.Context, db *gorm.DB, req contracts.Setup
 	if _, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels())); err != nil {
 		return err
 	}
-	return ensureStormSchema(ctx, req)
+	return ensureStormSchema(ctx, target.dsn)
 }
 
 // ensureStormSchema creates the tables the GORM migrations do not describe, in
@@ -307,12 +392,11 @@ func migrateTargetDatabase(ctx context.Context, db *gorm.DB, req contracts.Setup
 //
 // A second connection rather than the GORM one, because these are storm's own
 // DDL and its schema builder speaks pgx.
-func ensureStormSchema(ctx context.Context, req contracts.SetupRequest) error {
+func ensureStormSchema(ctx context.Context, dsn string) error {
 	want, err := storm.Build(model.All()...)
 	if err != nil {
 		return fmt.Errorf("the model layer does not build: %w", err)
 	}
-	dsn := config.BuildConnectionString(req.DatabaseDriver, buildDatabaseFields(req))
 	pool, err := pgxpool.New(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return fmt.Errorf("could not open the target database for the storm schema: %w", err)
@@ -330,8 +414,38 @@ func ensureStormSchema(ctx context.Context, req contracts.SetupRequest) error {
 
 const defaultProjectName = "Default Project"
 
+// setupAdvisoryLock serialises refuseExistingInstallation's check and the seed
+// that follows it, across concurrent requests and replicas. Any fixed key
+// would do; this one is "metis" in ASCII.
+const setupAdvisoryLock int64 = 0x6d65746973
+
+// refuseExistingInstallation stops setup seeding a database that is in use.
+//
+// Setup is anonymous by necessity — nobody can sign in before it — so it must
+// only ever create the first administrator of an empty database. Without this,
+// anyone who could reach the wizard and knew a working connection string could
+// mint an administrator inside an installation that was already running. The
+// lock makes the check and the seed one step: two first runs racing each other
+// would otherwise both find the database empty.
+func refuseExistingInstallation(tx *gorm.DB) error {
+	if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", setupAdvisoryLock).Error; err != nil {
+		return fmt.Errorf("could not take the setup lock: %w", err)
+	}
+	var inUse bool
+	if err := tx.Raw("SELECT EXISTS (SELECT 1 FROM users)").Scan(&inUse).Error; err != nil {
+		return fmt.Errorf("could not tell whether this database is already in use: %w", err)
+	}
+	if inUse {
+		return ErrDatabaseInUse
+	}
+	return nil
+}
+
 func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := refuseExistingInstallation(tx); err != nil {
+			return err
+		}
 		orgID := uuid.Must(uuid.NewV7())
 		now := time.Now()
 

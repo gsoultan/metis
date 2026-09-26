@@ -10,8 +10,12 @@ import (
 
 // DecisionEvaluator handles decision evaluation by key and version.
 // Consumers that only need to evaluate decisions depend on this narrow interface.
+//
+// A key names a table only within a project — keys are unique per project, not
+// per installation — so the project is part of the question. Tables a decision
+// requires are resolved in the same project.
 type DecisionEvaluator interface {
-	Evaluate(ctx context.Context, decisionKey string, version int, variables map[string]any) (entities.DecisionResult, error)
+	Evaluate(ctx context.Context, projectID uuid.UUID, decisionKey string, version int, variables map[string]any) (entities.DecisionResult, error)
 }
 
 // DecisionManager handles CRUD lifecycle of decision definitions.

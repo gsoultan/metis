@@ -54,7 +54,7 @@ func (h *BusinessRuleTaskHandler) DoExecute(ctx context.Context, instance *entit
 		inputs = mapping.Resolve(inputMapping, instance.Variables)
 	}
 
-	result, err := h.decisionService.Evaluate(ctx, decisionKey, decisionVersion, inputs)
+	result, err := h.decisionService.Evaluate(ctx, projectOf(def), decisionKey, decisionVersion, inputs)
 	if err != nil {
 		return fmt.Errorf("decision evaluation failed for node %s: %w", node.ID, err)
 	}

@@ -31,7 +31,7 @@ func (r *compensatableActivityRepository) Create(ctx context.Context, m models.C
 	if err != nil {
 		return models.CompensatableActivityModel{}, err
 	}
-	variables, err := jsonOf(m.Variables)
+	variables, err := sealedJSONOf(m.Variables)
 	if err != nil {
 		return models.CompensatableActivityModel{}, fmt.Errorf("could not encode the activity's variables: %w", err)
 	}
@@ -113,7 +113,7 @@ func (r *compensatableActivityRepository) MarkCompensated(ctx context.Context, i
 }
 
 func compensatableFrom(row compensatableactivity.Row) (models.CompensatableActivityModel, error) {
-	variables, err := mapOf(row.Variables)
+	variables, err := sealedMapOf(row.Variables)
 	if err != nil {
 		return models.CompensatableActivityModel{}, fmt.Errorf("could not decode an activity's variables: %w", err)
 	}

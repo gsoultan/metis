@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/idempotencyrecord"
 	"github.com/gsoultan/storm/runtime"
@@ -147,6 +148,12 @@ func (s *dbIdempotencyStore) Complete(ctx context.Context, key string, response 
 	if err != nil {
 		return fmt.Errorf("encode idempotency response headers: %w", err)
 	}
+	// Sealed: the answer to a command is often the thing the command created —
+	// an instance, a task — with its variables in it.
+	body, err := sealBody(response.Body)
+	if err != nil {
+		return fmt.Errorf("seal idempotency response: %w", err)
+	}
 	now := s.now()
 	// Conditional on still being incomplete, so a late writer cannot overwrite
 	// an answer somebody has already been given.
@@ -154,7 +161,7 @@ func (s *dbIdempotencyStore) Complete(ctx context.Context, key string, response 
 		`UPDATE idempotency_records
 		    SET completed = true, status_code = $1, headers = $2, body = $3, completed_at = $4
 		  WHERE record_key = $5 AND completed = false`,
-		[]any{int64(response.StatusCode), headers, response.Body, now, storageKeyHash(key)}); err != nil {
+		[]any{int64(response.StatusCode), headers, body, now, storageKeyHash(key)}); err != nil {
 		return fmt.Errorf("record idempotency response: %w", err)
 	}
 	return nil
@@ -233,5 +240,34 @@ func responseFrom(record idempotencyrecord.Row) (*StoredResponse, error) {
 			return nil, fmt.Errorf("decode idempotency response headers: %w", err)
 		}
 	}
-	return &StoredResponse{StatusCode: int(record.StatusCode), Header: header, Body: record.Body}, nil
+	body, err := openBody(record.Body)
+	if err != nil {
+		return nil, fmt.Errorf("open idempotency response: %w", err)
+	}
+	return &StoredResponse{StatusCode: int(record.StatusCode), Header: header, Body: body}, nil
+}
+
+// sealBody encrypts a stored answer. An empty one stays empty.
+func sealBody(body []byte) ([]byte, error) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	sealed, err := crypto.Encrypt(string(body))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(sealed), nil
+}
+
+// openBody reverses sealBody, passing an answer stored before sealing existed
+// through as it was.
+func openBody(stored []byte) ([]byte, error) {
+	if !crypto.IsCiphertext(string(stored)) {
+		return stored, nil
+	}
+	plain, err := crypto.Decrypt(string(stored))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(plain), nil
 }

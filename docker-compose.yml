@@ -56,7 +56,6 @@ services:
       METIS_FEATURE_JAVASCRIPT_CONDITIONS: "false"
     ports:
       - "8080:8080"   # API and the embedded UI
-      - "8081:8081"   # gRPC
     # The image has no shell, so the healthcheck cannot be a CMD-SHELL string.
     # Compose has no HTTP probe of its own, and adding curl to a distroless
     # image to satisfy one would be a worse trade than letting depends_on and

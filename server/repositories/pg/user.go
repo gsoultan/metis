@@ -136,6 +136,25 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 	return out, nil
 }
 
+// HasAccounts reports whether any account exists, deleted or not.
+//
+// Deleted ones count: a database somebody has signed in to is an installation
+// even after every account in it is gone, and setup must not hand it to the
+// next visitor as new. Raw SQL for that reason — the generated Exists keeps
+// deleted rows out of every read, which is right everywhere except here.
+func (r *userRepository) HasAccounts(ctx context.Context) (bool, error) {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := ex.Query(ctx, `SELECT 1 FROM users LIMIT 1`, nil)
+	if err != nil {
+		return false, fmt.Errorf("could not tell whether any account exists: %w", err)
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
+}
+
 func (r *userRepository) Create(ctx context.Context, u models.UserModel, passwordHash string) error {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {

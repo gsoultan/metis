@@ -23,6 +23,7 @@ import {
   useMantineTheme,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
+import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
 import {
   ShieldCheck,
@@ -43,6 +44,8 @@ import {
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
+import { firstSetupStep, SETUP_STEPS, setupRequestFor } from '../domain/setupWizard';
+import { setupService } from '../services/domains/setupService';
 import { useEffect } from 'react';
 
 // PostgreSQL is the only engine this runs on. The list stays a list rather than
@@ -105,6 +108,20 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
     clearAuth();
   }, [clearAuth]);
 
+  // The route guard has already read this; the wizard reads it again for the
+  // one thing it decides here — whether the environment has named the database
+  // and secrets, in which case there is nothing to ask about either.
+  const { data: setupState } = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: ({ signal }) => setupService.getSetupStatus(signal),
+    staleTime: Infinity,
+  });
+  const fromEnvironment = setupState?.status?.configured_by_environment === true;
+  const firstStep = firstSetupStep(fromEnvironment);
+  // Derived rather than set: the answer arrives after the first render, and a
+  // wizard that had already started on the database step moves past it.
+  const step = Math.max(active, firstStep);
+
   const form = useForm({
     initialValues: {
       database_driver: 'postgres',
@@ -125,7 +142,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
       project_name: 'Default Project',
     },
     validate: (values) => {
-      if (active === 0) {
+      if (step === SETUP_STEPS.database) {
         if (!values.database_driver) {
           return { database_driver: 'Database driver is required' };
         }
@@ -137,7 +154,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
         if (Object.keys(errors).length > 0) return errors;
         return {};
       }
-      if (active === 1) {
+      if (step === SETUP_STEPS.security) {
         return {
           encryption_key:
             !values.encryption_key
@@ -153,7 +170,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                 : null,
         };
       }
-      if (active === 2) {
+      if (step === SETUP_STEPS.administrator) {
         return {
           admin_username: values.admin_username.length < 3 ? 'Username must be at least 3 characters' : null,
           admin_password: values.admin_password.length < MIN_PASSWORD_LENGTH ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters` : null,
@@ -162,7 +179,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
           admin_email: !/^\S+@\S+$/.test(values.admin_email) ? 'Invalid email' : null,
         };
       }
-      if (active === 3) {
+      if (step === SETUP_STEPS.organization) {
         return {
           organization_name: values.organization_name.length < 2 ? 'Organization name is required' : null,
         };
@@ -217,21 +234,21 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
   const nextStep = () => {
     const validation = form.validate();
     if (!validation.hasErrors) {
-      setActive((current) => (current < 5 ? current + 1 : current));
+      setActive(Math.min(step + 1, SETUP_STEPS.done));
     }
   };
 
-  const prevStep = () => setActive((current) => (current > 0 ? current - 1 : current));
+  const prevStep = () => setActive(Math.max(step - 1, firstStep));
 
   const handleSetup = async () => {
     setLoading(true);
     setError(null);
     try {
-      const { err } = await processService.setup(form.values);
+      const { err } = await processService.setup(setupRequestFor(form.values, fromEnvironment));
       if (err) {
         setError(err);
       } else {
-        setActive(5);
+        setActive(SETUP_STEPS.done);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Setup failed';
@@ -272,11 +289,16 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
               </Group>
             </Center>
 
-            <Stepper active={active} onStepClick={setActive} allowNextStepsSelect={false} size="sm">
+            <Stepper
+              active={step}
+              onStepClick={(clicked) => setActive(Math.max(clicked, firstStep))}
+              allowNextStepsSelect={false}
+              size="sm"
+            >
               {/* Step 0: Database Configuration */}
               <Stepper.Step
                 label="Database"
-                description="Connection settings"
+                description={fromEnvironment ? 'Set by the environment' : 'Connection settings'}
                 icon={<Database size={18} />}
               >
                 <Stack gap="md" mt="xl">
@@ -366,7 +388,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
               {/* Step 1: Encryption Key */}
               <Stepper.Step
                 label="Security"
-                description="Encryption key"
+                description={fromEnvironment ? 'Set by the environment' : 'Encryption key'}
                 icon={<KeyRound size={18} />}
               >
                 <Stack gap="md" mt="xl">
@@ -592,7 +614,11 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                   <Title order={2}>Setup Complete!</Title>
                   <Text ta="center" c="dimmed">
                     Metis BPM has been successfully initialized.<br />
-                    Your configuration has been saved to <strong>config.yaml</strong> with encrypted credentials.<br />
+                    {fromEnvironment ? (
+                      <>This server reads its database and keys from its environment, so there was nothing to save.<br /></>
+                    ) : (
+                      <>Your configuration has been saved to <strong>config.yaml</strong> with encrypted credentials.<br /></>
+                    )}
                     You can now log in with your administrator account.
                   </Text>
                   <Button size="lg" mt="md" onClick={onComplete} rightSection={<Rocket size={18} />}>
@@ -608,14 +634,14 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
               </Alert>
             )}
 
-            {active < 5 && (
+            {step < SETUP_STEPS.done && (
               <Group justify="flex-end" mt="xl">
-                {active !== 0 && (
+                {step !== firstStep && (
                   <Button variant="default" onClick={prevStep}>
                     Back
                   </Button>
                 )}
-                {active < 4 ? (
+                {step < SETUP_STEPS.project ? (
                   <Button onClick={nextStep}>Next Step</Button>
                 ) : (
                   <Button onClick={handleSetup} loading={loading} color="blue">

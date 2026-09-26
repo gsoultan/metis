@@ -7,6 +7,18 @@ import (
 // SetupStatus represents the current initialization state of the system.
 type SetupStatus struct {
 	IsInitialized bool `json:"is_initialized"`
+
+	// ConfiguredByEnvironment says the server's environment already names its
+	// database and both secrets, so the wizard asks only for the organization
+	// and the first administrator. It writes no file in that case — the
+	// container deployments run on a read-only root, where it could not.
+	ConfiguredByEnvironment bool `json:"configured_by_environment"`
+}
+
+// InstallationProbe answers whether the database a server runs on already
+// holds an installation.
+type InstallationProbe interface {
+	HasAccounts(ctx context.Context) (bool, error)
 }
 
 // SetupRequest contains the initial configuration data for the system.

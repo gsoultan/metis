@@ -158,3 +158,35 @@ func scrape(t *testing.T, c *Collector) string {
 	}
 	return rec.Body.String()
 }
+
+// A stream held open for an hour is not an hour-long request. Recorded as one
+// it dragged the read latency the SLO is measured on, and every open tab
+// counted towards the in-flight gauge the saturation alert fires on.
+func TestAStreamIsCountedAsAStreamNotAsARequest(t *testing.T) {
+	const streamPath = "/api/v1/events"
+	c := New(WithStreams(streamPath))
+
+	var openDuring, inFlightDuring float64
+	handler := c.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		openDuring = testutil.ToFloat64(c.streamsOpen)
+		inFlightDuring = testutil.ToFloat64(c.inFlight)
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, streamPath, nil))
+
+	if openDuring != 1 {
+		t.Errorf("the open stream was not counted: %v", openDuring)
+	}
+	if inFlightDuring != 0 {
+		t.Errorf("the stream counted as a request in flight: %v", inFlightDuring)
+	}
+	if got := testutil.ToFloat64(c.streamsOpen); got != 0 {
+		t.Errorf("a closed stream is still counted as open: %v", got)
+	}
+	if got := testutil.CollectAndCount(c.requestDuration); got != 0 {
+		t.Errorf("the stream's lifetime was recorded as request latency (%d series)", got)
+	}
+	if got := testutil.ToFloat64(c.requestsTotal.WithLabelValues(http.MethodGet, streamPath, "2xx")); got != 1 {
+		t.Errorf("the stream's outcome was not counted: %v", got)
+	}
+}

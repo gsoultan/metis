@@ -2,7 +2,6 @@ package pg
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -30,7 +29,7 @@ func (r *auditRepository) Create(ctx context.Context, entry models.AuditModel) e
 	if err != nil {
 		return err
 	}
-	data, err := jsonOf(entry.Data)
+	data, err := sealedJSONOf(entry.Data)
 	if err != nil {
 		return fmt.Errorf("could not encode the audit entry's data: %w", err)
 	}
@@ -106,7 +105,7 @@ func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]mod
 			Narrative:  valueOr(row.Narrative),
 		}
 		if len(row.Data) > 0 {
-			if err := json.Unmarshal(row.Data, &entry.Data); err != nil {
+			if err := unseal(row.Data, &entry.Data); err != nil {
 				return nil, fmt.Errorf("could not decode an audit entry's data: %w", err)
 			}
 		}

@@ -394,7 +394,7 @@ func TestTenantIsolation_KeyLookupsStayInTenant(t *testing.T) {
 		})
 
 		t.Run("decision by key resolves to own project", func(t *testing.T) {
-			got, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetByKey(ctx, sharedDecisionKey)
+			got, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetByKey(ctx, f.projectA, sharedDecisionKey)
 			if err != nil {
 				t.Fatalf("get: %v", err)
 			}
@@ -403,8 +403,9 @@ func TestTenantIsolation_KeyLookupsStayInTenant(t *testing.T) {
 			}
 		})
 
+		// Naming the other tenant's project outright is no way round the scope.
 		t.Run("decision by key and version denies another tenant's version", func(t *testing.T) {
-			_, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetByKeyAndVersion(ctx, sharedDecisionKey, 2)
+			_, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetByKeyAndVersion(ctx, f.projectB, sharedDecisionKey, 2)
 			if !isNotFound(err) {
 				t.Fatalf("got %v, want a not-found", err)
 			}

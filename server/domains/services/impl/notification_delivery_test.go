@@ -77,7 +77,7 @@ func aNotification() entities.Notification {
 func TestANotificationIsStoredBeforeItIsDelivered(t *testing.T) {
 	store := &storingNotifier{}
 	channel := &countingChannel{}
-	svc := NewDeliveringNotificationService(store, channel)
+	svc := NewDeliveringNotificationService(store, DeliverNow, channel)
 
 	if err := svc.Send(context.Background(), aNotification()); err != nil {
 		t.Fatalf("send: %v", err)
@@ -94,7 +94,7 @@ func TestAChannelThatFailsDoesNotLoseTheNotification(t *testing.T) {
 	// The in-app centre is the record. An SMTP server that is down must not
 	// also cost somebody the one place the notification was guaranteed to be.
 	store := &storingNotifier{}
-	svc := NewDeliveringNotificationService(store, &countingChannel{err: errors.New("smtp is down")})
+	svc := NewDeliveringNotificationService(store, DeliverNow, &countingChannel{err: errors.New("smtp is down")})
 
 	if err := svc.Send(context.Background(), aNotification()); err != nil {
 		t.Fatalf("a failed channel failed the whole notification: %v", err)
@@ -109,7 +109,7 @@ func TestAStoreThatFailsIsStillAFailure(t *testing.T) {
 	// to know. Delivery is the extra, not the point.
 	store := &storingNotifier{err: errors.New("the database is gone")}
 	channel := &countingChannel{}
-	svc := NewDeliveringNotificationService(store, channel)
+	svc := NewDeliveringNotificationService(store, DeliverNow, channel)
 
 	if err := svc.Send(context.Background(), aNotification()); err == nil {
 		t.Fatal("a notification that was never stored reported success")
@@ -121,13 +121,13 @@ func TestAStoreThatFailsIsStillAFailure(t *testing.T) {
 
 func TestConfiguringNothingWrapsNothing(t *testing.T) {
 	store := &storingNotifier{}
-	if svc := NewDeliveringNotificationService(store); svc != store {
+	if svc := NewDeliveringNotificationService(store, DeliverNow); svc != store {
 		t.Fatal("an installation that configured no channels should get the service it passed in")
 	}
 	// "Not configured" is what the constructors return, and it has to be a
 	// real nil rather than a typed nil pointer hiding in an interface —
 	// otherwise the wrapper keeps it and the first delivery panics.
-	if svc := NewDeliveringNotificationService(store, NewWebhookNotificationChannel("")); svc != store {
+	if svc := NewDeliveringNotificationService(store, DeliverNow, NewWebhookNotificationChannel("")); svc != store {
 		t.Fatal("an unconfigured webhook channel was kept and will panic on delivery")
 	}
 }
@@ -202,7 +202,7 @@ func TestTheEmailGoesToThePersonNotTheSender(t *testing.T) {
 	channel := NewEmailNotificationChannel(
 		EmailSettings{Host: "smtp.example.com", From: "noreply@example.com"},
 		func(context.Context, string) (string, error) { return "ollie@example.com", nil },
-		WithMailSender(func(_ string, _ smtp.Auth, from string, to []string, msg []byte) error {
+		WithMailSender(func(_ context.Context, _ string, _ smtp.Auth, from string, to []string, msg []byte) error {
 			gotFrom, gotTo, gotMsg = from, to, string(msg)
 			return nil
 		}),
@@ -236,7 +236,7 @@ func TestSomebodyWithNoAddressIsSimplyNotEmailed(t *testing.T) {
 	channel := NewEmailNotificationChannel(
 		EmailSettings{Host: "smtp.example.com", From: "noreply@example.com"},
 		func(context.Context, string) (string, error) { return "", nil },
-		WithMailSender(func(string, smtp.Auth, string, []string, []byte) error {
+		WithMailSender(func(context.Context, string, smtp.Auth, string, []string, []byte) error {
 			sent++
 			return nil
 		}),
@@ -254,7 +254,7 @@ func TestAnAddressThatCannotBeLookedUpIsAnError(t *testing.T) {
 	channel := NewEmailNotificationChannel(
 		EmailSettings{Host: "smtp.example.com", From: "noreply@example.com"},
 		func(context.Context, string) (string, error) { return "", errors.New("no such user") },
-		WithMailSender(func(string, smtp.Auth, string, []string, []byte) error { return nil }),
+		WithMailSender(func(context.Context, string, smtp.Auth, string, []string, []byte) error { return nil }),
 	)
 
 	if err := channel.Deliver(context.Background(), aNotification()); err == nil {

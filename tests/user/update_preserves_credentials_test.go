@@ -32,7 +32,7 @@ import (
 func TestUpdateUser_KeepsTheUsernameAndPasswordItWasNotGiven(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
-	ctx := t.Context()
+	ctx, orgID := testutils.ScopedContext(t, repo)
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse-battery"), bcrypt.DefaultCost)
 	if err != nil {
@@ -40,10 +40,11 @@ func TestUpdateUser_KeepsTheUsernameAndPasswordItWasNotGiven(t *testing.T) {
 	}
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: models.UUID(id)},
-		Username: "admin",
-		FullName: "Ada Lovelace",
-		Email:    "ada@example.com",
+		Base:          models.Base{ID: models.UUID(id)},
+		Username:      "admin",
+		FullName:      "Ada Lovelace",
+		Email:         "ada@example.com",
+		Organizations: memberOf(orgID),
 	}, string(hash)); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
@@ -81,18 +82,29 @@ func TestUpdateUser_KeepsTheUsernameAndPasswordItWasNotGiven(t *testing.T) {
 func TestUpdateUser_StillAppliesTheFieldsItWasGiven(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
-	ctx := t.Context()
+	ctx, orgID := testutils.ScopedContext(t, repo)
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.DefaultCost)
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: models.UUID(id)},
-		Username: "bob",
-		FullName: "Bob Barker",
-		Email:    "bob@example.com",
-		Roles:    []string{"ADMIN"},
+		Base:          models.Base{ID: models.UUID(id)},
+		Username:      "bob",
+		FullName:      "Bob Barker",
+		Email:         "bob@example.com",
+		Roles:         []string{"ADMIN"},
+		Organizations: memberOf(orgID),
 	}, string(hash)); err != nil {
 		t.Fatalf("seed user: %v", err)
+	}
+	// Somebody else still administers the organization after bob's demotion;
+	// taking its last administrator away is refused, and is not this test.
+	if err := repo.User().Create(ctx, models.UserModel{
+		Base:          models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
+		Username:      "other-admin",
+		Roles:         []string{"ADMIN"},
+		Organizations: memberOf(orgID),
+	}, string(hash)); err != nil {
+		t.Fatalf("seed a second administrator: %v", err)
 	}
 
 	if err := svc.UpdateUser(ctx, entities.User{
@@ -121,14 +133,15 @@ func TestUpdateUser_StillAppliesTheFieldsItWasGiven(t *testing.T) {
 func TestUpdateUser_LeavesRolesAloneWhenTheyAreNotSupplied(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestConn(t))
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
-	ctx := t.Context()
+	ctx, orgID := testutils.ScopedContext(t, repo)
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.DefaultCost)
 	id := uuid.Must(uuid.NewV7())
 	if err := repo.User().Create(ctx, models.UserModel{
-		Base:     models.Base{ID: models.UUID(id)},
-		Username: "carol",
-		Roles:    []string{"ADMIN"},
+		Base:          models.Base{ID: models.UUID(id)},
+		Username:      "carol",
+		Roles:         []string{"ADMIN"},
+		Organizations: memberOf(orgID),
 	}, string(hash)); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
@@ -150,4 +163,10 @@ func TestUpdateUser_RejectsAnUpdateWithNoID(t *testing.T) {
 	if err := svc.UpdateUser(t.Context(), entities.User{FullName: "Nobody"}); err == nil {
 		t.Fatal("an update with no id was accepted; it has no row to apply to")
 	}
+}
+
+// memberOf places a seeded account in the organization a test's requests are
+// scoped to, which is where an account the service may change has to be.
+func memberOf(orgID uuid.UUID) []models.OrganizationModel {
+	return []models.OrganizationModel{{Base: models.Base{ID: models.UUID(orgID)}}}
 }

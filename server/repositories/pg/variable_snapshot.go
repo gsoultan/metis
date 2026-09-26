@@ -29,7 +29,7 @@ func (r *variableSnapshotRepository) Create(ctx context.Context, m models.Variab
 	if err != nil {
 		return models.VariableSnapshotModel{}, err
 	}
-	variables, err := jsonOf(m.Variables)
+	variables, err := sealedJSONOf(m.Variables)
 	if err != nil {
 		return models.VariableSnapshotModel{}, fmt.Errorf("could not encode the snapshot's variables: %w", err)
 	}
@@ -80,7 +80,7 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 }
 
 func snapshotFrom(row variablesnapshot.Row) (models.VariableSnapshotModel, error) {
-	variables, err := mapOf(row.Variables)
+	variables, err := sealedMapOf(row.Variables)
 	if err != nil {
 		return models.VariableSnapshotModel{}, fmt.Errorf("could not decode a snapshot's variables: %w", err)
 	}

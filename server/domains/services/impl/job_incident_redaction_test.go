@@ -44,7 +44,9 @@ func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
 	// The shape net/http produces when a connector cannot reach its API.
 	jobErr := &stubError{text: `connector "salesforce": Get "https://api.example.com/v1/leads?api_key=` + secret + `": dial tcp: connection refused`}
 
-	service.createIncident(ctx, job, jobErr)
+	if err := service.createIncident(ctx, job, jobErr); err != nil {
+		t.Fatalf("record the incident: %v", err)
+	}
 
 	incidents, err := repo.Incident().ListByInstance(ctx, instanceID)
 	if err != nil {

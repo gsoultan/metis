@@ -131,7 +131,11 @@ func MakeEvaluateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if !ok {
 			return nil, fmt.Errorf("decision: expected a EvaluateDecisionRequest, got %T", request)
 		}
-		res, err := s.Evaluate(ctx, req.Key, req.Version, req.Variables)
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return EvaluateDecisionResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		res, err := s.Evaluate(ctx, projectID, req.Key, req.Version, req.Variables)
 		return EvaluateDecisionResponse{Result: res, Err: err}, nil
 	}
 }

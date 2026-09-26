@@ -225,7 +225,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	incidentEndpoints.ResolveIncident = operator("ResolveIncident")(incidentEndpoints.ResolveIncident)
 
 	organizationEndpoints := organization.MakeEndpoints(s)
-	organizationEndpoints.CreateOrganization = public("CreateOrganization")(organizationEndpoints.CreateOrganization)
+	// Was public: logging and nothing else, so any signed-in account could
+	// create organizations over HTTP, and anybody at all over the gRPC
+	// listener, which authenticates nothing. Names are unique, so it doubled as
+	// a way to squat on one and to learn which already existed.
+	organizationEndpoints.CreateOrganization = adminOnly("CreateOrganization")(organizationEndpoints.CreateOrganization)
 	organizationEndpoints.GetOrganization = protected("GetOrganization")(organizationEndpoints.GetOrganization)
 	organizationEndpoints.ListOrganizations = protected("ListOrganizations")(organizationEndpoints.ListOrganizations)
 	organizationEndpoints.UpdateOrganization = adminOnly("UpdateOrganization")(organizationEndpoints.UpdateOrganization)

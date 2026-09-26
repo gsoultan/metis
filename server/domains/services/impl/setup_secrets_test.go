@@ -57,7 +57,7 @@ func TestSetupRefusesSecretsTheServerWillNotStartWith(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := validateSetupRequest(validRequestWith(testCase.encryptionKey, testCase.jwtSecret))
+			err := validateSetupRequest(validRequestWith(testCase.encryptionKey, testCase.jwtSecret), setupTarget{})
 			if err == nil {
 				t.Fatal("setup accepted a secret the server refuses to start with: the installation would configure and then never restart")
 			}
@@ -76,7 +76,7 @@ func TestSetupAcceptsGeneratedSecrets(t *testing.T) {
 	// is not worth teaching it to ignore — the scanner being right about this
 	// is what makes it useful about everything else.
 	req := validRequestWith(randomHex(24), randomHex(32))
-	if err := validateSetupRequest(req); err != nil {
+	if err := validateSetupRequest(req, setupTarget{}); err != nil {
 		t.Fatalf("setup refused secrets from the documented commands: %v", err)
 	}
 }
@@ -87,7 +87,7 @@ func TestSetupHonoursTheWeakSecretOverride(t *testing.T) {
 	t.Setenv("METIS_ALLOW_WEAK_SECRETS", "true")
 
 	req := validRequestWith(strings.Repeat("a", 16), "secret")
-	if err := validateSetupRequest(req); err != nil {
+	if err := validateSetupRequest(req, setupTarget{}); err != nil {
 		t.Fatalf("the override did not apply to setup: %v", err)
 	}
 }
@@ -97,10 +97,10 @@ func TestSetupHonoursTheWeakSecretOverride(t *testing.T) {
 func TestSetupStillRequiresSecretsUnderTheOverride(t *testing.T) {
 	t.Setenv("METIS_ALLOW_WEAK_SECRETS", "true")
 
-	if err := validateSetupRequest(validRequestWith("", "secret")); err == nil {
+	if err := validateSetupRequest(validRequestWith("", "secret"), setupTarget{}); err == nil {
 		t.Fatal("setup accepted an empty encryption key")
 	}
-	if err := validateSetupRequest(validRequestWith(strings.Repeat("a", 40), "")); err == nil {
+	if err := validateSetupRequest(validRequestWith(strings.Repeat("a", 40), ""), setupTarget{}); err == nil {
 		t.Fatal("setup accepted an empty JWT secret")
 	}
 }

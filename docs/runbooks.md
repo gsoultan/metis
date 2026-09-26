@@ -194,10 +194,25 @@ FROM jobs WHERE status = 'running' AND lock_expires < now();
 ```
 
 Rows here are claimed by a worker that is gone. **They recover by themselves**:
-the claim is `WHERE status = pending OR lock_expires < now()`, so the next poll
-picks them up. If the list is long right after a deploy, that is the drain
-budget being exceeded — raise `METIS_SHUTDOWN_DRAIN` (default 20s) so a rollout
-waits for work it has already claimed.
+the worker's poll offers a running job whose lease has expired alongside the
+pending ones, and reclaiming it counts as an attempt. The job's work and its
+status commit together, so a reclaimed job whose work had already committed
+completes without doing it again.
+
+Until 2026-09-25 this paragraph was not true. The poll asked for pending jobs
+only, so these rows stayed running for good and the processes behind them hung
+with no incident. An installation upgraded from before then may have some; the
+first poll after the upgrade picks them up.
+
+A job that keeps losing its worker — reclaimed three times, or as many as its
+retries allow if that is more — is failed with an incident saying *the worker
+running this step stopped before it finished*. Treat that as the job killing
+the worker, not the other way round: look at what the step runs (a script, a
+call that returns something enormous) and at the pod's last OOM kill.
+
+If the list is long right after a deploy, that is the drain budget being
+exceeded — raise `METIS_SHUTDOWN_DRAIN` (default 20s) so a rollout waits for
+work it has already claimed.
 
 If `lock_expires` is in the *future* and the pod is gone, wait for it. Five
 minutes is the lease.
@@ -249,6 +264,35 @@ the most common cause of a sudden, total 5xx rate on one route.
 Note that a caller's own mistake is **not** counted here: a malformed identifier
 answers 400 and an absent one 404, on purpose, so a client typo does not spend
 the budget or page you.
+
+---
+
+## Live updates stopped arriving
+
+The inbox, the designer's collaborators and the SDK sandbox listen on one
+stream per browser tab, at `/api/v1/events`.
+
+```promql
+metis_http_event_streams_open
+sum by (status_class) (rate(metis_http_requests_total{route="/api/v1/events"}[5m]))
+```
+
+Streams are not counted as requests in flight, and they do not use the API's
+backpressure slots: until 2026-09-25 each open tab held one of the 128, so a
+busy morning's worth of tabs stalled every other call. They have limits of
+their own — 2048 per process, 16 per account — and past them a stream is
+refused with **503** (the process is full) or **429** (that account is), with
+`Retry-After`. The browser retries with a backoff.
+
+- **429s for one account** is a script, or a tab reloading itself. Nobody else
+  is affected.
+- **503s, `metis_http_event_streams_open` at 2048** is a process holding as many
+  tabs as it will. Add a replica, or find what is opening streams it does not
+  close.
+- **Nothing refused and still no updates** usually means a proxy in the way is
+  buffering or cutting the stream. Every stream sends a keep-alive comment
+  every 25 seconds, so a proxy idle timeout shorter than that is the first
+  thing to check; response buffering the second.
 
 ---
 

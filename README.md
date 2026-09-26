@@ -30,7 +30,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
 - **Process mining**: a project's audit trail exports as an **OCEL 2.0** object-centric event log (`GET /api/v1/projects/{id}/ocel`), readable by ProM, pm4py and the commercial mining tools. Process variables are excluded unless explicitly asked for — a control-flow model does not need them.
 - **Enterprise Persistence**:
   - **Audit Logging**: Comprehensive, persistent audit trail for every state change and node transition.
-  - **Security**: **AES-256-GCM encryption** for process and task variables at rest. Requires `ENCRYPTION_KEY`; the server refuses to start without it once configured.
+  - **Security**: **AES-256-GCM encryption** for process and task variables at rest, and for every copy the engine keeps of them — variable history, audit trail, queued jobs, external tasks, compensation records, recorded partner responses, events broadcast between replicas, and answers kept for idempotent retries. Requires `ENCRYPTION_KEY`; the server refuses to start without it once configured. Rows written by a version before 2026-09-25 keep the form they were written in until they are next written; audit entries are never rewritten, so an older installation's history before that date stays as it was.
   - **PostgreSQL**: one engine, so a constraint has one spelling and every test runs against what production runs.
 - **Topology**: job claiming, migrations, correlation, idempotency, live UI updates and rate limits are all safe across replicas. What remains per-process is circuit breakers, which open on consecutive failures by design — so a failing partner sees up to the threshold per replica before all back off, rather than in total. See [`docs/recovery.md` §2.1](docs/recovery.md) before raising the replica count.
 
@@ -85,9 +85,9 @@ One command runs the backend and the UI together:
 
 - UI on **http://localhost:5273**, API on **:8273**, gRPC on **:8274**
 - Deliberately not 5173/8080/8081: those are what every other project on a
-  developer's machine is already using. Production still listens on 8080 and
-  8081 — this is only what the development script asks for. Override with
-  `UI_PORT`, `API_PORT` or `GRPC_PORT`
+  developer's machine is already using. Production listens on 8080, and on a
+  gRPC port only when `METIS_GRPC_ADDRESS` names one — the development script
+  does. Override with `UI_PORT`, `API_PORT` or `GRPC_PORT`
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
@@ -108,7 +108,11 @@ script uses it automatically when present:
 go install github.com/air-verse/air@latest
 ```
 
-Open the UI and the first run walks through the setup wizard.
+Open the UI and the first run walks through the setup wizard. A server started
+with `DATABASE_URL`, `ENCRYPTION_KEY` and `JWT_SECRET` already has its database
+and keys, so the wizard asks only for the organization and first administrator
+and writes no `config.yaml`. Either way it closes once the database holds an
+account.
 
 Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`docs/upgrading.md`](docs/upgrading.md).
 
@@ -121,7 +125,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused. For an existing installation that cannot rotate `ENCRYPTION_KEY` without losing data; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. Required unless `config.yaml` names a database; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
-| `METIS_GRPC_ADDRESS` | gRPC listen address (default `:8081`). |
+| `METIS_GRPC_ADDRESS` | gRPC listen address. **Unset means no gRPC listener**, which is the default: it applies none of the HTTP chain — no authentication, rate or body limit — so only the calls that need no sign-in answer on it. The same services are served over HTTP through Connect. |
 | `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
 | `METIS_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
 | `METIS_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |

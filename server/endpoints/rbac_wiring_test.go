@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -93,7 +95,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 		"CreateGroup", "UpdateGroup", "DeleteGroup",
 		"AddMembership", "RemoveMembership",
 		"CreateUser", "UpdateUser", "DeleteUser",
-		"UpdateOrganization", "DeleteOrganization",
+		"CreateOrganization", "UpdateOrganization", "DeleteOrganization",
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",
 	}
@@ -133,6 +135,28 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 		if !strings.Contains(source, `public("`+name+`")`) {
 			t.Errorf("%s must stay public or a fresh installation cannot be reached", name)
 		}
+	}
+}
+
+// publicEndpoints are the only ones reachable before a caller can hold a token.
+var publicEndpoints = []string{"GetSetupStatus", "Login", "Setup", "TestConnection"}
+
+// The assertion above checks that these four are public. It never checked that
+// nothing else is, and CreateOrganization sat on the public chain beside them —
+// logging and nothing else, reachable by any signed-in account over HTTP and
+// by anybody at all over the gRPC listener, which applies no authentication.
+func TestMakeEndpoints_NothingElseIsPublic(t *testing.T) {
+	source := readEndpointsSource(t)
+
+	var found []string
+	for _, match := range regexp.MustCompile(`public\("([A-Za-z]+)"\)`).FindAllStringSubmatch(source, -1) {
+		found = append(found, match[1])
+	}
+	slices.Sort(found)
+	found = slices.Compact(found)
+
+	if !slices.Equal(found, publicEndpoints) {
+		t.Fatalf("the public chain carries %v; only %v may be reachable without a role check", found, publicEndpoints)
 	}
 }
 

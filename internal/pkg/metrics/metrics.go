@@ -42,9 +42,34 @@ type Collector struct {
 	requestsTotal   *prometheus.CounterVec
 	inFlight        prometheus.Gauge
 
+	// streamsOpen counts connections held open on the stream paths — the live
+	// event stream — which are not requests in the latency sense.
+	streamsOpen prometheus.Gauge
+	streamPaths map[string]struct{}
+
 	// mu guards routes, which bounds label cardinality.
 	mu     sync.Mutex
 	routes map[string]struct{}
+}
+
+// Option adjusts a Collector.
+type Option func(*Collector)
+
+// WithStreams names paths that hold their connection open for as long as the
+// client wants — the live event stream.
+//
+// Such a request is not a request in the latency sense. Recorded like one, a
+// stream a tab kept open for an hour was an hour-long GET in the histogram the
+// read SLO is measured on, and every open tab counted towards the in-flight
+// gauge the saturation alert fires on. They are counted as streams instead,
+// and their outcome still spends the error budget: a stream refused with a 503
+// is a failure somebody saw.
+func WithStreams(paths ...string) Option {
+	return func(c *Collector) {
+		for _, path := range paths {
+			c.streamPaths[path] = struct{}{}
+		}
+	}
 }
 
 // New builds a Collector with its own registry.
@@ -52,8 +77,13 @@ type Collector struct {
 // It uses a private registry rather than the default one so that a library
 // pulling in client_golang cannot silently add series to this service's scrape
 // output, and so tests can construct one without global state.
-func New() *Collector {
+func New(opts ...Option) *Collector {
 	c := &Collector{
+		streamPaths: make(map[string]struct{}),
+		streamsOpen: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "metis_http_event_streams_open",
+			Help: "Live event streams currently open; not counted as requests in flight.",
+		}),
 		registry: prometheus.NewRegistry(),
 		routes:   make(map[string]struct{}, maxTrackedRoutes),
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -74,10 +104,15 @@ func New() *Collector {
 		}),
 	}
 
+	for _, opt := range opts {
+		opt(c)
+	}
+
 	c.registry.MustRegister(
 		c.requestDuration,
 		c.requestsTotal,
 		c.inFlight,
+		c.streamsOpen,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -101,6 +136,10 @@ func (c *Collector) Registry() *prometheus.Registry { return c.registry }
 // through would make an overloaded service look perfectly healthy.
 func (c *Collector) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, stream := c.streamPaths[r.URL.Path]; stream {
+			c.serveStream(next, w, r)
+			return
+		}
 		start := time.Now()
 		c.inFlight.Inc()
 		defer c.inFlight.Dec()
@@ -114,6 +153,19 @@ func (c *Collector) Wrap(next http.Handler) http.Handler {
 		c.requestDuration.WithLabelValues(r.Method, route, status).Observe(time.Since(start).Seconds())
 		c.requestsTotal.WithLabelValues(r.Method, route, statusClass(recorder.status)).Inc()
 	})
+}
+
+// serveStream counts a stream while it is open and its outcome when it ends,
+// and leaves latency and the in-flight gauge to requests.
+func (c *Collector) serveStream(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	c.streamsOpen.Inc()
+	defer c.streamsOpen.Dec()
+
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	next.ServeHTTP(recorder, r)
+
+	route := c.trackRoute(normalizeRoute(r.URL.Path))
+	c.requestsTotal.WithLabelValues(r.Method, route, statusClass(recorder.status)).Inc()
 }
 
 // trackRoute returns route if it is already known or there is room for it, and

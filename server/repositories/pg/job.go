@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/storm/runtime"
 )
 
 type jobRepository struct{ conn }
@@ -31,7 +33,7 @@ func (r *jobRepository) Create(ctx context.Context, j models.JobModel) (uuid.UUI
 	if err != nil {
 		return uuid.Nil, err
 	}
-	payload, err := jsonOf(j.Payload)
+	payload, err := sealedJSONOf(j.Payload)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not encode the job's payload: %w", err)
 	}
@@ -89,7 +91,7 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 	if !found {
 		return fmt.Errorf("%w: no such job", apierr.ErrNotFound)
 	}
-	payload, err := jsonOf(j.Payload)
+	payload, err := sealedJSONOf(j.Payload)
 	if err != nil {
 		return fmt.Errorf("could not encode the job's payload: %w", err)
 	}
@@ -120,22 +122,50 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 // query the queue was shaped for. An expired lock counts as unheld: the worker
 // that took it is gone, and leaving its work permanently claimed would strand
 // every process waiting on it.
+//
+// That was this comment's promise and not the query's: it asked for pending
+// jobs only, so a job left running — a killed pod, a crash, a status write that
+// failed — was never offered to anybody again, and the process waiting behind
+// it hung with no incident. Running jobs whose lease has expired are offered
+// now, and Lock counts reclaiming one as an attempt.
+//
+// Two ranges rather than one query over both statuses. Each reads the claim
+// index in order and stops at the limit; one query over two statuses has to
+// gather every due row and sort it — measured with 100,000 jobs due, 18.8ms a
+// call against 0.04ms for each range, on a loop that can run twenty rounds a
+// tick exactly when the engine is busiest.
 func (r *jobRepository) GetPending(ctx context.Context, limit int) ([]models.JobModel, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	rows, err := job.New().
-		Where(job.Status.Eq(string(models.JobPending)), job.NextRunAt.Lte(now)).
-		Any(job.LockExpires.IsNull(), job.LockExpires.Lt(now)).
-		Order(job.NextRunAt.Asc()).
-		Limit(int64(limit)).
-		All(ctx, ex, nil)
+	due, err := claimable(ctx, ex, models.JobPending, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the pending jobs: %w", err)
 	}
-	return jobsFrom(rows)
+	abandoned, err := claimable(ctx, ex, models.JobRunning, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the jobs whose worker stopped: %w", err)
+	}
+	rows := slices.Concat(due, abandoned)
+	slices.SortFunc(rows, func(a, b job.Row) int { return a.NextRunAt.Compare(b.NextRunAt) })
+	return jobsFrom(rows[:min(len(rows), limit)])
+}
+
+// claimable reads the due jobs in one status whose lease is free: never taken,
+// or expired.
+//
+// The expired test comes before the null test, and must: the generated builder
+// drops the predicate after a null test inside Any, so the order the queue
+// used to ask in matched free leases only and never an expired one.
+func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int) ([]job.Row, error) {
+	return job.New().
+		Where(job.Status.Eq(string(status)), job.NextRunAt.Lte(now)).
+		Any(job.LockExpires.Lt(now), job.LockExpires.IsNull()).
+		Order(job.NextRunAt.Asc()).
+		Limit(int64(limit)).
+		All(ctx, ex, nil)
 }
 
 func (r *jobRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.JobModel, error) {
@@ -162,6 +192,13 @@ func (r *jobRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID
 //
 // Raw SQL because the predicate is part of the write. Reading the row, deciding
 // in Go and writing back is exactly the pattern this avoids.
+//
+// Reclaiming a job whose worker died is counted as an attempt, in the same
+// statement: the attempt it died in never reached the code that counts
+// failures. Otherwise a job that kills its worker every time — a script that
+// runs a pod out of memory — would be picked up by the next pod, and the next,
+// forever, instead of ending as an incident somebody can look at. The SET reads
+// the row as it was, so only a claim of a running job counts.
 func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration time.Duration, workerID string) (bool, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
@@ -169,8 +206,9 @@ func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration tim
 	}
 	now := time.Now().UTC()
 	claimed, err := ex.Exec(ctx,
-		`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now()
-		  WHERE id = $4 AND (status = $5 OR lock_expires < $6)`,
+		`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
+		        retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
+		  WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`,
 		[]any{
 			string(models.JobRunning), workerID, now.Add(lockDuration),
 			id, string(models.JobPending), now,
@@ -194,7 +232,7 @@ func jobsFrom(rows []job.Row) ([]models.JobModel, error) {
 }
 
 func jobFrom(row job.Row) (models.JobModel, error) {
-	payload, err := mapOf(row.Payload)
+	payload, err := sealedMapOf(row.Payload)
 	if err != nil {
 		return models.JobModel{}, fmt.Errorf("could not decode a job's payload: %w", err)
 	}

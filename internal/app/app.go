@@ -127,7 +127,6 @@ const (
 	envMetricsAddress     = "METIS_METRICS_ADDRESS"
 
 	defaultHTTPAddress = ":8080"
-	defaultGRPCAddress = ":8081"
 	envHTTPAddress     = "METIS_HTTP_ADDRESS"
 	envGRPCAddress     = "METIS_GRPC_ADDRESS"
 
@@ -662,7 +661,7 @@ func (a *App) setupService(ctx context.Context) error {
 		}
 	})
 
-	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery()))
+	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
 
 	// How the event stream works out who a background event is for. The job
 	// worker and the timer sweep run under a system context with no tenant on
@@ -864,27 +863,39 @@ func BuildAPIHandler(
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",
 	}
-	httpHandler = f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(
-		sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
-			f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
-				f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
-					// Carries X-Organization-ID into the context. It only lets a
-					// caller *choose* among the organizations they belong to;
-					// the endpoint tenant resolver validates it against their
-					// actual memberships.
-					tenant.NewHTTPOrganizationSelector().Wrap(
-						// Records go in the database rather than in this
-						// process: a client retry that reaches another replica
-						// must find the original answer, not an empty cache and
-						// a second execution of the write. Before setup has run
-						// there is no database yet, and the factory falls back
-						// to the in-process store for that window.
-						f.NewIdempotencyOver(conn, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
-					),
+	guarded := sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
+		f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
+			f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
+				// Carries X-Organization-ID into the context. It only lets a
+				// caller *choose* among the organizations they belong to;
+				// the endpoint tenant resolver validates it against their
+				// actual memberships.
+				tenant.NewHTTPOrganizationSelector().Wrap(
+					// Records go in the database rather than in this
+					// process: a client retry that reaches another replica
+					// must find the original answer, not an empty cache and
+					// a second execution of the write. Before setup has run
+					// there is no database yet, and the factory falls back
+					// to the in-process store for that window.
+					f.NewIdempotencyOver(conn, defaultHTTPIdempotencyTTL).Wrap(httpHandler),
 				),
 			),
 		),
 	)
+
+	// The live event stream is held open for as long as a tab stays open, so it
+	// goes around the backpressure limiter — it held one of the API's in-flight
+	// slots for its whole life, and 128 open tabs stalled every other call —
+	// and is limited by its own caps where it is served. Everything else it
+	// still meets: rate limit, body limit, authentication.
+	backpressured := f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(guarded)
+	httpHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == https.EventStreamPath {
+			guarded.ServeHTTP(w, r)
+			return
+		}
+		backpressured.ServeHTTP(w, r)
+	})
 
 	// Metrics wrap outside the limiters so that requests they reject with 429 or
 	// 503 are still counted. Those spend a caller's error budget and are the
@@ -893,7 +904,7 @@ func BuildAPIHandler(
 	// Recovery inside the collector, so a panic is a 500 the collector records
 	// rather than a closed connection it never sees. Outside everything else,
 	// so it covers the interceptor chain as well as the handlers.
-	metricsCollector := metrics.New()
+	metricsCollector := metrics.New(metrics.WithStreams(https.EventStreamPath))
 	httpHandler = metricsCollector.Wrap(https.RecoverPanics(httpHandler))
 
 	// Tracing wraps outside metrics so that a span covers the whole request,
@@ -1036,27 +1047,7 @@ func (a *App) runServers(ctx context.Context) error {
 	// beside a server that is already up, rather than instead of one.
 	a.serveEnvironments(ctx, g, httpHandler)
 
-	// gRPC Server
-	grpcAddress := resolveAddress(envGRPCAddress, defaultGRPCAddress)
-	g.Go(func() error {
-		// ListenConfig rather than net.Listen so the listener is bound under the
-		// server's context and shutdown can interrupt a slow bind.
-		var lc net.ListenConfig
-		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
-		if err != nil {
-			return err
-		}
-		baseServer := grpc.NewServer()
-		a.registerGRPCServices(baseServer, grpcServer)
-
-		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
-
-		go func() {
-			<-ctx.Done()
-			baseServer.GracefulStop()
-		}()
-		return baseServer.Serve(lis)
-	})
+	a.serveGRPC(ctx, g, grpcServer)
 
 	err := g.Wait()
 
@@ -1086,6 +1077,46 @@ func (a *App) runServers(ctx context.Context) error {
 // timeout pre-empting it.
 func ShutdownDrainBudget() time.Duration {
 	return serviceimpl.ShutdownDrain() + 5*time.Second
+}
+
+// serveGRPC starts the gRPC listener, if one was asked for.
+//
+// Off unless METIS_GRPC_ADDRESS names an address. It used to listen on :8081 by
+// default, published by the image, docker-compose and the Kubernetes manifest,
+// while applying none of the HTTP chain: no authentication, no rate or body
+// limit, no idempotency. Every protected call failed closed for want of a
+// principal, so it served no legitimate client — and every public one answered
+// anybody who could reach the port, creating organizations included until that
+// endpoint moved to administrators.
+func (a *App) serveGRPC(ctx context.Context, g *errgroup.Group, grpcServer *grpcs.Server) {
+	grpcAddress := strings.TrimSpace(envvar.Get(envGRPCAddress))
+	if grpcAddress == "" {
+		log.Info().Msg("gRPC is off; set " + envGRPCAddress + " to serve it")
+		return
+	}
+	log.Warn().Str("addr", grpcAddress).Msg(
+		"gRPC applies no authentication, rate limit or body limit of its own; " +
+			"only the calls that need no sign-in answer on it")
+
+	g.Go(func() error {
+		// ListenConfig rather than net.Listen so the listener is bound under the
+		// server's context and shutdown can interrupt a slow bind.
+		var lc net.ListenConfig
+		lis, err := lc.Listen(ctx, "tcp", grpcAddress)
+		if err != nil {
+			return err
+		}
+		baseServer := grpc.NewServer()
+		a.registerGRPCServices(baseServer, grpcServer)
+
+		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")
+
+		go func() {
+			<-ctx.Done()
+			baseServer.GracefulStop()
+		}()
+		return baseServer.Serve(lis)
+	})
 }
 
 func (a *App) registerGRPCServices(baseServer *grpc.Server, grpcServer *grpcs.Server) {
@@ -1237,7 +1268,7 @@ func sharedRateLimit(limiter contracts.TransportInterceptor) contracts.Transport
 // not. Both channels are opt-in through the environment, in the same shape as
 // WEBHOOK_ENDPOINTS: configure nothing and this is the plain service, which is
 // what every installation had before.
-func (a *App) notificationDelivery() servicecontracts.NotificationService {
+func (a *App) notificationDelivery(ctx context.Context) servicecontracts.NotificationService {
 	var channels []serviceimpl.NotificationChannel
 
 	if url := envvar.Get("NOTIFICATION_WEBHOOK_URL"); url != "" {
@@ -1267,5 +1298,19 @@ func (a *App) notificationDelivery() servicecontracts.NotificationService {
 		log.Info().Str("host", mail.Host).Msg("Notifications will also be emailed")
 	}
 
-	return serviceimpl.NewDeliveringNotificationService(a.svc, channels...)
+	// After the transaction that stored the notification commits, on a small
+	// background queue: delivering inside it held the engine's transaction —
+	// its connection and the task's row locks — for as long as a mail server
+	// took to answer.
+	schedule := serviceimpl.DeliverAfterCommit(ctx, a.repo.UnitOfWork().AfterCommit,
+		notificationDeliveryWorkers, notificationDeliveryQueue)
+	return serviceimpl.NewDeliveringNotificationService(a.svc, schedule, channels...)
 }
+
+// A few workers are plenty for notifications, which are small and not urgent to
+// the second; the queue absorbs a burst — a task created for everyone on a
+// team at once — without letting a mail server that is down grow it forever.
+const (
+	notificationDeliveryWorkers = 4
+	notificationDeliveryQueue   = 1024
+)
