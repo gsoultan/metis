@@ -18,6 +18,86 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## With OIDC on, local accounts sign in again
+
+With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API used to take the identity
+provider's ID tokens and nothing else, so a local account's token was refused
+with 401 — including the administrator's you would need on the day the
+provider is down. Both kinds are accepted now, each checked by its own rules;
+[Signing in with OIDC](integration.md#signing-in-with-oidc) has the rule.
+
+If you turned OIDC on in order to keep local accounts out, it no longer does:
+every local account whose password works can sign in after the upgrade. Before
+upgrading, list them, delete the ones nobody should use, and keep one
+administrator with a strong password held offline:
+
+```sql
+SELECT username, roles FROM users
+ WHERE identity_issuer IS NULL AND deleted_at IS NULL
+ ORDER BY username;
+```
+
+## Tasks nobody was named for are the administrators' and operators'
+
+A user task with no assignee and no candidates used to be anybody's: anybody
+signed in to its organization could claim it and complete it, with variables
+of their own. It is now an administrator's or an operator's to take — to
+claim, to complete, or to give to somebody — and nobody else's. No
+migration runs; what changes is who may act on these tasks.
+
+**Who is affected:** installations with processes whose user tasks name
+nobody, and the members who took those tasks from the inbox's board. After
+the upgrade:
+
+- A member claiming or completing such a task is refused with a 403: *this
+  task has no assignee and no candidates, so only an administrator or an
+  operator can take it; ask one of them to take it or to give it to
+  somebody*. The board no longer offers them Claim on it, and says who can
+  take it instead. Delegating or assigning one is refused the same way.
+- Administrators and operators find these tasks under *Available to Claim*,
+  and may claim them, complete them, or assign or delegate them to the
+  person they should have gone to.
+- Tasks with an assignee or candidates are unchanged, and so are manual
+  tasks: the designer has no field to name anybody for one, and they stay
+  anybody's.
+
+**Find them.** The designer warns about each user task that names nobody.
+The tasks already waiting on such a step:
+
+```sql
+SELECT id, name, node_id, instance_id, created_at
+FROM tasks
+WHERE deleted_at IS NULL
+  AND status = 'unclaimed'
+  AND COALESCE(type, '') <> 'manualTask'
+  AND COALESCE(assignee, '') = ''
+  AND COALESCE(candidate_users::text, '') IN ('', '[]', 'null')
+  AND COALESCE(candidate_groups::text, '') IN ('', '[]', 'null')
+ORDER BY created_at;
+```
+
+**Fix them** by giving each step an assignee, candidate users or candidate
+groups in the designer, and deploying. Running instances stay on the version
+they started on, so the tasks already waiting keep naming nobody: an
+administrator or an operator takes each one, or assigns it to the person it
+should go to.
+
+**Need time?** `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the old rule
+back: anybody signed in may claim and complete such a task, and *Available to
+Claim* offers it to everybody. It is for a migration window, not a steady
+state, and the server says so at every boot while it is on:
+
+```
+{"level":"warn","setting":"METIS_ALLOW_UNASSIGNED_TASK_CLAIMS","message":"Anybody signed in to an organization can claim and complete its tasks that have no assignee and no candidates, because this setting is on. Give those steps an assignee or candidates, then turn it off."}
+```
+
+Turn it off once the query above finds nothing that still needs a member to
+take it. The board does not know the setting, so while it is on a member
+claims such a task from *Available to Claim* rather than from the board.
+
+**Rolling back** to the previous release brings the old rule back with no
+setting; nothing in the database changed.
+
 ## Migration 22 can stop the upgrade, on purpose
 
 Seventy-two columns were declared non-null by the model — which is what the

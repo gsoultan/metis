@@ -1069,6 +1069,8 @@
   - Found, not changed: while OIDC is on, the API takes only the provider's tokens and
     refuses a local account's with 401 — the mandatory interceptor has one strategy. It
     was so before and is documented now; running both is a decision of its own.
+    **Decided 2026-09-26: both kinds, each by its own rules** (entry below, branch
+    `auth-both-tokens`).
   - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
     set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
     scope each; UI typecheck, lint (0 errors) and 1377 tests pass.
@@ -1191,6 +1193,69 @@
     variable no column reads; the coverage card says so rather than suggesting Try it. The
     Serena `verified-findings` memory and the PRD row for DMN-17 live outside the
     repository and are updated once this merges.
+- 2026-09-26 (completed): Signing in stays possible when the identity provider is not, as
+  the product owner decided it. Branch `auth-both-tokens`, one commit per change, each with
+  a test that fails against the code before it.
+  - **Local accounts sign in while OIDC is on.** The API took the provider's ID tokens
+    alone, so turning OIDC on cost the break-glass administrator. `TokenKindStrategy`
+    (`server/interceptors/auth`) accepts both, and chooses whose rules check a token by
+    what it says it is, not by trying one and falling back: an HMAC naming no issuer is
+    local (checked against `JWT_SECRET`, unchanged), a public-key signature is the
+    provider's (go-oidc, then the account link and the organization claim, unchanged),
+    anything else is refused unchecked. A fallback would make the looser rules decide what
+    the stricter refused — a `JWT_SECRET` token naming the provider as issuer would pass the
+    local check, which never reads an issuer. Reading the kind costs ~575 ns and 4
+    allocations per request, only with OIDC on (an HS256 parse alone is ~1.75 µs and 45).
+    Test: `tests/auth/both_tokens_test.go`, both kinds with OIDC on and off — the local
+    token was 401 with OIDC on; replacing the dispatch with a provider-then-local fallback
+    makes the forged-issuer row 200 and the test fail. Unit tests for the dispatch rule in
+    `server/interceptors/auth/token_kind*_test.go`.
+  - **`--reset-password` refuses an account linked to an identity provider**, naming the
+    provider to reset it at. It set a password on one, which then signed in without the
+    provider — a way in the provider could not revoke. The refusal is in `SetPassword`,
+    the command's only caller; nothing about the account changes. Test:
+    `internal/app/reset_password_test.go` — before, "Password updated for "ada"" and the
+    password signed in; after, refused and the hash still empty. A local account still
+    resets.
+  - **The redactor keeps the words of an error.** Its colon rule redacted whatever
+    followed a secret's name, so the first word of every wrapped auth error was lost
+    (`missing or invalid token: ***REDACTED*** ID token names…`) — and, spending its
+    match on that word, left the value after it alone: `token: jwt: <a token>` kept the
+    token. The value is kept now only when it reads as prose — a space after the colon, a
+    plain word, more words after it on the same line — and matching resumes at a kept word.
+    `token=`, JSON, URL queries and `Authorization` headers are unchanged. Test: the
+    table in `internal/pkg/redaction/redactor_test.go`, both directions and the existing
+    cases — 14 rows failed before (13 eaten words, 1 token left in clear).
+  - **Found, not changed:** a secret's name with a prefix joined by `_` is not recognised by
+    any rule — `client_secret`, `id_token`, `db_password` pass through in JSON, queries
+    and key/value text, before and after this branch, because `\b` does not match after
+    `_`. A connector error carrying `?client_secret=` would be stored in an incident in
+    clear. Allowing `(?:[a-z0-9]+[_-])*` before the names is the likely fix; it widens
+    what every rule redacts, so it wants its own change and test.
+- 2026-09-26 (completed): `HUM-04` — a task nobody was named for is no longer anybody's,
+  as the product owner decided it: deny by default, administrators and operators may take
+  one. Branch `unassigned-task-claims`, one commit per change, each with a test that fails
+  against the code before it:
+  - **Claiming and completing** a user task with no assignee and no candidates takes an
+    administrator or an operator; anybody else gets a 403 that names who can.
+    `authorizeCandidate` had read "no candidates" as "anyone" — the `sec` veto on an
+    authorization gap that opens on an empty field (AGENTS §2.3).
+  - **Handing one on** (delegate, assign) follows the same rule, so an operator can give it
+    to the person it should have gone to. Releasing and editing are unchanged.
+  - **The inbox** lists such tasks under *Available to Claim* for administrators and
+    operators, and the board no longer offers a member Claim on one.
+  - **The designer** warns (not an error) about a user task with no assignee, no candidates
+    and no assignment table; the property panel's suggestion says the same, and no longer
+    misreads a step offered to a team. Deploy has no warnings channel, so the server's
+    deploy is unchanged.
+  - **`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`** brings the old rule back for a migration
+    window, off by default and announced at boot when on; `docs/upgrading.md` has the
+    query for the tasks affected.
+  - **Open, for the product owner:** manual tasks. The designer has no field to name
+    anybody for one and tells its author an empty one is anybody's, so they were left
+    open; closing them needs that field first. And a completion can still carry variables
+    of the completer's choosing on a task they may take — a manual task's included, which
+    asks nobody for any.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

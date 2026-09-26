@@ -15,7 +15,8 @@ const (
 	RoleDesigner = "DESIGNER"
 
 	// RoleOperator runs the system day to day: resolves incidents, retrying
-	// the step that failed, starts ad hoc tasks and broadcasts signals.
+	// the step that failed, starts ad hoc tasks and broadcasts signals, and
+	// takes the tasks nobody was named for (Task.FallsToOperators).
 	// Migrating running instances is an administrator's.
 	RoleOperator = "OPERATOR"
 
@@ -33,6 +34,12 @@ const (
 	// "signed in" should require no roles at all rather than requiring this.
 	RoleUser = "USER"
 )
+
+// TakesUnnamedWork reports whether roles let their holder take a task nobody
+// was named for (Task.FallsToOperators): an administrator or an operator.
+func TakesUnnamedWork(roles []string) bool {
+	return HasRole(roles, RoleAdmin) || HasRole(roles, RoleOperator)
+}
 
 // HasRole reports whether roles contains want, ignoring case.
 func HasRole(roles []string, want string) bool {

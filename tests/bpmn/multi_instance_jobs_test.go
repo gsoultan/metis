@@ -6,6 +6,7 @@ import (
 
 	"github.com/gsoultan/metis/server/domains/entities"
 	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A node that runs once per item, advanced by the job worker.
@@ -289,7 +290,7 @@ func TestParallelJoinBookkeepingIsNotInProcessVariables(t *testing.T) {
 	}
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "legal" {
-			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+			if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil); err != nil {
 				t.Fatalf("complete the legal review: %v", err)
 			}
 		}
@@ -315,7 +316,7 @@ func TestParallelJoinBookkeepingIsNotInProcessVariables(t *testing.T) {
 	}
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "finance" {
-			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+			if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil); err != nil {
 				t.Fatalf("complete the finance review: %v", err)
 			}
 		}
