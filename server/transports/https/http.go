@@ -33,6 +33,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/processes"
 	"github.com/gsoultan/metis/server/transports/https/projects"
 	"github.com/gsoultan/metis/server/transports/https/setup"
+	"github.com/gsoultan/metis/server/transports/https/simulations"
 	"github.com/gsoultan/metis/server/transports/https/tasks"
 	"github.com/gsoultan/metis/server/transports/https/users"
 	"github.com/gsoultan/metis/server/transports/https/webhookadmin"
@@ -83,6 +84,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	connectors.RegisterHandlers(m, eps.Connector, options)
 	collaboration.RegisterHandlers(m, eps.Collaboration, options)
 	webhookadmin.RegisterHandlers(m, eps.Webhook, options)
+	simulations.RegisterHandlers(m, eps.Simulation, options)
 
 	// The public delivery endpoint. Registered straight onto the mux rather than
 	// through an endpoint: the signature is over the exact bytes delivered, so
