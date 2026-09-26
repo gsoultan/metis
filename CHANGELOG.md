@@ -308,6 +308,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Authentication errors lost a word to the redactor.** Errors and logs pass
+  through a redactor that hides whatever follows a secret's name and a colon,
+  so `missing or invalid token: the ID token names no issuer` read
+  `missing or invalid token: ***REDACTED*** ID token names no issuer`, and
+  `invalid token: no such user` read `invalid token: ***REDACTED*** such user` —
+  the first word of every such error, in the log, in the reply a client is shown
+  and in stored incidents. It also spent itself on that word: in
+  `token: jwt: <a token>` it hid `jwt:` and left the token in clear. What
+  follows the colon is now kept only when it reads as the next word of a
+  sentence — a space after the colon, a plain word, and more words after it on
+  the same line — and anything else is redacted as before, including a token or
+  password after `token:`, `password=`, in JSON, in a URL's query and in an
+  `Authorization` header. A password that is a plain word and is followed by
+  more words on the same line now reads as a sentence and is kept.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

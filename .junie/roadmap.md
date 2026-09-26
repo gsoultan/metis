@@ -1172,6 +1172,21 @@
     `internal/app/reset_password_test.go` — before, "Password updated for "ada"" and the
     password signed in; after, refused and the hash still empty. A local account still
     resets.
+  - **The redactor keeps the words of an error.** Its colon rule redacted whatever
+    followed a secret's name, so the first word of every wrapped auth error was lost
+    (`missing or invalid token: ***REDACTED*** ID token names…`) — and, spending its
+    match on that word, left the value after it alone: `token: jwt: <a token>` kept the
+    token. The value is kept now only when it reads as prose — a space after the colon, a
+    plain word, more words after it on the same line — and matching resumes at a kept word.
+    `token=`, JSON, URL queries and `Authorization` headers are unchanged. Test: the
+    table in `internal/pkg/redaction/redactor_test.go`, both directions and the existing
+    cases — 14 rows failed before (13 eaten words, 1 token left in clear).
+  - **Found, not changed:** a secret's name with a prefix joined by `_` is not recognised by
+    any rule — `client_secret`, `id_token`, `db_password` pass through in JSON, queries
+    and key/value text, before and after this branch, because `\b` does not match after
+    `_`. A connector error carrying `?client_secret=` would be stored in an incident in
+    clear. Allowing `(?:[a-z0-9]+[_-])*` before the names is the likely fix; it widens
+    what every rule redacts, so it wants its own change and test.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
