@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
 )
 
@@ -159,4 +160,81 @@ func TestABridgeHandsBackATaskItsBrokerNeverConfirmsAndPublishesTheRestOnANewCha
 	if delivered := broker.deliveredTaskIDs(); !slices.Equal(delivered, taskIDs(ids)) {
 		t.Fatalf("the broker took %v, want the three tasks handed back %v", delivered, ids)
 	}
+}
+
+// errorLines returns the lines logged at error level whose text contains
+// words, in the message or in the error.
+func errorLines(t *testing.T, logs *lockedBuffer, words string) []map[string]any {
+	t.Helper()
+	var lines []map[string]any
+	for _, entry := range logs.entries(t) {
+		message, _ := entry["message"].(string)
+		reason, _ := entry["error"].(string)
+		if entry["level"] == "error" && strings.Contains(message+" "+reason, words) {
+			lines = append(lines, entry)
+		}
+	}
+	return lines
+}
+
+// A channel the broker closes — it does, on the first publish to an exchange
+// that does not exist — was never opened again while the connection lived.
+// Every task was handed back at every round, fixing the exchange changed
+// nothing, and the operator was told to restart. Now the next round opens a
+// new channel on the same connection, and the reason is said once however
+// often it recurs.
+func TestABridgeOpensANewChannelWhenItsBrokerClosesOneAndSaysWhyOnce(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	broker.answer(answerCloseChannel, answerCloseChannel) // the exchange is missing for two rounds
+	board, ids := newTaskBoard(2)
+	bridge := bridgeOn(t, broker, board, &logs, time.Second)
+
+	for range 3 {
+		pollWithin(t, bridge, 5*time.Second)
+	}
+
+	if dials, channels := broker.counts(); dials != 1 || channels != 3 {
+		t.Errorf("three rounds with the channel closed under two: %d dials and %d channels, want 1 and 3", dials, channels)
+	}
+	if delivered := broker.deliveredTaskIDs(); !slices.Equal(delivered, taskIDs(ids)) {
+		t.Fatalf("once the exchange was there, the broker took %v, want both tasks %v", delivered, ids)
+	}
+	closedLines := errorLines(t, &logs, "NOT_FOUND")
+	if len(closedLines) != 1 {
+		t.Fatalf("the broker closing the channel for the same reason twice was logged at error %d times, want once: %v",
+			len(closedLines), closedLines)
+	}
+	assertNamed(t, closedLines[0], map[string]string{"topic": "reverse-charge", "exchange": "billing", "routingKey": "charges.reverse"})
+	if refused := errorLines(t, &logs, "not accepted by the broker"); len(refused) != 1 {
+		t.Errorf("the same refusal was logged at error %d times, want once", len(refused))
+	}
+}
+
+// A connection the broker drops is dialled again at the next round, and why
+// it was lost is said, naming the bridge.
+func TestABridgeConnectsAgainWhenItsBrokerDropsTheConnectionAndSaysWhy(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	board, ids := newTaskBoard(1)
+	bridge := bridgeOn(t, broker, board, &logs, time.Second)
+	pollWithin(t, bridge, 5*time.Second)
+
+	broker.dropConnection(&amqp.Error{Code: amqp.ConnectionForced, Reason: "CONNECTION_FORCED - broker forced connection closure with reason 'shutdown'", Server: true})
+	next := board.add()
+	pollWithin(t, bridge, 5*time.Second)
+
+	if dials, _ := broker.counts(); dials != 2 {
+		t.Errorf("%d dials, want a second once the first connection was dropped", dials)
+	}
+	if delivered := broker.deliveredTaskIDs(); !slices.Equal(delivered, taskIDs([]uuid.UUID{ids[0], next})) {
+		t.Fatalf("the broker took %v, want %v and then %v", delivered, ids[0], next)
+	}
+	lost := errorLines(t, &logs, "CONNECTION_FORCED")
+	if len(lost) != 1 {
+		t.Fatalf("the dropped connection was logged at error %d times, want once: %v", len(lost), logs.entries(t))
+	}
+	assertNamed(t, lost[0], map[string]string{"topic": "reverse-charge", "exchange": "billing"})
 }

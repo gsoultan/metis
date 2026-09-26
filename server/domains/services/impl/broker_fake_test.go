@@ -8,8 +8,10 @@ import (
 )
 
 // A RabbitMQ broker in memory, for the loops that reach a broker, replace what
-// cannot be trusted and hand back what was not taken. Every dial, channel and
-// publish is counted, and the test decides how each publish is answered.
+// cannot be trusted and hand back what was not taken. Every dial, channel,
+// declaration and publish is counted, the test decides how each publish is
+// answered, and it can close a channel or a connection, or cancel a consumer,
+// as a broker does.
 
 // publishAnswer is how the fake broker answers one publish.
 type publishAnswer int
@@ -21,7 +23,14 @@ const (
 	answerNack
 	// answerNever takes it and never says so: no ack, no nack.
 	answerNever
+	// answerCloseChannel closes the channel, as a broker does for a publish to
+	// an exchange that does not exist.
+	answerCloseChannel
 )
+
+// missingExchange is the broker's reason for closing a channel that published
+// to an exchange that does not exist.
+var missingExchange = &amqp.Error{Code: amqp.NotFound, Reason: "NOT_FOUND - no exchange 'billing' in vhost '/'", Server: true}
 
 type fakeBroker struct {
 	mu        sync.Mutex
@@ -29,13 +38,16 @@ type fakeBroker struct {
 	dialErrs  []error // one per dial, in order; nil or exhausted means the dial succeeds
 	conns     []*fakeConnection
 	channels  []*fakeChannel
-	answers   []publishAnswer // one per publish, in order; exhausted means ack
+	declared  []string // every queue declared, in order
+	answers   []publishAnswer
 	delivered []amqp.Publishing
+	settled   []string // "ack" or "requeue" or "drop", one per settled delivery
 }
 
 func newFakeBroker() *fakeBroker { return &fakeBroker{} }
 
-// answer queues how the next publishes are answered.
+// answer queues how the next publishes are answered; once they are used up,
+// every publish is taken.
 func (b *fakeBroker) answer(answers ...publishAnswer) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -78,11 +90,33 @@ func (b *fakeBroker) deliveredTaskIDs() []string {
 	return ids
 }
 
+// declaredQueues returns every queue declared, in order.
+func (b *fakeBroker) declaredQueues() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.declared...)
+}
+
+// settlements returns how each delivery was settled, in order.
+func (b *fakeBroker) settlements() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.settled...)
+}
+
 // channel returns the nth channel opened, from zero.
 func (b *fakeBroker) channel(n int) *fakeChannel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.channels[n]
+}
+
+// dropConnection closes the newest connection as a broker does, with reason,
+// and every channel on it with it.
+func (b *fakeBroker) dropConnection(reason *amqp.Error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.conns[len(b.conns)-1].shut(reason)
 }
 
 func (b *fakeBroker) nextAnswer() publishAnswer {
@@ -94,9 +128,25 @@ func (b *fakeBroker) nextAnswer() publishAnswer {
 	return answer
 }
 
+// notifyClosed tells close listeners why, when there is a reason, and closes
+// them, as the library does. The broker's lock is held.
+func notifyClosed(listeners []chan *amqp.Error, reason *amqp.Error) {
+	for _, listener := range listeners {
+		if reason != nil {
+			select {
+			case listener <- reason:
+			default:
+			}
+		}
+		close(listener)
+	}
+}
+
 type fakeConnection struct {
-	broker *fakeBroker
-	closed bool
+	broker   *fakeBroker
+	closed   bool
+	closes   []chan *amqp.Error
+	channels []*fakeChannel
 }
 
 func (c *fakeConnection) Channel() (brokerChannel, error) {
@@ -105,33 +155,58 @@ func (c *fakeConnection) Channel() (brokerChannel, error) {
 	if c.closed {
 		return nil, amqp.ErrClosed
 	}
-	ch := &fakeChannel{broker: c.broker, conn: c}
+	ch := &fakeChannel{broker: c.broker, gone: make(chan struct{})}
+	c.channels = append(c.channels, ch)
 	c.broker.channels = append(c.broker.channels, ch)
 	return ch, nil
 }
 
-func (c *fakeConnection) IsClosed() bool {
+func (c *fakeConnection) NotifyClose(receiver chan *amqp.Error) chan *amqp.Error {
 	c.broker.mu.Lock()
 	defer c.broker.mu.Unlock()
-	return c.closed
+	if c.closed {
+		close(receiver)
+		return receiver
+	}
+	c.closes = append(c.closes, receiver)
+	return receiver
 }
 
 func (c *fakeConnection) Close() error {
 	c.broker.mu.Lock()
 	defer c.broker.mu.Unlock()
-	c.closed = true
+	if c.closed {
+		return amqp.ErrClosed
+	}
+	c.shut(nil)
 	return nil
+}
+
+// shut closes the connection and its channels, with the broker's reason when
+// it is the broker closing it. The broker's lock is held.
+func (c *fakeConnection) shut(reason *amqp.Error) {
+	if c.closed {
+		return
+	}
+	c.closed = true
+	notifyClosed(c.closes, reason)
+	c.closes = nil
+	for _, ch := range c.channels {
+		ch.shut(reason)
+	}
 }
 
 type fakeChannel struct {
 	broker     *fakeBroker
-	conn       *fakeConnection
 	confirming bool
 	closed     bool
-	returns    chan amqp.Return
+	gone       chan struct{} // closed with the channel
+	closes     []chan *amqp.Error
 	// pending are the publishes answered answerNever. The library nacks
 	// every outstanding one when a channel closes, and so does this.
-	pending []*fakeConfirmation
+	pending    []*fakeConfirmation
+	deliveries chan amqp.Delivery // the consumer's, while it has one
+	tag        uint64
 }
 
 // isClosed reports whether the channel has been closed.
@@ -139,6 +214,34 @@ func (ch *fakeChannel) isClosed() bool {
 	ch.broker.mu.Lock()
 	defer ch.broker.mu.Unlock()
 	return ch.closed
+}
+
+// closeWith closes the channel as a broker does, with reason.
+func (ch *fakeChannel) closeWith(reason *amqp.Error) {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	ch.shut(reason)
+}
+
+// cancelConsumer stops the channel's consumer as a broker does when its queue
+// is deleted: the deliveries end and the channel stays open.
+func (ch *fakeChannel) cancelConsumer() {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	ch.endConsumer()
+}
+
+// deliver hands the channel's consumer a message, and reports false when the
+// channel has none.
+func (ch *fakeChannel) deliver(body string) bool {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	if ch.deliveries == nil {
+		return false
+	}
+	ch.tag++
+	ch.deliveries <- amqp.Delivery{Acknowledger: fakeAcknowledger{broker: ch.broker}, DeliveryTag: ch.tag, Body: []byte(body)}
+	return true
 }
 
 func (ch *fakeChannel) Confirm(bool) error {
@@ -152,9 +255,17 @@ func (ch *fakeChannel) Confirm(bool) error {
 }
 
 func (ch *fakeChannel) NotifyReturn(receiver chan amqp.Return) chan amqp.Return {
+	return receiver
+}
+
+func (ch *fakeChannel) NotifyClose(receiver chan *amqp.Error) chan *amqp.Error {
 	ch.broker.mu.Lock()
 	defer ch.broker.mu.Unlock()
-	ch.returns = receiver
+	if ch.closed {
+		close(receiver)
+		return receiver
+	}
+	ch.closes = append(ch.closes, receiver)
 	return receiver
 }
 
@@ -177,31 +288,112 @@ func (ch *fakeChannel) PublishWithDeferredConfirmWithContext(ctx context.Context
 		confirmation := &fakeConfirmation{done: make(chan struct{})}
 		ch.pending = append(ch.pending, confirmation)
 		return confirmation, nil
+	case answerCloseChannel:
+		confirmation := &fakeConfirmation{done: make(chan struct{})}
+		ch.pending = append(ch.pending, confirmation)
+		ch.shut(missingExchange)
+		return confirmation, nil
 	default:
 		ch.broker.delivered = append(ch.broker.delivered, msg)
 		return answeredConfirmation(true), nil
 	}
 }
 
-func (ch *fakeChannel) Close() error {
+func (ch *fakeChannel) QueueDeclare(name string, _, _, _, _ bool, _ amqp.Table) (amqp.Queue, error) {
 	ch.broker.mu.Lock()
 	defer ch.broker.mu.Unlock()
-	ch.shut()
+	if ch.closed {
+		return amqp.Queue{}, amqp.ErrClosed
+	}
+	ch.broker.declared = append(ch.broker.declared, name)
+	return amqp.Queue{Name: name}, nil
+}
+
+func (ch *fakeChannel) Qos(int, int, bool) error {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	if ch.closed {
+		return amqp.ErrClosed
+	}
 	return nil
 }
 
-// shut closes the channel as the library does, nacking what is outstanding.
-// The broker's lock is held.
-func (ch *fakeChannel) shut() {
+// ConsumeWithContext starts the channel's consumer. Its deliveries end when
+// the channel closes, when the broker cancels it, or when ctx ends, as the
+// library's do.
+func (ch *fakeChannel) ConsumeWithContext(ctx context.Context, _, _ string, _, _, _, _ bool, _ amqp.Table) (<-chan amqp.Delivery, error) {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	if ch.closed {
+		return nil, amqp.ErrClosed
+	}
+	deliveries := make(chan amqp.Delivery, 16)
+	ch.deliveries = deliveries
+	go func() {
+		select {
+		case <-ctx.Done():
+			ch.cancelConsumer()
+		case <-ch.gone:
+		}
+	}()
+	return deliveries, nil
+}
+
+func (ch *fakeChannel) Close() error {
+	ch.broker.mu.Lock()
+	defer ch.broker.mu.Unlock()
+	ch.shut(nil)
+	return nil
+}
+
+// shut closes the channel as the library does: outstanding publishes are
+// nacked, close listeners are told why when the broker closed it, and the
+// consumer's deliveries end. The broker's lock is held.
+func (ch *fakeChannel) shut(reason *amqp.Error) {
 	if ch.closed {
 		return
 	}
 	ch.closed = true
+	close(ch.gone)
+	notifyClosed(ch.closes, reason)
+	ch.closes = nil
 	for _, confirmation := range ch.pending {
 		close(confirmation.done)
 	}
 	ch.pending = nil
+	ch.endConsumer()
 }
+
+// endConsumer closes the consumer's deliveries. The broker's lock is held.
+func (ch *fakeChannel) endConsumer() {
+	if ch.deliveries != nil {
+		close(ch.deliveries)
+		ch.deliveries = nil
+	}
+}
+
+// fakeAcknowledger records how the consumer settled each delivery.
+type fakeAcknowledger struct {
+	broker *fakeBroker
+}
+
+func (a fakeAcknowledger) settle(outcome string) error {
+	a.broker.mu.Lock()
+	defer a.broker.mu.Unlock()
+	a.broker.settled = append(a.broker.settled, outcome)
+	return nil
+}
+
+func (a fakeAcknowledger) Ack(uint64, bool) error { return a.settle("ack") }
+
+func (a fakeAcknowledger) Nack(_ uint64, _, requeue bool) error {
+	if requeue {
+		return a.settle("requeue")
+	}
+	return a.settle("drop")
+}
+
+func (a fakeAcknowledger) Reject(_ uint64, requeue bool) error { return a.Nack(0, false, requeue) }
 
 // fakeConfirmation is the answer to one publish: acked once done is closed.
 type fakeConfirmation struct {

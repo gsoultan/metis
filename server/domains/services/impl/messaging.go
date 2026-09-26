@@ -128,6 +128,7 @@ func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, t
 		confirmTimeout: s.confirmTimeout,
 		sleep:          s.sleep,
 		logger:         &logger,
+		problems:       problemLog{logger: &logger},
 	}
 }
 
@@ -140,105 +141,35 @@ func (s *messagingService) StartInboundConsumer(ctx context.Context, projectID u
 	childCtx, cancel := context.WithCancel(ctx)
 	s.cancels.Store(id, cancel)
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	consumer := s.newConsumer(ctx, projectID, rabbitURL, queueName, messageName)
+	s.wg.Go(func() {
 		defer s.cancels.Delete(id)
-		s.runConsumer(childCtx, projectID, rabbitURL, queueName, messageName)
-	}()
+		consumer.run(childCtx)
+	})
 
 	return nil
 }
 
-func (s *messagingService) runConsumer(ctx context.Context, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) {
+// newConsumer assembles a consumer from what the service was given.
+func (s *messagingService) newConsumer(ctx context.Context, projectID uuid.UUID, rabbitURL, queueName, messageName string) *inboundConsumer {
 	// Every line names the consumer, as the bridge's do.
 	logger := loggerFrom(ctx).With().
 		Str("project", projectID.String()).
 		Str("queue", queueName).
 		Str("messageName", messageName).
 		Logger()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			err := s.consumeOnce(ctx, &logger, projectID, rabbitURL, queueName, messageName)
-			if err != nil {
-				logger.Error().Err(err).Dur("retryIn", reconnectInterval).
-					Msg("A RabbitMQ consumer could not consume from its queue; retrying")
-				if sleepErr := sleepWithContext(ctx, reconnectInterval); sleepErr != nil {
-					return
-				}
-			}
-		}
+	return &inboundConsumer{
+		messaging:      s,
+		link:           &brokerLink{url: rabbitURL, dial: s.dial},
+		project:        projectID,
+		queue:          queueName,
+		message:        messageName,
+		confirmTimeout: s.confirmTimeout,
+		retryIn:        reconnectInterval,
+		sleep:          s.sleep,
+		logger:         &logger,
+		problems:       problemLog{logger: &logger},
 	}
-}
-
-func (s *messagingService) consumeOnce(ctx context.Context, logger *zerolog.Logger, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) error {
-	conn, err := amqp.Dial(rabbitURL)
-	if err != nil {
-		return err
-	}
-	defer closeQuietly(conn, "AMQP connection")
-
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-	defer closeQuietly(ch, "AMQP channel")
-
-	q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
-	if err != nil {
-		return err
-	}
-
-	dlqName := q.Name + inboundDeadLetterQueueSuffix
-	if _, err = ch.QueueDeclare(dlqName, true, false, false, false, nil); err != nil {
-		return err
-	}
-
-	// The dead-letter publish has to be accounted for before the message it is
-	// standing in for can be acknowledged, so the channel needs confirms.
-	publisher, err := newConfirmingPublisher(amqpChannel{ch}, s.confirmTimeout)
-	if err != nil {
-		return err
-	}
-
-	// Manual acknowledgement, so one message at a time is outstanding and the
-	// broker holds the rest.
-	if err := ch.Qos(inboundPrefetch, 0, false); err != nil {
-		return err
-	}
-
-	// autoAck was true, which acknowledges a message the moment the broker
-	// hands it over — before anything has looked at it. Every path below that
-	// tries to preserve a message it could not process was therefore preserving
-	// one the broker had already forgotten: if the dead-letter publish failed,
-	// or the engine was shutting down, the message was simply gone.
-	msgs, err := ch.ConsumeWithContext(ctx, q.Name, "", false, false, false, false, nil)
-	if err != nil {
-		return err
-	}
-	// On every connection, the first and each one after a loss.
-	logger.Info().Str("deadLetterQueue", dlqName).Msg("A RabbitMQ consumer is consuming from its queue")
-
-	publishToQueue := func(ctx context.Context, queueName string, message amqp.Publishing) error {
-		// The default exchange routes by queue name, and the queue is declared
-		// above, so this is routable — but it still has to be confirmed, or a
-		// broker that refused it would look identical to one that took it.
-		return publisher.publish(ctx, "", queueName, message)
-	}
-
-	for d := range msgs {
-		outcome, err := s.processInboundDelivery(ctx, projectID, q.Name, dlqName, messageName, d, publishToQueue)
-		if err != nil {
-			logger.Error().Err(err).Str("deadLetterQueue", dlqName).Msg("Error processing inbound message")
-		}
-		settleInboundDelivery(d, outcome, q.Name)
-	}
-
-	return nil
 }
 
 // deliveryOutcome is what should happen to a message once it has been handled.
@@ -522,9 +453,10 @@ func loggerFrom(ctx context.Context) *zerolog.Logger {
 //
 // A channel or connection that fails to close is one the broker still holds —
 // they are finite per connection, and a service that leaks them stops being able
-// to open new ones with no clue as to why.
+// to open new ones with no clue as to why. One the broker has already closed is
+// not that, and says nothing.
 func closeQuietly(handle io.Closer, what string) {
-	if err := handle.Close(); err != nil {
+	if err := handle.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
 		log.Warn().Err(err).Msgf("Could not close the %s", what)
 	}
 }
