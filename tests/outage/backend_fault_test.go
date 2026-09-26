@@ -66,9 +66,15 @@ func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRo
 		if time.Now().After(deadline) {
 			t.Fatalf("the worker never reached %q", step.statement)
 		}
+		// This test's own backends only. The held transaction blocks more than
+		// the worker: a CREATE INDEX CONCURRENTLY anywhere in the database —
+		// another package's migration, in its own schema — waits for every
+		// transaction older than it, this one included, so it is blocked by the
+		// holder too and can be the first row found.
 		var rows []blocked
-		if err := d.db.Raw(`SELECT pid, application_name, query FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))`,
-			holder.pid).Scan(&rows).Error; err != nil {
+		if err := d.db.Raw(`SELECT pid, application_name, query FROM pg_stat_activity
+		                     WHERE ? = ANY(pg_blocking_pids(pid)) AND application_name = ?`,
+			holder.pid, d.appName).Scan(&rows).Error; err != nil {
 			t.Fatalf("find the blocked worker: %v", err)
 		}
 		if len(rows) > 0 {
