@@ -32,7 +32,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Workflow,
-  Rocket,
   Database,
   KeyRound,
   RefreshCw,
@@ -46,6 +45,7 @@ import { useAppStore } from '../store/useAppStore';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
 import { firstSetupStep, SETUP_STEPS, setupRequestFor } from '../domain/setupWizard';
 import { setupService } from '../services/domains/setupService';
+import { SetupComplete } from '../components/setup/SetupComplete';
 import { useEffect } from 'react';
 
 // PostgreSQL is the only engine this runs on. The list stays a list rather than
@@ -607,24 +607,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
 
               {/* Completed */}
               <Stepper.Completed>
-                <Stack align="center" gap="md" mt="xl" py="xl">
-                  <ThemeIcon size={80} radius={100} color="green" variant="light">
-                    <CheckCircle2 size={50} />
-                  </ThemeIcon>
-                  <Title order={2}>Setup Complete!</Title>
-                  <Text ta="center" c="dimmed">
-                    Metis BPM has been successfully initialized.<br />
-                    {fromEnvironment ? (
-                      <>This server reads its database and keys from its environment, so there was nothing to save.<br /></>
-                    ) : (
-                      <>Your configuration has been saved to <strong>config.yaml</strong> with encrypted credentials.<br /></>
-                    )}
-                    You can now log in with your administrator account.
-                  </Text>
-                  <Button size="lg" mt="md" onClick={onComplete} rightSection={<Rocket size={18} />}>
-                    Get Started
-                  </Button>
-                </Stack>
+                <SetupComplete fromEnvironment={fromEnvironment} onComplete={onComplete} />
               </Stepper.Completed>
             </Stepper>
 

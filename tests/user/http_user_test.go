@@ -54,7 +54,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	messagingSvc := service_impl.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl.NewUserService(repo, "test-jwt-secret")
 	groupSvc := service_impl.NewGroupService(repo)
-	setupSvc := service_impl.NewSetupService(nil, nil)
+	setupSvc := service_impl.NewSetupService(nil)
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,

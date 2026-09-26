@@ -9,7 +9,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/definition"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The migration endpoint rewrites running instances — somebody's purchase
@@ -21,7 +20,7 @@ func TestAMigrationRequestThatDoesNotSayDryRunIsOne(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"dry-run-default-test", nil, nil, nil, func(*gorm.DB) {})
+		"dry-run-default-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	v1, err := svc.CreateDefinition(ctx, waitThenWork(projectID, "wait", "work"))

@@ -35,10 +35,10 @@ func (a *App) openStorm(ctx context.Context) error {
 		return err
 	}
 	if dsn == "" {
-		// Nothing configured yet: the setup wizard has not run. It hot-swaps the
-		// connection in when it does, and the storm repositories are opened
-		// again from there.
-		log.Info().Msg("No database configured yet; waiting for setup.")
+		// Unreachable from Run, which refuses to start without a database
+		// (resolveDialector); kept so an App built without one has no storm
+		// connection rather than a failed one.
+		log.Info().Msg("No database configured; no storm connection.")
 		return nil
 	}
 

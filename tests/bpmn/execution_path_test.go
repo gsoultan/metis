@@ -9,7 +9,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The execution path is the steps an instance went through, in the order it
@@ -24,7 +23,7 @@ func TestTheExecutionPathRunsFromStartToWhereTheInstanceIs(t *testing.T) {
 	// writes it.
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
-		"execution-path-test", nil, nil, nil, func(*gorm.DB) {})
+		"execution-path-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{

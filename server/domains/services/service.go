@@ -7,7 +7,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
-	"gorm.io/gorm"
 )
 
 type service struct {
@@ -107,7 +106,6 @@ func NewServiceFacade(
 	// accounts manages platform administrators, nil for the same reason: it is
 	// storm-backed.
 	accounts contracts.PlatformUserService,
-	setupCallback func(*gorm.DB),
 ) ServiceFacade {
 	if participants == nil {
 		participants = serviceimpl.NewUnavailableWorkflowUserService()
@@ -142,7 +140,7 @@ func NewServiceFacade(
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo.UnitOfWork())
-	setupSvc := serviceimpl.NewSetupService(setupCallback, repo.User())
+	setupSvc := serviceimpl.NewSetupService(repo.User())
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
 	// Resolve circular collaborators via functional options so the wiring is

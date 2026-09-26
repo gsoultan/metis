@@ -14,7 +14,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Process variables are encrypted at rest on the instance, and the README says
@@ -33,7 +32,7 @@ func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 	dispatcher := observersimpl.NewEventDispatcher()
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
-		"sealed-copies-secret", nil, nil, nil, func(*gorm.DB) {})
+		"sealed-copies-secret", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	deploy := func(key string, waiting *entities.Node) uuid.UUID {

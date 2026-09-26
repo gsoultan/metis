@@ -29,10 +29,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// OnSetupCompleteFunc is called after setup succeeds, passing the open target database
-// so the application can hot-swap its connection without requiring a restart.
-type OnSetupCompleteFunc func(targetDB *gorm.DB)
-
 // ErrAlreadySetUp refuses setup on an installation that has been set up.
 //
 // Forbidden rather than a server error: the request was answered correctly, and
@@ -45,8 +41,7 @@ var ErrDatabaseInUse = fmt.Errorf(
 		"to run on it, point DATABASE_URL at it and sign in", apierr.ErrForbidden)
 
 type setupService struct {
-	onSetupComplete OnSetupCompleteFunc
-	installation    contracts.InstallationProbe
+	installation contracts.InstallationProbe
 	// setUp is sticky: an installation never becomes un-set-up, and the status
 	// is asked on every page load, so once it has been seen the question
 	// stops costing a query.
@@ -61,8 +56,8 @@ type setupService struct {
 // read-only root, the wizard stayed open for good: anonymous, in front of a
 // database full of somebody's processes. Nil answers from the file alone, for
 // tests with no database to ask.
-func NewSetupService(onSetupComplete OnSetupCompleteFunc, installation contracts.InstallationProbe) contracts.SetupService {
-	return &setupService{onSetupComplete: onSetupComplete, installation: installation}
+func NewSetupService(installation contracts.InstallationProbe) contracts.SetupService {
+	return &setupService{installation: installation}
 }
 
 func (s *setupService) GetSetupStatus(ctx context.Context) (contracts.SetupStatus, error) {
@@ -122,23 +117,21 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	if err != nil {
 		return fmt.Errorf("failed to connect to target database: %w", err)
 	}
+	defer cleanup()
 
 	// 2. Run migrations on the target database
 	if err := migrateTargetDatabase(ctx, targetDB, target); err != nil {
-		cleanup()
 		return fmt.Errorf("failed to migrate target database: %w", err)
 	}
 
 	// 3. Create Organization, Project, and Admin User in the target database
 	if err := seedTargetDatabase(targetDB, req); err != nil {
-		cleanup()
 		return err
 	}
 
 	// The server already runs on this database with these secrets: there is
-	// no file to write, no key to install and nothing to swap to.
+	// no file to write and nothing to restart for.
 	if target.fromEnvironment {
-		cleanup()
 		s.setUp.Store(true)
 		return nil
 	}
@@ -146,17 +139,16 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	// 4. Generate and save config.yaml with encrypted connection string
 	// We do this AFTER database operations succeed to ensure consistency.
 	if err := saveConfiguration(req); err != nil {
-		cleanup()
 		return err
 	}
 
-	// 5. Hot-swap the database connection so the app uses the target DB immediately
-	if s.onSetupComplete != nil {
-		s.onSetupComplete(targetDB)
-	} else {
-		cleanup()
-	}
-
+	// Nothing moves this process onto what it just wrote. The repositories, the
+	// engine and the signing key were built at boot from the database and keys it
+	// started with, and keep them; config.yaml takes effect at the next start. The
+	// wizard says so too, because the administrator just created may be in a
+	// database this process is not reading.
+	log.Warn().Str("config", config.DefaultConfigPath).Msg(
+		"Setup saved the configuration. Restart Metis to run on it: until then this process keeps the database and keys it started with")
 	return nil
 }
 
@@ -342,9 +334,8 @@ func openTargetDatabase(target setupTarget) (*gorm.DB, func(), error) {
 		return nil, nil, fmt.Errorf("failed to open target database: %w", err)
 	}
 
-	// Sized the same way the app's own open path sizes it — this database is
-	// about to be hot-swapped in as the live one, so it must not run the rest
-	// of its life on a pool nobody configured.
+	// Sized the same way the app's own open path sizes it: setup migrates the
+	// whole schema through it.
 	dbpool.Apply(db)
 
 	cleanup := func() {

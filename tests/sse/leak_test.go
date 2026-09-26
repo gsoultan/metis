@@ -20,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestOneTenantsEventsDoNotReachAnothersBrowser is the disclosure question.
@@ -126,7 +125,7 @@ func newFixture(t *testing.T) *fixture {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "sse-leak-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "sse-leak-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)

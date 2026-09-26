@@ -13,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/connector"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A connector's configuration holds whatever it needs to authenticate. The API
@@ -36,7 +35,7 @@ func newSecretFixture(t *testing.T) *secretFixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	svc := services.NewServiceFacade(repo, nil, nil, "connector-secret-test", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, nil, nil, "connector-secret-test", nil, nil, nil)
 	eps := connector.MakeEndpoints(svc)
 
 	ctx := context.Background()

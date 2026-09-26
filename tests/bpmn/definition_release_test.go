@@ -51,7 +51,7 @@ func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Co
 		ConnectorService:    connectorSvc,
 		MessagingService:    serviceimpl.NewMessagingService(engine, externalTaskSvc),
 		UserService:         serviceimpl.NewUserService(repo, "test-jwt-secret"),
-		SetupService:        serviceimpl.NewSetupService(nil, nil),
+		SetupService:        serviceimpl.NewSetupService(nil),
 	})
 
 	ctx := context.Background()

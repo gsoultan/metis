@@ -18,7 +18,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 type fixture struct {
@@ -37,7 +36,7 @@ func newFixture(t *testing.T) *fixture {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := observersimpl.NewEventDispatcher()
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
-		"migration-test", nil, nil, nil, func(*gorm.DB) {})
+		"migration-test", nil, nil, nil)
 
 	ctx := context.Background()
 	org, err := svc.CreateOrganization(ctx, "Org", "")

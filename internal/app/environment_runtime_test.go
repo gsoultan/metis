@@ -19,7 +19,6 @@ import (
 	"github.com/gsoultan/metis/tests/testutils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
-	"gorm.io/gorm"
 )
 
 // Deleting an environment removed its row and nothing else. Its port kept
@@ -52,7 +51,7 @@ func serveThenRemove(t *testing.T, how string,
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
-		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "environment-stop-test", nil, nil, nil, func(*gorm.DB) {})}
+		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "environment-stop-test", nil, nil, nil)}
 	ctx := entities.WithSystemContext(t.Context())
 
 	// The environment's own connections, to the test's schema. Stopping it

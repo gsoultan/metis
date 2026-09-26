@@ -711,16 +711,7 @@ func (a *App) setupService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(), func(*gorm.DB) {
-		// The built-in connectors were created during startup, which means they
-		// went into the bootstrap database this call has just replaced. Without
-		// seeding again, a freshly configured installation opens the connector
-		// catalogue and finds it empty — no Slack, no email, no HTTP — with
-		// nothing to indicate why.
-		if err := a.svc.EnsureDefaultConnectors(ctx); err != nil {
-			log.Error().Err(err).Msg("Failed to seed default connectors into the target database")
-		}
-	})
+	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService())
 
 	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
 
@@ -874,8 +865,8 @@ func (a *App) setupAuth(ctx context.Context) {
 // served, whereas the broker being down degrades messaging rather than stopping
 // the API.
 //
-// Before setup has run there is no database yet, and a replica in that state is
-// still ready — serving the setup wizard is its whole job.
+// A server does not start without a database, so the nil check below is for
+// the tests that build an App without one.
 func (a *App) readinessCheckers() map[string]health.Checker {
 	return map[string]health.Checker{
 		"database": health.CheckerFunc(func(ctx context.Context) error {
@@ -1299,11 +1290,13 @@ func (a *App) resolveDialector() (gorm.Dialector, error) {
 	// empty, which is the worst way to be misconfigured: nothing to read, no
 	// error, and a readiness probe that passes.
 	//
-	// A setup wizard that has not been run needs no database, and says so; a
-	// deployment that has been configured and cannot be read needs to stop.
+	// The setup wizard is served by a running server, so it cannot be the way
+	// out of this: it creates the first organization and administrator in the
+	// database DATABASE_URL names.
 	return nil, fmt.Errorf(
 		"no database is configured. Set DATABASE_URL to a PostgreSQL connection string, "+
-			"or run the setup wizard, which writes %s", config.DefaultConfigPath)
+			"or restore the %s a setup wrote; the setup wizard then runs on that database",
+		config.DefaultConfigPath)
 }
 
 func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {

@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A business rule task names its table by key, and keys are unique per
@@ -33,7 +32,7 @@ func newDecisionWorld(t *testing.T) decisionWorld {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"decision-resolution-secret", nil, nil, nil, func(*gorm.DB) {})
+		"decision-resolution-secret", nil, nil, nil)
 	return decisionWorld{svc: svc, repo: repo}
 }
 

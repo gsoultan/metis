@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A repository method nothing calls is how the retention sweeps went missing,
@@ -22,7 +21,7 @@ func TestARunningServerOffersAgainAnExternalTaskNobodyWasToldAbout(t *testing.T)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
-		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "reoffer-test", nil, nil, nil, func(*gorm.DB) {})}
+		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "reoffer-test", nil, nil, nil)}
 
 	task, now := uuid.New(), time.Now()
 	if err := gormDB.WithContext(t.Context()).Exec(`

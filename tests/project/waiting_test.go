@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // reviewProcess is start → review → end, under key; every one of them names
@@ -42,7 +41,7 @@ func TestWaitingWorkIsCountedPerProcessAcrossAllOfIt(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"waiting-test", nil, nil, nil, func(*gorm.DB) {})
+		"waiting-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	start := func(ctx context.Context, project uuid.UUID, key string, n int) {

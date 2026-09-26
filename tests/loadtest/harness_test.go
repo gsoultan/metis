@@ -54,7 +54,7 @@ func newSLOHarnessWithService(t *testing.T) (*sloHarness, services.ServiceFacade
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
 	dispatcher := observersimpl.NewEventDispatcher()
-	svc := services.NewServiceFacade(repo, dispatcher, sse, "loadtest-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, dispatcher, sse, "loadtest-secret", nil, nil, nil)
 
 	// The observers every installation registers (app.setupService): the audit
 	// trail, the live-update stream and the assignment notifications. They write

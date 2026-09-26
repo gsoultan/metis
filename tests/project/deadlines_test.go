@@ -9,7 +9,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The dashboard's deadline report read the first page of the task list: the
@@ -22,7 +21,7 @@ func TestDeadlinesAreReadAcrossAllOfTheOpenWorkWithTheirProcess(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"deadlines-test", nil, nil, nil, func(*gorm.DB) {})
+		"deadlines-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	late := reviewProcess(projectID, "quotation", "Quotation approval")

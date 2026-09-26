@@ -9,7 +9,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Each thing done to a task went into the audit trail twice. The task service
@@ -25,7 +24,7 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 	// As the server wires it.
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
-		"audit-once-test", nil, nil, nil, func(*gorm.DB) {})
+		"audit-once-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{

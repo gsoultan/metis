@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A live-update hint tells a browser to refetch. It was sent from inside the
@@ -28,7 +27,7 @@ func TestAHintIsSentOnlyForWorkThatCommitted(t *testing.T) {
 	// Wired as internal/app wires it.
 	sse.DeliverAfterCommitWith(repo.UnitOfWork().AfterCommit)
 	dispatcher.Register(sse)
-	svc := services.NewServiceFacade(repo, dispatcher, sse, "sse-after-commit", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, dispatcher, sse, "sse-after-commit", nil, nil, nil)
 	ctx, orgID, projectID := testutils.ScopedProject(t, repo)
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{
