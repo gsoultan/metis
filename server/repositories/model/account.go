@@ -83,6 +83,16 @@ type UserOrganization struct {
 	// ON DELETE.
 	User         User
 	Organization Organization
+
+	// Roles is a JSON array of the roles the account holds in this
+	// organization alone, beside the ones on the account, which it holds in
+	// every organization it belongs to. On the membership because that is what
+	// the grant is: leaving the organization takes them with it.
+	//
+	// Defaulted to an empty list, so a membership added without naming any —
+	// which is every one added before migration 30, and every one a sign-in
+	// through an identity provider adds — holds none.
+	Roles storm.JSON
 }
 
 func (a *UserOrganization) Schema(t *storm.Table) {
@@ -90,7 +100,11 @@ func (a *UserOrganization) Schema(t *storm.Table) {
 	t.PrimaryKey(&a.User, &a.Organization)
 	t.Col(&a.User).OnDelete(storm.Cascade)
 	t.Col(&a.Organization).OnDelete(storm.Cascade)
+	t.Col(&a.Roles).Default(emptyJSONList)
 }
+
+// emptyJSONList is the default of a JSON list column that must never be NULL.
+const emptyJSONList storm.RawSQL = "'[]'::jsonb"
 
 // UserProject is an account's membership of a project.
 type UserProject struct {

@@ -834,6 +834,7 @@ func Schema(models []any) []Migration {
 		},
 		liveDecisionVersions(models),
 		notificationIndexes(),
+		organizationRoles(),
 	}
 }
 
