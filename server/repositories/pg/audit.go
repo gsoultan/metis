@@ -67,6 +67,20 @@ func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID
 // The scope is on project_id, so an entry belonging to another organization is
 // absent rather than filtered — an audit trail that could be read across
 // tenants is a description of somebody else's business.
+//
+// Every entry, not the store's oldest thousand: past a thousand the audit view
+// stopped a thousand steps in and never reached where the instance is now, the
+// execution path stopped at the same place, and the OCEL export lost its most
+// recent events.
+//
+// One statement with the limit lifted, not pg.everyRow. A keyset walk needs an
+// order with no ties, and nothing on this table records the order entries were
+// written in: created_at is the moment their transaction began, so every entry
+// one step writes shares it, and the ids are random. Walking on (created_at,
+// id) put a step's entries in id order — the execution path began at the task
+// instead of the start event. Ordered by created_at alone they come back in
+// the order PostgreSQL holds them, which for a trail that is only appended to
+// is the order they were written: what this read has always relied on.
 func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]models.AuditModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -84,7 +98,7 @@ func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]mod
 		}
 		q = q.Where(auditentry.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := q.Limit(allRows).All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the audit trail: %w", err)
 	}

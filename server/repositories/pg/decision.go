@@ -88,7 +88,7 @@ func (r *decisionRepository) ListByProjectPaged(ctx context.Context, projectID u
 	}
 	n := p.Normalize()
 	rows, err := q.
-		Order(decisiondefinition.CreatedAt.Desc()).
+		Order(decisiondefinition.CreatedAt.Desc(), decisiondefinition.ID.Desc()).
 		Limit(int64(n.PageSize)).
 		Offset(int64(p.Offset())).
 		All(ctx, ex, nil)

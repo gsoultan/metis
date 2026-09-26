@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
+	"gorm.io/gorm"
 )
 
 // Accounts are installation-wide in the repository — an account is read by ID
@@ -29,6 +30,7 @@ import (
 type accountWorld struct {
 	svc    contracts.UserService
 	repo   repositories.Repository
+	db     *gorm.DB
 	orgA   uuid.UUID
 	orgB   uuid.UUID
 	adminA entities.User
@@ -44,6 +46,7 @@ func newAccountWorld(t *testing.T) accountWorld {
 	w := accountWorld{
 		svc:  service_impl.NewUserService(repo, "account-tenant-test-secret"),
 		repo: repo,
+		db:   db,
 		orgA: seedOrganization(t, repo, "Organization A"),
 		orgB: seedOrganization(t, repo, "Organization B"),
 	}

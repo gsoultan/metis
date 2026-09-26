@@ -10,6 +10,75 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A captured webhook delivery could be replayed as often as anyone liked.**
+  A webhook signature covered the body alone; the delivery ID that
+  de-duplication keys on was unsigned, and nothing was timestamped. A delivery
+  taken from any log between a sender and Metis could be posted again under a
+  new `X-Delivery-Id`, and each copy sent the message or started the process
+  again. Senders now sign with v2 — `X-Metis-Timestamp`, `X-Delivery-Id` and
+  `X-Metis-Signature: v2=<HMAC-SHA256 of "<timestamp>.<delivery id>.<body>">` —
+  and a delivery signed more than five minutes from the server's clock is
+  refused. A v2 delivery ID has no dot and at most 191 characters, so the
+  signed string has only one reading. **Webhooks created from now on accept v2 only. Existing webhooks
+  keep accepting the old body-only signature for 90 days from the upgrade**
+  (migration 25), then refuse it with a message saying how to sign with v2.
+  Move your senders before then: the webhooks screen shows each webhook's date,
+  *Receiving events: webhooks* in `docs/integration.md` has the scheme with Go,
+  Node.js and Python examples. Once a sender has moved, close its webhook's
+  window at once from the same screen (*Stop accepting legacy signatures now*),
+  rather than leaving captured deliveries replayable until the date.
+- **The administrator of any one organization could change the connectors
+  every organization runs.** A connector manifest is installation-wide — a step
+  in any organization that names its key runs it, with that organization's
+  credentials attached — and roles are global, so an administrator of one
+  organization could install, switch off or remove a connector for all of them,
+  or put an address of their own under a key the others' steps call. On an
+  installation with more than one organization, installing, importing,
+  switching and removing a manifest now takes a platform administrator: an
+  administrator whose account id the operator lists in `METIS_PLATFORM_ADMINS`.
+  Anybody else is refused with a 403 that names the setting and their account
+  id. An installation with one organization needs nothing configured; its
+  administrators may, as before.
+
+  Connector templates (`/api/v1/connectors`) are behind the same gate, for the
+  same reason. A template has no organization, its key is unique across the
+  installation, and its schema is what marks every organization's connection
+  settings as passwords. One organization's administrator could rewrite or
+  remove the templates every other organization's connections use.
+
+  Upgrading an installation of several organizations: until
+  `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests or
+  templates. The ones installed keep running.
+- **A connector manifest could take over a built-in connector.** A manifest
+  installed under the key of a connector built into Metis — `http-json`,
+  `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`,
+  `ms-teams-message`, `rabbitmq-publish`, `sql-query` — replaced it in every
+  step, in every organization, that uses it, each step still sending its own
+  organization's connection settings. Installing one is now refused with a 400
+  that names the key, unless the operator sets
+  `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
+
+  Upgrading: a manifest already installed under a built-in's key keeps
+  answering. Installing it again to fix it needs the setting, and so does
+  switching it back on once it has been switched off. Look for one among the
+  installed connectors on the Connectors page; switching it off or removing it
+  hands the key back to the built-in.
+- **Anybody in an organization could edit a task somebody else held.**
+  `PUT /api/v1/tasks/{id}` changes a task's name, priority and due date, and it
+  needed only a login, so any member could push the due date of a colleague's
+  task out or drop its priority. It now takes the person holding the task or
+  an administrator — the rule releasing, delegating and assigning already
+  followed — and a task nobody holds is an administrator's to edit. Anybody
+  else gets a 403 that says so.
+- **A group could hold another organization's account.** An administrator
+  could add another organization's account to one of their groups by naming
+  its id, and the member list then showed that person's username, name and
+  email to everybody in the group's organization. Adding one is refused now,
+  and upgrading removes the ones already there: migration 24 deletes every
+  group membership whose account is not a member of the group's organization,
+  and logs each removal by group and account id, then the count — zero when
+  there were none. To put one back, make the account a member of the group's
+  organization first, then add it to the group again.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial
@@ -55,6 +124,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   not deleted. Nothing is backfilled, and every existing account stays a local
   account.
 
+- **Each environment's backlog is on the metrics endpoint.** The engine's
+  gauges — `metis_engine_state_up`, `metis_jobs_due`,
+  `metis_jobs_oldest_due_age_seconds`, `metis_jobs_lease_expired` and
+  `metis_incidents_open` — read the main database only, so a job worker that
+  stopped claiming in an environment, or incidents piling up there, looked like
+  an environment with nothing to do. Every environment a replica serves now has
+  its own set of these series, labelled `environment` (its id, which a rename
+  does not change) and `environment_name`. The main database's series are
+  unchanged: they carry neither label. An environment whose database cannot be
+  read — or that could not be started at all — reports `metis_engine_state_up
+  0` on its own and leaves the others alone, and the databases are read at
+  once, so a scrape still takes at most two seconds. The engine alerts fire
+  per environment and name it; the dashboard's incidents panel draws a line
+  per environment. If your scrape configuration adds a target label called
+  `environment`, Prometheus renames this one to `exported_environment`.
+- **The dashboard prints as a report.** "Print or save as PDF", where a
+  disabled "Generate Report" used to be, opens the browser's print dialog on a
+  report of the project: the headline figures, every late task with who holds
+  it and by how much, and every step where work is waiting. It lists all of
+  them, where the dashboard shows the top few. The figures are the ones the
+  dashboard read, the same as its CSV exports. "Save as PDF" in the dialog is
+  the PDF export; nothing new is installed, and names print as text, whatever
+  they contain.
 - **The strict tenant scope's rollout is on the metrics endpoint.**
   `metis_strict_tenant_scope_enabled` says whether the flag is on, and
   `metis_strict_tenant_scope_denied_site` is one series per code path that
@@ -95,6 +187,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   needs `QUERY_AUTHOR`, held beside Designer; administrators have it already.
   It is created on the next start with no migration. Grant it on the Platform
   access page to anybody who should deploy lookups.
+- **A release can be tried on a share of the traffic first.**
+  `deploy/kubernetes/canary.yaml` runs the next image beside the stable pods,
+  and two alerts compare the tracks over ten minutes:
+  `MetisCanaryErrorsAboveStable` (5xx over 1% and twice stable's) and
+  `MetisCanarySlowerThanStable` (read p95 over 150ms and twice stable's).
+  `docs/runbooks.md` has the procedure, including the part a canary cannot
+  undo: it runs the release's migrations when it starts. Prometheus has to copy
+  the pods' new `track` label onto their series; `deploy/kubernetes/README.md`
+  says how. **Upgrading:** the stable Deployment's selector gained
+  `track: stable`, and a selector cannot change in place, so `kubectl apply`
+  refuses it until the Deployment is replaced once (the README's "Upgrading").
+- **Three runbook commands found no pods.** They selected `app=metis`, a label
+  the manifest's pods never carried; they now select
+  `app.kubernetes.io/name=metis`, and a drift test holds them to the manifest.
 
 ### Security
 
@@ -115,6 +221,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   has not seen, through a client with no deadline. Each request to the provider
   now gives up after 10 seconds: boot goes on without OIDC and says why, and
   a key fetch is retried on the next token that needs it.
+- **No process could schedule work in an environment.** An environment's
+  database was migrated with the schema migrations but never given what the
+  engine's storage writes against: its own tables, and the column defaults it
+  leaves to the database. The first job a process there scheduled failed on
+  insert (`storm: not-null constraint violated (jobs)`), so no timer, service
+  task or retry could run in any environment. Each environment's database now
+  gets the same preparation as the main one, whenever the environment starts.
+- **An environment is served without a restart.** Creating one, enabling one
+  again, or giving one another port or database changed its row and nothing
+  else: nothing listened on its port, and a re-pointed one went on reading and
+  writing its old database, until every replica was restarted. Every replica
+  now checks the environments every 15 seconds and starts, restarts or stops
+  them to match. Boot is the first of those checks rather than a path of its
+  own, so an environment created while the server runs is opened, migrated and
+  served exactly as one that was there when it started — after the main port is
+  up, where boot used to open them before it. One that cannot start (its
+  database unreachable, its port taken) does not hold up the others, is tried
+  again at every check, and is logged once per reason rather than every 15
+  seconds. A re-pointed environment is stopped first and started on the new
+  database once its old connections have closed, so work in flight finishes
+  where it began. The settings page says when a change takes effect instead of
+  asking for a restart.
+- **A service task set to run a script said it did, and did nothing.** The
+  designer offered "Run a script here" on a service task in Expert mode, and the
+  engine runs scripts only on script tasks. It skipped the step and moved on as
+  though the script had run. The option is gone. **Upgrading:** a definition
+  with such a step is now refused at deploy with a 400 that names the step. Move
+  its script into a script task; the designer shows the script read-only so it
+  can be copied. Versions already deployed run as before, which means the step
+  is still skipped.
+- **A rollback was undone by the next scheduled change.** Making an older
+  version live left in place the changes already scheduled for later, which
+  had been planned from the version being rolled back from. The first to
+  arrive silently replaced the rollback. A rollback now cancels them, and its
+  confirmation says which. Going forward keeps them, as before.
+- **A sub-process imported from a BPMN file opened empty**, and saving it from
+  the designer dropped the steps it had never shown. The same reader dropped
+  the diagram's sizes and an error boundary's code, which made the boundary
+  catch every error.
+- **A version that failed to load was compared as if it were empty.** The
+  make-live confirmation and the migration dialog showed every step as
+  removed or added, and the migration dialog built its mapping from that. Both
+  now say which version could not be loaded.
 - **Installing a connector's document again switched it back on.** An
   administrator who switched a connector off and then fixed its document found
   it running again. Installing over an installed manifest now keeps the switch
@@ -131,6 +280,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   import generates are now installed in one transaction: if one cannot be
   installed, none are, and the error names it. An operation the importer
   cannot read is still skipped rather than failing the import.
+- **An installed connector could not be chosen in the designer, nor connected
+  to a project.** Both offer the connector catalogue, and installing a manifest
+  never added to it. A step reaches a manifest only through a catalogue entry,
+  so an installed connector could not be used by any process unless somebody
+  also built a matching template by hand in Expert Mode. Installing now adds
+  the entry, with a connection form that asks for what the manifest reads:
+  its credentials, its `config_schema`, and any other `{{config.…}}` its
+  templates use. Switching a connector off or removing it takes the entry out
+  of the catalogue. The steps and connections that use it are kept, fail
+  saying the connector was switched off or removed, and work again once it is
+  switched back on or installed again. A manifest under a built-in's key leaves
+  the built-in's entry alone.
+
+  Upgrading: a manifest installed before this version joins the catalogue the
+  next time it is installed; installing the same document again will do. A
+  template made by hand under a manifest's key becomes that manifest's entry,
+  so its settings are replaced by the ones the manifest reads.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

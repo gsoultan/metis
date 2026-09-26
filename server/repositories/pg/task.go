@@ -129,6 +129,11 @@ func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, userID strin
 	return contracts.NewPage(items, total, p), nil
 }
 
+// newestFirst is the candidate list's order. The id breaks ties: the tasks one
+// transaction creates share its created_at, and paging a tie with OFFSET
+// showed some of them twice and others never.
+const newestFirst = "created_at DESC, id DESC"
+
 func (r *taskRepository) candidates(ctx context.Context, userID string, groups []string, page *contracts.Pagination) ([]models.TaskModel, int64, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -175,7 +180,7 @@ func (r *taskRepository) candidates(ctx context.Context, userID string, groups [
 		return nil, 0, fmt.Errorf("could not count the candidate tasks: %w", err)
 	}
 
-	query := "SELECT id FROM tasks WHERE " + predicate + " ORDER BY created_at DESC"
+	query := "SELECT id FROM tasks WHERE " + predicate + " ORDER BY " + newestFirst
 	if page != nil {
 		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 		args = append(args, page.PageSize, page.Offset())
@@ -207,7 +212,7 @@ func (r *taskRepository) candidates(ctx context.Context, userID string, groups [
 	// other read here uses.
 	rows, err := task.New().
 		Where(task.ID.In(ids...)).
-		Order(task.CreatedAt.Desc()).
+		Order(task.CreatedAt.Desc(), task.ID.Desc()).
 		Limit(int64(len(ids))).
 		All(ctx, ex, nil)
 	if err != nil {
@@ -400,7 +405,7 @@ func (r *taskRepository) paged(ctx context.Context, scoped []uuid.UUID, preds []
 	}
 	n := p.Normalize()
 	rows, err := q.
-		Order(task.CreatedAt.Desc()).
+		Order(task.CreatedAt.Desc(), task.ID.Desc()).
 		Limit(int64(n.PageSize)).
 		Offset(int64(p.Offset())).
 		All(ctx, ex, nil)

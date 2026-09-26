@@ -79,31 +79,26 @@ func requireAccountAuthority(ctx context.Context, account models.UserModel) erro
 //
 // There is no default account by design, so an organization left with nobody
 // who can administer it cannot be administered through Metis again. Each
-// organization is read scoped to itself: requireAccountAuthority has already
+// organization is asked scoped to itself: requireAccountAuthority has already
 // established that the caller belongs to every one of them, so this is the
 // scope the tenant resolver would have given them there.
+//
+// The repository is asked the question rather than handed the member list to
+// search: that list stops at a thousand rows, and an administrator past the end
+// of it did not count.
 func (s *userService) requireAnotherAdministrator(ctx context.Context, account models.UserModel) error {
 	for _, org := range account.Organizations {
 		orgID := uuid.UUID(org.ID)
 		orgCtx := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
-		members, err := s.repo.User().ListByOrganization(orgCtx, orgID)
+		another, err := s.repo.User().HasAnotherAdministrator(orgCtx, orgID, uuid.UUID(account.ID))
 		if err != nil {
 			return fmt.Errorf("could not count the administrators of %s: %w", org.Name, err)
 		}
-		if !hasOtherAdministrator(members, account.ID) {
+		if !another {
 			return apierr.Forbiddenf(
 				"%s is the last administrator of %s; make somebody else an administrator first",
 				account.Username, org.Name)
 		}
 	}
 	return nil
-}
-
-func hasOtherAdministrator(members []models.UserModel, except models.UUID) bool {
-	for _, member := range members {
-		if member.ID != except && entities.HasRole(member.Roles, entities.RoleAdmin) {
-			return true
-		}
-	}
-	return false
 }

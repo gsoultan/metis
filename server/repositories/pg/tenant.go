@@ -81,15 +81,19 @@ func (r *conn) scopeOf(ctx context.Context) (tenantScope, error) {
 // somebody creates a project, deploys into it and finds it empty — which is
 // indistinguishable from the feature being broken. The read is one indexed
 // lookup returning a handful of ids.
+//
+// Every project, not the store's first thousand. This list is the scope: a
+// project missing from it is one whose rows the organization cannot read and
+// whose writes are refused, so an organization with more than a thousand lost
+// the rest. Walked in key order, which the keyset cursor needs; for a list of a
+// handful that is one statement, as before.
 func (r *conn) projectsOf(ctx context.Context, organization uuid.UUID) ([]uuid.UUID, error) {
 	ex, err := r.conn.MainExecutor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := project.New().
-		Where(project.OrganizationID.Eq(organization)).
-		Unordered().
-		All(ctx, ex, nil)
+	rows, err := everyRow[project.Row](ctx, ex, project.New().
+		Where(project.OrganizationID.Eq(organization)))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the projects in this organization: %w", err)
 	}

@@ -24,8 +24,8 @@ type EnvironmentService interface {
 	DeleteEnvironment(ctx context.Context, id uuid.UUID) error
 
 	// TestConnection opens the described database and reports whether it
-	// answered, so an administrator finds out before saving rather than at the
-	// next restart.
+	// answered, so an administrator finds out before saving rather than from
+	// the server's log once every replica tries to open it.
 	//
 	// It takes a host and a port from the caller and says what happened to the
 	// attempt, which is a network probe. That is why it is administrative: the

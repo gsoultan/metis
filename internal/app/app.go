@@ -100,8 +100,9 @@ type App struct {
 	// as a metric so a shipped-but-broken feature pages somebody. Read at scrape
 	// time, written once at startup, so it is atomic.
 	schemaDrift atomic.Int64
-	// environments is what runs for each environment, so one that is deleted
-	// or disabled can be stopped. See environment_runtime.go.
+	// environments is what this replica serves for each environment, so one
+	// can be started, changed or stopped while the server runs. See
+	// environment_watch.go.
 	environments environmentRuntimes
 }
 
@@ -318,21 +319,18 @@ func (a *App) Run() error {
 		return err
 	}
 
-	// 3a. Connect to each environment's own database.
-	//
-	// After the domain, because the list of environments is read through the
-	// repository, and before the transports, because a listener is bound per
-	// environment. One environment that will not open does not stop the others.
-	if err := a.openEnvironments(ctx); err != nil {
-		return err
-	}
-
 	// A password reset is a maintenance task, not a server. It runs against the
 	// configured database and then exits, without opening a port — an operator
 	// doing this has usually been locked out, and starting a server they cannot
 	// log into would not help.
-	// Resealing is maintenance too: it walks every database once and exits.
+	// Resealing is maintenance too: it walks every database once and exits —
+	// each environment's included, so they are opened first, the way serving
+	// them opens them. A server opens its environments in runServers, as it
+	// starts serving each one.
 	if *reseal || *resealCheck {
+		if err := a.openEnvironments(ctx); err != nil {
+			return err
+		}
 		return a.handleReseal(ctx, *resealCheck)
 	}
 
@@ -787,8 +785,9 @@ func (a *App) startSharedLimits(ctx context.Context) {
 }
 
 // startBackgroundWork starts everything that acts on its own: the job workers,
-// the scheduled directory syncs, the SSE fan-out, the per-environment workers,
-// the shared rate-limit counters and the retention sweeps.
+// the scheduled directory syncs, the SSE fan-out, the shared rate-limit
+// counters and the retention sweeps. Each environment's workers start with its
+// listener, in serveEnvironments.
 //
 // This used to be the tail of setupService, which runs at step 3 — *before* the
 // --reset-password branch returns at step 3b. So a password reset started ten
@@ -807,12 +806,6 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	// there is no storm connection: there are no sources to run.
 	a.svc.StartScheduledSyncs(ctx)
 	a.startSSEFanout(ctx)
-	// The same work again, once per environment, against that environment's
-	// database. Without it a process started on a staging port never advances.
-	a.startEnvironmentWorkers(ctx)
-	// And stopped again, listener and all, once the environment is deleted
-	// or disabled.
-	a.watchEnvironments(ctx)
 	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
 }
@@ -922,7 +915,7 @@ func BuildAPIHandler(
 ) (http.Handler, *metrics.Collector) {
 	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
-	f := interceptors.NewInterceptorFactory(svc)
+	f := interceptors.NewInterceptorFactory(svc, svc)
 	var strategy authinterceptor.SecurityStrategy
 	if validator != nil {
 		strategy = f.NewOIDCStrategy(validator)
@@ -1035,12 +1028,14 @@ func (a *App) runServers(ctx context.Context) error {
 		// How far behind the engine is and how full its connection pools are,
 		// which the HTTP series cannot say: a job worker that stopped claiming
 		// looks like a system with nothing to do, and an exhausted pool looks
-		// like a slow API. Only with a storm connection — before setup there is
-		// no engine to watch; one set up through the wizard reports these from
-		// its next start.
+		// like a slow API. The backlog is read from the main database and from
+		// each environment's, since an environment's jobs are only in its own.
+		// Only with a storm connection — before setup there is no engine to
+		// watch; one set up through the wizard reports these from its next
+		// start.
 		if a.storm != nil {
 			metricsCollector.Registry().MustRegister(
-				metrics.NewEngineCollector(a.engineState),
+				metrics.NewEngineCollector(a.engineSources),
 				metrics.NewPoolCollector("storm", a.storm.Main().Stat),
 			)
 		}
@@ -1133,10 +1128,12 @@ func (a *App) runServers(ctx context.Context) error {
 		return server.ListenAndServe()
 	})
 
-	// One listener per environment, each bound to its own database. Started
-	// after the main port so a failure to bind a staging port is reported
-	// beside a server that is already up, rather than instead of one.
-	a.serveEnvironments(ctx, g, httpHandler)
+	// One listener per environment, each bound to its own database, with its
+	// own workers — and from here on, every replica checks the environments
+	// and starts, restarts or stops them as they change. Started after the
+	// main port so a failure to bind a staging port is reported beside a
+	// server that is already up, rather than instead of one.
+	a.serveEnvironments(ctx, httpHandler)
 
 	a.serveGRPC(ctx, g, grpcServer)
 

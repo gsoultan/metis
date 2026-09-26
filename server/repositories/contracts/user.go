@@ -25,6 +25,11 @@ type UserRepository interface {
 	GetWithPasswordByID(ctx context.Context, id uuid.UUID) (models.UserModel, string, error)
 	ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error)
 
+	// HasAnotherAdministrator reports whether an organization has a member,
+	// other than except, who holds the administrator role. It asks about every
+	// member, so an organization of any size gets the same answer.
+	HasAnotherAdministrator(ctx context.Context, organizationID, except uuid.UUID) (bool, error)
+
 	// HasAccounts reports whether any account exists at all.
 	//
 	// Installation-wide, like the lookup by username, and for a related reason:

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -83,6 +84,11 @@ func (r *userRepository) GetWithPasswordByID(ctx context.Context, id uuid.UUID) 
 // Scoped, and it was not: this returned every account in the installation with
 // their memberships preloaded — a complete staff directory of every tenant, to
 // anybody signed in.
+//
+// Every member, not the store's first thousand: the memberships and the
+// accounts are both read through pg.everyRow, and the memberships of the
+// accounts listed come in two reads for the whole list rather than two per
+// account.
 func (r *userRepository) ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -103,12 +109,12 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		return nil, err
 	}
 
-	q := user.New().Order(user.Username.Asc())
+	// The id breaks ties so the cursor is a position; a username is unique,
+	// so it never has to.
+	q := user.New().Order(user.Username.Asc(), user.ID.Asc())
 	if organizationID != uuid.Nil {
-		members, err := userorganization.New().
-			Where(userorganization.OrganizationID.Eq(organizationID)).
-			Unordered().
-			All(ctx, ex, nil)
+		members, err := everyRow[userorganization.Row](ctx, ex, userorganization.New().
+			Where(userorganization.OrganizationID.Eq(organizationID)))
 		if err != nil {
 			return nil, fmt.Errorf("could not read the organization's members: %w", err)
 		}
@@ -121,19 +127,109 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		}
 		q = q.Where(user.ID.In(ids...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[user.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list accounts: %w", err)
 	}
+	return hydrateAll(ctx, ex, rows)
+}
+
+// hydrateAll loads the memberships of many accounts: two reads for the list,
+// where hydrate is two per account.
+func hydrateAll(ctx context.Context, ex runtime.Executor, rows []user.Row) ([]models.UserModel, error) {
 	out := make([]models.UserModel, 0, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+	ids := make([][16]byte, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	orgs, err := everyRow[userorganization.Row](ctx, ex, userorganization.New().Where(userorganization.UserID.In(ids...)))
+	if err != nil {
+		return nil, fmt.Errorf("could not read the accounts' organizations: %w", err)
+	}
+	projects, err := everyRow[userproject.Row](ctx, ex, userproject.New().Where(userproject.UserID.In(ids...)))
+	if err != nil {
+		return nil, fmt.Errorf("could not read the accounts' projects: %w", err)
+	}
+	orgsOf := make(map[[16]byte][]models.OrganizationModel, len(rows))
+	for _, org := range orgs {
+		orgsOf[org.UserID] = append(orgsOf[org.UserID], models.OrganizationModel{Base: models.Base{ID: models.UUID(org.OrganizationID)}})
+	}
+	projectsOf := make(map[[16]byte][]models.ProjectModel, len(rows))
+	for _, project := range projects {
+		projectsOf[project.UserID] = append(projectsOf[project.UserID], models.ProjectModel{Base: models.Base{ID: models.UUID(project.ProjectID)}})
+	}
 	for _, row := range rows {
-		user, err := r.hydrate(ctx, row)
+		account, err := accountFrom(row)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, user)
+		account.Organizations = orgsOf[row.ID]
+		account.Projects = projectsOf[row.ID]
+		out = append(out, account)
 	}
 	return out, nil
+}
+
+// otherAdministratorCandidates reads the roles of an organization's members,
+// other than one account, whose roles could name the administrator role.
+//
+// A narrowing, not the decision: HasAnotherAdministrator decides with
+// entities.HasRole, the same test that grants an administrator their access.
+// translate() folds exactly the letters of ADMIN, as HasRole folds ASCII;
+// lower() would follow the database's locale, and a Turkish one lowers 'I' to
+// a dotless 'ı' and would hide every administrator. The quotes keep
+// "ADMINISTRATOR" and the like out.
+const otherAdministratorCandidates = `SELECT u.roles::text
+	  FROM users u
+	  JOIN user_organizations m ON m.user_id = u.id
+	 WHERE m.organization_id = $1
+	   AND u.id <> $2
+	   AND u.deleted_at IS NULL
+	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
+
+// HasAnotherAdministrator reports whether an organization has an administrator
+// besides one account.
+//
+// Asked of the database rather than of a list of the members. The list stops
+// at the store's thousand rows, so in a larger organization the other
+// administrator could be past the end of it, and removing one of two
+// administrators was refused as though it removed the last.
+//
+// An organization that is not the caller's has no members they can see, so
+// nobody in it counts — and the guard this serves refuses rather than allows.
+func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizationID, except uuid.UUID) (bool, error) {
+	scope, err := r.scopeOf(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !scope.unrestricted() && scope.organization != organizationID {
+		return false, nil
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := ex.Query(ctx, otherAdministratorCandidates, []any{organizationID, except})
+	if err != nil {
+		return false, fmt.Errorf("could not look for another administrator: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var roles []string
+		if err := json.Unmarshal(rows.RawValues()[0], &roles); err != nil {
+			return false, fmt.Errorf("could not decode an account's roles: %w", err)
+		}
+		if entities.HasRole(roles, entities.RoleAdmin) {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("could not look for another administrator: %w", err)
+	}
+	return false, nil
 }
 
 // HasAccounts reports whether any account exists, deleted or not.
@@ -367,31 +463,9 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 	if err != nil {
 		return models.UserModel{}, err
 	}
-	user := models.UserModel{
-		Base: models.Base{
-			ID:        models.UUID(row.ID),
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
-		},
-		Username:     row.Username,
-		FullName:     row.FullName,
-		DisplayName:  row.DisplayName,
-		Organization: row.Organization,
-		Email:        row.Email,
-	}
-	if validFrom, ok := row.TokensValidFrom.Get(); ok {
-		user.TokensValidFrom = &validFrom
-	}
-	if issuer, ok := row.IdentityIssuer.Get(); ok {
-		user.IdentityIssuer = &issuer
-	}
-	if subject, ok := row.IdentitySubject.Get(); ok {
-		user.IdentitySubject = &subject
-	}
-	if len(row.Roles) > 0 {
-		if err := json.Unmarshal(row.Roles, &user.Roles); err != nil {
-			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)
-		}
+	user, err := accountFrom(row)
+	if err != nil {
+		return models.UserModel{}, err
 	}
 
 	orgs, err := userorganization.New().
@@ -420,4 +494,35 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 		})
 	}
 	return user, nil
+}
+
+// accountFrom reads an account's own columns, memberships aside.
+func accountFrom(row user.Row) (models.UserModel, error) {
+	account := models.UserModel{
+		Base: models.Base{
+			ID:        models.UUID(row.ID),
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		},
+		Username:     row.Username,
+		FullName:     row.FullName,
+		DisplayName:  row.DisplayName,
+		Organization: row.Organization,
+		Email:        row.Email,
+	}
+	if validFrom, ok := row.TokensValidFrom.Get(); ok {
+		account.TokensValidFrom = &validFrom
+	}
+	if issuer, ok := row.IdentityIssuer.Get(); ok {
+		account.IdentityIssuer = &issuer
+	}
+	if subject, ok := row.IdentitySubject.Get(); ok {
+		account.IdentitySubject = &subject
+	}
+	if len(row.Roles) > 0 {
+		if err := json.Unmarshal(row.Roles, &account.Roles); err != nil {
+			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)
+		}
+	}
+	return account, nil
 }

@@ -747,6 +747,54 @@ func Schema(models []any) []Migration {
 			},
 		},
 		{
+			Version: 24,
+			Name:    "no group membership crosses organizations",
+			// A one-off: AddMembership now refuses an account from outside the
+			// group's organization, and this removes the ones added before it
+			// did, logging each. Transactional, so the removals and the record
+			// that they were made land together.
+			Transactional: true,
+			Run:           removeCrossOrganizationMemberships,
+		},
+		{
+			Version: 25,
+			Name:    "webhooks set up before v2 signatures accept legacy ones for ninety days",
+			// A webhook signature covered the body alone, so a captured delivery
+			// could be replayed under a new delivery ID for as long as anyone
+			// liked. v2 signs the timestamp and the delivery ID as well, and a
+			// webhook accepts the old scheme only until the moment in this
+			// column.
+			//
+			// Every webhook that exists when this runs was set up for the old
+			// scheme — there was no other — so each is given ninety days from the
+			// upgrade, and its sender has that long to move before deliveries
+			// start being refused. A webhook created afterwards gets no window.
+			//
+			// Only rows with no window are touched, so a run that stops part-way
+			// can be repeated: a window already opened keeps its date rather
+			// than being pushed back. Portable, like 6 and 17 — the baseline has
+			// already created the column on a fresh database, where there are no
+			// rows to open a window for.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				model, err := modelForTable(db, models, "webhooks")
+				if err != nil {
+					return err
+				}
+				if !db.Migrator().HasColumn(model, "legacy_signatures_until") {
+					if err := db.Migrator().AddColumn(model, "LegacySignaturesUntil"); err != nil {
+						return fmt.Errorf("add webhooks.legacy_signatures_until: %w", err)
+					}
+				}
+				until := time.Now().UTC().Add(legacySignatureWindow)
+				if err := db.WithContext(ctx).Exec(
+					`UPDATE webhooks SET legacy_signatures_until = ? WHERE legacy_signatures_until IS NULL`,
+					until).Error; err != nil {
+					return fmt.Errorf("open the legacy signature window on existing webhooks: %w", err)
+				}
+				return nil
+			},
+		},
+		{
 			Version: 27,
 			Name:    "an account can be linked to the identity provider that signs it in",
 			// Somebody signing in through an OpenID Connect provider is given an
@@ -784,6 +832,12 @@ func Schema(models []any) []Migration {
 		},
 	}
 }
+
+// legacySignatureWindow is how long migration 25 gives a webhook that existed
+// before v2 signatures to keep accepting the legacy ones. Long enough for a
+// partner's release cycle; short enough that the replayable scheme is gone
+// within a quarter.
+const legacySignatureWindow = 90 * 24 * time.Hour
 
 // baseTimestampTables are the tables whose created_at and updated_at come from
 // the embedded models.Base, listed rather than derived: a migration records

@@ -112,7 +112,9 @@ export function EnvironmentSettings() {
       await save.mutateAsync(draft);
       notifications.show({
         title: draft.id ? `${draft.name} saved` : `${draft.name} added`,
-        message: `Served on port ${draft.port}. It takes effect after the next restart.`,
+        message: draft.enabled
+          ? `Served on port ${draft.port} within 15 seconds.`
+          : 'Kept, but not served: it stops within 15 seconds. Its database is untouched.',
         color: 'green',
       });
       setDraft(null);

@@ -264,41 +264,46 @@ func (s *decisionService) DecisionImpact(ctx context.Context, id uuid.UUID) (ent
 // reaches a decision through a business rule task in the process it is running,
 // so the question is which processes contain such a task. Definitions are few;
 // instances are many.
+//
+// Every version of every process in the project, walked a batch at a time with
+// its graph: a running instance can be on any of them. They were read as a
+// list, which stopped at the newest thousand — past which a version still
+// consulting the decision went unseen and the delete went through — and then
+// read again one at a time for their graphs.
 func (s *decisionService) processesUsing(ctx context.Context, decision entities.DecisionDefinition) ([]entities.DecisionUsage, error) {
 	var projectID uuid.UUID
 	if decision.Project != nil {
 		projectID = decision.Project.ID
 	}
 
-	definitions, err := s.repo.Definition().ListByProject(ctx, projectID)
+	var usages []entities.DecisionUsage
+	err := s.repo.Definition().ScanProjectWithGraphs(ctx, projectID, func(batch []models.ProcessDefinitionModel) error {
+		for _, m := range batch {
+			if usage, ok := decisionUsageOf(m, decision.Key); ok {
+				usages = append(usages, usage)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("could not check which processes use the decision: %w", err)
 	}
-
-	var usages []entities.DecisionUsage
-	for _, listed := range definitions {
-		// The list query selects a few columns and deliberately leaves the BPMN
-		// out — it feeds a picker, not an analysis — so the nodes have to be
-		// fetched. That is a full read per definition, which is why this is only
-		// ever asked deliberately: before a delete, or when someone opens the
-		// impact view.
-		m, err := s.repo.Definition().Get(ctx, uuid.UUID(listed.ID))
-		if err != nil {
-			return nil, fmt.Errorf("could not read the process %q while checking the decision: %w", listed.Key, err)
-		}
-		nodes := nodesUsingDecision(m, decision.Key)
-		if len(nodes) == 0 {
-			continue
-		}
-		usages = append(usages, entities.DecisionUsage{
-			DefinitionID:   uuid.UUID(m.ID),
-			DefinitionKey:  m.Key,
-			DefinitionName: m.Name,
-			Version:        m.Version,
-			Steps:          nodes,
-		})
-	}
 	return s.countRunning(ctx, usages)
+}
+
+// decisionUsageOf names the steps of one version that consult the decision.
+func decisionUsageOf(m models.ProcessDefinitionModel, key string) (entities.DecisionUsage, bool) {
+	nodes := nodesUsingDecision(m, key)
+	if len(nodes) == 0 {
+		return entities.DecisionUsage{}, false
+	}
+	return entities.DecisionUsage{
+		DefinitionID:   uuid.UUID(m.ID),
+		DefinitionKey:  m.Key,
+		DefinitionName: m.Name,
+		Version:        m.Version,
+		Steps:          nodes,
+	}, true
 }
 
 // countRunning fills in how many instances of each process are still running,

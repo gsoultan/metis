@@ -75,6 +75,13 @@ func (r *incidentRepository) Get(ctx context.Context, id uuid.UUID) (models.Inci
 	return incidentFrom(row), nil
 }
 
+// ListByInstance returns every incident an instance has had, newest first.
+//
+// Every one, not the store's newest thousand. A call that fails every few
+// minutes raises a thousand in a few days, and past that the incident list
+// stopped short and a migration holding the instance again no longer found
+// the hold it had raised, so it raised another. The id breaks ties in time,
+// so the cursor is a position.
 func (r *incidentRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.IncidentModel, error) {
 	if err := r.requireInstanceInTenant(ctx, instanceID); err != nil {
 		return nil, err
@@ -83,10 +90,9 @@ func (r *incidentRepository) ListByInstance(ctx context.Context, instanceID uuid
 	if err != nil {
 		return nil, err
 	}
-	rows, err := incident.New().
+	rows, err := everyRow[incident.Row](ctx, ex, incident.New().
 		Where(incident.InstanceID.Eq(instanceID)).
-		Order(incident.CreatedAt.Desc()).
-		All(ctx, ex, nil)
+		Order(incident.CreatedAt.Desc(), incident.ID.Desc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the incidents: %w", err)
 	}
