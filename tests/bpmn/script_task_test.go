@@ -125,7 +125,7 @@ func TestExecuteScriptSetVarUpdatesAnExistingVariable(t *testing.T) {
 // A runaway script must be interrupted rather than holding its goroutine and
 // transaction. Process definitions are untrusted input.
 func TestScriptTaskIsBoundedByTheScriptTimeout(t *testing.T) {
-	t.Setenv("GOBPM_SCRIPT_TIMEOUT", "200ms")
+	t.Setenv("METIS_SCRIPT_TIMEOUT", "200ms")
 	h := newEngineHarness(t, "Script Timeout Project")
 	ctx := h.Ctx()
 

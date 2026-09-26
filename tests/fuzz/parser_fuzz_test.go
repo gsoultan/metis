@@ -36,7 +36,7 @@ import (
 // the interrupt fires at all, is covered where it belongs, in
 // server/domains/logic/sandbox_test.go.
 func TestMain(m *testing.M) {
-	if err := os.Setenv("GOBPM_SCRIPT_TIMEOUT", "200ms"); err != nil {
+	if err := os.Setenv("METIS_SCRIPT_TIMEOUT", "200ms"); err != nil {
 		panic("could not shorten the script budget for fuzzing: " + err.Error())
 	}
 	os.Exit(m.Run())

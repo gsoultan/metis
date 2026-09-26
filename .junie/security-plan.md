@@ -223,11 +223,11 @@ and the rest proceed alongside it.
 
 ---
 
-## Status — 2026-09-20
+## Status — 2026-09-25
 
 | Item | State |
 | :-- | :-- |
-| **P0.1** strict tenant scope | Steps 1–4 exercised, no denials found. **Not cleared**: 13 packages still fail with the flag on, and the gate is a staging soak. The flag ships off. |
+| **P0.1** strict tenant scope | Steps 1–4 exercised, no denials found. The whole suite now passes with the flag on — `make strict-scope`, part of `make gate`, runs every package that way — where 13 packages failed on 2026-09-20. **Not cleared**: the gate is a staging soak, which cannot be run from here. The flag ships off. The soak is observable: `metis_strict_tenant_scope_*` on the metrics endpoint, and `MetisStrictTenantScopeDenied` in `deploy/kubernetes/alerts.yaml`. That alert as first published in `docs/strict-tenant-scope.md` could never fire, and is fixed and unit-tested. |
 | **P0.2(a)** script-task inventory | **Done.** `GET /api/v1/definitions/script-tasks`, behind the designer chain — stricter than the javascript-conditions worklist beside it, because this returns every script *body* in the tenant in one call. |
 | **P0.2(b)** containment | **Done.** `METIS_SCRIPT_CONCURRENCY` (default 4, below `METIS_JOB_WORKERS`) bounds how many scripts allocate at once; a slot is held until the script actually finishes, so a runaway that ignored its interrupt is still counted. The container memory limit already existed. |
 | **P0.2(c)** resolution | **Not started, deliberately.** It is the choice between a FEEL replacement and process isolation, and (a) exists so that choice is made from the scripts an installation actually has. Run the endpoint first. |
@@ -235,6 +235,7 @@ and the rest proceed alongside it.
 | **P1.2** login throttle | **Done.** `internal/pkg/loginthrottle`: per-account exponential backoff, LRU-bounded because the key is attacker-supplied. Backoff rather than lockout, because a lockout is a denial of service against any guessable username. |
 | **P2** external review | **Cannot be done from here.** Needs a third party. Schedule after P0.1. |
 | **P2** golangci-lint burn-down | **Done.** `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0` reports **0 issues**. The 799 was stale; the real remainder was the 61 `gosec` findings that adopting SAST introduced. |
+| **Since the plan** | An audit against the roadmap on 2026-09-25 found and fixed eight more P0s: the setup wizard stayed open on container deployments, gRPC listened unauthenticated by default, an administrator could manage another organization's accounts, a business rule could run another tenant's decision table, and four reliability holes. See the roadmap's session log. Still open: **`ENCRYPTION_KEY` cannot be rotated** — nothing re-encrypts sealed data under a new key, so a leaked key cannot be retired (`docs/runbooks.md`, "Rotating secrets"). |
 
 ## The standing lesson
 

@@ -49,7 +49,7 @@ func newPartner(t *testing.T, respond func(w http.ResponseWriter)) *partner {
 	// below is the contract test for it. A stub partner necessarily lives on
 	// loopback, so these tests opt in explicitly rather than the policy being
 	// weakened for them.
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 	p := &partner{}
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

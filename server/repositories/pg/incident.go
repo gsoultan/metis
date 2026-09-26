@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -94,6 +95,22 @@ func (r *incidentRepository) ListByInstance(ctx context.Context, instanceID uuid
 		out = append(out, incidentFrom(row))
 	}
 	return out, nil
+}
+
+// CountOpen counts the incidents nobody has resolved, for the metrics endpoint.
+func (r *incidentRepository) CountOpen(ctx context.Context) (int64, error) {
+	if !entities.IsSystemContext(ctx) {
+		return 0, fmt.Errorf("%w: the open incidents span every tenant", apierr.ErrForbidden)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	open, err := incident.New().Where(incident.Status.Eq(string(models.IncidentOpen))).Count(ctx, ex)
+	if err != nil {
+		return 0, fmt.Errorf("could not count the open incidents: %w", err)
+	}
+	return open, nil
 }
 
 // Update saves a change to an incident — resolving it, mostly.

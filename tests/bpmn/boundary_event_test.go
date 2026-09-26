@@ -27,7 +27,7 @@ func failingEndpoint(t *testing.T) string {
 // A boundary event with no error code catches anything, which is how you say
 // "if this goes wrong at all, do that instead".
 func TestErrorBoundary_TakesTheRecoveryPathWhenTheTaskFails(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	h := newServiceTaskHarness(t)
 	instance := h.runDefinition(t, &entities.ProcessDefinition{
@@ -66,7 +66,7 @@ func TestErrorBoundary_TakesTheRecoveryPathWhenTheTaskFails(t *testing.T) {
 // A boundary event with a code catches only that code, so an unrelated failure
 // is still a failure rather than quietly taking someone else's recovery path.
 func TestErrorBoundary_LeavesAnErrorItsCodeDoesNotMatch(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	h := newServiceTaskHarness(t)
 	instance := h.runDefinition(t, &entities.ProcessDefinition{
@@ -105,7 +105,7 @@ func TestErrorBoundary_LeavesAnErrorItsCodeDoesNotMatch(t *testing.T) {
 // is worse than either: the card gets charged and someone is also asked to
 // take payment another way.
 func TestErrorBoundary_InterruptingBoundaryStopsTheTaskItIsAttachedTo(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	h := newServiceTaskHarness(t)
 	instance := h.runDefinition(t, &entities.ProcessDefinition{
@@ -142,7 +142,7 @@ func TestErrorBoundary_InterruptingBoundaryStopsTheTaskItIsAttachedTo(t *testing
 // A boundary event that catches something has to leave the process able to
 // finish; the recovery path is a path, not a dead end.
 func TestErrorBoundary_TheRecoveryPathCanBeCompleted(t *testing.T) {
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	h := newServiceTaskHarness(t)
 	instance := h.runDefinition(t, &entities.ProcessDefinition{

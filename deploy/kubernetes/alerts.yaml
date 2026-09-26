@@ -24,6 +24,28 @@ metadata:
     release: kube-prometheus-stack
 spec:
   groups:
+    # The 5xx ratio over the windows the burn-rate alerts compare. Recorded
+    # rather than written into each alert, so the alerts and the SLO dashboard
+    # (deploy/grafana/metis-slo.json) read the same numbers.
+    - name: metis.slo
+      rules:
+        - record: metis:http_error_ratio:rate5m
+          expr: >-
+            sum(rate(metis_http_requests_total{status_class="5xx"}[5m]))
+            / sum(rate(metis_http_requests_total[5m]))
+        - record: metis:http_error_ratio:rate30m
+          expr: >-
+            sum(rate(metis_http_requests_total{status_class="5xx"}[30m]))
+            / sum(rate(metis_http_requests_total[30m]))
+        - record: metis:http_error_ratio:rate1h
+          expr: >-
+            sum(rate(metis_http_requests_total{status_class="5xx"}[1h]))
+            / sum(rate(metis_http_requests_total[1h]))
+        - record: metis:http_error_ratio:rate6h
+          expr: >-
+            sum(rate(metis_http_requests_total{status_class="5xx"}[6h]))
+            / sum(rate(metis_http_requests_total[6h]))
+
     - name: metis.availability
       rules:
         - alert: MetisDown
@@ -75,25 +97,64 @@ spec:
               this is firing, your scrape job is not named what MetisDown looks
               for and that rule is not protecting you.
 
+        # The budget is 0.1% of responses as 5xx over 30 days. Three alerts, by
+        # how fast it is going — the multi-window scheme from Google's SRE
+        # workbook. Each needs a long window and a short one over the line: the
+        # long one so a single bad minute does not page, the short one so the
+        # alert clears once the problem has.
+        #
+        # This one pages. 14.4 times the allowed rate spends 2% of a month's
+        # budget in an hour. It used to fire at 1 times the rate over an hour,
+        # which is a system using its budget exactly as planned.
         - alert: MetisErrorBudgetBurning
-          # The roadmap allows 0.1% of responses to be 5xx. Measured over an
-          # hour rather than five minutes: this is a budget, and a budget that
-          # alerts on a single bad minute is a pager that gets ignored.
           expr: >-
-            sum(rate(metis_http_requests_total{status_class="5xx"}[1h]))
-            /
-            sum(rate(metis_http_requests_total[1h]))
-            > 0.001
-          for: 10m
+            metis:http_error_ratio:rate1h > (14.4 * 0.001)
+            and metis:http_error_ratio:rate5m > (14.4 * 0.001)
+          for: 2m
           labels:
             severity: critical
           annotations:
-            summary: Metis is over its 0.1% 5xx error budget
+            summary: Metis is spending its 5xx error budget fourteen times too fast
             description: >-
-              {{ $value | humanizePercentage }} of responses are 5xx over the
-              last hour, against a 0.1% budget. A 5xx here is usually the engine
-              failing to advance work rather than a read failing, so check
-              incidents before latency: `GET /api/v1/incidents`.
+              {{ $value | humanizePercentage }} of responses were 5xx over the
+              last hour; the budget is 0.1%. At this rate a month's budget is
+              gone in about two days. A 5xx here is usually the engine failing
+              to advance work rather than a read failing, so check open
+              incidents before latency: docs/runbooks.md, "Incidents are
+              piling up".
+
+        - alert: MetisErrorBudgetSlowBurn
+          expr: >-
+            metis:http_error_ratio:rate6h > (6 * 0.001)
+            and metis:http_error_ratio:rate30m > (6 * 0.001)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Metis is spending its 5xx error budget six times too fast
+            description: >-
+              {{ $value | humanizePercentage }} of responses were 5xx over six
+              hours, against a 0.1% budget — a month's budget in five days.
+              Slow enough to look into during working hours, fast enough that
+              it will not wait: find the route with
+              `sum by (route) (rate(metis_http_requests_total{status_class="5xx"}[6h]))`.
+
+        - alert: MetisErrorBudgetExhausting
+          # Averaged from the hourly ratio: a ratio over three days read from the
+          # raw counters is a heavy query to run every minute, and this one has
+          # days to be right in, not minutes. It weights a quiet hour like a busy
+          # one, so treat it as a ticket, not a page.
+          expr: avg_over_time(metis:http_error_ratio:rate1h[3d]) > 0.001
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: Metis has been over its 5xx error budget for three days
+            description: >-
+              The error ratio has averaged {{ $value | humanizePercentage }}
+              for three days, against 0.1%. Nothing is burning fast enough to
+              page, and the month's budget is still being spent. Worth a ticket
+              for the routes that contribute most.
 
     - name: metis.latency
       rules:
@@ -186,3 +247,111 @@ spec:
               return 500. Startup logs each one: `kubectl -n metis logs
               deploy/metis | grep "Schema drift"`. The fix is a numbered
               migration, not a restart — see docs/runbooks.md.
+
+    - name: metis.tenancy
+      rules:
+        - alert: MetisStrictTenantScopeDenied
+          # For the strict scope's staging soak (docs/strict-tenant-scope.md);
+          # silent while the flag is off, because nothing is denied then.
+          #
+          # Matched per instance, and it has to be said. The version first
+          # published was `enabled == 1 and count(denied_site) > 0`: `count`
+          # drops every label and a plain `and` matches on labels, so the right
+          # side matched no series on the left and the alert could never fire.
+          expr: >-
+            count by (job, instance) (metis_strict_tenant_scope_denied_site) > 0
+            and on (job, instance)
+            metis_strict_tenant_scope_enabled == 1
+          labels:
+            severity: warning
+          annotations:
+            summary: A code path reached a repository with neither a tenant nor a system identity
+            description: >-
+              {{ $value }} call site(s) on {{ $labels.instance }} were denied by
+              the strict tenant scope and got nothing back. Each is a path that
+              has to carry an identity before the flag can stay on. The sites
+              are listed on the metrics endpoint as
+              metis_strict_tenant_scope_denied_site{site=...}, and in the log as
+              "A repository query carried neither a tenant nor a system identity". See docs/strict-tenant-scope.md.
+
+    - name: metis.engine
+      rules:
+        - alert: MetisJobsWaitingUnclaimed
+          # A due job is claimed within a poll interval, which is seconds. Ten
+          # minutes means no worker is claiming: every replica's workers died
+          # or stalled, or they cannot reach the database. From outside that
+          # looks like a quiet system, which is why this exists.
+          expr: metis_jobs_oldest_due_age_seconds > 600
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Due jobs have waited more than ten minutes for a worker
+            description: >-
+              The oldest due job has waited {{ $value | humanizeDuration }}.
+              Timers are late and service tasks are not running. See
+              docs/runbooks.md, "Jobs are due and nobody is claiming them".
+
+        - alert: MetisJobLeasesNotReclaimed
+          # A worker that dies leaves its jobs leased; the next poll reclaims
+          # them once the lease runs out. Expired leases staying for a quarter
+          # of an hour means reclaiming is not happening.
+          expr: metis_jobs_lease_expired > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Jobs with expired leases are not being reclaimed
+            description: >-
+              {{ $value }} job(s) were claimed by a worker that stopped renewing
+              them, and no worker has taken them back for 15 minutes. See
+              docs/runbooks.md, "A job stuck in running".
+
+        - alert: MetisIncidentsRising
+          # One incident is a job that ran out of retries. Ten more in half an
+          # hour is something they share: a partner that is down, a credential
+          # that expired, a version that broke a step.
+          expr: delta(metis_incidents_open[30m]) > 10
+          labels:
+            severity: warning
+          annotations:
+            summary: Incidents are being opened faster than they are resolved
+            description: >-
+              {{ $value | printf "%.0f" }} more incidents are open than half an
+              hour ago. They usually share a cause. See docs/runbooks.md, "Incidents are
+              piling up".
+
+        - alert: MetisEngineStateUnreadable
+          expr: metis_engine_state_up == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: The engine's backlog cannot be read
+            description: >-
+              The metrics endpoint on {{ $labels.instance }} has not been able to
+              read the job queue or the incidents for 10 minutes, so the alerts
+              on them cannot fire. The server logs "Could not read the engine's
+              backlog for the metrics endpoint" with the reason.
+
+        - alert: MetisDatabasePoolSaturated
+          # Nearly every connection handed out, and callers waiting for one:
+          # the step before requests time out waiting while the database looks
+          # idle.
+          expr: >-
+            (
+              max by (job, instance, pool) (metis_db_pool_connections{state="acquired"})
+              / max by (job, instance, pool) (metis_db_pool_max_connections)
+            ) > 0.9
+            and on (job, instance, pool)
+            rate(metis_db_pool_acquire_waits_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: The database connection pool is nearly exhausted
+            description: >-
+              {{ $value | humanizePercentage }} of the {{ $labels.pool }} pool's
+              connections are in use on {{ $labels.instance }}, and requests are
+              waiting for one. See docs/runbooks.md, "The database pool is
+              exhausted".

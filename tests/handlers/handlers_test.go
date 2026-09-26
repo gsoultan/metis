@@ -174,7 +174,7 @@ func TestServiceTask(t *testing.T) {
 	// The task URL comes from a definition, which is user-authored, so the HTTP
 	// client refuses loopback unless told otherwise. The stub below is on
 	// 127.0.0.1, so this test opts in for itself.
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 
 	var called bool
 	var received map[string]any

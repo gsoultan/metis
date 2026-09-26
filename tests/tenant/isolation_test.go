@@ -3,7 +3,7 @@
 // on every SQL engine the product supports.
 //
 // These run against SQLite always, and against PostgreSQL and MySQL when
-// GOBPM_TEST_POSTGRES_DSN / GOBPM_TEST_MYSQL_DSN are set. The scope is built
+// METIS_TEST_POSTGRES_DSN / METIS_TEST_MYSQL_DSN are set. The scope is built
 // from SQL joins, so the dialect is part of what needs proving — SQLite
 // accepting a join says nothing about how MySQL resolves the same column names.
 package tenant

@@ -68,9 +68,9 @@ tests:
           - exp_labels:
               severity: critical
             exp_annotations:
-              summary: Metis is over its 0.1% 5xx error budget
+              summary: Metis is spending its 5xx error budget fourteen times too fast
               description: >-
-                2% of responses are 5xx over the last hour, against a 0.1% budget. A 5xx here is usually the engine failing to advance work rather than a read failing, so check incidents before latency: `GET /api/v1/incidents`.
+                2% of responses were 5xx over the last hour; the budget is 0.1%. At this rate a month's budget is gone in about two days. A 5xx here is usually the engine failing to advance work rather than a read failing, so check open incidents before latency: docs/runbooks.md, "Incidents are piling up".
 
   - interval: 1m
     name: an error rate inside the budget stays quiet
@@ -84,6 +84,55 @@ tests:
       - eval_time: 80m
         alertname: MetisErrorBudgetBurning
         exp_alerts: []
+      - eval_time: 80m
+        alertname: MetisErrorBudgetSlowBurn
+        exp_alerts: []
+
+  - interval: 1m
+    name: a slow burn warns without paging
+    input_series:
+      # 0.8% 5xx — eight times the budget: under the fast burn's fourteen, over
+      # the slow burn's six.
+      - series: 'metis_http_requests_total{status_class="5xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+8x420'
+      - series: 'metis_http_requests_total{status_class="2xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+992x420'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: MetisErrorBudgetBurning
+        exp_alerts: []
+      - eval_time: 7h
+        alertname: MetisErrorBudgetSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Metis is spending its 5xx error budget six times too fast
+              description: >-
+                0.8% of responses were 5xx over six hours, against a 0.1% budget — a month's budget in five days. Slow enough to look into during working hours, fast enough that it will not wait: find the route with `sum by (route) (rate(metis_http_requests_total{status_class="5xx"}[6h]))`.
+
+  - interval: 1m
+    name: a steady rate over the budget becomes a ticket
+    input_series:
+      # 0.2%, for three days: too slow for either burn alert, and still twice
+      # what a month allows.
+      - series: 'metis_http_requests_total{status_class="5xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+2x4400'
+      - series: 'metis_http_requests_total{status_class="2xx", method="POST", route="/api/v1/process/start"}'
+        values: '0+998x4400'
+    alert_rule_test:
+      - eval_time: 73h
+        alertname: MetisErrorBudgetSlowBurn
+        exp_alerts: []
+      - eval_time: 73h
+        alertname: MetisErrorBudgetExhausting
+        exp_alerts:
+          - exp_labels:
+              severity: info
+            exp_annotations:
+              summary: Metis has been over its 5xx error budget for three days
+              description: >-
+                The error ratio has averaged 0.2% for three days, against 0.1%. Nothing is burning fast enough to page, and the month's budget is still being spent. Worth a ticket for the routes that contribute most.
 
   # ------------------------------------------------------------------- latency
   - interval: 1m
@@ -245,4 +294,182 @@ tests:
     alert_rule_test:
       - eval_time: 10m
         alertname: MetisSchemaDrift
+        exp_alerts: []
+
+  # -------------------------------------------------------------- tenancy
+  - interval: 1m
+    name: a denied call site fires while the strict scope is on
+    input_series:
+      - series: 'metis_strict_tenant_scope_enabled{job="metis", instance="10.0.0.1:9464"}'
+        values: '1+0x10'
+      - series: 'metis_strict_tenant_scope_denied_site{job="metis", instance="10.0.0.1:9464", site="impl.(*Engine).GetInstanceForUpdate (engine.go:189)"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MetisStrictTenantScopeDenied
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: A code path reached a repository with neither a tenant nor a system identity
+              description: >-
+                1 call site(s) on 10.0.0.1:9464 were denied by the strict tenant scope and got nothing back. Each is a path that has to carry an identity before the flag can stay on. The sites are listed on the metrics endpoint as metis_strict_tenant_scope_denied_site{site=...}, and in the log as "A repository query carried neither a tenant nor a system identity". See docs/strict-tenant-scope.md.
+
+  - interval: 1m
+    name: with the strict scope off nothing fires
+    input_series:
+      - series: 'metis_strict_tenant_scope_enabled{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MetisStrictTenantScopeDenied
+        exp_alerts: []
+
+  # -------------------------------------------------------------- engine
+  - interval: 1m
+    name: jobs nobody claims fire MetisJobsWaitingUnclaimed
+    input_series:
+      # The oldest due job ages a minute every minute: nothing is claiming.
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+60x30'
+    alert_rule_test:
+      # Over ten minutes from 11m, and `for: 5m` after that.
+      - eval_time: 15m
+        alertname: MetisJobsWaitingUnclaimed
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: MetisJobsWaitingUnclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: Due jobs have waited more than ten minutes for a worker
+              description: >-
+                The oldest due job has waited 17m 0s. Timers are late and service tasks are not running. See docs/runbooks.md, "Jobs are due and nobody is claiming them".
+
+  - interval: 1m
+    name: a queue that keeps up stays quiet
+    input_series:
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464"}'
+        values: '0 2 0 1 0 3 0+0x25'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisJobsWaitingUnclaimed
+        exp_alerts: []
+
+  - interval: 1m
+    name: expired leases nobody reclaims fire MetisJobLeasesNotReclaimed
+    input_series:
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464"}'
+        values: '0 0 2+0x30'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: MetisJobLeasesNotReclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: Jobs with expired leases are not being reclaimed
+              description: >-
+                2 job(s) were claimed by a worker that stopped renewing them, and no worker has taken them back for 15 minutes. See docs/runbooks.md, "A job stuck in running".
+
+  - interval: 1m
+    name: a lease reclaimed on the next poll stays quiet
+    input_series:
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464"}'
+        values: '0 3 0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MetisJobLeasesNotReclaimed
+        exp_alerts: []
+
+  - interval: 1m
+    name: incidents opening faster than they close fire MetisIncidentsRising
+    input_series:
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464"}'
+        values: '4x30 40+0x30'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: MetisIncidentsRising
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: Incidents are being opened faster than they are resolved
+              description: >-
+                37 more incidents are open than half an hour ago. They usually share a cause. See docs/runbooks.md, "Incidents are piling up".
+
+  - interval: 1m
+    name: a steady handful of incidents stays quiet
+    input_series:
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464"}'
+        values: '4 5 4 6 5 4+0x30'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: MetisIncidentsRising
+        exp_alerts: []
+
+  - interval: 1m
+    name: an unreadable backlog fires MetisEngineStateUnreadable
+    input_series:
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464"}'
+        values: '1 1 0+0x20'
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: MetisEngineStateUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: The engine's backlog cannot be read
+              description: >-
+                The metrics endpoint on 10.0.0.1:9464 has not been able to read the job queue or the incidents for 10 minutes, so the alerts on them cannot fire. The server logs "Could not read the engine's backlog for the metrics endpoint" with the reason.
+
+  - interval: 1m
+    name: a pool that is full and making callers wait fires
+    input_series:
+      - series: 'metis_db_pool_connections{job="metis", instance="10.0.0.1:9464", pool="storm", state="acquired"}'
+        values: '19+0x20'
+      - series: 'metis_db_pool_connections{job="metis", instance="10.0.0.1:9464", pool="storm", state="idle"}'
+        values: '1+0x20'
+      - series: 'metis_db_pool_max_connections{job="metis", instance="10.0.0.1:9464", pool="storm"}'
+        values: '20+0x20'
+      - series: 'metis_db_pool_acquire_waits_total{job="metis", instance="10.0.0.1:9464", pool="storm"}'
+        values: '0+3x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MetisDatabasePoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              pool: storm
+            exp_annotations:
+              summary: The database connection pool is nearly exhausted
+              description: >-
+                95% of the storm pool's connections are in use on 10.0.0.1:9464, and requests are waiting for one. See docs/runbooks.md, "The database pool is exhausted".
+
+  - interval: 1m
+    name: a busy pool nobody waits on stays quiet
+    input_series:
+      - series: 'metis_db_pool_connections{job="metis", instance="10.0.0.1:9464", pool="storm", state="acquired"}'
+        values: '19+0x20'
+      - series: 'metis_db_pool_max_connections{job="metis", instance="10.0.0.1:9464", pool="storm"}'
+        values: '20+0x20'
+      - series: 'metis_db_pool_acquire_waits_total{job="metis", instance="10.0.0.1:9464", pool="storm"}'
+        values: '5+0x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MetisDatabasePoolSaturated
         exp_alerts: []

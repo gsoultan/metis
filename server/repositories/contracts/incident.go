@@ -13,4 +13,8 @@ type IncidentRepository interface {
 	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.IncidentModel, error)
 	Update(ctx context.Context, incident models.IncidentModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// CountOpen counts the incidents nobody has resolved, across every tenant,
+	// so it is refused unless ctx is system work.
+	CountOpen(ctx context.Context) (int64, error)
 }

@@ -55,7 +55,7 @@ errors:
 // and it deliberately does not call this.
 func allowLoopback(t *testing.T) {
 	t.Helper()
-	t.Setenv("GOBPM_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 }
 
 func parse(t *testing.T, document string) Manifest {

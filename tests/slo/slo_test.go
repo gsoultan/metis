@@ -15,8 +15,9 @@
 // query or a per-request compile does. If these ever fail on a developer's
 // laptop, something is genuinely wrong.
 //
-// It runs against whatever database is configured, SQLite by default, and takes
-// GOBPM_TEST_POSTGRES_DSN when set — see AGENTS.md §4.
+// It runs against PostgreSQL, from METIS_TEST_POSTGRES_DSN, and skips without
+// it — see AGENTS.md §4. (It used to say SQLite by default, and a variable
+// named for the project's old name; neither has existed for some time.)
 package slo
 
 import (

@@ -7,10 +7,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
@@ -221,7 +221,7 @@ func (a *App) openEnvironmentStorm(ctx context.Context, row models.EnvironmentMo
 	if err != nil {
 		return err
 	}
-	pool, err := pgxpool.New(ctx, config.PostgresURL(dsn))
+	pool, err := db.NewPool(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return fmt.Errorf("could not open this environment's storm connection: %w", err)
 	}

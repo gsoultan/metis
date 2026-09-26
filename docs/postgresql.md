@@ -41,11 +41,26 @@ bursts, paying a TLS handshake per burst.
 | `METIS_DB_CONN_MAX_LIFETIME` | `30m` | Bounded so a failover or a rolling database restart is picked up without restarting Metis. |
 | `METIS_DB_CONN_MAX_IDLE_TIME` | `5m` | |
 
+**Two pools per process.** While the repositories move from GORM to storm, a
+process holds a pool for each, and `METIS_DB_MAX_OPEN_CONNS` sizes both — so
+one process opens up to twice the ceiling. Until 2026-09-25 the storm pool, which
+carries most of the engine's queries, ignored the setting and took pgx's
+default: the larger of 4 and the machine's CPU count, however large the node.
+A connection string that sets `pool_max_conns` sizes the storm pool itself.
+The idle and lifetime settings above apply to the GORM pool; the storm pool
+checks its connections every 5 seconds, drops idle ones after 30 seconds and
+replaces each after 30 minutes.
+
+`metis_db_pool_connections{pool="storm",state="acquired"}` against
+`metis_db_pool_max_connections` shows how close the storm pool is to its
+ceiling, and `metis_db_pool_acquire_waits_total` how often a caller had to wait
+for a connection. The GORM pool reports as `go_sql_*{db_name="gorm"}`.
+
 **Sizing.** Start at 25. Raise it only if `pg_stat_activity` shows Metis is not
 the thing saturating the database and requests are queueing on connections. The
-ceiling must stay comfortably below `max_connections` divided by the number of
-things connecting — remember migrations, your backup job and any read replica
-tooling also hold connections.
+ceiling, doubled for the two pools, must stay comfortably below
+`max_connections` divided by the number of things connecting — remember
+migrations, your backup job and any read replica tooling also hold connections.
 
 More is not better. A pool far larger than the database can serve concurrently
 moves the queue from your application, where you can see it, into the database,

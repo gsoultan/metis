@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
@@ -193,7 +195,22 @@ func metricsEnabled() bool {
 	return enabled
 }
 
+// Contention sampling while profiling is on. Go records neither lock
+// contention nor blocking until a rate is set, so the mutex and block profiles
+// below were served and always empty. One contended lock in a hundred, and
+// blocking of 10µs or more, finds a lock that serialises the engine; the cost
+// is paid only while somebody has asked to profile.
+const (
+	mutexProfileFraction = 100
+	blockProfileRateNs   = 10_000
+)
+
+// newPprofHandler serves the profiles, and turns on the sampling two of them
+// need. It is built only when METIS_PPROF_ENABLED is set.
 func newPprofHandler() http.Handler {
+	runtime.SetMutexProfileFraction(mutexProfileFraction)
+	runtime.SetBlockProfileRate(blockProfileRateNs)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
@@ -959,6 +976,24 @@ func (a *App) runServers(ctx context.Context) error {
 			func() bool { return features.Enabled(features.StrictTenantScope) },
 			tenantscope.DeniedSites,
 		))
+
+		// How far behind the engine is and how full its connection pools are,
+		// which the HTTP series cannot say: a job worker that stopped claiming
+		// looks like a system with nothing to do, and an exhausted pool looks
+		// like a slow API. Only with a storm connection — before setup there is
+		// no engine to watch; one set up through the wizard reports these from
+		// its next start.
+		if a.storm != nil {
+			metricsCollector.Registry().MustRegister(
+				metrics.NewEngineCollector(a.engineState),
+				metrics.NewPoolCollector("storm", a.storm.Main().Stat),
+			)
+		}
+		if a.db != nil {
+			if sqlDB, err := a.db.DB(); err == nil {
+				metricsCollector.Registry().MustRegister(collectors.NewDBStatsCollector(sqlDB, "gorm"))
+			}
+		}
 
 		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)
 		g.Go(func() error {
