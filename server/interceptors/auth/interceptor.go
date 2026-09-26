@@ -2,12 +2,17 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
+	"github.com/rs/zerolog/log"
 )
 
 // endpointAuthInterceptor verifies the JWT token from context (extracted in transport).
@@ -124,13 +129,33 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 
 		u, err := i.strategy.Authenticate(r.Context(), token)
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			refuse(w, err)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), auth.UserContextKey, u)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// refuse answers a request its token did not admit.
+//
+// A token that proves nothing is a 401: sign in again. One that proves who
+// somebody is, for somebody nothing places in an organization, is a 403 with
+// the reason — signing in again would change nothing, and the reason names the
+// setting or claim that has to be fixed. Written as the endpoints write an
+// error, so a client reads both the same way.
+func refuse(w http.ResponseWriter, err error) {
+	if !errors.Is(err, apierr.ErrForbidden) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": redaction.RedactError(err)}); err != nil {
+		// The status is sent; this only records that the reason was not.
+		log.Debug().Err(err).Msg("Could not write the refusal to the caller")
+	}
 }
 
 func (i *mandatoryHTTPAuthInterceptor) isPublicPath(path string) bool {

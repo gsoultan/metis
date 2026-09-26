@@ -871,7 +871,7 @@ func (a *App) setupAuth(ctx context.Context) {
 				// every person refused.
 				log.Warn().Msg("OIDC sign-in is enabled but " + auth.EnvOrganizationClaim +
 					" is not set: nobody signing in through the identity provider can be placed in an organization, " +
-					"and every one of them will be refused until it names the ID-token claim that lists their organizations.")
+					"and every one of them will be refused with 403 until it names the ID-token claim that lists their organizations.")
 			}
 		}
 	}
