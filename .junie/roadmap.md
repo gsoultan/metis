@@ -919,7 +919,7 @@
       for writes, old keys for reads, and a batched re-encryption. **Fixed in the
       key-rotation batch below.**
     - The engine gauges read the main database only; an environment's jobs are not
-      counted.
+      counted. **Fixed on `environments-live` (entry below).**
     - No broker/DLQ runbook: the consumer it would cover is never started (INT-15).
 
 - 2026-09-25 (completed): 90-day plan Phase 3, "hardening" — `ENCRYPTION_KEY` can be
@@ -982,6 +982,8 @@
     refused at deploy; a failed migration skip leaves the task; a service task does what
     the modeller chose.
   - #94: a deleted or disabled environment stops being served, without a restart.
+    Creating, re-enabling or re-pointing one still needed one; fixed on
+    `environments-live` (entry below).
   - #95: a live-update hint is sent once the work it points at has committed.
   - #96: access control (organization-scoped group membership, 403 for a missing role,
     self-service profile, case-insensitive roles).
@@ -992,6 +994,26 @@
     `verified-findings`: manifest scoping and the built-in override, the canary cohort,
     OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
     service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): environments go live without a restart, and each one's backlog
+  is measured. Branch `environments-live`; the two items left open by #94 and by the
+  observability batch.
+  - **Served without a restart (E6).** Creating an environment, enabling one again or
+    giving one another port or database now takes effect on every replica within a
+    check (15 s): boot is the first pass of the same check, so there is one code path
+    for opening, migrating under the schema lock, binding and working an environment.
+    A change is detected by the port and a keyed digest of the connection, never the
+    password itself. One that cannot start is retried at every check, does not hold up
+    the others, and is logged once per cause. Test: `internal/app/environment_start_test.go`.
+  - **Measured per environment (E5).** The backlog gauges carry `environment` (the id)
+    and `environment_name`; the main database's series are unchanged. An unreadable
+    environment is `metis_engine_state_up 0` on its own; the databases are read at once
+    inside the two-second scrape budget. The engine alerts name the environment. Test:
+    `internal/app/engine_metrics_test.go`, promtool cases in `alerts_test.yaml`.
+  - **Found, not fixed:** an environment's database gets the GORM migrations but not
+    storm's tables or column defaults (`db.EnsureTables`, `db.EnsureColumnDefaults` run
+    on the main database only), so a storm insert there — a job, for one — fails with
+    `storm: not-null constraint violated`. The fix belongs in the shared open path
+    (`openEnvironmentStorm`), where boot and the watcher both get it.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
