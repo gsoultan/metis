@@ -3,6 +3,7 @@ package user_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -177,5 +178,55 @@ func TestTheLastAdministratorOfAnOrganizationCannotBeRemoved(t *testing.T) {
 	}
 	if err := w.svc.DeleteUser(asAdminA, w.adminA.ID); err != nil {
 		t.Fatalf("an administrator who is not the last must be removable: %v", err)
+	}
+}
+
+// A refusal is shown to the administrator word for word — the role matrix on
+// the Platform access page puts it in a notification as it is — and both of
+// these named no organization: "admin-a is the last administrator of ; make
+// somebody else an administrator first". An account is read with its
+// memberships as bare ids, so the name was never there to print.
+//
+// The last administrator's organization is the caller's own, so it is named.
+// The organization a shared account also belongs to is one the caller is not
+// in, and its name is not theirs to read, so it is not.
+func TestARefusedAccountChangeSaysWhichOrganizationItIsAbout(t *testing.T) {
+	w := newAccountWorld(t)
+	shared := w.seedAccount(t, "shared", nil, w.orgA, w.orgB)
+	asAdminA := actingAs(t, w.adminA, w.orgA)
+
+	lastAdministrator := "forbidden: admin-a is the last administrator of Organization A; " +
+		"make somebody else an administrator first"
+	cases := []struct {
+		name   string
+		change func() error
+		want   string
+	}{
+		{"demoting the last administrator", func() error {
+			return w.svc.UpdateUser(asAdminA, entities.User{ID: w.adminA.ID, Username: "admin-a", Roles: []string{}})
+		}, lastAdministrator},
+		{"deleting the last administrator", func() error {
+			return w.svc.DeleteUser(asAdminA, w.adminA.ID)
+		}, lastAdministrator},
+		{"changing an account another organization shares", func() error {
+			return w.svc.UpdateUser(asAdminA, entities.User{
+				ID: shared.ID, Username: "shared", Roles: []string{entities.RoleOperator},
+			})
+		}, "forbidden: shared also belongs to another organization, which you are not a member of; " +
+			"an administrator there has to make this change"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.change()
+			if !errors.Is(err, apierr.ErrForbidden) {
+				t.Fatalf("got %v, want a refusal", err)
+			}
+			if err.Error() != tc.want {
+				t.Errorf("the refusal reads\n  %q\nwant\n  %q", err.Error(), tc.want)
+			}
+			if strings.Contains(err.Error(), "Organization B") {
+				t.Errorf("the refusal names an organization the caller is not in: %q", err.Error())
+			}
+		})
 	}
 }
