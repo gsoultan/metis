@@ -74,6 +74,10 @@ func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 			page, err := repo.Decision().ListByProjectPaged(ctx, projectID, "", p)
 			return idsOf(page.Items, decisionIDOf), err
 		}},
+		{"notifications of a person", func(p contracts.Pagination) ([]uuid.UUID, error) {
+			page, err := repo.Notification().ListByUserPaged(ctx, "alice", p)
+			return idsOf(page.Items, notificationIDOf), err
+		}},
 	}
 	for _, read := range reads {
 		t.Run(read.name, func(t *testing.T) {
@@ -138,6 +142,11 @@ func seedAtOneMoment(t *testing.T, db *gorm.DB, ctx context.Context, projectID, 
 			       '[]', '[]', '[]', '[]', '[]'
 			  FROM generate_series(1, ?) AS n`,
 			[]any{projectID, sameMoment}},
+		{"notifications", `
+			INSERT INTO notifications (id, created_at, updated_at, user_id, type, title, message, is_read, project_id)
+			SELECT gen_random_uuid(), now(), now(), 'alice', 'TaskAssignment', 'Approve ' || n, 'Request ' || n, false, ?
+			  FROM generate_series(1, ?) AS n`,
+			[]any{projectID, sameMoment}},
 	} {
 		if err := db.WithContext(ctx).Exec(seed.statement, seed.args...).Error; err != nil {
 			t.Fatalf("seed %s: %v", seed.table, err)
@@ -149,6 +158,7 @@ func taskIDOf(m models.TaskModel) models.UUID                    { return m.ID }
 func instanceIDOf(m models.ProcessInstanceModel) models.UUID     { return m.ID }
 func definitionIDOf(m models.ProcessDefinitionModel) models.UUID { return m.ID }
 func decisionIDOf(m models.DecisionDefinitionModel) models.UUID  { return m.ID }
+func notificationIDOf(m models.NotificationModel) models.UUID    { return m.ID }
 
 func idsOf[T any](items []T, id func(T) models.UUID) []uuid.UUID {
 	out := make([]uuid.UUID, len(items))

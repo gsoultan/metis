@@ -13,6 +13,10 @@ type NotificationReader interface {
 	// default of a thousand.
 	ListByUser(ctx context.Context, userID string) ([]models.NotificationModel, error)
 
+	// ListByUserPaged returns one page of them, newest first, and how many
+	// there are in all. Walking the pages shows each one exactly once.
+	ListByUserPaged(ctx context.Context, userID string, p Pagination) (Page[models.NotificationModel], error)
+
 	// CountUnreadByUser counts every one of them that has not been read,
 	// however many there are.
 	CountUnreadByUser(ctx context.Context, userID string) (int64, error)

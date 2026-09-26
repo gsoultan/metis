@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // Being told a task is yours.
@@ -34,6 +35,9 @@ func (r *recordingNotifier) MarkAllAsRead(context.Context, string) error { retur
 func (r *recordingNotifier) Delete(context.Context, uuid.UUID) error     { return nil }
 
 func (r *recordingNotifier) CountUnreadByUser(context.Context, string) (int64, error) { return 0, nil }
+func (r *recordingNotifier) ListByUserPaged(_ context.Context, _ string, p repocontracts.Pagination) (repocontracts.Page[entities.Notification], error) {
+	return repocontracts.NewPage([]entities.Notification{}, 0, p), nil
+}
 
 func (r *recordingNotifier) recipients() []string {
 	out := make([]string, 0, len(r.sent))

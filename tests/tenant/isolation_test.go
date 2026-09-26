@@ -291,6 +291,15 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 				},
 				want: []uuid.UUID{f.notificationA, f.systemNotification},
 			},
+			{
+				name: "a page of notifications keeps system messages and drops the other tenant's",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewNotificationRepository(testutils.StormConn(db)).
+						ListByUserPaged(ctx, sharedUserID, contracts.Pagination{})
+					return idsOf(page.Items, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.notificationA, f.systemNotification},
+			},
 			// Both organizations hold a decision under the same key; the other
 			// one's is the newer version, and each is live in its own project,
 			// so a list that picked a row regardless of tenant would answer
@@ -991,6 +1000,18 @@ func TestTenantIsolation_NoTenantContextReadsWhatTheFlagAllows(t *testing.T) {
 		}
 		if unread != int64(len(wantNotifications)) {
 			t.Errorf("counted %d unread notifications; the list shows %d", unread, len(wantNotifications))
+		}
+
+		// And the page the bell opens holds the same notifications.
+		page, err := pg.NewNotificationRepository(testutils.StormConn(db)).
+			ListByUserPaged(ctx, sharedUserID, contracts.Pagination{})
+		if err != nil {
+			t.Fatalf("page notifications: %v", err)
+		}
+		assertSameIDs(t, idsOf(page.Items, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
+			wantNotifications)
+		if page.Total != int64(len(wantNotifications)) {
+			t.Errorf("the page says there are %d notifications; the list shows %d", page.Total, len(wantNotifications))
 		}
 	})
 }

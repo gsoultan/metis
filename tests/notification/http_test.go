@@ -2,6 +2,7 @@ package notification_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,9 +21,26 @@ import (
 )
 
 const (
-	unreadCountPath = "/api/v1/users/me/notifications/unread-count"
-	memberPassword  = "correct-horse-battery"
+	ownNotificationsPath = "/api/v1/users/me/notifications"
+	unreadCountPath      = "/api/v1/users/me/notifications/unread-count"
+	memberPassword       = "correct-horse-battery"
 )
+
+// ownPage is the parts of a page of notifications these tests read.
+type ownPage struct {
+	Notifications []struct {
+		ID   string `json:"id"`
+		User struct {
+			Username string `json:"username"`
+		} `json:"user"`
+	} `json:"notifications"`
+	Page *struct {
+		Total    int64 `json:"total"`
+		Page     int   `json:"page"`
+		PageSize int   `json:"page_size"`
+		HasMore  bool  `json:"has_more"`
+	} `json:"page"`
+}
 
 // api serves the bell's reads through the handler production builds: the auth
 // interceptor, the tenant resolver and the endpoint chains, so whose
@@ -142,5 +160,56 @@ func TestTheUnreadCountIsTheSignedInPersonsOwn(t *testing.T) {
 
 	if status := a.get(unreadCountPath, "", nil); status != http.StatusUnauthorized {
 		t.Errorf("GET %s with nobody signed in: status %d, want 401", unreadCountPath, status)
+	}
+}
+
+// The notification list is the signed-in person's own, a page at a time, and
+// each page says whether there is an older one to ask for.
+func TestTheSignedInPersonPagesThroughTheirOwnNotifications(t *testing.T) {
+	a := newAPI(t)
+	projectID := a.organization("alice", "bob")
+	seedInbox(t, a.db, "alice", projectID, 5, 3)
+	seedInbox(t, a.db, "bob", projectID, 4, 4)
+	alice := a.signIn("alice")
+
+	seen := map[string]bool{}
+	for page, want := range []struct {
+		items   int
+		hasMore bool
+	}{{2, true}, {2, true}, {1, false}} {
+		// A user_id is not read here either: the pages are alice's whoever
+		// the query names.
+		path := fmt.Sprintf("%s?page=%d&page_size=2&user_id=bob", ownNotificationsPath, page+1)
+		var got ownPage
+		if status := a.get(path, alice, &got); status != http.StatusOK || got.Page == nil {
+			t.Fatalf("GET %s as alice: status %d, page %v", path, status, got.Page)
+		}
+		if len(got.Notifications) != want.items || got.Page.HasMore != want.hasMore ||
+			got.Page.Total != 5 || got.Page.Page != page+1 || got.Page.PageSize != 2 {
+			t.Errorf("GET %s: %d notifications and %+v; want %d, has_more %v, of alice's 5",
+				path, len(got.Notifications), *got.Page, want.items, want.hasMore)
+		}
+		for _, n := range got.Notifications {
+			if n.User.Username != "alice" {
+				t.Errorf("GET %s as alice returned %s's notification", path, n.User.Username)
+			}
+			seen[n.ID] = true
+		}
+	}
+	if len(seen) != 5 {
+		t.Errorf("three pages showed %d of alice's 5 notifications", len(seen))
+	}
+
+	// Asking for no page in particular is the first, at the server's default
+	// size — bounded, whoever calls.
+	var first ownPage
+	if status := a.get(ownNotificationsPath, alice, &first); status != http.StatusOK || first.Page == nil ||
+		first.Page.Page != 1 || first.Page.PageSize != 50 || len(first.Notifications) != 5 {
+		t.Errorf("GET %s with no paging: status %d, %d notifications, page %+v", ownNotificationsPath, status,
+			len(first.Notifications), first.Page)
+	}
+
+	if status := a.get(ownNotificationsPath, "", nil); status != http.StatusUnauthorized {
+		t.Errorf("GET %s with nobody signed in: status %d, want 401", ownNotificationsPath, status)
 	}
 }

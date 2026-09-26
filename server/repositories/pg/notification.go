@@ -87,6 +87,44 @@ func (r *notificationRepository) ListByUser(ctx context.Context, userID string) 
 	return out, nil
 }
 
+// ListByUserPaged returns one page of a person's notifications, newest first,
+// and how many they have in all.
+//
+// The order is total — creation time, then id — because the notifications one
+// transaction writes share its created_at, and among ties LIMIT and OFFSET may
+// come back in a different order for every page: ordered by creation time
+// alone, walking 1,050 notifications fifty to a created_at in pages of twenty
+// showed 851 of them, 151 more than once.
+func (r *notificationRepository) ListByUserPaged(ctx context.Context, userID string, p contracts.Pagination) (contracts.Page[models.NotificationModel], error) {
+	empty := contracts.NewPage([]models.NotificationModel{}, 0, p)
+	inbox, err := r.inboxOf(ctx, userID)
+	if err != nil {
+		return empty, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return empty, err
+	}
+	total, err := inbox.Count(ctx, ex)
+	if err != nil {
+		return empty, fmt.Errorf("could not count the notifications: %w", err)
+	}
+	n := p.Normalize()
+	rows, err := inbox.
+		Order(notification.CreatedAt.Desc(), notification.ID.Desc()).
+		Limit(int64(n.PageSize)).
+		Offset(int64(p.Offset())).
+		All(ctx, ex, nil)
+	if err != nil {
+		return empty, fmt.Errorf("could not read the notifications: %w", err)
+	}
+	items := make([]models.NotificationModel, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, notificationFrom(row))
+	}
+	return contracts.NewPage(items, total, p), nil
+}
+
 // CountUnreadByUser counts one person's unread notifications: one COUNT, over
 // every one of them the caller's organization may see.
 func (r *notificationRepository) CountUnreadByUser(ctx context.Context, userID string) (int64, error) {

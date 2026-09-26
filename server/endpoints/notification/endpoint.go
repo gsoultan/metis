@@ -8,10 +8,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/endpoints/principal"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 type Endpoints struct {
 	ListNotifications        endpoint.Endpoint
+	ListOwnNotifications     endpoint.Endpoint
 	CountUnreadNotifications endpoint.Endpoint
 	MarkAsRead               endpoint.Endpoint
 	MarkAllAsRead            endpoint.Endpoint
@@ -21,6 +23,7 @@ type Endpoints struct {
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
 		ListNotifications:        MakeListNotificationsEndpoint(s),
+		ListOwnNotifications:     MakeListOwnNotificationsEndpoint(s),
 		CountUnreadNotifications: MakeCountUnreadNotificationsEndpoint(s),
 		MarkAsRead:               MakeMarkAsReadEndpoint(s),
 		MarkAllAsRead:            MakeMarkAllAsReadEndpoint(s),
@@ -28,12 +31,44 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	}
 }
 
+// MakeListOwnNotificationsEndpoint returns one page of the signed-in person's
+// notifications, newest first, and where it sits among all of them.
+//
+// Whose they are comes from the session, as for the count below. Zero paging
+// is the first page at the server default, so a caller that asks for nothing
+// still gets a bounded answer.
+func MakeListOwnNotificationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListOwnNotificationsRequest)
+		if !ok {
+			return nil, fmt.Errorf("notification: expected a ListOwnNotificationsRequest, got %T", request)
+		}
+		recipient, err := principal.Username(ctx)
+		if err != nil {
+			return ListOwnNotificationsResponse{Err: err}, nil
+		}
+		page, err := s.ListByUserPaged(ctx, recipient, repocontracts.Pagination{Page: req.Page, PageSize: req.PageSize})
+		if err != nil {
+			return ListOwnNotificationsResponse{Err: err}, nil
+		}
+		return ListOwnNotificationsResponse{
+			Notifications: page.Items,
+			Page: PageInfo{
+				Total:    page.Total,
+				Page:     page.Page,
+				PageSize: page.PageSize,
+				HasMore:  page.HasMore(),
+			},
+		}, nil
+	}
+}
+
 // MakeCountUnreadNotificationsEndpoint answers how many of the signed-in
 // person's notifications are unread: the bell's number, and what it polls.
 //
-// Whose they are comes from the session and from nothing in the request. The
-// list above takes its recipient from a user_id on the wire; this takes it
-// from where a request cannot choose it. See principal for why the actor is
+// Whose they are comes from the session and from nothing in the request.
+// ListNotifications takes its recipient from a user_id on the wire; this takes
+// it from where a request cannot choose it. See principal for why the actor is
 // not a parameter.
 func MakeCountUnreadNotificationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {

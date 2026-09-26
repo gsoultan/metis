@@ -347,8 +347,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 	notificationEndpoints := notification.MakeEndpoints(s)
 	notificationEndpoints.ListNotifications = protected("ListNotifications")(notificationEndpoints.ListNotifications)
-	// Everybody signed in has a bell. What it counts is the session's own, so
-	// being signed in is the whole of the check.
+	// Everybody signed in has a bell. What it counts and lists is the
+	// session's own, so being signed in is the whole of the check.
+	notificationEndpoints.ListOwnNotifications = protected("ListOwnNotifications")(notificationEndpoints.ListOwnNotifications)
 	notificationEndpoints.CountUnreadNotifications = protected("CountUnreadNotifications")(notificationEndpoints.CountUnreadNotifications)
 	notificationEndpoints.MarkAsRead = protected("MarkAsRead")(notificationEndpoints.MarkAsRead)
 	notificationEndpoints.MarkAllAsRead = protected("MarkAllAsRead")(notificationEndpoints.MarkAllAsRead)
