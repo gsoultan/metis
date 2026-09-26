@@ -304,10 +304,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   (`minimum` and `"minimum"` "both apply when Level is minimum"). Such a cell
   now reads back on hover as "Score is the same as Minimum", and `> minimum` as
   "Score is more than Minimum"; the coverage card says the column is compared
-  with Minimum rather than calling the condition unreadable; a line under the
-  grid says a condition can name another; and a cell holding `?`, Camunda's
-  name for a condition's own value, which the engine cannot read, is marked
-  with what to write instead.
+  with Minimum rather than calling the condition unreadable, and suggests Try it
+  only when Try it can set what the condition names (it has a box for each of
+  the table's conditions, so not for `credit_limit` in `> credit_limit`); a
+  line under the grid says a condition can name another; and a cell holding
+  `?`, Camunda's name for a condition's own value, which the engine cannot
+  read, is marked with what to write instead.
 - **A decision condition the engine cannot read was marked for sighted users
   only.** The cell drew a red wavy underline and set `aria-invalid`, which the
   input component replaced with its own, so a screen reader never heard that

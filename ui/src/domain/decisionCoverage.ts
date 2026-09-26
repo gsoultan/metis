@@ -57,6 +57,11 @@ export interface CoverageReport {
    * such a cell; which cases it decides depends on a value no check can know.
    */
   comparedWith: string[];
+  /**
+   * Of those, the variables no condition column reads. Try it has a box for
+   * each condition and nothing else, so it cannot give them a value.
+   */
+  outsideTable: string[];
 }
 
 const MAX_COMBINATIONS = 400;
@@ -76,6 +81,7 @@ export function findCoverageGaps(inputs: DecisionInputColumn[], rules: DecisionR
     needsNumberType: [],
     needsQuotes: [],
     comparedWith: [],
+    outsideTable: [],
   };
   if (inputs.length === 0 || rules.length === 0) return empty;
 
@@ -128,7 +134,7 @@ function whyUnread(
   input: DecisionInputColumn,
   cells: string[],
   inputs: DecisionInputColumn[],
-): Pick<CoverageReport, 'notAnalysed' | 'needsNumberType' | 'needsQuotes' | 'comparedWith'> {
+): Pick<CoverageReport, 'notAnalysed' | 'needsNumberType' | 'needsQuotes' | 'comparedWith' | 'outsideTable'> {
   const label = input.label || input.expression;
   const names = columnNamesOf(inputs);
   const needsNumber = input.type !== 'number' && cells.some(comparesNumbers);
@@ -143,6 +149,7 @@ function whyUnread(
     needsNumberType: needsNumber ? [label] : [],
     needsQuotes: unquoted ? [label] : [],
     comparedWith: compared.map(headingOf),
+    outsideTable: compared.filter((name) => !names.has(name)),
   };
 }
 
@@ -162,7 +169,12 @@ export function whyNotChecked(report: CoverageReport): string {
   // Not a fault in the table: naming another column is how a condition
   // compares two inputs. Only this check cannot follow it.
   if (report.comparedWith.length > 0) {
-    return `Not checked: ${columns} is compared with ${joinWords(report.comparedWith)}, whose value changes from case to case, so this check cannot tell whether every case is decided. Try it with the values you care about.`;
+    const why = `Not checked: ${columns} is compared with ${joinWords(report.comparedWith)}, whose value changes from case to case, so this check cannot tell whether every case is decided.`;
+    // Try it has a box for each condition and nothing else, so it is only
+    // worth suggesting when every value compared with is one of them.
+    return report.outsideTable.length === 0
+      ? `${why} Try it with the values you care about.`
+      : `${why} Try it can only set the conditions of this table, not ${joinWords(report.outsideTable)}.`;
   }
   return `Not checked: ${columns} uses a condition this check cannot read, so it cannot tell whether every case is decided.`;
 }

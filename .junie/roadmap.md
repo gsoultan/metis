@@ -1188,8 +1188,9 @@
     tests). A range whose end names a variable nobody supplied still fails the evaluation,
     as a range with an incomparable bound always has; changing it would change gateway
     conditions too. Try it gives values to the table's columns only, so it cannot supply a
-    variable no column reads. The Serena `verified-findings` memory and the PRD row for
-    DMN-17 live outside the repository and are updated once this merges.
+    variable no column reads; the coverage card says so rather than suggesting Try it. The
+    Serena `verified-findings` memory and the PRD row for DMN-17 live outside the
+    repository and are updated once this merges.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

@@ -69,6 +69,20 @@ describe('a condition that names another column', () => {
     expect(whyNotChecked(report)).toStartWith('Not checked: Score is compared with credit_limit,');
   });
 
+  it('does not send the author to Try it for a value Try it cannot set', () => {
+    // Try it has a box for each condition of the table and nothing else, so
+    // credit_limit would be missing there and the line would never match.
+    const overLimit = [line('over', ['> credit_limit'], 'REVIEW'), line('rest', ['-'], 'AUTO')];
+    expect(whyNotChecked(findCoverageGaps([score], overLimit))).toBe(
+      'Not checked: Score is compared with credit_limit, whose value changes from case to case, so this check cannot tell whether every case is decided. Try it can only set the conditions of this table, not credit_limit.',
+    );
+
+    const band = [line('band', ['[minimum..limits.ceiling]', '-'], 'IN'), line('rest', ['-', '-'], 'OUT')];
+    expect(whyNotChecked(findCoverageGaps([score, minimum], band))).toEndWith(
+      'Try it can only set the conditions of this table, not limits.ceiling.',
+    );
+  });
+
   it('on its own is that column, not the word', () => {
     // Under "only one line may match", `minimum` and "minimum" were both read as
     // the word, so the check reported that they overlap and refused to save a
