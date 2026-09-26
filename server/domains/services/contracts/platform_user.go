@@ -15,7 +15,6 @@ import (
 // that is a rule about the data and not about who asked.
 type PlatformUserService interface {
 	ListPlatformUsers(ctx context.Context) ([]entities.PlatformUser, error)
-	GetPlatformUser(ctx context.Context, id uuid.UUID) (entities.PlatformUser, error)
 	CreatePlatformUser(ctx context.Context, account entities.PlatformUser, password string) (uuid.UUID, error)
 	UpdatePlatformUser(ctx context.Context, account entities.PlatformUser) error
 	DeletePlatformUser(ctx context.Context, id uuid.UUID) error

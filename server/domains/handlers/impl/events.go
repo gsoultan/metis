@@ -184,7 +184,7 @@ func (h *TerminateEndEventHandler) DoExecute(ctx context.Context, instance *enti
 
 // IntermediateCatchEventHandler handles events that catch information, such as timers.
 type IntermediateCatchEventHandler struct {
-	jobService contracts2.JobService
+	jobService contracts2.JobEnqueuer
 	subRepo    contracts.SubscriptionRepository
 	// engine is here for the one case that does not wait: a conditional event
 	// whose condition is already true when the token arrives has nothing to

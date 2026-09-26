@@ -246,7 +246,7 @@ func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl
 
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), serviceimpl.NewAuditWriter(repo.Audit()))),
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), serviceimpl.NewAuditWriter(repo.Audit()))),
 		serviceimpl.WithJobService(jobSvc),
 	)
 

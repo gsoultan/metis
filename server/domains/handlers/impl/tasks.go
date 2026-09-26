@@ -22,7 +22,7 @@ import (
 //     double-execution bug that occurred when connector code ran here AND in the
 //     job worker.
 type ServiceTaskHandler struct {
-	jobService          contracts.JobService
+	jobService          contracts.JobEnqueuer
 	externalTaskService contracts.ExternalTaskService
 }
 
@@ -58,7 +58,7 @@ type UserTaskHandler struct {
 
 	// decisionService resolves who should do the work, when the node says a
 	// decision table decides that rather than the diagram. See assignment.go.
-	decisionService contracts.DecisionService
+	decisionService contracts.DecisionEvaluator
 	auditWriter     contracts.AuditWriter
 }
 
@@ -142,13 +142,4 @@ type ManualTaskHandler struct {
 func (h *ManualTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// Like UserTask, ManualTask creates a task entry that must be completed.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node)
-}
-
-// PassThroughHandler handles tasks that don't have a specific implementation yet, acting as a passthrough.
-type PassThroughHandler struct {
-	engine contracts.EngineRunner
-}
-
-func (h *PassThroughHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
-	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }

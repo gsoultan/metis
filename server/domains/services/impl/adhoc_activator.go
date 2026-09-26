@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
-	"github.com/gsoultan/metis/server/domains/logic"
 	contracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
@@ -103,21 +102,6 @@ func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, sub
 		return fmt.Errorf("activate %q: %w", taskNodeID, err)
 	}
 	return nil
-}
-
-// IsComplete reports whether the ad-hoc sub-process has satisfied its
-// completion condition.
-//
-// No condition means there is nothing to wait for, which is the same reading
-// the handler uses when the sub-process is first entered.
-func (a *adHocActivator) IsComplete(_ context.Context, instance *entities.ProcessInstance, subProcessNode *entities.Node) (bool, error) {
-	if instance == nil || subProcessNode == nil {
-		return false, fmt.Errorf("ad-hoc completion check needs both an instance and a sub-process")
-	}
-	if subProcessNode.CompletionCondition == "" {
-		return true, nil
-	}
-	return logic.GetConditionEvaluatorChain().Evaluate(subProcessNode.CompletionCondition, instance.Variables), nil
 }
 
 // findAdHocChild locates a step inside the sub-process, accepting both the

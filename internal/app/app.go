@@ -711,10 +711,7 @@ func (a *App) setupService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(), func(targetDB *gorm.DB) {
-		log.Info().Msg("Setup complete: hot-swapping database connection to target database")
-		gorms.SetDBOverride(targetDB)
-
+	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(), func(*gorm.DB) {
 		// The built-in connectors were created during startup, which means they
 		// went into the bootstrap database this call has just replaced. Without
 		// seeding again, a freshly configured installation opens the connector

@@ -64,30 +64,6 @@ func (s *taskService) ListTasks(ctx context.Context, projectID uuid.UUID) ([]ent
 	return res, nil
 }
 
-func (s *taskService) ListTasksByAssignee(ctx context.Context, assignee string) ([]entities.Task, error) {
-	ms, err := s.repo.Task().ListByAssignee(ctx, assignee)
-	if err != nil {
-		return nil, err
-	}
-	res := make([]entities.Task, len(ms))
-	for i, m := range ms {
-		res[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
-	}
-	return res, nil
-}
-
-func (s *taskService) ListTasksByCandidates(ctx context.Context, userID string, groups []string) ([]entities.Task, error) {
-	ms, err := s.repo.Task().ListByCandidates(ctx, userID, groups)
-	if err != nil {
-		return nil, err
-	}
-	res := make([]entities.Task, len(ms))
-	for i, m := range ms {
-		res[i] = adapters.TaskEntityAdapter{Model: m}.ToEntity()
-	}
-	return res, nil
-}
-
 func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// Holding the task's row. A claim read the task, saw it unclaimed and

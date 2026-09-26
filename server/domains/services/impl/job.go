@@ -829,25 +829,6 @@ func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.Pr
 		node.ID, strings.Join(reasons, "; "))
 }
 
-func (s *jobService) EnqueueBoundaryTimer(ctx context.Context, instance entities.ProcessInstance, boundaryNode entities.Node, duration string) error {
-	schedule, err := entities.ParseTimerSchedule(duration, time.Now())
-	if err != nil {
-		return fmt.Errorf("boundary timer on node %s: %w", boundaryNode.ID, err)
-	}
-	job := entities.Job{
-		Instance:         &instance,
-		Definition:       &entities.ProcessDefinition{ID: instance.Definition.ID},
-		Node:             &boundaryNode,
-		Type:             entities.JobTimerBoundary,
-		Status:           entities.JobPending,
-		Payload:          instance.Variables,
-		NextRunAt:        schedule.FireAt,
-		RepeatsRemaining: schedule.Repeats,
-	}
-	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
-	return err
-}
-
 // timerTokenBearer returns the node whose tokens decide whether a timer is still
 // live.
 //

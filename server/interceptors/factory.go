@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/internal/pkg/auth"
-	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 	"github.com/gsoultan/metis/server/interceptors/logging"
@@ -17,11 +17,11 @@ import (
 
 // InterceptorFactory creates various interceptors.
 type InterceptorFactory struct {
-	svc services.ServiceFacade
+	users servicecontracts.UserService
 }
 
-func NewInterceptorFactory(svc services.ServiceFacade) *InterceptorFactory {
-	return &InterceptorFactory{svc: svc}
+func NewInterceptorFactory(users servicecontracts.UserService) *InterceptorFactory {
+	return &InterceptorFactory{users: users}
 }
 
 func (f *InterceptorFactory) NewLogging(method string) contracts.EndpointInterceptor {
@@ -71,7 +71,7 @@ func (f *InterceptorFactory) NewIdempotencyOver(conn *stormdb.Conn, ttl time.Dur
 }
 
 func (f *InterceptorFactory) NewJWTStrategy() authinterceptor.SecurityStrategy {
-	return authinterceptor.NewJWTStrategy(f.svc.ValidateToken)
+	return authinterceptor.NewJWTStrategy(f.users.ValidateToken)
 }
 
 func (f *InterceptorFactory) NewOIDCStrategy(validator *auth.TokenValidator) authinterceptor.SecurityStrategy {

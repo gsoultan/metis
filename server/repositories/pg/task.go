@@ -105,34 +105,6 @@ func (r *taskRepository) ListByInstance(ctx context.Context, instanceID uuid.UUI
 	return tasksFrom(rows)
 }
 
-// ListWithFilters is the operational task list.
-func (r *taskRepository) ListWithFilters(ctx context.Context, filter contracts.TaskFilter) ([]models.TaskModel, error) {
-	var scoped []uuid.UUID
-	if filter.ProjectID != nil {
-		var visible bool
-		var err error
-		scoped, visible, err = r.scopedProjects(ctx, *filter.ProjectID)
-		if err != nil || !visible {
-			return nil, err
-		}
-	}
-	preds := make([]task.Pred, 0, 3)
-	if len(filter.Status) > 0 {
-		statuses := make([]string, 0, len(filter.Status))
-		for _, status := range filter.Status {
-			statuses = append(statuses, string(status))
-		}
-		preds = append(preds, task.Status.In(statuses...))
-	}
-	if filter.Assignee != nil {
-		preds = append(preds, task.Assignee.Eq(*filter.Assignee))
-	}
-	if filter.Priority != nil {
-		preds = append(preds, task.Priority.Eq(int64(*filter.Priority)))
-	}
-	return r.list(ctx, scoped, preds)
-}
-
 // ListByCandidates returns the unclaimed work a person could pick up.
 //
 // The candidate lists are JSON arrays in a text column, so this matches the

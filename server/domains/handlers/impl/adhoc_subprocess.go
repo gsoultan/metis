@@ -20,7 +20,7 @@ type AdHocSubProcessHandler struct {
 //
 // It takes no expression evaluator: completion conditions go through the shared
 // condition evaluator chain, the same one gateways use for sequence flows.
-func NewAdHocSubProcessHandler(engine servicecontracts.ExecutionEngine) *AdHocSubProcessHandler {
+func NewAdHocSubProcessHandler(engine servicecontracts.EngineRunner) *AdHocSubProcessHandler {
 	return &AdHocSubProcessHandler{engine: engine}
 }
 

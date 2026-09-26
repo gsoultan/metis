@@ -33,7 +33,7 @@ type Engine struct {
 	repo           repositories.Repository
 	handlerFactory handlercontracts.NodeHandlerFactory
 	dispatcher     observerContracts.EventDispatcher
-	jobSvc         serviceContracts.JobService
+	jobSvc         serviceContracts.JobEnqueuer
 	varHistory     serviceContracts.VariableHistoryWriter
 	// Decoded definitions, bounded and keyed by tenant. See definition_cache.go.
 	definitions *definitionCache
@@ -45,8 +45,8 @@ type Engine struct {
 // mutable public setter methods on the Engine type.
 type EngineOption func(*Engine)
 
-// WithJobService injects the JobService used for timer and service-task enqueueing.
-func WithJobService(js serviceContracts.JobService) EngineOption {
+// WithJobService injects the JobEnqueuer the engine queues timers through.
+func WithJobService(js serviceContracts.JobEnqueuer) EngineOption {
 	return func(e *Engine) { e.jobSvc = js }
 }
 
@@ -228,27 +228,6 @@ func (e *Engine) ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUI
 		res[i] = adapters.InstanceEntityAdapter{Model: m}.ToEntity()
 	}
 	return res, nil
-}
-
-// GetRootInstance walks the parent chain starting from instanceID and returns
-// the top-level ancestor. Stops if a cycle is detected (max 100 hops).
-func (e *Engine) GetRootInstance(ctx context.Context, instanceID uuid.UUID) (entities.ProcessInstance, error) {
-	const maxDepth = 100
-	current, err := e.GetInstance(ctx, instanceID)
-	if err != nil {
-		return entities.ProcessInstance{}, fmt.Errorf("GetRootInstance: load instance: %w", err)
-	}
-	for depth := range maxDepth {
-		if current.ParentInstance == nil {
-			return current, nil
-		}
-		parent, err := e.GetInstance(ctx, current.ParentInstance.ID)
-		if err != nil {
-			return entities.ProcessInstance{}, fmt.Errorf("GetRootInstance: load parent at depth %d: %w", depth, err)
-		}
-		current = parent
-	}
-	return current, nil
 }
 
 func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error) {

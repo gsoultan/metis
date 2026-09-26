@@ -60,7 +60,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	sse := impl.NewSSEObserver()
 	collaborationSvc := service_impl2.NewCollaborationService(sse)
 
-	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), service_impl2.NewAuditWriter(repo.Audit()))
+	handlerFactory := handlersimpl.NewNodeHandlerFactory(engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), service_impl2.NewAuditWriter(repo.Audit()))
 	engine.Apply(
 		service_impl2.WithHandlerFactory(handlerFactory),
 		service_impl2.WithJobService(jobSvc),

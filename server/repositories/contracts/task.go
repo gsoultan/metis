@@ -27,20 +27,12 @@ type DeadlineCounts struct {
 	WithoutDeadline int64
 }
 
-type TaskFilter struct {
-	ProjectID *uuid.UUID
-	Status    []models.TaskStatus
-	Assignee  *string
-	Priority  *int
-}
-
 // TaskRepository defines the BPM task operations.
 type TaskRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (models.TaskModel, error)
 	// GetForUpdate reads a task and holds its row until the transaction ends.
 	GetForUpdate(ctx context.Context, id uuid.UUID) (models.TaskModel, error)
 	List(ctx context.Context) ([]models.TaskModel, error)
-	ListWithFilters(ctx context.Context, filter TaskFilter) ([]models.TaskModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error)
 	ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error)
 	ListByCandidates(ctx context.Context, userID string, groups []string) ([]models.TaskModel, error)

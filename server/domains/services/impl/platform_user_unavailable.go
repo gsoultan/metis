@@ -30,10 +30,6 @@ func (unavailablePlatformUsers) ListPlatformUsers(context.Context) ([]entities.P
 	return nil, apierr.Invalidf("%s", platformUnavailableReason)
 }
 
-func (unavailablePlatformUsers) GetPlatformUser(context.Context, uuid.UUID) (entities.PlatformUser, error) {
-	return entities.PlatformUser{}, apierr.Invalidf("%s", platformUnavailableReason)
-}
-
 func (unavailablePlatformUsers) CreatePlatformUser(context.Context, entities.PlatformUser, string) (uuid.UUID, error) {
 	return uuid.Nil, apierr.Invalidf("%s", platformUnavailableReason)
 }

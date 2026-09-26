@@ -10,11 +10,11 @@ import (
 // The open connection for each environment, keyed by environment id.
 //
 // A package-level registry rather than a value threaded through every
-// repository, for the same reason dbOverride is one: the repositories are
-// constructed once at boot over a single handle, and the thing that varies per
-// request is which database that handle should resolve to. Putting the choice
-// here means GetTx can make it — see EnvironmentDB — without changing the
-// signature of every method that reads a row.
+// repository: the repositories are constructed once at boot over a single
+// handle, and the thing that varies per request is which database that handle
+// should resolve to. Putting the choice here means GetTx can make it — see
+// EnvironmentDB — without changing the signature of every method that reads a
+// row.
 //
 // Populated at boot from the environments table and left alone afterwards.
 // Reads vastly outnumber writes, so RWMutex rather than a channel.

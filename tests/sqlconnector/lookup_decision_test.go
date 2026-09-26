@@ -82,7 +82,7 @@ func newHarness(t *testing.T) *harness {
 	jobSvc := serviceimpl.NewJobService(repo, engine, connectorSvc, serviceimpl.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 	engine.Apply(
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, serviceimpl.NewExternalTaskService(repo, engine), decisionSvc, connectorSvc,
+			engine, taskSvc, jobSvc, serviceimpl.NewExternalTaskService(repo, engine), decisionSvc,
 			repo.Subscription(), audit,
 		)),
 		serviceimpl.WithJobService(jobSvc),

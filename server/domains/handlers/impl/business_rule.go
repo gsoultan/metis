@@ -23,7 +23,7 @@ const EventDecisionEvaluated = "decision_evaluated"
 
 type BusinessRuleTaskHandler struct {
 	engine          contracts.EngineRunner
-	decisionService contracts.DecisionService
+	decisionService contracts.DecisionEvaluator
 
 	// auditWriter records what was decided and on what grounds.
 	//

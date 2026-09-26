@@ -429,14 +429,6 @@ func (s *definitionService) GetDefinition(ctx context.Context, id uuid.UUID) (*e
 	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
 }
 
-func (s *definitionService) GetDefinitionByKey(ctx context.Context, key string) (*entities.ProcessDefinition, error) {
-	m, err := s.repo.Definition().GetByKey(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	return adapters.DefinitionEntityAdapter{Model: m}.ToEntity(), nil
-}
-
 func (s *definitionService) ExportDefinition(ctx context.Context, id uuid.UUID) ([]byte, error) {
 	def, err := s.GetDefinition(ctx, id)
 	if err != nil {

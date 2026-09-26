@@ -11,7 +11,7 @@ import (
 // and no sequence flow can lead to either. A type that fell to NullNodeHandler
 // would deploy and then fail every instance that reached it.
 func TestEveryTypeDeployAcceptsHasAHandler(t *testing.T) {
-	factory := NewNodeHandlerFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory := NewNodeHandlerFactory(nil, nil, nil, nil, nil, nil, nil)
 	for _, nodeType := range entities.NodeTypes() {
 		handler, err := factory.GetHandler(nodeType)
 		if err != nil {

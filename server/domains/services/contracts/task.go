@@ -18,14 +18,10 @@ type TaskService interface {
 	// "what is this run waiting on", which the project-wide listing could only
 	// answer by returning everything and letting the caller match.
 	ListTasksByInstancePaged(ctx context.Context, instanceID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
-	ListTasksByAssignee(ctx context.Context, assignee string) ([]entities.Task, error)
 
 	// ListTasksByAssigneePaged returns one window of a user's tasks plus the
-	// total, so a caller can page rather than pulling an unbounded list. The
-	// unpaged form above stays for internal callers that genuinely need every
-	// row and are not driven by a request.
+	// total, so a caller can page rather than pulling an unbounded list.
 	ListTasksByAssigneePaged(ctx context.Context, assignee string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
-	ListTasksByCandidates(ctx context.Context, userID string, groups []string) ([]entities.Task, error)
 	ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ClaimTask(ctx context.Context, id uuid.UUID, userID string) error
 	UnclaimTask(ctx context.Context, id uuid.UUID) error
