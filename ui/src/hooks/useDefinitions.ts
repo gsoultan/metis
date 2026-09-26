@@ -233,7 +233,14 @@ export const useImportDefinition = () => {
   const queryClient = useQueryClient();
   const { currentProjectId } = useAppStore();
   return useMutation({
-    mutationFn: (xml: string) => processService.importDefinition(xml),
+    mutationFn: (xml: string) => {
+      // Refused here rather than sent: the server would refuse it anyway, with
+      // a message about UUIDs that tells the person nothing.
+      if (!currentProjectId) {
+        throw new Error('Choose a project to import the model into.');
+      }
+      return processService.importDefinition(currentProjectId, xml);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['definitions', currentProjectId] });
       notifications.show({

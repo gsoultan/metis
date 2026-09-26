@@ -15,7 +15,7 @@ import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
 import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
 import { templateById } from '../domain/processTemplates';
-import { shouldAskRollout } from '../domain/versionRollout';
+import { nextDeployStep, type DeployMode } from '../domain/versionRollout';
 import {
   useCreateDefinition,
   useDefinitionVersions,
@@ -28,7 +28,7 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappers/definitionMapper';
 import { stepSchemasOf } from '../domain/connectorStep';
-import { hasBlockingIssues, validateProcess } from '../domain/processValidation';
+import { validateProcess } from '../domain/processValidation';
 import {
   buildDraft,
   describeDraftAge,
@@ -43,6 +43,7 @@ import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 import type { ApiNode, ApiFlow } from '../services/types';
+import { fromBase64 } from '../services/shared/bytes';
 // The issue shape lives beside the checks that produce it. Re-exported here
 // because the designer page and the checklist modal import it from the hook.
 export type { ValidationIssue } from '../domain/processValidation';
@@ -216,8 +217,13 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
    * already running finish on the version they started on — that is the engine's
    * rule, not a setting — so the only thing this decides is where the next
    * instance begins.
+   *
+   * The mode is required, and not a boolean, so that a button cannot hand this
+   * its click event: "Deploy Anyway" did, the event was taken for `stage`, and
+   * every deploy made past a warning was staged instead of live.
    */
-  const proceedWithSave = useCallback((stage = false) => {
+  const proceedWithSave = useCallback((mode: DeployMode) => {
+    const stage = mode === 'staged';
     const definition = buildDefinitionPayload(processName, processKey, nodes, edges);
 
     createDefinition.mutate({ definition, stage }, {
@@ -252,29 +258,43 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   }, [closeChecklist, closeRollout, createDefinition, definitionId, edges, nodes, processKey, processName]);
 
   const onSave = useCallback(() => {
-    if (hasBlockingIssues(issues)) {
-      // The checklist lists each problem and what to do about it; a toast that
-      // only says "fix the errors" leaves the person hunting for them.
-      openChecklist();
-      notifications.show({
-        title: 'This process would not run',
-        message: 'Deploy is held until the problems listed are fixed.',
-        color: 'red',
-      });
-      return;
+    switch (nextDeployStep(issues, versions)) {
+      case 'held':
+        // The checklist lists each problem and what to do about it; a toast that
+        // only says "fix the errors" leaves the person hunting for them.
+        openChecklist();
+        notifications.show({
+          title: 'This process would not run',
+          message: 'Deploy is held until the problems listed are fixed.',
+          color: 'red',
+        });
+        return;
+      case 'review':
+        openChecklist();
+        return;
+      case 'ask':
+        // Only when there is a version that could stay live. The first deploy
+        // of a process has no incumbent, so the question would have one answer.
+        openRollout();
+        return;
+      case 'live':
+        proceedWithSave('live');
     }
-    if (issues.length > 0) {
-      openChecklist();
-      return;
-    }
-    // Only ask when there is a version that could stay live. The first deploy of
-    // a process has no incumbent, so the question would have one answer.
-    if (shouldAskRollout(versions)) {
+  }, [issues, openChecklist, openRollout, proceedWithSave, versions]);
+
+  /**
+   * Deploys past the checklist's warnings: on to whatever a deploy with none
+   * would do next — the rollout question when a live version would be
+   * replaced. It used to deploy on the spot, skipping that question.
+   */
+  const deployAnyway = useCallback(() => {
+    closeChecklist();
+    if (nextDeployStep([], versions) === 'ask') {
       openRollout();
       return;
     }
-    proceedWithSave();
-  }, [issues, openChecklist, openRollout, proceedWithSave, versions]);
+    proceedWithSave('live');
+  }, [closeChecklist, openRollout, proceedWithSave, versions]);
 
   const onExport = useCallback(() => {
     if (!definitionId) {
@@ -294,7 +314,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
           notifications.show({ title: 'Export failed', message: 'The server returned no BPMN XML', color: 'red' });
           return;
         }
-        const xml = atob(data.xml);
+        const xml = fromBase64(data.xml);
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
@@ -817,6 +837,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     discardDraft,
     onSaveDraft,
     proceedWithSave,
+    deployAnyway,
     onSave,
     onExport,
     onImport,

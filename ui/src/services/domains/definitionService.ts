@@ -18,6 +18,7 @@ import type {
   ScheduleDefinitionResponse,
 } from "../types";
 import { raiseIfRefused } from "../raise";
+import { toBase64 } from "../shared/bytes";
 
 /**
  * The designer works in the shapes a person edits — an assignee is a username,
@@ -328,10 +329,17 @@ export const definitionService = {
     });
   },
 
-  async importDefinition(xml: string, signal?: AbortSignal) {
+  /**
+   * Imports a BPMN model into a project.
+   *
+   * The project is required: the endpoint refuses a request without one, and
+   * this used to send none, so every import failed with "project_id must be a
+   * UUID".
+   */
+  async importDefinition(projectId: string, xml: string, signal?: AbortSignal) {
     return requestJSON<ImportDefinitionResponse>("/definitions/import", {
       method: "POST",
-      body: { xml: btoa(xml) },
+      body: { project_id: projectId, xml: toBase64(xml) },
       signal,
     });
   },

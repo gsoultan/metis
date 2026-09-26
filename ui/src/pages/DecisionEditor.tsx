@@ -71,6 +71,7 @@ import {
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
+import { DecisionTests } from '../components/DecisionTests';
 import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
@@ -85,7 +86,6 @@ import {
   moveRule,
   newRuleRow,
   parseClipboardGrid,
-  parseOutputValue,
   validateCell,
   type DecisionInputColumn,
   slugVariable,
@@ -93,6 +93,8 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
+import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
+import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
 import type { ProcessVariables } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
@@ -322,6 +324,9 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     { id: uuidv4(), label: 'Result', name: 'result', type: 'string' },
   ]);
   const [rules, setRules] = useState<DecisionRuleRow[]>([newRuleRow(uuidv4(), 1, 1)]);
+  const [tests, setTests] = useState<DecisionTestRow[]>([]);
+  // What the server holds, as the save would send it: set on load and on save.
+  const [savedPayload, setSavedPayload] = useState<string | null>(null);
 
   const [testInputs, setTestInputs] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
@@ -335,30 +340,17 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     const decision = existingDef?.decision;
     if (!decision) return;
 
-    setName(decision.name);
-    setKey(decision.key);
-    setHitPolicy(decision.hit_policy || 'FIRST');
-    setAggregation(decision.aggregation || '');
-    setRequiredDecisions((decision.required_decisions || []).join(', '));
-    setInputs(decision.inputs || []);
-    setOutputs(
-      (decision.outputs || []).map((output) => ({
-        id: output.id,
-        label: output.label,
-        name: output.name,
-        type: output.type,
-        values: output.values,
-      })),
-    );
-    setRules(
-      (decision.rules || []).map((rule) => ({
-        id: rule.id,
-        input_entries: rule.inputs || [],
-        // Stored results carry whatever the old editor wrote, quotes included.
-        output_entries: (rule.outputs || []).map((value) => formatOutputValue(value)),
-        description: rule.description || '',
-      })),
-    );
+    const loaded = editorStateFrom(decision);
+    setName(loaded.name);
+    setKey(loaded.key);
+    setHitPolicy(loaded.hitPolicy);
+    setAggregation(loaded.aggregation);
+    setRequiredDecisions(loaded.requiredDecisions);
+    setInputs(loaded.inputs);
+    setOutputs(loaded.outputs);
+    setRules(loaded.rules);
+    setTests(loaded.tests);
+    setSavedPayload(JSON.stringify(decisionPayload(loaded)));
 
     const seeded: Record<string, string> = {};
     decision.inputs?.forEach((input) => {
@@ -507,6 +499,12 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     [cellValue, columnCount, focusCell, inputs.length, outputs.length, rules.length, setCell],
   );
 
+  const payload = useMemo(
+    () => decisionPayload({ name, key, hitPolicy, aggregation, requiredDecisions, inputs, outputs, rules, tests }),
+    [name, key, hitPolicy, aggregation, requiredDecisions, inputs, outputs, rules, tests],
+  );
+  const hasUnsavedChanges = JSON.stringify(payload) !== savedPayload;
+
   const handleSave = async () => {
     if (blocking.length > 0) {
       notifications.show({
@@ -517,39 +515,10 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       return;
     }
 
-    const payload = {
-      name,
-      key,
-      hit_policy: hitPolicy,
-      aggregation: aggregation || undefined,
-      required_decisions: requiredDecisions
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-      inputs: inputs.map((input) => ({
-        id: input.id,
-        label: input.label,
-        expression: input.expression,
-        type: input.type,
-      })),
-      outputs: outputs.map((output) => ({
-        id: output.id,
-        label: output.label,
-        name: output.name,
-        type: output.type,
-        values: output.values?.length ? output.values : undefined,
-      })),
-      rules: rules.map((rule) => ({
-        id: rule.id,
-        inputs: rule.input_entries,
-        description: rule.description,
-        outputs: rule.output_entries.map((cell, index) => parseOutputValue(cell, outputs[index]?.type ?? 'string')),
-      })),
-    };
-
     try {
       if (definitionId) {
         await updateDecision.mutateAsync({ id: definitionId, ...payload });
+        setSavedPayload(JSON.stringify(payload));
         notifications.show({ title: 'Saved', message: `${name} updated. Try it below.`, color: 'green' });
       } else {
         const created = await createDecision.mutateAsync(payload);
@@ -1073,6 +1042,20 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 </Card>
               )}
             </Stack>
+          </Paper>
+
+          {/* The examples were stored with the table and shown nowhere, and
+              every save wiped them. They are saved with the table now, and run
+              against the saved version. */}
+          <Paper radius="md" withBorder p="md">
+            <DecisionTests
+              decisionId={definitionId ?? null}
+              inputs={inputs}
+              outputs={outputs}
+              tests={tests}
+              onChange={setTests}
+              hasUnsavedChanges={hasUnsavedChanges}
+            />
           </Paper>
 
           {/* Who else this table decides for. A threshold changed with three

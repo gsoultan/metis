@@ -21,7 +21,8 @@ interface DesignerModalsProps {
   checklistOpened: boolean;
   closeChecklist: () => void;
   issues: ValidationIssue[];
-  proceedWithSave: () => void;
+  /** Deploys past the warnings the checklist shows. */
+  onDeployAnyway: () => void;
   spotlightOpened: boolean;
   closeSpotlight: () => void;
   componentsOpened: boolean;
@@ -42,7 +43,7 @@ export function DesignerModals({
   checklistOpened,
   closeChecklist,
   issues,
-  proceedWithSave,
+  onDeployAnyway,
   spotlightOpened,
   closeSpotlight,
   componentsOpened,
@@ -94,7 +95,7 @@ export function DesignerModals({
             <Button variant="default" onClick={closeChecklist}>Go Back to Editor</Button>
             <Button 
               color="indigo" 
-              onClick={proceedWithSave} 
+              onClick={onDeployAnyway}
               disabled={issues.some(i => i.severity === 'error')}
               leftSection={<Save size={16} />}
             >

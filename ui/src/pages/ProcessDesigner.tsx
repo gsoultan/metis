@@ -88,7 +88,7 @@ export function ProcessDesigner({
     onNodeClick, onEdgeClick, onPaneClick,
     deleteSelected, clearCanvas, onAutoLayout,
     updateNodeData, updateEdgeData,
-    proceedWithSave, onSave, onExport, onImport,
+    proceedWithSave, deployAnyway, onSave, onExport, onImport,
     offeredDraft, offeredDraftAge, restoreDraft, discardDraft,
     handleFileChange,
     undo, redo,
@@ -458,7 +458,7 @@ export function ProcessDesigner({
         checklistOpened={checklistOpened}
         closeChecklist={closeChecklist}
         issues={issues}
-        proceedWithSave={proceedWithSave}
+        onDeployAnyway={deployAnyway}
         spotlightOpened={spotlightOpened}
         closeSpotlight={closeSpotlight}
         componentsOpened={componentsOpened}

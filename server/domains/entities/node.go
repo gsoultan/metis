@@ -1,5 +1,7 @@
 package entities
 
+import "encoding/json"
+
 // Node represents a node in a BPMN process definition.
 type Node struct {
 	ID                  string   `json:"id"`
@@ -61,6 +63,34 @@ func (n *Node) GetStringProperty(key string) string {
 		}
 	}
 	return ""
+}
+
+// GetTextProperty reads a property that is stored as text but may arrive as a
+// structure: a string as it is, anything else as its JSON encoding.
+//
+// A form is the case. The designer saves it as a list of fields and the task
+// carries it as JSON text, and GetStringProperty answers "" for a list — which
+// is how every form built in the designer reached its task empty.
+func (n *Node) GetTextProperty(key string) string {
+	return PropertyText(n.Properties, key)
+}
+
+// PropertyText is GetTextProperty for a bare property map.
+func PropertyText(properties map[string]any, key string) string {
+	switch value := properties[key].(type) {
+	case nil:
+		return ""
+	case string:
+		return value
+	default:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			// Decoded from JSON in the first place, so this cannot happen for a
+			// stored definition; a value that cannot be encoded is no form.
+			return ""
+		}
+		return string(encoded)
+	}
 }
 
 // GetBoolProperty reads a boolean node property, accepting both a real bool and

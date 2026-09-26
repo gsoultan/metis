@@ -11,7 +11,7 @@ import {
 import { CircleDot, Info, Rocket, Save } from "lucide-react";
 import { useState } from "react";
 
-import { rolloutOutcome, type VersionStatus } from "../domain/versionRollout";
+import { rolloutOutcome, type DeployMode, type VersionStatus } from "../domain/versionRollout";
 
 interface DeployVersionModalProps {
   opened: boolean;
@@ -20,7 +20,7 @@ interface DeployVersionModalProps {
   versions: VersionStatus[];
   deploying: boolean;
   /** Deploys, staged or live. */
-  onDeploy: (stage: boolean) => void;
+  onDeploy: (mode: DeployMode) => void;
 }
 
 /**
@@ -83,7 +83,7 @@ interface DeployVersionFormProps {
   versions: VersionStatus[];
   deploying: boolean;
   onClose: () => void;
-  onDeploy: (stage: boolean) => void;
+  onDeploy: (mode: DeployMode) => void;
 }
 
 function DeployVersionForm({
@@ -178,7 +178,7 @@ function DeployVersionForm({
           color={stage ? "gray" : "indigo"}
           leftSection={stage ? <Save size={16} /> : <CircleDot size={16} />}
           loading={deploying}
-          onClick={() => onDeploy(stage)}
+          onClick={() => onDeploy(stage ? 'staged' : 'live')}
         >
           {stage
             ? `Stage v${outcome.version}`

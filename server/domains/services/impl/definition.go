@@ -620,9 +620,20 @@ func (s *definitionService) ListLiveVersions(ctx context.Context, projectID uuid
 	if err != nil {
 		return nil, err
 	}
+	// The timeline comes newest first, cutovers still to come included. The
+	// live version of a key is the first entry whose time has arrived — the
+	// same rule the engine applies when it starts an instance. Every row used to
+	// overwrite the one before, which left each key on the oldest version ever
+	// promoted.
+	now := time.Now()
 	live := make(map[string]int, len(releases))
 	for _, release := range releases {
-		live[release.ProcessKey] = release.Version
+		if release.ActivateAt.After(now) {
+			continue
+		}
+		if _, decided := live[release.ProcessKey]; !decided {
+			live[release.ProcessKey] = release.Version
+		}
 	}
 	return live, nil
 }
