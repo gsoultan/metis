@@ -327,7 +327,7 @@
         failed stays selected so it can be retried. Claiming is a race the engine
         allows, so a partial failure is normal and had to be reportable.
   - [ ] Medium-priority UX items (5-8) delivered. Delivered: 5, the heat map, the deadline
-        report and CSV export, all counted on the server (#97; no PDF export); 6, done
+        report and CSV export, all counted on the server (#97), and the PDF export (a printable report, 2026-09-26); 6, done
         before; 8, version comparison, rollback and migration (#98). Item 7 in part:
         memberships stay inside an organization, role refusals are 403, and anybody can
         edit their own profile (#96). The visual role editor is not built.

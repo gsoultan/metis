@@ -19,7 +19,9 @@ import {
   Activity, 
   CheckCircle, 
   AlertCircle,
+  Printer,
 } from 'lucide-react';
+import { notifications } from '@mantine/notifications';
 import { 
   useDefinitions, 
   useProjects,
@@ -33,7 +35,6 @@ import { BusinessTimeline } from '../components/BusinessTimeline';
 import { GettingStartedCard } from '../components/GettingStartedCard';
 import { useGettingStartedProgress } from '../hooks/useGettingStarted';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
 import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
@@ -222,15 +223,40 @@ export function Dashboard() {
 
   const completion = taskCompletion(stats ?? {});
 
+  // The report prints what this screen has read, so it waits for all of it:
+  // printed before the deadlines arrive, it would say nothing is late.
+  const reportReady = !statsLoading && !statsError && deadlines !== undefined && waiting !== undefined;
+  const printReport = async () => {
+    try {
+      const { printProcessReport } = await import('../components/report/printProcessReport');
+      printProcessReport({
+        projectName: projectsData?.projects?.find((project) => project.id === currentProjectId)?.name ?? 'Project',
+        generatedAt: new Date(),
+        activeInstances,
+        processModels: totalDefinitions,
+        completion,
+        needsAttention,
+        report,
+        heat,
+      });
+    } catch (err) {
+      notifications.show({
+        title: 'Could not prepare the report',
+        message: err instanceof Error ? err.message : String(err),
+        color: 'red',
+      });
+    }
+  };
+
   return (
     <Stack gap="xl">
       <PageHeader 
         title={t('page.dashboard.title')}
         description={t('page.dashboard.subtitle')}
         actions={
-          <ComingSoonButton variant="light" leftSection={<Activity size={16} />} label="Report export is not implemented yet">
+          <Button variant="light" leftSection={<Printer size={16} />} disabled={!reportReady} onClick={printReport}>
             {t('dash.generateReport')}
-          </ComingSoonButton>
+          </Button>
         }
       />
 
