@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -305,6 +306,11 @@ func TestADecisionInUseCannotBeDeleted(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "1 running process instance") {
 		t.Errorf("error = %q, want it to say how much is in the way", err)
+	}
+	// A refusal of what the caller asked for, not a failure of the server:
+	// it answered 500 and spent the error budget on a request answered right.
+	if !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Errorf("error = %v, want a refusal the transport answers with 400", err)
 	}
 
 	// Once nothing is running, it can go.

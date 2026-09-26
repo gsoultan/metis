@@ -189,7 +189,8 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 	return saved.ID, nil
 }
 
-// DeleteDecision removes a decision table, unless something still needs it.
+// DeleteDecision removes one stored version of a decision table, unless
+// something still needs it.
 //
 // A decision is a business policy, and a running instance is a commitment made
 // under it. Deleting a table an instance is still going to consult turns that
@@ -201,6 +202,10 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 // Completed instances do not count: they have already made their decisions, and
 // what those were is recorded on their timelines rather than read back from the
 // table.
+//
+// Nor can the live version go while other versions remain: every step with no
+// version binding would be left with nothing to evaluate. The only version of a
+// key can: deleting it is deleting the decision.
 func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) error {
 	decision, err := s.GetDecision(ctx, id)
 	if err != nil {
@@ -216,12 +221,43 @@ func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) erro
 		blocking += process.RunningInstances
 	}
 	if blocking > 0 {
-		return fmt.Errorf(
-			"cannot delete the decision %q: %d running process %s still reach it; complete or cancel them first",
-			decision.Key, blocking, pluralInstances(blocking))
+		return apierr.Invalidf(
+			"cannot delete v%d of the decision %q: %d running process %s still reach it; complete or cancel them first",
+			decision.Version, decision.Key, blocking, pluralInstances(blocking))
 	}
 
-	return s.repo.Decision().Delete(ctx, id)
+	projectID := decision.Project.ID
+	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		// Locked before the check, as a promotion locks it before its write:
+		// a version being made live cannot be deleted in the same moment, and
+		// one being deleted cannot be made live.
+		if _, err := s.repo.Decision().LockVersion(txCtx, projectID, decision.Key, decision.Version); err != nil {
+			return err
+		}
+		if err := s.refuseToStrandTheKey(txCtx, projectID, decision); err != nil {
+			return err
+		}
+		return s.repo.Decision().Delete(txCtx, id)
+	})
+}
+
+// refuseToStrandTheKey refuses to delete the live version of a key that has
+// other versions.
+func (s *decisionService) refuseToStrandTheKey(ctx context.Context, projectID uuid.UUID, decision entities.DecisionDefinition) error {
+	live, err := s.liveVersion(ctx, projectID, decision.Key)
+	if err != nil || live != decision.Version {
+		return err
+	}
+	versions, err := s.repo.Decision().ListVersionsByKey(ctx, projectID, decision.Key)
+	if err != nil {
+		return err
+	}
+	if others := len(versions) - 1; others > 0 {
+		return apierr.Invalidf(
+			"v%d is the live version of the decision %q and %d other %s remain; make another version live first, then delete this one",
+			decision.Version, decision.Key, others, pluralVersions(others))
+	}
+	return nil
 }
 
 // DecisionImpact answers "what breaks if I change this?".
@@ -366,6 +402,13 @@ const handlerAssignmentDecisionKey = "assignment_decision_key"
 // against the handler's own and fail if they drift. If they do, the impact view
 // goes quietly blind to every approval matrix.
 const AssignmentDecisionKeyForTest = handlerAssignmentDecisionKey
+
+func pluralVersions(n int) string {
+	if n == 1 {
+		return "version"
+	}
+	return "versions"
+}
 
 func pluralInstances(n int) string {
 	if n == 1 {
