@@ -39,6 +39,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   answering, and installing it again to fix it needs the setting. Look for one
   among the installed connectors on the Connectors page; removing it hands the
   key back to the built-in.
+- **Anybody in an organization could edit a task somebody else held.**
+  `PUT /api/v1/tasks/{id}` changes a task's name, priority and due date, and it
+  needed only a login, so any member could push the due date of a colleague's
+  task out or drop its priority. It now takes the person holding the task or
+  an administrator — the rule releasing, delegating and assigning already
+  followed — and a task nobody holds is an administrator's to edit. Anybody
+  else gets a 403 that says so.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial
