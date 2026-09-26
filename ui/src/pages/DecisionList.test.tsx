@@ -128,6 +128,18 @@ describe('the decision list page', () => {
     expect(text.match(/Decision 0/g)?.length).toBe(1);
   });
 
+  it('offers each decision its version history, where its versions are deleted one at a time', () => {
+    stage.rows = [row(0, 2, 3)];
+    stage.total = 1;
+    stage.summaries = { data: { items: [], truncated: false, total: 0 }, isLoading: false, isError: false };
+
+    const html = render();
+    expect(html).toContain('aria-label="Version history of Decision 0"');
+    // Deleting the row's version would delete the live one out from under the
+    // other two; a version is deleted from the history, which says which.
+    expect(html).not.toContain('aria-label="Delete Decision 0"');
+  });
+
   it('says so when no version of a decision is live', () => {
     stage.rows = [row(0, 0, 1)];
     stage.total = 1;

@@ -51,6 +51,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronsUpDown,
+  History,
   Info,
   Plus,
   Save,
@@ -70,6 +71,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { DecisionTests } from '../components/DecisionTests';
 import { CoverageCard } from '../components/decisions/CoverageCard';
+import { DecisionVersionsModal } from '../components/decisions/DecisionVersionsModal';
+import { SaveDecisionModal } from '../components/decisions/SaveDecisionModal';
 import { TrialPanel } from '../components/decisions/TrialPanel';
 import { PageHeader } from '../components/PageHeader';
 import {
@@ -108,7 +111,21 @@ import {
 } from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
-import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
+import {
+  DECISION_VERSION_STATES,
+  decisionVersionState,
+  liveDecisionVersion,
+  nextDecisionVersion,
+  saveNotice,
+} from '../domain/decisionVersions';
+import {
+  useCreateDecision,
+  useDecision,
+  useDecisionImpact,
+  useDecisionVersions,
+  useEvaluateDecision,
+  useUpdateDecision,
+} from '../hooks/useDecisions';
 import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
@@ -285,6 +302,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const evaluateDecision = useEvaluateDecision();
   const { data: impact } = useDecisionImpact(definitionId || null);
   const target = trialTarget(existingDef?.decision);
+  // The stored decision's versions: which one this is, and which one is live.
+  const { data: versions = [] } = useDecisionVersions(existingDef?.decision?.key ?? null);
+  const liveEntry = liveDecisionVersion(versions);
+  const openEntry = versions.find((v) => v.id === definitionId) ?? null;
+  const openState = openEntry !== null ? DECISION_VERSION_STATES[decisionVersionState(openEntry, versions)] : null;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [askingSave, setAskingSave] = useState(false);
 
   const [name, setName] = useState(search.name || 'New Decision');
   const [key, setKey] = useState(search.key || 'new_decision');
@@ -487,7 +511,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   );
   const highlighted = matchedLines(outcome, rules, table, savedTable);
 
-  const handleSave = async () => {
+  const handleSave = () => {
     // Checked again as it stands: the list on screen can be a keystroke behind.
     const refusal = findProblems(hitPolicy, inputs, outputs, rules).find(isError);
     if (refusal) {
@@ -498,18 +522,23 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
       });
       return;
     }
+    // A version in force means there is a choice: put the edit into force now,
+    // or stage it beside that one. A first version is the only one there is.
+    if (definitionId && liveEntry !== null) {
+      setAskingSave(true);
+      return;
+    }
+    void saveTable(false);
+  };
 
+  const saveTable = async (stage: boolean) => {
     try {
       if (definitionId) {
-        const saved = await updateDecision.mutateAsync({ id: definitionId, ...payload });
+        const saved = await updateDecision.mutateAsync({ id: definitionId, stage, ...payload });
+        setAskingSave(false);
         setSavedPayload(JSON.stringify(payload));
-        notifications.show({
-          title: saved.newVersion ? `Saved as v${saved.version}` : 'Nothing to save',
-          message: saved.newVersion
-            ? `${name} v${saved.version} holds your changes; the version you edited is kept as it was. Try it below.`
-            : `${name} is the same as v${saved.version}, so no new version was made.`,
-          color: saved.newVersion ? 'green' : 'gray',
-        });
+        const notice = saveNotice(saved, name, liveEntry?.version ?? null);
+        notifications.show({ title: notice.title, message: notice.message, color: notice.color });
         // The edit is a new version with its own id: go on editing that one,
         // so Try it runs what was just saved and the next save starts from it.
         if (saved.id !== definitionId) {
@@ -537,6 +566,18 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
         message: errorMessage(err, 'Could not save the decision'),
         color: 'red',
       });
+    }
+  };
+
+  // The version open here was deleted from the history: go to the one still in
+  // force, or back to the list when the decision went with it.
+  const afterVersionDeleted = (deletedId: string, remaining: number) => {
+    if (deletedId !== definitionId) return;
+    setHistoryOpen(false);
+    if (remaining > 0 && liveEntry !== null && liveEntry.id !== deletedId) {
+      navigate({ to: '/decision-editor', search: { id: liveEntry.id }, replace: true });
+    } else {
+      navigate({ to: '/models', search: { tab: 'decisions' } });
     }
   };
 
@@ -578,6 +619,14 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 v{existingDef.decision.version}
               </Badge>
             ) : null}
+            {/* Which version this is: the one in force, one waiting, or history. */}
+            {openState !== null && (
+              <Tooltip label={openState.hint}>
+                <Badge variant="light" color={openState.color}>
+                  {openState.label}
+                </Badge>
+              </Tooltip>
+            )}
           </Group>
         }
         actions={
@@ -590,17 +639,55 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
             >
               Back
             </Button>
+            {definitionId && existingDef?.decision && (
+              <Button
+                variant="light"
+                color="orange"
+                leftSection={<History size={16} />}
+                aria-label={`Versions of ${existingDef.decision.name}`}
+                onClick={() => setHistoryOpen(true)}
+              >
+                Versions
+              </Button>
+            )}
             <Button
               leftSection={<Save size={16} />}
               onClick={handleSave}
               loading={createDecision.isPending || updateDecision.isPending}
-              disabled={blocking.length > 0}
+              // Saving an unchanged table would store nothing: every save is
+              // a new version, and a copy of this one is not a new policy.
+              disabled={blocking.length > 0 || (!!definitionId && !hasUnsavedChanges)}
             >
               Save
             </Button>
           </Group>
         }
       />
+
+      {historyOpen && existingDef?.decision && (
+        <DecisionVersionsModal
+          decisionKey={existingDef.decision.key}
+          name={existingDef.decision.name}
+          openId={definitionId}
+          onClose={() => setHistoryOpen(false)}
+          onOpen={(id) => {
+            setHistoryOpen(false);
+            navigate({ to: '/decision-editor', search: { id } });
+          }}
+          onDeleted={(deleted, remaining) => afterVersionDeleted(deleted.id, remaining)}
+        />
+      )}
+      {liveEntry !== null && (
+        <SaveDecisionModal
+          opened={askingSave}
+          name={name}
+          nextVersion={nextDecisionVersion(versions)}
+          liveVersion={liveEntry.version}
+          saving={updateDecision.isPending}
+          onClose={() => setAskingSave(false)}
+          onSave={(stage) => void saveTable(stage)}
+        />
+      )}
 
       {problems.length > 0 && (
         <Stack gap="xs">

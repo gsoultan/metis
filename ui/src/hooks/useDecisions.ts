@@ -91,11 +91,15 @@ export const useCreateDecision = () => {
   });
 };
 
+/**
+ * Saves an edit as the next version of its decision: live, or staged beside
+ * the live one when `stage` is set. The version edited is never changed.
+ */
 export const useUpdateDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...params }: CreateDecisionPayload & { id: string }) =>
-      processService.updateDecision(id, params),
+    mutationFn: ({ id, stage, ...params }: CreateDecisionPayload & { id: string; stage?: boolean }) =>
+      processService.updateDecision(id, params, { stage }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
       queryClient.invalidateQueries({ queryKey: ['decision'] });
@@ -103,12 +107,46 @@ export const useUpdateDecision = () => {
   });
 };
 
+/** Deletes one stored version of a decision. */
 export const useDeleteDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => processService.deleteDecision(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
+      queryClient.invalidateQueries({ queryKey: ['decision'] });
+    },
+  });
+};
+
+/**
+ * Every stored version of one decision in the current project, newest first,
+ * marking the live one. Under 'decisions', so a save, a delete or a promotion
+ * refreshes it.
+ */
+export const useDecisionVersions = (key: string | null) => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
+    queryKey: ['decisions', currentProjectId, 'versions', key],
+    queryFn: ({ signal }) =>
+      currentProjectId && key ? processService.listDecisionVersions(currentProjectId, key, signal) : Promise.resolve([]),
+    enabled: !!currentProjectId && !!key,
+  });
+};
+
+/** Makes one stored version of a decision the live one. */
+export const usePromoteDecisionVersion = () => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, version }: { key: string; version: number }) =>
+      currentProjectId
+        ? processService.promoteDecisionVersion(currentProjectId, key, version)
+        : Promise.reject(new Error('No project selected')),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['decisions'] });
+      queryClient.invalidateQueries({ queryKey: ['decision'] });
     },
   });
 };

@@ -652,6 +652,20 @@ export interface ApiDecisionSummary {
   last_changed_at?: string;
 }
 
+/**
+ * Mirrors entities.DecisionVersionStatus: one stored version of a decision
+ * key, and whether it is the one in force.
+ */
+export interface ApiDecisionVersion {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  created_at?: string;
+  /** The single version a step that names no version reads. */
+  live: boolean;
+}
+
 /** Payload accepted when creating or updating a decision. */
 export type CreateDecisionPayload = Omit<ApiDecision, 'id' | 'version' | 'created_at'> &
   Partial<Pick<ApiDecision, 'id' | 'version'>>;

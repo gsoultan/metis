@@ -2,6 +2,7 @@ import { requestJSON } from "../shared/rest";
 import type {
   ApiDecision,
   ApiDecisionSummary,
+  ApiDecisionVersion,
   CreateDecisionPayload,
   DecisionResult,
   ProcessVariables,
@@ -164,6 +165,27 @@ export const decisionService = {
       matchedRuleIds: data.result?.matched_rule_ids ?? [],
       err: data.err,
     };
+  },
+
+  /** Every stored version of one decision, newest first, marking the live one. */
+  async listDecisionVersions(projectId: string, key: string, signal?: AbortSignal) {
+    const query = new URLSearchParams({ project_id: projectId, key });
+    const data = await requestJSON<{ versions?: ApiDecisionVersion[]; err?: string }>(`/decisions/versions?${query}`, {
+      signal,
+    });
+    return raiseIfRefused(data).versions ?? [];
+  },
+
+  /**
+   * Makes one stored version the live one: from now on, steps that name no
+   * version read it. An older version made live again is a rollback.
+   */
+  async promoteDecisionVersion(projectId: string, key: string, version: number) {
+    const data = await requestJSON<MutationResponse>("/decisions/versions/promote", {
+      method: "POST",
+      body: { project_id: projectId, key, version },
+    });
+    return { err: raiseIfRefused(data).err };
   },
 
   /** Runs a table against the examples stored with it. */

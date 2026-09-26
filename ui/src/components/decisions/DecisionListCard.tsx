@@ -14,7 +14,7 @@
 import { ActionIcon, Badge, Box, Button, Card, Group, Pagination, Skeleton, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { Edit2, Search, Table2, Trash2 } from 'lucide-react';
+import { Edit2, History, Search, Table2 } from 'lucide-react';
 
 import { hitPolicyOf } from '../../domain/decisionTable';
 import { decisionRowVersions } from '../../domain/decisionVersions';
@@ -41,7 +41,8 @@ export interface DecisionListCardProps {
   error: unknown;
   onRetry: () => void;
   onEdit: (id: string) => void;
-  onDelete: (decision: ApiDecisionSummary) => void;
+  /** Opens the decision's versions: make one live, roll back, delete one. */
+  onHistory: (decision: ApiDecisionSummary) => void;
   onCreate: () => void;
 }
 
@@ -88,7 +89,7 @@ export function DecisionListCard(props: DecisionListCardProps) {
   );
 }
 
-function ListBody({ rows, loading, error, onRetry, search, onEdit, onDelete, onCreate }: DecisionListCardProps) {
+function ListBody({ rows, loading, error, onRetry, search, onEdit, onHistory, onCreate }: DecisionListCardProps) {
   // A failed request is not an empty project: it used to read as "you have nothing".
   if (error) return <ErrorState error={error} action="load your decision tables" onRetry={onRetry} />;
 
@@ -108,7 +109,7 @@ function ListBody({ rows, loading, error, onRetry, search, onEdit, onDelete, onC
               </Table.Td>
             </Table.Tr>
           ) : (
-            rows.map((def) => <DecisionRow key={def.id} decision={def} onEdit={onEdit} onDelete={onDelete} />)
+            rows.map((def) => <DecisionRow key={def.id} decision={def} onEdit={onEdit} onHistory={onHistory} />)
           )}
         </Table.Tbody>
       </Table>
@@ -145,11 +146,11 @@ function NothingListed({ search, onCreate }: { search: string; onCreate: () => v
 function DecisionRow({
   decision,
   onEdit,
-  onDelete,
+  onHistory,
 }: {
   decision: ApiDecisionSummary;
   onEdit: (id: string) => void;
-  onDelete: (decision: ApiDecisionSummary) => void;
+  onHistory: (decision: ApiDecisionSummary) => void;
 }) {
   const policy = hitPolicyOf(decision.hit_policy || 'FIRST');
   return (
@@ -192,9 +193,12 @@ function DecisionRow({
               <Edit2 size={16} />
             </ActionIcon>
           </Tooltip>
-          <Tooltip label="Delete">
-            <ActionIcon aria-label={`Delete ${decision.name}`} variant="light" color="red" onClick={() => onDelete(decision)}>
-              <Trash2 size={16} />
+          {/* Deleting is in here too, a version at a time: the row stands for
+              the live version, and deleting that out from under the others
+              is the one delete the server refuses. */}
+          <Tooltip label="Versions: make one live, roll back, or delete one">
+            <ActionIcon aria-label={`Version history of ${decision.name}`} variant="light" color="orange" onClick={() => onHistory(decision)}>
+              <History size={16} />
             </ActionIcon>
           </Tooltip>
         </Group>
@@ -219,14 +223,20 @@ function VersionBadges({ decision }: { decision: ApiDecisionSummary }) {
           </Badge>
         </Tooltip>
       ) : (
-        <Tooltip label="No version is in force, so a step that names no version fails.">
+        <Tooltip label="No version is in force, so a step that names no version fails. Make one live from its versions.">
           <Badge color="orange" variant="light" styles={{ label: { textTransform: 'none' } }}>
             Nothing live
           </Badge>
         </Tooltip>
       )}
       {staged !== null && (
-        <Tooltip label={live !== null ? `Saved, and not in use: steps still use v${live}.` : 'Saved, and not in use.'}>
+        <Tooltip
+          label={
+            live !== null
+              ? `Saved, and not in use: steps still use v${live}. Make it live from its versions.`
+              : 'Saved, and not in use. Make it live from its versions.'
+          }
+        >
           <Badge color="blue" variant="outline" styles={{ label: { textTransform: 'none' } }}>
             v{staged} staged
           </Badge>
