@@ -26,6 +26,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   Upgrading an installation of several organizations: until
   `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests.
   The ones installed keep running.
+- **A connector manifest could take over a built-in connector.** A manifest
+  installed under the key of a connector built into Metis — `http-json`,
+  `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`,
+  `ms-teams-message`, `rabbitmq-publish`, `sql-query` — replaced it in every
+  step, in every organization, that uses it, each step still sending its own
+  organization's connection settings. Installing one is now refused with a 400
+  that names the key, unless the operator sets
+  `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
+
+  Upgrading: a manifest already installed under a built-in's key keeps
+  answering, and installing it again to fix it needs the setting. Look for one
+  among the installed connectors on the Connectors page; removing it hands the
+  key back to the built-in.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial

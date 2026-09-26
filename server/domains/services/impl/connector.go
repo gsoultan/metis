@@ -54,6 +54,9 @@ func (s *connectorService) InstallManifest(ctx context.Context, document []byte)
 		// not a 500 that pages somebody and spends the error budget.
 		return entities.ConnectorManifest{}, apierr.Invalidf("%v", err)
 	}
+	if err := s.refuseBuiltInKey(manifest.Key); err != nil {
+		return entities.ConnectorManifest{}, err
+	}
 
 	var installed entities.ConnectorManifest
 	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {

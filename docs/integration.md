@@ -545,8 +545,9 @@ still caught. `retry_after` is honoured — being asked to wait two minutes and
 waiting two minutes is the difference between backing off and being blocked.
 
 Manifests are consulted before the built-in connectors, so one can replace a
-built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
-stream, anything stateful — keep the Go interface.
+built-in without a redeploy, where the operator allows it (below). Genuinely
+code-shaped connectors — an SDK, a stream, anything stateful — keep the Go
+interface.
 
 ## Installing a connector
 
@@ -570,9 +571,16 @@ how a manifest is fixed. It keeps the switch it had: a connector somebody
 switched off stays off when its document is fixed, and only a new one is
 installed switched on. A document whose `version` is lower than the installed
 one is refused with a 400 naming both — the same version again is a fix and a
-higher one an upgrade, but going back is almost always a stale copy. A manifest
-can carry the key of a built-in connector, which is how one is replaced without
-a redeploy.
+higher one an upgrade, but going back is almost always a stale copy.
+
+**A built-in's key.** A manifest under the key of a connector built into Metis —
+`http-json`, `slack-message`, `email-smtp`, `sendgrid-email`,
+`discord-message`, `ms-teams-message`, `rabbitmq-publish` or `sql-query` —
+replaces that connector in every step, in every organization, that uses it. So
+installing one is refused with a 400 naming the key unless the operator sets
+`METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`. A manifest installed under a
+built-in's key before this rule keeps answering; removing it hands the key back
+to the built-in.
 
 Manifests are read from the database on every call rather than cached, so a
 connector installed on one replica is live on all of them immediately, and a
