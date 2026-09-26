@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -134,6 +135,65 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		out = append(out, user)
 	}
 	return out, nil
+}
+
+// otherAdministratorCandidates reads the roles of an organization's members,
+// other than one account, whose roles could name the administrator role.
+//
+// A narrowing, not the decision: HasAnotherAdministrator decides with
+// entities.HasRole, the same test that grants an administrator their access.
+// translate() folds exactly the letters of ADMIN, as HasRole folds ASCII;
+// lower() would follow the database's locale, and a Turkish one lowers 'I' to
+// a dotless 'ı' and would hide every administrator. The quotes keep
+// "ADMINISTRATOR" and the like out.
+const otherAdministratorCandidates = `SELECT u.roles::text
+	  FROM users u
+	  JOIN user_organizations m ON m.user_id = u.id
+	 WHERE m.organization_id = $1
+	   AND u.id <> $2
+	   AND u.deleted_at IS NULL
+	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
+
+// HasAnotherAdministrator reports whether an organization has an administrator
+// besides one account.
+//
+// Asked of the database rather than of a list of the members. The list stops
+// at the store's thousand rows, so in a larger organization the other
+// administrator could be past the end of it, and removing one of two
+// administrators was refused as though it removed the last.
+//
+// An organization that is not the caller's has no members they can see, so
+// nobody in it counts — and the guard this serves refuses rather than allows.
+func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizationID, except uuid.UUID) (bool, error) {
+	scope, err := r.scopeOf(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !scope.unrestricted() && scope.organization != organizationID {
+		return false, nil
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := ex.Query(ctx, otherAdministratorCandidates, []any{organizationID, except})
+	if err != nil {
+		return false, fmt.Errorf("could not look for another administrator: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var roles []string
+		if err := json.Unmarshal(rows.RawValues()[0], &roles); err != nil {
+			return false, fmt.Errorf("could not decode an account's roles: %w", err)
+		}
+		if entities.HasRole(roles, entities.RoleAdmin) {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("could not look for another administrator: %w", err)
+	}
+	return false, nil
 }
 
 // HasAccounts reports whether any account exists, deleted or not.
