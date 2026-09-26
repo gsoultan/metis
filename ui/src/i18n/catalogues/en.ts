@@ -127,6 +127,41 @@ const en: Catalogue = {
   'page.settings.title': 'Application Settings',
   'page.settings.subtitle': 'Configure your workspace and preferences.',
 
+  // Platform access: who holds which role, and what each role is required
+  // for. The role names and their one-line sentences come from domain/roles.ts
+  // and are still English; the action names come from the server, which reads
+  // them from its own gates, and are English too.
+  'access.tabAccounts': 'Accounts',
+  'access.tabRoles': 'Roles',
+  'access.search': 'Search people',
+  'access.searchPlaceholder': 'Search by name, username or email…',
+  'access.columnPerson': 'Person',
+  'access.legendButton': 'What {role} allows',
+  'access.requiredFor': 'Required for',
+  'access.requiredForNothing': 'No action is gated on this role alone.',
+  'access.everythingElse': 'Anything not listed is open to anybody signed in.',
+  'access.legendUnavailable': 'Could not load what this role allows. Try again later.',
+  'access.holds': '{name} holds {role}',
+  'access.lacks': '{name} does not hold {role}',
+  'access.showing': '{count, plural, =1 {Showing the only account} other {Showing all # accounts}}',
+  'access.matching': '{count} of {total} accounts match',
+  'access.noMatch': 'Nobody matches “{query}”.',
+  'access.empty': 'No accounts in this organization yet.',
+  'access.area.processes': 'Processes',
+  'access.area.decisions': 'Decisions',
+  'access.area.connectors': 'Connectors',
+  'access.area.webhooks': 'Webhooks',
+  'access.area.instances': 'Running instances',
+  'access.area.people': 'People',
+  'access.area.directories': 'Directories',
+  'access.area.projects': 'Projects',
+  'access.area.organizations': 'Organizations',
+  'access.area.groups': 'Groups',
+  'access.area.accounts': 'Accounts',
+  'access.area.platform': 'Platform accounts',
+  'access.area.environments': 'Environments',
+  'access.area.other': 'Other',
+
   // The dashboard, which is where the interface's own language was most
   // visibly at odds with itself: the navigation translated and the cards
   // beside it did not.

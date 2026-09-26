@@ -105,3 +105,20 @@ describe('the getting-started card, Help and the glossary', () => {
     }
   });
 });
+
+/*
+ * The role view on the Platform access page was written with its words in the
+ * catalogues from the start, so a translation has every one of them.
+ */
+describe('the Platform access role view', () => {
+  it('is translated into Indonesian, every word of it, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const keys = Object.keys(english).filter((key) => key.startsWith('access.'));
+    expect(keys.length).toBeGreaterThan(20);
+    for (const key of keys) {
+      expect(indonesian[key], `id has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+});
