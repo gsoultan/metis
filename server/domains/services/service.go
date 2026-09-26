@@ -187,7 +187,7 @@ func NewServiceFacade(
 			serviceimpl.WithJobService(jobs),
 			serviceimpl.WithHandlerFactory(impl.NewNodeHandlerFactory(
 				simEngine, simTaskSvc, jobs, simExternalTaskSvc,
-				decisionSvc, connectorSvc, repo.Subscription(), auditWriter,
+				decisionSvc, repo.Subscription(), auditWriter,
 			)),
 		)
 		return simEngine

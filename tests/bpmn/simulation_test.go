@@ -67,7 +67,7 @@ func newSimHarness(t *testing.T) *simHarness {
 	engine.Apply(
 		serviceimpl.WithJobService(jobSvc),
 		serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, connectorSvc, repo.Subscription(), auditWriter)),
+			engine, taskSvc, jobSvc, externalTaskSvc, decisionSvc, repo.Subscription(), auditWriter)),
 	)
 
 	simulation := serviceimpl.NewSimulationService(repo, func(
@@ -79,7 +79,7 @@ func newSimHarness(t *testing.T) *simHarness {
 		simEngine.Apply(
 			serviceimpl.WithJobService(jobs),
 			serviceimpl.WithHandlerFactory(handlersimpl.NewNodeHandlerFactory(
-				simEngine, simTask, jobs, simExternal, decisionSvc, connectorSvc, repo.Subscription(), auditWriter)),
+				simEngine, simTask, jobs, simExternal, decisionSvc, repo.Subscription(), auditWriter)),
 		)
 		return simEngine
 	})

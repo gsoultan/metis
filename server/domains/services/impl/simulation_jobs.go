@@ -175,6 +175,13 @@ func (s *simulationJobService) ListIncidents(_ context.Context, _ uuid.UUID) ([]
 	return out, nil
 }
 
+// TryConnectorStep refuses. Trying a step runs it against the project's
+// connection for real, and calling nothing outside itself is what a simulation
+// is for.
+func (s *simulationJobService) TryConnectorStep(_ context.Context, _ uuid.UUID, _ entities.Node, _ map[string]any) (map[string]any, error) {
+	return nil, fmt.Errorf("a simulation does not try a step against a connection: it calls nothing outside itself")
+}
+
 // ResolveIncident refuses. A simulated incident is a finding about the model,
 // and clearing it would be clearing the result.
 func (s *simulationJobService) ResolveIncident(_ context.Context, _ uuid.UUID) error {
