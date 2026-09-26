@@ -29,16 +29,19 @@ type inboundConsumer struct {
 	queue          string
 	message        string
 	confirmTimeout time.Duration
-	retryIn        time.Duration
-	sleep          func(ctx context.Context, delay time.Duration) error
-	logger         *zerolog.Logger
-	problems       problemLog
+	// reconnect is how long to wait after the deliveries stop, growing with
+	// each attempt in a row that does not get as far as consuming.
+	reconnect backoff
+	sleep     func(ctx context.Context, delay time.Duration) error
+	logger    *zerolog.Logger
+	problems  problemLog
 }
 
 // run consumes until ctx ends. Each time the deliveries stop it says why and
 // consumes again, on a new channel of the connection it has while that is up.
 func (c *inboundConsumer) run(ctx context.Context) {
 	defer c.link.close()
+	failedAttempts := 0
 	for {
 		consumed, err := c.consume(ctx)
 		if ctx.Err() != nil {
@@ -46,10 +49,14 @@ func (c *inboundConsumer) run(ctx context.Context) {
 		}
 		message := msgConsumerCouldNotConsume
 		if consumed {
+			// It got as far as consuming, so the schedule starts over.
+			failedAttempts = 0
 			message = msgConsumerStopped
 		}
-		c.problems.event(message, err).Dur("retryIn", c.retryIn).Msg(message)
-		if c.sleep(ctx, c.retryIn) != nil {
+		failedAttempts++
+		wait := c.reconnect.delay(failedAttempts)
+		c.problems.event(message, err).Dur("retryIn", wait).Msg(message)
+		if c.sleep(ctx, wait) != nil {
 			return
 		}
 	}

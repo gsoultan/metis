@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -21,11 +24,15 @@ import (
 // arrive, which is what swallowConfirms makes this: every basic.ack and
 // basic.nack the broker sends is dropped, and every other frame — channel
 // open and close, heartbeats — is passed on, so only the confirms are missing.
+//
+// refuse and sever make it a broker that is down: new connections are hung up
+// on at once, and the ones it has are cut.
 type brokerProxy struct {
 	target   string
 	listener net.Listener
 
 	swallowing atomic.Bool
+	refusing   atomic.Bool
 
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
@@ -72,11 +79,28 @@ func newBrokerProxy(t *testing.T, brokerURL string) (*brokerProxy, string) {
 // swallowConfirms drops the broker's confirms while on is true.
 func (p *brokerProxy) swallowConfirms(on bool) { p.swallowing.Store(on) }
 
+// refuse hangs up on every new connection while on is true.
+func (p *brokerProxy) refuse(on bool) { p.refusing.Store(on) }
+
+// sever cuts every connection the proxy is relaying.
+func (p *brokerProxy) sever() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for conn := range p.conns {
+		_ = conn.Close()
+	}
+	clear(p.conns)
+}
+
 func (p *brokerProxy) accept() {
 	for {
 		client, err := p.listener.Accept()
 		if err != nil {
 			return
+		}
+		if p.refusing.Load() {
+			_ = client.Close()
+			continue
 		}
 		go p.relay(client)
 	}
@@ -217,5 +241,62 @@ func TestTheBrokerProxySwallowsOnlyConfirms(t *testing.T) {
 	}
 	if string(got) != string(want) {
 		t.Fatalf("through the proxy came % x, want the heartbeat and the open-ok without the ack: % x", got, want)
+	}
+}
+
+// Refusing, a dial through the proxy fails at once; severing, a connection it
+// relays is cut. Neither needs a broker.
+func TestTheBrokerProxyRefusesAndSevers(t *testing.T) {
+	t.Parallel()
+	var config net.ListenConfig
+	standIn, err := config.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for the stand-in broker: %v", err)
+	}
+	t.Cleanup(func() { _ = standIn.Close() })
+	go func() {
+		for {
+			conn, err := standIn.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _, _ = io.Copy(io.Discard, conn) }()
+		}
+	}()
+	proxy, proxied := newBrokerProxy(t, "amqp://guest:guest@"+standIn.Addr().String()+"/")
+
+	proxy.refuse(true)
+	if _, err := amqp.Dial(proxied); err == nil {
+		t.Fatal("a dial through a refusing proxy succeeded")
+	}
+
+	proxy.refuse(false)
+	uri, err := amqp.ParseURI(proxied)
+	if err != nil {
+		t.Fatalf("read the proxied URL: %v", err)
+	}
+	var dialer net.Dialer
+	client, err := dialer.DialContext(t.Context(), "tcp", net.JoinHostPort(uri.Host, strconv.Itoa(uri.Port)))
+	if err != nil {
+		t.Fatalf("dial the proxy: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		proxy.mu.Lock()
+		relaying := len(proxy.conns)
+		proxy.mu.Unlock()
+		if relaying > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the proxy never relayed the connection")
+		}
+	}
+	proxy.sever()
+	if err := client.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set a read deadline: %v", err)
+	}
+	if _, err := client.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("reading a severed connection returned %v, want it closed", err)
 	}
 }

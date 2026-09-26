@@ -31,7 +31,6 @@ const (
 	// tasks.
 	lockDurationMS     = 30_000
 	bridgePollInterval = 5 * time.Second
-	reconnectInterval  = 5 * time.Second
 
 	inboundDispatchMaxAttempts    = 3
 	inboundDispatchInitialBackoff = 200 * time.Millisecond
@@ -56,6 +55,15 @@ var (
 	errInboundDeadLetterPublishTimeout = errors.New("inbound dead-letter publish timeout")
 	errInboundDispatchTimeout          = errors.New("inbound message dispatch timeout")
 )
+
+// brokerReconnects is how long a bridge or consumer waits between attempts to
+// reach a broker it cannot: 5 seconds, doubling to 5 minutes, each wait varied
+// by a quarter either way, and back to 5 seconds once it has reached it.
+//
+// It was every 5 seconds for as long as the broker stayed down, so a broker
+// gone for a weekend was dialled some fifty thousand times by each bridge and
+// consumer of each replica, in step with one another, and logged every time.
+var brokerReconnects = backoff{first: 5 * time.Second, most: 5 * time.Minute}
 
 type messagingService struct {
 	engine                   contracts.EngineEventBus
@@ -126,6 +134,7 @@ func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, t
 		routingKey:     routingKey,
 		pollInterval:   cmp.Or(s.pollInterval, bridgePollInterval),
 		confirmTimeout: s.confirmTimeout,
+		reconnect:      brokerReconnects,
 		sleep:          s.sleep,
 		logger:         &logger,
 		problems:       problemLog{logger: &logger},
@@ -165,7 +174,7 @@ func (s *messagingService) newConsumer(ctx context.Context, projectID uuid.UUID,
 		queue:          queueName,
 		message:        messageName,
 		confirmTimeout: s.confirmTimeout,
-		retryIn:        reconnectInterval,
+		reconnect:      brokerReconnects,
 		sleep:          s.sleep,
 		logger:         &logger,
 		problems:       problemLog{logger: &logger},

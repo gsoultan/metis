@@ -54,6 +54,13 @@ func (b *fakeBroker) answer(answers ...publishAnswer) {
 	b.answers = append(b.answers, answers...)
 }
 
+// failDials makes the next dials fail, one error each.
+func (b *fakeBroker) failDials(errs ...error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dialErrs = append(b.dialErrs, errs...)
+}
+
 func (b *fakeBroker) dial(string) (brokerConnection, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

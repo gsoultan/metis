@@ -20,7 +20,8 @@ import (
 // doubles each time, up to five minutes: a mistake nobody notices for a week
 // costs a line every five minutes rather than one every five seconds. Once it
 // has started, a broker that goes away is the messaging service's to reconnect
-// to, which it does every five seconds.
+// to, which it does on a schedule of the same shape: from five seconds,
+// doubling to five minutes, with jitter.
 const (
 	rabbitMQRetryFirst = 5 * time.Second
 	rabbitMQRetryMost  = 5 * time.Minute

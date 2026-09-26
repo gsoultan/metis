@@ -32,6 +32,10 @@ type externalTaskBridge struct {
 	routingKey     string
 	pollInterval   time.Duration
 	confirmTimeout time.Duration
+	// reconnect is how long to wait after each failed attempt to reach the
+	// broker; failedAttempts counts them since it was last reached.
+	reconnect      backoff
+	failedAttempts int
 	sleep          func(ctx context.Context, delay time.Duration) error
 	logger         *zerolog.Logger
 	problems       problemLog
@@ -40,27 +44,34 @@ type externalTaskBridge struct {
 // run polls until ctx ends.
 func (b *externalTaskBridge) run(ctx context.Context) {
 	defer b.link.close()
+	wait := b.pollInterval
 	for {
-		if err := b.sleep(ctx, b.pollInterval); err != nil {
+		if err := b.sleep(ctx, wait); err != nil {
 			return
 		}
-		b.poll(ctx)
+		wait = b.poll(ctx)
 	}
 }
 
-// poll is one round: reach the broker, then forward what is waiting.
-func (b *externalTaskBridge) poll(ctx context.Context) {
+// poll is one round: reach the broker, then forward what is waiting. It
+// returns how long to wait before the next round: the poll interval, or while
+// the broker cannot be reached, a wait that grows with each failed attempt.
+func (b *externalTaskBridge) poll(ctx context.Context) time.Duration {
 	if err := b.connect(); err != nil {
-		b.problems.event(msgBridgeCouldNotConnect, err).Dur("retryIn", b.pollInterval).
+		b.failedAttempts++
+		wait := b.reconnect.delay(b.failedAttempts)
+		b.problems.event(msgBridgeCouldNotConnect, err).Dur("retryIn", wait).
 			Msg(msgBridgeCouldNotConnect)
-		return
+		return wait
 	}
+	b.failedAttempts = 0
 	tasks, err := b.tasks.FetchAndLock(ctx, b.topic, workerID, maxTasks, lockDurationMS)
 	if err != nil {
 		b.logger.Error().Err(err).Msg("Bridge fetch error")
-		return
+		return b.pollInterval
 	}
 	b.forward(ctx, tasks)
+	return b.pollInterval
 }
 
 // connect makes sure the bridge has a channel in confirm mode to publish on,

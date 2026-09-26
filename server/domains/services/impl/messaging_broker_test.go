@@ -327,3 +327,44 @@ func TestAConsumerWhoseQueueIsDeletedSaysSoAndConsumesItAgain(t *testing.T) {
 		t.Errorf("the consumer dialled %d times; a cancelled consumer consumes again on the connection it has", n)
 	}
 }
+
+// A broker that cannot be reached is tried again after a wait that grows with
+// each attempt, and once reached, the schedule starts over the next time it
+// goes away. It was a flat 5 seconds for as long as the broker stayed down.
+func TestABridgeBacksOffFromABrokerItCannotReachAndStartsOverOnceItConnects(t *testing.T) {
+	url := testBrokerURL(t)
+	proxy, proxied := newBrokerProxy(t, url)
+	proxy.refuse(true)
+
+	var logs lockedBuffer
+	board, _ := newTaskBoard(0)
+	svc := &messagingService{
+		externalSvc:    board,
+		dial:           dialAMQP,
+		confirmTimeout: 5 * time.Second,
+		pollInterval:   time.Second,
+		sleep:          sleepWithContext,
+	}
+	logger := zerolog.New(&logs)
+	bridge := svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", proxied, "", "metis-test-unused")
+	waits := make(waitRecorder)
+	bridge.sleep = waits.sleep
+	runBridge(t, bridge)
+
+	if first := takeWait(t, waits); first != time.Second {
+		t.Fatalf("the bridge waited %v before its first round, want its poll interval", first)
+	}
+	assertBackoff(t, takeWait(t, waits), 1)
+	assertBackoff(t, takeWait(t, waits), 2)
+	// Reachable from the round after the next wait.
+	proxy.refuse(false)
+	assertBackoff(t, takeWait(t, waits), 3)
+	if polling := takeWait(t, waits); polling != time.Second {
+		t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", polling)
+	}
+	awaitEntry(t, &logs, "info", "connected", 5*time.Second)
+
+	proxy.refuse(true)
+	proxy.sever()
+	assertBackoff(t, nextBackoff(t, waits, time.Second), 1)
+}
