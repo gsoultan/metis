@@ -70,10 +70,10 @@ func TestTheStatisticsCountCompletedTasksAndReadNoAuditTrail(t *testing.T) {
 		t.Fatalf("expected three tasks: %d, %v", len(tasks), err)
 	}
 	// One done, one claimed and not done, one nobody has picked up.
-	if err := svc.CompleteTask(ctx, tasks[0].ID, "ada", nil); err != nil {
+	if err := svc.CompleteTask(testutils.AsOperator(ctx, "ada"), tasks[0].ID, "ada", nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
-	if err := svc.ClaimTask(ctx, tasks[1].ID, "ada"); err != nil {
+	if err := svc.ClaimTask(testutils.AsOperator(ctx, "ada"), tasks[1].ID, "ada"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 

@@ -186,7 +186,7 @@ func TestBPMNEvents(t *testing.T) {
 		tasks, _ := svc.ListTasks(ctx, proj.ID)
 		for _, task := range tasks {
 			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "task1" {
-				_ = svc.CompleteTask(ctx, task.ID, "test-user", nil)
+				_ = svc.CompleteTask(testutils.AsOperator(ctx, "test-user"), task.ID, "test-user", nil)
 			}
 		}
 

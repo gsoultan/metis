@@ -330,6 +330,8 @@ version* but *this approval did not happen, and here is who said so and why*.
 
 A task that changes node is **rebuilt from the node it lands on** — name, description, type,
 priority, due date, form, assignee, candidate users and groups — and its claim is dropped.
+A task that lands on a step naming nobody is then an administrator's or an operator's to
+take, like any task with no assignee and no candidates.
 
 Carrying the task across was an authorisation bug: a task mapped from `opsApprove` onto
 `salesApprove` kept the operations manager as assignee and candidate group, which let the

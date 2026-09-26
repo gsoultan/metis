@@ -117,14 +117,22 @@ var ErrTaskForbidden = fmt.Errorf("%w: task: caller is not permitted to act on t
 // authorizeCandidate reports whether userID may claim or complete an
 // unassigned task.
 //
-// The rule is "absent constraint means deny", with one deliberate exception:
+// The rule is "absent constraint means deny":
 //
-//   - No candidate users AND no candidate groups → the task is genuinely open
-//     (valid BPMN: an unassigned task with no restriction). Anyone may take it.
+//   - No candidate users AND no candidate groups → nobody was named for the
+//     task, which does not make it everybody's. Only an administrator or an
+//     operator may take it (entities.Task.FallsToOperators), unless the
+//     installation has brought the old rule back for a migration window
+//     (EnvAllowUnassignedTaskClaims). A manual task is the exception the
+//     designer promises: anybody's.
 //   - Otherwise the caller must appear in CandidateUsers, or belong to one of
 //     CandidateGroups.
 //
-// Two bugs are closed here. Previously the check seeded `isCandidate` with
+// No candidates used to mean "anyone may take it", documented as valid BPMN
+// for an unrestricted task. It let a member of any team claim and complete an
+// approval nobody had meant them to have, with their own variables.
+//
+// Two earlier bugs are closed here too. The check seeded `isCandidate` with
 // `len(task.CandidateUsers) == 0`, so a task restricted purely by group — the
 // normal enterprise routing pattern — had an empty user list and was claimable
 // by anyone. And CandidateGroups was never consulted at all, so a group
@@ -133,7 +141,16 @@ var ErrTaskForbidden = fmt.Errorf("%w: task: caller is not permitted to act on t
 // Group membership is resolved from the database rather than taken from the
 // request, so a caller cannot grant themselves a group by asserting it.
 func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task, userID string) error {
+	if task.FallsToOperators() {
+		if mayTakeUnnamedTask(ctx, userID) {
+			return nil
+		}
+		return servicecontracts.ErrNobodyNamed
+	}
 	if len(task.CandidateUsers) == 0 && len(task.CandidateGroups) == 0 {
+		// A manual task nobody was named for, which is anybody's. Neither
+		// caller brings an assigned task here: completion decides one by its
+		// assignee, and only an unclaimed task can be claimed.
 		return nil
 	}
 
@@ -563,8 +580,16 @@ func (s *taskService) ListTasksByAssigneePaged(ctx context.Context, assignee str
 
 // ListTasksByCandidatesPaged returns one page of the unclaimed tasks a user
 // could take, with the total.
+//
+// What it offers is what its reader may claim, so a task nobody was named for
+// is among them for whoever may take one — an administrator or an operator,
+// or anybody while the old rule is back — and for nobody else.
 func (s *taskService) ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error) {
-	result, err := s.repo.Task().ListByCandidatesPaged(ctx, userID, groups, page)
+	result, err := s.repo.Task().ListByCandidatesPaged(ctx, repocontracts.Candidacy{
+		User:    userID,
+		Groups:  groups,
+		Unnamed: mayTakeUnnamedTask(ctx, userID),
+	}, page)
 	if err != nil {
 		return repocontracts.Page[entities.Task]{}, err
 	}

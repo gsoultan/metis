@@ -327,6 +327,10 @@ METIS_HTTP_ALLOW_PRIVATE_NETWORKS=true
 # Uncomment to keep the pre-existing gateway fallback while migrating
 # definitions that relied on it.
 # METIS_ALLOW_IMPLICIT_DEFAULT_FLOW=true
+
+# Uncomment to let anybody signed in claim and complete a task with no
+# assignee and no candidates, while those steps are given somebody.
+# METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true
 EOF
   ok "wrote $ENV_FILE"
 }

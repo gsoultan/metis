@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Undoing work that was already done.
@@ -88,7 +89,7 @@ func TestCompensationDoesNotRunTwiceForTheSameActivity(t *testing.T) {
 	booked := false
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "book-flight" {
-			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+			if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil); err != nil {
 				t.Fatalf("complete the booking task: %v", err)
 			}
 			booked = true
@@ -178,7 +179,7 @@ func TestCompensationOfANamedActivityLeavesOthersAlone(t *testing.T) {
 		done := false
 		for _, task := range tasks {
 			if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID {
-				if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+				if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil); err != nil {
 					t.Fatalf("complete %s: %v", nodeID, err)
 				}
 				done = true
@@ -246,7 +247,7 @@ func TestFailedCompensationIsNotRecordedAsDone(t *testing.T) {
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "book-flight" {
 			// The failing rollback may surface here; either way is fine.
-			_ = h.svc.CompleteTask(ctx, task.ID, "carol", nil)
+			_ = h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil)
 		}
 	}
 

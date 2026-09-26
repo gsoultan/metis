@@ -39,6 +39,11 @@ const (
 
 	localPassword = "local-account-password"
 
+	// localTokenSecret is the harness's JWT_SECRET: what /api/v1/login signs a
+	// local account's token with, and so what a test signs one with to forge
+	// it.
+	localTokenSecret = "oidc-test-secret"
+
 	// requestTimeout bounds one request, so a hang fails the test rather than
 	// the run.
 	requestTimeout = 30 * time.Second
@@ -133,7 +138,7 @@ func newAPIHarness(t *testing.T, validator *pkgauth.TokenValidator) *apiHarness 
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse,
-		"oidc-test-secret", nil, nil, nil)
+		localTokenSecret, nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, validator,
 		map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)

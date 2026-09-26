@@ -69,6 +69,8 @@ import { VirtualRows } from '../components/VirtualRows';
 import { useRef } from 'react';
 import { statusLabel } from '../components/statusVocabulary';
 import { useTranslation } from '../i18n/context';
+import { offersClaim } from '../domain/unnamedTask';
+import { useAppStore } from '../store/useAppStore';
 
 function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
   if (!variables) return null;
@@ -118,8 +120,16 @@ interface TaskRowProps {
 /** The subset of TanStack Router's navigate that this page uses. */
 type NavigateFn = (args: { to: string; search?: Record<string, unknown> }) => void;
 
-/** The card renders the same task as the row, minus the unclaim action. */
-type TaskCardProps = TaskRowProps;
+/**
+ * The card renders the same task as the row, minus the unclaim action.
+ *
+ * `claimable` is decided per viewer, because the board is the one view that
+ * shows every task in the project rather than what the server listed for its
+ * reader: a task nobody was named for is only an administrator's or an
+ * operator's to take (domain/unnamedTask.ts). The table's rows come from the
+ * server's lists, which already say what the reader may claim.
+ */
+type TaskCardProps = TaskRowProps & { claimable: boolean };
 
 interface KanbanViewProps {
   tasks: Task[];
@@ -338,7 +348,10 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
   );
 }
 
-function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate }: TaskCardProps) {
+/** What the board says instead of "Claim" on a task its reader may not take. */
+const NOBODY_NAMED_NOTE = 'Nobody was named for this. An administrator or an operator can take it.';
+
+function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, claimable }: TaskCardProps) {
   // How urgent this is, decided in one place rather than by three different
   // inline thresholds — which is what was here, and they had already drifted.
   const urgency = urgencyOf(task);
@@ -425,9 +438,15 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
 
       <Group grow mt="md">
         {task.status === 'unclaimed' ? (
-          <Button size="compact-xs" variant="light" color="blue" onClick={() => onClaim(task.id, task.name)}>
-            Claim
-          </Button>
+          claimable ? (
+            <Button size="compact-xs" variant="light" color="blue" onClick={() => onClaim(task.id, task.name)}>
+              Claim
+            </Button>
+          ) : (
+            // Offering it would only earn a refusal. Saying who can take it
+            // tells the reader whom to ask.
+            <Text size="xs" c="dimmed">{NOBODY_NAMED_NOTE}</Text>
+          )
         ) : (
           <Button size="compact-xs" color={task.type === 'manualTask' ? 'blue' : 'green'} onClick={() => onComplete(task)}>
             {task.type === 'manualTask' ? 'Done' : 'Complete'}
@@ -439,6 +458,8 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
 }
 
 function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: KanbanViewProps) {
+  // Who is looking decides what the board offers them to claim.
+  const viewer = useAppStore((state) => state.user);
   // The column headings are the status names, so they come from the same place
   // the badges do — "Unclaimed" here and "Available" on the card was the board
   // disagreeing with the cards on it.
@@ -480,6 +501,7 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
                   onEdit={onEdit} 
                   onReassign={onReassign} 
                   navigate={navigate}
+                  claimable={offersClaim(task, viewer)}
                 />
               ))}
               {filteredTasks.filter((t) => t.status === col.status).length === 0 && (

@@ -115,14 +115,14 @@ func (r *taskRepository) ListByInstance(ctx context.Context, instanceID uuid.UUI
 //
 // Raw SQL because the predicate is a disjunction over a variable number of
 // groups, which the generated store expresses only for a fixed column.
-func (r *taskRepository) ListByCandidates(ctx context.Context, userID string, groups []string) ([]models.TaskModel, error) {
-	rows, _, err := r.candidates(ctx, userID, groups, nil)
+func (r *taskRepository) ListByCandidates(ctx context.Context, c contracts.Candidacy) ([]models.TaskModel, error) {
+	rows, _, err := r.candidates(ctx, c, nil)
 	return rows, err
 }
 
-func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, userID string, groups []string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, c contracts.Candidacy, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
 	n := p.Normalize()
-	items, total, err := r.candidates(ctx, userID, groups, &n)
+	items, total, err := r.candidates(ctx, c, &n)
 	if err != nil {
 		return contracts.NewPage([]models.TaskModel{}, 0, p), err
 	}
@@ -134,7 +134,18 @@ func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, userID strin
 // showed some of them twice and others never.
 const newestFirst = "created_at DESC, id DESC"
 
-func (r *taskRepository) candidates(ctx context.Context, userID string, groups []string, page *contracts.Pagination) ([]models.TaskModel, int64, error) {
+// namesNobody matches a task given to nobody: no assignee, and no candidate
+// users or groups (entities.Task.NamesNobody).
+//
+// This repository writes an empty list as []. NULL, the JSON null and an empty
+// value are what a row written some other way can hold, and they name nobody
+// just the same. Read as text, so the predicate still holds once the candidate
+// columns become jsonb.
+const namesNobody = "(COALESCE(assignee, '') = ''" +
+	" AND COALESCE(candidate_users::text, '') IN ('', '[]', 'null')" +
+	" AND COALESCE(candidate_groups::text, '') IN ('', '[]', 'null'))"
+
+func (r *taskRepository) candidates(ctx context.Context, c contracts.Candidacy, page *contracts.Pagination) ([]models.TaskModel, int64, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -151,10 +162,13 @@ func (r *taskRepository) candidates(ctx context.Context, userID string, groups [
 	args := []any{string(models.TaskUnclaimed)}
 
 	matches := []string{fmt.Sprintf("candidate_users LIKE $%d", len(args)+1)}
-	args = append(args, "%"+quoted(userID)+"%")
-	for _, group := range groups {
+	args = append(args, "%"+quoted(c.User)+"%")
+	for _, group := range c.Groups {
 		matches = append(matches, fmt.Sprintf("candidate_groups LIKE $%d", len(args)+1))
 		args = append(args, "%"+quoted(group)+"%")
+	}
+	if c.Unnamed {
+		matches = append(matches, namesNobody)
 	}
 	where = append(where, "("+strings.Join(matches, " OR ")+")")
 

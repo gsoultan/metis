@@ -33,7 +33,7 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   {
     value: 'OPERATOR',
     label: 'Operator',
-    description: 'Resolves incidents, starts ad hoc tasks and broadcasts signals to running instances',
+    description: 'Resolves incidents, starts ad hoc tasks, broadcasts signals to running instances, and takes the tasks nobody was named for',
   },
   {
     value: 'QUERY_AUTHOR',
@@ -48,6 +48,9 @@ export const PRIVILEGED_ROLE = 'ADMIN';
 
 /** The role that authors and deploys models, and imports the people they assign work to. */
 export const DESIGNER_ROLE = 'DESIGNER';
+
+/** The role that runs the system day to day, and takes the tasks nobody was named for. */
+export const OPERATOR_ROLE = 'OPERATOR';
 
 /**
  * The word for a role token.

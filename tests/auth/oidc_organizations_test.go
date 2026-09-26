@@ -147,38 +147,37 @@ func TestAnOIDCAccountIsSentToItsProviderToChangeItsPassword(t *testing.T) {
 	}
 }
 
-// A local account signs in and is scoped exactly as before, with or without
-// OIDC configured.
-func TestALocalAccountsAccessIsUnchanged(t *testing.T) {
-	t.Run("without OIDC", func(t *testing.T) {
-		h := newLocalHarness(t)
-		acme := h.organization("Acme")
-		globex := h.organization("Globex")
-		h.localAccount("hopper", "hopper@acme.example", acme)
-		token := h.login("hopper")
+// A local account signs in and is scoped the same way with or without OIDC
+// configured.
+//
+// With OIDC configured its token used to be refused with 401: the API took the
+// provider's tokens and nothing else, so the installation's break-glass
+// administrator was locked out whenever the provider was.
+func TestALocalAccountsAccessIsTheSameWithOrWithoutOIDC(t *testing.T) {
+	for name, newHarness := range map[string]func(t *testing.T) *apiHarness{
+		"without OIDC":         newLocalHarness,
+		"with OIDC configured": func(t *testing.T) *apiHarness { return newOIDCHarness(t, organizationClaim) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			acme := h.organization("Acme")
+			globex := h.organization("Globex")
+			h.localAccount("hopper", "hopper@acme.example", acme)
+			token := h.login("hopper")
 
-		if got := h.projects(token, ""); !slices.Equal(got, []string{"Acme Project"}) {
-			t.Fatalf("Hopper reached %v, want Acme's projects", got)
-		}
-		if status, body := h.get("/api/v1/projects", token, globex.String()); status != http.StatusUnauthorized {
-			t.Fatalf("Hopper asking for Globex: status %d (%s), want the 401 a non-member has always had", status, body)
-		}
-		account := h.me(token)
-		if account.IdentityProvider != "" || !slices.Equal(account.Roles, []string{"DESIGNER"}) {
-			t.Fatalf("Hopper's account changed: %+v", account)
-		}
-	})
-
-	// With OIDC configured the API accepts the provider's tokens and nothing
-	// else, as it always has: a local account's token is refused.
-	t.Run("with OIDC configured", func(t *testing.T) {
-		h := newOIDCHarness(t, organizationClaim)
-		acme := h.organization("Acme")
-		h.localAccount("hopper", "hopper@acme.example", acme)
-		token := h.login("hopper")
-
-		if status, body := h.get("/api/v1/projects", token, ""); status != http.StatusUnauthorized {
-			t.Fatalf("a local token under OIDC: status %d (%s), want 401 as before", status, body)
-		}
-	})
+			if status, body := h.get("/api/v1/projects", token, ""); status != http.StatusOK {
+				t.Fatalf("Hopper's token: status %d (%s), want 200", status, body)
+			}
+			if got := h.projects(token, ""); !slices.Equal(got, []string{"Acme Project"}) {
+				t.Fatalf("Hopper reached %v, want Acme's projects", got)
+			}
+			if status, body := h.get("/api/v1/projects", token, globex.String()); status != http.StatusUnauthorized {
+				t.Fatalf("Hopper asking for Globex: status %d (%s), want the 401 a non-member has always had", status, body)
+			}
+			account := h.me(token)
+			if account.IdentityProvider != "" || !slices.Equal(account.Roles, []string{"DESIGNER"}) {
+				t.Fatalf("Hopper's account changed: %+v", account)
+			}
+		})
+	}
 }

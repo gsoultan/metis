@@ -51,7 +51,7 @@ func TestTheExecutionPathRunsFromStartToWhereTheInstanceIs(t *testing.T) {
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("expected the draft task: %d tasks, err=%v", len(tasks), err)
 	}
-	if err := svc.CompleteTask(ctx, tasks[0].ID, "ada", nil); err != nil {
+	if err := svc.CompleteTask(testutils.AsOperator(ctx, "ada"), tasks[0].ID, "ada", nil); err != nil {
 		t.Fatalf("complete the draft: %v", err)
 	}
 

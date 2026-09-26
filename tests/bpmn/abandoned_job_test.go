@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Work whose worker died.
@@ -213,7 +214,7 @@ func TestARepeatingBoundaryTimerStopsOnceItsActivityHasFinished(t *testing.T) {
 	}
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == "approve" {
-			if err := h.svc.CompleteTask(ctx, task.ID, "carol", nil); err != nil {
+			if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", nil); err != nil {
 				t.Fatalf("approve: %v", err)
 			}
 		}

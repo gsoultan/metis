@@ -74,7 +74,7 @@ func TestOnlyOneOfSeveralSimultaneousClaimsWins(t *testing.T) {
 		wg.Go(func() {
 			<-start
 			who := fmt.Sprintf("worker-%d", i)
-			if err := svc.ClaimTask(ctx, taskID, who); err == nil {
+			if err := svc.ClaimTask(testutils.AsOperator(ctx, who), taskID, who); err == nil {
 				won <- who
 			}
 		})

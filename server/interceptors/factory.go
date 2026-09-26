@@ -107,6 +107,15 @@ func (f *InterceptorFactory) NewOIDCStrategy(validator *auth.TokenValidator) aut
 	})
 }
 
+// NewLocalAndOIDCStrategy is what the API authenticates with while OIDC is on:
+// a local account's token by the local rules, an ID token by the provider's
+// and the sign-in above, each chosen by what the token says it is. Local
+// accounts keep working then — the break-glass administrator included — when
+// the provider is unreachable.
+func (f *InterceptorFactory) NewLocalAndOIDCStrategy(validator *auth.TokenValidator) authinterceptor.SecurityStrategy {
+	return authinterceptor.NewTokenKindStrategy(f.NewJWTStrategy(), f.NewOIDCStrategy(validator))
+}
+
 // NewTenantResolver derives the active tenant from the authenticated principal.
 func (f *InterceptorFactory) NewTenantResolver() contracts.EndpointInterceptor {
 	return tenant.NewEndpointTenantResolver()

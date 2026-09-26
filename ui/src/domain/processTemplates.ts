@@ -16,10 +16,12 @@
  * What a template deliberately does NOT do
  * ----------------------------------------
  * It leaves every *decision* to the author. Gateway conditions are empty, not
- * guessed; a business rule task names no table. A template that arrives
- * looking configured, and is not, is the failure mode the decide-group builder
- * already avoids for the same reason — a condition that looks set but is empty
- * routes nothing, and the author has no reason to look at it.
+ * guessed; a business rule task names no table; a step that asks a person names
+ * nobody, and the designer says who could take it until the author does. A
+ * template that arrives looking configured, and is not, is the failure mode the
+ * decide-group builder already avoids for the same reason — a condition that
+ * looks set but is empty routes nothing, and the author has no reason to look
+ * at it.
  *
  * Nor does it point a step at another system. A step that calls one names a
  * topic for the author's own worker instead, so nothing is called until

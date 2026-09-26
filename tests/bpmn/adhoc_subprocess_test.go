@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // An ad-hoc sub-process lets a knowledge worker run the tasks inside it in any
@@ -33,7 +34,7 @@ func completeTaskAt(ctx context.Context, t *testing.T, h engineHarness, instance
 	}
 	for _, task := range tasks {
 		if task.Instance != nil && task.Instance.ID == instanceID && task.NodeID() == nodeID && taskIsOpen(task.Status) {
-			if err := h.svc.CompleteTask(ctx, task.ID, "carol", vars); err != nil {
+			if err := h.svc.CompleteTask(testutils.AsOperator(ctx, "carol"), task.ID, "carol", vars); err != nil {
 				t.Fatalf("complete %s: %v", nodeID, err)
 			}
 			return

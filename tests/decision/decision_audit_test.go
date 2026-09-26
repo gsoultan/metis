@@ -412,7 +412,7 @@ func (h *businessRuleHarness) completeEveryTask(t *testing.T, instanceID uuid.UU
 	}
 	taskSvc := serviceimpl.NewTaskService(h.repo, h.engine, serviceimpl.NewAuditWriter(h.repo.Audit()))
 	for _, m := range tasks {
-		if err := taskSvc.CompleteTask(ctx, uuid.UUID(m.ID), "", nil); err != nil {
+		if err := taskSvc.CompleteTask(testutils.AsOperator(ctx, "carol"), uuid.UUID(m.ID), "carol", nil); err != nil {
 			t.Fatalf("complete task: %v", err)
 		}
 	}

@@ -18,6 +18,7 @@
  * what to do about it.
  */
 
+import { asText, asTextList } from '../types/bpmn';
 import { NODE_VOCABULARY, isEndingNode, vocabularyFor } from './bpmnVocabulary';
 import { missingStepFields, type StepSchemas, unmappedParameters } from './connectorStep';
 import { connection, serviceImplementation, webAddress, workerTopic } from './serviceImplementation';
@@ -204,6 +205,50 @@ function serviceTaskWarning(node: CheckableNode, problem: ServiceTaskProblem): V
   };
 }
 
+/**
+ * A step that asks a person, with nobody named to do it.
+ *
+ * With no assignee and no candidates the task used to be anybody's, and the
+ * server now offers it to nobody's inbox and lets only an administrator or an
+ * operator take it: absent constraint means deny. That can be what the author
+ * meant — a step nobody owns yet — so it is a warning, and it is said here,
+ * before the first instance gets there, rather than to the person refused.
+ *
+ * A step whose assignment table names who does it is named when the task
+ * arrives, so it is left alone. So is a manual step: the designer offers no
+ * way to name anybody for one, and it stays anybody's.
+ *
+ * Exported for the property panel's suggestions, which make the same check on
+ * the step selected and must not say something different about it.
+ */
+export function nobodyNamedIssue(node: CheckableNode): ValidationIssue | undefined {
+  if (node.type !== 'userTask' || namesSomebody(node)) {
+    return undefined;
+  }
+  return {
+    message: `"${stepName(node)}" does not say who does it, so only administrators and operators will be able to take it.`,
+    severity: 'warning',
+    id: node.id,
+    suggestion: 'Under “Who does this” on the step, choose one person, or the people or teams who may pick it up.',
+  };
+}
+
+/** Whether a step names who does it, now or through a decision table when it runs. A blank name is nobody. */
+function namesSomebody(node: CheckableNode): boolean {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  const named = (names: string[]) => names.some((name) => !isBlank(name));
+  return (
+    named([asText(data.assignee)]) ||
+    named(asTextList(data.candidateUsers)) ||
+    named(asTextList(data.candidateGroups)) ||
+    named([asText(data.assignment_decision_key)])
+  );
+}
+
+function nobodyNamedIssues(nodes: CheckableNode[]): ValidationIssue[] {
+  return nodes.map(nobodyNamedIssue).filter((issue): issue is ValidationIssue => issue !== undefined);
+}
+
 export function validateProcess(
   nodes: CheckableNode[],
   edges: CheckableEdge[],
@@ -220,6 +265,7 @@ export function validateProcess(
   const issues: ValidationIssue[] = [
     ...connectorStepIssues(nodes, stepSchemas),
     ...unpointedServiceTaskIssues(nodes),
+    ...nobodyNamedIssues(nodes),
   ];
   const starts = nodes.filter((n) => n.type === 'startEvent');
 

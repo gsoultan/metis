@@ -1,7 +1,8 @@
 import { Stack, Group, Text, Paper, ThemeIcon, Button, Badge, Alert } from '@mantine/core';
 import { AlertCircle, CheckCircle2, Lightbulb, Zap, ArrowRight } from 'lucide-react';
 import type { Edge, Node } from '@xyflow/react';
-import { asTextList, type BPMNEdgeData, type BPMNNodeData } from '../types/bpmn';
+import type { BPMNEdgeData, BPMNNodeData } from '../types/bpmn';
+import { nobodyNamedIssue } from '../domain/processValidation';
 import type { DiagnosticResult } from './processDiagnostics';
 
 
@@ -30,15 +31,17 @@ export function SmartTroubleshooter({ node, edge, updateNodeData, updateEdgeData
       }
     }
 
-    // User Task Diagnostics
-    if (node.type === 'userTask') {
-      if (!data.assignee && asTextList(data.candidateUsers).length === 0) {
-        diagnostics.push({
-          severity: 'warning',
-          message: 'No assignee or candidate users.',
-          suggestion: 'The task might get stuck if no one can claim it.',
-        });
-      }
+    // User Task Diagnostics: the validation panel's own check, so the two
+    // cannot say different things about the same step. This one read only the
+    // assignee and the candidate users, and told a step offered to a team
+    // that it named nobody.
+    const nobodyNamed = nobodyNamedIssue(node);
+    if (nobodyNamed) {
+      diagnostics.push({
+        severity: nobodyNamed.severity,
+        message: nobodyNamed.message,
+        suggestion: nobodyNamed.suggestion ?? '',
+      });
     }
 
     // Gateway Diagnostics

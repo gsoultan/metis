@@ -74,7 +74,7 @@ func TestWaitingWorkIsCountedPerProcessAcrossAllOfIt(t *testing.T) {
 			if err == nil && instance.Definition != nil {
 				def, err := svc.GetDefinition(ctx, instance.Definition.ID)
 				if err == nil && def.Key == "onboarding" {
-					if err := svc.CompleteTask(ctx, task.ID, "ada", nil); err != nil {
+					if err := svc.CompleteTask(testutils.AsOperator(ctx, "ada"), task.ID, "ada", nil); err != nil {
 						t.Fatalf("complete: %v", err)
 					}
 					break

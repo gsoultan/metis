@@ -35,7 +35,7 @@ type TaskRepository interface {
 	List(ctx context.Context) ([]models.TaskModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error)
 	ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error)
-	ListByCandidates(ctx context.Context, userID string, groups []string) ([]models.TaskModel, error)
+	ListByCandidates(ctx context.Context, c Candidacy) ([]models.TaskModel, error)
 	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.TaskModel, error)
 	// Deadlines reads a project's open tasks with a due date, soonest first
 	// and at most limit of them, and counts all its open tasks. Scoped to the
@@ -48,7 +48,7 @@ type TaskRepository interface {
 	ListByAssigneePaged(ctx context.Context, assignee string, p Pagination) (Page[models.TaskModel], error)
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	ListByInstancePaged(ctx context.Context, instanceID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
-	ListByCandidatesPaged(ctx context.Context, userID string, groups []string, p Pagination) (Page[models.TaskModel], error)
+	ListByCandidatesPaged(ctx context.Context, c Candidacy, p Pagination) (Page[models.TaskModel], error)
 	ListPaged(ctx context.Context, p Pagination) (Page[models.TaskModel], error)
 	Update(ctx context.Context, task models.TaskModel) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.TaskStatus) error

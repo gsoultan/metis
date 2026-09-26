@@ -91,6 +91,16 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
   the provider from something only administrators control. Deleting a linked
   account does not keep somebody out while the provider still vouches for
   them; removing them at the provider does.
+- **Local accounts keep working while OIDC is on.** Otherwise an installation
+  loses its break-glass administrator whenever its identity provider is down.
+  The two kinds of token do not mix: what a token's header and payload say it
+  is — an HMAC naming no issuer, or a public-key signature — decides which
+  rules check it, those rules alone check it, and a token they refuse is not
+  tried against the other rules. So nothing signed with `JWT_SECRET` is taken
+  as the provider's, and nothing claiming to be the provider's is checked
+  against `JWT_SECRET` (`server/interceptors/auth/token_kind.go`). Turning OIDC
+  on does not switch local accounts off; an operator who wants them gone
+  deletes them.
 
 ## What has already been looked at
 
