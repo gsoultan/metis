@@ -15,6 +15,12 @@ type ConnectorRepository interface {
 	Create(ctx context.Context, connector models.Connector) (models.Connector, error)
 	Update(ctx context.Context, connector models.Connector) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// RestoreByKey brings back the entry most recently removed under key,
+	// keeping its id, so the steps and connections that name it reach it
+	// again. Not found when none was removed; the caller makes sure no live
+	// entry holds the key.
+	RestoreByKey(ctx context.Context, key string) (models.Connector, error)
 }
 
 // ConnectorInstanceRepository handles the storage of project-specific connector configurations.

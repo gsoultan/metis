@@ -24,6 +24,11 @@ type WebhookRepository interface {
 	// stoppable without deleting it: deleting loses the token, and the sender
 	// has to be reconfigured.
 	SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
+
+	// CloseLegacyWindow ends a webhook's window for legacy signatures at the
+	// given moment, if it runs later than that. It only ever shortens one: a
+	// webhook with no window, or one already closed, is left as it is.
+	CloseLegacyWindow(ctx context.Context, id uuid.UUID, at time.Time) error
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	// ClaimDelivery records a delivery and reports whether it is the first one

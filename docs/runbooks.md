@@ -43,6 +43,8 @@ Every rule in `deploy/kubernetes/alerts.yaml` maps to an entry here.
 | `MetisEngineStateUnreadable` | The backlog gauges cannot be read | [Backlog unreadable](#the-engines-backlog-cannot-be-read) |
 | `MetisDatabasePoolSaturated` | Pool 90% in use and callers waiting | [Pool exhausted](#the-database-pool-is-exhausted) |
 | `MetisStrictTenantScopeDenied` | The strict scope denied a call site | [`strict-tenant-scope.md`](strict-tenant-scope.md) |
+| `MetisCanaryErrorsAboveStable` | The canary's 5xx over 1% and twice stable's | [A canary is failing](#a-canary-is-failing) |
+| `MetisCanarySlowerThanStable` | The canary's read p95 over 150ms and twice stable's | [A canary is failing](#a-canary-is-failing) |
 
 ---
 
@@ -54,7 +56,7 @@ remedy — it is not one.
 
 ```bash
 kubectl -n metis logs deploy/metis --tail=100
-kubectl -n metis describe pod -l app=metis | sed -n '/Events/,$p'
+kubectl -n metis describe pod -l app.kubernetes.io/name=metis | sed -n '/Events/,$p'
 ```
 
 If it is crash-looping, the message on the first line is the cause. The four
@@ -504,7 +506,7 @@ LIMIT 10;
 The pod restarts, and its last state says `OOMKilled`:
 
 ```bash
-kubectl -n metis describe pod -l app=metis | grep -A4 "Last State"
+kubectl -n metis describe pod -l app.kubernetes.io/name=metis | grep -A4 "Last State"
 ```
 
 Work in flight is not lost: a job whose worker died is reclaimed when its lease
@@ -596,7 +598,7 @@ picked up without restarting it.
    ```
 3. Watch readiness recover:
    ```bash
-   kubectl -n metis get pod -l app=metis -w
+   kubectl -n metis get pod -l app.kubernetes.io/name=metis -w
    ```
 4. If readiness does not recover within a few minutes and the database is
    healthy, *then* restart the pod.
@@ -632,5 +634,131 @@ back from added a column and backfilled it, the column stays. That is deliberate
 a backup immediately before deploying a release containing a migration.
 
 The deployment uses a `Recreate` strategy, so there is a short gap rather than
-two versions running at once. That is intentional: one replica is the supported
-topology, and a rolling update would briefly break it.
+two versions running at once by accident: a rolling update would run the old
+pod against a schema the new one is in the middle of migrating. To run two
+versions at once on purpose, and watch the new one before it replaces the old,
+use a canary.
+
+---
+
+## Rolling out through a canary
+
+A canary runs the next release beside the stable pods, on a share of the
+requests, so a release that fails in production fails for that share first.
+`deploy/kubernetes/canary.yaml` is the canary: `metis.yaml`'s pod with another
+image and `track: canary`, and `tests/drift` holds it to that.
+
+It is judged on what each pod measures for itself, against the stable track
+over the same ten minutes: its 5xx (`MetisCanaryErrorsAboveStable`) and its read
+latency (`MetisCanarySlowerThanStable`). The engine's backlog gauges read the
+database, so they are the installation's and not a track's. A canary that
+raises incidents or leaves jobs waiting shows in `MetisIncidentsRising` and
+`MetisJobsWaitingUnclaimed`, unsplit, so watch those as well.
+
+**Before you start:**
+
+- **The canary runs the release's migrations.** It migrates at boot, against
+  the database the stable pods are using, and removing it does not undo them.
+  Take the backup the release asks for now, not before the full rollout. The
+  stable pods then run against the newer schema, which works because migrations
+  are forward-compatible ([Rolling back a release](#rolling-back-a-release)). A
+  release whose notes say its schema is not safe for the previous version cannot
+  be canaried: roll it out whole.
+- **Prometheus must see the track.** The alerts compare series by a `track`
+  label, copied from the pod label ([`deploy/kubernetes/README.md`](../deploy/kubernetes/README.md)
+  says how). Check it before trusting their silence:
+
+  ```promql
+  count by (track) (rate(metis_http_requests_total[5m]))
+  ```
+
+  Two rows, `stable` and `canary`, once the canary is ready. One row with no
+  `track` means the label is not being copied, and the canary alerts cannot fire.
+- **The database has room for another pod.** Each pod opens up to twice
+  `METIS_DB_MAX_OPEN_CONNS`, 50 by default ([`postgresql.md`](postgresql.md),
+  "Connection pool"). One canary beside one stable pod is 100 at the ceiling,
+  which is PostgreSQL's default `max_connections`:
+
+  ```sql
+  SHOW max_connections;
+  SELECT count(*) FROM pg_stat_activity;
+  ```
+
+**The share** is the canary's share of the ready pods behind the Service. One
+canary beside `metis.yaml`'s one stable pod takes half the requests, and about
+half the background jobs, since every pod claims them. For a quarter, run three
+stable pods while it lasts (`kubectl -n metis scale deploy/metis --replicas=3`),
+once the connections above allow it; `metis.yaml` says what more than one
+costs.
+
+**Start it:**
+
+```bash
+sed -i.bak 's|metis:vX.Y.Z|metis:v0.4.0|' deploy/kubernetes/canary.yaml
+kubectl -n metis apply -f deploy/kubernetes/canary.yaml
+kubectl -n metis rollout status deploy/metis-canary
+```
+
+**Let it soak.** Each alert needs ten minutes over a ten-minute window before it
+fires, so give the canary at least half an hour at normal traffic, and longer if
+the release changes something that runs on a schedule, such as a timer. Nothing
+fired, and both rows still there, is the signal to promote.
+
+**Promote:** the stable Deployment first, then remove the canary.
+
+```bash
+kubectl -n metis set image deploy/metis metis=ghcr.io/gsoultan/metis:v0.4.0
+kubectl -n metis rollout status deploy/metis
+kubectl -n metis delete -f deploy/kubernetes/canary.yaml
+```
+
+In that order the canary serves while the stable Deployment recreates its pod,
+so the release goes out without the `Recreate` gap. Scale the stable Deployment
+back down if you raised it.
+
+**If either canary alert fires,** stop instead:
+[A canary is failing](#a-canary-is-failing).
+
+---
+
+## A canary is failing
+
+`MetisCanaryErrorsAboveStable` or `MetisCanarySlowerThanStable` fired. Over ten
+minutes the canary answered 5xx at more than twice the stable track's rate, and
+over 1%, or its read p95 is more than twice stable's, and over the 150ms target.
+Both tracks share the database and the traffic, and only the image differs, so
+this is the release and not the load.
+
+**Keep its logs, then stop it.** Removing the canary sends every request back to
+the stable pods, and its logs go with it:
+
+```bash
+kubectl -n metis logs deploy/metis-canary --since=1h > canary.log
+kubectl -n metis delete -f deploy/kubernetes/canary.yaml
+```
+
+Work the canary had claimed gets `METIS_SHUTDOWN_DRAIN` (20s) to finish. Past
+that, a stable pod picks it up when its lease runs out
+([A job stuck in `running`](#a-job-stuck-in-running)), so nothing in flight is
+lost; it runs again on the stable release.
+
+**What stopping does not undo is the release's migrations**: they ran when the
+canary started, and the stable pods are already running against them. If the
+stable track starts failing once the canary is gone, the migration is the likely
+cause: see [Rolling back a release](#rolling-back-a-release) and the backup
+taken before the canary started.
+
+Then find what the release broke. The metrics outlive the pod, so compare the
+tracks by route over the window it failed in:
+
+```promql
+sum by (track, route) (rate(metis_http_requests_total{status_class="5xx"}[10m]))
+```
+
+```promql
+histogram_quantile(0.95,
+  sum by (track, route, le) (rate(metis_http_request_duration_seconds_bucket{method="GET"}[10m])))
+```
+
+A route that fails or slows on `canary` alone is where to start reading
+`canary.log`.

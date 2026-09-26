@@ -89,6 +89,11 @@ func (r *webhookRepository) Create(ctx context.Context, w models.WebhookModel) e
 	ins.SetMessageName(w.MessageName)
 	ins.SetEnabled(w.Enabled)
 	setOrNullString(ins.SetCorrelationExpression, ins.SetCorrelationExpressionNull, w.CorrelationExpression)
+	if until := w.LegacySignaturesUntil; until != nil {
+		ins.SetLegacySignaturesUntil(until.UTC())
+	} else {
+		ins.SetLegacySignaturesUntilNull()
+	}
 	if _, err := ins.Insert(ctx, ex); err != nil {
 		return fmt.Errorf("could not create the webhook: %w", err)
 	}
@@ -110,6 +115,27 @@ func (r *webhookRepository) SetEnabled(ctx context.Context, id uuid.UUID, enable
 	mut.SetEnabled(enabled)
 	if err := mut.Update(ctx, ex); err != nil {
 		return fmt.Errorf("could not change the webhook: %w", err)
+	}
+	return nil
+}
+
+func (r *webhookRepository) CloseLegacyWindow(ctx context.Context, id uuid.UUID, at time.Time) error {
+	row, err := r.one(ctx, id)
+	if err != nil {
+		return err
+	}
+	until, open := row.LegacySignaturesUntil.Get()
+	if !open || !until.After(at) {
+		return nil
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	mut := webhook.Mutate(row)
+	mut.SetLegacySignaturesUntil(at.UTC())
+	if err := mut.Update(ctx, ex); err != nil {
+		return fmt.Errorf("could not close the webhook's window for legacy signatures: %w", err)
 	}
 	return nil
 }
@@ -206,7 +232,7 @@ func (r *webhookRepository) one(ctx context.Context, id uuid.UUID) (webhook.Row,
 }
 
 func webhookFrom(row webhook.Row) models.WebhookModel {
-	return models.WebhookModel{
+	m := models.WebhookModel{
 		Base: models.Base{
 			ID:        models.UUID(row.ID),
 			CreatedAt: row.CreatedAt,
@@ -221,4 +247,8 @@ func webhookFrom(row webhook.Row) models.WebhookModel {
 		CorrelationExpression: valueOr(row.CorrelationExpression),
 		Enabled:               row.Enabled,
 	}
+	if until, ok := row.LegacySignaturesUntil.Get(); ok {
+		m.LegacySignaturesUntil = &until
+	}
+	return m
 }

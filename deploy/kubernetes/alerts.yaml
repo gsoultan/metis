@@ -370,3 +370,71 @@ spec:
               connections are in use on {{ $labels.instance }}, and requests are
               waiting for one. See docs/runbooks.md, "The database pool is
               exhausted".
+
+    # A canary serves a share of the traffic on the next release, beside the
+    # stable pods; see docs/runbooks.md, "Rolling out through a canary". Its
+    # pods carry track=canary and the stable ones track=stable, and Prometheus
+    # copies the label onto every series (deploy/kubernetes/README.md).
+    - name: metis.canary
+      rules:
+        # A counter series exists only once it has been counted, so a track
+        # that has not answered a 5xx has no 5xx series. The `or` gives it a 0:
+        # without it a healthy stable track has no ratio at all, and a canary
+        # compared against nothing never fires.
+        - record: metis:http_error_ratio_by_track:rate10m
+          expr: >-
+            (
+              sum by (track) (rate(metis_http_requests_total{status_class="5xx"}[10m]))
+              or 0 * sum by (track) (rate(metis_http_requests_total[10m]))
+            )
+            / sum by (track) (rate(metis_http_requests_total[10m]))
+
+        - alert: MetisCanaryErrorsAboveStable
+          # Relative to stable, not to the budget: a release that doubles the
+          # errors is the thing a canary is there to catch, even when both
+          # tracks are well inside the budget. The 1% floor keeps a canary with
+          # a handful of requests from firing on one unlucky 5xx. group_left
+          # keeps the canary's labels; a one-to-one match on () keeps none.
+          expr: >-
+            metis:http_error_ratio_by_track:rate10m{track="canary"}
+              > on () group_left 2 * metis:http_error_ratio_by_track:rate10m{track="stable"}
+            and on ()
+            metis:http_error_ratio_by_track:rate10m{track="canary"} > 0.01
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The canary answers 5xx at more than twice the stable track's rate"
+            description: >-
+              Over the last 10 minutes the canary answered {{ $value | humanizePercentage }}
+              of its requests with a 5xx, against {{ with query "metis:http_error_ratio_by_track:rate10m{track=\"stable\"}" }}{{ . | first | value | humanizePercentage }}{{ end }}
+              on the stable track. Stop the rollout: docs/runbooks.md, "A canary is
+              failing".
+
+        - record: metis:http_read_latency_p95_by_track:rate10m
+          expr: >-
+            histogram_quantile(0.95,
+              sum by (track, le) (rate(metis_http_request_duration_seconds_bucket{method="GET"}[10m]))
+            )
+
+        - alert: MetisCanarySlowerThanStable
+          # Reads, because they are what a person waits on and the tightest
+          # target. Both conditions, because a canary slower than stable but
+          # well inside the target is not worth stopping a rollout for, and one
+          # as slow as a slow stable track is the database or the load rather
+          # than the release, which MetisReadLatencyOverTarget covers.
+          expr: >-
+            metis:http_read_latency_p95_by_track:rate10m{track="canary"}
+              > on () group_left 2 * metis:http_read_latency_p95_by_track:rate10m{track="stable"}
+            and on ()
+            metis:http_read_latency_p95_by_track:rate10m{track="canary"} > 0.15
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The canary's reads are over the 150ms target and twice as slow as stable's"
+            description: >-
+              Read p95 on the canary is {{ $value | humanizeDuration }}, against
+              {{ with query "metis:http_read_latency_p95_by_track:rate10m{track=\"stable\"}" }}{{ . | first | value | humanizeDuration }}{{ end }}
+              on the stable track. Stop the rollout: docs/runbooks.md, "A canary
+              is failing".

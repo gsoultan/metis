@@ -571,3 +571,159 @@ tests:
       - eval_time: 12m
         alertname: MetisDatabasePoolSaturated
         exp_alerts: []
+
+  # --------------------------------------------------------------------- canary
+  # A canary serves a share of the traffic on the next release. Its pods carry
+  # track=canary and the stable ones track=stable; Prometheus copies the label
+  # onto every series (see deploy/kubernetes/README.md).
+  - interval: 1m
+    name: a canary answering far more 5xx than stable fires MetisCanaryErrorsAboveStable
+    input_series:
+      # Stable: 1000 requests a minute, 1 of them a 5xx (0.1%).
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+999x40'
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+1x40'
+      # Canary: 100 requests a minute, 5 of them 5xx (5%).
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+95x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary answers 5xx at more than twice the stable track's rate"
+              description: >-
+                Over the last 10 minutes the canary answered 5% of its requests
+                with a 5xx, against 0.1% on the stable track. Stop the rollout:
+                docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary no worse than stable stays quiet
+    input_series:
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+995x40'
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+5x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+199x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts: []
+
+  # A counter series exists only once it has been counted, so a stable track
+  # that has not answered a single 5xx has no 5xx series at all. That is the
+  # healthy case, and the comparison must still have a stable rate of 0 to
+  # compare the canary against rather than nothing.
+  - interval: 1m
+    name: a failing canary fires beside a stable track that has never answered a 5xx
+    input_series:
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+1000x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+90x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+10x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary answers 5xx at more than twice the stable track's rate"
+              description: >-
+                Over the last 10 minutes the canary answered 10% of its requests
+                with a 5xx, against 0% on the stable track. Stop the rollout:
+                docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary reading far slower than stable fires MetisCanarySlowerThanStable
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary's reads are over the 150ms target and twice as slow as stable's"
+              description: >-
+                Read p95 on the canary is 957.5ms, against 4.75ms on the stable
+                track. Stop the rollout: docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary reading as fast as stable stays quiet
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
+        exp_alerts: []
+
+  # Slow on both tracks is the database or the load, not the release, and
+  # MetisReadLatencyOverTarget is the alert for that.
+  - interval: 1m
+    name: a canary as slow as a slow stable track stays quiet
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
+        exp_alerts: []
