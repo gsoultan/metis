@@ -86,7 +86,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectorEndpoints.CreateConnectorInstance = adminOnly("CreateConnectorInstance")(connectorEndpoints.CreateConnectorInstance)
 	connectorEndpoints.UpdateConnectorInstance = adminOnly("UpdateConnectorInstance")(connectorEndpoints.UpdateConnectorInstance)
 	connectorEndpoints.DeleteConnectorInstance = adminOnly("DeleteConnectorInstance")(connectorEndpoints.DeleteConnectorInstance)
-	connectorEndpoints.ExecuteConnector = protected("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
+	// Administrators only. It runs a connector with a configuration the caller
+	// writes — any host, any port — and the SMTP and AMQP connectors dial it
+	// directly, with no egress guard. Behind a login alone, every signed-in
+	// account could make the server connect wherever it liked, and read from the
+	// error whether something was listening there. The Connectors page's
+	// connection test is its only working caller, and that page is theirs; an
+	// administrator can already point a saved connection anywhere.
+	connectorEndpoints.ExecuteConnector = adminOnly("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
 
 	// The connector *templates*, as opposed to the instances above. These three
 	// were routed and never wrapped, so any authenticated account could add,

@@ -18,7 +18,11 @@
 // not through the API, so it still gets the real values.
 package configsecret
 
-import "strings"
+import (
+	"net/url"
+	"slices"
+	"strings"
+)
 
 // Sentinel is what the API returns in place of a stored secret, and what it
 // accepts back to mean "unchanged". A fixed, obviously-not-a-password string
@@ -115,13 +119,45 @@ func Mask(config map[string]any) map[string]any {
 	}
 	masked := make(map[string]any, len(config))
 	for key, value := range config {
-		if IsSensitive(key) && !isEmpty(value) {
+		if (IsSensitive(key) || CarriesCredential(value)) && !isEmpty(value) {
 			masked[key] = Sentinel
 			continue
 		}
 		masked[key] = value
 	}
 	return masked
+}
+
+// CarriesCredential reports whether a value is a URL with a credential inside
+// it: a password in its user information — amqp://user:secret@broker — or a
+// query parameter named like a secret — https://api.example.com/v1?api_key=…
+//
+// Such a value is a credential whatever its key is called. Masking went by key
+// alone, so a RabbitMQ connection's url, password and all, was returned to
+// every signed-in account that listed a project's connections. The whole value
+// is masked rather than the password cut out of it: a URL rebuilt around a
+// placeholder is one more format to get wrong, and re-typing a URL to change it
+// is what re-typing a password already asks.
+func CarriesCredential(value any) bool {
+	text, ok := value.(string)
+	if !ok || !strings.Contains(text, "://") {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(text))
+	if err != nil {
+		return false
+	}
+	if u.User != nil {
+		if password, set := u.User.Password(); set && password != "" {
+			return true
+		}
+	}
+	for name, values := range u.Query() {
+		if IsSensitive(name) && slices.ContainsFunc(values, func(v string) bool { return v != "" }) {
+			return true
+		}
+	}
+	return false
 }
 
 // Merge folds an incoming configuration onto the stored one, keeping any value

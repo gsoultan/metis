@@ -81,12 +81,15 @@ func TestASQLServerLookupThatRunsTooLongIsStopped(t *testing.T) {
 	target := testutils.SQLServerLookupDatabase(t)
 	_, err := testExecutor().ExecuteRequest(testContext(t), sqlServerConfig(target.DSN, "statement_timeout_ms", "300"),
 		servicecontracts.ConnectorRequest{
-			// A predicate over all three, so the count cannot be pushed into
-			// each input and multiplied — which is what SQL Server did with a bare
-			// COUNT_BIG(*) of the cross join, answering well inside the limit.
-			// Remainders keep INT object ids from overflowing.
+			// A checksum of all three together. The first version counted the bare
+			// cross join, which SQL Server counts per input and multiplies. The
+			// second filtered on (a % 7) + (b % 7) + (c % 7), which it can still
+			// shortcut — group each input by its remainder, join 7 x 7 x 7 groups,
+			// multiply the counts — on the plans where it chooses to, so it passed
+			// once and failed the next run. A checksum of the three values cannot
+			// be split into per-input groups, so every combination is visited.
 			Statement: "SELECT COUNT_BIG(*) AS total FROM sys.all_objects a CROSS JOIN sys.all_objects b " +
-				"CROSS JOIN sys.all_objects c WHERE (a.object_id % 7) + (b.object_id % 7) + (c.object_id % 7) = 3",
+				"CROSS JOIN sys.all_objects c WHERE CHECKSUM(a.object_id, b.object_id, c.object_id) % 7 = 3",
 			ResultVariable: "total",
 		})
 	if err == nil || !strings.Contains(err.Error(), "took longer than its limit") {

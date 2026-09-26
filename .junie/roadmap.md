@@ -734,6 +734,45 @@
       port does not serve metrics, and the 401 is recorded as `status_class="4xx"`
     - Fuzzers run beyond their seeds: 4.1M executions on the parser after the fix, clean
 
+- 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
+  The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
+  log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
+  reports, at scrape time, whether the flag is on and one series per denied site, labelled
+  with the site — both, because zero denied sites reads as "clean" only while the flag is
+  actually on. Bounded by code, not traffic: sites are keyed by program counter. The
+  metrics endpoint is its own opt-in listener, not the API port, so naming code paths there
+  is an operator's view. Not done here, and not doable from code: the soak against a real
+  workload, production, and retiring the flag.
+
+- 2026-09-25 (completed): Executed `P0-SEC-07` — a credential inside a value is masked.
+  A RabbitMQ connection's `url` carries the broker password (`amqp://user:password@host`),
+  and masking went by key name, so `ListConnectorInstances` — any signed-in account —
+  returned it in clear. `configsecret.CarriesCredential` now recognises a URL with a password
+  in its user information, or a query parameter named like a secret, whatever its key.
+  The whole value is masked rather than the password cut out, so there is no rebuilt-URL
+  format to get wrong. Test: `tests/connector/url_credential_test.go` — through the endpoint,
+  the broker url came back in clear before and is masked after; saving the form unchanged
+  keeps the stored url.
+
+- 2026-09-25 (completed): Executed `P0-SEC-06` — only an administrator can make the server
+  connect somewhere. Found while building `P2-INT-02`.
+  - **The hole.** `POST /api/v1/connectors/execute` runs a connector with a configuration its
+    caller writes, and was wired to `protected` — signed in, nothing more. The SMTP and AMQP
+    connectors dial directly (no egress guard), so any account could point one at any host
+    and port and read from the error whether something listened: a port scanner, run from
+    inside the network Metis sits in. Proven through the real HTTP chain: a `USER` account
+    made the server open a connection to a listener on 127.0.0.1 and got `send mail: EOF`
+    back.
+  - **Fix.** `adminOnly`. Not an egress guard on SMTP and AMQP: that guard refuses private
+    networks by default, and an organisation's mail relay is normally on one. The connection
+    test on the Connectors page is the only working caller and is an administrator's page.
+  - **Also.** The RabbitMQ connector's per-URL connection map was unbounded and kept stale
+    connections for good; it is a bounded LRU now, closing what it pushes out, with dials
+    shared so two first publishes cannot leak a connection between them.
+  - Test: `tests/connector/execute_authorization_test.go` — a listener stands in for an
+    internal host; `USER`, `OPERATOR` and `DESIGNER` are refused and it sees no connection,
+    `ADMIN` still reaches it. Fails before (three connections), passes after.
+
 - 2026-09-25 (completed): Executed `P2-INT-02` — a process can look something up in its own
   database before it decides. Branch `database-lookup-connector`.
   - **Reprioritization note.** This is P2 work landing while §11 item 1 — the staged rollout
@@ -789,7 +828,7 @@
       `tests/loadtest` excluded since its own job guards it. Every skip in the main job had
       been going unreported.
   - **Found and not fixed — for the backlog:**
-    - `P0-SEC` — `POST /api/v1/connectors/execute` needs only a login. Any signed-in account,
+    - `P0-SEC` — **fixed in `P0-SEC-06`, below.** `POST /api/v1/connectors/execute` needs only a login. Any signed-in account,
       task-inbox participants included, can make the server connect wherever a
       caller-supplied configuration points: SMTP, AMQP, HTTP (the last is egress-guarded,
       the first two are not). The lookup refuses to connect through it, so this change adds
@@ -800,9 +839,10 @@
     - A service task's SENDING/RECEIVING mapping tables write `inputs`/`outputs`, which no Go
       code reads. Honouring them changes what every saved definition does; that is a
       migration, not a cleanup.
-    - A RabbitMQ `url` can carry a password inside it and is not masked; fixing that needs
-      connectors to declare which fields are secret (`ConnectorProperty.Secret`) rather than
-      having it guessed from their names.
+    - A RabbitMQ `url` can carry a password inside it and is not masked. **Fixed in
+      `P0-SEC-07`, below** — by recognising a credential in the value rather than by a
+      declared `Secret` flag, which would have left every manifest-installed connector to
+      remember to declare it.
   - Gate: `make gate` green with both test DSNs set — ui-build, build, vet, test (78 packages
     ok), race (78 ok, no races), strict-scope (78 ok), tsc, eslint (0 errors), bun test (705
     pass). Also golangci-lint 0 issues, govulncheck no reachable vulnerabilities, gitleaks no
@@ -1049,7 +1089,12 @@
    test). The integration coverage that had to exist before the flag could be flipped now
    does — `tests/strictscope`, entering through the real HTTP chain and the job worker —
    so what is left is the staged rollout: staging with the flag on, watching for queries
-   that suddenly return nothing, then production, then the default.
+   that suddenly return nothing, then production, then the default. **2026-09-25:** the
+   watching no longer needs the logs — `metis_strict_tenant_scope_enabled` and one
+   `metis_strict_tenant_scope_denied_site` series per denied path are on the metrics
+   endpoint, with an alert rule in `docs/strict-tenant-scope.md`. What remains is
+   operational and needs a real workload: the staging soak, production for a release
+   cycle, then deleting the flag.
 2. ~~**P0 Reliability remainder**~~ — the connector contract tier landed
    (`tests/connector/contract_test.go`), which was the last missing tier. Outage
    simulation and feature flags had already landed.

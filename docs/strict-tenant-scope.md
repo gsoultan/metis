@@ -161,9 +161,34 @@ full release cycle before treating it as settled.
 
 ## Checking without reading logs
 
-`gorms.DeniedSites()` returns the same list as a value, which is what the tests
-assert on. If you want it in staging without log-grepping, that is the hook to
-expose.
+The same list is on the metrics endpoint (`METIS_METRICS_ENABLED`, served on its
+own port), read at scrape time:
+
+```
+metis_strict_tenant_scope_enabled 1
+metis_strict_tenant_scope_denied_site{site="...gormProcessRepository.GetForUpdate (process.go:54) called from ...Engine.GetInstanceForUpdate"} 1
+```
+
+**Read `metis_strict_tenant_scope_enabled` first.** With the flag off nothing is
+ever denied, so an empty list means the scope is not on, not that it is clean.
+Each `denied_site` series is one path that reached a repository with no
+identity; its `site` label is the log line's `repository` and `called_from`.
+
+As an alert for the staging soak:
+
+```yaml
+- alert: StrictTenantScopeDenied
+  expr: metis_strict_tenant_scope_enabled == 1 and count(metis_strict_tenant_scope_denied_site) > 0
+  labels: {severity: warning}
+  annotations:
+    summary: "A code path reached a repository with neither a tenant nor a system identity"
+```
+
+A site stays listed until the process restarts: the list is what has happened
+since startup, so a fix shows up as the series not coming back after a deploy.
+
+`tenantscope.DeniedSites()` returns the same list as a value, which is what the
+tests assert on.
 
 ## When it is done
 

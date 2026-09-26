@@ -213,3 +213,40 @@ func TestNilIsCarriedThrough(t *testing.T) {
 		t.Fatal("Merge invented a map")
 	}
 }
+
+func TestAURLWithACredentialInsideIsASecret(t *testing.T) {
+	for value, want := range map[string]bool{
+		"amqp://metis:hunter2@broker.internal:5672/orders":    true,
+		"https://svc:hunter2@partner.example.com/hook":        true,
+		"https://api.example.com/v1/orders?api_key=sk-live-1": true,
+		"https://api.example.com/v1/orders?access_token=abc":  true,
+		"postgres://svc:hunter2@db.internal/crm":              true,
+		// Nothing secret in these: they are what the page exists to show.
+		"https://partner.example.com/hook":           false,
+		"amqp://guest@broker.internal:5672/":         false,
+		"https://api.example.com/v1/orders?page=2":   false,
+		"https://api.example.com/v1/orders?api_key=": false,
+		"not a url": false,
+		"":          false,
+	} {
+		if got := CarriesCredential(value); got != want {
+			t.Errorf("CarriesCredential(%q) = %v, want %v", value, got, want)
+		}
+	}
+	if CarriesCredential(42) {
+		t.Error("a number was treated as a URL")
+	}
+}
+
+func TestMaskHidesAURLThatCarriesACredential(t *testing.T) {
+	masked := Mask(map[string]any{
+		"url":         "amqp://metis:hunter2@broker.internal:5672/orders",
+		"routing_url": "https://partner.example.com/hook",
+	})
+	if masked["url"] != Sentinel {
+		t.Fatalf("the broker url was returned as %v", masked["url"])
+	}
+	if masked["routing_url"] != "https://partner.example.com/hook" {
+		t.Fatalf("a url with nothing secret in it was masked: %v", masked["routing_url"])
+	}
+}

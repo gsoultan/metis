@@ -40,6 +40,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/logger"
 	"github.com/gsoultan/metis/internal/pkg/metrics"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/internal/pkg/tenantscope"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
@@ -936,6 +937,15 @@ func (a *App) runServers(ctx context.Context) error {
 				Help: "Model changes with no migration. Anything above zero is a feature that will fail at runtime.",
 			},
 			func() float64 { return float64(a.schemaDrift.Load()) },
+		))
+
+		// The strict tenant scope's rollout, readable from a dashboard rather
+		// than by grepping for a warning that appears once per site. See
+		// docs/strict-tenant-scope.md: whether it is on, and which call sites
+		// it has denied.
+		metricsCollector.Registry().MustRegister(metrics.NewTenantScopeCollector(
+			func() bool { return features.Enabled(features.StrictTenantScope) },
+			tenantscope.DeniedSites,
 		))
 
 		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)
