@@ -36,6 +36,7 @@ func All() []any {
 		&ProcessDefinition{},
 		&ProcessDefinitionRelease{},
 		&DecisionDefinition{},
+		&DecisionRelease{},
 		&Form{},
 		&Deployment{},
 		&Resource{},

@@ -30,6 +30,98 @@ Accounts that belong to several organizations choose one per request with the
 `X-Organization-ID` header. The server validates the choice against the
 caller's actual memberships — it is a selection, never an assertion.
 
+### Signing in with OIDC
+
+With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API accepts ID tokens from
+that identity provider as the bearer token — and only those: while OIDC is on,
+a token from `/api/v1/login` is refused with 401. Metis does not run the
+sign-in itself. The client gets an ID token from the provider, for the client
+ID Metis is configured with, and sends it as `Authorization: Bearer <id_token>`;
+Metis checks its signature, issuer, audience and expiry.
+
+**Which organizations somebody is in** comes from the token, in the claim
+`METIS_OIDC_ORGANIZATION_CLAIM` names. The claim is one string or a list of
+strings, and each value is an organization's **id** — the value
+`X-Organization-ID` takes, shown on the Organizations page in Expert mode and
+returned as `id` by `GET /api/v1/organizations`. An organization's name is not
+matched: two organizations may share one, and a rename would silently move
+people. A value that is not the id of an organization here is ignored. The
+claim's name is matched exactly, at the top level of the token, so a namespaced
+claim such as `https://metis.example.com/organizations` works as written.
+
+```json
+{
+  "iss": "https://id.example.com/realms/acme",
+  "aud": "metis",
+  "sub": "f3c1d2e4-…",
+  "preferred_username": "ada",
+  "email": "ada@acme.example",
+  "metis_organizations": ["0199a4c2-5e1b-7c3d-8f00-1a2b3c4d5e6f"]
+}
+```
+
+Fill that claim at the provider from something your administrators control —
+group membership, an attribute only they can set — and never from anything a
+person can edit about themselves: whatever it says decides which organizations
+they reach.
+
+**The account.** A person's first sign-in creates an account linked to the
+token's issuer and subject (`sub`). It is never matched to an existing account
+by email or username — an email claim is no proof of the same person across
+providers — so a local account with the same address stays a separate account.
+The new account is named after `preferred_username`, else the email, else the
+subject, with a short suffix when somebody already has that username, and takes
+its name and email from the token. It holds **no role**: the task inbox —
+listing, claiming and completing tasks — needs none. An administrator grants
+Designer, Operator or Administrator on the account in Metis afterwards; a
+`roles` claim in the token grants nothing. Changing the password in Metis is
+refused with "change it at your identity provider".
+
+**Memberships follow the claim.** A request is admitted only to the
+organizations its own token's claim names; `X-Organization-ID` chooses among
+them, and without it a request works in the first one the claim lists. Each
+sign-in also makes the account's memberships match the claim: an organization
+the provider stops naming is left, one it starts naming is joined. Every
+membership such an account has came from its claim — Metis has no action that
+adds an existing account to an organization — so nothing an administrator did
+is undone, and local accounts are never touched. A token already issued still
+names what it named until it expires, and organizations are never created from
+a claim.
+
+**Removing somebody** is done at the provider: take the organization out of
+their claim, or take them out of the provider. Deleting their account in Metis
+does not stop them — while the provider still places them in an organization
+here, their next sign-in creates a new account under a new username, and the
+deleted one's history stays with it.
+
+**When somebody is refused.** A person whose claim places them in no
+organization here is authenticated but not admitted, so the answer is **403**
+with the reason, and no account is created for them:
+
+| They are told | Cause | Fix |
+| :-- | :-- | :-- |
+| "…has not been told which ID-token claim lists their organizations…; an operator has to set METIS_OIDC_ORGANIZATION_CLAIM" | The setting is unset. The server also warns once at boot. | Set it to the claim's name and restart. |
+| "the ID token from your identity provider has no \"metis_organizations\" claim…" | The provider does not send the claim, or sends it under another name. | Add the claim at the provider (a mapper, a rule, an action), or correct the setting. |
+| "none of the organizations named in the \"metis_organizations\" claim of your ID token exists here…" | No value is the id of an organization here: a name instead of an id, a typo, another installation's ids, an organization since deleted. | Send the organization's id. |
+
+The operator sees one warning per person and claim for as long as the refusal
+is remembered, with the reason, the issuer and the claim — never the subject or
+the email:
+
+```json
+{"level":"warn","issuer":"https://id.example.com/realms/acme","claim":"metis_organizations","reason":"forbidden: none of the organizations named in the \"metis_organizations\" claim of your ID token exists here; …","message":"Refused a sign-in through the identity provider: it does not place the person in any organization here"}
+```
+
+A token that does not verify — wrong issuer, audience or signature, or
+expired — is still a 401.
+
+Two things to know before changing anything. `METIS_AUTH_CACHE_TTL` (5s by
+default) is also how long a sign-in's placement is reused, so an organization
+deleted in Metis stops being reachable within it; a changed claim takes effect
+with the first token that carries it. And the link is the issuer and the
+subject together: pointing `OIDC_ISSUER` at a different issuer URL, even for
+the same provider, gives everybody a new account at their next sign-in.
+
 ## The Go SDK
 
 ```bash
@@ -423,43 +515,180 @@ closed — posts to an address you register:
 
 ```
 POST /api/v1/hooks/<token>
-X-Signature-256: sha256=<hmac>
-X-Delivery-Id: <the sender's id for this event>
+Content-Type: application/json
+X-Metis-Timestamp: 1767225600
+X-Delivery-Id: evt_0001
+X-Metis-Signature: v2=bb84c51b81746277520c49e834388c1fdaa0680755ef30bc087b6a7eba752675
 
-{"order": {"id": "ORD-1"}}
+{"order":{"id":"ORD-1"}}
 ```
 
 The endpoint is public, because a partner's configuration screen has nowhere to
-put a token this engine would recognise. What authenticates a delivery is the
-signature: **HMAC-SHA256 over the exact bytes of the body**, hex-encoded, using
-the secret you were given when the webhook was created.
+put a token this engine would recognise. What authenticates a delivery is its
+signature, computed with the secret you were given when the webhook was
+created. **The secret is shown once**; it is encrypted at rest and no read path
+returns it. Use it exactly as shown — its characters are the key, it is not
+base64 to be decoded.
+
+### Signing a delivery
+
+Three headers, all required:
+
+| Header | Value |
+| :-- | :-- |
+| `X-Metis-Timestamp` | When this attempt is sent, in Unix **seconds** |
+| `X-Delivery-Id` | Your own ID for the event: unique per event, **the same on every retry**, at most 191 characters and **without a dot** |
+| `X-Metis-Signature` | `v2=` and the hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<delivery id>.<raw body>` |
 
 ```
-signature = hex(hmac_sha256(secret, raw_request_body))
+X-Metis-Signature = "v2=" + hex(hmac_sha256(secret, timestamp + "." + delivery_id + "." + raw_body))
 ```
 
-An `sha256=` prefix is accepted and ignored — the algorithm is ours, not the
-caller's to declare. The header name is configurable per webhook, because there
-is no standard: GitHub uses `X-Hub-Signature-256`, Stripe uses
-`Stripe-Signature`.
+- **Sign the exact bytes you send.** Serialise the JSON once, sign that, send
+  that. Re-encoding after signing changes the bytes, and the signature no
+  longer matches.
+- **Sign every attempt when it is sent, retries included.** A delivery signed
+  more than **5 minutes** from Metis's clock, either way, is refused, so a stored
+  copy cannot be replayed later and a retry needs a fresh timestamp.
+- **Keep `X-Delivery-Id` the same across retries of one event.** A delivery
+  whose ID Metis has already acted on is answered `202` with
+  `"duplicate": true` and not acted on again; IDs are remembered for 48 hours.
+  Because the ID is signed, a captured delivery sent again under a new ID no
+  longer matches its signature.
+- **No dot in the ID.** The signed string is split by its dots, and a body has
+  dots of its own: allowing one in the ID would let the same signature read as
+  a longer ID and a shorter body. A UUID, a ULID or an `evt_…` ID is fine. An ID
+  with a dot, or longer than 191 characters, is refused with a `400` that says
+  so.
 
-**The secret is shown once**, when the webhook is created. It is encrypted at
-rest and no read path returns it.
+Check your code before sending anything: with the secret
+`your-webhook-secret`, timestamp `1767225600`, delivery ID `evt_0001` and body
+`{"order":{"id":"ORD-1"}}`, the signature is
+`v2=bb84c51b81746277520c49e834388c1fdaa0680755ef30bc087b6a7eba752675`.
 
-**Send a delivery ID.** Any of `X-Delivery-Id`, `X-GitHub-Delivery`,
-`X-Request-Id` or `Idempotency-Key`. A delivery carrying an ID already seen is
-answered `202` and not acted on again — senders retry, and without an ID a retry
-cannot be told from a new event and will move the process twice. IDs are
-remembered for 48 hours.
+Go:
+
+```go
+func signV2(secret, timestamp, deliveryID string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "." + deliveryID + "."))
+	mac.Write(body)
+	return "v2=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// For each attempt, retries included:
+timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+req.Header.Set("Content-Type", "application/json")
+req.Header.Set("X-Metis-Timestamp", timestamp)
+req.Header.Set("X-Delivery-Id", deliveryID)
+req.Header.Set("X-Metis-Signature", signV2(secret, timestamp, deliveryID, body))
+```
+
+Node.js (18 or later):
+
+```js
+import { createHmac } from "node:crypto";
+
+function signV2(secret, timestamp, deliveryId, body) {
+  return "v2=" + createHmac("sha256", secret)
+    .update(`${timestamp}.${deliveryId}.`)
+    .update(body)
+    .digest("hex");
+}
+
+// For each attempt, retries included:
+const body = JSON.stringify(event); // sign and send these exact bytes
+const timestamp = Math.floor(Date.now() / 1000).toString();
+await fetch(url, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Metis-Timestamp": timestamp,
+    "X-Delivery-Id": event.id,
+    "X-Metis-Signature": signV2(secret, timestamp, event.id, body),
+  },
+  body,
+});
+```
+
+Python:
+
+```python
+import hashlib, hmac, json, time, urllib.request
+
+def sign_v2(secret: str, timestamp: str, delivery_id: str, body: bytes) -> str:
+    message = f"{timestamp}.{delivery_id}.".encode() + body
+    return "v2=" + hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
+
+# For each attempt, retries included:
+body = json.dumps(event).encode()  # sign and send these exact bytes
+timestamp = str(int(time.time()))
+request = urllib.request.Request(url, data=body, method="POST", headers={
+    "Content-Type": "application/json",
+    "X-Metis-Timestamp": timestamp,
+    "X-Delivery-Id": event["id"],
+    "X-Metis-Signature": sign_v2(secret, timestamp, event["id"], body),
+})
+urllib.request.urlopen(request, timeout=10)
+```
 
 Each webhook names the BPMN message a delivery becomes, and optionally a FEEL
 expression over the payload — `order.id` — picking the value that says which
 waiting instance it concerns. Leave that empty and every delivery starts a
 process instead of moving one.
 
-Responses: `202` accepted, `401` for anything about who sent it (an unknown
-address and a bad signature are deliberately indistinguishable), `400` for a
-body that could not be used.
+Responses:
+
+| Status | Meaning |
+| :-- | :-- |
+| `202` | Accepted — or, with `"duplicate": true`, already acted on and not acted on again |
+| `400` | Signed correctly but not usable: the timestamp is missing or more than 5 minutes out, there is no delivery ID, the body is not a JSON object, the correlation value is missing, or the webhook no longer accepts legacy signatures. The body says which, and what to change |
+| `401` | Anything about who sent it: an unknown address, a switched-off webhook, a signature that does not match. Deliberately indistinguishable, so the reply cannot be used to find addresses — a `400` explanation is only given to a delivery whose signature matched |
+
+A `401` for a sender you believe is right is nearly always the wrong secret, a
+body re-encoded after signing, a timestamp or delivery ID header that differs
+from what was signed, or a timestamp in milliseconds.
+
+### Legacy signatures, and moving off them
+
+Before v2 a signature was the HMAC of the body alone, sent as
+`X-Signature-256` (or `X-Hub-Signature-256`, `X-Signature`,
+`Stripe-Signature`, `X-Webhook-Signature`), optionally prefixed `sha256=`, with
+the delivery ID in `X-Delivery-Id`, `X-GitHub-Delivery`, `X-Request-Id` or
+`Idempotency-Key`. It says nothing about when a delivery was sent or under which
+ID, so anyone who captured one could post it again under a new ID, as often as
+they liked, and each copy was acted on.
+
+- **Webhooks created from this release on accept v2 only.**
+- **Webhooks that existed before it accept legacy signatures for 90 days from
+  the upgrade**, so no sender is cut off on the day. The webhooks screen shows
+  the date under each of them, and the reply to an accepted legacy delivery
+  carries it as `legacy_signatures_until`.
+- Inside that window a legacy signature works as it always did — replays
+  included. That is the risk the window accepts; move senders early.
+- After it, a legacy-signed delivery is refused with `400` and a message saying
+  how to sign with v2. v2 is accepted throughout, and a delivery carrying
+  `X-Metis-Signature` is judged by v2 alone, so a sender can switch whenever it
+  is ready.
+
+To move a sender:
+
+1. On the Connectors page, under *Incoming webhooks*, find the webhooks that say
+   *Still accepts legacy signatures until …*. The server logs each legacy
+   delivery it accepts, with the webhook's name: *Accepted a webhook delivery
+   signed the legacy way*.
+2. Send the sender's developers this section, or the screen's *How to move the
+   sender to v2*. The secret does not change.
+3. They send `X-Metis-Timestamp`, a stable `X-Delivery-Id`, and
+   `X-Metis-Signature` as above, signing each attempt as it is sent.
+4. Their replies stop carrying `legacy_signatures_until`, and the log line stops
+   naming that webhook. [`upgrading.md`](upgrading.md) shows how to close a webhook's
+   window early once its sender has moved.
+
+A sender that can only sign the body — a service whose webhook settings you
+cannot change, such as GitHub's `X-Hub-Signature-256` — cannot produce v2.
+Before its window closes, put a small relay in front of Metis that checks the
+sender's own signature and re-signs each delivery with v2 as it forwards it.
 
 ## Letting a decision table say who approves
 
@@ -679,8 +908,9 @@ still caught. `retry_after` is honoured — being asked to wait two minutes and
 waiting two minutes is the difference between backing off and being blocked.
 
 Manifests are consulted before the built-in connectors, so one can replace a
-built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
-stream, anything stateful — keep the Go interface.
+built-in without a redeploy, where the operator allows it (below). Genuinely
+code-shaped connectors — an SDK, a stream, anything stateful — keep the Go
+interface.
 
 ## Installing a connector
 
@@ -688,20 +918,62 @@ stream, anything stateful — keep the Go interface.
 installs one; `"format": "openapi"` installs one per operation in a
 specification. Both are in the UI, on the Connectors page.
 
+**Who may.** A manifest is installation-wide: a step in any organization that
+names its key runs it, with that organization's connection attached. So
+installing, importing, switching and removing one changes what every
+organization runs, and on an installation with more than one organization it
+takes a **platform administrator** — an administrator whose account id whoever
+operates the installation has listed in `METIS_PLATFORM_ADMINS`. Anybody else
+is refused with a 403 that names the setting and gives them their account id to
+pass on. An installation with one organization needs nothing configured: its
+administrators may, as they always could.
+
+The same goes for **connector templates** (`/api/v1/connectors`), for the same
+reason. A template has no organization: its key is unique across the
+installation, and every organization's connections are configured through its
+schema, which is what marks a setting as a password.
+
 A manifest is stored as its author wrote it and read back the same way, comments
 and all. Installing an existing key **replaces** it, because installing again is
 how a manifest is fixed. It keeps the switch it had: a connector somebody
 switched off stays off when its document is fixed, and only a new one is
 installed switched on. A document whose `version` is lower than the installed
 one is refused with a 400 naming both — the same version again is a fix and a
-higher one an upgrade, but going back is almost always a stale copy. A manifest
-can carry the key of a built-in connector, which is how one is replaced without
-a redeploy.
+higher one an upgrade, but going back is almost always a stale copy.
+
+**A built-in's key.** A manifest under the key of a connector built into Metis —
+`http-json`, `slack-message`, `email-smtp`, `sendgrid-email`,
+`discord-message`, `ms-teams-message`, `rabbitmq-publish` or `sql-query` —
+replaces that connector in every step, in every organization, that uses it. So
+installing one is refused with a 400 naming the key unless the operator sets
+`METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`. A manifest installed under a
+built-in's key before this rule keeps answering; removing it hands the key back
+to the built-in.
 
 Manifests are read from the database on every call rather than cached, so a
 connector installed on one replica is live on all of them immediately, and a
 switched-off one stops being used everywhere at once. Switching off leaves the
 document in place — deleting loses it.
+
+Installing a connector adds it to the catalogue: on the Connectors page, where a
+project connects it, and in the designer, where a step chooses it. A step
+reaches a manifest only this way — it names a catalogue entry, the entry's
+connection supplies `config`, and the entry's key finds the manifest. The
+connection form asks for what the manifest reads from `config`: the credentials
+its `auth` needs (`token`, `api_key`, `username` and `password`, or `client_id`
+and `client_secret`), every property of `config_schema` — its `title`,
+`description`, `type`, `enum`, `default` and `required` become the field — and
+any other `{{config.…}}` a template reads. A setting that holds a credential is
+kept from the browser by its **name**, so include `secret`, `password`, `token`
+or `key` in it; `format: password` alone does not hide it, and the form does not
+pretend otherwise.
+
+Switching a connector off or removing it takes it out of the catalogue. The
+steps and connections that use it are kept; while it is gone they fail saying
+so, and they work again once it is switched back on or installed again. A
+manifest under a built-in's key leaves the built-in's entry as it is. A manifest
+installed before this behaviour arrived joins the catalogue the next time it is
+installed — the same document again will do.
 
 ## Importing a connector from an OpenAPI document
 
@@ -732,6 +1004,10 @@ An operation the importer cannot read is skipped, not an error. What it did
 generate is installed as one step: if any of it cannot be installed — an
 operation you took further and gave a higher `version` than the import's 1, for
 instance — none of it is, and the error names the operation that stopped it.
+
+Each operation is its own entry in the catalogue, so a project connects each one
+it uses — with the same `base_url` and credentials, which is one more reason to
+delete the operations you will not call.
 
 ## Errors
 

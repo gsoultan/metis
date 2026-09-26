@@ -49,9 +49,9 @@ describe("decisionService lists", () => {
 
   test("sends a search with the page it asks for, and leaves a blank one out", async () => {
     let sent;
-    ({ restore, sent } = stubFetch({ decisions: [], page: { total: 0, page: 2, page_size: 25, has_more: false } }));
-    await decisionService.listDecisions("p1", { page: 2, pageSize: 25, search: " gold " });
-    await decisionService.listDecisions("p1", { page: 1, pageSize: 25, search: "  " });
+    ({ restore, sent } = stubFetch({ summaries: [], page: { total: 0, page: 2, page_size: 25, has_more: false } }));
+    await decisionService.listDecisionSummaries("p1", { page: 2, pageSize: 25, search: " gold " });
+    await decisionService.listDecisionSummaries("p1", { page: 1, pageSize: 25, search: "  " });
     expect(new URL(sent[0].url, "http://x").search).toBe("?project_id=p1&page=2&page_size=25&q=gold");
     expect(new URL(sent[1].url, "http://x").search).toBe("?project_id=p1&page=1&page_size=25");
   });

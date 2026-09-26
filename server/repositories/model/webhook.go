@@ -29,6 +29,10 @@ type Webhook struct {
 
 	Enabled bool
 
+	// LegacySignaturesUntil is when the webhook stops accepting signatures
+	// over the body alone. Null means it never accepts them.
+	LegacySignaturesUntil *time.Time
+
 	DeletedAt *time.Time
 }
 

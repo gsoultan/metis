@@ -26,6 +26,10 @@ type userService struct {
 	// projects — about six queries before a request reached its handler. See
 	// principal_cache.go for why the lifetime is seconds rather than minutes.
 	principals *principalCache
+	// placements is the same idea for a sign-in through an identity provider:
+	// which account an identity is, and where its claim places it. See
+	// identity_placement_cache.go.
+	placements *placementCache
 	// throttle slows repeated failed sign-ins for one account. The HTTP rate
 	// limiter bounds requests per address, which credential stuffing spreads
 	// across; this bounds them per account, which it cannot.
@@ -37,6 +41,7 @@ func NewUserService(repo repositories.Repository, jwtSecret string) contracts.Us
 		repo:       repo,
 		jwtSecret:  []byte(jwtSecret),
 		principals: newPrincipalCache(),
+		placements: newPlacementCache(),
 		throttle:   loginthrottle.New(),
 	}
 }

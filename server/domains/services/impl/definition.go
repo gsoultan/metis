@@ -158,8 +158,35 @@ func (s *definitionService) pinCurrentLiveVersion(ctx context.Context, projectID
 // fallback, to the highest version — so the caller would be told their rollback
 // worked while new instances kept starting on the version they were rolling
 // back from.
+//
+// A rollback — making live a version older than the one live now — also
+// cancels the cutovers arranged for later. They were arranged from the version
+// being rolled back from, and left in place the first to arrive undid the
+// rollback without anybody deciding it again. Going forward keeps them.
 func (s *definitionService) PromoteDefinitionVersion(ctx context.Context, projectID uuid.UUID, key string, version int) error {
-	return s.releaseAt(ctx, projectID, key, version, time.Now().UTC())
+	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		current, err := s.repo.Definition().GetLiveByProjectKey(txCtx, projectID, key)
+		if err != nil && !errors.Is(err, apierr.ErrNotFound) {
+			return fmt.Errorf("could not read the live version of %s: %w", key, err)
+		}
+		rollingBack := err == nil && version < current.Version
+		if err := s.releaseAt(txCtx, projectID, key, version, time.Now().UTC()); err != nil {
+			return err
+		}
+		if !rollingBack {
+			return nil
+		}
+		scheduled, err := s.scheduledVersions(txCtx, projectID, key)
+		if err != nil {
+			return err
+		}
+		for _, cutover := range scheduled {
+			if err := s.repo.Definition().DeleteScheduledRelease(txCtx, projectID, cutover.ID); err != nil {
+				return fmt.Errorf("could not cancel the cutover to v%d: %w", cutover.Version, err)
+			}
+		}
+		return nil
+	})
 }
 
 // ScheduleDefinitionVersion arranges for a version to take over at a given time.

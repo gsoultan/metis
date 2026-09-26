@@ -43,6 +43,10 @@ func (r *projectRepository) Get(ctx context.Context, id uuid.UUID) (models.Proje
 	return projectFrom(row), nil
 }
 
+// List returns every project the caller may see, by name.
+//
+// Every one, not the store's first thousand; the id breaks ties in name so the
+// keyset cursor is a position.
 func (r *projectRepository) List(ctx context.Context) ([]models.ProjectModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -53,14 +57,14 @@ func (r *projectRepository) List(ctx context.Context) ([]models.ProjectModel, er
 		return nil, err
 	}
 
-	q := project.New().Order(project.Name.Asc())
+	q := project.New().Order(project.Name.Asc(), project.ID.Asc())
 	if !scope.unrestricted() {
 		if scope.organization == uuid.Nil {
 			return nil, nil
 		}
 		q = q.Where(project.OrganizationID.Eq(scope.organization))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[project.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list projects: %w", err)
 	}
@@ -76,6 +80,9 @@ func (r *projectRepository) List(ctx context.Context) ([]models.ProjectModel, er
 //
 // No organization named means "whichever is mine", which is what the projects
 // page asks for.
+//
+// Every project, not the store's first thousand: the picker of an organization
+// with more stopped at the thousandth name.
 func (r *projectRepository) ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.ProjectModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -98,10 +105,9 @@ func (r *projectRepository) ListByOrganization(ctx context.Context, organization
 	if err != nil {
 		return nil, err
 	}
-	rows, err := project.New().
+	rows, err := everyRow[project.Row](ctx, ex, project.New().
 		Where(project.OrganizationID.Eq(organizationID)).
-		Order(project.Name.Asc()).
-		All(ctx, ex, nil)
+		Order(project.Name.Asc(), project.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not list the organization's projects: %w", err)
 	}

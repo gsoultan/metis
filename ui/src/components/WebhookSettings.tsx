@@ -10,6 +10,9 @@
  * the partner's URL field and the secret in their signing-secret field, and the
  * secret is shown once and never again — so it is presented at the moment it is
  * created, prominently, with the warning attached rather than in a tooltip.
+ *
+ * It also says which webhooks still accept legacy signatures, which a captured
+ * delivery can be replayed under, and until when — see LegacySigningNotice.
  */
 import {
   ActionIcon,
@@ -36,6 +39,8 @@ import { useState } from 'react';
 
 import { useCreateWebhook, useDeleteWebhook, useSetWebhookEnabled, useWebhooks } from '../hooks/useWebhooks';
 import type { ApiWebhook } from '../services/domains/webhookService';
+import { LegacySigningNotice } from './webhooks/LegacySigningNotice';
+import { WebhookSigningHelp } from './webhooks/WebhookSigningHelp';
 
 export function WebhookSettings() {
   const { data } = useWebhooks();
@@ -133,6 +138,7 @@ export function WebhookSettings() {
                         matched on <Code fz={10}>{hook.correlation_expression}</Code>
                       </Text>
                     )}
+                    <LegacySigningNotice hook={hook} />
                   </Table.Td>
                   <Table.Td>
                     <Badge variant="light" size="sm" styles={{ label: { textTransform: 'none' } }}>
@@ -181,7 +187,13 @@ export function WebhookSettings() {
         )}
       </Stack>
 
-      <Modal opened={formOpen} onClose={form.close} title="Add a webhook" size="lg">
+      <Modal
+        opened={formOpen}
+        onClose={form.close}
+        title="Add a webhook"
+        size="lg"
+        closeButtonProps={{ 'aria-label': 'Close' }}
+      >
         <Stack gap="md">
           <TextInput
             label="Name"
@@ -221,6 +233,7 @@ export function WebhookSettings() {
         onClose={() => setJustCreated(null)}
         title="Give these to the sender"
         size="lg"
+        closeButtonProps={{ 'aria-label': 'Close' }}
       >
         {justCreated && (
           <Stack gap="md">
@@ -232,11 +245,7 @@ export function WebhookSettings() {
             <Secret label="URL to post to" value={`${window.location.origin}/api/v1/hooks/${justCreated.token}`} />
             <Secret label="Signing secret" value={justCreated.secret ?? ''} />
 
-            <Text size="xs" c="dimmed">
-              The sender computes <Code fz={10}>HMAC-SHA256</Code> over the raw request body with that secret, hex
-              encoded, and sends it as <Code fz={10}>{justCreated.signature_header || 'X-Signature-256'}</Code>. Send a
-              unique <Code fz={10}>X-Delivery-Id</Code> too, so retries are not acted on twice.
-            </Text>
+            <WebhookSigningHelp />
           </Stack>
         )}
       </Modal>

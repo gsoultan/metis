@@ -72,3 +72,18 @@ id = "generic-api-key"
   condition = "AND"
   regexTarget = "match"
   regexes = ['''the-key-that-leaked-9f2c7a41e0b3d865''', '''the-key-that-replaces-it-4be81d07c2f9a653''']
+
+  [[rules.allowlists]]
+  description = """
+  The webhook row the legacy-window migration test writes the way the release
+  before v2 did.
+
+  Its secret column holds the literal 'a-secret' and its signature header
+  'X-Signature-256', side by side in one INSERT, which the generic rule reads as
+  a key assigned a value. It is a row in a scratch test database; neither value
+  was ever a secret for anything.
+  """
+  paths = ['''^tests/migrations/webhook_legacy_window_test\.go$''']
+  condition = "AND"
+  regexTarget = "match"
+  regexes = ['''a-secret', 'X-Signature-256''']

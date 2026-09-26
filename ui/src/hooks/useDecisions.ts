@@ -5,13 +5,15 @@ import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ApiDecisionSummary, CreateDecisionPayload, ProcessVariables } from '../services/types';
 
-type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
+type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisionSummaries>>;
 
 type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
 
 /**
- * One page of the current project's decisions, searched on the server: a list
- * holds the page it shows and nothing more, however many decisions there are.
+ * One page of the current project's decisions, one row each, searched on the
+ * server: a list holds the page it shows and nothing more, however many
+ * decisions there are. A row is a decision rather than a version of one — its
+ * live version, and the newest when that is newer.
  */
 export const useDecisions = (page = 1, pageSize = 25, search = '') => {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
@@ -20,8 +22,8 @@ export const useDecisions = (page = 1, pageSize = 25, search = '') => {
     queryKey: ['decisions', currentProjectId, page, pageSize, search],
     queryFn: ({ signal }) =>
       currentProjectId
-        ? processService.listDecisions(currentProjectId, { page, pageSize, search }, signal)
-        : Promise.resolve({ decisions: [], err: undefined, pageInfo: undefined } as DecisionsResult),
+        ? processService.listDecisionSummaries(currentProjectId, { page, pageSize, search }, signal)
+        : Promise.resolve({ summaries: [], pageInfo: undefined } as DecisionsResult),
     enabled: !!currentProjectId,
     placeholderData: (previous) => previous,
   });
@@ -38,7 +40,7 @@ const SUMMARY_MAX_PAGES = 5;
 const NO_SUMMARIES: CollectedPages<ApiDecisionSummary> = { items: [], truncated: false, total: 0 };
 
 /**
- * Every decision key in the current project, each as its newest version and
+ * Every decision key in the current project, each as its live version and
  * without its table, up to that bound: for a view that cannot work from a page.
  * The dependency graph cannot tell a decision that does not exist from one on
  * the next page, and a step's picker has to offer every decision.
@@ -89,11 +91,15 @@ export const useCreateDecision = () => {
   });
 };
 
+/**
+ * Saves an edit as the next version of its decision: live, or staged beside
+ * the live one when `stage` is set. The version edited is never changed.
+ */
 export const useUpdateDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...params }: CreateDecisionPayload & { id: string }) =>
-      processService.updateDecision(id, params),
+    mutationFn: ({ id, stage, ...params }: CreateDecisionPayload & { id: string; stage?: boolean }) =>
+      processService.updateDecision(id, params, { stage }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
       queryClient.invalidateQueries({ queryKey: ['decision'] });
@@ -101,12 +107,46 @@ export const useUpdateDecision = () => {
   });
 };
 
+/** Deletes one stored version of a decision. */
 export const useDeleteDecision = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => processService.deleteDecision(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions'] });
+      queryClient.invalidateQueries({ queryKey: ['decision'] });
+    },
+  });
+};
+
+/**
+ * Every stored version of one decision in the current project, newest first,
+ * marking the live one. Under 'decisions', so a save, a delete or a promotion
+ * refreshes it.
+ */
+export const useDecisionVersions = (key: string | null) => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
+    queryKey: ['decisions', currentProjectId, 'versions', key],
+    queryFn: ({ signal }) =>
+      currentProjectId && key ? processService.listDecisionVersions(currentProjectId, key, signal) : Promise.resolve([]),
+    enabled: !!currentProjectId && !!key,
+  });
+};
+
+/** Makes one stored version of a decision the live one. */
+export const usePromoteDecisionVersion = () => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, version }: { key: string; version: number }) =>
+      currentProjectId
+        ? processService.promoteDecisionVersion(currentProjectId, key, version)
+        : Promise.reject(new Error('No project selected')),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['decisions'] });
+      queryClient.invalidateQueries({ queryKey: ['decision'] });
     },
   });
 };

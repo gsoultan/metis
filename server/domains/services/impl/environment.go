@@ -28,8 +28,9 @@ func NewEnvironmentService(repo repositories.Repository) servicecontracts.Enviro
 }
 
 // Ports below this are reserved by convention and usually need privileges to
-// bind. Refusing them here turns a permission error at the next restart into a
-// message on the form somebody is filling in.
+// bind. Refusing them here turns a permission error in the server's log, once
+// every replica tries to serve the environment, into a message on the form
+// somebody is filling in.
 const minEnvironmentPort = 1024
 
 // maxEnvironmentNameLength matches the column, so a name that would be silently
@@ -58,7 +59,8 @@ func (s *environmentService) GetEnvironment(ctx context.Context, id uuid.UUID) (
 	return maskedEnvironment(m), nil
 }
 
-// CreateEnvironment records a new runtime for a project.
+// CreateEnvironment records a new runtime for a project. Every replica starts
+// serving an enabled one within seconds (internal/app/environment_watch.go).
 func (s *environmentService) CreateEnvironment(ctx context.Context, env entities.Environment) (uuid.UUID, error) {
 	if env.Project == nil || env.Project.ID == uuid.Nil {
 		return uuid.Nil, apierr.Invalidf("an environment belongs to a project")
@@ -86,7 +88,9 @@ func (s *environmentService) CreateEnvironment(ctx context.Context, env entities
 	return id, nil
 }
 
-// UpdateEnvironment saves changes to a runtime.
+// UpdateEnvironment saves changes to a runtime. Every replica catches up within
+// seconds: one disabled stops being served, one enabled again is served, and
+// one given another port or database is stopped and served again with it.
 //
 // The stored connection is merged with what arrived, so a caller who edited the
 // host without re-typing the password keeps the password. That is the whole
@@ -123,9 +127,9 @@ func (s *environmentService) DeleteEnvironment(ctx context.Context, id uuid.UUID
 
 // validate refuses an environment that could not be served, before it is saved.
 //
-// Every check here is one whose failure would otherwise surface at the next
-// restart, when the server tries to bind the listeners — where a bad row takes
-// down the whole installation rather than one form.
+// Every check here is one whose failure would otherwise surface only when every
+// replica tries to serve the environment, seconds after it is saved: as a line
+// in each server's log rather than a message on the form.
 func (s *environmentService) validate(ctx context.Context, env entities.Environment, excluding uuid.UUID) error {
 	name := strings.TrimSpace(env.Name)
 	switch {

@@ -325,17 +325,30 @@ describe('promotionFacts', () => {
     expect(facts()).toContain('v5 is not deleted, and can be made live again from this list.');
   });
 
-  it('warns that a cutover already scheduled still happens', () => {
-    // Promoting writes a row for now; the scheduled row is later, so the
-    // timeline reaches it and the rollback is undone at that moment.
+  it('says a rollback cancels the cutover already scheduled', () => {
+    // The server cancels every cutover arranged for later when a version older
+    // than the live one is made live: left in place, the first to arrive would
+    // undo the rollback without anybody deciding it again.
     const scheduled = [
       ...versions,
       { version: 6, live: false, running_instances: 0, total_instances: 0,
         scheduled_for: '2026-10-01T22:00:00Z', scheduled_release_id: 'r-6' },
     ];
     expect(facts(scheduled)).toContain(
-      'v6 is still scheduled to take over at 2026-10-01 22:00. From then, new instances start on v6, ' +
-        'not v3. Cancel it under Scheduled changes to keep v3 live.',
+      'The change to v6 scheduled for 2026-10-01 22:00 is cancelled, so v3 stays live until somebody makes another version live.',
+    );
+  });
+
+  it('warns going forward that a cutover already scheduled still happens', () => {
+    const forward = [
+      ...versions,
+      { version: 6, live: false, running_instances: 0, total_instances: 0 },
+      { version: 7, live: false, running_instances: 0, total_instances: 0,
+        scheduled_for: '2026-10-01T22:00:00Z', scheduled_release_id: 'r-7' },
+    ];
+    expect(facts(forward, 6)).toContain(
+      'v7 is still scheduled to take over at 2026-10-01 22:00. From then, new instances start on v7, ' +
+        'not v6. Cancel it under Scheduled changes to keep v6 live.',
     );
   });
 

@@ -32,6 +32,17 @@ const decisionHooks = await import('../hooks/useDecisions');
 mock.module('../hooks/useDecisions', () => ({
   ...decisionHooks,
   useDecision: () => ({ data: { decision: stored } }),
+  // v4 is staged beside the live v3 the editor has open.
+  useDecisionVersions: () => ({
+    data: [
+      { id: 'dec-4', key: 'discount', name: 'Discount', version: 4, live: false },
+      { id: 'dec-1', key: 'discount', name: 'Discount', version: 3, live: true },
+    ],
+    isLoading: false,
+    error: null,
+  }),
+  usePromoteDecisionVersion: () => ({ mutateAsync: async () => ({}), isPending: false }),
+  useDeleteDecision: () => ({ mutateAsync: async () => ({}), isPending: false }),
   useDecisionImpact: () => ({ data: undefined }),
   useCreateDecision: () => ({ mutateAsync: async () => ({}), isPending: false }),
   useUpdateDecision: () => ({ mutateAsync: async () => ({}), isPending: false }),
@@ -85,5 +96,14 @@ describe('Try it on the decision editor page', () => {
     sent.length = 0;
     await given?.onRun();
     expect(sent).toEqual([{ key: 'discount', version: 3, variables: {} }]);
+  });
+});
+
+describe('which version the editor has open', () => {
+  it('says the open version is the live one, and offers the others', () => {
+    const html = render();
+    expect(html).toContain('v3');
+    expect(html).toContain('>Live<');
+    expect(html).toContain('aria-label="Versions of Discount"');
   });
 });

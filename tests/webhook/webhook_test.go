@@ -3,8 +3,10 @@ package webhook_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/webhooksig"
@@ -15,6 +17,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
+	"gorm.io/gorm"
 )
 
 // A webhook endpoint is public: a partner's configuration screen has nowhere to
@@ -29,7 +32,7 @@ func TestOnlyASignedDeliveryIsAccepted(t *testing.T) {
 	body := []byte(`{"order":{"id":"ORD-1"}}`)
 
 	t.Run("a genuine delivery is accepted", func(t *testing.T) {
-		outcome, err := h.deliver(t, hook, body, webhooksig.Sign(body, hook.Secret), "evt-1")
+		outcome, err := h.deliver(t, hook, body, "evt-1")
 		if err != nil {
 			t.Fatalf("a correctly signed delivery was rejected: %v", err)
 		}
@@ -39,21 +42,22 @@ func TestOnlyASignedDeliveryIsAccepted(t *testing.T) {
 	})
 
 	t.Run("an unsigned delivery is refused", func(t *testing.T) {
-		if _, err := h.deliver(t, hook, body, "", "evt-2"); err == nil {
+		unsigned := entities.WebhookDelivery{Token: hook.Token, DeliveryID: "evt-2", Body: body}
+		if _, err := h.receive(t, unsigned); err == nil {
 			t.Error("a delivery with no signature was accepted")
 		}
 	})
 
 	t.Run("a delivery signed with the wrong secret is refused", func(t *testing.T) {
-		if _, err := h.deliver(t, hook, body, webhooksig.Sign(body, "a guess"), "evt-3"); err == nil {
+		if _, err := h.receive(t, signedNow(hook, "a guess", body, "evt-3")); err == nil {
 			t.Error("a delivery signed with the wrong secret was accepted")
 		}
 	})
 
 	t.Run("a body changed after signing is refused", func(t *testing.T) {
-		signature := webhooksig.Sign(body, hook.Secret)
-		tampered := []byte(`{"order":{"id":"ORD-999"}}`)
-		if _, err := h.deliver(t, hook, tampered, signature, "evt-4"); err == nil {
+		tampered := signedNow(hook, hook.Secret, body, "evt-4")
+		tampered.Body = []byte(`{"order":{"id":"ORD-999"}}`)
+		if _, err := h.receive(t, tampered); err == nil {
 			t.Error("a delivery whose body was changed after signing was accepted")
 		}
 	})
@@ -85,9 +89,10 @@ func TestARetriedDeliveryIsRecognisedAndNotActedOnTwice(t *testing.T) {
 	h := newWebhookHarness(t)
 	hook := h.register(t, "order.paid", "order.id")
 	body := []byte(`{"order":{"id":"ORD-1"}}`)
-	signature := webhooksig.Sign(body, hook.Secret)
 
-	first, err := h.deliver(t, hook, body, signature, "delivery-42")
+	// Each attempt is signed when it is sent, as a sender's retries are: the
+	// timestamp moves and the delivery ID stays.
+	first, err := h.deliver(t, hook, body, "delivery-42")
 	if err != nil {
 		t.Fatalf("first delivery: %v", err)
 	}
@@ -95,7 +100,7 @@ func TestARetriedDeliveryIsRecognisedAndNotActedOnTwice(t *testing.T) {
 		t.Error("the first delivery was reported as a duplicate")
 	}
 
-	second, err := h.deliver(t, hook, body, signature, "delivery-42")
+	second, err := h.deliver(t, hook, body, "delivery-42")
 	if err != nil {
 		t.Fatalf("a retry was answered with an error, which is what makes senders retry: %v", err)
 	}
@@ -105,7 +110,7 @@ func TestARetriedDeliveryIsRecognisedAndNotActedOnTwice(t *testing.T) {
 
 	// A genuinely new event with the same body still goes through — dedup is on
 	// the sender's ID, not on what was sent.
-	third, err := h.deliver(t, hook, body, signature, "delivery-43")
+	third, err := h.deliver(t, hook, body, "delivery-43")
 	if err != nil {
 		t.Fatalf("a new delivery was rejected: %v", err)
 	}
@@ -127,7 +132,7 @@ func TestACorrelationKeyThatFindsNothingIsRefused(t *testing.T) {
 		`{"something":"else"}`, // the whole path is absent
 		`{"order":{"id":""}}`,  // present but empty
 	} {
-		_, err := h.deliver(t, hook, []byte(body), webhooksig.Sign([]byte(body), hook.Secret), "evt-"+body)
+		_, err := h.deliver(t, hook, []byte(body), "evt-"+body)
 		if err == nil {
 			t.Errorf("a delivery with no usable correlation key was accepted: %s", body)
 			continue
@@ -145,7 +150,7 @@ func TestAWebhookWithNoCorrelationStartsRatherThanMoves(t *testing.T) {
 	hook := h.register(t, "order.received", "")
 	body := []byte(`{"anything":"at all"}`)
 
-	outcome, err := h.deliver(t, hook, body, webhooksig.Sign(body, hook.Secret), "evt-1")
+	outcome, err := h.deliver(t, hook, body, "evt-1")
 	if err != nil {
 		t.Fatalf("delivery: %v", err)
 	}
@@ -189,7 +194,7 @@ func TestANonObjectBodyIsRefused(t *testing.T) {
 	hook := h.register(t, "order.paid", "")
 
 	for _, body := range []string{`[1,2,3]`, `"a string"`, `not json at all`} {
-		if _, err := h.deliver(t, hook, []byte(body), webhooksig.Sign([]byte(body), hook.Secret), "evt-"+body); err == nil {
+		if _, err := h.deliver(t, hook, []byte(body), "evt-"+body); err == nil {
 			t.Errorf("a delivery that is not a JSON object was accepted: %s", body)
 		}
 	}
@@ -202,8 +207,7 @@ func TestADisabledWebhookAcceptsNothing(t *testing.T) {
 	hook := h.register(t, "order.paid", "")
 	h.disable(t, hook.ID)
 
-	body := []byte(`{}`)
-	_, err := h.deliver(t, hook, body, webhooksig.Sign(body, hook.Secret), "evt-1")
+	_, err := h.deliver(t, hook, []byte(`{}`), "evt-1")
 	if !errors.Is(err, serviceimpl.ErrWebhookDisabled) {
 		t.Errorf("error = %v, want ErrWebhookDisabled", err)
 	}
@@ -212,6 +216,10 @@ func TestADisabledWebhookAcceptsNothing(t *testing.T) {
 // harness
 
 type webhookHarness struct {
+	// db is the same schema the repositories read, for the few things a test
+	// has to arrange that no service offers — a webhook as an older release
+	// left it.
+	db        *gorm.DB
 	repo      repositories.Repository
 	engine    servicecontracts.ExecutionEngine
 	service   servicecontracts.WebhookService
@@ -258,6 +266,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 
 	return &webhookHarness{
 		ctx:       ctx,
+		db:        db,
 		repo:      repo,
 		engine:    engine,
 		service:   serviceimpl.NewWebhookService(repo, engine),
@@ -279,14 +288,27 @@ func (h *webhookHarness) register(t *testing.T, messageName, correlation string)
 	return hook
 }
 
-func (h *webhookHarness) deliver(t *testing.T, hook entities.Webhook, body []byte, signature, deliveryID string) (entities.WebhookOutcome, error) {
+// deliver sends a delivery signed with v2, now, as a partner is told to.
+func (h *webhookHarness) deliver(t *testing.T, hook entities.Webhook, body []byte, deliveryID string) (entities.WebhookOutcome, error) {
 	t.Helper()
-	return h.service.Receive(h.ctx, entities.WebhookDelivery{
+	return h.receive(t, signedNow(hook, hook.Secret, body, deliveryID))
+}
+
+func (h *webhookHarness) receive(t *testing.T, delivery entities.WebhookDelivery) (entities.WebhookOutcome, error) {
+	t.Helper()
+	return h.service.Receive(h.ctx, delivery)
+}
+
+// signedNow is a delivery signed with v2 at this moment, with the given secret.
+func signedNow(hook entities.Webhook, secret string, body []byte, deliveryID string) entities.WebhookDelivery {
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	return entities.WebhookDelivery{
 		Token:      hook.Token,
-		Signature:  signature,
+		Signature:  webhooksig.SignV2(body, secret, timestamp, deliveryID),
+		Timestamp:  timestamp,
 		DeliveryID: deliveryID,
 		Body:       body,
-	})
+	}
 }
 
 func (h *webhookHarness) disable(t *testing.T, id uuid.UUID) {

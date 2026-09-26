@@ -111,7 +111,12 @@ func (i *rbacInterceptor) hasRequiredRole(callerRoles []string) bool {
 }
 
 // rolesFromContext extracts the caller's roles from the context.
-// It supports both entities.User (JWT strategy) and auth.UserClaims (OIDC strategy).
+//
+// Both strategies put an account there — the JWT strategy the account the token
+// names, the OIDC strategy the account linked to the identity provider's
+// subject — so the roles are always the ones an administrator granted it. A
+// token's own roles claim is never read: anything else in the context is
+// nobody this can vouch for.
 func rolesFromContext(ctx context.Context) ([]string, error) {
 	v := ctx.Value(pkgauth.UserContextKey)
 	if v == nil {
@@ -122,10 +127,6 @@ func rolesFromContext(ctx context.Context) ([]string, error) {
 	case entities.User:
 		return u.Roles, nil
 	case *entities.User:
-		return u.Roles, nil
-	case pkgauth.UserClaims:
-		return u.Roles, nil
-	case *pkgauth.UserClaims:
 		return u.Roles, nil
 	default:
 		return nil, pkgauth.ErrUnauthorized

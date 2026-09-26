@@ -83,14 +83,23 @@ func TestEveryDeclaredModelGetsATable(t *testing.T) {
 // migrations are recorded once by design, so nothing re-runs and every table
 // stays missing. That is how versioned migrations behave, not a defect.
 func TestAModelAddedAfterTheBaselineStillGetsItsTable(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_upgrade=1"), gorms.Config())
+	// A database of its own. The name used to be the shared in-memory database
+	// the test above had just migrated to the end, so every migration here was
+	// already recorded and the check compared a finished database with itself.
+	// Run on its own it failed, on a migration it was never meant to run.
+	db, err := gorm.Open(sqlite.Open("file:upgrade-rehearsal?mode=memory&cache=shared"), gorms.Config())
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 
 	// The installation as it was before this release: the model list without
 	// whatever this release adds, and only the migrations that had shipped.
-	released := migrations.Schema(previouslyReleasedModels())
+	var released []migrations.Migration
+	for _, migration := range migrations.Schema(previouslyReleasedModels()) {
+		if migration.Version < firstMigrationOfThisRelease {
+			released = append(released, migration)
+		}
+	}
 	if _, err := migrations.Run(context.Background(), db, released); err != nil {
 		t.Fatalf("migrate the released version: %v", err)
 	}
@@ -108,6 +117,11 @@ func TestAModelAddedAfterTheBaselineStillGetsItsTable(t *testing.T) {
 	}
 }
 
+// firstMigrationOfThisRelease is the lowest migration version the last release
+// did not ship. A migration below it had already run on an installation that
+// is upgrading; one at or above it is what the upgrade runs.
+const firstMigrationOfThisRelease = migrations.LiveDecisionVersionsMigration
+
 // previouslyReleasedModels is the model list as of the last release.
 //
 // Kept as an explicit subtraction rather than a copied list, so adding a model
@@ -115,8 +129,9 @@ func TestAModelAddedAfterTheBaselineStillGetsItsTable(t *testing.T) {
 // simply absent from the "before" picture, which is what the test needs.
 func previouslyReleasedModels() []any {
 	added := map[string]bool{
-		// Declared in this release. Everything before it shipped already.
-		"connector_manifests": true,
+		// Declared in this release. Everything before it shipped already —
+		// connector_manifests, which this named until now, among them.
+		"decision_releases": true,
 	}
 	var before []any
 	for _, model := range models.MigrationModels() {

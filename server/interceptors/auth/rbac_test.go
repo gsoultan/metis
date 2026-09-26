@@ -18,9 +18,12 @@ func ctxWithEntityUser(roles []string) context.Context {
 	return context.WithValue(context.Background(), pkgauth.UserContextKey, u)
 }
 
-func ctxWithClaimsUser(roles []string) context.Context {
-	c := pkgauth.UserClaims{Roles: roles}
-	return context.WithValue(context.Background(), pkgauth.UserContextKey, c)
+// ctxWithLinkedAccount is somebody signed in through an identity provider: the
+// OIDC strategy leaves the account linked to them, with the roles an
+// administrator granted it.
+func ctxWithLinkedAccount(roles []string) context.Context {
+	u := entities.User{ID: uuid.New(), Roles: roles, IdentityProvider: "https://id.example.com"}
+	return context.WithValue(context.Background(), pkgauth.UserContextKey, u)
 }
 
 func TestRBACInterceptor(t *testing.T) {
@@ -52,11 +55,22 @@ func TestRBACInterceptor(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name:          "user has required role (UserClaims)",
-			ctx:           ctxWithClaimsUser([]string{"admin"}),
+			name:          "user has required role (account signed in through an identity provider)",
+			ctx:           ctxWithLinkedAccount([]string{"admin"}),
 			requiredRoles: []string{"admin"},
 			policy:        NewAllowAllPolicy(),
 			wantErr:       false,
+		},
+		{
+			// Roles are the account's, granted by an administrator. A token's
+			// claims are never the caller, whatever they carry.
+			name: "a token's claims are nobody",
+			ctx: context.WithValue(context.Background(), pkgauth.UserContextKey,
+				entities.IdentityClaims{Issuer: "https://id.example.com", Subject: "sub-1"}),
+			requiredRoles: []string{"admin"},
+			policy:        NewAllowAllPolicy(),
+			wantErr:       true,
+			want:          pkgauth.ErrUnauthorized,
 		},
 		{
 			name:          "user missing required role",

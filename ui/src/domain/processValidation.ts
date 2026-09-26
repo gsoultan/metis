@@ -150,7 +150,9 @@ function nothingToWorkWith(node: CheckableNode): ValidationIssue | undefined {
     case 'connector':
       return isBlank(connection(data)) ? serviceTaskWarning(node, NO_CONNECTOR) : undefined;
     case 'script':
-      return serviceTaskWarning(node, SCRIPT_NEVER_RUNS);
+      // Refused at deploy by the server, so an error here rather than a
+      // warning: saving would only move the refusal to the deploy.
+      return { ...serviceTaskWarning(node, SCRIPT_NEVER_RUNS), severity: 'error' };
     default:
       // A choice the engine does not know: it is not a worker step, and it
       // reads no web address.
@@ -182,7 +184,7 @@ const NO_CONNECTOR: ServiceTaskProblem = {
 };
 
 const SCRIPT_NEVER_RUNS: ServiceTaskProblem = {
-  because: `is set to run a script, but a script never runs on a step that calls another system, ${PASSES_THROUGH}`,
+  because: 'is set to run a script, which a step that calls another system cannot do, so the server refuses to deploy it.',
   suggestion:
     `Move the script to a “${NODE_VOCABULARY.scriptTask.plainName}” step, which does run it, ` +
     'or under “What it calls” choose what this step should call.',

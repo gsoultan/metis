@@ -37,6 +37,14 @@ export const useSetWebhookEnabled = () => {
   });
 };
 
+export const useCloseLegacySignatures = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => processService.closeLegacySignatures(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['webhooks'] }),
+  });
+};
+
 export const useDeleteWebhook = () => {
   const queryClient = useQueryClient();
   return useMutation({

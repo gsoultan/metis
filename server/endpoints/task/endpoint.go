@@ -268,6 +268,13 @@ func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return UpdateTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
+		// A task's name, priority and due date are how its holder orders their
+		// day. Anybody in the organization could change them on somebody else's
+		// task — push the date out, drop the priority — so editing is held to
+		// the rule handing it on is.
+		if err := mayEdit(ctx, s, id); err != nil {
+			return UpdateTaskResponse{Err: err}, nil
+		}
 		task := entities.Task{
 			ID:       id,
 			Name:     req.Name,
@@ -303,9 +310,9 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 // callerGroups resolves the candidate groups of the signed-in caller.
 //
 // Both the group names and IDs are returned because definitions name
-// candidate groups either way. An OIDC principal has no local account and so
-// no local groups; it matches candidate-user tasks only, which is the honest
-// answer until claims are mapped to memberships.
+// candidate groups either way. Somebody signed in through an identity provider
+// is in the groups an administrator put their linked account in, as a local
+// account is.
 func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, error) {
 	user, ok := principal.LocalUser(ctx)
 	if !ok || user.ID == uuid.Nil {
@@ -332,6 +339,19 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 // assigned by an administrator only: absent constraint means deny, not
 // "anyone".
 func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
+	return requireHolderOrAdministrator(ctx, s, id, "hand it to someone else")
+}
+
+// mayEdit refuses a change to a task's name, priority or due date on the same
+// terms: its holder or an administrator, and for a task nobody holds, an
+// administrator.
+func mayEdit(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
+	return requireHolderOrAdministrator(ctx, s, id, "change its name, priority or due date")
+}
+
+// requireHolderOrAdministrator admits the task's current assignee or an
+// administrator to what the refusal names.
+func requireHolderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID, action string) error {
 	actor, err := principal.Username(ctx)
 	if err != nil {
 		return err
@@ -346,5 +366,5 @@ func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) er
 	if task.AssigneeUsername() == actor {
 		return nil
 	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can hand it to someone else")
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", action)
 }

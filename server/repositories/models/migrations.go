@@ -71,6 +71,11 @@ func MigrationModels() []any {
 		// exactly as it did.
 		new(ProcessDefinitionReleaseModel),
 
+		// Which version of each decision key is live. Migration 26 records
+		// one for every decision that existed before it, and every save that
+		// puts a version into force records one after.
+		new(DecisionReleaseModel),
+
 		// The runtimes a project deploys into, and the database each one owns.
 		// This row lives in the main database; what its database holds is the
 		// runtime, and nothing about who may sign in.
