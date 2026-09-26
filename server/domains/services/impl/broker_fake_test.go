@@ -111,6 +111,17 @@ func (b *fakeBroker) settlements() []string {
 	return append([]string(nil), b.settled...)
 }
 
+// pendingPublishes counts the publishes the broker has not answered.
+func (b *fakeBroker) pendingPublishes() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	pending := 0
+	for _, ch := range b.channels {
+		pending += len(ch.pending)
+	}
+	return pending
+}
+
 // channel returns the nth channel opened, from zero.
 func (b *fakeBroker) channel(n int) *fakeChannel {
 	b.mu.Lock()

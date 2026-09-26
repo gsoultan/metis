@@ -99,7 +99,7 @@ func bridgeOn(t *testing.T, broker *fakeBroker, board *taskBoard, logs *lockedBu
 		sleep:          sleepWithContext,
 	}
 	logger := zerolog.New(logs)
-	return svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse")
+	return svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse", time.Minute)
 }
 
 // pollWithin runs one round of the bridge, failing the test if the round has
@@ -237,4 +237,75 @@ func TestABridgeConnectsAgainWhenItsBrokerDropsTheConnectionAndSaysWhy(t *testin
 		t.Fatalf("the dropped connection was logged at error %d times, want once: %v", len(lost), logs.entries(t))
 	}
 	assertNamed(t, lost[0], map[string]string{"topic": "reverse-charge", "exchange": "billing"})
+}
+
+// The bridge locks each task it fetches for the lock it was started with. It
+// was a fixed 30 seconds, and that is the downstream worker's whole budget,
+// its time waiting on the queue included, so a queue that backed up had its
+// tasks published again.
+func TestABridgeLocksEachTaskForItsOwnLock(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	board, _ := newTaskBoard(1)
+	svc := &messagingService{externalSvc: board, dial: broker.dial, sleep: sleepWithContext}
+	logger := zerolog.New(&logs)
+	bridge := svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse", 10*time.Minute)
+
+	pollWithin(t, bridge, 5*time.Second)
+
+	board.mu.Lock()
+	locks := slices.Clone(board.locks)
+	board.mu.Unlock()
+	if !slices.Equal(locks, []int64{600_000}) {
+		t.Fatalf("the bridge fetched with a lock of %v ms, want 600000: the ten minutes it was started with", locks)
+	}
+}
+
+// A lock of nothing would offer every task again the moment it was published.
+func TestABridgeWithNoLockIsNotStarted(t *testing.T) {
+	t.Parallel()
+	board, _ := newTaskBoard(0)
+	svc := &messagingService{externalSvc: board, dial: newFakeBroker().dial, sleep: sleepWithContext}
+	t.Cleanup(svc.StopAll)
+	err := svc.StartBridge(t.Context(), uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse", 0)
+	if err == nil || !strings.Contains(err.Error(), "lock") {
+		t.Fatalf("a bridge with no lock was started (%v)", err)
+	}
+}
+
+// Tasks the bridge had fetched when the server began to stop were handed back
+// on the stopping context, which the database refuses, so each stayed locked
+// for the whole of the bridge's lock before anybody else could take it — five
+// minutes, now that a lock is long enough for a queue. They go back at once.
+func TestTasksABridgeFetchedAsItStopsAreHandedBackAtOnce(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	broker.answer(answerNever) // the first publish is still in flight when the bridge stops
+	board, ids := newTaskBoard(3)
+	bridge := bridgeOn(t, broker, board, &logs, time.Minute)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bridge.poll(ctx)
+	}()
+	for deadline := time.Now().Add(5 * time.Second); broker.pendingPublishes() == 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bridge never published")
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the bridge's round did not end within 5s of it being stopped")
+	}
+
+	if handedBack, _ := board.returned(); !slices.Equal(handedBack, ids) {
+		t.Fatalf("stopping handed back %v, want all three tasks it had fetched %v; the rest stay locked for the bridge's whole lock",
+			handedBack, ids)
+	}
 }

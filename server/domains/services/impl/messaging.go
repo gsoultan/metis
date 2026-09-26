@@ -22,14 +22,8 @@ import (
 )
 
 const (
-	workerID = "messaging-bridge"
-	maxTasks = 10
-	// lockDurationMS is how long a fetched task stays invisible to other
-	// workers. The repository treats this value as milliseconds; the previous
-	// constant was named ...Sec and passed 30, so bridge locks expired after
-	// thirty milliseconds and every poll re-fetched and re-published the same
-	// tasks.
-	lockDurationMS     = 30_000
+	workerID           = "messaging-bridge"
+	maxTasks           = 10
 	bridgePollInterval = 5 * time.Second
 
 	inboundDispatchMaxAttempts    = 3
@@ -98,16 +92,22 @@ func NewMessagingService(engine contracts.EngineEventBus, externalSvc contracts.
 	}
 }
 
-func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID, topic string, rabbitURL string, exchange string, routingKey string) error {
+func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID, topic string, rabbitURL string, exchange string, routingKey string, lockDuration time.Duration) error {
 	id := fmt.Sprintf("bridge-%s-%s", projectID, topic)
 	if _, loaded := s.cancels.Load(id); loaded {
 		return fmt.Errorf("bridge for topic %s already running", topic)
 	}
 
+	// A lock of nothing would offer every task again the moment it was
+	// published.
+	if lockDuration <= 0 {
+		return fmt.Errorf("bridge for topic %s has no lock, so every task it published would be offered again at once", topic)
+	}
+
 	childCtx, cancel := context.WithCancel(ctx)
 	s.cancels.Store(id, cancel)
 
-	bridge := s.newBridge(ctx, projectID, topic, rabbitURL, exchange, routingKey)
+	bridge := s.newBridge(ctx, projectID, topic, rabbitURL, exchange, routingKey, lockDuration)
 	s.wg.Go(func() {
 		defer s.cancels.Delete(id)
 		bridge.run(childCtx)
@@ -117,7 +117,7 @@ func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID,
 }
 
 // newBridge assembles a bridge from what the service was given.
-func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, topic, rabbitURL, exchange, routingKey string) *externalTaskBridge {
+func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, topic, rabbitURL, exchange, routingKey string, lockDuration time.Duration) *externalTaskBridge {
 	// Every line names the bridge. With several running, one that does not is
 	// a line nobody can act on.
 	logger := loggerFrom(ctx).With().
@@ -132,6 +132,7 @@ func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, t
 		topic:          topic,
 		exchange:       exchange,
 		routingKey:     routingKey,
+		lockDuration:   lockDuration,
 		pollInterval:   cmp.Or(s.pollInterval, bridgePollInterval),
 		confirmTimeout: s.confirmTimeout,
 		reconnect:      brokerReconnects,

@@ -142,7 +142,7 @@ func TestWaitingToReconnectEndsWhenTheServerStops(t *testing.T) {
 		{
 			name: "bridge",
 			run: func(ctx context.Context, svc *messagingService) {
-				svc.newBridge(ctx, uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse").run(ctx)
+				svc.newBridge(ctx, uuid.New(), "reverse-charge", "amqp://broker.test/", "billing", "charges.reverse", time.Minute).run(ctx)
 			},
 		},
 		{

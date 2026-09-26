@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -11,6 +12,13 @@ import (
 func bridgeJSON(project, connection uuid.UUID, topic, exchange, routingKey string) string {
 	return fmt.Sprintf(`{"project":%q,"connection":%q,"topic":%q,"exchange":%q,"routing_key":%q}`,
 		project, connection, topic, exchange, routingKey)
+}
+
+// bridgeJSONWithLock is bridgeJSON with "lock_seconds" set to lock, written
+// as raw JSON.
+func bridgeJSONWithLock(project, connection uuid.UUID, lock string) string {
+	return fmt.Sprintf(`{"project":%q,"connection":%q,"topic":"reverse-charge","exchange":"billing","routing_key":"charges.reverse","lock_seconds":%s}`,
+		project, connection, lock)
 }
 
 func consumerJSON(project, connection uuid.UUID, queue, message string) string {
@@ -114,7 +122,7 @@ func TestRabbitMQBridgesAreReadFromTheirVariable(t *testing.T) {
 func TestARabbitMQBridgeKeepsEverySettingAsWritten(t *testing.T) {
 	project, connection := uuid.New(), uuid.New()
 	bridges, err := parseRabbitMQEntries(envRabbitMQBridges, "bridge",
-		"["+bridgeJSON(project, connection, "reverse-charge", "billing", "charges.reverse")+"]", parseRabbitMQBridge)
+		"["+bridgeJSONWithLock(project, connection, "600")+"]", parseRabbitMQBridge)
 	if err != nil || len(bridges) != 1 {
 		t.Fatalf("read %d bridges, %v", len(bridges), err)
 	}
@@ -123,9 +131,59 @@ func TestARabbitMQBridgeKeepsEverySettingAsWritten(t *testing.T) {
 		topic:      "reverse-charge",
 		exchange:   "billing",
 		routingKey: "charges.reverse",
+		lock:       10 * time.Minute,
 	}
 	if bridges[0] != want {
 		t.Fatalf("read %+v, want %+v", bridges[0], want)
+	}
+}
+
+// How long a bridge locks each task is the downstream worker's whole budget,
+// its time on the queue included. It was a fixed 30 seconds, so a queue that
+// backed up had the same tasks published again. It is set per bridge now,
+// and read as strictly as the rest of the entry: a lock the bridge could not
+// keep to is refused rather than rounded.
+func TestARabbitMQBridgesLockIsReadFromLockSeconds(t *testing.T) {
+	project, connection := uuid.New(), uuid.New()
+	tests := []struct {
+		name  string
+		entry string
+		lock  time.Duration
+		error string
+	}{
+		{name: "not set is five minutes", entry: bridgeJSON(project, connection, "reverse-charge", "billing", "charges.reverse"), lock: 5 * time.Minute},
+		{name: "ten minutes", entry: bridgeJSONWithLock(project, connection, "600"), lock: 10 * time.Minute},
+		{name: "the shortest", entry: bridgeJSONWithLock(project, connection, "30"), lock: 30 * time.Second},
+		{name: "the longest", entry: bridgeJSONWithLock(project, connection, "86400"), lock: 24 * time.Hour},
+		{name: "too short", entry: bridgeJSONWithLock(project, connection, "29"), error: `"lock_seconds" is 29; it must be from 30 to 86400`},
+		{name: "zero", entry: bridgeJSONWithLock(project, connection, "0"), error: `"lock_seconds" is 0; it must be from 30 to 86400`},
+		{name: "negative", entry: bridgeJSONWithLock(project, connection, "-300"), error: `"lock_seconds" is -300; it must be from 30 to 86400`},
+		{name: "longer than a day", entry: bridgeJSONWithLock(project, connection, "86401"), error: `"lock_seconds" is 86401; it must be from 30 to 86400`},
+		{name: "not whole seconds", entry: bridgeJSONWithLock(project, connection, "300.5"), error: "cannot be read"},
+		{name: "a string", entry: bridgeJSONWithLock(project, connection, `"300"`), error: "cannot be read"},
+		{
+			name:  "misspelt",
+			entry: strings.Replace(bridgeJSONWithLock(project, connection, "600"), "lock_seconds", "lock_second", 1),
+			error: `cannot be read: json: unknown field "lock_second"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bridges, err := parseRabbitMQEntries(envRabbitMQBridges, "bridge", "["+tc.entry+"]", parseRabbitMQBridge)
+			if tc.error != "" {
+				assertProblems(t, err, []string{"bridge 1: " + tc.error})
+				if len(bridges) != 0 {
+					t.Errorf("a bridge with that lock would run: %+v", bridges)
+				}
+				return
+			}
+			if err != nil || len(bridges) != 1 {
+				t.Fatalf("read %d bridges, %v", len(bridges), err)
+			}
+			if bridges[0].lock != tc.lock {
+				t.Errorf("the bridge locks each task for %v, want %v", bridges[0].lock, tc.lock)
+			}
+		})
 	}
 }
 

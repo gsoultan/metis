@@ -99,7 +99,7 @@ func awaitHandedBackTimes(t *testing.T, board *taskBoard, id uuid.UUID, n int, w
 func liveBridge(t *testing.T, svc *messagingService, url, queue string, logs *lockedBuffer) {
 	t.Helper()
 	logger := zerolog.New(logs)
-	if err := svc.StartBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", url, "", queue); err != nil {
+	if err := svc.StartBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", url, "", queue, time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 	awaitEntry(t, logs, "info", "connected", 10*time.Second)
@@ -219,7 +219,7 @@ func TestABridgeWhoseExchangeIsMissingForwardsOnceItExistsWithoutARestart(t *tes
 	}
 	t.Cleanup(svc.StopAll)
 	logger := zerolog.New(&logs)
-	if err := svc.StartBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", url, exchange, "charges.reverse"); err != nil {
+	if err := svc.StartBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", url, exchange, "charges.reverse", time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 	awaitEntry(t, &logs, "info", "connected", 10*time.Second)
@@ -346,7 +346,7 @@ func TestABridgeBacksOffFromABrokerItCannotReachAndStartsOverOnceItConnects(t *t
 		sleep:          sleepWithContext,
 	}
 	logger := zerolog.New(&logs)
-	bridge := svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", proxied, "", "metis-test-unused")
+	bridge := svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", proxied, "", "metis-test-unused", time.Minute)
 	waits := make(waitRecorder)
 	bridge.sleep = waits.sleep
 	runBridge(t, bridge)

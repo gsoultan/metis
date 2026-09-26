@@ -132,7 +132,7 @@ func TestABridgeThatCannotReachItsBrokerSaysWhichBridgeItIs(t *testing.T) {
 
 	project := uuid.New()
 	ctx := logger.WithContext(t.Context())
-	if err := svc.StartBridge(ctx, project, "reverse-charge", refusedBroker(t), "billing", "charges.reverse"); err != nil {
+	if err := svc.StartBridge(ctx, project, "reverse-charge", refusedBroker(t), "billing", "charges.reverse", time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 
@@ -213,7 +213,7 @@ func TestABridgeSaysWhenItHasConnected(t *testing.T) {
 	t.Cleanup(svc.StopAll)
 
 	project := uuid.New()
-	if err := svc.StartBridge(logger.WithContext(t.Context()), project, "reverse-charge", url, "amq.direct", "charges.reverse"); err != nil {
+	if err := svc.StartBridge(logger.WithContext(t.Context()), project, "reverse-charge", url, "amq.direct", "charges.reverse", time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 

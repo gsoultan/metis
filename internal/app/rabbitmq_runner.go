@@ -109,12 +109,12 @@ func (r *rabbitMQRunner) startBridge(ctx context.Context, bridge rabbitMQBridge,
 	if err != nil {
 		return err
 	}
-	err = r.messaging.StartBridge(scoped, bridge.target.project, bridge.topic, broker.url, bridge.exchange, bridge.routingKey)
+	err = r.messaging.StartBridge(scoped, bridge.target.project, bridge.topic, broker.url, bridge.exchange, bridge.routingKey, bridge.lock)
 	if err != nil {
 		return err
 	}
 	logger.Info().Str("organization", broker.organization.String()).
-		Str("broker", broker.address).Str("vhost", broker.vhost).
+		Str("broker", broker.address).Str("vhost", broker.vhost).Str("lock", bridge.lock.String()).
 		Msg("Started a RabbitMQ bridge; it connects to its broker in the background")
 	return nil
 }

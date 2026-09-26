@@ -13,6 +13,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// handBackTimeout bounds handing a task back. It is not cut short by the
+// bridge stopping: a task fetched just before the server stops would
+// otherwise stay locked for the whole of the bridge's lock.
+const handBackTimeout = 5 * time.Second
+
 // What a bridge says about a problem, once per cause: see problemLog.
 const (
 	msgBridgeCouldNotConnect = "A RabbitMQ bridge could not connect to its broker"
@@ -30,6 +35,7 @@ type externalTaskBridge struct {
 	topic          string
 	exchange       string
 	routingKey     string
+	lockDuration   time.Duration
 	pollInterval   time.Duration
 	confirmTimeout time.Duration
 	// reconnect is how long to wait after each failed attempt to reach the
@@ -65,7 +71,9 @@ func (b *externalTaskBridge) poll(ctx context.Context) time.Duration {
 		return wait
 	}
 	b.failedAttempts = 0
-	tasks, err := b.tasks.FetchAndLock(ctx, b.topic, workerID, maxTasks, lockDurationMS)
+	// The repository reads the lock in milliseconds. It was once passed 30
+	// meaning seconds, and every lock ran out after thirty milliseconds.
+	tasks, err := b.tasks.FetchAndLock(ctx, b.topic, workerID, maxTasks, b.lockDuration.Milliseconds())
 	if err != nil {
 		b.logger.Error().Err(err).Msg("Bridge fetch error")
 		return b.pollInterval
@@ -108,6 +116,12 @@ func (b *externalTaskBridge) connect() error {
 // take.
 func (b *externalTaskBridge) forward(ctx context.Context, tasks []*entities.ExternalTask) {
 	for i, task := range tasks {
+		if ctx.Err() != nil {
+			// Stopping: what was fetched and not published goes back now,
+			// rather than when the bridge's lock runs out.
+			b.releaseUnpublished(ctx, tasks[i:], fmt.Errorf("not published before the bridge stopped: %w", ctx.Err()))
+			return
+		}
 		err := b.forwardOne(ctx, task)
 		if err == nil {
 			continue
@@ -118,7 +132,8 @@ func (b *externalTaskBridge) forward(ctx context.Context, tasks []*entities.Exte
 		}
 		// The rest of this round goes back unpublished, and the next round
 		// publishes on a new channel.
-		b.releaseUnpublished(ctx, tasks[i+1:], cause)
+		b.releaseUnpublished(ctx, tasks[i+1:],
+			fmt.Errorf("not published, because a task before it in the same round failed: %w", cause))
 		b.link.dropChannel()
 		b.publisher = nil
 		return
@@ -166,8 +181,13 @@ func (b *externalTaskBridge) forwardOne(ctx context.Context, task *entities.Exte
 		// work stalled until the lock expired while the line below claimed it
 		// had been forwarded — so hand it back now, and let the retry the
 		// engine already has do its job.
-		b.problems.event(msgBridgeTaskRefused, err).Str("taskID", task.ID.String()).
-			Msg(msgBridgeTaskRefused)
+		if ctx.Err() != nil {
+			b.logger.Info().Str("taskID", task.ID.String()).
+				Msg("A task being published when the bridge stopped was handed back")
+		} else {
+			b.problems.event(msgBridgeTaskRefused, err).Str("taskID", task.ID.String()).
+				Msg(msgBridgeTaskRefused)
+		}
 		b.releaseUnforwardedTask(ctx, task, err)
 		return err
 	}
@@ -177,17 +197,16 @@ func (b *externalTaskBridge) forwardOne(ctx context.Context, task *entities.Exte
 }
 
 // releaseUnpublished hands back tasks the bridge fetched and did not try to
-// publish.
-func (b *externalTaskBridge) releaseUnpublished(ctx context.Context, tasks []*entities.ExternalTask, cause error) {
+// publish, saying why.
+func (b *externalTaskBridge) releaseUnpublished(ctx context.Context, tasks []*entities.ExternalTask, why error) {
 	if len(tasks) == 0 {
 		return
 	}
 	for _, task := range tasks {
-		b.releaseUnforwardedTask(ctx, task,
-			fmt.Errorf("not published, because a task before it in the same round failed: %w", cause))
+		b.releaseUnforwardedTask(ctx, task, why)
 	}
-	b.logger.Warn().Int("tasks", len(tasks)).
-		Msg("Tasks fetched in the same round as one that could not be published were handed back unpublished")
+	b.logger.Warn().Err(why).Int("tasks", len(tasks)).
+		Msg("Tasks the bridge fetched and did not publish were handed back")
 }
 
 // releaseUnforwardedTask hands a locked task back when the bridge could not
@@ -199,10 +218,15 @@ func (b *externalTaskBridge) releaseUnpublished(ctx context.Context, tasks []*en
 // only record was a log line saying it had been forwarded. Failing it here
 // makes the engine's own retry the thing that decides what happens next,
 // which is what it is for.
+//
+// It is done on a context the bridge's stopping does not end: on the stopping
+// one the database refused it, and the task stayed locked for the whole lock.
 func (b *externalTaskBridge) releaseUnforwardedTask(ctx context.Context, task *entities.ExternalTask, cause error) {
 	if b.tasks == nil || task == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), handBackTimeout)
+	defer cancel()
 	// Retries are left where the task already had them: this is a transport
 	// failure, not the worker rejecting the work, so it should not consume an
 	// attempt the business logic is entitled to.
