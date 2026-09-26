@@ -35,17 +35,18 @@ func newAuditedEngine(t *testing.T, name string) auditedEngine {
 	return auditedEngine{svc: svc, db: db, ctx: ctx, projectID: projectID}
 }
 
-// passThroughAfterDraft is the process: a draft somebody writes, then three
+// passThroughAfterDraft is the process: a draft ada writes, then three
 // milestones and the end. None of the milestones waits for anything, so
 // completing the draft runs through all of them — and records reaching each —
-// in the one transaction that completes the task.
+// in the one transaction that completes the task. The draft names ada because a
+// task that names nobody is only an administrator's or an operator's to take.
 func passThroughAfterDraft(projectID uuid.UUID) *entities.ProcessDefinition {
 	return &entities.ProcessDefinition{
 		Project: &entities.Project{ID: projectID},
 		Key:     "claim",
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
-			{ID: "draft", Type: entities.UserTask, Name: "Draft the claim"},
+			{ID: "draft", Type: entities.UserTask, Name: "Draft the claim", Assignee: "ada"},
 			{ID: "checked", Type: entities.IntermediateThrowEvent, Name: "Claim checked"},
 			{ID: "approved", Type: entities.IntermediateThrowEvent, Name: "Claim approved"},
 			{ID: "filed", Type: entities.IntermediateThrowEvent, Name: "Claim filed"},
