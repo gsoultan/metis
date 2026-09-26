@@ -1211,6 +1211,45 @@
     open; closing them needs that field first. And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
     asks nobody for any.
+- 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand
+  projects, measured. Branch `tenant-scope-at-scale`. Every scoped repository call reads the
+  organization's project ids and filters on `project_id = ANY(ids)`; since the scope reads
+  every project (5d5016b), past a thousand, nobody had measured it past a handful.
+  - **Measured (P1).** `tests/loadtest` `TestTenantScopeAtScale`: 10,000 projects against 4,
+    the same 20,000 instances and tasks in each. The list was read once per scoped call —
+    six times a statistics request, five an instance list — at about 4ms and 10 MB a read:
+    statistics p95 26.3ms against 2.1ms, 201ms on a loaded run, 55 MB allocated a request.
+    Tasks by assignee paid 31.7ms against 2.1ms with one read, because a generic plan walks
+    the 10,000-element array for every row. `metis_tenant_scope_reads_total` counts the
+    reads. Numbers in `docs/performance.md`.
+  - **Read once per request (P1).** `tenantscope.Request`: the tenant resolver gives each
+    request a place to keep its organization's project ids, and every scoped call in it
+    reuses the first read. Ended with the endpoint, forgotten when the request creates or
+    deletes a project, never used for a context naming another organization, so nothing is
+    cached across requests. Test first: `tests/slo` `TestEachRequestReadsItsTenantScopeOnce`
+    failed with 5 reads to start a process, 5 for the instance list, 6 for the statistics and
+    9 to complete a task; each is 1 now. Isolation through the kept scope, under the default
+    and the strict scope, in `tests/tenant/request_scope_test.go`. Large-organization p95
+    after: statistics 6.3–9.8ms (was 26.3–201.3), instance list 6.2–6.6ms (was 35.6–142.0).
+    A subquery on `projects.organization_id` instead of the list was not an option: storm has
+    no subquery predicate, and an environment's instances and tasks are in a different
+    database from its projects.
+  - **The ids only (P1).** `projectsOf` read whole project rows through the store, ten keyset
+    statements at 10,000 projects; it reads the ids in one statement now, with the store's
+    soft-delete predicate written out (pinned by the deleted-project test). Large-organization
+    p95 after both: statistics 2.9–6.0ms, instance list 3.6–7.1ms, a task by id 1.8–4.9ms,
+    against 1.7–3.8, 2.2–4.2 and 0.31–0.85ms for 4 projects; allocation per request 0.7–2.1 MB
+    where it was 9–55 MB.
+  - **Still open: the list inside the query.** Reads spanning the whole organization still
+    pay for 10,000 ids per statement: the inbox 7–10ms more, tasks by assignee 8–55ms more,
+    because on its generic plan PostgreSQL filters the assignee's rows against the array one
+    id at a time (21–26ms against 4.9ms planned with the values). A `tasks (assignee,
+    project_id)` index was tried; the generic plan does not use it. Everything is inside the
+    150ms target at 10,000 projects, but the cost grows with projects × rows. The fixes are an
+    organization column on the tables a project owns (schema change and backfill, main and
+    environment databases) or planning these statements with their values (a pool-wide
+    change to how every query is planned). Neither is done; measure with
+    `TestTenantScopeAtScale` before and after.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

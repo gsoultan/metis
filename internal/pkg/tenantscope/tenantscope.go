@@ -5,6 +5,10 @@
 // repositories, and the storm repositories replacing them. A copy in each would
 // be two answers to "may this query run", and the one that drifts is whichever
 // is edited less.
+//
+// It also keeps a request's resolved scope for the length of the request
+// (Request): started by the tenant resolver, which is what knows when a request
+// begins and ends, and read by the repositories, which are what resolve it.
 package tenantscope
 
 import (

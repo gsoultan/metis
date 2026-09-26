@@ -212,6 +212,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   reached a repository with no identity, labelled with that path. Staging soaks
   become a dashboard and an alert instead of reading logs for a line that
   appears once per site; `docs/strict-tenant-scope.md` has the alert rule.
+- **What tenant scoping costs is on the metrics endpoint.**
+  `metis_tenant_scope_reads_total` counts the reads of an organization's
+  project list that scope a request's reads and writes. Each returns every
+  project the organization has; against the request rate it is what each
+  request pays for scoping. `docs/performance.md` has what one costs at ten
+  thousand projects.
 
 - **Database Lookup.** A process step can read rows from your own PostgreSQL,
   MySQL or SQL Server database into one process variable, so the gateway or
@@ -346,6 +352,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   such a value can be a plain word with a sentence after it. Anything else is
   redacted as before, including a token or password after `token:`,
   `password=`, in JSON, in a URL's query and in an `Authorization` header.
+- **An organization with thousands of projects paid for all of them on every
+  call a request made.** Each repository call read the ids of every project
+  in the organization again: six times for the dashboard's statistics, five
+  for the instance list, nine to complete a task. At 10,000 projects a read
+  is about 4ms and 10 MB, so the statistics took 26–201ms and allocated
+  55 MB. A request reads the list once now — the ids alone, in one statement
+  — and every call in it reuses that: the statistics take 3–6ms and allocate
+  under 1 MB. Nothing is kept past the request, so a project created by one
+  request is in scope for the next, as before. Reads that span the whole
+  organization, such as a person's tasks, still pay for the size of the list
+  inside the query; `docs/performance.md` has the numbers.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

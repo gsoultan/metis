@@ -58,6 +58,7 @@ import (
 	gorms "github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	models "github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/server/transports/grpcs"
 	https "github.com/gsoultan/metis/server/transports/https"
 
@@ -1021,6 +1022,18 @@ func (a *App) runServers(ctx context.Context) error {
 		metricsCollector.Registry().MustRegister(metrics.NewTenantScopeCollector(
 			func() bool { return features.Enabled(features.StrictTenantScope) },
 			tenantscope.DeniedSites,
+		))
+
+		// What scoping costs. Each read returns every project the caller's
+		// organization has; against the request rate this is the reads each
+		// request makes. docs/performance.md has what one costs at ten
+		// thousand projects.
+		metricsCollector.Registry().MustRegister(prometheus.NewCounterFunc(
+			prometheus.CounterOpts{
+				Name: "metis_tenant_scope_reads_total",
+				Help: "Reads of an organization's project list to scope a request's repository calls.",
+			},
+			func() float64 { return float64(pg.ScopeReads()) },
 		))
 
 		// How far behind the engine is and how full its connection pools are,
