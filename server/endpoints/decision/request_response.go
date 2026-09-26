@@ -75,6 +75,14 @@ func (r CreateDecisionResponse) Failed() error { return r.Err }
 type UpdateDecisionRequest struct {
 	ID       string                      `json:"id"`
 	Decision entities.DecisionDefinition `json:"decision,omitzero"`
+
+	// Stage saves the new version without making it live: evaluations that
+	// name no version keep reading whichever version is live now.
+	//
+	// Negative ("stage") rather than positive ("promote") for the reason a
+	// process deploy's is: a client that has never heard of staging keeps
+	// getting a save that takes effect.
+	Stage bool `json:"stage,omitzero"`
 }
 
 type UpdateDecisionResponse struct {
@@ -86,7 +94,9 @@ type UpdateDecisionResponse struct {
 	ID         uuid.UUID `json:"id,omitzero"`
 	Version    int       `json:"version,omitzero"`
 	NewVersion bool      `json:"new_version"`
-	Err        error     `json:"err,omitzero"`
+	// Live says whether that version is now the one evaluations read.
+	Live bool  `json:"live"`
+	Err  error `json:"err,omitzero"`
 }
 
 func (r UpdateDecisionResponse) Failed() error { return r.Err }

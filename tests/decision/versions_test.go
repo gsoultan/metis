@@ -37,7 +37,7 @@ func TestSavingAnEditedDecisionAddsAVersionAndKeepsThePreviousOne(t *testing.T) 
 		t.Fatalf("create: %v", err)
 	}
 
-	saved, err := w.svc.UpdateDecision(w.ctx, id, bandTable(w.project, "VERY HIGH"))
+	saved, err := w.svc.UpdateDecision(w.ctx, id, bandTable(w.project, "VERY HIGH"), true)
 	if err != nil {
 		t.Fatalf("save the edit: %v", err)
 	}
@@ -94,12 +94,12 @@ func TestSavingAnUnchangedDecisionAddsNoVersion(t *testing.T) {
 	loaded.RequiredDecisions = []string{}
 	loaded.Tests = []entities.DecisionTest{}
 
-	saved, err := w.svc.UpdateDecision(w.ctx, id, loaded)
+	saved, err := w.svc.UpdateDecision(w.ctx, id, loaded, true)
 	if err != nil {
 		t.Fatalf("save the untouched table: %v", err)
 	}
-	if saved.NewVersion || saved.ID != id || saved.Version != 1 {
-		t.Errorf("an unchanged save reported %+v, want version 1 (%v) and no new version", saved, id)
+	if saved.NewVersion || saved.ID != id || saved.Version != 1 || !saved.Live {
+		t.Errorf("an unchanged save reported %+v, want the live version 1 (%v) and no new version", saved, id)
 	}
 	if _, err := w.repo.Decision().GetByKeyAndVersion(w.ctx, w.project, "credit-band", 2); !errors.Is(err, apierr.ErrNotFound) {
 		t.Errorf("an unchanged save minted version 2 (lookup: %v)", err)
@@ -120,7 +120,7 @@ func TestASavedVersionStaysUnderTheKeyItWasSavedFrom(t *testing.T) {
 	edited.Key = "somewhere-else"
 	edited.Project = nil
 
-	if _, err := w.svc.UpdateDecision(w.ctx, id, edited); err != nil {
+	if _, err := w.svc.UpdateDecision(w.ctx, id, edited, true); err != nil {
 		t.Fatalf("save the edit: %v", err)
 	}
 	if _, err := w.repo.Decision().GetByKeyAndVersion(w.ctx, w.project, "credit-band", 2); err != nil {
@@ -143,7 +143,7 @@ func TestSavingAnotherOrganizationsDecisionIsRefused(t *testing.T) {
 		t.Fatalf("create their decision: %v", err)
 	}
 
-	if _, err := w.svc.UpdateDecision(w.ctx, theirs, bandTable(w.project, "STOLEN")); !errors.Is(err, apierr.ErrNotFound) {
+	if _, err := w.svc.UpdateDecision(w.ctx, theirs, bandTable(w.project, "STOLEN"), true); !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("saving another organization's decision: got %v, want not found", err)
 	}
 	if _, err := w.repo.Decision().GetByKeyAndVersion(theirCtx, theirProject, "credit-band", 2); !errors.Is(err, apierr.ErrNotFound) {

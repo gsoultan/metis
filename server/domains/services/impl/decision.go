@@ -50,12 +50,15 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	seen[decisionKey] = true
 	defer delete(seen, decisionKey)
 
+	// A pinned version is exactly that version. Otherwise the live one — which
+	// may be older than the newest: a saved version can be staged, and an
+	// older one made live again.
 	var m models.DecisionDefinitionModel
 	var err error
 	if version > 0 {
 		m, err = s.repo.Decision().GetByKeyAndVersion(ctx, projectID, decisionKey, version)
 	} else {
-		m, err = s.repo.Decision().GetByKey(ctx, projectID, decisionKey)
+		m, err = s.repo.Decision().GetLiveByKey(ctx, projectID, decisionKey)
 	}
 	if err != nil {
 		return entities.DecisionResult{}, err
@@ -64,7 +67,10 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	decision := adapters.DecisionEntityAdapter{Model: m}.ToEntity()
 
 	// 1. Evaluate required decisions, in the same project: a requirement names
-	// a table beside this one, not one anywhere a key happens to match.
+	// a table beside this one, not one anywhere a key happens to match. At
+	// their live versions, whatever version this one is: a requirement names a
+	// key, and a staged table must not come into force through a decision
+	// that depends on it.
 	for _, reqKey := range decision.RequiredDecisions {
 		res, err := s.evaluateRecursive(ctx, projectID, reqKey, 0, variables, seen)
 		if err != nil {
@@ -165,7 +171,9 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 		return uuid.Nil, fmt.Errorf("decision key is required")
 	}
 
-	saved, err := s.storeNewVersion(ctx, d)
+	// Live, as creating one always was: every caller written before a save
+	// could stage means exactly this.
+	saved, err := s.storeNewVersion(ctx, d, true)
 	if err != nil {
 		return uuid.Nil, err
 	}

@@ -155,11 +155,11 @@ func MakeUpdateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return UpdateDecisionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		saved, err := s.UpdateDecision(ctx, id, req.Decision)
+		saved, err := s.UpdateDecision(ctx, id, req.Decision, !req.Stage)
 		if err != nil {
 			return UpdateDecisionResponse{Err: err}, nil
 		}
-		return UpdateDecisionResponse{ID: saved.ID, Version: saved.Version, NewVersion: saved.NewVersion}, nil
+		return UpdateDecisionResponse{ID: saved.ID, Version: saved.Version, NewVersion: saved.NewVersion, Live: saved.Live}, nil
 	}
 }
 

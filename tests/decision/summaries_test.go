@@ -103,7 +103,7 @@ func TestDecisionSummariesNameEachKeyOnceAsItsNewestVersion(t *testing.T) {
 
 	// The id is the newest version's, so opening a summary opens what the
 	// engine evaluates.
-	newest, err := w.repo.Decision().GetByKey(w.ctx, w.project, "credit-band")
+	newest, err := w.repo.Decision().GetByKeyAndVersion(w.ctx, w.project, "credit-band", 2)
 	if err != nil {
 		t.Fatalf("read the newest credit-band: %v", err)
 	}

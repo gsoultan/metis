@@ -64,18 +64,26 @@ type UpdateDecisionResponse = {
   id?: string;
   version?: number;
   new_version?: boolean;
+  live?: boolean;
   err?: string;
 };
 
 /**
  * What saving an edit did. A save never changes the version it was sent to:
  * the edit becomes the key's next version, so the id that was edited no longer
- * names what it now holds. `newVersion` is false when nothing had changed.
+ * names what it now holds. `newVersion` is false when nothing had changed, and
+ * `live` says whether the version saved is the one evaluations now read.
  */
 export interface SavedDecision {
   id: string;
   version: number;
   newVersion: boolean;
+  live: boolean;
+}
+
+/** How a save puts its version into force: now, or staged beside the live one. */
+export interface SaveDecisionOptions {
+  stage?: boolean;
 }
 
 type EvaluateDecisionResponse = {
@@ -119,14 +127,19 @@ export const decisionService = {
     return { id: raiseIfRefused(data).id };
   },
 
-  async updateDecision(id: string, params: CreateDecisionPayload): Promise<SavedDecision> {
+  async updateDecision(id: string, params: CreateDecisionPayload, options: SaveDecisionOptions = {}): Promise<SavedDecision> {
     const data = raiseIfRefused(
       await requestJSON<UpdateDecisionResponse>(`/decisions/${id}`, {
         method: "PUT",
-        body: { decision: params },
+        body: options.stage ? { decision: params, stage: true } : { decision: params },
       }),
     );
-    return { id: data.id ?? id, version: data.version ?? 0, newVersion: data.new_version ?? false };
+    return {
+      id: data.id ?? id,
+      version: data.version ?? 0,
+      newVersion: data.new_version ?? false,
+      live: data.live ?? false,
+    };
   },
 
   async deleteDecision(id: string) {

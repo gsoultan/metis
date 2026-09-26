@@ -29,9 +29,10 @@ type DecisionManager interface {
 	CreateDecision(ctx context.Context, def entities.DecisionDefinition) (uuid.UUID, error)
 
 	// UpdateDecision saves an edit of the version id names as the next
-	// version of its key. The stored version is never changed, and a table
-	// that is the same as it mints nothing.
-	UpdateDecision(ctx context.Context, id uuid.UUID, def entities.DecisionDefinition) (entities.SavedDecision, error)
+	// version of its key, and makes it live unless promote is false and
+	// another version is live to keep. The stored version is never changed,
+	// and a table that is the same as it stores and changes nothing.
+	UpdateDecision(ctx context.Context, id uuid.UUID, def entities.DecisionDefinition, promote bool) (entities.SavedDecision, error)
 	// DecisionImpact reports which processes consult a decision and how many of
 	// their instances are still running, so the size of a policy change is
 	// visible before it is made.

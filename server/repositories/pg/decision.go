@@ -26,21 +26,6 @@ func (r *decisionRepository) Get(ctx context.Context, id uuid.UUID) (models.Deci
 	return r.one(ctx, decisiondefinition.ID.Eq(id))
 }
 
-// GetByKey returns the highest version of a key within one project.
-//
-// It used to take the key alone, bounded only by the caller's tenant scope —
-// every project of the organization for a request, and nothing at all for the
-// system work that runs a business rule task after a timer or a message — so
-// it answered with whichever tenant's table of that name had the highest
-// version. The tenant scope still applies on top: a request cannot name a
-// project outside its organization and read its tables.
-func (r *decisionRepository) GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionDefinitionModel, error) {
-	return r.highest(ctx,
-		decisiondefinition.ProjectID.Eq(projectID),
-		decisiondefinition.Key.Eq(key),
-	)
-}
-
 func (r *decisionRepository) GetByKeyAndVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error) {
 	return r.one(ctx,
 		decisiondefinition.ProjectID.Eq(projectID),
@@ -187,12 +172,6 @@ func (r *decisionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *decisionRepository) one(ctx context.Context, preds ...decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {
 	return r.first(ctx, nil, preds)
-}
-
-// highest returns the newest version matching the predicates.
-func (r *decisionRepository) highest(ctx context.Context, preds ...decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {
-	order := []decisiondefinition.Sort{decisiondefinition.Version.Desc()}
-	return r.first(ctx, order, preds)
 }
 
 func (r *decisionRepository) first(ctx context.Context, order []decisiondefinition.Sort, preds []decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {

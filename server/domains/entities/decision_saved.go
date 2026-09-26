@@ -17,4 +17,9 @@ type SavedDecision struct {
 	// saved from, which then stays the answer: an unchanged table is not a
 	// new policy, and a copy of it would only make the history harder to read.
 	NewVersion bool `json:"new_version"`
+
+	// Live says whether that version is the one an evaluation naming no
+	// version reads. A staged save leaves it false and the previous version in
+	// force — unless nothing was live, when the only version is the live one.
+	Live bool `json:"live"`
 }

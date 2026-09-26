@@ -11,13 +11,20 @@ import (
 type DecisionRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (models.DecisionDefinitionModel, error)
 
-	// GetByKey returns the highest version of a key within one project.
+	// GetLiveByKey returns the version of a key its release timeline names as
+	// live: what an evaluation that names no version reads. Not found when no
+	// version is live — never "the highest", which would put into force a
+	// version nobody chose.
 	//
 	// Keys are unique per project, not per installation, so a key is only an
 	// answer together with the project that owns it — the same shape as the
 	// form repository's lookup.
-	GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionDefinitionModel, error)
+	GetLiveByKey(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionDefinitionModel, error)
 	GetByKeyAndVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error)
+
+	// GetRelease is the newest entry on a key's release timeline whose moment
+	// has come. Not found is a normal answer: nothing has been made live.
+	GetRelease(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionReleaseModel, error)
 	List(ctx context.Context) ([]models.DecisionDefinitionModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.DecisionDefinitionModel, error)
 
