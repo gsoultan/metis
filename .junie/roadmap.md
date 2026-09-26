@@ -156,10 +156,16 @@
   - [x] Recovery target finalized with explicit per-environment `RTO`/`RPO` values —
         see [`docs/recovery.md`](../docs/recovery.md). Production RPO 5min / RTO 1h,
         with the backup, restore and quarterly rehearsal procedures behind them.
-- [ ] 2. Core Backend Architecture
-  - [ ] `ServiceFacade` orchestration-only compliance verified across domains.
-  - [ ] Small, consumer-centric interface compliance audit completed.
-  - [ ] Pattern usage audit (`Repository`, `UnitOfWork`, `Strategy`, `Adapter`, `Decorator`, `Observer`) completed.
+- [x] 2. Core Backend Architecture — audited 2026-09-25 in
+      [`docs/architecture-audit.md`](../docs/architecture-audit.md). Every finding has its
+      place in the code, a class, a fix and a size; the defects are fixed (#93–#95, and the
+      thousand-row reads in #103) and the eight cheap fixes applied.
+  - [x] `ServiceFacade` orchestration-only compliance verified across domains. The struct
+        is orchestration-only; six endpoint functions held rules that belong in a service
+        (audit §1).
+  - [x] Small, consumer-centric interface compliance audit completed (audit §2; fields and
+        parameters narrowed to the part they call).
+  - [x] Pattern usage audit (`Repository`, `UnitOfWork`, `Strategy`, `Adapter`, `Decorator`, `Observer`) completed (audit §3).
 - [x] 3. Performance & Memory Strategy — every item below is done; the parent was
       left unticked, and two of the completed items (`P1-OPT-06`, `P1-OPT-07`) were
       missing from the list though the session log records them. Reconciled
@@ -320,8 +326,16 @@
         selected row, one summary notification rather than forty, and whatever
         failed stays selected so it can be retried. Claiming is a race the engine
         allows, so a partial failure is normal and had to be reportable.
-  - [ ] Medium-priority UX items (5-8) delivered.
-  - [ ] Lower-priority UX items (9-12) delivered.
+  - [ ] Medium-priority UX items (5-8) delivered. Delivered: 5, the heat map, the deadline
+        report and CSV export, all counted on the server (#97; no PDF export); 6, done
+        before; 8, version comparison, rollback and migration (#98). Item 7 in part:
+        memberships stay inside an organization, role refusals are 403, and anybody can
+        edit their own profile (#96). The visual role editor is not built.
+  - [ ] Lower-priority UX items (9-12) delivered. Delivered: 10, the decision-table editor
+        (#101); 11, progressive disclosure (#100); 12, onboarding and help (#102).
+        Item 9 in part: manifests are hardened (#99). Listing installed manifests in the
+        designer's catalogue waits on a security decision, because manifests are
+        installation-wide and roles global (`roadmap-connector-catalogue`).
 - [ ] 8. 90-Day Execution Plan
   - [x] Phase 1 complete (`baseline profiling + SLO dashboard`, `top 5 bottlenecks`, `critical security gaps`).
         Profiling: the pprof baseline and `P1-OPT-01`–`08`, and contention profiles
@@ -330,8 +344,14 @@
         fixed: the job claim query (18.8ms → 0.04ms at 100,000 due), the retention
         sweeps (by ctid), the storm pool's constructor and size, and the `P1-OPT`
         request-path items. Security: the eight P0s of 2026-09-25.
-  - [ ] Phase 2 complete (`architecture cleanup`, `high-value UX improvements`).
-  - [ ] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`).
+  - [x] Phase 2 complete (`architecture cleanup`, `high-value UX improvements`).
+        Cleanup: the audit and its eight cheap fixes; transactions and idempotency in
+        #93–#95. UX: #89 and #96–#102.
+  - [ ] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`). Load/chaos:
+        #103. Hardening: key rotation (#91) and the fixes since. Playbooks: the
+        runbooks (`docs/runbooks.md`), held to the alerts by a drift test. The canary
+        rollout waits on a decision: flags are installation-wide, and an organization
+        cohort needs a tenant where the flag is read.
 
 #### 10. Session Execution Log
 
@@ -952,6 +972,26 @@
     Separately, paged lists that order by creation time alone repeat and drop rows across
     a page boundary when one transaction created them.
 
+- 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
+  in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
+  - #92: a migration request that omits `dry_run` is a dry run, as documented.
+  - #93, engine correctness: hand-over checks and task-row locks (release, reopen, claim
+    and release/edit races); webhook receipt in one unit of work and the event webhook
+    after commit; external-task failures raise incidents, the retry wait is honoured, and
+    a sweep re-offers tasks stranded at zero retries; unknown step and repeat types are
+    refused at deploy; a failed migration skip leaves the task; a service task does what
+    the modeller chose.
+  - #94: a deleted or disabled environment stops being served, without a restart.
+  - #95: a live-update hint is sent once the work it points at has committed.
+  - #96: access control (organization-scoped group membership, 403 for a missing role,
+    self-service profile, case-insensitive roles).
+  - #97–#102: UX items 5, 8, 9 (in part), 11, 10 and 12, as §9.7 records.
+  - #103: load/chaos testing and the thousand-row reads (entry above).
+  - The last PR: the architecture audit and its eight cheap fixes.
+  - Decisions left open are in the final report and in the Serena memory
+    `verified-findings`: manifest scoping and the built-in override, the canary cohort,
+    OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
+    service task's script runs, and task-edit authorization.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
