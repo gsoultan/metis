@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"math"
 
 	"github.com/gsoultan/storm/runtime"
 )
@@ -10,6 +11,12 @@ import (
 // time. The same as the store's own default, so a read that used to stop at a
 // thousand now takes the thousand it always took and then asks for the next.
 const everyRowBatch = 1000
+
+// allRows lifts the store's default limit for a read that has to see every row
+// in one statement: one whose order has ties that carry meaning, which a keyset
+// cursor cannot page through without breaking them (see auditRepository.list).
+// Prefer everyRow wherever the order can be made unique.
+const allRows = math.MaxInt64
 
 // keysetQuery is the part of a generated query a keyset walk needs.
 type keysetQuery[R any, Q any] interface {
