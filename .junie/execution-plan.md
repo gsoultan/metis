@@ -284,10 +284,12 @@ No string concatenation, no JS runtime in the expression path.
 | Logic | `and`, `or`, `not` |
 | Paths | `applicant.income`, `items[1]` |
 | Built-ins | `date`, `duration`, `contains`, `starts with`, `list contains`, `count`, `sum`, `min`, `max`, `abs`, `today` |
-| Unary tests | bare `< 100`, `[1..10]`, `"GOLD","SILVER"` (comma = disjunction) |
+| Unary tests | bare `< 100`, `[1..10]`, `"GOLD","SILVER"` (comma = disjunction); the rest of the case by name, `< maximum`, `[low..high]` |
 
 **Explicitly out of scope for v1** (document it, don't fake it): boxed contexts, `for/return`,
-`some/every`, function definitions, external functions.
+`some/every`, function definitions, external functions, `?` for a cell's own value (write
+the test without it: `< maximum`), and names with spaces other than the built-in functions'
+(`credit limit` is two names; the editor names a column's variable `credit_limit`).
 
 ### 2.2 Use it in four places
 
@@ -346,16 +348,36 @@ the AST cache is bounded, and 2M fuzz executions found no crash or hang.
 **Two documented deviations from strict FEEL**, both to keep decisions that are
 live today working. Both are pinned by tests:
 
-1. **A bare word in a decision cell is text.** Strict FEEL reads `CLOSED` as a
-   variable reference; Camunda requires `"CLOSED"`. Every table in this
-   repository writes the bare form, and enforcing the strict rule would turn
-   those cells into null and stop them matching — a wrong answer rather than an
-   error anyone would see. A variable of the same name still wins, so
-   `> threshold` keeps its FEEL meaning. Leniency is confined to cells; in an
-   ordinary expression a bare name is still a variable.
+1. **A bare word in a decision cell is text** — unless it is the name of one of
+   the table's columns. Strict FEEL reads `CLOSED` as a variable reference;
+   Camunda requires `"CLOSED"`. Every table in this repository writes the bare
+   form, and enforcing the strict rule would turn those cells into null and stop
+   them matching — a wrong answer rather than an error anyone would see. A
+   column of the same name wins, so `minimum` beside a minimum column compares
+   with it. Any other variable does not: a cell sees all of the decision's
+   variables, a whole process's for a business rule task with no input mapping,
+   and a table's words must not change meaning with the process that consults
+   it (`manager` in an approval matrix is the word, whatever the process holds).
+   After an operator a name is always a variable: `> threshold`, `= manager`.
+   Leniency is confined to cells; in an ordinary expression a bare name is
+   still a variable.
 2. **Single-quoted strings are accepted.** FEEL defines only double quotes, but
    tables written against the previous JavaScript-flavoured evaluator use
    `'VIP'`. The character is unambiguous — nothing else in the grammar uses it.
+
+**What a cell sees** (DMN-17, 2026-09-26). A cell is tested as DMN tests one:
+its own column's value is the implicit subject — named `_input`, which no
+variable can shadow — and every variable the decision was evaluated with is in
+scope by name, the answers of the decisions it requires included. Those are the
+names the columns themselves read, so a column and a variable of the same name
+are one value, and a column's heading is not a name at all. `> minimum` compares
+with the column beside it, `> credit_limit` with a variable no column reads,
+and `[low..high]` with two. Before, a cell saw its own column and nothing else:
+each of those compared with null — no match and no error, `!=` matching every
+case, and only a range failing with "cannot compare a number with a null". A
+variable is converted only when a cell reads it, so a cell costs the same
+beside a five-thousand-line order as beside nothing. Rule outputs are values,
+not expressions, and are unchanged.
 
 One deliberate narrowing: `matches()` is a literal substring test, not a regular
 expression. A regex compiled from a deployed definition is an attacker-supplied

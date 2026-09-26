@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic/feel"
 )
 
@@ -36,14 +37,13 @@ func (e *FEELEvaluator) Evaluate(_ context.Context, expression string, variables
 	return value.ToAny(), nil
 }
 
-// EvaluateBool evaluates a DMN decision-table cell against the input the table
-// evaluator placed in variables under feel.InputName.
+// MatchesCell evaluates a DMN decision-table cell against its column's value,
+// with the decision's variables in scope.
 //
 // A cell is a unary test, not an expression: `< 100` has nothing on its left,
 // `"GOLD","SILVER"` is a disjunction rather than a list, and an empty cell (or
 // `-`) matches anything. It gets its own grammar rather than being coerced into
 // expression shape, which is what the string matcher had to do.
-func (e *FEELEvaluator) EvaluateBool(_ context.Context, expression string, variables map[string]any) (bool, error) {
-	input := variables[feel.InputName]
-	return feel.EvaluateUnaryTests(expression, input, variables)
+func (e *FEELEvaluator) MatchesCell(_ context.Context, cell string, scope entities.DecisionCellScope) (bool, error) {
+	return feel.EvaluateUnaryTests(cell, scope.Input, scope.Variables, scope.Columns)
 }

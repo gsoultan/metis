@@ -132,29 +132,51 @@ func (h *loadHarness) seedTenants(t *testing.T, count int) []uuid.UUID {
 
 func (h *sloHarness) login() string {
 	h.t.Helper()
+	return h.loginAs("load", "load-test-password")
+}
+
+func (h *sloHarness) loginAs(username, password string) string {
+	h.t.Helper()
 	var out struct {
 		Token string `json:"token"`
 	}
 	if code := h.call(http.MethodPost, "/api/v1/login", "",
-		map[string]string{"username": "load", "password": "load-test-password"}, &out); code != http.StatusOK {
-		h.t.Fatalf("login: status %d", code)
+		map[string]string{"username": username, "password": password}, &out); code != http.StatusOK {
+		h.t.Fatalf("login as %s: status %d", username, code)
 	}
 	return out.Token
 }
 
 // get issues an authenticated read and discards the body.
+func (h *sloHarness) get(path string) int {
+	h.t.Helper()
+	status, n := h.send(http.MethodGet, path, h.token, nil)
+	h.lastStatus, h.lastBytes = status, n
+	return status
+}
+
+// send issues one authenticated request as token and discards the response,
+// returning its status and how many bytes it carried. A body, when given, is
+// sent as JSON.
 //
 // The body is read and thrown away rather than left unread: a response the
 // client never drains is a connection that cannot be reused, which would make
 // this measure connection setup as much as query time.
-func (h *sloHarness) get(path string) int {
+func (h *sloHarness) send(method, path, token string, body []byte) (status int, n int64) {
 	h.t.Helper()
 
-	req, err := http.NewRequestWithContext(h.t.Context(), http.MethodGet, h.server.URL+path, nil)
+	var payload io.Reader
+	if body != nil {
+		payload = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(h.t.Context(), method, h.server.URL+path, payload)
 	if err != nil {
 		h.t.Fatalf("build %s: %v", path, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+h.token)
+	req.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	// Each request comes from its own client address.
 	//
@@ -173,12 +195,11 @@ func (h *sloHarness) get(path string) int {
 
 	resp, err := h.server.Client().Do(req)
 	if err != nil {
-		h.t.Fatalf("GET %s: %v", path, err)
+		h.t.Fatalf("%s %s: %v", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	n, _ := io.Copy(io.Discard, resp.Body)
-	h.lastStatus, h.lastBytes = resp.StatusCode, n
-	return resp.StatusCode
+	n, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, n
 }
 
 func (h *sloHarness) call(method, path, token string, body, out any) int {

@@ -819,10 +819,17 @@ type RabbitMQExecutor struct {
 	// used to dial its own, and the one stored second replaced — and leaked —
 	// the connection stored first.
 	dialing singleflight.Group
+	// confirmTimeout bounds the wait for the broker's confirm. A service
+	// task's context has no deadline of its own, so without it a broker that
+	// never answered held a job worker's slot for good.
+	confirmTimeout time.Duration
 }
 
 func NewRabbitMQExecutor() *RabbitMQExecutor {
-	return &RabbitMQExecutor{conns: lru.NewWithEviction(maxBrokerConnections, closeBrokerConnection)}
+	return &RabbitMQExecutor{
+		conns:          lru.NewWithEviction(maxBrokerConnections, closeBrokerConnection),
+		confirmTimeout: rabbitMQConfirmTimeout(),
+	}
 }
 
 // closeBrokerConnection closes a connection the cache let go of, in the
@@ -913,7 +920,7 @@ func (e *RabbitMQExecutor) Execute(ctx context.Context, config map[string]any, p
 	// difference between "sent" and "gone" — see amqp_confirm.go. This used to
 	// be written out here, and the two publish paths in messaging.go did not
 	// have it; sharing it is what stopped those two being the exception.
-	publisher, err := newConfirmingPublisher(ch)
+	publisher, err := newConfirmingPublisher(amqpChannel{ch}, e.confirmTimeout)
 	if err != nil {
 		return nil, err
 	}

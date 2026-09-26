@@ -2,13 +2,16 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // ExportOCEL reads a project's audit trail as an OCEL 2.0 object-centric event
@@ -29,9 +32,9 @@ func (e *Engine) ExportOCEL(ctx context.Context, projectID uuid.UUID, opts entit
 		return entities.OCELLog{}, fmt.Errorf("read the instances for project %s: %w", projectID, err)
 	}
 
-	known := make(map[uuid.UUID]entities.ProcessInstance, len(instances))
-	for _, m := range instances {
-		known[uuid.UUID(m.ID)] = adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+	known, err := e.casesOf(ctx, instances)
+	if err != nil {
+		return entities.OCELLog{}, fmt.Errorf("read the versions the instances of project %s run: %w", projectID, err)
 	}
 
 	audit := make([]entities.AuditEntry, len(entries))
@@ -40,6 +43,59 @@ func (e *Engine) ExportOCEL(ctx context.Context, projectID uuid.UUID, opts entit
 	}
 
 	return buildOCELLog(audit, known, opts), nil
+}
+
+// casesOf is the project's instances as the log's cases, each naming the key
+// and version of the definition it runs.
+//
+// An instance row carries only its definition's id, and the export used it as
+// it came: every case said key "" and version 0, so a case of v3 and one of v4
+// were the same case to a miner, and none was related to a definition object.
+// The definitions are read here once per version rather than once per
+// instance, through the engine's cache — keyed by tenant, and already holding
+// the versions that are running.
+//
+// The version is the one an instance runs now. A case a migration moved runs
+// its new version; its instance_migrated event records which it came from.
+func (e *Engine) casesOf(ctx context.Context, instances []models.ProcessInstanceModel) (map[uuid.UUID]entities.ProcessInstance, error) {
+	cases := make(map[uuid.UUID]entities.ProcessInstance, len(instances))
+	versions := make(map[uuid.UUID]*entities.ProcessDefinition)
+	for _, m := range instances {
+		instance := adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+		version, err := e.versionOf(ctx, uuid.UUID(m.DefinitionID), versions)
+		if err != nil {
+			return nil, err
+		}
+		if version != nil {
+			instance.Definition = version
+		}
+		cases[instance.ID] = instance
+	}
+	return cases, nil
+}
+
+// versionOf names the definition id refers to — its id, key and version, and
+// nothing of its graph — remembering the answer in seen for the rest of the
+// export.
+//
+// Nil when there is no such definition to read any more: deleted since the
+// instance ran. That case is exported without a version rather than failing
+// the whole export over it, or being given one it did not run.
+func (e *Engine) versionOf(ctx context.Context, id uuid.UUID, seen map[uuid.UUID]*entities.ProcessDefinition) (*entities.ProcessDefinition, error) {
+	if version, ok := seen[id]; ok {
+		return version, nil
+	}
+	definition, err := e.loadDefinition(ctx, id)
+	if errors.Is(err, apierr.ErrNotFound) {
+		seen[id] = nil
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read definition %s: %w", id, err)
+	}
+	version := &entities.ProcessDefinition{ID: definition.ID, Key: definition.Key, Version: definition.Version}
+	seen[id] = version
+	return version, nil
 }
 
 // buildOCELLog is the whole transformation, separated from the reads so it can
@@ -209,7 +265,10 @@ func instanceAttributes(inst entities.ProcessInstance, at time.Time) []entities.
 	attrs := []entities.OCELObjectAttr{
 		{Name: "status", Time: at, Value: string(inst.Status)},
 	}
-	if inst.Definition != nil {
+	// Only a definition that was read. One known by its id alone would say key ""
+	// and version 0, which files the case under a process that never existed —
+	// the same test definitionKey makes before relating the case to one.
+	if inst.Definition != nil && inst.Definition.Key != "" {
 		attrs = append(attrs,
 			entities.OCELObjectAttr{Name: "definition_key", Time: at, Value: inst.Definition.Key},
 			entities.OCELObjectAttr{Name: "definition_version", Time: at, Value: fmt.Sprintf("%d", inst.Definition.Version)},

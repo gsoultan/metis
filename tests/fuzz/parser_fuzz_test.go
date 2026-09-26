@@ -189,9 +189,10 @@ func FuzzFEELEvaluator(f *testing.F) {
 		}
 
 		for _, input := range []any{nil, 0, 1.5, "GOLD", true, []any{1, 2}} {
-			vars := map[string]any{"_input": input}
+			vars := map[string]any{"_input": input, "minimum": 1.0}
+			cell := entities.DecisionCellScope{Input: input, Variables: vars, Columns: []string{"minimum"}}
 			// Errors are expected for nonsense. Panics are not.
-			_, _ = evaluator.EvaluateBool(t.Context(), expression, vars)
+			_, _ = evaluator.MatchesCell(t.Context(), expression, cell)
 			_, _ = evaluator.Evaluate(t.Context(), expression, vars)
 		}
 	})
@@ -276,7 +277,7 @@ func FuzzFEELParser(f *testing.F) {
 		go func() {
 			defer close(done)
 			_, _ = feel.Evaluate(expr, vars)
-			_, _ = feel.EvaluateUnaryTests(expr, 42.0, vars)
+			_, _ = feel.EvaluateUnaryTests(expr, 42.0, vars, []string{"amount", "status"})
 		}()
 
 		select {
