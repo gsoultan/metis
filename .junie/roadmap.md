@@ -856,7 +856,8 @@
   - **Found and not fixed — for the backlog:**
     - A webhook signature covers the body only. The delivery-ID header is unsigned and
       nothing is timestamped, so a captured delivery can be replayed under a new ID.
-      Closing it needs senders to sign a timestamp as well.
+      Closing it needs senders to sign a timestamp as well. **Closed 2026-09-26** by v2
+      signatures (branch `webhook-replay`; entry below).
     - An idempotency claim left by a replica that died blocks its key until the sweep
       removes it after a day. Meanwhile every retry with that key waits out the 10s budget
       and fails.
@@ -994,6 +995,19 @@
     `verified-findings`: manifest scoping and the built-in override, the canary cohort,
     OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
     service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): A captured webhook delivery can no longer be replayed (the
+  backlog item from the engine-reliability entry). Branch `webhook-replay`, one commit per
+  change, each with a test that fails against the code before it:
+  - v2 signatures: `X-Metis-Signature: v2=` HMAC-SHA256 of `<timestamp>.<delivery id>.<body>`
+    with `X-Metis-Timestamp` and `X-Delivery-Id`; five minutes either way; explanations only
+    once the signature has matched, so they cannot find addresses.
+  - Body-only (v1) signatures bounded per webhook by `legacy_signatures_until`: migration 25
+    gives existing webhooks 90 days, new webhooks get none, and a v1 delivery after the date
+    is refused with how to move.
+  - The webhooks screen shows each webhook's date and the v2 help; `docs/integration.md` has
+    the scheme with Go, Node.js and Python examples checked against a live server.
+  - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
+    in `docs/upgrading.md`).
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

@@ -21,18 +21,20 @@ var errWrongRequestType = errors.New("webhook: the request was not of the expect
 // it is public and served straight off the mux, because the signature is over
 // the raw body and must not pass through a decoder.
 type Endpoints struct {
-	ListWebhooks      endpoint.Endpoint
-	CreateWebhook     endpoint.Endpoint
-	SetWebhookEnabled endpoint.Endpoint
-	DeleteWebhook     endpoint.Endpoint
+	ListWebhooks          endpoint.Endpoint
+	CreateWebhook         endpoint.Endpoint
+	SetWebhookEnabled     endpoint.Endpoint
+	CloseLegacySignatures endpoint.Endpoint
+	DeleteWebhook         endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListWebhooks:      MakeListWebhooksEndpoint(s),
-		CreateWebhook:     MakeCreateWebhookEndpoint(s),
-		SetWebhookEnabled: MakeSetWebhookEnabledEndpoint(s),
-		DeleteWebhook:     MakeDeleteWebhookEndpoint(s),
+		ListWebhooks:          MakeListWebhooksEndpoint(s),
+		CreateWebhook:         MakeCreateWebhookEndpoint(s),
+		SetWebhookEnabled:     MakeSetWebhookEnabledEndpoint(s),
+		CloseLegacySignatures: MakeCloseLegacySignaturesEndpoint(s),
+		DeleteWebhook:         MakeDeleteWebhookEndpoint(s),
 	}
 }
 
@@ -83,6 +85,20 @@ func MakeSetWebhookEnabledEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return SetWebhookEnabledResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return SetWebhookEnabledResponse{Err: s.SetWebhookEnabled(ctx, id, req.Enabled)}, nil
+	}
+}
+
+func MakeCloseLegacySignaturesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(CloseLegacySignaturesRequest)
+		if !ok {
+			return CloseLegacySignaturesResponse{Err: errWrongRequestType}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return CloseLegacySignaturesResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		return CloseLegacySignaturesResponse{Err: s.CloseLegacySignatures(ctx, id)}, nil
 	}
 }
 

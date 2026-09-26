@@ -54,6 +54,50 @@ on it; this adds a `NOT VALID` check first and validates that under
 `SHARE UPDATE EXCLUSIVE`, which readers and writers do not contend with, so the
 exclusive lock is held for a catalog update rather than a scan.
 
+## Migration 25: webhooks have ninety days to move to v2 signatures
+
+A webhook signature used to cover the request body alone. A delivery captured
+anywhere between a sender and Metis — a proxy log, a TLS-terminating load
+balancer, the sender's own request logging — could be posted again under a new
+delivery ID, and every copy was acted on. Deliveries are now signed with v2,
+which covers the time of sending and the delivery ID as well; *Receiving
+events: webhooks* in [`integration.md`](integration.md) has the scheme and
+examples.
+
+Migration 25 adds `webhooks.legacy_signatures_until` and sets it to **ninety
+days from the upgrade** on every webhook that exists. Until then each one
+accepts the old signature as before; after it, a delivery signed the old way is
+refused with a message saying how to sign with v2. Webhooks created after the
+upgrade accept v2 only.
+
+- **Move your senders before the date.** The webhooks screen (Connectors,
+  *Incoming webhooks*) shows it under each webhook still accepting the old
+  signature, and the server logs each one still in use: *Accepted a webhook
+  delivery signed the legacy way*, with the webhook's name.
+- **Close a window early** once its sender has moved, because until it closes
+  the old signature stays replayable. On the webhooks screen, *How to move the
+  sender to v2* ends with **Stop accepting legacy signatures now**; the API is
+  `DELETE /api/v1/webhooks/{id}/legacy-signatures`, for a designer. It only
+  ever shortens a window.
+- **Extend one** for a sender that cannot make the date, knowing its deliveries
+  stay replayable meanwhile. That is deliberately not in the product: it is
+  the operator's call, in SQL. The token is the last part of the address the
+  screen copies:
+
+  ```sql
+  UPDATE webhooks SET legacy_signatures_until = now() + interval '30 days' WHERE token = '<token>';
+  ```
+- A webhook created by a replica still running the previous release, after the
+  migration has run, gets no window: that release does not know the column. Its
+  sender is told how to sign with v2 on the first refusal; give it a window with
+  the statement above if it needs one.
+
+**Rolling back** is safe for the data: the previous release ignores the column
+and accepts the old signature from every webhook again, with no end date, as it
+always did. It does not know v2, though, so a sender that already signs *only*
+with v2 is refused until you upgrade again. Upgrading again does not re-run
+migration 25, so every window keeps its original date.
+
 ## Moving to PostgreSQL
 
 Metis runs on PostgreSQL and nothing else. SQLite, MySQL and SQL Server were

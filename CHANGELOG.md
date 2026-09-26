@@ -10,6 +10,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A captured webhook delivery could be replayed as often as anyone liked.**
+  A webhook signature covered the body alone; the delivery ID that
+  de-duplication keys on was unsigned, and nothing was timestamped. A delivery
+  taken from any log between a sender and Metis could be posted again under a
+  new `X-Delivery-Id`, and each copy sent the message or started the process
+  again. Senders now sign with v2 — `X-Metis-Timestamp`, `X-Delivery-Id` and
+  `X-Metis-Signature: v2=<HMAC-SHA256 of "<timestamp>.<delivery id>.<body>">` —
+  and a delivery signed more than five minutes from the server's clock is
+  refused. A v2 delivery ID has no dot and at most 191 characters, so the
+  signed string has only one reading. **Webhooks created from now on accept v2 only. Existing webhooks
+  keep accepting the old body-only signature for 90 days from the upgrade**
+  (migration 25), then refuse it with a message saying how to sign with v2.
+  Move your senders before then: the webhooks screen shows each webhook's date,
+  *Receiving events: webhooks* in `docs/integration.md` has the scheme with Go,
+  Node.js and Python examples. Once a sender has moved, close its webhook's
+  window at once from the same screen (*Stop accepting legacy signatures now*),
+  rather than leaving captured deliveries replayable until the date.
 - **The administrator of any one organization could change the connectors
   every organization runs.** A connector manifest is installation-wide — a step
   in any organization that names its key runs it, with that organization's
