@@ -223,7 +223,19 @@ server reads the acting user from the `Authorization` header and ignores any
 override, so an application acting for many people needs a client per person
 rather than one client passing user IDs around. To hand a task to somebody
 specific there is `AssignTask`, allowed for an administrator or for whoever
-currently holds the task.
+currently holds the task — and, for a task nobody was named for, for an
+operator.
+
+**Who may take a task.** A task with an assignee is its assignee's to
+complete. One offered to candidate users or groups may be claimed and
+completed by those people and the members of those groups. One that names
+nobody — no assignee, no candidates — is an administrator's or an operator's:
+anybody else claiming, completing or handing it on gets a 403 that says the
+task has no assignee and no candidates and who can take it, and
+`ListTasksByCandidates` lists it only for them. A manual task is the
+exception, open to anybody in its organization. `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`
+brings back the old rule, where anybody signed in could take such a task, for
+a migration window.
 
 Completing writes the variables back into the process and the instance moves
 on. The instance's story is readable as plain language:
@@ -739,7 +751,9 @@ and its outputs set who does the work:
 Only what the table actually returns is applied — a table that decides the group
 and not the priority leaves the priority as the diagram set it, and a task whose
 table decides nothing behaves exactly as before. An empty output is a table with
-nothing to say, not an instruction to unassign.
+nothing to say, not an instruction to unassign. If neither the table nor the
+diagram names anybody, the task is an administrator's or an operator's to take,
+as any task that names nobody is.
 
 If the table cannot be evaluated the diagram's own assignment stands and the
 failure is logged: a process that stops because an approval matrix could not be

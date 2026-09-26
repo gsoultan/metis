@@ -46,3 +46,26 @@ func (t Task) AssigneeUsername() string {
 	}
 	return t.Assignee.Username
 }
+
+// NamesNobody reports whether the task was given to nobody: it has no
+// assignee, no candidate users and no candidate groups.
+func (t Task) NamesNobody() bool {
+	return t.AssigneeUsername() == "" && len(t.CandidateUsers) == 0 && len(t.CandidateGroups) == 0
+}
+
+// FallsToOperators reports whether only an administrator or an operator may
+// take the task — claim it, complete it, or give it to somebody — because
+// nobody was named for it.
+//
+// Nobody being named is not everybody being named: absent constraint means
+// deny. It used to mean "anyone", so somebody in accounts payable could pick up
+// and complete an approval nobody had meant them to have. Somebody still has to
+// be able to take such a task or it waits for ever, and that is the people who
+// run the system day to day (TakesUnnamedWork).
+//
+// A manual task is the exception, and stays open to anybody in its
+// organization. The designer has no field to name anybody for one, and tells
+// its author that an empty one is for anybody to pick up.
+func (t Task) FallsToOperators() bool {
+	return t.Type != ManualTask && t.NamesNobody()
+}

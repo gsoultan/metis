@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/endpoints/principal"
 )
 
@@ -159,7 +160,7 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		// Releasing puts the task back for anyone to claim, which is handing it
 		// over to whoever claims it next. It asked nobody's permission, so any
 		// member could release a task somebody else held and take it.
-		if err := mayHandOver(ctx, s, id); err != nil {
+		if err := mayRelease(ctx, s, id); err != nil {
 			return CompleteTaskResponse{Err: err}, nil
 		}
 		err = s.UnclaimTask(ctx, id)
@@ -334,12 +335,36 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 	return out, nil
 }
 
-// mayHandOver refuses a release, delegate or assign from anyone but the task's
-// current assignee or an administrator. A task with no assignee may be
-// assigned by an administrator only: absent constraint means deny, not
-// "anyone".
+// handOverAction is what a refused hand-over says the caller cannot do.
+const handOverAction = "hand it to someone else"
+
+// mayHandOver refuses a delegate or assign from anyone but the task's current
+// assignee or an administrator. A task with no assignee may be handed on by an
+// administrator only: absent constraint means deny, not "anyone".
+//
+// Except a task nobody was named for — no assignee and no candidates — which
+// is the operators' as well (entities.Task.FallsToOperators): an operator may
+// claim one, and giving it to the person it should have gone to is taking it
+// on their behalf. Anybody else is told who can.
 func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	return requireHolderOrAdministrator(ctx, s, id, "hand it to someone else")
+	task, admitted, err := holderOrAdministrator(ctx, s, id)
+	if err != nil || admitted {
+		return err
+	}
+	if task.FallsToOperators() {
+		if caller, ok := principal.LocalUser(ctx); ok && entities.TakesUnnamedWork(caller.Roles) {
+			return nil
+		}
+		return servicecontracts.ErrNobodyNamed
+	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", handOverAction)
+}
+
+// mayRelease refuses a release from anyone but the task's current assignee or
+// an administrator. Only a task somebody holds can be released, so the
+// operators' share of the work nobody was named for does not come into it.
+func mayRelease(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
+	return requireHolderOrAdministrator(ctx, s, id, handOverAction)
 }
 
 // mayEdit refuses a change to a task's name, priority or due date on the same
@@ -352,19 +377,26 @@ func mayEdit(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error 
 // requireHolderOrAdministrator admits the task's current assignee or an
 // administrator to what the refusal names.
 func requireHolderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID, action string) error {
-	actor, err := principal.Username(ctx)
-	if err != nil {
+	_, admitted, err := holderOrAdministrator(ctx, s, id)
+	if err != nil || admitted {
 		return err
 	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", action)
+}
+
+// holderOrAdministrator reports whether the caller is an administrator or holds
+// the task, and returns the task when it had to be read to say.
+func holderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID) (entities.Task, bool, error) {
+	actor, err := principal.Username(ctx)
+	if err != nil {
+		return entities.Task{}, false, err
+	}
 	if principal.HasRole(ctx, entities.RoleAdmin) {
-		return nil
+		return entities.Task{}, true, nil
 	}
 	task, err := s.GetTask(ctx, id)
 	if err != nil {
-		return err
+		return entities.Task{}, false, err
 	}
-	if task.AssigneeUsername() == actor {
-		return nil
-	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", action)
+	return task, task.AssigneeUsername() == actor, nil
 }

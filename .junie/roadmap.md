@@ -1187,6 +1187,30 @@
     `_`. A connector error carrying `?client_secret=` would be stored in an incident in
     clear. Allowing `(?:[a-z0-9]+[_-])*` before the names is the likely fix; it widens
     what every rule redacts, so it wants its own change and test.
+- 2026-09-26 (completed): `HUM-04` — a task nobody was named for is no longer anybody's,
+  as the product owner decided it: deny by default, administrators and operators may take
+  one. Branch `unassigned-task-claims`, one commit per change, each with a test that fails
+  against the code before it:
+  - **Claiming and completing** a user task with no assignee and no candidates takes an
+    administrator or an operator; anybody else gets a 403 that names who can.
+    `authorizeCandidate` had read "no candidates" as "anyone" — the `sec` veto on an
+    authorization gap that opens on an empty field (AGENTS §2.3).
+  - **Handing one on** (delegate, assign) follows the same rule, so an operator can give it
+    to the person it should have gone to. Releasing and editing are unchanged.
+  - **The inbox** lists such tasks under *Available to Claim* for administrators and
+    operators, and the board no longer offers a member Claim on one.
+  - **The designer** warns (not an error) about a user task with no assignee, no candidates
+    and no assignment table; the property panel's suggestion says the same, and no longer
+    misreads a step offered to a team. Deploy has no warnings channel, so the server's
+    deploy is unchanged.
+  - **`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`** brings the old rule back for a migration
+    window, off by default and announced at boot when on; `docs/upgrading.md` has the
+    query for the tasks affected.
+  - **Open, for the product owner:** manual tasks. The designer has no field to name
+    anybody for one and tells its author an empty one is anybody's, so they were left
+    open; closing them needs that field first. And a completion can still carry variables
+    of the completer's choosing on a task they may take — a manual task's included, which
+    asks nobody for any.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

@@ -87,7 +87,7 @@ func TestClaimNarrativeNamesTheTask(t *testing.T) {
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("list: %d tasks, err=%v", len(tasks), err)
 	}
-	if err := svc.ClaimTask(ctx, tasks[0].ID, "admin"); err != nil {
+	if err := svc.ClaimTask(testutils.AsOperator(ctx, "admin"), tasks[0].ID, "admin"); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 

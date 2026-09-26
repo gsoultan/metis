@@ -18,6 +18,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   whatever the provider asks for at sign-in. Such an account is now refused,
   with a message naming the provider to reset the password at, and nothing
   about it changes. Local accounts reset as before.
+- **A task nobody was named for could be taken by anybody in its
+  organization.** A user task with no assignee, no candidate users and no
+  candidate groups could be claimed and completed by anybody signed in to
+  its organization, with variables of their own — somebody in accounts
+  payable could pick up an approval nobody had meant them to have. Such a
+  task is now the administrators' and operators' to take: they may claim it,
+  complete it, or give it to somebody by delegating or assigning it, and
+  *Available to Claim* lists it for them. Anybody else gets a 403 that says
+  the task has no assignee and no candidates and that an administrator or an
+  operator can take it, and the inbox's board no longer offers them Claim on
+  it. A manual task, which the designer has no field to name anybody for, is
+  still anybody's. The designer warns about a user task that names nobody.
+
+  **Upgrading:** a process whose user tasks name nobody stops being workable
+  by the members who took those tasks from the board: they are refused them
+  and not offered them, and the work waits for an administrator or an
+  operator, whose *Available to Claim* lists it. Give each such step an
+  assignee, candidate users or candidate groups — the designer points them
+  out, and `docs/upgrading.md` has the query for the tasks already waiting —
+  and deploy. Until then `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the
+  old rule back for a migration window: anybody signed in may claim and
+  complete such a task, and it is offered to everybody. It is off by
+  default, and the server warns at boot while it is on.
 - **A captured webhook delivery could be replayed as often as anyone liked.**
   A webhook signature covered the body alone; the delivery ID that
   de-duplication keys on was unsigned, and nothing was timestamped. A delivery

@@ -48,7 +48,7 @@ func TestDeadlinesAreReadAcrossAllOfTheOpenWorkWithTheirProcess(t *testing.T) {
 	}
 	for _, task := range tasks {
 		if task.DueDate != nil {
-			if err := svc.CompleteTask(ctx, task.ID, "ada", nil); err != nil {
+			if err := svc.CompleteTask(testutils.AsOperator(ctx, "ada"), task.ID, "ada", nil); err != nil {
 				t.Fatalf("complete a late task: %v", err)
 			}
 			break
