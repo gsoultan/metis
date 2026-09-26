@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/connector"
 	"github.com/gsoultan/metis/server/repositories/store/connectorinstance"
 	"github.com/gsoultan/metis/server/repositories/store/decisiondefinition"
+	"github.com/gsoultan/metis/server/repositories/store/decisionrelease"
 	"github.com/gsoultan/metis/server/repositories/store/deployment"
 	"github.com/gsoultan/metis/server/repositories/store/environment"
 	"github.com/gsoultan/metis/server/repositories/store/externaltask"
@@ -66,32 +67,33 @@ var FlushOrder = map[string]int{
 	"workflow_users":              11,
 	"connector_instances":         12,
 	"decision_definitions":        13,
-	"deployments":                 14,
-	"environments":                15,
-	"forms":                       16,
-	"groups":                      17,
-	"memberships":                 18,
-	"participant_sources":         19,
-	"platform_role_assignments":   20,
-	"process_definition_releases": 21,
-	"process_definitions":         22,
-	"process_instances":           23,
-	"tasks":                       24,
-	"user_organizations":          25,
-	"user_projects":               26,
-	"variable_snapshots":          27,
-	"webhook_deliveries":          28,
-	"workflow_group_memberships":  29,
-	"audit_logs":                  30,
-	"broadcast_events":            31,
-	"compensatable_activities":    32,
-	"deployment_resources":        33,
-	"event_subscriptions":         34,
-	"external_tasks":              35,
-	"jobs":                        36,
-	"notifications":               37,
-	"service_calls":               38,
-	"incidents":                   39,
+	"decision_releases":           14,
+	"deployments":                 15,
+	"environments":                16,
+	"forms":                       17,
+	"groups":                      18,
+	"memberships":                 19,
+	"participant_sources":         20,
+	"platform_role_assignments":   21,
+	"process_definition_releases": 22,
+	"process_definitions":         23,
+	"process_instances":           24,
+	"tasks":                       25,
+	"user_organizations":          26,
+	"user_projects":               27,
+	"variable_snapshots":          28,
+	"webhook_deliveries":          29,
+	"workflow_group_memberships":  30,
+	"audit_logs":                  31,
+	"broadcast_events":            32,
+	"compensatable_activities":    33,
+	"deployment_resources":        34,
+	"event_subscriptions":         35,
+	"external_tasks":              36,
+	"jobs":                        37,
+	"notifications":               38,
+	"service_calls":               39,
+	"incidents":                   40,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -1051,6 +1053,123 @@ func (p DecisionDefinitionWithProjectQuery) All(ctx context.Context, ex runtime.
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "decision_definitions", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// DecisionReleaseWithProjectRow is decision_releases with its Project loaded.
+type DecisionReleaseWithProjectRow struct {
+	decisionrelease.Row
+	Project project.Row
+}
+
+type DecisionReleaseWithProjectQuery struct {
+	q decisionrelease.Query
+}
+
+// DecisionReleaseWithProject starts the plan.
+func DecisionReleaseWithProject() DecisionReleaseWithProjectQuery {
+	return DecisionReleaseWithProjectQuery{q: decisionrelease.New()}
+}
+
+func (p DecisionReleaseWithProjectQuery) Where(ps ...decisionrelease.Pred) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) WhereIf(cond bool, pr decisionrelease.Pred) DecisionReleaseWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) Any(ps ...decisionrelease.Pred) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) Not(pr decisionrelease.Pred) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) NotAny(ps ...decisionrelease.Pred) DecisionReleaseWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) Order(ts ...decisionrelease.Sort) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) Limit(n int64) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DecisionReleaseWithProjectQuery) Offset(n int64) DecisionReleaseWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DecisionReleaseWithProjectQuery) After(r DecisionReleaseWithProjectRow) DecisionReleaseWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DecisionReleaseWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DecisionReleaseWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]DecisionReleaseWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DecisionReleaseWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DecisionReleaseWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "decision_releases", "projects")
 		}
 		out[i].Project = targets[j]
 	}

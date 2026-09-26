@@ -43,7 +43,8 @@ func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d en
 	return s.storeNewVersion(ctx, d)
 }
 
-// storeNewVersion stores d as the next version of its key.
+// storeNewVersion stores d as the next version of its key, and makes it the
+// live one.
 func (s *decisionService) storeNewVersion(ctx context.Context, d entities.DecisionDefinition) (entities.SavedDecision, error) {
 	if d.ID == uuid.Nil {
 		id, err := uuid.NewV7()
@@ -66,7 +67,13 @@ func (s *decisionService) storeNewVersion(ctx context.Context, d entities.Decisi
 		},
 		func(txCtx context.Context, version int) error {
 			d.Version = version
-			return s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel())
+			if err := s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel()); err != nil {
+				return err
+			}
+			// In the same transaction as the insert: a save that stored the
+			// version and not the choice to put it into force would report
+			// success and leave the previous one live.
+			return s.repo.Decision().MakeLive(txCtx, projectID, d.Key, version)
 		})
 	if err != nil {
 		return entities.SavedDecision{}, err

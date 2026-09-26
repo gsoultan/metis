@@ -44,4 +44,8 @@ type DecisionRepository interface {
 	// changed — an edit is the key's next version.
 	Create(ctx context.Context, definition models.DecisionDefinitionModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// MakeLive records that from now on the key's live version is version: one
+	// more entry on its release timeline, effective now.
+	MakeLive(ctx context.Context, projectID uuid.UUID, key string, version int) error
 }
