@@ -212,6 +212,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   reached a repository with no identity, labelled with that path. Staging soaks
   become a dashboard and an alert instead of reading logs for a line that
   appears once per site; `docs/strict-tenant-scope.md` has the alert rule.
+- **What tenant scoping costs is on the metrics endpoint.**
+  `metis_tenant_scope_reads_total` counts the reads of an organization's
+  project list that scope a request's reads and writes. Each returns every
+  project the organization has; against the request rate it is what each
+  request pays for scoping. `docs/performance.md` has what one costs at ten
+  thousand projects.
 
 - **Database Lookup.** A process step can read rows from your own PostgreSQL,
   MySQL or SQL Server database into one process variable, so the gateway or

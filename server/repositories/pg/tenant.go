@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -88,6 +89,7 @@ func (r *conn) scopeOf(ctx context.Context) (tenantScope, error) {
 // the rest. Walked in key order, which the keyset cursor needs; for a list of a
 // handful that is one statement, as before.
 func (r *conn) projectsOf(ctx context.Context, organization uuid.UUID) ([]uuid.UUID, error) {
+	scopeReads.Add(1)
 	ex, err := r.conn.MainExecutor(ctx)
 	if err != nil {
 		return nil, err
@@ -103,6 +105,20 @@ func (r *conn) projectsOf(ctx context.Context, organization uuid.UUID) ([]uuid.U
 	}
 	return ids, nil
 }
+
+// scopeReads counts the reads projectsOf makes; see ScopeReads.
+var scopeReads atomic.Int64
+
+// ScopeReads is how many times this process has read an organization's project
+// list to scope a repository call.
+//
+// Counted because the cost of scoping was otherwise invisible. Each read
+// returns every project the organization has, and a request that makes several
+// scoped calls made it several times; nothing said how many, so nothing said
+// what an organization with thousands of projects paid. Against the request
+// rate it is the reads each request costs — see docs/performance.md. A count,
+// not a seam: nothing reads it to decide anything.
+func ScopeReads() int64 { return scopeReads.Load() }
 
 // requireProjectInTenant refuses a project that is not the caller's.
 //

@@ -1211,6 +1211,17 @@
     open; closing them needs that field first. And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
     asks nobody for any.
+- 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand
+  projects, measured. Branch `tenant-scope-at-scale`. Every scoped repository call reads the
+  organization's project ids and filters on `project_id = ANY(ids)`; since the scope reads
+  every project (5d5016b), past a thousand, nobody had measured it past a handful.
+  - **Measured (P1).** `tests/loadtest` `TestTenantScopeAtScale`: 10,000 projects against 4,
+    the same 20,000 instances and tasks in each. The list was read once per scoped call —
+    six times a statistics request, five an instance list — at about 4ms and 10 MB a read:
+    statistics p95 26.3ms against 2.1ms, 201ms on a loaded run, 55 MB allocated a request.
+    Tasks by assignee paid 31.7ms against 2.1ms with one read, because a generic plan walks
+    the 10,000-element array for every row. `metis_tenant_scope_reads_total` counts the
+    reads. Numbers in `docs/performance.md`.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
