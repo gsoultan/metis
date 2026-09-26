@@ -18,7 +18,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The Profile page saved through PUT /api/v1/users/{id}, which only an
@@ -44,7 +43,7 @@ func newProfileWorld(t *testing.T) profileWorld {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "own-profile-test-secret",
-		nil, nil, nil, func(*gorm.DB) {})
+		nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil,
 		map[string]health.Checker{}, testutils.StormConn(db))
 

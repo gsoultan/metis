@@ -13,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // auditSpy counts reads of a project's whole audit trail.
@@ -43,7 +42,7 @@ func TestTheStatisticsCountCompletedTasksAndReadNoAuditTrail(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"statistics-test", nil, nil, nil, func(*gorm.DB) {})
+		"statistics-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{

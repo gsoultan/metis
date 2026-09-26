@@ -36,7 +36,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 type harness struct {
@@ -54,7 +53,7 @@ func newHarness(t *testing.T) *harness {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := observersimpl.NewEventDispatcher()
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, dispatcher, sse, "strict-scope-test-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, dispatcher, sse, "strict-scope-test-secret", nil, nil, nil)
 
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)

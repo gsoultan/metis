@@ -12,7 +12,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Segregation of duties.
@@ -144,7 +143,7 @@ func newSoDHarness(t *testing.T, guarded bool) *soDHarness {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"sod-test", nil, nil, nil, func(*gorm.DB) {})
+		"sod-test", nil, nil, nil)
 
 	ctx := context.Background()
 	org, err := svc.CreateOrganization(ctx, "Org", "")

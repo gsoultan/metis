@@ -19,7 +19,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // decisionAPI is the HTTP surface of decisions, served the way the product
@@ -39,7 +38,7 @@ func newDecisionAPI(t *testing.T) *decisionAPI {
 	conn := testutils.StormConn(db)
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "decision-api-test-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "decision-api-test-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 	api := &decisionAPI{server: httptest.NewServer(handler), tokens: map[string]string{}}
 	t.Cleanup(api.server.Close)

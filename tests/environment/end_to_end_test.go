@@ -14,7 +14,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestAProcessRunsInAnEnvironment is the whole feature, end to end: deploy a
@@ -43,7 +42,7 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 
 	repo := repositories.NewRepository(testutils.StormConn(mainDB))
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "env-e2e", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "env-e2e", nil, nil, nil)
 
 	ctx := context.Background()
 	org, err := svc.CreateOrganization(ctx, "Org", "")

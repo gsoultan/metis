@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/gsoultan/metis/internal/pkg/configsecret"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -67,7 +66,7 @@ func urlCredentialFixture(t *testing.T) (services.ServiceFacade, connector.Endpo
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	svc := services.NewServiceFacade(repo, nil, nil, "url-credential-test", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, nil, nil, "url-credential-test", nil, nil, nil)
 	org, err := svc.CreateOrganization(context.Background(), "Broker Org", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)

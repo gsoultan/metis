@@ -15,7 +15,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"gorm.io/gorm"
 )
 
 // The whole path, against a real broker: a server booted with a bridge and a
@@ -59,7 +58,7 @@ func realRabbitMQApp(t *testing.T) *App {
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-broker-test", nil, nil, nil, func(*gorm.DB) {})
+	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-broker-test", nil, nil, nil)
 	return &App{db: gormDB, storm: conn, repo: repo, sse: sse, svc: facade}
 }
 

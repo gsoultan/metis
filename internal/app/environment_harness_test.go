@@ -43,7 +43,7 @@ func newEnvironmentHarness(t *testing.T) *environmentHarness {
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
-		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "environment-test", nil, nil, nil, func(*gorm.DB) {})}
+		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "environment-test", nil, nil, nil)}
 
 	ctx := entities.WithSystemContext(t.Context())
 	org, err := a.svc.CreateOrganization(ctx, "Org", "")

@@ -26,7 +26,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const (
@@ -134,7 +133,7 @@ func newAPIHarness(t *testing.T, validator *pkgauth.TokenValidator) *apiHarness 
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse,
-		"oidc-test-secret", nil, nil, nil, func(*gorm.DB) {})
+		"oidc-test-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, validator,
 		map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)

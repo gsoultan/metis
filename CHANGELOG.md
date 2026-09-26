@@ -280,6 +280,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **The setup wizard said to sign in when the server needed a restart first.**
+  A server started with `DATABASE_URL` but without both secrets runs the whole
+  wizard. The wizard writes `config.yaml` and seeds the database the form names,
+  while the running server keeps the database and keys it started with until it
+  restarts. So the new administrator could be refused, or signed in with a key
+  that is thrown away at the restart. The last step now says to restart, and so
+  does the log. The code that claimed to swap the database in place, and left the
+  setup's connection pool open, is gone.
 - **The Users page stopped at a thousand accounts.** An organization with more
   showed a thousand of them and said it was showing all, and the check that
   keeps one administrator, counting from the same list, could refuse to demote

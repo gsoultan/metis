@@ -12,7 +12,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A version's history is not its running work.
@@ -40,7 +39,7 @@ func newHistoryHarness(t *testing.T) *historyHarness {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"migration-history-test", nil, nil, nil, func(*gorm.DB) {})
+		"migration-history-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	return &historyHarness{svc: svc, repo: repo, ctx: ctx, projectID: projectID}
 }

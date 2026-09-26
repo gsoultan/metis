@@ -13,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The README advertised RabbitMQ inbound correlation and an external-task
@@ -67,7 +66,7 @@ func rabbitMQTestApp(t *testing.T) (*App, *recordingMessaging) {
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-boot-test", nil, nil, nil, func(*gorm.DB) {})
+	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-boot-test", nil, nil, nil)
 	recorder := &recordingMessaging{
 		ServiceFacade: facade,
 		bridges:       make(chan startedBridge, 4),

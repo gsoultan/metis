@@ -13,7 +13,6 @@ import (
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Writing a row that was read before the lock.
@@ -78,7 +77,7 @@ func TestAnInstanceThatFinishesMidMigrationIsNotResurrected(t *testing.T) {
 	// transaction exactly as it would be in production.
 	newFacade := func(repo repositories.Repository) services.ServiceFacade {
 		return services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-			"stale-write-test", nil, nil, nil, func(*gorm.DB) {})
+			"stale-write-test", nil, nil, nil)
 	}
 	migrator := newFacade(hooked)
 	worker := newFacade(plain)

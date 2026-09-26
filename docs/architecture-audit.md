@@ -315,9 +315,12 @@ Outside the three questions, found while checking them.
 
 ## Cheap fixes
 
-**Done** on this branch, one commit each. Still open from 3.4: the setup
-callback's documentation (`setup.go`, `OnSetupCompleteFunc`, and its comment in
-`internal/app/app.go`) describes a database hot swap that no longer happens.
+**Done** on this branch, one commit each. The rest of 3.4 was done on
+2026-09-26. Setup needs a restart when it writes `config.yaml`, and the log and
+the wizard's last step now say so. The setup callback, which described a hot swap
+that no longer happens, is gone: it had re-seeded connectors into the database
+the server was already running on, and left the setup's own connection pool open
+for good.
 
 Each is mechanical and changes no behaviour. After each: `make build vet lint`,
 then the tests named. Suites under `tests/` that need PostgreSQL run under

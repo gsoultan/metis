@@ -17,7 +17,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Connectors are installation-wide: a step in any organization that names a key
@@ -60,7 +59,7 @@ func newPlatformHarness(t *testing.T, organizations ...string) *platformHarness 
 	conn := testutils.StormConn(db)
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "platform-test-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "platform-test-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 	h := &platformHarness{
 		executeHarness: executeHarness{server: httptest.NewServer(handler), tokens: map[string]string{}},

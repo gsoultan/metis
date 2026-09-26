@@ -12,8 +12,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"gorm.io/gorm"
-
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/internal/pkg/health"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -75,7 +73,7 @@ func newExecuteHarness(t *testing.T) *executeHarness {
 	conn := testutils.StormConn(db)
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "execute-test-secret", nil, nil, nil, func(*gorm.DB) {})
+	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "execute-test-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 	h := &executeHarness{server: httptest.NewServer(handler), tokens: map[string]string{}}
 	t.Cleanup(h.server.Close)

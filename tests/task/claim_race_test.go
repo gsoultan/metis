@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A claim read the task, saw it unclaimed, and wrote it claimed, with nothing
@@ -22,7 +21,7 @@ func TestOnlyOneOfSeveralSimultaneousClaimsWins(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
-		"claim-race-test", nil, nil, nil, func(*gorm.DB) {})
+		"claim-race-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{

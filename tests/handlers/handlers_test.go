@@ -395,7 +395,7 @@ func newHandlerHarness(t *testing.T) (services.ServiceFacade, servicecontracts.J
 		CollaborationService: service_impl2.NewCollaborationService(sse),
 		MessagingService:     service_impl2.NewMessagingService(engine, externalTaskSvc),
 		UserService:          service_impl2.NewUserService(repo, "test-jwt-secret"),
-		SetupService:         service_impl2.NewSetupService(nil, nil),
+		SetupService:         service_impl2.NewSetupService(nil),
 	})
 	return svc, jobSvc
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Three tables keep a row only for as long as it can answer something: has
@@ -27,7 +26,7 @@ func TestARunningServerForgetsWhatCanNoLongerBeAsked(t *testing.T) {
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
-		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil, func(*gorm.DB) {})}
+		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)}
 
 	seed := func(stmt string, args ...any) {
 		t.Helper()
