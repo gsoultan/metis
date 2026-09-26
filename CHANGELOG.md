@@ -32,6 +32,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Signing in through OIDC places people in their organizations.** With
+  `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, everybody signing in through the
+  identity provider was refused with 401 on every organization-scoped page: the
+  token's claims carry no membership, so nothing could place them. The new
+  `METIS_OIDC_ORGANIZATION_CLAIM` names the ID-token claim that lists a
+  person's organizations — a string or a list, each value an organization's
+  **id**; names are not matched, and organizations are never created from a
+  claim. A first sign-in creates an account linked to the token's issuer and
+  subject, never to an existing account by email, and gives it no role — the
+  task inbox needs none; an administrator grants more in Metis, and a `roles`
+  claim in the token grants nothing. A request is admitted only to the
+  organizations its own token's claim names, and each sign-in makes the
+  account's memberships match the claim, so an organization the provider stops
+  naming is left. Somebody the claim places nowhere now gets a 403 naming the
+  setting or claim that is missing, and the log says so; a token that does not
+  verify is still a 401, and so, while OIDC is on, is a local account's token.
+  See *Signing in with OIDC* in `docs/integration.md`.
+
+  Upgrading: migration 27 adds `identity_issuer` and `identity_subject` to
+  `users`, nullable, with a unique index over the pair for accounts that are
+  not deleted. Nothing is backfilled, and every existing account stays a local
+  account.
+
 - **The strict tenant scope's rollout is on the metrics endpoint.**
   `metis_strict_tenant_scope_enabled` says whether the flag is on, and
   `metis_strict_tenant_scope_denied_site` is one series per code path that

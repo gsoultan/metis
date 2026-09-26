@@ -257,6 +257,42 @@ Then resolve the incidents. The work replays with the new credential.
 
 ---
 
+## Somebody signing in through the identity provider is refused
+
+Shows up as a person who signed in at your identity provider getting **403**
+from every page, with an error that names a setting or a claim, and as a
+warning in the log:
+
+```
+Refused a sign-in through the identity provider: it does not place the person in any organization here
+```
+
+Its `reason` field says which case it is. They are authenticated; nothing
+places them in an organization here, so no account was created for them.
+
+- **"an operator has to set METIS_OIDC_ORGANIZATION_CLAIM"** — the setting is
+  unset, and every OIDC sign-in is refused; boot also warned. Set it to the
+  name of the ID-token claim that lists people's organizations, and restart.
+- **"has no \"<claim>\" claim"** — the provider does not send that claim, or
+  sends it under another name. Decode one of their ID tokens (the payload is
+  base64 JSON) and compare. Add the claim at the provider, or correct the
+  setting.
+- **"none of the organizations named in the \"<claim>\" claim … exists here"**
+  — the claim is there but no value is the id of an organization here. The
+  values must be ids, not names:
+
+  ```sql
+  SELECT id, name FROM organizations WHERE deleted_at IS NULL ORDER BY name;
+  ```
+
+A fix at the provider needs no restart here. The person signs in at the
+provider again, to get a token that carries the corrected claim, and that token
+is placed afresh; the old one stays refused until it expires.
+[`integration.md`](integration.md#signing-in-with-oidc) has what the claim must
+hold, and what a first sign-in creates.
+
+---
+
 ## Errors above the budget
 
 The budget is 0.1% of responses as 5xx over 30 days, and three alerts watch how

@@ -30,6 +30,98 @@ Accounts that belong to several organizations choose one per request with the
 `X-Organization-ID` header. The server validates the choice against the
 caller's actual memberships — it is a selection, never an assertion.
 
+### Signing in with OIDC
+
+With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API accepts ID tokens from
+that identity provider as the bearer token — and only those: while OIDC is on,
+a token from `/api/v1/login` is refused with 401. Metis does not run the
+sign-in itself. The client gets an ID token from the provider, for the client
+ID Metis is configured with, and sends it as `Authorization: Bearer <id_token>`;
+Metis checks its signature, issuer, audience and expiry.
+
+**Which organizations somebody is in** comes from the token, in the claim
+`METIS_OIDC_ORGANIZATION_CLAIM` names. The claim is one string or a list of
+strings, and each value is an organization's **id** — the value
+`X-Organization-ID` takes, shown on the Organizations page in Expert mode and
+returned as `id` by `GET /api/v1/organizations`. An organization's name is not
+matched: two organizations may share one, and a rename would silently move
+people. A value that is not the id of an organization here is ignored. The
+claim's name is matched exactly, at the top level of the token, so a namespaced
+claim such as `https://metis.example.com/organizations` works as written.
+
+```json
+{
+  "iss": "https://id.example.com/realms/acme",
+  "aud": "metis",
+  "sub": "f3c1d2e4-…",
+  "preferred_username": "ada",
+  "email": "ada@acme.example",
+  "metis_organizations": ["0199a4c2-5e1b-7c3d-8f00-1a2b3c4d5e6f"]
+}
+```
+
+Fill that claim at the provider from something your administrators control —
+group membership, an attribute only they can set — and never from anything a
+person can edit about themselves: whatever it says decides which organizations
+they reach.
+
+**The account.** A person's first sign-in creates an account linked to the
+token's issuer and subject (`sub`). It is never matched to an existing account
+by email or username — an email claim is no proof of the same person across
+providers — so a local account with the same address stays a separate account.
+The new account is named after `preferred_username`, else the email, else the
+subject, with a short suffix when somebody already has that username, and takes
+its name and email from the token. It holds **no role**: the task inbox —
+listing, claiming and completing tasks — needs none. An administrator grants
+Designer, Operator or Administrator on the account in Metis afterwards; a
+`roles` claim in the token grants nothing. Changing the password in Metis is
+refused with "change it at your identity provider".
+
+**Memberships follow the claim.** A request is admitted only to the
+organizations its own token's claim names; `X-Organization-ID` chooses among
+them, and without it a request works in the first one the claim lists. Each
+sign-in also makes the account's memberships match the claim: an organization
+the provider stops naming is left, one it starts naming is joined. Every
+membership such an account has came from its claim — Metis has no action that
+adds an existing account to an organization — so nothing an administrator did
+is undone, and local accounts are never touched. A token already issued still
+names what it named until it expires, and organizations are never created from
+a claim.
+
+**Removing somebody** is done at the provider: take the organization out of
+their claim, or take them out of the provider. Deleting their account in Metis
+does not stop them — while the provider still places them in an organization
+here, their next sign-in creates a new account under a new username, and the
+deleted one's history stays with it.
+
+**When somebody is refused.** A person whose claim places them in no
+organization here is authenticated but not admitted, so the answer is **403**
+with the reason, and no account is created for them:
+
+| They are told | Cause | Fix |
+| :-- | :-- | :-- |
+| "…has not been told which ID-token claim lists their organizations…; an operator has to set METIS_OIDC_ORGANIZATION_CLAIM" | The setting is unset. The server also warns once at boot. | Set it to the claim's name and restart. |
+| "the ID token from your identity provider has no \"metis_organizations\" claim…" | The provider does not send the claim, or sends it under another name. | Add the claim at the provider (a mapper, a rule, an action), or correct the setting. |
+| "none of the organizations named in the \"metis_organizations\" claim of your ID token exists here…" | No value is the id of an organization here: a name instead of an id, a typo, another installation's ids, an organization since deleted. | Send the organization's id. |
+
+The operator sees one warning per person and claim for as long as the refusal
+is remembered, with the reason, the issuer and the claim — never the subject or
+the email:
+
+```json
+{"level":"warn","issuer":"https://id.example.com/realms/acme","claim":"metis_organizations","reason":"forbidden: none of the organizations named in the \"metis_organizations\" claim of your ID token exists here; …","message":"Refused a sign-in through the identity provider: it does not place the person in any organization here"}
+```
+
+A token that does not verify — wrong issuer, audience or signature, or
+expired — is still a 401.
+
+Two things to know before changing anything. `METIS_AUTH_CACHE_TTL` (5s by
+default) is also how long a sign-in's placement is reused, so an organization
+deleted in Metis stops being reachable within it; a changed claim takes effect
+with the first token that carries it. And the link is the issuer and the
+subject together: pointing `OIDC_ISSUER` at a different issuer URL, even for
+the same provider, gives everybody a new account at their next sign-in.
+
 ## The Go SDK
 
 ```bash

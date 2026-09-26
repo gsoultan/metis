@@ -146,8 +146,11 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_JOB_WORKERS` | Jobs run at once (default `10`). Was a compile-time 5, which with a fixed 2-second poll capped a replica at about 2.5 jobs a second whatever the hardware. Keep it at or below the database pool: above that, workers queue on connections instead of working. |
 | `METIS_JOB_POLL_INTERVAL` | How long an idle worker waits before looking again (default `2s`). It bounds how late the *first* job of a quiet period starts; once work exists the worker keeps claiming without waiting. |
 | `METIS_JOB_LEASE` | How long a claim is held before another worker may take the job (default `5m`). Values under 2 minutes are refused: an outbound call may run for 30 seconds, and a lease shorter than that permits a second worker to run a job still in flight, which is a duplicate service call. |
-| `METIS_AUTH_CACHE_TTL` | How long a resolved caller is reused (default `5s`, `0s` disables). Validating a token read the account twice with associations preloaded — about six queries before a request reached its handler. Deliberately seconds: the cached value carries the credential cutoff that invalidates tokens, so a stale entry extends a compromised session. Password, role and membership changes drop the entry immediately. |
+| `METIS_AUTH_CACHE_TTL` | How long a resolved caller is reused (default `5s`, `0s` disables). Validating a token read the account twice with associations preloaded — about six queries before a request reached its handler. Deliberately seconds: the cached value carries the credential cutoff that invalidates tokens, so a stale entry extends a compromised session. Password, role and membership changes drop the entry immediately. It is also how long an OIDC sign-in's placement in its organizations is reused; a changed claim is placed afresh at once. |
 | `METIS_AUTH_CACHE_SIZE` | Accounts held (default `10000`, evicting least-recently-used). |
+| `OIDC_ISSUER` | The OpenID Connect issuer URL. With `OIDC_CLIENT_ID`, turns on sign-in through that identity provider: the API then takes the provider's ID tokens as bearer tokens, and refuses a local account's token with 401. See [Signing in with OIDC](docs/integration.md#signing-in-with-oidc). |
+| `OIDC_CLIENT_ID` | The client ID the provider issues ID tokens to; a token for any other audience is refused. |
+| `METIS_OIDC_ORGANIZATION_CLAIM` | The ID-token claim that lists the organizations a person signing in through OIDC belongs to: a string or a list of strings, each an organization's **id**, matched exactly — names are not matched. **Unset, every OIDC sign-in is refused with 403** naming this setting. A first sign-in creates an account linked to the token's issuer and subject — never by email — with no role; each sign-in makes its memberships match the claim. Fill the claim from something only administrators control. |
 | `METIS_REFUSE_SCHEMA_DRIFT` | Refuse to start when a model change has no migration (default off, a warning). The drift count is published as `metis_schema_drift_items` and alerted on either way — features behind a missing table return 500 while `/readyz` stays green, so this is not otherwise visible. Useful in staging to fail the deploy rather than discover it in production. |
 | `METIS_SHUTDOWN_DRAIN` | How long a stopping process waits for jobs it has already claimed (default `20s`). Shutdown used to abandon them: the final status write rode the cancelled context and failed, so the row kept its lock until the five-minute lease expired — and the shipped manifest uses a Recreate strategy, so that was every deploy. Keep it inside your termination grace period. |
 | `METIS_HTTP_MAX_RESPONSE_BYTES` | Ceiling on a single outbound reply a service task or connector reads into memory (default `8388608`, 8 MiB). Exceeding it is refused rather than truncated: a process must not act on half a document it believes is whole. Without a bound, a partner streaming an unbounded body exhausts the pod's memory. |
@@ -274,6 +277,14 @@ session, including the one making the change**, because the usual reason to
 change a password is that somebody else may have it. The same applies to
 `--reset-password`. Accounts that sign in through OIDC have no password here;
 theirs lives at the identity provider.
+
+With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, people sign in through your
+identity provider instead, and `METIS_OIDC_ORGANIZATION_CLAIM` names the claim
+that says which organizations each of them is in. Somebody that claim places
+nowhere is refused with a 403 that names what is missing.
+[Signing in with OIDC](docs/integration.md#signing-in-with-oidc) has the
+details: what the claim must hold, the account a first sign-in creates, and
+what to do when somebody is refused.
 
 If nobody can sign in at all, reset one from the machine running the server:
 
