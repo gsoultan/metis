@@ -995,9 +995,17 @@
     incidents, the version history and the live-version marks. Paging: every paged list
     orders by creation time and then id. The step heat map was already a grouped count
     over every running token (984038e).
-  - **Still open**: a person's notifications are the newest 1,000 and the bell counts
-    unread among them; the fix is a paged list with a server-side unread count, a
-    change to the UI's contract. The OCEL export never names a case's process version
+  - **Was open, done 2026-09-26** (branch `notifications-paged`, one commit per change,
+    each test failing first): a person's notifications were the newest 1,000 and the bell
+    counted unread among them. The bell's number is a server-side COUNT now
+    (`GET /api/v1/users/me/notifications/unread-count`, 20 of 1,050 where it said 0), and
+    it is all the bell polls; the list reads a page at a time, newest first, ordered by
+    creation time and then id (`GET /api/v1/users/me/notifications?page=&page_size=`,
+    1,050 walked exactly once where the list reached 1,000), and offers older pages. Both
+    take the person from the session and scope in the query. Migration 29 indexes both
+    (unread count 1,797 buffers to 4 at a million rows). The older
+    `GET /api/v1/notifications?user_id=` is unchanged for other clients.
+  - **Still open**: The OCEL export never names a case's process version
     (the instance it reads carries only the definition id), at any size. The audit
     trail is read in one statement rather than keyset-walked: the entries one
     transaction writes share its created_at and their ids are random, so their order

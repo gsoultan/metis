@@ -291,6 +291,15 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 				},
 				want: []uuid.UUID{f.notificationA, f.systemNotification},
 			},
+			{
+				name: "a page of notifications keeps system messages and drops the other tenant's",
+				read: func() ([]uuid.UUID, error) {
+					page, err := pg.NewNotificationRepository(testutils.StormConn(db)).
+						ListByUserPaged(ctx, sharedUserID, contracts.Pagination{})
+					return idsOf(page.Items, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }), err
+				},
+				want: []uuid.UUID{f.notificationA, f.systemNotification},
+			},
 			// Both organizations hold a decision under the same key; the other
 			// one's is the newer version, and each is live in its own project,
 			// so a list that picked a row regardless of tenant would answer
@@ -532,15 +541,21 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				},
 			},
 			{
-				name:  "delete another tenant's notification",
-				write: func() error { return pg.NewNotificationRepository(testutils.StormConn(db)).Delete(ctx, f.notifB) },
+				name: "delete another tenant's notification",
+				// Its own recipient's name, so only the organization's scope stands in the way.
+				write: func() error {
+					return pg.NewNotificationRepository(testutils.StormConn(db)).Delete(ctx, f.notifB, sharedUserID)
+				},
 				unchanged: func() bool {
 					return rowExists(t, db, &models.NotificationModel{}, "notifications", f.notifB)
 				},
 			},
 			{
-				name:  "mark another tenant's notification read",
-				write: func() error { return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notifB) },
+				name: "mark another tenant's notification read",
+				// Its own recipient's name, so only the organization's scope stands in the way.
+				write: func() error {
+					return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notifB, sharedUserID)
+				},
 				unchanged: func() bool {
 					var m models.NotificationModel
 					if err := db.First(&m, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
@@ -667,10 +682,10 @@ func TestTenantIsolation_OwnWritesStillSucceed(t *testing.T) {
 			write func() error
 		}{
 			{"mark own notification read", func() error {
-				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notificationA)
+				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notificationA, sharedUserID)
 			}},
 			{"mark a system notification read", func() error {
-				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.systemNotification)
+				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.systemNotification, sharedUserID)
 			}},
 			{"mark whole inbox read", func() error {
 				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAllAsRead(ctx, sharedUserID)
@@ -982,6 +997,45 @@ func TestTenantIsolation_NoTenantContextReadsWhatTheFlagAllows(t *testing.T) {
 		}
 		assertSameIDs(t, idsOf(notifications, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
 			wantNotifications)
+
+		// The bell's count is scoped as the list is, in both cases. Every
+		// fixture notification is unread, so it counts what the list shows.
+		unread, err := pg.NewNotificationRepository(testutils.StormConn(db)).CountUnreadByUser(ctx, sharedUserID)
+		if err != nil {
+			t.Fatalf("count unread notifications: %v", err)
+		}
+		if unread != int64(len(wantNotifications)) {
+			t.Errorf("counted %d unread notifications; the list shows %d", unread, len(wantNotifications))
+		}
+
+		// And the page the bell opens holds the same notifications.
+		page, err := pg.NewNotificationRepository(testutils.StormConn(db)).
+			ListByUserPaged(ctx, sharedUserID, contracts.Pagination{})
+		if err != nil {
+			t.Fatalf("page notifications: %v", err)
+		}
+		assertSameIDs(t, idsOf(page.Items, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
+			wantNotifications)
+		if page.Total != int64(len(wantNotifications)) {
+			t.Errorf("the page says there are %d notifications; the list shows %d", page.Total, len(wantNotifications))
+		}
+	})
+}
+
+// TestTenantIsolation_UnreadCountIsScopedAsTheListIs counts, as organization A,
+// the notifications the list shows A: its own and the system message, and not
+// B's, which is addressed to the same user id. Every fixture notification is
+// unread.
+func TestTenantIsolation_UnreadCountIsScopedAsTheListIs(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		unread, err := pg.NewNotificationRepository(testutils.StormConn(db)).CountUnreadByUser(f.ctxAsA(t), sharedUserID)
+		if err != nil {
+			t.Fatalf("count unread notifications: %v", err)
+		}
+		if unread != 2 {
+			t.Errorf("as A, counted %d unread notifications; A's own and the system message make 2", unread)
+		}
 	})
 }
 
