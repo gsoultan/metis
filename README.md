@@ -139,6 +139,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_FEATURE_JAVASCRIPT_CONDITIONS` | Allow `js:` gateway conditions. **Off by default** — goja cannot be pre-empted mid-call (measured: 37s against a 200ms budget), so authored JavaScript is a memory-exhaustion vector FEEL does not have. Turn on only while migrating; `GET /api/v1/definitions/javascript-conditions` is the worklist. |
 | `METIS_FEATURE_STRICT_TENANT_SCOPE` | Make a repository query carrying neither a tenant nor a system identity return nothing instead of everything. Off by default pending a staged rollout — its failure mode is silence, not an error. Seven suites covering the real interceptor chain pass under it (`make strict-scope`). [`docs/strict-tenant-scope.md`](docs/strict-tenant-scope.md) is the rollout. |
 | `METIS_ALLOW_IMPLICIT_DEFAULT_FLOW` | Restores the legacy behaviour where a gateway with no matching condition took its first outgoing flow. Off by default — that silently routed processes down arbitrary branches. |
+| `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS` | Restores the legacy rule where a task with no assignee and no candidates could be claimed and completed by anybody signed in to its organization. **Off by default**: such a task is an administrator's or an operator's to take, and anybody else is refused with a 403 that says so. For a migration window while those steps are given an assignee or candidates; the server warns at boot while it is on. Manual tasks are not affected. |
 | `METIS_TRUSTED_PROXIES` | Which peers may set `X-Forwarded-For`, as comma-separated CIDRs. Defaults to loopback and private space, which is where a load balancer or sidecar connects from. Set it to `none` when the server is exposed directly. **Requests from anywhere else have the header ignored** — it is a client-set header, and believing it unconditionally let one address take 30 requests through a limit of 3 by varying it. |
 | `METIS_PPROF_ENABLED` | Expose pprof on `127.0.0.1:6060`. |
 | `METIS_DB_MAX_OPEN_CONNS` | Connection pool ceiling (default `25`), applied to each of the process's two pools (GORM and storm), so a process opens up to twice this. Previously unset, which means *unlimited* — a burst could open more connections than PostgreSQL's default `max_connections` of 100 and fail every caller at once. |
@@ -151,7 +152,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_JOB_LEASE` | How long a claim is held before another worker may take the job (default `5m`). Values under 2 minutes are refused: an outbound call may run for 30 seconds, and a lease shorter than that permits a second worker to run a job still in flight, which is a duplicate service call. |
 | `METIS_AUTH_CACHE_TTL` | How long a resolved caller is reused (default `5s`, `0s` disables). Validating a token read the account twice with associations preloaded — about six queries before a request reached its handler. Deliberately seconds: the cached value carries the credential cutoff that invalidates tokens, so a stale entry extends a compromised session. Password, role and membership changes drop the entry immediately. It is also how long an OIDC sign-in's placement in its organizations is reused; a changed claim is placed afresh at once. |
 | `METIS_AUTH_CACHE_SIZE` | Accounts held (default `10000`, evicting least-recently-used). |
-| `OIDC_ISSUER` | The OpenID Connect issuer URL. With `OIDC_CLIENT_ID`, turns on sign-in through that identity provider: the API then takes the provider's ID tokens as bearer tokens, and refuses a local account's token with 401. See [Signing in with OIDC](docs/integration.md#signing-in-with-oidc). |
+| `OIDC_ISSUER` | The OpenID Connect issuer URL. With `OIDC_CLIENT_ID`, turns on sign-in through that identity provider: the API then takes the provider's ID tokens as bearer tokens, beside the local accounts' tokens `/api/v1/login` issues. Each token is checked by the rules of the kind it says it is and by no others — its header's algorithm and whether it names an issuer decide which — so a local administrator can still sign in while the provider is unreachable, and turning OIDC on does not switch local accounts off. See [Signing in with OIDC](docs/integration.md#signing-in-with-oidc). |
 | `OIDC_CLIENT_ID` | The client ID the provider issues ID tokens to; a token for any other audience is refused. |
 | `METIS_OIDC_ORGANIZATION_CLAIM` | The ID-token claim that lists the organizations a person signing in through OIDC belongs to: a string or a list of strings, each an organization's **id**, matched exactly — names are not matched. **Unset, every OIDC sign-in is refused with 403** naming this setting. A first sign-in creates an account linked to the token's issuer and subject — never by email — with no role; each sign-in makes its memberships match the claim. Fill the claim from something only administrators control. |
 | `METIS_REFUSE_SCHEMA_DRIFT` | Refuse to start when a model change has no migration (default off, a warning). The drift count is published as `metis_schema_drift_items` and alerted on either way — features behind a missing table return 500 while `/readyz` stays green, so this is not otherwise visible. Useful in staging to fail the deploy rather than discover it in production. |
@@ -282,12 +283,17 @@ change a password is that somebody else may have it. The same applies to
 theirs lives at the identity provider.
 
 With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, people sign in through your
-identity provider instead, and `METIS_OIDC_ORGANIZATION_CLAIM` names the claim
+identity provider as well, and `METIS_OIDC_ORGANIZATION_CLAIM` names the claim
 that says which organizations each of them is in. Somebody that claim places
 nowhere is refused with a 403 that names what is missing.
 [Signing in with OIDC](docs/integration.md#signing-in-with-oidc) has the
 details: what the claim must hold, the account a first sign-in creates, and
 what to do when somebody is refused.
+
+Local accounts keep signing in with their passwords while OIDC is on. Keep one
+administrator among them, with a strong password held offline, for the day the
+provider is unreachable — and delete the local accounts nobody should use:
+turning OIDC on does not switch them off.
 
 If nobody can sign in at all, reset one from the machine running the server:
 
@@ -307,6 +313,10 @@ METIS_NEW_PASSWORD='...' ./metis --reset-password admin
 This runs against the configured database and exits without starting a server,
 so it works on an installation nobody can log into. It needs access to the
 machine and the database, which is the same access a backup restore would.
+
+It refuses an account that signs in through an identity provider, and names the
+provider: that password is the provider's to reset, and one set here would be a
+way in that the provider does not control.
 
 ## 🔌 Integrating from your application
 

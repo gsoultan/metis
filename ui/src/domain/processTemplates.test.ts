@@ -12,12 +12,16 @@ function counter() {
 
 /**
  * The template as it is once the author has made the decisions it leaves
- * open: every path out of a gateway says when it is taken.
+ * open: every path out of a gateway says when it is taken, and every step that
+ * asks a person says who does it.
  */
 function withDecisionsMade(built: BuiltTemplate): BuiltTemplate {
   const gateways = new Set(built.nodes.filter((n) => n.type.endsWith('Gateway')).map((n) => n.id));
   return {
     ...built,
+    nodes: built.nodes.map((n) =>
+      n.type === 'userTask' ? { ...n, data: { ...n.data, candidateGroups: ['decided by the author'] } } : n,
+    ),
     edges: built.edges.map((e) =>
       gateways.has(e.source) ? { ...e, data: { ...e.data, condition: 'decided by the author' } } : e,
     ),
@@ -106,17 +110,18 @@ describe('every template is a process somebody could deploy', () => {
 /*
  * The designer's own validator is the bar a template has to clear.
  *
- * A template leaves one thing open on purpose: which way each gateway goes.
- * The designer reports those as errors when the template lands, and that is
- * the point, because it takes the author straight to the decisions only they
- * can make. Anything else the validator finds is a defect the template shipped
+ * A template leaves two things open on purpose: which way each gateway goes,
+ * and who does each step that asks a person. The designer reports the first as
+ * errors and the second as warnings when the template lands, and that is the
+ * point, because it takes the author straight to the decisions only they can
+ * make. Anything else the validator finds is a defect the template shipped
  * with, and an author who starts from a template assumes it has none. The
  * invoice template's two automatic steps were pointed at nothing, so every
  * invoice passed through "Check the invoice" unchecked.
  */
 describe('nothing to fix but the decisions a template leaves to you', () => {
   for (const template of PROCESS_TEMPLATES) {
-    it(`${template.name} has no errors and no warnings once its paths say when they are taken`, () => {
+    it(`${template.name} has no errors and no warnings once its paths say when they are taken and its steps who does them`, () => {
       const { nodes, edges } = withDecisionsMade(template.build(counter()));
       expect(validateProcess(nodes, edges)).toEqual([]);
     });
@@ -135,6 +140,23 @@ describe('what a template refuses to decide for you', () => {
       const built = template.build(counter());
       for (const e of built.edges) {
         expect(e.data?.condition ?? '').toBe('');
+      }
+    }
+  });
+
+  /*
+   * Who does a step is the organization's to say, and a template cannot know
+   * its people or teams. A team it guessed would be one nobody is in, which
+   * is worse than naming nobody: then even an administrator could not take
+   * the task.
+   */
+  it('names nobody to do a step that asks a person', () => {
+    for (const template of PROCESS_TEMPLATES) {
+      const built = template.build(counter());
+      for (const n of built.nodes.filter((x) => x.type === 'userTask')) {
+        expect(n.data.assignee ?? '').toBe('');
+        expect(n.data.candidateUsers ?? []).toEqual([]);
+        expect(n.data.candidateGroups ?? []).toEqual([]);
       }
     }
   });
