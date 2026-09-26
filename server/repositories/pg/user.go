@@ -83,6 +83,12 @@ func (r *userRepository) GetWithPasswordByID(ctx context.Context, id uuid.UUID) 
 // Scoped, and it was not: this returned every account in the installation with
 // their memberships preloaded — a complete staff directory of every tenant, to
 // anybody signed in.
+//
+// Every account, not the first thousand. Both reads went through queries the
+// store caps at a thousand rows, so past that the Users page said it showed
+// them all and did not, and the last-administrator guard, which counts from
+// this list, refused to demote an administrator while another one sat past the
+// cap. Both now read every row, a batch at a time.
 func (r *userRepository) ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -103,12 +109,12 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		return nil, err
 	}
 
-	q := user.New().Order(user.Username.Asc())
+	// The id breaks ties, so the order is a position the batches can resume
+	// from even where two usernames compare equal.
+	q := user.New().Order(user.Username.Asc(), user.ID.Asc())
 	if organizationID != uuid.Nil {
-		members, err := userorganization.New().
-			Where(userorganization.OrganizationID.Eq(organizationID)).
-			Unordered().
-			All(ctx, ex, nil)
+		members, err := everyRow[userorganization.Row](ctx, ex, userorganization.New().
+			Where(userorganization.OrganizationID.Eq(organizationID)))
 		if err != nil {
 			return nil, fmt.Errorf("could not read the organization's members: %w", err)
 		}
@@ -121,7 +127,7 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		}
 		q = q.Where(user.ID.In(ids...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[user.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list accounts: %w", err)
 	}
