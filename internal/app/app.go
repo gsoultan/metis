@@ -100,6 +100,9 @@ type App struct {
 	// as a metric so a shipped-but-broken feature pages somebody. Read at scrape
 	// time, written once at startup, so it is atomic.
 	schemaDrift atomic.Int64
+	// environments is what runs for each environment, so one that is deleted
+	// or disabled can be stopped. See environment_runtime.go.
+	environments environmentRuntimes
 }
 
 const (
@@ -807,6 +810,9 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	// The same work again, once per environment, against that environment's
 	// database. Without it a process started on a staging port never advances.
 	a.startEnvironmentWorkers(ctx)
+	// And stopped again, listener and all, once the environment is deleted
+	// or disabled.
+	a.watchEnvironments(ctx)
 	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
 }
