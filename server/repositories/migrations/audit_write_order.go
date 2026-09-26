@@ -2,8 +2,10 @@ package migrations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -11,6 +13,21 @@ import (
 // was written in" is recorded under. Named once, here, so the test that rewinds
 // it and the list that runs it cannot disagree about which row they mean.
 const AuditWriteOrderMigration = 28
+
+// auditWriteOrderLockWait is the longest migration 28 waits for audit_logs.
+//
+// The ALTER TABLE needs the table to itself for as long as the catalogue takes,
+// and while it waits for a reader to finish, PostgreSQL queues every later
+// writer of the table behind it. Every step of every running process writes
+// audit entries, so during a rolling upgrade a long read — an export, a
+// report, an anti-wraparound vacuum — would stop the engine on the replicas
+// still serving for as long as it ran. Long enough for a step's own
+// transaction, which takes milliseconds, to finish; short enough that what
+// queues behind the wait is a slow request and not an outage.
+const auditWriteOrderLockWait = "2s"
+
+// postgresLockNotAvailable is lock_not_available: lock_timeout expired.
+const postgresLockNotAvailable = "55P03"
 
 // auditWriteOrder is migration 28.
 //
@@ -46,8 +63,29 @@ func auditWriteOrder() Migration {
 		Version:       AuditWriteOrderMigration,
 		Name:          "an audit entry records the order it was written in",
 		Transactional: true,
-		Run:           EnsureAuditWriteOrder,
+		Run:           numberAuditEntriesWithoutQueueingWriters,
 	}
+}
+
+// numberAuditEntriesWithoutQueueingWriters is EnsureAuditWriteOrder waiting no
+// longer than auditWriteOrderLockWait for the table. SET LOCAL: the limit ends
+// with the migration's transaction, so the connection goes back to the pool as
+// it came.
+func numberAuditEntriesWithoutQueueingWriters(ctx context.Context, tx *gorm.DB) error {
+	if tx.Name() != "postgres" {
+		return nil
+	}
+	if err := tx.WithContext(ctx).Exec(fmt.Sprintf("SET LOCAL lock_timeout = '%s'", auditWriteOrderLockWait)).Error; err != nil {
+		return fmt.Errorf("bound the wait for audit_logs: %w", err)
+	}
+	err := EnsureAuditWriteOrder(ctx, tx)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == postgresLockNotAvailable {
+		return fmt.Errorf("audit_logs was held for more than %s by a long query, transaction or vacuum; "+
+			"the upgrade stopped rather than hold every audit write behind it, and will finish when started again once that ends: %w",
+			auditWriteOrderLockWait, err)
+	}
+	return err
 }
 
 // auditWriteOrderStatements number audit entries as they are written.

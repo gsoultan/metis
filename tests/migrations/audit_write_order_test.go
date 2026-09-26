@@ -1,9 +1,11 @@
 package migrations_test
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
@@ -109,6 +111,77 @@ func TestMigration28GivesEveryNewAuditEntryThePlaceItWasWrittenIn(t *testing.T) 
 			t.Errorf("audit_logs.seq differs from the model: %s", line)
 		}
 	}
+}
+
+// A long read of the audit trail — an export, a report, an anti-wraparound
+// vacuum — holds a lock the migration's ALTER TABLE has to wait for, and
+// PostgreSQL queues every later writer of the table behind a waiting ALTER.
+// Every step of every running process writes audit entries, so during a
+// rolling upgrade one slow reader would stop the engine on the replicas still
+// serving for as long as the read ran. The migration gives up after a bounded
+// wait instead, says why, and runs when it is started again.
+func TestMigration28GivesUpRatherThanHoldEveryAuditWriteBehindALongRead(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	ctx := t.Context()
+	schema := migrations.Schema(models.MigrationModels())
+	if _, err := migrations.Run(ctx, db, schema); err != nil {
+		t.Fatalf("run the migrations: %v", err)
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE audit_logs DROP COLUMN IF EXISTS seq`,
+		`DROP SEQUENCE IF EXISTS ` + auditSequence,
+	} {
+		if err := db.WithContext(ctx).Exec(stmt).Error; err != nil {
+			t.Fatalf("restore the old schema (%s): %v", stmt, err)
+		}
+	}
+	if err := db.WithContext(ctx).Exec(`DELETE FROM schema_migrations WHERE version = ?`,
+		migrations.AuditWriteOrderMigration).Error; err != nil {
+		t.Fatalf("rewind the migration record: %v", err)
+	}
+
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatalf("open the pool: %v", err)
+	}
+	reader, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin the long read: %v", err)
+	}
+	defer func() { _ = reader.Rollback() }()
+	// Holds ACCESS SHARE on audit_logs until the transaction ends.
+	if _, err := reader.ExecContext(ctx, `SELECT count(*) FROM audit_logs`); err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := migrations.Run(context.Background(), db, schema)
+		finished <- err
+	}()
+	const patience = 20 * time.Second
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("the migration altered audit_logs while a reader held it")
+		}
+		if !strings.Contains(err.Error(), "audit_logs") {
+			t.Errorf("the migration failed without saying what it waited for: %v", err)
+		}
+	case <-time.After(patience):
+		_ = reader.Rollback()
+		<-finished
+		t.Fatalf("the migration was still waiting for audit_logs after %s, and every audit write queues behind it", patience)
+	}
+
+	// Once the reader is done, starting again finishes the job.
+	if err := reader.Rollback(); err != nil {
+		t.Fatalf("end the long read: %v", err)
+	}
+	if _, err := migrations.Run(ctx, db, schema); err != nil {
+		t.Fatalf("run the migrations again once the read ended: %v", err)
+	}
+	assertAuditEntriesAreNumberedAsWritten(t, db)
 }
 
 // assertAuditEntriesAreNumberedAsWritten checks audit_logs.seq takes its value

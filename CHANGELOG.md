@@ -295,9 +295,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
   Upgrading: migration 28 adds `audit_logs.seq` and the sequence that numbers
   it. It changes the table's definition only — no row is rewritten, and the
-  table is locked for milliseconds. Entries written before the upgrade are not
-  numbered, because nothing recorded the order they were written in; they keep
-  the order they had.
+  table is locked for milliseconds. It waits at most two seconds for the table:
+  if a long query, transaction or vacuum holds `audit_logs` longer, the upgrade
+  stops with that reason rather than hold every audit write behind it, and
+  finishes when Metis is started again once that ends. Entries written before
+  the upgrade are not numbered, because nothing recorded the order they were
+  written in; they keep the order they had.
 - **Every case in the OCEL export said it ran version 0 of a process with no
   name.** An instance records only which definition it runs, and the export
   used that as it came: each case carried an empty `definition_key` and a
