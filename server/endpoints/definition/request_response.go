@@ -231,7 +231,17 @@ type MigrateInstancesRequest struct {
 	// DryRun asks what would happen and changes nothing. The default, because
 	// this rewrites instances that are somebody's purchase order — committing
 	// has to be the thing you ask for, not the thing you get by omission.
-	DryRun bool `json:"dry_run,omitzero"`
+	//
+	// A pointer so that omission can be told apart from false. It was a plain
+	// bool, and an omitted flag decoded as false: a request that did not say
+	// anything — as the documented examples do not — was an apply.
+	DryRun *bool `json:"dry_run,omitzero"`
+}
+
+// dryRun reports whether the request is a preview: anything but an explicit
+// false.
+func (r MigrateInstancesRequest) dryRun() bool {
+	return r.DryRun == nil || *r.DryRun
 }
 
 type MigrateInstancesResponse struct {

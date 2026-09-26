@@ -343,7 +343,7 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return MigrateInstancesResponse{Err: err}, nil
 		}
-		if req.DryRun {
+		if req.dryRun() {
 			return MigrateInstancesResponse{Plan: plan}, nil
 		}
 		if err := s.MigrateInstances(ctx, source, target, req.NodeMapping, opts...); err != nil {
