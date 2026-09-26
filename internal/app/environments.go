@@ -242,6 +242,17 @@ func (a *App) openEnvironmentStorm(ctx context.Context, row models.EnvironmentMo
 	if err != nil {
 		return fmt.Errorf("could not open this environment's storm connection: %w", err)
 	}
+	// After the migrations openEnvironment has run, as for the main database:
+	// the defaults are reconciled on the tables those migrations create.
+	want, err := stormModel()
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	if err := ensureStormTables(ctx, pool, want); err != nil {
+		pool.Close()
+		return fmt.Errorf("could not prepare this environment's database for the engine: %w", err)
+	}
 	if previous := a.storm.RegisterEnvironment(id, pool); previous != nil {
 		previous.Close()
 	}

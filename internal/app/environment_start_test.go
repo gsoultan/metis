@@ -1,10 +1,15 @@
 package app
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 )
 
@@ -151,4 +156,64 @@ func countNotes(t *testing.T, database *gorm.DB, note string) int64 {
 		t.Fatalf("count the notes: %v", err)
 	}
 	return n
+}
+
+// An environment's database is migrated at start with the schema migrations,
+// which are GORM's. The main database then gets what storm writes against —
+// its own tables, and the column defaults it leaves to the database — and an
+// environment's did not, so the first job a process in staging scheduled
+// failed on insert with a NULL where storm expected the database to fill one
+// in. A timer, a service task or a retry could not run in any environment.
+func TestAnEnvironmentsDatabaseTakesTheJobsItsProcessesSchedule(t *testing.T) {
+	fastEnvironmentChecks(t)
+	h := newEnvironmentHarness(t)
+	h.serve(schedulesAJob(h))
+
+	staging := h.environment("staging", scratchDatabase(t))
+	within(t, startLimit, "the environment was never served on its port", func() bool {
+		return answers(t, staging.Port, "/")
+	})
+
+	status, body := fetch(t, staging.Port, "/job")
+	if status != http.StatusNoContent {
+		t.Fatalf("scheduling a job in the environment's database answered %d: %s", status, body)
+	}
+}
+
+// schedulesAJob answers / to say the port is served, and on /job creates a job
+// through the repository, bound to whichever environment the request arrived
+// at — as the engine does for a timer.
+func schedulesAJob(h *environmentHarness) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/job" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		ctx := entities.WithSystemContext(r.Context())
+		if _, err := h.app.repo.Job().Create(ctx, models.JobModel{
+			Base: models.Base{ID: models.UUID(uuid.New())}, Type: "timer", Status: models.JobPending,
+			NextRunAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+// fetch is a GET to the port, with its status and body.
+func fetch(t *testing.T, port int, path string) (int, string) {
+	t.Helper()
+	client := http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
 }

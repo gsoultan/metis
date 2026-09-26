@@ -1009,11 +1009,13 @@
     environment is `metis_engine_state_up 0` on its own; the databases are read at once
     inside the two-second scrape budget. The engine alerts name the environment. Test:
     `internal/app/engine_metrics_test.go`, promtool cases in `alerts_test.yaml`.
-  - **Found, not fixed:** an environment's database gets the GORM migrations but not
-    storm's tables or column defaults (`db.EnsureTables`, `db.EnsureColumnDefaults` run
-    on the main database only), so a storm insert there — a job, for one — fails with
-    `storm: not-null constraint violated`. The fix belongs in the shared open path
-    (`openEnvironmentStorm`), where boot and the watcher both get it.
+  - **Found and fixed on the same branch:** an environment's database got the GORM
+    migrations but not storm's tables or column defaults (`db.EnsureTables`,
+    `db.EnsureColumnDefaults` ran on the main database only), so a storm insert there — a
+    job, for one — failed with `storm: not-null constraint violated`: no timer, service
+    task or retry could run in any environment. `openEnvironmentStorm`, the shared open
+    path, now runs the same step (`ensureStormTables`) before registering the pool. Test:
+    `TestAnEnvironmentsDatabaseTakesTheJobsItsProcessesSchedule`.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

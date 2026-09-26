@@ -101,6 +101,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **No process could schedule work in an environment.** An environment's
+  database was migrated with the schema migrations but never given what the
+  engine's storage writes against: its own tables, and the column defaults it
+  leaves to the database. The first job a process there scheduled failed on
+  insert (`storm: not-null constraint violated (jobs)`), so no timer, service
+  task or retry could run in any environment. Each environment's database now
+  gets the same preparation as the main one, whenever the environment starts.
 - **An environment is served without a restart.** Creating one, enabling one
   again, or giving one another port or database changed its row and nothing
   else: nothing listened on its port, and a re-pointed one went on reading and
