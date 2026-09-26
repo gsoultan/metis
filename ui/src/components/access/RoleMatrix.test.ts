@@ -48,12 +48,16 @@ function answered(users: ApiOrganizationUser[]): QueryClient {
 
 const render = (users: ApiOrganizationUser[]) => renderStatic(createElement(RoleMatrix), answered(users));
 
+/** Somebody signed in who administers nothing: a designer. */
+const asDesigner = () => store.set({ user: userWithRoles(['DESIGNER']), currentOrganizationId: ORGANIZATION, token: 'a-session' });
+
 /*
  * Roles were granted one account at a time, from a multi-select inside each
  * account's edit dialog, and nothing showed at a glance who held what.
  */
 describe('who holds which role', () => {
   it('marks, for every account, each role it holds and each it does not', async () => {
+    asDesigner();
     const text = visibleText(await render([ana, dana, oli]));
 
     expect(text).toContain('Ana Admin holds Administrator');
@@ -66,6 +70,7 @@ describe('who holds which role', () => {
   });
 
   it('shows every account in the organization, not a first page', async () => {
+    asDesigner();
     const many = Array.from({ length: 60 }, (_, index): ApiOrganizationUser => ({
       id: `u-${index}`, username: `person${index}`, full_name: `Person ${index}`, roles: index % 2 === 0 ? ['DESIGNER'] : [],
     }));
@@ -87,10 +92,44 @@ describe('who holds which role', () => {
   });
 
   it('reads in the interface’s language', async () => {
+    asDesigner();
     const html = await renderStatic(inLanguage(createElement(RoleMatrix), 'id', id), answered([ana, dana]));
     const text = visibleText(html);
     expect(text).toContain('Dana Scully memegang Designer');
     expect(text).toContain('Menampilkan semua 2 akun');
     expect(namedControl(html, 'Yang diizinkan Designer')).toBeDefined();
+  });
+});
+
+/*
+ * The server refuses a role change from anybody but an administrator, and the
+ * matrix does not offer one: a box that can only ever be refused is not a
+ * control.
+ */
+describe('granting and revoking', () => {
+  it('gives an administrator a box per person and role, ticked where the server says it is held', async () => {
+    const html = await render([ana, dana, oli]);
+
+    expect(namedControl(html, 'Administrator for Ana Admin')).toHaveProperty('checked');
+    // Held as "designer", which is Designer.
+    expect(namedControl(html, 'Designer for Dana Scully')).toHaveProperty('checked');
+    expect(namedControl(html, 'Administrator for Dana Scully')).not.toHaveProperty('checked');
+    expect(namedControl(html, 'Query author for oli')).toHaveProperty('checked');
+    expect(namedControl(html, 'Designer for oli')).not.toHaveProperty('checked');
+  });
+
+  it('tells an administrator that each change is saved as it is made', async () => {
+    expect(visibleText(await render([ana]))).toContain(
+      'Tick a box to grant a role and clear it to take the role away. Each change is saved as you make it.',
+    );
+  });
+
+  it('shows anybody else no box to tick, and says who can change roles', async () => {
+    asDesigner();
+    const html = await render([ana, dana]);
+
+    expect(html).not.toContain('type="checkbox"');
+    expect(namedControl(html, 'Designer for Dana Scully')).toBeUndefined();
+    expect(visibleText(html)).toContain('Only an administrator can change who holds a role.');
   });
 });

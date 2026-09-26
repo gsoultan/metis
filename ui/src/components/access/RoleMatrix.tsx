@@ -1,15 +1,19 @@
 import { Box, Card, Stack, Table, Text, TextInput } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { Search } from 'lucide-react';
 import { useRef, useState, useTransition } from 'react';
 
+import { hasRole } from '../../domain/access';
+import { revokesOwnAdministration, roleChangeNotice } from '../../domain/roleChange';
 import { legendFor } from '../../domain/roleLegend';
-import { ROLE_OPTIONS } from '../../domain/roles';
+import { PRIVILEGED_ROLE, ROLE_OPTIONS, type RoleOption } from '../../domain/roles';
 import { matchesQuery } from '../../domain/textSearch';
-import { useRoleLegend } from '../../hooks/useRoles';
+import { useRoleChange, useRoleLegend } from '../../hooks/useRoles';
 import { useUsers } from '../../hooks/useUser';
 import { useTranslation } from '../../i18n/context';
 import type { ApiRoleAccess } from '../../services/domains/roleService';
 import type { ApiOrganizationUser } from '../../services/types';
+import { useAppStore } from '../../store/useAppStore';
 import { ErrorState, TableLoadingState } from '../state';
 import { VirtualRows } from '../VirtualRows';
 import { RoleCell } from './RoleCell';
@@ -25,16 +29,22 @@ const MATRIX_MAX_HEIGHT = '70vh';
 /**
  * Who in this organization holds which role, at a glance: one row per account,
  * one column per role, and what each role is required for beside its heading.
+ * An administrator grants or revokes a role by ticking its box.
  *
  * The accounts are the Accounts view's own list — the same query, the same
  * organization, every account, not a first page — and the legend is what the
  * server reads from its gates, so neither half can disagree with the rest of
- * the page or with what the server enforces.
+ * the page or with what the server enforces. A change goes through the
+ * Accounts view's own update and is shown as the server answers it: made, or
+ * refused in the server's words with the box left as it was.
  */
 export function RoleMatrix() {
   const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useUsers();
   const legend = useRoleLegend();
+  const { saving, change } = useRoleChange();
+  const canEdit = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
+  const currentUserId = useAppStore((state) => state.user?.id ?? '');
   const [query, setQuery] = useState('');
   const [, startTransition] = useTransition();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -42,8 +52,20 @@ export function RoleMatrix() {
   const accounts = data?.users ?? [];
   const shown = accounts.filter((account) => matchesQuery(query, account.username, account.full_name, account.email));
 
+  const handleToggle = async (account: ApiOrganizationUser, option: RoleOption, granted: boolean) => {
+    if (
+      revokesOwnAdministration(account, option.value, granted, currentUserId) &&
+      !window.confirm(t('access.confirmOwnAdmin'))
+    ) {
+      return;
+    }
+    const outcome = await change(account, option.value, granted);
+    const name = account.full_name || account.username;
+    notifications.show(roleChangeNotice(outcome, { name, role: option.label, granted }, t));
+  };
+
   const renderRow = (account: ApiOrganizationUser) => (
-    <Table.Tr key={account.id}>
+    <Table.Tr key={account.id} aria-busy={saving.has(account.id) || undefined}>
       <Table.Th scope="row">
         <Stack gap={0}>
           <Text fw={700} size="sm">
@@ -55,7 +77,14 @@ export function RoleMatrix() {
         </Stack>
       </Table.Th>
       {ROLE_OPTIONS.map((option) => (
-        <RoleCell key={option.value} account={account} option={option} />
+        <RoleCell
+          key={option.value}
+          account={account}
+          option={option}
+          canEdit={canEdit}
+          saving={saving.get(account.id)}
+          onToggle={(granted) => handleToggle(account, option, granted)}
+        />
       ))}
     </Table.Tr>
   );
@@ -63,6 +92,9 @@ export function RoleMatrix() {
   return (
     <Card shadow="sm" radius="lg" withBorder p={0}>
       <Box p="md">
+        <Text size="sm" c="dimmed" mb="sm">
+          {canEdit ? t('access.editHint') : t('access.readOnlyHint')}
+        </Text>
         <TextInput
           aria-label={t('access.search')}
           placeholder={t('access.searchPlaceholder')}
