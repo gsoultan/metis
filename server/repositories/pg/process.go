@@ -581,7 +581,7 @@ func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f con
 	}
 	n := p.Normalize()
 	rows, err := q.
-		Order(processinstance.CreatedAt.Desc()).
+		Order(processinstance.CreatedAt.Desc(), processinstance.ID.Desc()).
 		Limit(int64(n.PageSize)).
 		Offset(int64(p.Offset())).
 		All(ctx, ex, nil)

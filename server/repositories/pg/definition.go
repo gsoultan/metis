@@ -264,7 +264,7 @@ func (r *definitionRepository) ListByProjectPaged(ctx context.Context, projectID
 	}
 	n := p.Normalize()
 	rows, err := q.
-		Order(processdefinition.CreatedAt.Desc()).
+		Order(processdefinition.CreatedAt.Desc(), processdefinition.ID.Desc()).
 		Limit(int64(n.PageSize)).
 		Offset(int64(p.Offset())).
 		All(ctx, ex, nil)
