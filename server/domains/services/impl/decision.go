@@ -50,12 +50,15 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	seen[decisionKey] = true
 	defer delete(seen, decisionKey)
 
+	// A pinned version is exactly that version. Otherwise the live one — which
+	// may be older than the newest: a saved version can be staged, and an
+	// older one made live again.
 	var m models.DecisionDefinitionModel
 	var err error
 	if version > 0 {
 		m, err = s.repo.Decision().GetByKeyAndVersion(ctx, projectID, decisionKey, version)
 	} else {
-		m, err = s.repo.Decision().GetByKey(ctx, projectID, decisionKey)
+		m, err = s.repo.Decision().GetLiveByKey(ctx, projectID, decisionKey)
 	}
 	if err != nil {
 		return entities.DecisionResult{}, err
@@ -64,7 +67,10 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	decision := adapters.DecisionEntityAdapter{Model: m}.ToEntity()
 
 	// 1. Evaluate required decisions, in the same project: a requirement names
-	// a table beside this one, not one anywhere a key happens to match.
+	// a table beside this one, not one anywhere a key happens to match. At
+	// their live versions, whatever version this one is: a requirement names a
+	// key, and a staged table must not come into force through a decision
+	// that depends on it.
 	for _, reqKey := range decision.RequiredDecisions {
 		res, err := s.evaluateRecursive(ctx, projectID, reqKey, 0, variables, seen)
 		if err != nil {
@@ -108,10 +114,15 @@ func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid
 	return repocontracts.NewPage(decisions, result.Total, page), nil
 }
 
-// ListDecisionSummaries returns one page of a project's decision keys, each as
-// its newest version, without the tables.
-func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error) {
-	result, err := s.repo.Decision().ListLatestByProject(ctx, projectID, page)
+// ListDecisionSummaries returns one page of a project's decision keys, one row
+// each, without the tables: the decision list, a step's picker and the
+// dependency graph all want every key once, and which version of it is live.
+func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error) {
+	if utf8.RuneCountInString(search) > maxDecisionSearch {
+		return repocontracts.Page[entities.DecisionSummary]{}, apierr.Invalidf(
+			"a search is at most %d characters, the longest a decision's name or key can be", maxDecisionSearch)
+	}
+	result, err := s.repo.Decision().ListKeysByProject(ctx, projectID, search, page)
 	if err != nil {
 		return repocontracts.Page[entities.DecisionSummary]{}, err
 	}
@@ -122,7 +133,11 @@ func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID u
 			Key:               m.Key,
 			Name:              m.Name,
 			Version:           m.Version,
+			HitPolicy:         m.HitPolicy,
 			RequiredDecisions: m.RequiredDecisions,
+			LiveVersion:       m.LiveVersion,
+			NewestVersion:     m.NewestVersion,
+			LastChangedAt:     m.LastChangedAt,
 		}
 	}
 	return repocontracts.NewPage(summaries, result.Total, page), nil
@@ -165,41 +180,17 @@ func (s *decisionService) CreateDecision(ctx context.Context, d entities.Decisio
 		return uuid.Nil, fmt.Errorf("decision key is required")
 	}
 
-	if d.ID == uuid.Nil {
-		id, err := uuid.NewV7()
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("could not generate a decision id: %w", err)
-		}
-		d.ID = id
-	}
-
-	// The version series is per project, matching the unique index, so the
-	// allocator needs the same project the adapter is about to write.
-	var projectID uuid.UUID
-	if d.Project != nil {
-		projectID = d.Project.ID
-	}
-
-	err := allocateVersion(ctx, s.repo.UnitOfWork(), "decision "+d.Key,
-		func(ctx context.Context) (int, error) {
-			return s.repo.Decision().NextVersion(ctx, projectID, d.Key)
-		},
-		func(txCtx context.Context, version int) error {
-			d.Version = version
-			return s.repo.Decision().Create(txCtx, adapters.DecisionModelAdapter{Decision: d}.ToModel())
-		})
+	// Live, as creating one always was: every caller written before a save
+	// could stage means exactly this.
+	saved, err := s.storeNewVersion(ctx, d, true)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	return d.ID, nil
+	return saved.ID, nil
 }
 
-func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d entities.DecisionDefinition) error {
-	d.ID = id
-	return s.repo.Decision().Update(ctx, id, adapters.DecisionModelAdapter{Decision: d}.ToModel())
-}
-
-// DeleteDecision removes a decision table, unless something still needs it.
+// DeleteDecision removes one stored version of a decision table, unless
+// something still needs it.
 //
 // A decision is a business policy, and a running instance is a commitment made
 // under it. Deleting a table an instance is still going to consult turns that
@@ -211,6 +202,10 @@ func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d en
 // Completed instances do not count: they have already made their decisions, and
 // what those were is recorded on their timelines rather than read back from the
 // table.
+//
+// Nor can the live version go while other versions remain: every step with no
+// version binding would be left with nothing to evaluate. The only version of a
+// key can: deleting it is deleting the decision.
 func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) error {
 	decision, err := s.GetDecision(ctx, id)
 	if err != nil {
@@ -226,12 +221,43 @@ func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) erro
 		blocking += process.RunningInstances
 	}
 	if blocking > 0 {
-		return fmt.Errorf(
-			"cannot delete the decision %q: %d running process %s still reach it; complete or cancel them first",
-			decision.Key, blocking, pluralInstances(blocking))
+		return apierr.Invalidf(
+			"cannot delete v%d of the decision %q: %d running process %s still reach it; complete or cancel them first",
+			decision.Version, decision.Key, blocking, pluralInstances(blocking))
 	}
 
-	return s.repo.Decision().Delete(ctx, id)
+	projectID := decision.Project.ID
+	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		// Locked before the check, as a promotion locks it before its write:
+		// a version being made live cannot be deleted in the same moment, and
+		// one being deleted cannot be made live.
+		if _, err := s.repo.Decision().LockVersion(txCtx, projectID, decision.Key, decision.Version); err != nil {
+			return err
+		}
+		if err := s.refuseToStrandTheKey(txCtx, projectID, decision); err != nil {
+			return err
+		}
+		return s.repo.Decision().Delete(txCtx, id)
+	})
+}
+
+// refuseToStrandTheKey refuses to delete the live version of a key that has
+// other versions.
+func (s *decisionService) refuseToStrandTheKey(ctx context.Context, projectID uuid.UUID, decision entities.DecisionDefinition) error {
+	live, err := s.liveVersion(ctx, projectID, decision.Key)
+	if err != nil || live != decision.Version {
+		return err
+	}
+	versions, err := s.repo.Decision().ListVersionsByKey(ctx, projectID, decision.Key)
+	if err != nil {
+		return err
+	}
+	if others := len(versions) - 1; others > 0 {
+		return apierr.Invalidf(
+			"v%d is the live version of the decision %q and %d other %s; make another version live first, then delete this one",
+			decision.Version, decision.Key, others, otherVersionsRemain(others))
+	}
+	return nil
 }
 
 // DecisionImpact answers "what breaks if I change this?".
@@ -381,6 +407,13 @@ const handlerAssignmentDecisionKey = "assignment_decision_key"
 // against the handler's own and fail if they drift. If they do, the impact view
 // goes quietly blind to every approval matrix.
 const AssignmentDecisionKeyForTest = handlerAssignmentDecisionKey
+
+func otherVersionsRemain(n int) string {
+	if n == 1 {
+		return "version remains"
+	}
+	return "versions remain"
+}
 
 func pluralInstances(n int) string {
 	if n == 1 {

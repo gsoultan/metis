@@ -202,6 +202,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the manifest's pods never carried; they now select
   `app.kubernetes.io/name=metis`, and a drift test holds them to the manifest.
 
+### Changed
+
+- **Saving a decision table adds a version; it no longer rewrites the one you
+  opened.** Every save stores the edit as the decision's next version, and a
+  stored version is never changed again, so what an instance decided under v3
+  can always be read back as v3. A save that changes nothing stores nothing.
+  When a version is live, the editor asks whether the new one goes live now or
+  is staged beside it. `PUT /api/v1/decisions/{id}` takes `"stage": true` and
+  answers with the `id`, `version`, `new_version` and `live` of the version the
+  save produced — the id it was sent no longer names the edit.
+- **A step with no version uses the decision's live version, not its newest.**
+  Saving a version live, or making one live from the editor's Versions, records
+  which version is in force, and any stored version can be made live again,
+  including an older one (`POST /api/v1/decisions/versions/promote`, designers
+  and administrators; `GET /api/v1/decisions/versions` reads a history).
+  Business rule tasks and approval tables with no version binding,
+  `POST /api/v1/decisions/evaluate` without a version, and decisions required by
+  another decision all read the live version; a pinned version still evaluates
+  exactly that version. A decision with no live version refuses an unpinned
+  evaluation, and says so, rather than guessing the newest.
+- **The decision list shows each decision once**, with its live version, a newer
+  staged one, and when either last changed. `GET /api/v1/decisions/summaries`
+  carries `live_version`, `newest_version`, `last_changed_at` and `hit_policy`,
+  takes `q` to search, and its `id`, `name` and `version` are now the live
+  version's rather than the newest's. `GET /api/v1/decisions` is unchanged and
+  still lists every stored version.
+- **Deleting a decision removes one version**, from its version history. The live
+  version cannot be deleted while other versions remain — the refusal is a 400
+  that says to make another version live first — and deleting a decision's only
+  version deletes the decision.
+- **Upgrading:** migration 26 creates `decision_releases` and records, for every
+  decision, the version that was evaluating before the upgrade — its highest
+  version not deleted — as live, so nothing a process decides changes on
+  upgrade. It runs in one transaction, and running it again changes nothing.
+  The table is part of the database backup; a restore that left it out would
+  leave steps with no version binding with nothing to evaluate.
+
 ### Security
 
 - **A participant directory's database password was sent to the browser.** The
@@ -215,6 +252,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Refusing to delete a decision that running instances still reach answered
+  500.** It was a correct refusal reported as a server fault, spending the error
+  budget; it is a 400 now, and names the version.
 - **An identity provider that stopped answering could hold the server's boot
   for good.** With `OIDC_ISSUER` set, the server fetches the provider's
   configuration while it starts, and its keys whenever a token names one it

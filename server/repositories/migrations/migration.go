@@ -643,6 +643,7 @@ func Schema(models []any) []Migration {
 				counters := []struct{ table, column string }{
 					{"connector_manifests", "version"},
 					{"decision_definitions", "version"},
+					{"decision_releases", "version"},
 					{"environments", "port"},
 					{"external_tasks", "retries"},
 					{"external_tasks", "retry_timeout"},
@@ -681,6 +682,7 @@ func Schema(models []any) []Migration {
 				// decide what time they happened. It stops and says so.
 				timestamps := []struct{ table, column string }{
 					{"compensatable_activities", "completed_at"},
+					{"decision_releases", "activate_at"},
 					{"idempotency_records", "created_at"},
 					{"jobs", "next_run_at"},
 					{"process_definition_releases", "activate_at"},
@@ -830,6 +832,7 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		liveDecisionVersions(models),
 	}
 }
 
@@ -847,8 +850,8 @@ func baseTimestampTables() []string {
 	return []string{
 		"audit_logs", "compensatable_activities", "connector_instances",
 		"connector_manifests", "connectors", "decision_definitions",
-		"deployment_resources", "deployments", "environments",
-		"event_subscriptions", "external_tasks", "forms", "groups",
+		"decision_releases", "deployment_resources", "deployments",
+		"environments", "event_subscriptions", "external_tasks", "forms", "groups",
 		"incidents", "jobs", "notifications", "organizations",
 		"process_definition_releases", "process_definitions",
 		"process_instances", "projects", "service_calls", "tasks", "users",

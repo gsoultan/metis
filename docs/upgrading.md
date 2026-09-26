@@ -54,6 +54,19 @@ on it; this adds a `NOT VALID` check first and validates that under
 `SHARE UPDATE EXCLUSIVE`, which readers and writers do not contend with, so the
 exclusive lock is held for a catalog update rather than a scan.
 
+## Migration 26: decisions have a live version
+
+Saving a decision now adds a version instead of rewriting the one you opened,
+and a step that names no decision version reads the decision's *live* version —
+the one somebody made live — rather than its newest. Migration 26 records, for
+every decision already stored, the version that was evaluating before the
+upgrade (its highest version not deleted) as live, so nothing a process decides
+changes when you upgrade. It runs in one transaction, and a second run changes
+nothing.
+
+A decision with no live version refuses to be evaluated without a version rather
+than guess, so `decision_releases` matters as much as `decision_definitions`:
+restore both, or neither.
 ## Migration 25: webhooks have ninety days to move to v2 signatures
 
 A webhook signature used to cover the request body alone. A delivery captured

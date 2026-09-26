@@ -26,21 +26,6 @@ func (r *decisionRepository) Get(ctx context.Context, id uuid.UUID) (models.Deci
 	return r.one(ctx, decisiondefinition.ID.Eq(id))
 }
 
-// GetByKey returns the highest version of a key within one project.
-//
-// It used to take the key alone, bounded only by the caller's tenant scope —
-// every project of the organization for a request, and nothing at all for the
-// system work that runs a business rule task after a timer or a message — so
-// it answered with whichever tenant's table of that name had the highest
-// version. The tenant scope still applies on top: a request cannot name a
-// project outside its organization and read its tables.
-func (r *decisionRepository) GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.DecisionDefinitionModel, error) {
-	return r.highest(ctx,
-		decisiondefinition.ProjectID.Eq(projectID),
-		decisiondefinition.Key.Eq(key),
-	)
-}
-
 func (r *decisionRepository) GetByKeyAndVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error) {
 	return r.one(ctx,
 		decisiondefinition.ProjectID.Eq(projectID),
@@ -168,34 +153,6 @@ func (r *decisionRepository) Create(ctx context.Context, d models.DecisionDefini
 	return nil
 }
 
-func (r *decisionRepository) Update(ctx context.Context, id uuid.UUID, d models.DecisionDefinitionModel) error {
-	if _, err := r.Get(ctx, id); err != nil {
-		return err
-	}
-	ex, err := r.conn.conn.Executor(ctx)
-	if err != nil {
-		return err
-	}
-	row, found, err := decisiondefinition.New().Where(decisiondefinition.ID.Eq(id)).One(ctx, ex)
-	if err != nil {
-		return fmt.Errorf("could not read the decision: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("%w: no such decision", apierr.ErrNotFound)
-	}
-	mut := decisiondefinition.Mutate(row)
-	mut.SetName(d.Name)
-	mut.SetHitPolicy(d.HitPolicy)
-	setOrNullString(mut.SetAggregation, mut.SetAggregationNull, d.Aggregation)
-	if err := encodeDecision(mut.SetRequiredDecisions, mut.SetInputs, mut.SetOutputs, mut.SetRules, mut.SetTests, d); err != nil {
-		return err
-	}
-	if err := mut.Update(ctx, ex); err != nil {
-		return fmt.Errorf("could not update the decision: %w", err)
-	}
-	return nil
-}
-
 func (r *decisionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if _, err := r.Get(ctx, id); err != nil {
 		return err
@@ -217,13 +174,44 @@ func (r *decisionRepository) one(ctx context.Context, preds ...decisiondefinitio
 	return r.first(ctx, nil, preds)
 }
 
-// highest returns the newest version matching the predicates.
-func (r *decisionRepository) highest(ctx context.Context, preds ...decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {
-	order := []decisiondefinition.Sort{decisiondefinition.Version.Desc()}
-	return r.first(ctx, order, preds)
+// ListVersionsByKey returns every stored version of one key, newest first.
+func (r *decisionRepository) ListVersionsByKey(ctx context.Context, projectID uuid.UUID, key string) ([]models.DecisionDefinitionModel, error) {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q := decisiondefinition.New().
+		Where(decisiondefinition.Key.Eq(key)).
+		Order(decisiondefinition.Version.Desc())
+	if scoped != nil {
+		q = q.Where(decisiondefinition.ProjectID.In(uuidsToRaw(scoped)...))
+	}
+	rows, err := q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not list the versions of %s: %w", key, err)
+	}
+	return decisionsFrom(rows)
+}
+
+// LockVersion reads one version FOR UPDATE. Outside a transaction the lock is
+// released as soon as it is taken, so the callers that need it hold one.
+func (r *decisionRepository) LockVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error) {
+	return r.read(ctx, nil, []decisiondefinition.Pred{
+		decisiondefinition.ProjectID.Eq(projectID),
+		decisiondefinition.Key.Eq(key),
+		decisiondefinition.Version.Eq(int64(version)),
+	}, true)
 }
 
 func (r *decisionRepository) first(ctx context.Context, order []decisiondefinition.Sort, preds []decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {
+	return r.read(ctx, order, preds, false)
+}
+
+func (r *decisionRepository) read(ctx context.Context, order []decisiondefinition.Sort, preds []decisiondefinition.Pred, lock bool) (models.DecisionDefinitionModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
 		return models.DecisionDefinitionModel{}, err
@@ -235,6 +223,9 @@ func (r *decisionRepository) first(ctx context.Context, order []decisiondefiniti
 	q := decisiondefinition.New().Where(preds...)
 	if len(order) > 0 {
 		q = q.Order(order...)
+	}
+	if lock {
+		q = q.ForUpdate()
 	}
 	if !scope.unrestricted() {
 		if len(scope.projects) == 0 {

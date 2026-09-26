@@ -49,7 +49,7 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
 
         <NumberInput
           label="Version"
-          description="Leave at 0 to always use the current one, which is almost always what you want."
+          description="Leave at 0 to always use the live version, which is almost always what you want."
           min={0}
           value={version}
           onChange={(value) => onUpdate({ decision_version: Number(value) || 0 })}

@@ -20,6 +20,7 @@ waiting on, a payment half-made, an approval someone believes they granted.
 | **Running instances** | `process_instances`, `jobs`, `event_subscriptions` | Work in flight stops, silently. Nobody is told; the requester simply waits forever. |
 | **Human tasks** | `tasks` | Approvals disappear from inboxes. A completed one may be re-requested. |
 | **Definitions & decisions** | `process_definitions`, `decision_definitions`, `deployments` | Running instances pin a version; losing it strands them mid-flight. |
+| **Which version is live** | `process_definition_releases`, `decision_releases` | New instances start on the highest process version rather than the one chosen, and every step that names no decision version fails: a decision with no live version refuses to guess one. |
 | **Audit trail** | `audit_logs`, `variable_snapshot` | The compliance answer to "who approved this". Usually the hardest loss to explain. |
 | **Credentials** | `connector_instances` | Recoverable by re-entering them, *if* anyone still knows them. |
 | **Identity** | `users`, `groups`, `memberships`, `organizations`, `projects` | Nobody can log in. |

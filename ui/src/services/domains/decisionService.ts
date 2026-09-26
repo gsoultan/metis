@@ -2,6 +2,7 @@ import { requestJSON } from "../shared/rest";
 import type {
   ApiDecision,
   ApiDecisionSummary,
+  ApiDecisionVersion,
   CreateDecisionPayload,
   DecisionResult,
   ProcessVariables,
@@ -9,12 +10,6 @@ import type {
 import { raiseIfRefused } from "../raise";
 
 type PageResponse = { total: number; page: number; page_size: number; has_more: boolean };
-
-type DecisionListResponse = {
-  decisions?: ApiDecision[];
-  page?: PageResponse;
-  err?: string;
-};
 
 type DecisionSummaryListResponse = {
   summaries?: ApiDecisionSummary[];
@@ -60,6 +55,32 @@ type MutationResponse = {
   err?: string;
 };
 
+type UpdateDecisionResponse = {
+  id?: string;
+  version?: number;
+  new_version?: boolean;
+  live?: boolean;
+  err?: string;
+};
+
+/**
+ * What saving an edit did. A save never changes the version it was sent to:
+ * the edit becomes the key's next version, so the id that was edited no longer
+ * names what it now holds. `newVersion` is false when nothing had changed, and
+ * `live` says whether the version saved is the one evaluations now read.
+ */
+export interface SavedDecision {
+  id: string;
+  version: number;
+  newVersion: boolean;
+  live: boolean;
+}
+
+/** How a save puts its version into force: now, or staged beside the live one. */
+export interface SaveDecisionOptions {
+  stage?: boolean;
+}
+
 type EvaluateDecisionResponse = {
   /**
    * matched_rule_ids is on entities.DecisionResult and not yet on the shared
@@ -70,15 +91,11 @@ type EvaluateDecisionResponse = {
 };
 
 export const decisionService = {
-  async listDecisions(projectId: string, page?: DecisionListPage, signal?: AbortSignal) {
-    const data = await requestJSON<DecisionListResponse>(`/decisions?${pageQuery(projectId, page)}`, { signal });
-    return { decisions: data.decisions ?? [], err: data.err, pageInfo: pageInfoOf(data.page) };
-  },
-
   /**
-   * One page of the project's decision keys, each as its newest version and
-   * without the table: for views that need every decision's name and
-   * dependencies, and none of its lines.
+   * One page of the project's decisions, one row per key and without the
+   * table: its live version, the newest, and when either last changed. The
+   * decision list reads it a page at a time, searched on the server; the views
+   * that need every decision's name and dependencies read all of it.
    */
   async listDecisionSummaries(projectId: string, page: DecisionListPage, signal?: AbortSignal) {
     const data = await requestJSON<DecisionSummaryListResponse>(
@@ -101,12 +118,19 @@ export const decisionService = {
     return { id: raiseIfRefused(data).id };
   },
 
-  async updateDecision(id: string, params: CreateDecisionPayload) {
-    const data = await requestJSON<MutationResponse>(`/decisions/${id}`, {
-      method: "PUT",
-      body: { decision: params },
-    });
-    return { err: raiseIfRefused(data).err };
+  async updateDecision(id: string, params: CreateDecisionPayload, options: SaveDecisionOptions = {}): Promise<SavedDecision> {
+    const data = raiseIfRefused(
+      await requestJSON<UpdateDecisionResponse>(`/decisions/${id}`, {
+        method: "PUT",
+        body: options.stage ? { decision: params, stage: true } : { decision: params },
+      }),
+    );
+    return {
+      id: data.id ?? id,
+      version: data.version ?? 0,
+      newVersion: data.new_version ?? false,
+      live: data.live ?? false,
+    };
   },
 
   async deleteDecision(id: string) {
@@ -141,6 +165,27 @@ export const decisionService = {
       matchedRuleIds: data.result?.matched_rule_ids ?? [],
       err: data.err,
     };
+  },
+
+  /** Every stored version of one decision, newest first, marking the live one. */
+  async listDecisionVersions(projectId: string, key: string, signal?: AbortSignal) {
+    const query = new URLSearchParams({ project_id: projectId, key });
+    const data = await requestJSON<{ versions?: ApiDecisionVersion[]; err?: string }>(`/decisions/versions?${query}`, {
+      signal,
+    });
+    return raiseIfRefused(data).versions ?? [];
+  },
+
+  /**
+   * Makes one stored version the live one: from now on, steps that name no
+   * version read it. An older version made live again is a rollback.
+   */
+  async promoteDecisionVersion(projectId: string, key: string, version: number) {
+    const data = await requestJSON<MutationResponse>("/decisions/versions/promote", {
+      method: "POST",
+      body: { project_id: projectId, key, version },
+    });
+    return { err: raiseIfRefused(data).err };
   },
 
   /** Runs a table against the examples stored with it. */

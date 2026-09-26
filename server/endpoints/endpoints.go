@@ -149,6 +149,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
 	decisionEndpoints.DecisionImpact = protected("DecisionImpact")(decisionEndpoints.DecisionImpact)
 	decisionEndpoints.RunTests = protected("RunDecisionTests")(decisionEndpoints.RunTests)
+	decisionEndpoints.ListDecisionVersions = protected("ListDecisionVersions")(decisionEndpoints.ListDecisionVersions)
+	// Making a version live changes what every step with no version binding
+	// decides from then on — the same bar as saving one, and as promoting a
+	// process version.
+	decisionEndpoints.PromoteDecision = designer("PromoteDecision")(decisionEndpoints.PromoteDecision)
 
 	// Registering a webhook creates a public address into this installation, so
 	// it takes the same authority as changing a process: designer, not viewer.
