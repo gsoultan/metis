@@ -153,3 +153,36 @@ func TestSavingAnotherOrganizationsDecisionIsRefused(t *testing.T) {
 		t.Errorf("their table was copied into the caller's project (lookup: %v)", err)
 	}
 }
+
+// Making a version live, reading a key's history and evaluating its live
+// version are all asked in the caller's organization. Another organization's
+// project names a decision that is not there — the history is empty, making
+// its v1 live is not found — and its live version stays what its owners made
+// it.
+func TestAnotherOrganizationsDecisionVersionsCannotBeReadOrMadeLive(t *testing.T) {
+	w := newListWorld(t)
+	theirCtx, _, theirProject := testutils.ScopedProject(t, w.repo)
+	first, err := w.svc.CreateDecision(theirCtx, bandTable(theirProject, "HIGH"))
+	if err != nil {
+		t.Fatalf("create their decision: %v", err)
+	}
+	if _, err := w.svc.UpdateDecision(theirCtx, first, bandTable(theirProject, "VERY HIGH"), true); err != nil {
+		t.Fatalf("save their v2: %v", err)
+	}
+
+	if err := w.svc.PromoteDecisionVersion(w.ctx, theirProject, "credit-band", 1); !errors.Is(err, apierr.ErrNotFound) {
+		t.Errorf("making another organization's v1 live: got %v, want not found", err)
+	}
+	if versions, err := w.svc.ListDecisionVersions(w.ctx, theirProject, "credit-band"); err != nil || len(versions) != 0 {
+		t.Errorf("another organization's history read as %d versions (%v), want none", len(versions), err)
+	}
+	if _, err := w.svc.Evaluate(w.ctx, theirProject, "credit-band", 0, map[string]any{"score": 20}); !errors.Is(err, apierr.ErrNotFound) {
+		t.Errorf("evaluating another organization's live version: got %v, want not found", err)
+	}
+
+	result, err := w.svc.Evaluate(theirCtx, theirProject, "credit-band", 0, map[string]any{"score": 20})
+	if err != nil || result.Values["band"] != "VERY HIGH" || result.DecisionVersion != 2 {
+		t.Errorf("their live version answers %v from v%d (%v), want VERY HIGH from v2 as they left it",
+			result.Values["band"], result.DecisionVersion, err)
+	}
+}
