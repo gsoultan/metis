@@ -76,21 +76,22 @@ write `"manager"` to mean the word.
 To list the cells worth a look before upgrading:
 
 ```sql
-SELECT d.key, d.version, cell
+SELECT d."key", d.version, cell
 FROM decision_definitions d
 CROSS JOIN LATERAL jsonb_array_elements(d.rules::jsonb) AS rule
 CROSS JOIN LATERAL jsonb_array_elements_text(rule -> 'inputs') AS cell
-WHERE cell ~ '(>=|<=|!=|<|>|=)\s*[A-Za-z_]'
-   OR cell ~ '[A-Za-z_]\w*\s*\.\.|\.\.\s*[A-Za-z_]'
-   OR btrim(cell) IN (SELECT btrim(input ->> 'expression')
-                      FROM jsonb_array_elements(d.inputs::jsonb) AS input)
-ORDER BY d.key, d.version;
+WHERE d.deleted_at IS NULL
+  AND (cell ~ '(>=|<=|!=|<|>|=)\s*[A-Za-z_]'
+       OR cell ~ '[A-Za-z_]\w*\s*\.\.|\.\.\s*[A-Za-z_]'
+       OR btrim(cell) IN (SELECT btrim(input ->> 'expression')
+                          FROM jsonb_array_elements(d.inputs::jsonb) AS input))
+ORDER BY d."key", d.version;
 ```
 
-It covers every stored version, and errs toward listing too much: a function
-call such as `> date("2026-01-01")` shows up and decides exactly as before.
-Rolling the release back restores the old reading; nothing is stored
-differently.
+It covers every version not deleted, live or not, and errs toward listing too
+much: a function call such as `> date("2026-01-01")` shows up and decides
+exactly as before. Rolling the release back restores the old reading; nothing
+is stored differently.
 
 ## Migration 26: decisions have a live version
 
