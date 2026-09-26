@@ -132,12 +132,12 @@ func TestABridgeThatCannotReachItsBrokerSaysWhichBridgeItIs(t *testing.T) {
 
 	project := uuid.New()
 	ctx := logger.WithContext(t.Context())
-	if err := svc.StartBridge(ctx, project, "reverse-charge", refusedBroker(t), "billing", "charges.reverse"); err != nil {
+	if err := svc.StartBridge(ctx, project, "reverse-charge", refusedBroker(t), "billing", "charges.reverse", time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 
 	// The bridge dials on its first poll, not at once.
-	entry := awaitEntry(t, &logs, "error", "", pollInterval+5*time.Second)
+	entry := awaitEntry(t, &logs, "error", "", bridgePollInterval+5*time.Second)
 	assertNamed(t, entry, map[string]string{
 		"project":    project.String(),
 		"topic":      "reverse-charge",
@@ -213,11 +213,11 @@ func TestABridgeSaysWhenItHasConnected(t *testing.T) {
 	t.Cleanup(svc.StopAll)
 
 	project := uuid.New()
-	if err := svc.StartBridge(logger.WithContext(t.Context()), project, "reverse-charge", url, "amq.direct", "charges.reverse"); err != nil {
+	if err := svc.StartBridge(logger.WithContext(t.Context()), project, "reverse-charge", url, "amq.direct", "charges.reverse", time.Minute); err != nil {
 		t.Fatalf("start the bridge: %v", err)
 	}
 
-	entry := awaitEntry(t, &logs, "info", "connected", pollInterval+10*time.Second)
+	entry := awaitEntry(t, &logs, "info", "connected", bridgePollInterval+10*time.Second)
 	assertNamed(t, entry, map[string]string{"project": project.String(), "topic": "reverse-charge"})
 }
 
