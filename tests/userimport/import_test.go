@@ -115,7 +115,7 @@ carol,Carol Danvers,carol@example.com,,no
 		t.Fatalf("expected no problems, got %v", summary.Problems)
 	}
 
-	people, err := svc.ListWorkflowUsers(ctx, projectID)
+	people, err := svc.ListWorkflowUsers(ctx, projectID, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestReimportingUpdatesRatherThanDuplicating(t *testing.T) {
 		t.Fatalf("a re-import updates rather than creates, got %+v", summary)
 	}
 
-	people, err := svc.ListWorkflowUsers(ctx, projectID)
+	people, err := svc.ListWorkflowUsers(ctx, projectID, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -184,7 +184,7 @@ carol,carol@example.com
 		t.Fatalf("the bad row should be reported by name, got %v", summary.Problems)
 	}
 
-	people, err := svc.ListWorkflowUsers(ctx, projectID)
+	people, err := svc.ListWorkflowUsers(ctx, projectID, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestAnUnusableFileIsRefusedWhole(t *testing.T) {
 	if _, err := svc.ImportWorkflowUsers(ctx, projectID, strings.NewReader("email\nada@example.com\n")); err == nil {
 		t.Fatal("a file with no username column should be refused")
 	}
-	people, err := svc.ListWorkflowUsers(ctx, projectID)
+	people, err := svc.ListWorkflowUsers(ctx, projectID, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

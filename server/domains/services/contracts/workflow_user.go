@@ -11,7 +11,9 @@ import (
 // WorkflowUserService manages the people a project's processes can assign work
 // to.
 type WorkflowUserService interface {
-	ListWorkflowUsers(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowUser, error)
+	// ListWorkflowUsers returns a project's participants, alphabetically by
+	// username: at most limit of them, or all of them when limit is zero.
+	ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 
 	// ImportWorkflowUsers reads a CSV of participants into a project.
 	//

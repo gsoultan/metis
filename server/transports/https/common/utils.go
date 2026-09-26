@@ -77,6 +77,16 @@ func PageParams(r *http.Request) (page int, pageSize int) {
 	return atoiOrZero(r.URL.Query().Get("page")), atoiOrZero(r.URL.Query().Get("page_size"))
 }
 
+// LimitParam reads ?limit= from a request: the most rows the caller wants,
+// or zero for no limit.
+//
+// Read like PageParams: a value that is not a positive whole number is
+// treated as absent, because a malformed limit is not worth failing a read
+// over, and absent means what it meant before the parameter existed.
+func LimitParam(r *http.Request) int {
+	return atoiOrZero(r.URL.Query().Get("limit"))
+}
+
 func atoiOrZero(s string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 0 {

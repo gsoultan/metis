@@ -30,6 +30,8 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
 import { BusinessTimeline } from '../components/BusinessTimeline';
+import { GettingStartedCard } from '../components/GettingStartedCard';
+import { useGettingStartedProgress } from '../hooks/useGettingStarted';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ComingSoonButton } from '../components/state/ComingSoon';
 import { StatsLoadingState, ErrorState } from '../components/state';
@@ -132,6 +134,12 @@ export function Dashboard() {
   // server across all of it; it used to be counted here from one page.
   const { data: waiting } = useWaitingByStep();
   const heat = useMemo(() => heatFromWaiting(waiting ?? []), [waiting]);
+
+  // Where somebody new stands. Called with the rest, before the return below
+  // for a missing project: a hook called only on some renders breaks React's
+  // count of them. Its definitions, instances and statistics are the queries
+  // above, answered from the same cache.
+  const gettingStarted = useGettingStartedProgress();
   
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a
@@ -225,6 +233,8 @@ export function Dashboard() {
           </ComingSoonButton>
         }
       />
+
+      <GettingStartedCard progress={gettingStarted.progress} onRetry={gettingStarted.retry} />
 
       {statsLoading ? (
         <StatsLoadingState count={4} />

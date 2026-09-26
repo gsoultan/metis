@@ -54,7 +54,10 @@ func decodeRemoveParticipantRequest(_ context.Context, r *http.Request) (any, er
 }
 
 func decodeListParticipantsRequest(_ context.Context, r *http.Request) (any, error) {
-	return participant.ListParticipantsRequest{ProjectID: r.URL.Query().Get("project_id")}, nil
+	return participant.ListParticipantsRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		Limit:     common.LimitParam(r),
+	}, nil
 }
 
 // decodeImportParticipantsRequest reads either an uploaded file or a described

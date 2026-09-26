@@ -14,7 +14,9 @@ import (
 // the table is new, so there is no GORM implementation to keep in step with it
 // while the rest of the port happens.
 type WorkflowUserRepository interface {
-	ListByProject(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowUser, error)
+	// ListByProject returns a project's participants, alphabetically by
+	// username: at most limit of them, or all of them when limit is zero.
+	ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 	GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error)
 
 	// Upsert writes one participant, replacing the row with the same username

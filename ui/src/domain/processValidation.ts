@@ -18,8 +18,9 @@
  * what to do about it.
  */
 
-import { isEndingNode, vocabularyFor } from './bpmnVocabulary';
+import { NODE_VOCABULARY, isEndingNode, vocabularyFor } from './bpmnVocabulary';
 import { missingStepFields, type StepSchemas, unmappedParameters } from './connectorStep';
+import { connection, serviceImplementation, webAddress, workerTopic } from './serviceImplementation';
 
 export type IssueSeverity = 'error' | 'warning';
 
@@ -107,6 +108,100 @@ function connectorStepIssues(nodes: CheckableNode[], stepSchemas: StepSchemas): 
   return issues;
 }
 
+/**
+ * Service tasks whose chosen way of working has nothing to work with.
+ *
+ * "What it calls" decides, read the way the engine reads it
+ * (serviceImplementation.ts, mirroring entities.Node.Implementation). A web
+ * address, topic or connector typed under an earlier choice stays on the step
+ * when the choice changes. Counting it here silenced the warning for a step
+ * whose chosen way of working had nothing to act on.
+ *
+ * Empty does different things per choice. A web call with no address and a
+ * connector step with no connector each finish at once, successfully, and the
+ * instance carries on as though the work were done. A worker step with no topic
+ * is refused when it is reached: the start fails, or an incident is raised.
+ * And a script on this kind of step is never run at all.
+ *
+ * A warning, not an error: a placeholder is a legitimate way to sketch a
+ * process before the system it calls exists.
+ */
+function unpointedServiceTaskIssues(nodes: CheckableNode[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const node of nodes) {
+    if (node.type !== 'serviceTask') continue;
+    const issue = nothingToWorkWith(node);
+    if (issue) issues.push(issue);
+  }
+  return issues;
+}
+
+function isBlank(text: string): boolean {
+  return text.trim() === '';
+}
+
+function nothingToWorkWith(node: CheckableNode): ValidationIssue | undefined {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  switch (serviceImplementation(data)) {
+    case 'push':
+      return isBlank(webAddress(data)) ? serviceTaskWarning(node, NO_WEB_ADDRESS) : undefined;
+    case 'external':
+      return isBlank(workerTopic(data)) ? serviceTaskWarning(node, NO_TOPIC) : undefined;
+    case 'connector':
+      return isBlank(connection(data)) ? serviceTaskWarning(node, NO_CONNECTOR) : undefined;
+    case 'script':
+      return serviceTaskWarning(node, SCRIPT_NEVER_RUNS);
+    default:
+      // A choice the engine does not know: it is not a worker step, and it
+      // reads no web address.
+      return serviceTaskWarning(node, CALLS_NOTHING);
+  }
+}
+
+interface ServiceTaskProblem {
+  /** Why, after the step's name. */
+  because: string;
+  suggestion: string;
+}
+
+const PASSES_THROUGH = 'so the process would pass through it without doing the work.';
+
+const NO_WEB_ADDRESS: ServiceTaskProblem = {
+  because: `is set to call a web address but has none, ${PASSES_THROUGH}`,
+  suggestion: 'Fill in “Web address” on the step, or under “What it calls” choose a connector or a worker instead.',
+};
+
+const NO_TOPIC: ServiceTaskProblem = {
+  because: 'waits for a worker but names no topic, so no worker could pick it up and the process would fail when it gets there.',
+  suggestion: 'Fill in “Topic” on the step with the name your worker asks for work under.',
+};
+
+const NO_CONNECTOR: ServiceTaskProblem = {
+  because: `is set to use a connector but none is chosen, ${PASSES_THROUGH}`,
+  suggestion: 'Choose one under “Choose a connector” on the step.',
+};
+
+const SCRIPT_NEVER_RUNS: ServiceTaskProblem = {
+  because: `is set to run a script, but a script never runs on a step that calls another system, ${PASSES_THROUGH}`,
+  suggestion:
+    `Move the script to a “${NODE_VOCABULARY.scriptTask.plainName}” step, which does run it, ` +
+    'or under “What it calls” choose what this step should call.',
+};
+
+const CALLS_NOTHING: ServiceTaskProblem = {
+  because: `does not call anything, ${PASSES_THROUGH}`,
+  suggestion: 'Under “What it calls”, choose how it does its work.',
+};
+
+function serviceTaskWarning(node: CheckableNode, problem: ServiceTaskProblem): ValidationIssue {
+  return {
+    message: `"${stepName(node)}" ${problem.because}`,
+    severity: 'warning',
+    id: node.id,
+    suggestion: problem.suggestion,
+  };
+}
+
 export function validateProcess(
   nodes: CheckableNode[],
   edges: CheckableEdge[],
@@ -120,7 +215,10 @@ export function validateProcess(
     }];
   }
 
-  const issues: ValidationIssue[] = connectorStepIssues(nodes, stepSchemas);
+  const issues: ValidationIssue[] = [
+    ...connectorStepIssues(nodes, stepSchemas),
+    ...unpointedServiceTaskIssues(nodes),
+  ];
   const starts = nodes.filter((n) => n.type === 'startEvent');
 
   if (starts.length === 0) {

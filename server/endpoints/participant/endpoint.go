@@ -36,7 +36,7 @@ func MakeListParticipantsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return ListParticipantsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
-		people, err := s.ListWorkflowUsers(ctx, projectID)
+		people, err := s.ListWorkflowUsers(ctx, projectID, req.Limit)
 		return ListParticipantsResponse{Participants: people, Err: err}, nil
 	}
 }

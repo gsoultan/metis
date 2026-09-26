@@ -5,6 +5,10 @@ import "github.com/gsoultan/metis/server/domains/entities"
 // ListParticipantsRequest asks for a project's participants.
 type ListParticipantsRequest struct {
 	ProjectID string `json:"project_id"`
+	// Limit is the most to answer with, alphabetically by username; zero means
+	// everybody. One is how to ask whether the project has anybody without
+	// downloading its whole directory.
+	Limit int `json:"limit,omitzero"`
 }
 
 type ListParticipantsResponse struct {

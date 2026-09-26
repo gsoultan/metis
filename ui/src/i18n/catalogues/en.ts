@@ -153,6 +153,76 @@ const en: Catalogue = {
   'dash.startFrom': 'Start from a template',
   'dash.startFromHint': 'A working process you can edit, instead of an empty canvas',
   'dash.useTemplate': 'Use this template',
+
+  // Getting started: the card on the Dashboard and the checklist in Help.
+  'start.title': 'Getting started',
+  'start.progress': '{done} of {total} done',
+  'start.progressLabel': '{done} of {total} getting started steps done',
+  'start.hide': 'Hide getting started',
+  'start.hideHint': 'Your progress stays under Help, the question mark at the top.',
+  'start.next': 'Next',
+  'start.done': 'Done:',
+  'start.unknownTitle': "Could not check this project's progress",
+  'start.unknownHint': 'Nothing is shown as done or not done until it can be. Trying again often resolves it.',
+  'start.deployProcess.label': 'Deploy a process',
+  'start.deployProcess.description':
+    'Draw one under Processes, or pick a template on the Dashboard, then deploy it so it can run.',
+  'start.startInstance.label': 'Start an instance',
+  'start.startInstance.description': 'Run your process once. Each run is an instance you can follow step by step.',
+  'start.completeTask.label': 'Complete a task',
+  'start.completeTask.description':
+    'When a process needs a person, the task waits in the inbox until somebody completes it.',
+  'start.connectSystem.label': 'Connect another system',
+  'start.connectSystem.description': 'Set up a connection, such as email or Slack, so your steps can call it.',
+  'start.addPeople.label': 'Add the people who do the work',
+  'start.addPeople.description': 'Import the people your processes can assign tasks to.',
+
+  // Help
+  'help.title': 'Help',
+  'help.glossary': 'Glossary',
+
+  // The glossary. A step keeps the name the palette gives it, which is still
+  // English, so that it can be looked up by the name somebody saw on it.
+  'glossary.search': 'Search the glossary',
+  'glossary.searchPlaceholder': 'Search, for example gateway or live version',
+  'glossary.count': '{count, plural, one {# term} other {# terms}}',
+  'glossary.matches': '{count} of {total} match',
+  'glossary.noMatch': 'Nothing matches. Try a shorter word, or the other name for it.',
+  'glossary.alsoCalled': 'also called {name}',
+  'glossary.example': 'For example: {example}',
+  'glossary.instance.term': 'Instance',
+  'glossary.instance.definition':
+    'One run of a process, from its start to its finish. Each one carries its own information and is at its own step.',
+  'glossary.instance.example': 'Every expense claim somebody submits is its own instance of the expense process.',
+  'glossary.deploy.term': 'Deploy',
+  'glossary.deploy.definition':
+    'Publishing a process so it can run. Each deploy saves a new version, and instances already running are left as they are.',
+  'glossary.version.term': 'Version',
+  'glossary.version.definition':
+    'A numbered copy of a process, saved each time it is deployed. An instance stays on the version it started on unless somebody migrates it.',
+  'glossary.liveVersion.term': 'Live version',
+  'glossary.liveVersion.definition':
+    'The version new instances start on. A process has one at a time: deploying normally makes the new version live, and Version history can make a different one live, straight away or at a time you choose.',
+  'glossary.stagedVersion.term': 'Staged version',
+  'glossary.stagedVersion.definition':
+    'A version that is deployed but not live, so new instances keep starting on the live one. In Version history you can run it to try it, without making it live, then make it live with “Make live” or schedule it to take over at a time you choose.',
+  'glossary.incident.term': 'Incident',
+  'glossary.incident.definition':
+    'A step that could not finish, so its instance waits there until somebody deals with it. Usually a call to another system that kept failing. A choice with no path to take raises one when an automatic step leads to it; when a person’s task leads to it, completing the task is refused instead, and the task stays open. Fix the cause, then retry the step.',
+  'glossary.connection.term': 'Connection',
+  'glossary.connection.definition':
+    'A connector set up for one project, with that project’s own address and credentials: your Slack workspace, rather than Slack in general. A step that uses a connector calls through its project’s connection.',
+  'glossary.connector.term': 'Connector',
+  'glossary.connector.definition':
+    'A ready-made way to call a kind of system, such as Slack, email, a database or a web API. A project sets up a connection to it before its steps can use it.',
+  'glossary.decisionTable.term': 'Decision table',
+  'glossary.decisionTable.definition':
+    'Rules written as the lines of a table: when the inputs match a line, that line gives the answer. The policy lives in the table, so it can change without changing the process.',
+  'glossary.decisionTable.example': 'Claims under £500 are approved automatically; larger ones go to a manager.',
+  'glossary.hitPolicy.term': 'Hit policy',
+  'glossary.hitPolicy.definition':
+    'What a decision table does when more than one line matches: take the first, allow only one, collect every match, and so on.',
+  'glossary.hitPolicy.example': 'Two discount lines match the same order, and the first line that matches wins.',
 };
 
 export default en;

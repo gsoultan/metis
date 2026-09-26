@@ -114,6 +114,40 @@ func TestASecondImportDoesNotRemoveWhoItOmits(t *testing.T) {
 	}
 }
 
+// Asking whether a project has anybody in its directory meant downloading all
+// of it: the list took no limit, and the getting-started checklist in Help
+// asked every time it was opened. A limit answers with that many people,
+// alphabetically, and without one the whole directory still comes back. A
+// limit that is not a positive number is read as no limit, the way a malformed
+// page number is.
+func TestTheDirectoryCanBeAskedForJustOnePerson(t *testing.T) {
+	server, projectID := serveParticipants(t)
+	upload(t, server, projectID, "username\ncarol\nada\nbob\n")
+
+	if people := listParticipantsWhere(t, server, projectID, "&limit=1"); len(people) != 1 || people[0].Username != "ada" {
+		t.Fatalf("limit=1 should answer with ada alone, got %v", usernames(people))
+	}
+	if people := listParticipantsWhere(t, server, projectID, "&limit=2"); len(people) != 2 {
+		t.Fatalf("limit=2 should answer with two, got %v", usernames(people))
+	}
+	if people := listParticipants(t, server, projectID); len(people) != 3 {
+		t.Fatalf("without a limit the whole directory comes back, got %v", usernames(people))
+	}
+	for _, malformed := range []string{"&limit=0", "&limit=-1", "&limit=all"} {
+		if people := listParticipantsWhere(t, server, projectID, malformed); len(people) != 3 {
+			t.Fatalf("%s should read as no limit, got %v", malformed, usernames(people))
+		}
+	}
+}
+
+func usernames(people []entities.WorkflowUser) []string {
+	names := make([]string, 0, len(people))
+	for _, person := range people {
+		names = append(names, person.Username)
+	}
+	return names
+}
+
 // An unusable source is refused as a source, and nothing lands.
 func TestAnUnusableSourceIsRefusedOverHTTP(t *testing.T) {
 	server, projectID := serveParticipants(t)
@@ -164,8 +198,8 @@ type facadeStub struct {
 	participants servicecontracts.WorkflowUserService
 }
 
-func (f *facadeStub) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowUser, error) {
-	return f.participants.ListWorkflowUsers(ctx, projectID)
+func (f *facadeStub) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
+	return f.participants.ListWorkflowUsers(ctx, projectID, limit)
 }
 
 func (f *facadeStub) ImportWorkflowUsers(ctx context.Context, projectID uuid.UUID, csv io.Reader) (entities.ImportSummary, error) {
@@ -226,8 +260,14 @@ func postForSummary(t *testing.T, request *http.Request) participant.ImportParti
 
 func listParticipants(t *testing.T, server *httptest.Server, projectID uuid.UUID) []entities.WorkflowUser {
 	t.Helper()
+	return listParticipantsWhere(t, server, projectID, "")
+}
+
+// listParticipantsWhere lists with extra query parameters, such as "&limit=1".
+func listParticipantsWhere(t *testing.T, server *httptest.Server, projectID uuid.UUID, extra string) []entities.WorkflowUser {
+	t.Helper()
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
-		fmt.Sprintf("%s/api/v1/participants?project_id=%s", server.URL, projectID), nil)
+		fmt.Sprintf("%s/api/v1/participants?project_id=%s%s", server.URL, projectID, extra), nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}

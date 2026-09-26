@@ -26,7 +26,7 @@ type unavailableWorkflowUsers struct{}
 
 const unavailableReason = "the participant directory needs PostgreSQL; this installation is on another database engine"
 
-func (unavailableWorkflowUsers) ListWorkflowUsers(context.Context, uuid.UUID) ([]entities.WorkflowUser, error) {
+func (unavailableWorkflowUsers) ListWorkflowUsers(context.Context, uuid.UUID, int) ([]entities.WorkflowUser, error) {
 	return nil, apierr.Invalidf("%s", unavailableReason)
 }
 

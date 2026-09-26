@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'bun:test';
 
-import { PROCESS_TEMPLATES, templateById } from './processTemplates';
+import { PROCESS_TEMPLATES, templateById, type BuiltTemplate, type ProcessTemplate } from './processTemplates';
+import { validateProcess } from './processValidation';
+import { workerTopic } from './serviceImplementation';
 
 /** Deterministic ids, so a failure names the shape rather than a uuid. */
 function counter() {
   let n = 0;
   return () => `n${++n}`;
+}
+
+/**
+ * The template as it is once the author has made the decisions it leaves
+ * open: every path out of a gateway says when it is taken.
+ */
+function withDecisionsMade(built: BuiltTemplate): BuiltTemplate {
+  const gateways = new Set(built.nodes.filter((n) => n.type.endsWith('Gateway')).map((n) => n.id));
+  return {
+    ...built,
+    edges: built.edges.map((e) =>
+      gateways.has(e.source) ? { ...e, data: { ...e.data, condition: 'decided by the author' } } : e,
+    ),
+  };
 }
 
 describe('every template is a process somebody could deploy', () => {
@@ -83,6 +99,26 @@ describe('every template is a process somebody could deploy', () => {
           expect((n.data.label as string).length).toBeGreaterThan(0);
         }
       });
+    });
+  }
+});
+
+/*
+ * The designer's own validator is the bar a template has to clear.
+ *
+ * A template leaves one thing open on purpose: which way each gateway goes.
+ * The designer reports those as errors when the template lands, and that is
+ * the point, because it takes the author straight to the decisions only they
+ * can make. Anything else the validator finds is a defect the template shipped
+ * with, and an author who starts from a template assumes it has none. The
+ * invoice template's two automatic steps were pointed at nothing, so every
+ * invoice passed through "Check the invoice" unchecked.
+ */
+describe('nothing to fix but the decisions a template leaves to you', () => {
+  for (const template of PROCESS_TEMPLATES) {
+    it(`${template.name} has no errors and no warnings once its paths say when they are taken`, () => {
+      const { nodes, edges } = withDecisionsMade(template.build(counter()));
+      expect(validateProcess(nodes, edges)).toEqual([]);
     });
   }
 });
@@ -181,4 +217,28 @@ describe('no shape that only exists to be deleted', () => {
       }
     }
   });
+});
+
+/*
+ * What a template says it does is what somebody choosing one reads. The
+ * invoice template's automatic steps wait for a worker, and until one asks for
+ * the work every invoice stops at "Check the invoice". A description that says
+ * it is "checked automatically" promises what the template cannot do on its
+ * own, and does not say what the author has to provide.
+ */
+describe('what a template says about the steps a worker has to do', () => {
+  const workerSteps = (template: ProcessTemplate) =>
+    template.build(counter()).nodes.filter((n) => n.type === 'serviceTask' && workerTopic(n.data) !== '');
+
+  it('covers at least one template, so it tests something', () => {
+    expect(PROCESS_TEMPLATES.some((template) => workerSteps(template).length > 0)).toBe(true);
+  });
+
+  for (const template of PROCESS_TEMPLATES) {
+    if (workerSteps(template).length === 0) continue;
+    it(`${template.name} says a worker is needed, and does not call the work automatic`, () => {
+      expect(template.description).toMatch(/\bworker\b/i);
+      expect(template.description).not.toMatch(/automatic/i);
+    });
+  }
 });

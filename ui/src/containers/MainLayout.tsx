@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { AppShell, Box, Button, Divider, Drawer, Group, Paper, Stack, Text, ThemeIcon, Timeline, Title } from '@mantine/core';
+import { AppShell, Box, Button } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BookOpen, ExternalLink, FolderGit2, Lightbulb } from 'lucide-react';
+import { FolderGit2 } from 'lucide-react';
 import React from 'react';
+import { HelpDrawer } from '../components/HelpDrawer';
 import { AppHeader, Sidebar } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
@@ -153,67 +154,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         </Box>
       </AppShell.Main>
 
-      <Drawer opened={helpOpened} onClose={closeHelp} position="right" size="md" title={<Text fw={600}>Help</Text>}>
-        <Stack gap="xl">
-          <Paper p="md" radius="md" bg="var(--mantine-color-blue-light)">
-            <Group align="flex-start" wrap="nowrap" gap="sm">
-              <ThemeIcon variant="light" color="blue" size="sm">
-                <Lightbulb size={14} />
-              </ThemeIcon>
-              <Text size="sm">
-                In the process designer, press <b>Cmd + K</b> (or Ctrl + K) to search nodes and actions.
-              </Text>
-            </Group>
-          </Paper>
-
-          <Box>
-            <Title order={5} mb="md">Getting started</Title>
-            <Timeline active={-1} bulletSize={22} lineWidth={2}>
-              <Timeline.Item title="Create a project">
-                <Text c="dimmed" size="xs">Projects group related processes, decisions and tasks.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Design a process">
-                <Text c="dimmed" size="xs">Model the flow of work with the drag-and-drop designer.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Connect other systems">
-                <Text c="dimmed" size="xs">Call an API, send a message, or hand work to an external worker.</Text>
-              </Timeline.Item>
-              <Timeline.Item title="Deploy and watch it run">
-                <Text c="dimmed" size="xs">Start instances and follow them from the Instances view.</Text>
-              </Timeline.Item>
-            </Timeline>
-          </Box>
-
-          <Divider label="Reference" labelPosition="center" />
-
-          <Stack gap="xs">
-            <Button
-              variant="light"
-              component="a"
-              href="https://www.omg.org/spec/BPMN/2.0/"
-              target="_blank"
-              rel="noreferrer noopener"
-              leftSection={<BookOpen size={16} />}
-              rightSection={<ExternalLink size={14} />}
-              justify="flex-start"
-            >
-              BPMN 2.0 specification
-            </Button>
-            <Button
-              variant="light"
-              component="a"
-              href="https://github.com/gsoultan/metis"
-              target="_blank"
-              rel="noreferrer noopener"
-              leftSection={<BookOpen size={16} />}
-              rightSection={<ExternalLink size={14} />}
-              justify="flex-start"
-            >
-              Project repository
-            </Button>
-          </Stack>
-        </Stack>
-      </Drawer>
+      <HelpDrawer opened={helpOpened} onClose={closeHelp} />
     </AppShell>
   );
 }

@@ -18,9 +18,15 @@ interface RemoveParticipantResponse {
 }
 
 export const participantService = {
-  async listParticipants(projectId: string, signal?: AbortSignal) {
+  /**
+   * A project's participants, alphabetically. `limit` asks for at most that
+   * many: one answers whether the project has anybody without downloading its
+   * directory.
+   */
+  async listParticipants(projectId: string, signal?: AbortSignal, options: { limit?: number } = {}) {
+    const limit = options.limit ? `&limit=${options.limit}` : "";
     const response = await requestJSON<ListParticipantsResponse>(
-      `/participants?project_id=${encodeURIComponent(projectId)}`,
+      `/participants?project_id=${encodeURIComponent(projectId)}${limit}`,
       { method: "GET", signal },
     );
     return { participants: response.participants ?? [], err: response.err };

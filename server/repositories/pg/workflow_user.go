@@ -36,15 +36,21 @@ func NewWorkflowUserRepository(conn *db.Conn) contracts.WorkflowUserRepository {
 // does not, which is the one behaviour the port cannot carry over silently —
 // every read that should hide removed rows has to say so, here and everywhere
 // else.
-func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowUser, error) {
+//
+// A limit above zero is applied in the query, so asking whether a project has
+// anybody reads one row rather than the directory.
+func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := workflowuser.New().
+	query := workflowuser.New().
 		Where(workflowuser.ProjectID.Eq(projectID)).
-		Order(workflowuser.Username.Asc()).
-		All(ctx, ex, nil)
+		Order(workflowuser.Username.Asc())
+	if limit > 0 {
+		query = query.Limit(int64(limit))
+	}
+	rows, err := query.All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not list participants: %w", err)
 	}

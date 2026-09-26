@@ -21,6 +21,10 @@
  * already avoids for the same reason — a condition that looks set but is empty
  * routes nothing, and the author has no reason to look at it.
  *
+ * Nor does it point a step at another system. A step that calls one names a
+ * topic for the author's own worker instead, so nothing is called until
+ * something the author wrote asks for the work; see the invoice template.
+ *
  * Layout is on a 180px grid so the shapes do not overlap on arrival. The
  * designer's auto-layout can rearrange them afterwards.
  */
@@ -61,6 +65,11 @@ function node(id: string, type: string, label: string, x: number, y: number, ext
 
 function edge(id: string, source: string, target: string, label?: string): BuiltEdge {
   return label === undefined ? { id, source, target } : { id, source, target, label };
+}
+
+/** The settings of a step a worker picks up by topic, as the property panel writes them. */
+function workerStep(topic: string): Record<string, unknown> {
+  return { implementation: 'external', externalTopic: topic };
 }
 
 /**
@@ -157,7 +166,7 @@ const supportTicket: ProcessTemplate = {
 const invoiceProcessing: ProcessTemplate = {
   id: 'invoice-processing',
   name: 'Invoice processing',
-  description: 'An invoice is checked automatically, approved by a person, then paid.',
+  description: 'An invoice is checked, approved by a person, then paid. The checking and the paying wait for a worker, a program of yours that picks up the work.',
   suggestedKey: 'invoice_processing',
   build: (makeId) => {
     const start = makeId();
@@ -169,11 +178,18 @@ const invoiceProcessing: ProcessTemplate = {
     return {
       nodes: [
         node(start, 'startEvent', 'Invoice received', 0, ROW),
-        // No URL: the author says what to call. A template that arrives
-        // pointing somewhere is a template that calls somewhere by accident.
-        node(verify, 'serviceTask', 'Check the invoice', COL, ROW),
+        /*
+         * Handed to a worker by topic rather than pointed at a web address. A
+         * template that arrives pointing somewhere calls somewhere by accident.
+         * Leaving the step empty was worse: with nothing to call it finishes at
+         * once, so every invoice went through unchecked and unpaid while the
+         * instance reported success. With a topic the instance waits at the
+         * step, where anyone can see it, until a worker the author writes asks
+         * for the work. The SDK sandbox can play that worker.
+         */
+        node(verify, 'serviceTask', 'Check the invoice', COL, ROW, workerStep('check-invoice')),
         node(approve, 'userTask', 'Approve for payment', COL * 2, ROW),
-        node(pay, 'serviceTask', 'Send for payment', COL * 3, ROW),
+        node(pay, 'serviceTask', 'Send for payment', COL * 3, ROW, workerStep('pay-invoice')),
         node(done, 'endEvent', 'Invoice paid', COL * 4, ROW),
       ],
       edges: [

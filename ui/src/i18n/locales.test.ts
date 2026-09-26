@@ -84,3 +84,24 @@ describe('the catalogues themselves', () => {
     }
   });
 });
+
+/*
+ * The getting-started card and Help sit on the Dashboard, which is translated,
+ * and were written in English only: in Indonesian the card read "Getting
+ * started … Deploy a process" beside "Dasbor". Their words are in the
+ * catalogues now, and a translation that only copies the English is not one.
+ */
+describe('the getting-started card, Help and the glossary', () => {
+  const AREAS = ['start.', 'help.', 'glossary.'];
+
+  it('are translated into Indonesian, every word of them, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const keys = Object.keys(english).filter((key) => AREAS.some((area) => key.startsWith(area)));
+    expect(keys.length).toBeGreaterThan(40);
+    for (const key of keys) {
+      expect(indonesian[key], `id has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+});
