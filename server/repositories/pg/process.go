@@ -579,6 +579,12 @@ func (r *processRepository) one(ctx context.Context, id uuid.UUID, forUpdate boo
 	return row, nil
 }
 
+// list returns every instance matching, newest first.
+//
+// Every one, not the store's newest thousand: an instance's sub-processes and
+// the cases an OCEL export describes are lists nobody pages, and past a
+// thousand the oldest fell off both. The id breaks ties in creation time, so
+// the cursor is a position.
 func (r *processRepository) list(ctx context.Context, scoped []uuid.UUID, preds []processinstance.Pred) ([]models.ProcessInstanceModel, error) {
 	q, ok, err := r.scopedQuery(ctx, scoped, preds)
 	if err != nil || !ok {
@@ -588,7 +594,8 @@ func (r *processRepository) list(ctx context.Context, scoped []uuid.UUID, preds 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Order(processinstance.CreatedAt.Desc()).All(ctx, ex, nil)
+	rows, err := everyRow[processinstance.Row](ctx, ex,
+		q.Order(processinstance.CreatedAt.Desc(), processinstance.ID.Desc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not list process instances: %w", err)
 	}
