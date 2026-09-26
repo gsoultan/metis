@@ -84,6 +84,11 @@ func (r *userRepository) GetWithPasswordByID(ctx context.Context, id uuid.UUID) 
 // Scoped, and it was not: this returned every account in the installation with
 // their memberships preloaded — a complete staff directory of every tenant, to
 // anybody signed in.
+//
+// Every member, not the store's first thousand: the memberships and the
+// accounts are both read through pg.everyRow, and the memberships of the
+// accounts listed come in two reads for the whole list rather than two per
+// account.
 func (r *userRepository) ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -104,12 +109,12 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		return nil, err
 	}
 
-	q := user.New().Order(user.Username.Asc())
+	// The id breaks ties so the cursor is a position; a username is unique,
+	// so it never has to.
+	q := user.New().Order(user.Username.Asc(), user.ID.Asc())
 	if organizationID != uuid.Nil {
-		members, err := userorganization.New().
-			Where(userorganization.OrganizationID.Eq(organizationID)).
-			Unordered().
-			All(ctx, ex, nil)
+		members, err := everyRow[userorganization.Row](ctx, ex, userorganization.New().
+			Where(userorganization.OrganizationID.Eq(organizationID)))
 		if err != nil {
 			return nil, fmt.Errorf("could not read the organization's members: %w", err)
 		}
@@ -122,17 +127,48 @@ func (r *userRepository) ListByOrganization(ctx context.Context, organizationID 
 		}
 		q = q.Where(user.ID.In(ids...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[user.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list accounts: %w", err)
 	}
+	return hydrateAll(ctx, ex, rows)
+}
+
+// hydrateAll loads the memberships of many accounts: two reads for the list,
+// where hydrate is two per account.
+func hydrateAll(ctx context.Context, ex runtime.Executor, rows []user.Row) ([]models.UserModel, error) {
 	out := make([]models.UserModel, 0, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+	ids := make([][16]byte, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	orgs, err := everyRow[userorganization.Row](ctx, ex, userorganization.New().Where(userorganization.UserID.In(ids...)))
+	if err != nil {
+		return nil, fmt.Errorf("could not read the accounts' organizations: %w", err)
+	}
+	projects, err := everyRow[userproject.Row](ctx, ex, userproject.New().Where(userproject.UserID.In(ids...)))
+	if err != nil {
+		return nil, fmt.Errorf("could not read the accounts' projects: %w", err)
+	}
+	orgsOf := make(map[[16]byte][]models.OrganizationModel, len(rows))
+	for _, org := range orgs {
+		orgsOf[org.UserID] = append(orgsOf[org.UserID], models.OrganizationModel{Base: models.Base{ID: models.UUID(org.OrganizationID)}})
+	}
+	projectsOf := make(map[[16]byte][]models.ProjectModel, len(rows))
+	for _, project := range projects {
+		projectsOf[project.UserID] = append(projectsOf[project.UserID], models.ProjectModel{Base: models.Base{ID: models.UUID(project.ProjectID)}})
+	}
 	for _, row := range rows {
-		user, err := r.hydrate(ctx, row)
+		account, err := accountFrom(row)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, user)
+		account.Organizations = orgsOf[row.ID]
+		account.Projects = projectsOf[row.ID]
+		out = append(out, account)
 	}
 	return out, nil
 }
@@ -427,25 +463,9 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 	if err != nil {
 		return models.UserModel{}, err
 	}
-	user := models.UserModel{
-		Base: models.Base{
-			ID:        models.UUID(row.ID),
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
-		},
-		Username:     row.Username,
-		FullName:     row.FullName,
-		DisplayName:  row.DisplayName,
-		Organization: row.Organization,
-		Email:        row.Email,
-	}
-	if validFrom, ok := row.TokensValidFrom.Get(); ok {
-		user.TokensValidFrom = &validFrom
-	}
-	if len(row.Roles) > 0 {
-		if err := json.Unmarshal(row.Roles, &user.Roles); err != nil {
-			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)
-		}
+	user, err := accountFrom(row)
+	if err != nil {
+		return models.UserModel{}, err
 	}
 
 	orgs, err := userorganization.New().
@@ -474,4 +494,29 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 		})
 	}
 	return user, nil
+}
+
+// accountFrom reads an account's own columns, memberships aside.
+func accountFrom(row user.Row) (models.UserModel, error) {
+	account := models.UserModel{
+		Base: models.Base{
+			ID:        models.UUID(row.ID),
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		},
+		Username:     row.Username,
+		FullName:     row.FullName,
+		DisplayName:  row.DisplayName,
+		Organization: row.Organization,
+		Email:        row.Email,
+	}
+	if validFrom, ok := row.TokensValidFrom.Get(); ok {
+		account.TokensValidFrom = &validFrom
+	}
+	if len(row.Roles) > 0 {
+		if err := json.Unmarshal(row.Roles, &account.Roles); err != nil {
+			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)
+		}
+	}
+	return account, nil
 }
