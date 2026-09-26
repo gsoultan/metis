@@ -210,6 +210,11 @@ func (r *definitionRepository) DeleteScheduledRelease(ctx context.Context, proje
 }
 
 // ListVersionsByKey returns every version deployed under one key, newest first.
+//
+// Every one, not the store's newest thousand: a process deployed on every
+// change passes a thousand, and its history lost the oldest. The id breaks ties
+// in version so the keyset cursor is a position when the caller's scope spans
+// more than one project.
 func (r *definitionRepository) ListVersionsByKey(ctx context.Context, projectID uuid.UUID, key string) ([]models.ProcessDefinitionModel, error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -221,11 +226,11 @@ func (r *definitionRepository) ListVersionsByKey(ctx context.Context, projectID 
 	}
 	q := processdefinition.New().
 		Where(processdefinition.Key.Eq(key)).
-		Order(processdefinition.Version.Desc())
+		Order(processdefinition.Version.Desc(), processdefinition.ID.Desc())
 	if scoped != nil {
 		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scoped)...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[processdefinition.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list the versions of %s: %w", key, err)
 	}
@@ -527,6 +532,13 @@ func (r *definitionRepository) list(ctx context.Context, scoped []uuid.UUID) ([]
 	return definitionsFrom(rows)
 }
 
+// releases reads a release timeline, newest first.
+//
+// All of it, not the store's newest thousand. The live mark of every process in
+// a project comes from this timeline, and a process promoted once, long ago,
+// fell behind a thousand newer promotions of another: the page lost its mark and
+// showed its highest version as live. The id breaks ties so the keyset cursor
+// is a position.
 func (r *definitionRepository) releases(ctx context.Context, projectID uuid.UUID, preds []processdefinitionrelease.Pred) ([]models.ProcessDefinitionReleaseModel, error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -538,11 +550,11 @@ func (r *definitionRepository) releases(ctx context.Context, projectID uuid.UUID
 	}
 	q := processdefinitionrelease.New().
 		Where(preds...).
-		Order(processdefinitionrelease.ActivateAt.Desc())
+		Order(processdefinitionrelease.ActivateAt.Desc(), processdefinitionrelease.ID.Desc())
 	if scoped != nil {
 		q = q.Where(processdefinitionrelease.ProjectID.In(uuidsToRaw(scoped)...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[processdefinitionrelease.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list the release timeline: %w", err)
 	}
