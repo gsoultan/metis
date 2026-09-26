@@ -119,8 +119,18 @@ func gatedChains(t *testing.T, file *ast.File) map[string][]string {
 			return true
 		}
 		name, isIdent := assign.Lhs[0].(*ast.Ident)
+		if !isIdent {
+			return true
+		}
+		// platformAdmin := f.PlatformChain: the platform chain requires the
+		// administrator role, then the operator's list of platform
+		// administrators, which no role grants.
+		if chain, isSelector := assign.Rhs[0].(*ast.SelectorExpr); isSelector && chain.Sel.Name == "PlatformChain" {
+			chains[name.Name] = []string{entities.RoleAdmin}
+			return true
+		}
 		helper, isFunc := assign.Rhs[0].(*ast.FuncLit)
-		if !isIdent || !isFunc {
+		if !isFunc {
 			return true
 		}
 		if roles := rolesRequiredBy(t, helper); roles != nil {

@@ -2,11 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 )
 
@@ -284,5 +287,54 @@ func TestPublicPathPrefixes(t *testing.T) {
 		if inner.isPublicPath(path) {
 			t.Errorf("%q was treated as public", path)
 		}
+	}
+}
+
+// A token that proves nothing is a 401, and one that proves who somebody is,
+// for somebody nothing admits, is a 403 carrying the reason — which is what
+// tells them, and whoever they ask, what has to change.
+func TestMandatoryAuthTellsNotAdmittedFromNotAuthenticated(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantReason string
+	}{
+		{"a token that proves nothing", errors.New("failed to verify token"), http.StatusUnauthorized, ""},
+		{"somebody authenticated but not admitted",
+			apierr.Forbiddenf("an operator has to set %s", pkgauth.EnvOrganizationClaim),
+			http.StatusForbidden, pkgauth.EnvOrganizationClaim},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			refusing := strategyFunc(func(context.Context, string) (any, error) { return nil, tc.err })
+			reached := false
+			handler := NewMandatoryHTTPAuthInterceptor(refusing, nil).Wrap(
+				http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/projects", nil)
+			req.Header.Set("Authorization", "Bearer token-value")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if reached {
+				t.Fatal("the request went on after its token was refused")
+			}
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantReason == "" {
+				return
+			}
+			var reply struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil || !strings.Contains(reply.Error, tc.wantReason) {
+				t.Fatalf("the refusal %q does not carry its reason", rec.Body.String())
+			}
+		})
 	}
 }

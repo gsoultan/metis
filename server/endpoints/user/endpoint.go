@@ -174,9 +174,9 @@ func MakeUpdateOwnProfileEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	}
 }
 
-// ownAccountID is the account the session belongs to. An identity provider's
-// principal has no account here; the tenant resolver refuses it before this
-// is reached, and this refuses it as well rather than guess at one.
+// ownAccountID is the account the session belongs to — for somebody signed in
+// through an identity provider, the account linked to them. A session with no
+// account is refused rather than given a guess at one.
 func ownAccountID(ctx context.Context) (uuid.UUID, error) {
 	if id := principal.LocalUserID(ctx); id != uuid.Nil {
 		return id, nil

@@ -632,15 +632,38 @@ export interface ApiDecision {
 }
 
 /**
- * Mirrors entities.DecisionSummary: one decision key as its newest version,
- * without the table — what the dependency graph and a step's picker need.
+ * Mirrors entities.DecisionSummary: one decision key, without the table — what
+ * the decision list, the dependency graph and a step's picker need. `id`,
+ * `name`, `version`, `hit_policy` and `required_decisions` are the live
+ * version's, or the newest's when none is live.
  */
 export interface ApiDecisionSummary {
   id: string;
   key: string;
   name: string;
   version: number;
+  hit_policy?: string;
   required_decisions?: string[];
+  /** The version in force; 0 when none is. */
+  live_version?: number;
+  /** The highest stored version. Above live_version, it is staged. */
+  newest_version?: number;
+  /** When a version was last saved or made live. */
+  last_changed_at?: string;
+}
+
+/**
+ * Mirrors entities.DecisionVersionStatus: one stored version of a decision
+ * key, and whether it is the one in force.
+ */
+export interface ApiDecisionVersion {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  created_at?: string;
+  /** The single version a step that names no version reads. */
+  live: boolean;
 }
 
 /** Payload accepted when creating or updating a decision. */

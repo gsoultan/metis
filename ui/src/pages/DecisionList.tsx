@@ -17,10 +17,10 @@ import { useState } from 'react';
 import { CreationWizard } from '../components/CreationWizard';
 import { DecisionGraphSection } from '../components/DecisionGraphView';
 import { DecisionListCard } from '../components/decisions/DecisionListCard';
-import { DeleteDecisionModal } from '../components/decisions/DeleteDecisionModal';
+import { DecisionVersionsModal } from '../components/decisions/DecisionVersionsModal';
 import { PageHeader } from '../components/PageHeader';
 import { useDecisionSummaries, useDecisions } from '../hooks/useDecisions';
-import type { ApiDecision } from '../services/types';
+import type { ApiDecisionSummary } from '../services/types';
 import { useTranslation } from '../i18n/context';
 
 export const DECISIONS_PAGE_SIZE = 25;
@@ -37,11 +37,13 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
   const listed = useDecisions(page, DECISIONS_PAGE_SIZE, sentSearch);
   const keys = useDecisionSummaries();
   const [wizardOpened, setWizardOpened] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ApiDecision | null>(null);
+  const [historyOf, setHistoryOf] = useState<ApiDecisionSummary | null>(null);
 
-  const rows = listed.data?.decisions ?? [];
-  const afterDelete = () => {
-    setPendingDelete(null);
+  const rows = listed.data?.summaries ?? [];
+  const afterDelete = (remaining: number) => {
+    if (remaining > 0) return;
+    // Its last version is gone, and the decision with it.
+    setHistoryOf(null);
     // The last row of a page is gone; the page before it is the one that exists.
     if (rows.length === 1 && page > 1) setPage(page - 1);
   };
@@ -86,11 +88,22 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
         error={listed.error}
         onRetry={() => listed.refetch()}
         onEdit={onEdit}
-        onDelete={setPendingDelete}
+        onHistory={setHistoryOf}
         onCreate={() => setWizardOpened(true)}
       />
 
-      <DeleteDecisionModal decision={pendingDelete} onClose={() => setPendingDelete(null)} onDeleted={afterDelete} />
+      {historyOf !== null && (
+        <DecisionVersionsModal
+          decisionKey={historyOf.key}
+          name={historyOf.name}
+          onClose={() => setHistoryOf(null)}
+          onOpen={(id) => {
+            setHistoryOf(null);
+            onEdit(id);
+          }}
+          onDeleted={(_, remaining) => afterDelete(remaining)}
+        />
+      )}
 
       <CreationWizard
         opened={wizardOpened}

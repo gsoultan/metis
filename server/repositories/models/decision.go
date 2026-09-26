@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // DecisionDefinitionModel represents the GORM model for decision definitions.
 type DecisionDefinitionModel struct {
 	Base
@@ -66,14 +68,25 @@ type DecisionTest struct {
 	Expected map[string]any `json:"expected,omitzero"`
 }
 
-// DecisionSummaryModel is one key of decision_definitions as its newest
-// version, read without the table columns: a list of decisions names them and
-// says what each requires, and has no use for their lines or examples.
+// DecisionSummaryModel is one key of decision_definitions, read without the
+// table columns: a list of decisions names them, says which version of each is
+// in force and what it requires, and has no use for their lines or examples.
 type DecisionSummaryModel struct {
+	// ID, Name, Version, HitPolicy and RequiredDecisions are the shown
+	// version's: the live one, or the newest when none is live.
 	ID                UUID
 	ProjectID         UUID
 	Key               string
 	Name              string
 	Version           int
+	HitPolicy         string
 	RequiredDecisions []string
+
+	// LiveVersion is zero when no version is live.
+	LiveVersion   int
+	NewestVersion int
+
+	// LastChangedAt is the later of the newest save and the moment the live
+	// version was made live.
+	LastChangedAt time.Time
 }

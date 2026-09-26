@@ -54,6 +54,9 @@ func (s *connectorService) InstallManifest(ctx context.Context, document []byte)
 		// not a 500 that pages somebody and spends the error budget.
 		return entities.ConnectorManifest{}, apierr.Invalidf("%v", err)
 	}
+	if err := s.refuseBuiltInKey(manifest.Key); err != nil {
+		return entities.ConnectorManifest{}, err
+	}
 
 	var installed entities.ConnectorManifest
 	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
@@ -89,12 +92,42 @@ func (s *connectorService) GetManifestDocument(ctx context.Context, key string) 
 	return m.Document, nil
 }
 
+// SetManifestEnabled switches an installed connector on or off, and with it
+// whether the catalogue offers it to modellers.
 func (s *connectorService) SetManifestEnabled(ctx context.Context, id uuid.UUID, enabled bool) error {
-	return s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled)
+	return s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		current, err := s.repo.ConnectorManifest().GetForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		// Switching one on puts it back in every step that names its key, which
+		// under a built-in's key takes that connector over again: the same
+		// decision as installing it. Switching off is always allowed, since it
+		// hands the key back.
+		if enabled && !current.Enabled {
+			if err := s.refuseBuiltInKey(current.Key); err != nil {
+				return err
+			}
+		}
+		if err := s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled); err != nil {
+			return err
+		}
+		return s.syncCatalogueFrom(ctx, current, enabled)
+	})
 }
 
+// DeleteManifest uninstalls a connector and withdraws its catalogue entry.
 func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) error {
-	return s.repo.ConnectorManifest().Delete(ctx, id)
+	return s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		current, err := s.repo.ConnectorManifest().GetForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.ConnectorManifest().Delete(ctx, id); err != nil {
+			return err
+		}
+		return s.syncCatalogueFrom(ctx, current, false)
+	})
 }
 
 // ImportOpenAPI turns a specification into manifests and installs every one.
@@ -172,7 +205,7 @@ func NewConnectorService(
 	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
 	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
 	s.executors[sqlconnector.Key] = sqlconnector.New()
-	s.executors["rabbitmq-publish"] = NewRabbitMQExecutor()
+	s.executors[RabbitMQConnectorKey] = NewRabbitMQExecutor()
 
 	// Discord Connector
 	s.executors["discord-message"] = &DiscordMessageExecutor{}
@@ -547,7 +580,7 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 		},
 		{
 			ID:          uuid.MustParse("018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a1c"),
-			Key:         "rabbitmq-publish",
+			Key:         RabbitMQConnectorKey,
 			Name:        "RabbitMQ Publisher",
 			Description: "Publish a message to a RabbitMQ exchange",
 			Icon:        "Send",
@@ -775,6 +808,11 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 // go. One pushed out is closed.
 const maxBrokerConnections = 32
 
+// RabbitMQConnectorKey names the built-in RabbitMQ connector: the one a service
+// task publishes through, and the kind of connection a RabbitMQ bridge or
+// consumer reaches its broker by.
+const RabbitMQConnectorKey = "rabbitmq-publish"
+
 type RabbitMQExecutor struct {
 	conns *lru.Cache[string, *amqp.Connection]
 	// dialing makes concurrent first publishes to one URL share a dial. Each
@@ -899,7 +937,7 @@ func BuiltInConnectorKeys() []string {
 		"http-json",
 		"slack-message",
 		"email-smtp",
-		"rabbitmq-publish",
+		RabbitMQConnectorKey,
 		"discord-message",
 		"sendgrid-email",
 		"ms-teams-message",

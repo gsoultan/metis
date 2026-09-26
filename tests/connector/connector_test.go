@@ -64,6 +64,11 @@ func (m *MockConnectorRepository) Delete(ctx context.Context, id uuid.UUID) erro
 	return args.Error(0)
 }
 
+func (m *MockConnectorRepository) RestoreByKey(ctx context.Context, key string) (models.Connector, error) {
+	args := m.Called(ctx, key)
+	return args.Get(0).(models.Connector), args.Error(1)
+}
+
 // MockConnectorInstanceRepository is a mock for contracts.ConnectorInstanceRepository
 type MockConnectorInstanceRepository struct {
 	mock.Mock

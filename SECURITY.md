@@ -81,6 +81,16 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
   double-execute anything caught mid-retry by an upgrade.
 - **SSE delivery is best-effort.** A client whose buffer is full is skipped
   rather than waited for, and the UI treats an event as a hint to refetch.
+- **An OIDC token's claims are evidence, never the caller.** A sign-in through
+  the identity provider is resolved to an account linked to the token's issuer
+  and subject — never to an existing account by email or username — and that
+  account is the principal. Its roles are the ones an administrator granted in
+  Metis: a `roles` claim grants nothing, and a first sign-in gets no role. Its
+  organizations are the ones `METIS_OIDC_ORGANIZATION_CLAIM` names in the
+  token, so that claim decides who reaches which tenant and has to be filled at
+  the provider from something only administrators control. Deleting a linked
+  account does not keep somebody out while the provider still vouches for
+  them; removing them at the provider does.
 
 ## What has already been looked at
 

@@ -9,63 +9,43 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
-// LocalUserIDFromContext returns the ID of the signed-in local account.
+// LocalUserIDFromContext returns the ID of the signed-in account, when its
+// password is held here.
 //
-// It deliberately refuses an OIDC principal rather than falling back to some
-// other identifier. An OIDC user's password lives at the identity provider;
-// Metis holds no hash that logging in ever consults. Letting them "change their
-// password" here would rotate a value that gates nothing, and report success —
-// so a user who believed they had locked an attacker out would not have. The
-// honest answer is that this is the wrong place to do it.
+// It deliberately refuses an account that signs in through an identity
+// provider rather than returning its ID. That person's password lives at the
+// provider; Metis holds no hash that signing in ever consults. Letting them
+// "change their password" here would rotate a value that gates nothing, and
+// report success — so a user who believed they had locked an attacker out
+// would not have. The honest answer is that this is the wrong place to do it.
 func LocalUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
-	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
-	case entities.User:
-		return u.ID, nil
-	case *entities.User:
-		if u != nil {
-			return u.ID, nil
-		}
-	case pkgauth.UserClaims, *pkgauth.UserClaims:
+	caller := signedIn(ctx)
+	if caller == nil {
+		return uuid.Nil, pkgauth.ErrUnauthorized
+	}
+	if caller.IdentityProvider != "" {
 		return uuid.Nil, apierr.Invalidf(
 			"this account signs in through your identity provider, so its password is not stored here — change it there")
 	}
-	return uuid.Nil, pkgauth.ErrUnauthorized
+	return caller.ID, nil
 }
 
 // callerRoles returns the roles of whoever a request is from, and false when it
-// carries nobody. Both ways of signing in are read — a local account and an
-// identity provider's token — since both reach the same checks.
+// carries nobody. Both ways of signing in put an account there, so these are
+// always the roles an administrator granted.
 func callerRoles(ctx context.Context) ([]string, bool) {
-	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
-	case entities.User:
-		return u.Roles, true
-	case *entities.User:
-		if u != nil {
-			return u.Roles, true
-		}
-	case pkgauth.UserClaims:
-		return u.Roles, true
-	case *pkgauth.UserClaims:
-		if u != nil {
-			return u.Roles, true
-		}
+	if caller := signedIn(ctx); caller != nil {
+		return caller.Roles, true
 	}
 	return nil, false
 }
 
 // callerOrganizations returns the organizations whoever a request is from
 // belongs to, and false when it carries nobody — system work, a maintenance
-// command. Only a local account carries its memberships; an identity
-// provider's token does not, and the tenant resolver refuses it before any
-// service is reached.
+// command. For an account signed in through an identity provider they are the
+// organizations its token's claim names.
 func callerOrganizations(ctx context.Context) (map[uuid.UUID]bool, bool) {
-	var caller *entities.User
-	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
-	case entities.User:
-		caller = &u
-	case *entities.User:
-		caller = u
-	}
+	caller := signedIn(ctx)
 	if caller == nil {
 		return nil, false
 	}
@@ -76,4 +56,16 @@ func callerOrganizations(ctx context.Context) (map[uuid.UUID]bool, bool) {
 		}
 	}
 	return memberships, true
+}
+
+// signedIn returns the account a request is from, or nil when it carries
+// nobody. An account is the only principal either way of signing in leaves.
+func signedIn(ctx context.Context) *entities.User {
+	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
+	case entities.User:
+		return &u
+	case *entities.User:
+		return u
+	}
+	return nil
 }

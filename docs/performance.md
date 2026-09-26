@@ -12,7 +12,7 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 | `tests/slo` | The HTTP handler meets the targets in-process, with one to two orders of magnitude of headroom. It catches a regression that costs an order of magnitude, such as an N+1 or a per-request compile. | Every `make test` |
 | `tests/loadtest` | The same targets hold with production-shaped volume across tenants. It catches a plan that flips at scale, which ten rows cannot show. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -v -timeout 30m`, sized with `METIS_LOADTEST_INSTANCES` and `METIS_LOADTEST_TENANTS` |
 | `tests/loadtest`, concurrent writes | Many people completing work at once, on a process that splits into two approvals, joins, and calls a partner. Every instance finishes once, every task is completed once, nothing is left at the join, and the partner is called once per instance under its own key. A second submission of a completion is refused with a 400, and nothing else may fail. The action target is asserted; throughput is reported. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run ConcurrentApprovals -v`, sized with `METIS_LOADTEST_WRITE_INSTANCES` (200) and `METIS_LOADTEST_WRITE_WORKERS` (16). `METIS_LOADTEST_SEED` replays an order of submissions |
-| The metrics endpoint | Production: `metis_http_request_duration_seconds` has buckets on the 150ms and 500ms lines, plus the engine's backlog and the connection pools. | Always, on its own port |
+| The metrics endpoint | Production: `metis_http_request_duration_seconds` has buckets on the 150ms and 500ms lines, plus the engine's backlog — the main database's and each environment's, labelled `environment` — and the connection pools. | Always, on its own port |
 | `deploy/grafana/metis-slo.json` | Availability and budget left over 30 days, burn rate, latency against the objectives, backlog, pools. | Import once |
 | `deploy/kubernetes/alerts.yaml` | Pages on the error budget's burn rate and on a backlog nobody is claiming. | With the rules loaded |
 
@@ -95,5 +95,3 @@ go test -run '^$' -bench . -benchmem ./server/transports/https/ ./server/domains
 - **Memory per script.** goja has no heap limit, so nothing bounds or measures
   what a script allocates (`security-plan.md` P0.2(c)). What is bounded is how
   many run at once, with `METIS_SCRIPT_CONCURRENCY`.
-- **Environments' backlogs.** The engine gauges read the main database. A job
-  on an environment's port is in that environment's database and is not counted.

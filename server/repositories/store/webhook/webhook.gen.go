@@ -31,6 +31,7 @@ type Row struct {
 	MessageName           string
 	CorrelationExpression runtime.Null[string]
 	Enabled               bool
+	LegacySignaturesUntil runtime.Null[time.Time]
 	DeletedAt             runtime.Null[time.Time]
 }
 
@@ -69,7 +70,7 @@ const (
 	opNotExists runtime.Op = 26
 )
 
-const nCols = 12
+const nCols = 13
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -264,6 +265,13 @@ func (q *Query) cursor(col uint32, r Row) {
 			q.over = true
 			return
 		}
+		q.tims[q.ntm] = r.LegacySignaturesUntil.V
+		q.ntm++
+	case 12:
+		if int(q.ntm) >= len(q.tims) {
+			q.over = true
+			return
+		}
 		q.tims[q.ntm] = r.DeletedAt.V
 		q.ntm++
 	}
@@ -443,7 +451,8 @@ var (
 	MessageName           = TextCol{8}
 	CorrelationExpression = NullTextCol{9}
 	Enabled               = BoolCol{10}
-	DeletedAt             = NullTimeCol{11}
+	LegacySignaturesUntil = NullTimeCol{11}
+	DeletedAt             = NullTimeCol{12}
 )
 
 // UUIDCol addresses a uuid column.
@@ -868,6 +877,13 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
+	case 12:
+		if int(q.ntm) >= 4 {
+			q.over = true
+			return
+		}
+		q.tims[q.ntm] = p.tim
+		q.ntm++
 	}
 	q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 }
@@ -967,8 +983,30 @@ func (q Query) CorrelationExpressionIsNull() Query { return q.Where(CorrelationE
 func (q Query) CorrelationExpressionIsNotNull() Query {
 	return q.Where(CorrelationExpression.IsNotNull())
 }
-func (q Query) EnabledEq(v bool) Query           { return q.Where(Enabled.Eq(v)) }
-func (q Query) EnabledNotEq(v bool) Query        { return q.Where(Enabled.NotEq(v)) }
+func (q Query) EnabledEq(v bool) Query    { return q.Where(Enabled.Eq(v)) }
+func (q Query) EnabledNotEq(v bool) Query { return q.Where(Enabled.NotEq(v)) }
+func (q Query) LegacySignaturesUntilEq(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.Eq(v))
+}
+func (q Query) LegacySignaturesUntilNotEq(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.NotEq(v))
+}
+func (q Query) LegacySignaturesUntilGt(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.Gt(v))
+}
+func (q Query) LegacySignaturesUntilGte(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.Gte(v))
+}
+func (q Query) LegacySignaturesUntilLt(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.Lt(v))
+}
+func (q Query) LegacySignaturesUntilLte(v time.Time) Query {
+	return q.Where(LegacySignaturesUntil.Lte(v))
+}
+func (q Query) LegacySignaturesUntilIsNull() Query { return q.Where(LegacySignaturesUntil.IsNull()) }
+func (q Query) LegacySignaturesUntilIsNotNull() Query {
+	return q.Where(LegacySignaturesUntil.IsNotNull())
+}
 func (q Query) DeletedAtEq(v time.Time) Query    { return q.Where(DeletedAt.Eq(v)) }
 func (q Query) DeletedAtNotEq(v time.Time) Query { return q.Where(DeletedAt.NotEq(v)) }
 func (q Query) DeletedAtGt(v time.Time) Query    { return q.Where(DeletedAt.Gt(v)) }
@@ -983,7 +1021,7 @@ func (q Query) DeletedAtIsNotNull() Query        { return q.Where(DeletedAt.IsNo
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "deleted_at" FROM "webhooks"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "legacy_signatures_until", "deleted_at" FROM "webhooks"`
 const countPrefix = `SELECT count(*) FROM "webhooks"`
 const existsPrefix = `SELECT 1 FROM "webhooks"`
 const existsSuffix = ` LIMIT 1`
@@ -1086,6 +1124,12 @@ var orderTable = [nCols][4]string{
 		"\"enabled\" ASC NULLS FIRST",
 		"\"enabled\" DESC NULLS LAST",
 	},
+	{ // legacy_signatures_until
+		"\"legacy_signatures_until\"",
+		"\"legacy_signatures_until\" DESC",
+		"\"legacy_signatures_until\" ASC NULLS FIRST",
+		"\"legacy_signatures_until\" DESC NULLS LAST",
+	},
 	{ // deleted_at
 		"\"deleted_at\"",
 		"\"deleted_at\" DESC",
@@ -1108,6 +1152,7 @@ var identTable = [nCols]string{
 	"\"message_name\"",
 	"\"correlation_expression\"",
 	"\"enabled\"",
+	"\"legacy_signatures_until\"",
 	"\"deleted_at\"",
 }
 
@@ -1141,7 +1186,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [12][27]runtime.Frag{
+var fragTable = [13][27]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1461,6 +1506,35 @@ var fragTable = [12][27]runtime.Frag{
 		{},
 		{},
 	},
+	{ // legacy_signatures_until
+		{}, // opNone
+		{A: "\"legacy_signatures_until\" = $", B: ""},
+		{A: "\"legacy_signatures_until\" <> $", B: ""},
+		{A: "\"legacy_signatures_until\" > $", B: ""},
+		{A: "\"legacy_signatures_until\" >= $", B: ""},
+		{A: "\"legacy_signatures_until\" < $", B: ""},
+		{A: "\"legacy_signatures_until\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"legacy_signatures_until\" IS NULL", B: ""},
+		{A: "\"legacy_signatures_until\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 	{ // deleted_at
 		{}, // opNone
 		{A: "\"deleted_at\" = $", B: ""},
@@ -1656,7 +1730,8 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.MessageName = sl.Str(rv[8])
 	r.CorrelationExpression = runtime.NullText(rv[9], sl)
 	r.Enabled = runtime.Bool(rv[10])
-	r.DeletedAt = runtime.Nullable(rv[11], runtime.Timestamptz)
+	r.LegacySignaturesUntil = runtime.Nullable(rv[11], runtime.Timestamptz)
+	r.DeletedAt = runtime.Nullable(rv[12], runtime.Timestamptz)
 	return nil
 }
 
@@ -1806,6 +1881,10 @@ func (q Query) bindPreds(b *binder) []any {
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
+		case 12:
+			b.tims[ntm] = q.tims[ntm]
+			v = append(v, &b.tims[ntm])
+			ntm++
 		}
 	}
 	b.vals = v
@@ -1943,7 +2022,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "webhooks" ("id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "deleted_at"`
+const insertSQL = `INSERT INTO "webhooks" ("id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "legacy_signatures_until", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id", "created_at", "updated_at", "project_id", "name", "token", "secret", "signature_header", "message_name", "correlation_expression", "enabled", "legacy_signatures_until", "deleted_at"`
 
 const updatePrefix = `UPDATE "webhooks" SET `
 const deletePrefix = `DELETE FROM "webhooks"`
@@ -1960,23 +2039,25 @@ const (
 	dMessageName           uint64 = 1 << 6
 	dCorrelationExpression uint64 = 1 << 7
 	dEnabled               uint64 = 1 << 8
-	dDeletedAt             uint64 = 1 << 9
+	dLegacySignaturesUntil uint64 = 1 << 9
+	dDeletedAt             uint64 = 1 << 10
 )
 
-const nUpdatable = 10
+const nUpdatable = 11
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
-	{A: "\"updated_at\" = $", B: ""},             // updated_at
-	{A: "\"project_id\" = $", B: ""},             // project_id
-	{A: "\"name\" = $", B: ""},                   // name
-	{A: "\"token\" = $", B: ""},                  // token
-	{A: "\"secret\" = $", B: ""},                 // secret
-	{A: "\"signature_header\" = $", B: ""},       // signature_header
-	{A: "\"message_name\" = $", B: ""},           // message_name
-	{A: "\"correlation_expression\" = $", B: ""}, // correlation_expression
-	{A: "\"enabled\" = $", B: ""},                // enabled
-	{A: "\"deleted_at\" = $", B: ""},             // deleted_at
+	{A: "\"updated_at\" = $", B: ""},              // updated_at
+	{A: "\"project_id\" = $", B: ""},              // project_id
+	{A: "\"name\" = $", B: ""},                    // name
+	{A: "\"token\" = $", B: ""},                   // token
+	{A: "\"secret\" = $", B: ""},                  // secret
+	{A: "\"signature_header\" = $", B: ""},        // signature_header
+	{A: "\"message_name\" = $", B: ""},            // message_name
+	{A: "\"correlation_expression\" = $", B: ""},  // correlation_expression
+	{A: "\"enabled\" = $", B: ""},                 // enabled
+	{A: "\"legacy_signatures_until\" = $", B: ""}, // legacy_signatures_until
+	{A: "\"deleted_at\" = $", B: ""},              // deleted_at
 }
 
 // pkFrags addresses one row.
@@ -1999,10 +2080,11 @@ const (
 	iMessageName           uint64 = 1 << 8
 	iCorrelationExpression uint64 = 1 << 9
 	iEnabled               uint64 = 1 << 10
-	iDeletedAt             uint64 = 1 << 11
+	iLegacySignaturesUntil uint64 = 1 << 11
+	iDeletedAt             uint64 = 1 << 12
 )
 
-const nInsertable = 12
+const nInsertable = 13
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2017,6 +2099,7 @@ var insCols = [nInsertable]string{
 	"\"message_name\"",
 	"\"correlation_expression\"",
 	"\"enabled\"",
+	"\"legacy_signatures_until\"",
 	"\"deleted_at\"",
 }
 
@@ -2026,7 +2109,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"webhooks\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"token\", \"secret\", \"signature_header\", \"message_name\", \"correlation_expression\", \"enabled\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"token\", \"secret\", \"signature_header\", \"message_name\", \"correlation_expression\", \"enabled\", \"legacy_signatures_until\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2109,6 +2192,18 @@ func (m *Mut) SetCorrelationExpressionNull() {
 func (m *Mut) SetEnabled(v bool) {
 	m.row.Enabled = v
 	m.dirty |= dEnabled
+}
+
+func (m *Mut) SetLegacySignaturesUntil(v time.Time) {
+	m.row.LegacySignaturesUntil = runtime.Null[time.Time]{V: v, Valid: true}
+	m.dirty |= dLegacySignaturesUntil
+}
+
+// SetLegacySignaturesUntilNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetLegacySignaturesUntilNull() {
+	m.row.LegacySignaturesUntil = runtime.Null[time.Time]{}
+	m.dirty |= dLegacySignaturesUntil
 }
 
 func (m *Mut) SetDeletedAt(v time.Time) {
@@ -2210,6 +2305,18 @@ func (n *Ins) SetEnabled(v bool) {
 	n.set |= iEnabled
 }
 
+func (n *Ins) SetLegacySignaturesUntil(v time.Time) {
+	n.row.LegacySignaturesUntil = runtime.Null[time.Time]{V: v, Valid: true}
+	n.set |= iLegacySignaturesUntil
+}
+
+// SetLegacySignaturesUntilNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetLegacySignaturesUntilNull() {
+	n.row.LegacySignaturesUntil = runtime.Null[time.Time]{}
+	n.set |= iLegacySignaturesUntil
+}
+
 func (n *Ins) SetDeletedAt(v time.Time) {
 	n.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iDeletedAt
@@ -2268,7 +2375,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 10)
+	set := make([]string, 0, 11)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2299,6 +2406,9 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "enabled")
 		}
 		if mask&(1<<11) != 0 {
+			set = append(set, "legacy_signatures_until")
+		}
+		if mask&(1<<12) != 0 {
 			set = append(set, "deleted_at")
 		}
 	case 1:
@@ -2327,6 +2437,9 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "enabled")
 		}
 		if mask&(1<<11) != 0 {
+			set = append(set, "legacy_signatures_until")
+		}
+		if mask&(1<<12) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2387,16 +2500,17 @@ func joinAssign(set []string) string {
 }
 
 var assignFor = map[string]string{
-	"updated_at":             "\"updated_at\" = EXCLUDED.\"updated_at\"",
-	"project_id":             "\"project_id\" = EXCLUDED.\"project_id\"",
-	"name":                   "\"name\" = EXCLUDED.\"name\"",
-	"token":                  "\"token\" = EXCLUDED.\"token\"",
-	"secret":                 "\"secret\" = EXCLUDED.\"secret\"",
-	"signature_header":       "\"signature_header\" = EXCLUDED.\"signature_header\"",
-	"message_name":           "\"message_name\" = EXCLUDED.\"message_name\"",
-	"correlation_expression": "\"correlation_expression\" = EXCLUDED.\"correlation_expression\"",
-	"enabled":                "\"enabled\" = EXCLUDED.\"enabled\"",
-	"deleted_at":             "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
+	"updated_at":              "\"updated_at\" = EXCLUDED.\"updated_at\"",
+	"project_id":              "\"project_id\" = EXCLUDED.\"project_id\"",
+	"name":                    "\"name\" = EXCLUDED.\"name\"",
+	"token":                   "\"token\" = EXCLUDED.\"token\"",
+	"secret":                  "\"secret\" = EXCLUDED.\"secret\"",
+	"signature_header":        "\"signature_header\" = EXCLUDED.\"signature_header\"",
+	"message_name":            "\"message_name\" = EXCLUDED.\"message_name\"",
+	"correlation_expression":  "\"correlation_expression\" = EXCLUDED.\"correlation_expression\"",
+	"enabled":                 "\"enabled\" = EXCLUDED.\"enabled\"",
+	"legacy_signatures_until": "\"legacy_signatures_until\" = EXCLUDED.\"legacy_signatures_until\"",
+	"deleted_at":              "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -2463,6 +2577,8 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 10:
 			args = append(args, n.row.Enabled)
 		case 11:
+			args = append(args, n.row.LegacySignaturesUntil.Arg())
+		case 12:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2501,7 +2617,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 13)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2513,6 +2629,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.MessageName)
 	args = append(args, r.CorrelationExpression.Arg())
 	args = append(args, r.Enabled)
+	args = append(args, r.LegacySignaturesUntil.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2551,6 +2668,7 @@ var copyCols = []string{
 	"message_name",
 	"correlation_expression",
 	"enabled",
+	"legacy_signatures_until",
 	"deleted_at",
 }
 
@@ -2558,7 +2676,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [12]any
+	buf  [13]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2587,7 +2705,8 @@ func (s *rowSource) Values() []any {
 	s.buf[8] = &r.MessageName
 	s.buf[9] = r.CorrelationExpression.Ptr()
 	s.buf[10] = &r.Enabled
-	s.buf[11] = r.DeletedAt.Ptr()
+	s.buf[11] = r.LegacySignaturesUntil.Ptr()
+	s.buf[12] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2630,8 +2749,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 9
 	mask |= 1 << 10
 	mask |= 1 << 11
+	mask |= 1 << 12
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 13)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2643,6 +2763,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.MessageName)
 	args = append(args, r.CorrelationExpression.Arg())
 	args = append(args, r.Enabled)
+	args = append(args, r.LegacySignaturesUntil.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2700,6 +2821,8 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 10:
 			args = append(args, n.row.Enabled)
 		case 11:
+			args = append(args, n.row.LegacySignaturesUntil.Arg())
+		case 12:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2762,6 +2885,8 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 8:
 			args = append(args, m.row.Enabled)
 		case 9:
+			args = append(args, m.row.LegacySignaturesUntil.Arg())
+		case 10:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -2851,6 +2976,8 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 8:
 			args = append(args, m.row.Enabled)
 		case 9:
+			args = append(args, m.row.LegacySignaturesUntil.Arg())
+		case 10:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

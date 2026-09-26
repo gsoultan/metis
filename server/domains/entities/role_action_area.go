@@ -50,6 +50,7 @@ var actionNouns = []struct{ noun, area string }{
 	{"Simulate", areaProcesses},
 	{"Decision", areaDecisions},
 	{"Webhook", areaWebhooks},
+	{"LegacySignatures", areaWebhooks},
 	{"Incident", areaInstances},
 	{"Instance", areaInstances},
 	{"Signal", areaInstances},

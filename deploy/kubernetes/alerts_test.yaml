@@ -11,6 +11,9 @@
 #   metis_http_requests_total{method,route,status_class}
 #   metis_http_request_duration_seconds_bucket{method,route,status,le}
 #   metis_http_requests_in_flight
+#   metis_engine_state_up, metis_jobs_*, metis_incidents_open
+#     {environment,environment_name} on an environment's series; neither on
+#     the main database's, whose empty values Prometheus drops on ingestion
 #
 #   make alerts-test
 rule_files:
@@ -435,6 +438,101 @@ tests:
               description: >-
                 The metrics endpoint on 10.0.0.1:9464 has not been able to read the job queue or the incidents for 10 minutes, so the alerts on them cannot fire. The server logs "Could not read the engine's backlog for the metrics endpoint" with the reason.
 
+  # ------------------------------------------------------ an environment's engine
+  # Each environment's backlog is its own set of series, labelled with its id
+  # and its name; the main database's carries neither. The main database's
+  # series stay healthy in each case below, so what fires is the environment
+  # alone, and the description names it.
+  - interval: 1m
+    name: an environment whose jobs nobody claims fires for that environment alone
+    input_series:
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x30'
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: MetisJobsWaitingUnclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Due jobs have waited more than ten minutes for a worker
+              description: >-
+                In the staging environment (0199a1b2-0000-7000-8000-000000000001), the oldest due job has waited 17m 0s. Timers are late and service tasks are not running. See docs/runbooks.md, "Jobs are due and nobody is claiming them".
+
+  - interval: 1m
+    name: an environment's expired leases name the environment
+    input_series:
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x30'
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '0 0 2+0x30'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: MetisJobLeasesNotReclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Jobs with expired leases are not being reclaimed
+              description: >-
+                2 job(s) in the staging environment (0199a1b2-0000-7000-8000-000000000001) were claimed by a worker that stopped renewing them, and no worker has taken them back for 15 minutes. See docs/runbooks.md, "A job stuck in running".
+
+  - interval: 1m
+    name: incidents piling up in an environment name the environment
+    input_series:
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464"}'
+        values: '4+0x60'
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '4x30 40+0x30'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: MetisIncidentsRising
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Incidents are being opened faster than they are resolved
+              description: >-
+                37 more incidents are open in the staging environment (0199a1b2-0000-7000-8000-000000000001) than half an hour ago. They usually share a cause. See docs/runbooks.md, "Incidents are piling up".
+
+  - interval: 1m
+    name: an environment that cannot be read is down on its own
+    input_series:
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464"}'
+        values: '1+0x20'
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '1 1 0+0x20'
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000002", environment_name="production"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: MetisEngineStateUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: The engine's backlog cannot be read
+              description: >-
+                The metrics endpoint on 10.0.0.1:9464 has not been able to read the job queue or the incidents of the staging environment (0199a1b2-0000-7000-8000-000000000001) for 10 minutes, so the alerts on them cannot fire. The server logs "Could not read the engine's backlog for the metrics endpoint" with the reason, or, for an environment it could not start, "This environment could not be started" once per reason.
+
   - interval: 1m
     name: a pool that is full and making callers wait fires
     input_series:
@@ -472,4 +570,160 @@ tests:
     alert_rule_test:
       - eval_time: 12m
         alertname: MetisDatabasePoolSaturated
+        exp_alerts: []
+
+  # --------------------------------------------------------------------- canary
+  # A canary serves a share of the traffic on the next release. Its pods carry
+  # track=canary and the stable ones track=stable; Prometheus copies the label
+  # onto every series (see deploy/kubernetes/README.md).
+  - interval: 1m
+    name: a canary answering far more 5xx than stable fires MetisCanaryErrorsAboveStable
+    input_series:
+      # Stable: 1000 requests a minute, 1 of them a 5xx (0.1%).
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+999x40'
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+1x40'
+      # Canary: 100 requests a minute, 5 of them 5xx (5%).
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+95x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary answers 5xx at more than twice the stable track's rate"
+              description: >-
+                Over the last 10 minutes the canary answered 5% of its requests
+                with a 5xx, against 0.1% on the stable track. Stop the rollout:
+                docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary no worse than stable stays quiet
+    input_series:
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+995x40'
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+5x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+199x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts: []
+
+  # A counter series exists only once it has been counted, so a stable track
+  # that has not answered a single 5xx has no 5xx series at all. That is the
+  # healthy case, and the comparison must still have a stable rate of 0 to
+  # compare the canary against rather than nothing.
+  - interval: 1m
+    name: a failing canary fires beside a stable track that has never answered a 5xx
+    input_series:
+      - series: 'metis_http_requests_total{job="metis", track="stable", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+1000x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="2xx"}'
+        values: '0+90x40'
+      - series: 'metis_http_requests_total{job="metis", track="canary", method="GET", route="/api/v1/tasks", status_class="5xx"}'
+        values: '0+10x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanaryErrorsAboveStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary answers 5xx at more than twice the stable track's rate"
+              description: >-
+                Over the last 10 minutes the canary answered 10% of its requests
+                with a 5xx, against 0% on the stable track. Stop the rollout:
+                docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary reading far slower than stable fires MetisCanarySlowerThanStable
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              track: canary
+            exp_annotations:
+              summary: "The canary's reads are over the 150ms target and twice as slow as stable's"
+              description: >-
+                Read p95 on the canary is 957.5ms, against 4.75ms on the stable
+                track. Stop the rollout: docs/runbooks.md, "A canary is failing".
+
+  - interval: 1m
+    name: a canary reading as fast as stable stays quiet
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
+        exp_alerts: []
+
+  # Slow on both tracks is the database or the load, not the release, and
+  # MetisReadLatencyOverTarget is the alert for that.
+  - interval: 1m
+    name: a canary as slow as a slow stable track stays quiet
+    input_series:
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="stable", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.005", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="0.15", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+0x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="1", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+      - series: 'metis_http_request_duration_seconds_bucket{job="metis", track="canary", le="+Inf", method="GET", route="/api/v1/tasks", status="200"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MetisCanarySlowerThanStable
         exp_alerts: []

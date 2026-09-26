@@ -48,7 +48,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	m := http.NewServeMux()
 
 	// Auth Middleware to extract user from token and put it in context
-	f := interceptors.NewInterceptorFactory(svc)
+	f := interceptors.NewInterceptorFactory(svc, svc)
 	authMiddleware := f.NewHTTPAuth(f.NewJWTStrategy())
 
 	options := []httptransport.ServerOption{

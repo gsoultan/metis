@@ -39,7 +39,7 @@ func rolesListed(access []entities.RoleAccess) []string {
 }
 
 func TestTheFactoryRecordsWhichRolesEachGateRequires(t *testing.T) {
-	f := interceptors.NewInterceptorFactory(nil)
+	f := interceptors.NewInterceptorFactory(nil, nil)
 	f.ProtectedChainWithRoles("DeleteUser", entities.RoleAdmin)
 	f.ProtectedChainWithRoles("CreateDefinition", entities.RoleAdmin, entities.RoleDesigner)
 	f.ProtectedChainWithRoles("ResolveIncident", entities.RoleAdmin, entities.RoleOperator)
@@ -67,7 +67,7 @@ func TestTheFactoryRecordsWhichRolesEachGateRequires(t *testing.T) {
 // Every built-in role is listed, in its own order, whether or not a gate names
 // it — "required for nothing here" is an answer, and a missing role is not.
 func TestEveryBuiltInRoleIsListedInOrder(t *testing.T) {
-	access := interceptors.NewInterceptorFactory(nil).RoleAccess()
+	access := interceptors.NewInterceptorFactory(nil, nil).RoleAccess()
 
 	want := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor}
 	if got := rolesListed(access); !slices.Equal(got, want) {
@@ -86,7 +86,7 @@ func TestEveryBuiltInRoleIsListedInOrder(t *testing.T) {
 // A gate that names a role nobody built in is still a gate. Leaving it out of
 // the legend would hide exactly what the legend is for.
 func TestARoleOnlyAGateNamesIsListedAfterTheBuiltInOnes(t *testing.T) {
-	f := interceptors.NewInterceptorFactory(nil)
+	f := interceptors.NewInterceptorFactory(nil, nil)
 	f.ProtectedChainWithRoles("ExportAuditTrail", "AUDITOR", entities.RoleAdmin)
 
 	access := f.RoleAccess()
@@ -112,11 +112,11 @@ func TestTheLegendDoesNotDependOnTheOrderTheGatesWereBuilt(t *testing.T) {
 		{"CreateGroup", []string{entities.RoleAdmin}},
 		{"CreateDecision", []string{entities.RoleAdmin, entities.RoleDesigner}},
 	}
-	forwards := interceptors.NewInterceptorFactory(nil)
+	forwards := interceptors.NewInterceptorFactory(nil, nil)
 	for _, gate := range gates {
 		forwards.ProtectedChainWithRoles(gate.method, gate.roles...)
 	}
-	backwards := interceptors.NewInterceptorFactory(nil)
+	backwards := interceptors.NewInterceptorFactory(nil, nil)
 	for _, gate := range slices.Backward(gates) {
 		backwards.ProtectedChainWithRoles(gate.method, gate.roles...)
 	}

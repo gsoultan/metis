@@ -3,14 +3,50 @@ package impl
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
+
+// allowBuiltInOverrideEnv lets a manifest take the key of a connector built
+// into Metis.
+//
+// Such a manifest replaces the built-in in every step that uses it, in every
+// organization on the installation, whoever wrote the step. That is how a
+// built-in is replaced without a redeploy, and it is also how one organization
+// would take over a connector all of them rely on — so it is the operator's
+// decision, off unless they make it.
+const allowBuiltInOverrideEnv = "METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE"
+
+// refuseBuiltInKey stops a manifest taking a built-in's key unless the
+// operator allows it. Refused rather than installed under another key, so
+// whoever installed it hears why nothing changed.
+func (s *connectorService) refuseBuiltInKey(key string) error {
+	if !s.isBuiltIn(key) || builtInOverrideAllowed() {
+		return nil
+	}
+	return apierr.Invalidf(
+		"%q is the key of a connector built into Metis, and a manifest under it would replace that connector in "+
+			"every step, in every organization, that uses it; give the manifest a key of its own, or ask whoever "+
+			"operates this installation to set %s=true", key, allowBuiltInOverrideEnv)
+}
+
+func builtInOverrideAllowed() bool {
+	allowed, err := strconv.ParseBool(envvar.Get(allowBuiltInOverrideEnv))
+	return err == nil && allowed
+}
+
+// isBuiltIn reports whether a compiled-in executor answers key.
+func (s *connectorService) isBuiltIn(key string) bool {
+	_, builtIn := s.executors[key]
+	return builtIn
+}
 
 // install writes one parsed manifest over whatever is installed under its key.
 //
@@ -49,6 +85,11 @@ func (s *connectorService) install(ctx context.Context, manifest connectors.Mani
 	// function might have generated.
 	stored, err := store.GetByKey(ctx, manifest.Key)
 	if err != nil {
+		return entities.ConnectorManifest{}, err
+	}
+	// In the same transaction, so a manifest is never installed without the
+	// catalogue entry a step needs to reach it, nor offered with a stale form.
+	if err := s.syncCatalogue(ctx, manifest, stored.Enabled); err != nil {
 		return entities.ConnectorManifest{}, err
 	}
 	return manifestEntity(stored), nil
