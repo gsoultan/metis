@@ -87,12 +87,13 @@ What does not, and what each one costs:
 | ~~HTTP rate limiting~~ | **Fixed.** Replicas count locally and exchange totals every 5s through `shared_counters`, so the limit is the installation's. The trade is a bounded overshoot rather than an exact limit: between exchanges a replica does not know what the others have counted, so up to one interval's worth per replica can slip through — roughly a twelfth of a per-minute limit, against N× it permanently. Reading a shared counter on every request would put a database round trip on the hottest path in the product. |
 | ~~Connector rate limits~~ | **Fixed**, by the same exchange. A partner's per-minute quota is now the installation's rather than each process's. |
 | Circuit breakers | Still per-process, and deliberately. They open on *consecutive* failures rather than on a rate — a downstream failing one call in ten is flaky, not down — and a shared count would turn that back into a rate. The cost is that a partner sees up to `FailureThreshold` failures per replica before all of them back off, rather than in total. Real, and far smaller than spending a quota N times. |
-| ~~AMQP bridge~~ | **Not a problem, on inspection.** Two replicas consuming one queue are competing consumers — each message is delivered to exactly one — and the external-task bridge polls `FetchAndLock`, which takes `FOR UPDATE`. The per-process registry correctly answers "is this bridge running *here*". The cost is duplicated polling, not duplicated work. |
+| ~~AMQP bridge~~ | **Not a problem, on inspection.** Two replicas consuming one queue are competing consumers — each message is delivered to exactly one — and the external-task bridge polls `FetchAndLock`, which takes `FOR UPDATE SKIP LOCKED`. The per-process registry correctly answers "is this bridge running *here*". The cost is duplicated polling, not duplicated work. Both have been started since 2026-09-26, when `METIS_RABBITMQ_BRIDGES` or `METIS_RABBITMQ_CONSUMERS` names them; before that nothing started either. Give every replica the same list. |
 | Timer polling | Every replica polls on the same interval with no leader election. Correct — the row claim arbitrates — but N replicas contend for the same N jobs each tick. |
 
 `PostgresLocker` (advisory locks, correct as of the fix that pinned its session) exists for
-work that must have exactly one owner, and is the intended mechanism for the AMQP bridge.
-It is **not wired in by default**: the shipped `DistributedLocker` is `NoOpLocker`, a Null
+work that must have exactly one owner. The AMQP bridge is not such work, and does not use it:
+`FetchAndLock` already gives each task one owner, so every replica runs every bridge. It is
+**not wired in by default**: the shipped `DistributedLocker` is `NoOpLocker`, a Null
 Object, because job claiming does not need it and it would add a round trip per job to a
 hot path.
 

@@ -5,8 +5,10 @@ The three open items under `.junie/roadmap.md` §9.2, checked against commit
 
 **Since then** (#93–#95, `roadmap-chaos` and this branch): defects 1.1, 3.6,
 3.7, 3.8, 3.9, 3.12, 3.13, 3.14 and 3.15 are fixed, 1.2 in part, and the
-environment defect found on the way; the eight cheap fixes are done; and the
-load tests found and fixed reads that stopped at a thousand rows. Each is listed, with the test that
+environment defect found on the way; the eight cheap fixes are done; the
+load tests found and fixed reads that stopped at a thousand rows; and the
+RabbitMQ bridge and consumer nothing started are started when configured
+(INT-15, `rabbitmq-bridge`). Each is listed, with the test that
 fails without it, under
 [Fixed since the data was taken](#fixed-since-the-data-was-taken). The rows
 below are left as found, so the reasoning stays readable.
@@ -295,6 +297,7 @@ delivered after it.
 | Found by the load tests: reads that stopped at a thousand rows | A generated storm query starts with a limit of 1,000, and reads the engine acts on relied on it as if it were unbounded: a signal woke the first thousand waiting instances, a migration moved the newest thousand, a deadline withdrew a thousand tasks. Those reads now walk every row with a keyset cursor (`pg.everyRow`) | `server/repositories/pg/every_row.go`; `tests/bpmn/signal_audience_test.go` and the tests beside each fix (`roadmap-chaos`) |
 | 3.14: external-task failure ran without a transaction, raised no incident at zero retries, and never read `retryTimeout` | One transaction; an incident at zero; the wait is honoured; a sweep offers again a task stranded at zero with no incident | `impl/external_task.go` `HandleFailure`; `server/repositories/pg/external_task.go` `ReofferStranded`; `tests/bpmn/external_task_failure_test.go`, `tests/postgres/external_task_reoffer_test.go` |
 | 3.15: an unknown node type was a silent hang | Deploy refuses a type the engine does not declare; the null handler fails | `server/domains/validation/visitor.go`; `handlers/null.go`; `tests/bpmn/unknown_node_type_test.go` |
+| Found on the way: the README advertised RabbitMQ inbound correlation and the external-task bridge, and nothing started either | Started from the operator's environment (`METIS_RABBITMQ_BRIDGES`, `METIS_RABBITMQ_CONSUMERS`), off by default, through a RabbitMQ connection of the project and under its organization's tenant; stopped with `StopAll` on shutdown. The recovery notes no longer name `PostgresLocker` for the bridge, which does not need it | `internal/app/rabbitmq.go`, `internal/app/rabbitmq_runner.go`; `internal/app/rabbitmq_boot_test.go`, `internal/app/rabbitmq_scope_test.go`, `internal/app/rabbitmq_broker_test.go` (INT-15) |
 
 ---
 

@@ -32,6 +32,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **The RabbitMQ bridge and inbound consumer can be switched on.** Both were
+  built and advertised, and nothing started either, so a running server held
+  no broker connection at all. `METIS_RABBITMQ_BRIDGES` publishes a topic's
+  external tasks to an exchange; `METIS_RABBITMQ_CONSUMERS` correlates the
+  messages on a queue as a project's BPMN messages, parking what it cannot
+  correlate on `<queue>.dlq`. Each entry names the project and one of its
+  RabbitMQ connections from the Connectors page, which is where the broker's
+  URL and password stay. Nothing changes unless one is set.
+
+  An entry that cannot be read is named by its position and skipped; a project
+  or connection that does not exist is logged and tried again, up to every
+  five minutes, without holding up the server. Each bridge and consumer logs
+  when it starts, when it connects and when it reconnects, naming itself.
+  A bridge reads only its project's organization's tasks, and it gives a
+  worker 30 seconds to complete one before publishing it again. See
+  *RabbitMQ: tasks out to a queue, messages in from one* in
+  `docs/integration.md`.
+
 - **The strict tenant scope's rollout is on the metrics endpoint.**
   `metis_strict_tenant_scope_enabled` says whether the flag is on, and
   `metis_strict_tenant_scope_denied_site` is one series per code path that

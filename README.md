@@ -10,10 +10,11 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Events**: Start, End and Terminate; Timer, Message, Signal and **Conditional** catch events; Escalation and Compensation throws; boundary events, interrupting or not.
   - **Sub-processes**: ordinary, event-triggered, and **ad-hoc** — a group of steps a person runs in whatever order the work needs, until a completion condition says it is finished.
 - **BPMN XML interop**: import and export round-trip the **diagram**, not just the model — shape bounds, expanded sub-processes and connector routing — so a file from Camunda Modeler or bpmn.io keeps the layout its author drew, and a file exported from here opens in them. Execution-affecting attributes travel too: a gateway's default flow, a call activity's `calledElement`, multi-instance loop characteristics, and external-task topics written in the Camunda namespace.
-- **RabbitMQ Integration**: Outbound publishes wait for a publisher confirm and are sent `mandatory`, so a message the broker cannot route is a failure rather than a silent success. Proven against a real broker in `tests/connector/broker_test.go`.
+- **RabbitMQ Integration**: Every publish waits for a publisher confirm and is sent `mandatory`, so a message the broker cannot route is a failure rather than a silent success. Proven against a real broker in `tests/connector/broker_test.go` and `internal/app/rabbitmq_broker_test.go`.
   - **Outbound Connectors**: Publish messages to RabbitMQ exchanges directly from Service Tasks.
-  - **Inbound Message Correlation**: Automatically correlate RabbitMQ messages to BPMN Message Events.
-  - **External Task Bridge**: Bridges External Tasks to RabbitMQ for distributed worker patterns. Unlike the outbound connector this still publishes without a confirm, so a misrouted bridge publish stalls the task until its lock expires and it is retried, rather than failing outright.
+  - **Inbound Message Correlation**: Correlate the messages on a RabbitMQ queue to a project's BPMN Message Events, with a dead-letter queue for what cannot be. **Off unless configured** with `METIS_RABBITMQ_CONSUMERS`.
+  - **External Task Bridge**: Publish a topic's External Tasks to a RabbitMQ exchange, for workers that consume from a queue. A task the broker does not take is handed back at once. **Off unless configured** with `METIS_RABBITMQ_BRIDGES`.
+  - Both reach the broker through a RabbitMQ connection on the project's Connectors page, and are set by whoever runs the servers, not through the API. See [`docs/integration.md`](docs/integration.md), *RabbitMQ: tasks out to a queue, messages in from one*.
 - **Connector Framework**: Plug-and-play architecture for third-party integrations (HTTP, Slack, Email, RabbitMQ).
 - **Visual Designer**: Drag-and-drop BPMN modeler powered by React Flow, featuring:
   - **Edit Mode**: Load and modify existing process definitions.

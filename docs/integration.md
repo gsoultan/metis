@@ -11,9 +11,9 @@ compose:
 | You want to | Mechanism |
 | :-- | :-- |
 | Start work in Metis from your app | deploy a definition, start instances |
-| Tell a running process something happened | messages and signals |
+| Tell a running process something happened | messages and signals — or a RabbitMQ queue Metis consumes |
 | Show Metis's human tasks in your own UI | the task API |
-| Have *your* service do a process step | external-task workers |
+| Have *your* service do a process step | external-task workers — polling Metis, or fed from a RabbitMQ queue |
 
 ## Authentication
 
@@ -173,6 +173,140 @@ curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/failure \
 Durations on this API are always suffixed `_ms` — the unit is part of the
 field name because an unsuffixed `lock_duration` has already been misread
 once inside this codebase.
+
+## RabbitMQ: tasks out to a queue, messages in from one
+
+A server can run two things against a RabbitMQ broker, and both are **off
+unless whoever runs Metis turns them on**:
+
+- a **bridge** publishes the external tasks of a topic to an exchange, for
+  workers that consume from a queue rather than poll Metis;
+- a **consumer** reads a queue and correlates each message on it as a BPMN
+  message, for systems that already publish their events to RabbitMQ.
+
+They are set in the server's environment, not through the API. A bridge sends
+a project's work out of the installation, and that is for whoever runs the
+servers to decide, not for any organization's administrator. This section is
+not part of the SDK's quickstart; the path it describes is exercised against a
+live broker by `internal/app/rabbitmq_broker_test.go`.
+
+### Setting one up
+
+1. On the project's **Connectors** page, an administrator adds a *RabbitMQ
+   Publisher* connection whose URL names the broker, such as
+   `amqps://metis:…@broker.example.com:5671/orders`. That is where the broker's
+   password lives: encrypted at rest, never sent back to a browser, and changed
+   there. The bridge and the consumer read it from the connection rather than
+   from a second copy in the environment.
+2. With **Expert Mode** on, the Projects page shows each project's id under its
+   name, and the Connectors page each connection's. An entry needs both.
+3. Name what to run, and restart:
+
+```bash
+METIS_RABBITMQ_BRIDGES='[
+  {"project": "0192f0e4-5c1a-7d2e-8f3a-1b2c3d4e5f60", "connection": "0192f0e5-7a2b-7c3d-9e4f-5a6b7c8d9e0f",
+   "topic": "reverse-charge", "exchange": "billing", "routing_key": "charges.reverse"}
+]'
+METIS_RABBITMQ_CONSUMERS='[
+  {"project": "0192f0e4-5c1a-7d2e-8f3a-1b2c3d4e5f60", "connection": "0192f0e5-7a2b-7c3d-9e4f-5a6b7c8d9e0f",
+   "queue": "payments", "message": "payment.received"}
+]'
+```
+
+| Setting | |
+| :-- | :-- |
+| `project` | The project the bridge or consumer acts for. |
+| `connection` | A RabbitMQ connection of that project. Another project's connection, or a connection to anything but RabbitMQ, is refused. |
+| `topic` (bridge) | The external-task topic to publish, as set on the service task. |
+| `exchange`, `routing_key` (bridge) | Where each task is published. Either may be empty, not both: with no exchange, the default exchange delivers to the queue the routing key names. Metis does not declare the exchange; it must exist. |
+| `queue` (consumer) | The queue to consume. Metis declares it — durable, no arguments — and a dead-letter queue beside it named `<queue>.dlq`. A queue that already exists with other arguments is refused by the broker. |
+| `message` (consumer) | The BPMN message name each message is correlated as. |
+
+One bridge per project and topic, and one consumer per project and queue: a
+repeat is refused. At start, each entry says so in the log — `Started a
+RabbitMQ bridge` or `Started a RabbitMQ consumer`, with its project,
+organization, topic or queue, and the broker's host and virtual host, never its
+password — and then `A RabbitMQ bridge connected to its broker` or `A RabbitMQ
+consumer is consuming from its queue`, which it says again after every
+reconnection.
+
+When something is wrong:
+
+- **An entry that cannot be read** — not JSON, a setting misspelt or missing,
+  an id that is not one — is named by its position, as in
+  `METIS_RABBITMQ_BRIDGES, bridge 2: "topic" is required`, and skipped. The
+  others run, and the server starts either way.
+- **A project or connection that does not exist, or a connection that cannot be
+  used**, is logged with the reason and tried again after 5 seconds, then 10,
+  20 and so on, up to every 5 minutes. Fix it and the bridge starts, with no
+  restart. The connection is read once, when the bridge starts: a URL changed
+  later takes effect at the next restart.
+- **A broker that is down**, at start or later, is tried again every 5 seconds,
+  and each attempt is logged. Nothing is lost meanwhile: tasks wait in Metis,
+  and messages wait on the broker.
+- **An exchange that does not exist**, or that the broker's user may not
+  publish to, makes the broker close the bridge's channel on the first publish.
+  The bridge does not open another until its connection drops, so every task is
+  handed back at every poll, and fixing the exchange is not enough: restart
+  after fixing it.
+
+### What the bridge publishes, and what a worker does with it
+
+Every 5 seconds each bridge takes up to ten tasks of its topic and publishes
+each one as JSON — the task as the external-task API returns it, with its `id`,
+`variables`, `worker_id` and `lock_expiration` — with a `task_id` header.
+Publishes are confirmed and `mandatory`: a task the broker does not accept, or
+cannot route to a queue, is handed back at once without spending one of its
+retries, and is offered again at the next poll.
+
+The worker completes the task, or reports its failure, through the
+external-task API like any other worker, with the `worker_id` the message
+carries, which is `messaging-bridge`:
+
+```bash
+curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/complete \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"worker_id":"messaging-bridge","variables":{"reversed":true}}'
+```
+
+- **The worker has 30 seconds.** The bridge locks each task for 30 seconds, and
+  that is the worker's whole budget, time spent waiting on the queue included.
+  A task still open when its lock runs out is published again at the next
+  poll, and only one completion is accepted. So a slow worker, or a long
+  queue, means the same task delivered twice and done twice — harmless only if
+  the handler is idempotent, which any external-task worker's must be. Keep
+  the queue short.
+- **A topic is shared by an organization's projects.** A bridge publishes every
+  task of its topic in the project's organization: the same tasks a worker of
+  that organization fetching the topic through the API would get. Run one
+  bridge per topic per organization, and no API worker on a bridged topic.
+- A bridge reads the main runtime. Tasks of processes running in an
+  environment of their own are not bridged.
+- The message carries the task's variables. Use `amqps://` for a broker outside
+  your network.
+
+### What the consumer expects
+
+Each message is a JSON object. Its `correlation_key` field — or, without one, a
+`correlation_key` header — picks the waiting instance, and the whole object is
+merged into that instance's variables, as with `SendMessage`. With no key at
+all it reaches every instance waiting on that message name, and starts any
+process whose message start event names it.
+
+- A message is acknowledged once it has been correlated, or parked on
+  `<queue>.dlq` with the reason: a body that is not a JSON object, or a correlation that
+  failed three times. The parked copy keeps the original body. A message no
+  instance is waiting for is acknowledged and dropped, as it is when sent
+  through the API.
+- Messages are taken one at a time and acknowledged only once handled. One
+  interrupted by a shutdown goes back on the queue.
+
+### More than one replica
+
+Give every replica the same list. Replicas consuming one queue are competing
+consumers, so each message reaches one of them, and a bridge's fetch locks the
+tasks it takes, so two replicas never publish one task inside its lock. See
+[`recovery.md`](recovery.md) §2.1.
 
 ## Watching instances
 
