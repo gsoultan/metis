@@ -4,6 +4,7 @@ import type { NodeConfigProps } from '../PropertyPanel';
 import type { BPMNNodeData } from '../../types/bpmn';
 import { asText } from '../../types/bpmn';
 import { adHocToggle, adHocWarnings } from '../../domain/adHocSubProcess';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -103,6 +104,8 @@ export function SubProcessConfig({ data, onUpdate, nodes = [], nodeId }: NodeCon
           </Text>
         </Alert>
       )}
+
+      <LoopSettings data={data} onUpdate={onUpdate} />
     </Stack>
   );
 }

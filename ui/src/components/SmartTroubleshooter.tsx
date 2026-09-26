@@ -9,7 +9,7 @@ interface SmartTroubleshooterProps {
   node?: Node<BPMNNodeData>;
   edge?: Edge<BPMNEdgeData>;
   updateNodeData?: (id: string, data: Partial<BPMNNodeData>) => void;
-  updateEdgeData?: (id: string, label: string, data: Partial<BPMNEdgeData>) => void;
+  updateEdgeData?: (id: string, data: Partial<BPMNEdgeData>) => void;
 }
 
 export function SmartTroubleshooter({ node, edge, updateNodeData, updateEdgeData }: SmartTroubleshooterProps) {
@@ -77,11 +77,13 @@ export function SmartTroubleshooter({ node, edge, updateNodeData, updateEdgeData
   if (edge) {
     const data = edge.data || {};
     if (!edge.label && data.condition) {
+       // The arrow's caption is its condition; setting the condition again
+       // puts it back on the arrow.
        diagnostics.push({
          severity: 'info',
-         message: 'Flow has condition but no label.',
-         suggestion: 'Adding a label (e.g., "Yes") makes the diagram easier to read.',
-         quickFix: () => updateEdgeData?.(edge.id, 'Condition Path', data)
+         message: 'The arrow does not show its condition.',
+         suggestion: 'Show the condition on the arrow, so the diagram says when this path is taken.',
+         quickFix: () => updateEdgeData?.(edge.id, { condition: data.condition })
        });
     }
   }

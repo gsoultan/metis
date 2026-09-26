@@ -10,7 +10,6 @@ import {
   Box,
   Button,
   Divider,
-  Alert,
   Modal,
   Grid,
   Title,
@@ -19,16 +18,13 @@ import {
   ThemeIcon,
   Container,
   Tabs,
-  Checkbox,
-  Paper,
+  Switch,
 } from '@mantine/core';
 import {
   Settings,
   LayoutGrid,
   Trash2,
   Info,
-  Code,
-  AlertCircle,
   Play,
   History,
 } from 'lucide-react';
@@ -37,20 +33,11 @@ import { SmartTroubleshooter } from './SmartTroubleshooter';
 import { BusinessTimeline } from './BusinessTimeline';
 import { HelpTooltip, VisualConditionBuilder } from './LowCodeComponents';
 import { useAppStore } from '../store/useAppStore';
-import { UserTaskConfig } from './properties/UserTaskConfig';
-import { ManualTaskConfig } from './properties/ManualTaskConfig';
-import { BusinessRuleTaskConfig } from './properties/BusinessRuleTaskConfig';
-import { CallActivityConfig } from './properties/CallActivityConfig';
-import { ServiceTaskConfig } from './properties/ServiceTaskConfig';
-import { ScriptTaskConfig } from './properties/ScriptTaskConfig';
-import { ThrowEventConfig } from './properties/ThrowEventConfig';
-import { EventConfig } from './properties/EventConfig';
-import { StartEventConfig } from './properties/StartEventConfig';
 import { DataFlowPanel } from './properties/DataFlowPanel';
+import { CONFIG_REGISTRY } from './properties/nodeConfigRegistry';
 import { PropertySection } from './properties/PropertySection';
+import { RawSchemaCard } from './RawSchemaCard';
 import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
-import { GatewayConfig } from './properties/GatewayConfig';
-import { SubProcessConfig } from './properties/SubProcessConfig';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -80,42 +67,13 @@ export interface NodeConfigProps {
   onViewInstance?: (id: string, defId: string) => void;
 }
 
-/** Node type string → property config component. */
-const CONFIG_REGISTRY: Record<string, React.ComponentType<NodeConfigProps>> = {
-  userTask: UserTaskConfig,
-  manualTask: ManualTaskConfig,
-  businessRuleTask: BusinessRuleTaskConfig,
-  callActivity: CallActivityConfig,
-  serviceTask: ServiceTaskConfig,
-  scriptTask: ScriptTaskConfig,
-  intermediateCatchEvent: EventConfig,
-  // The throwing events get their own panel: EventConfig asks what a step
-  // *waits for*, which is the wrong question for one that announces something.
-  intermediateThrowEvent: ThrowEventConfig,
-  errorEndEvent: ThrowEventConfig,
-  escalationThrowEvent: ThrowEventConfig,
-  compensationThrowEvent: ThrowEventConfig,
-  boundaryEvent: EventConfig,
-  signalEvent: EventConfig,
-  messageEvent: EventConfig,
-  timerEvent: EventConfig,
-  startEvent: StartEventConfig,
-  exclusiveGateway: GatewayConfig,
-  inclusiveGateway: GatewayConfig,
-  eventBasedGateway: GatewayConfig,
-  // A sub-process had no panel at all, so the one decision that changes how it
-  // runs — whether its steps are driven by the diagram or by a person — could
-  // only be made by importing a file that already said so.
-  subProcess: SubProcessConfig,
-};
-
 interface PropertyPanelProps {
   selectedNode: Node<BPMNNodeData> | null;
   selectedEdge: Edge<BPMNEdgeData> | null;
   onClose: () => void;
   onDelete: () => void;
   updateNodeData: (id: string, data: Partial<BPMNNodeData>) => void;
-  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void;
+  updateEdgeData: (id: string, data: Partial<BPMNEdgeData>) => void;
   edges?: Edge[];
   /** The whole diagram, so the panel can trace what data reaches this step. */
   nodes?: Node<BPMNNodeData>[];
@@ -136,7 +94,8 @@ export function PropertyPanel({
   instanceId = null,
   onViewInstance,
 }: PropertyPanelProps) {
-  const { expertMode, setExpertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
+  const setExpertMode = useAppStore((state) => state.setExpertMode);
 
   // Recomputed as the diagram changes: what reaches each step depends on every
   // step before it, so editing one changes the answer for the rest.
@@ -174,13 +133,16 @@ export function PropertyPanel({
             <Text size="xs" c="dimmed">{subtitle}</Text>
           </Box>
           <Group gap="xs" mr="xl">
-             {/* Expert mode swaps plain names for BPMN terms everywhere, so
-                 someone can learn the notation without being blocked by it. */}
-             <Text size="xs" c={expertMode ? "indigo" : "dimmed"}>BPMN names</Text>
-             <Checkbox 
-                aria-label="Show BPMN names"
-                checked={expertMode} 
-                onChange={(e) => setExpertMode(e.currentTarget.checked)}
+             {/* The same flag as the switch in the account menu, under the
+                 same name. This panel covers the whole screen, header and all,
+                 so it carries its own. It was labelled "BPMN names", which is
+                 only one of the things the flag changes: it also shows the raw
+                 schema and the API example, and makes advanced settings
+                 editable. */}
+             <Switch
+                label="Expert mode"
+                checked={expertMode}
+                onChange={(event) => setExpertMode(event.currentTarget.checked)}
                 size="xs"
                 color="indigo"
              />
@@ -299,7 +261,7 @@ export function PropertyPanel({
                                 'This text is what the arrow shows on the canvas.'
                               }
                               value={selectedEdge.data?.condition as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, e.target.value, { ...selectedEdge.data, condition: e.target.value })}
+                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, condition: e.target.value })}
                             />
                             <Textarea
                               label="Documentation"
@@ -308,7 +270,7 @@ export function PropertyPanel({
                               size="md"
                               minRows={4}
                               value={selectedEdge.data?.documentation as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, selectedEdge.label as string, { ...selectedEdge.data, documentation: e.target.value })}
+                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, documentation: e.target.value })}
                             />
                           </Stack>
                         )}
@@ -370,64 +332,17 @@ export function PropertyPanel({
                   />
                 )}
 
-                {expertMode && (
-                  <Card withBorder radius="md" p="xl" shadow="sm">
-                    <Stack gap="md">
-                      <Group gap="xs" mb="xs">
-                        <ThemeIcon variant="light" color="orange">
-                          <Code size={18} />
-                        </ThemeIcon>
-                        <Text fw={700} size="lg">Raw Schema</Text>
-                      </Group>
-                      
-                      <Text size="xs" c="dimmed">Underlying JSON structure of this element</Text>
-                      
-                      <Textarea
-                        label="Raw Node Schema"
-                        description="Modify properties directly in JSON format"
-                        placeholder="Raw JSON data"
-                        minRows={40}
-                        autosize
-                        maxRows={80}
-                        styles={{ 
-                          input: { 
-                            fontFamily: 'monospace', 
-                            fontSize: '11px', 
-                            backgroundColor: 'var(--mantine-color-dark-8)',
-                            color: 'var(--mantine-color-gray-3)'
-                          } 
-                        }}
-                        value={JSON.stringify(selectedNode ? selectedNode.data : selectedEdge?.data || {}, null, 2)}
-                        onChange={(e) => {
-                          try {
-                            const parsed = JSON.parse(e.target.value);
-                            if (selectedNode) {
-                              updateNodeData(selectedNode.id, parsed);
-                            } else if (selectedEdge) {
-                              updateEdgeData(selectedEdge.id, selectedEdge.label as string, parsed);
-                            }
-                          } catch {
-                            // Silently ignore parse errors while typing
-                          }
-                        }}
-                      />
-                      
-                      <Alert color="orange" icon={<AlertCircle size={16} />} py="xs">
-                        <Text size="10px" fw={500}>Caution: Manual JSON modification may cause unexpected behavior if properties are invalid.</Text>
-                      </Alert>
-                    </Stack>
-                  </Card>
-                )}
-                
-                {!expertMode && (
-                  <Paper withBorder p="xl" radius="md" bg="blue.0" style={{ borderStyle: 'dashed' }}>
-                    <Stack gap="xs" align="center" py="md">
-                      <Info size={32} color="var(--mantine-color-blue-4)" />
-                      <Text fw={700} ta="center">Simplified View</Text>
-                      <Text size="xs" c="dimmed" ta="center">Advanced technical settings and API schemas are hidden. Toggle "Expert Mode" at the top to see them.</Text>
-                    </Stack>
-                  </Paper>
-                )}
+                <RawSchemaCard
+                  key={selectedNode?.id ?? selectedEdge?.id}
+                  settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
+                  onApply={(patch) => {
+                    if (selectedNode) {
+                      updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
+                    } else if (selectedEdge) {
+                      updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
+                    }
+                  }}
+                />
               </Stack>
             </Grid.Col>
           </Grid>
@@ -533,10 +448,9 @@ function EdgeConfigSection({
   updateEdgeData 
 }: { 
   selectedEdge: Edge, 
-  updateEdgeData: (id: string, label: string, data?: Partial<BPMNEdgeData>) => void 
+  updateEdgeData: (id: string, data: Partial<BPMNEdgeData>) => void 
 }) {
   const data = selectedEdge.data || {};
-  const label = selectedEdge.label as string || '';
 
   return (
     <Stack gap="xl">
@@ -567,7 +481,7 @@ function EdgeConfigSection({
         
         <VisualConditionBuilder 
           condition={typeof data.condition === 'string' ? data.condition : ''} 
-          onChange={(c) => updateEdgeData(selectedEdge.id, label, { ...data, condition: c })} 
+          onChange={(c) => updateEdgeData(selectedEdge.id, { ...data, condition: c })} 
         />
       </Stack>
     </Stack>

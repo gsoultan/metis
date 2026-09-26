@@ -68,7 +68,6 @@ export function sampleDataOf(nodes: Node<BPMNNodeData>[]): Record<string, unknow
  */
 function producedNames(node: Node<BPMNNodeData>, sample: Record<string, unknown>): string[] {
   const data = node.data;
-  const properties = (data.properties ?? {}) as Record<string, unknown>;
 
   switch (node.type) {
     case 'startEvent':
@@ -81,7 +80,7 @@ function producedNames(node: Node<BPMNNodeData>, sample: Record<string, unknown>
         return Object.keys(outputs as Record<string, unknown>);
       }
       // output_<theirs> = <ours>: an HTTP step's.
-      const mapped = Object.entries(properties)
+      const mapped = Object.entries(data)
         .filter(([key]) => key.startsWith('output_') && key !== 'output_mapping')
         .map(([, value]) => asText(value))
         .filter(Boolean);
@@ -125,7 +124,7 @@ function producedNames(node: Node<BPMNNodeData>, sample: Record<string, unknown>
 
 /** The fields a form asks a person to fill in, which become variables. */
 function formFieldNames(data: BPMNNodeData): string[] {
-  const raw = data.formDefinition ?? (data.properties as Record<string, unknown> | undefined)?.form_definition;
+  const raw = data.formDefinition;
   const parsed = typeof raw === 'string' ? safeParse(raw) : raw;
   if (!Array.isArray(parsed)) return [];
   return parsed

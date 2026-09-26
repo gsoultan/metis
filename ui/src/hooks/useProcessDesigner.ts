@@ -14,6 +14,7 @@ import { notifications } from '@mantine/notifications';
 import { useDisclosure, useHotkeys } from '@mantine/hooks';
 import { v7 as uuidv7 } from 'uuid';
 import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
+import { edgeWithData } from '../domain/edgeCaption';
 import { templateById } from '../domain/processTemplates';
 import { nextDeployStep, type DeployMode } from '../domain/versionRollout';
 import {
@@ -26,7 +27,7 @@ import {
   useInstance,
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
-import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes } from '../mappers/definitionMapper';
+import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from '../mappers/definitionMapper';
 import { stepSchemasOf } from '../domain/connectorStep';
 import { validateProcess } from '../domain/processValidation';
 import {
@@ -177,7 +178,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   const [offeredDraft, setOfferedDraft] = useState<DesignerDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const { data: loadedData } = useDefinition(definitionId || null);
   const { data: pathData } = useExecutionPath(instanceId || null);
   const { data: instanceData } = useInstance(instanceId || null);
@@ -547,23 +548,19 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     );
   }, []);
 
-  const updateEdgeData = useCallback((id: string, label: string, data?: Partial<BPMNEdgeData>) => {
+  const updateEdgeData = useCallback((id: string, data: Partial<BPMNEdgeData>) => {
     setEdges((currentEdges) =>
       currentEdges.map((edge) => {
         if (edge.id !== id) {
           return edge;
         }
 
-        const mergedData = { ...edge.data, ...data };
         // The arrow's caption is the condition it carries, never a separate
         // string somebody typed: a sequence flow has no name on the server, so
         // a typed caption could not be saved, and the save mapper used to
         // deploy it as the condition instead. Deriving it here keeps the canvas
         // honest wherever the condition is edited from.
-        const caption = typeof mergedData.condition === 'string' && mergedData.condition !== ''
-          ? mergedData.condition
-          : '';
-        const updatedEdge = { ...edge, label: caption || label, data: mergedData };
+        const updatedEdge = edgeWithData(edge, data);
         setSelectedEdge((currentSelectedEdge) => {
           if (currentSelectedEdge?.id !== id) {
             return currentSelectedEdge;
@@ -764,7 +761,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   /** Applies the draft the person chose to restore. */
   const restoreDraft = useCallback(() => {
     if (!offeredDraft) return;
-    setNodes(offeredDraft.nodes as typeof nodes);
+    setNodes(restoredNodes(offeredDraft.nodes as typeof nodes));
     setEdges(offeredDraft.edges as typeof edges);
     if (offeredDraft.processName) setProcessName(offeredDraft.processName);
     if (offeredDraft.processKey) setProcessKey(offeredDraft.processKey);

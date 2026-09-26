@@ -23,7 +23,7 @@ const COLLABORATION_EVENT_TYPES: CollaborationEvent['type'][] = ['cursor', 'node
 export const MAX_REMOTE_EVENTS = 200;
 
 export function useCollaboration(projectId: string | undefined) {
-  const { user } = useAppStore();
+  const user = useAppStore((state) => state.user);
   const [remoteCursors, setRemoteCursors] = useState<Record<string, { x: number, y: number, name: string }>>({});
   const [remoteEvents, setRemoteEvents] = useState<CollaborationEvent[]>([]);
 

@@ -10,11 +10,11 @@
  * than destructuring the whole store, or the component re-renders on every
  * write to any field.
  */
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { renamedStorage } from './persistedStorage';
 
-interface AppState {
+export interface AppState {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   sidebarExpanded: boolean;
@@ -55,49 +55,53 @@ interface AppState {
   clearAuth: () => void;
 }
 
+/**
+ * The fields, their defaults and what each action does, apart from where they
+ * are kept. Tests that render a component make a store from this without the
+ * persistence, which needs a browser: see src/testing/appStoreDouble.ts.
+ */
+export const appState: StateCreator<AppState> = (set) => ({
+  theme: 'light',
+  toggleTheme: () => set((state) => ({
+    theme: state.theme === 'light' ? 'dark' : 'light',
+  })),
+  // Expanded by default: collapsed, the navigation is eleven unlabelled
+  // icons, and the primary persona for this product is a non-technical
+  // business user who has never seen them before. The collapse is still
+  // there for people who know where things are and want the width back,
+  // and the choice is remembered.
+  sidebarExpanded: true,
+  toggleSidebar: () => set((state) => ({
+    sidebarExpanded: !state.sidebarExpanded,
+  })),
+  currentProjectId: null,
+  setCurrentProjectId: (id) => set({ currentProjectId: id }),
+  currentOrganizationId: null,
+  setCurrentOrganizationId: (id) => set({ currentOrganizationId: id }),
+  activeTab: 'dashboard',
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  expertMode: false,
+  setExpertMode: (val) => set({ expertMode: val }),
+  user: null,
+  token: null,
+  setAuth: (user, token) => set({
+    user,
+    token,
+    currentOrganizationId: user.organizations && user.organizations.length > 0 ? user.organizations[0].id : null,
+    currentProjectId: user.projects && user.projects.length > 0 ? user.projects[0].id : null,
+  }),
+  clearAuth: () => set({
+    user: null,
+    token: null,
+    activeTab: 'dashboard',
+    currentOrganizationId: null,
+    currentProjectId: null,
+  }),
+});
+
 export const useAppStore = create<AppState>()(
-  persist(
-    (set) => ({
-      theme: 'light',
-      toggleTheme: () => set((state) => ({
-        theme: state.theme === 'light' ? 'dark' : 'light',
-      })),
-      // Expanded by default: collapsed, the navigation is eleven unlabelled
-      // icons, and the primary persona for this product is a non-technical
-      // business user who has never seen them before. The collapse is still
-      // there for people who know where things are and want the width back,
-      // and the choice is remembered.
-      sidebarExpanded: true,
-      toggleSidebar: () => set((state) => ({
-        sidebarExpanded: !state.sidebarExpanded,
-      })),
-      currentProjectId: null,
-      setCurrentProjectId: (id) => set({ currentProjectId: id }),
-      currentOrganizationId: null,
-      setCurrentOrganizationId: (id) => set({ currentOrganizationId: id }),
-      activeTab: 'dashboard',
-      setActiveTab: (tab) => set({ activeTab: tab }),
-      expertMode: false,
-      setExpertMode: (val) => set({ expertMode: val }),
-      user: null,
-      token: null,
-      setAuth: (user, token) => set({
-        user,
-        token,
-        currentOrganizationId: user.organizations && user.organizations.length > 0 ? user.organizations[0].id : null,
-        currentProjectId: user.projects && user.projects.length > 0 ? user.projects[0].id : null,
-      }),
-      clearAuth: () => set({
-        user: null,
-        token: null,
-        activeTab: 'dashboard',
-        currentOrganizationId: null,
-        currentProjectId: null,
-      }),
-    }),
-    {
-      name: 'metis-app-storage',
-      storage: renamedStorage('metis-app-storage'),
-    },
-  ),
+  persist(appState, {
+    name: 'metis-app-storage',
+    storage: renamedStorage('metis-app-storage'),
+  }),
 );

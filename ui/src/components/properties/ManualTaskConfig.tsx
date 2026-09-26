@@ -2,6 +2,7 @@ import { Alert, Stack, Text, TextInput } from '@mantine/core';
 
 import type { NodeConfigProps } from '../PropertyPanel';
 import { asText } from '../../types/bpmn';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -28,6 +29,8 @@ export function ManualTaskConfig({ data, onUpdate }: NodeConfigProps) {
           asked of them beyond that — use a form step if you need them to record something.
         </Text>
       </Alert>
+
+      <LoopSettings data={data} onUpdate={onUpdate} />
     </Stack>
   );
 }

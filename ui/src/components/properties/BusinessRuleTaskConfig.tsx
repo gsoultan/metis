@@ -4,6 +4,7 @@ import { useDecisions } from '../../hooks/useProcess';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { asNumber, asText, asTextMap } from '../../types/bpmn';
 import { MappingTable } from './CommonProperties';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -76,6 +77,8 @@ export function BusinessRuleTaskConfig({ data, onUpdate }: NodeConfigProps) {
           onUpdate={(mapping) => onUpdate({ output_mapping: mapping })}
         />
       </PropertySection>
+
+      <LoopSettings data={data} onUpdate={onUpdate} />
     </Stack>
   );
 }

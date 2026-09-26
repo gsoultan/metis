@@ -9,7 +9,7 @@ export const Route = createLazyFileRoute('/_authenticated/designer')({
 })
 
 function ProcessDesignerRoute() {
-  const { setActiveTab } = useAppStore()
+  const setActiveTab = useAppStore((state) => state.setActiveTab)
   const { definitionId, instanceId } = Route.useSearch()
 
   useEffect(() => {

@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { VariablePicker } from '../LowCodeComponents';
 import { asText } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
-import { MultiInstanceConfig, ScriptTestModal } from './CommonProperties';
+import { ScriptTestModal } from './CommonProperties';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 import { SCRIPT_TEMPLATES } from './scriptTemplates';
 
@@ -89,7 +90,7 @@ export function ScriptTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </Group>
       </PropertySection>
 
-      <MultiInstanceConfig data={data} onUpdate={onUpdate} />
+      <LoopSettings data={data} onUpdate={onUpdate} />
 
       <ScriptTestModal
         opened={testModalOpened}

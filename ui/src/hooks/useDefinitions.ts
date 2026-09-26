@@ -16,7 +16,8 @@ type DefinitionVersionsResult = Awaited<ReturnType<typeof processService.listDef
 type LiveVersionsResult = Awaited<ReturnType<typeof processService.listLiveVersions>>;
 
 export const useDefinitions = (page = 1, pageSize = 25) => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
     // The page is part of the key, so stepping back to a page already seen is
@@ -34,7 +35,8 @@ export const useDefinitions = (page = 1, pageSize = 25) => {
 };
 
 export const useDefinition = (id: string | null) => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
     queryKey: ['definition', currentProjectId, id],
@@ -56,7 +58,7 @@ export const useDefinition = (id: string | null) => {
  */
 export const useCreateDefinition = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ definition, stage }: { definition: CreateDefinitionPayload; stage?: boolean }) =>
       currentProjectId
@@ -79,7 +81,8 @@ export const useCreateDefinition = () => {
  * own as work finishes.
  */
 export const useDefinitionVersions = (key: string | null) => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   return useQuery({
     queryKey: ['definitionVersions', currentProjectId, key],
     queryFn: ({ signal }) =>
@@ -100,7 +103,7 @@ export const useDefinitionVersions = (key: string | null) => {
  */
 export const useScheduleDefinitionVersion = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ key, version, activateAt }: { key: string; version: number; activateAt: Date }) =>
       currentProjectId
@@ -116,7 +119,7 @@ export const useScheduleDefinitionVersion = () => {
 /** Drops a cutover that has not happened yet. */
 export const useCancelScheduledVersion = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ releaseId }: { key: string; releaseId: string }) =>
       currentProjectId
@@ -136,7 +139,8 @@ export const useCancelScheduledVersion = () => {
  * questions: the list says what exists, this says what will actually run.
  */
 export const useLiveVersions = () => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
     queryKey: ['liveVersions', currentProjectId],
@@ -151,7 +155,7 @@ export const useLiveVersions = () => {
 /** Makes one deployed version the one new instances start on. */
 export const usePromoteDefinitionVersion = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ key, version }: { key: string; version: number }) =>
       currentProjectId
@@ -193,7 +197,7 @@ export const usePlanInstanceMigration = () => {
 
 export const useMigrateInstances = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: ({ source, target, mapping, acknowledge, actions }: MigrationArgs) =>
       processService.migrateInstances(source, target, mapping, false, acknowledge ?? [], actions ?? {}),
@@ -212,7 +216,7 @@ export const useMigrateInstances = () => {
 
 export const useDeleteDefinition = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: (id: string) => processService.deleteDefinition(id),
     onSuccess: () => {
@@ -233,7 +237,7 @@ export const useExportDefinition = () => {
 
 export const useImportDefinition = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation({
     mutationFn: (xml: string) => {
       // Refused here rather than sent: the server would refuse it anyway, with

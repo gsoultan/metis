@@ -10,7 +10,6 @@ import {
   Button, 
   Alert,
   Card,
-  Checkbox,
   Box,
   Paper,
   ScrollArea,
@@ -21,7 +20,6 @@ import {
 import { 
   Plus, 
   Trash2, 
-  RefreshCw, 
   Zap, 
   AlertCircle,
   Play,
@@ -35,7 +33,6 @@ import { nodeProperties } from '../../mappers/definitionMapper';
 import { useAppStore } from '../../store/useAppStore';
 import type { ApiConnector } from '../../services/types';
 import { asText, type BPMNNodeData } from '../../types/bpmn';
-import type { NodeConfigProps } from '../PropertyPanel';
 
 /** A caught value is `unknown`; take its message when it has one. */
 function errorMessage(err: unknown, fallback: string): string {
@@ -142,79 +139,6 @@ export function MappingTable({
   );
 }
 
-/**
- * "Do this once for each item in a list."
- *
- * The settings are flat on a node — multiInstanceType, collection,
- * elementVariable, completionCondition — which is how the domain, the mapper
- * and the engine all name them. This editor used to keep them nested under a
- * `loopCharacteristics` object of its own invention, with a boolean
- * `isSequential` in place of the type, so nothing it wrote was ever read: a
- * task set to run once per item ran exactly once.
- */
-export function MultiInstanceConfig({ data, onUpdate }: NodeConfigProps) {
-  const multiInstanceType = asText(data.multiInstanceType, 'none');
-  const isMulti = multiInstanceType === 'parallel' || multiInstanceType === 'sequential';
-
-  return (
-    <Stack gap="md">
-      <Group justify="space-between">
-        <Group gap="xs">
-          <ThemeIcon variant="light" color="indigo" radius="md">
-            <RefreshCw size={18} />
-          </ThemeIcon>
-          <Text fw={700} size="md">Loop Characteristics</Text>
-        </Group>
-        <Checkbox
-          label="Multi-instance"
-          checked={isMulti}
-          onChange={(e) => {
-            if (e.currentTarget.checked) {
-              onUpdate({ multiInstanceType: 'parallel', collection: 'items', elementVariable: 'item' });
-            } else {
-              onUpdate({ multiInstanceType: 'none', collection: '', elementVariable: '', completionCondition: '' });
-            }
-          }}
-        />
-      </Group>
-
-      {isMulti && (
-        <Stack gap="sm" pl="xl">
-          <Checkbox
-            label="Sequential Execution"
-            description="One at a time, in order, rather than all at once"
-            checked={multiInstanceType === 'sequential'}
-            onChange={(e) => onUpdate({ multiInstanceType: e.currentTarget.checked ? 'sequential' : 'parallel' })}
-          />
-          <TextInput
-            label="Collection"
-            placeholder="e.g. users"
-            description="Process variable containing a list"
-            size="sm"
-            value={asText(data.collection)}
-            onChange={(e) => onUpdate({ collection: e.target.value })}
-          />
-          <TextInput
-            label="Element Variable"
-            placeholder="e.g. user"
-            description="Variable name for current item"
-            size="sm"
-            value={asText(data.elementVariable)}
-            onChange={(e) => onUpdate({ elementVariable: e.target.value })}
-          />
-          <TextInput
-            label="Completion Condition"
-            placeholder="e.g. nrOfCompletedInstances == nrOfInstances"
-            size="sm"
-            value={asText(data.completionCondition)}
-            onChange={(e) => onUpdate({ completionCondition: e.target.value })}
-          />
-        </Stack>
-      )}
-    </Stack>
-  );
-}
-
 export function ConnectorCatalog({ onSelect }: { onSelect: (connector: ApiConnector) => void }) {
   const { data: connectorsData } = useConnectors();
   const connectors = connectorsData?.connectors ?? [];
@@ -263,7 +187,7 @@ export function NodeTestModal({
 }) {
   const tryStep = useTryConnectorStep();
   const executeScript = useExecuteScript();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   const [testVars, setTestVars] = useState('{}');
   const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);

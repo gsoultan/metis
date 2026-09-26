@@ -12,7 +12,8 @@ type StatisticsResult = Awaited<ReturnType<typeof processService.getProcessStati
 type InstanceResult = Awaited<ReturnType<typeof processService.getInstance>>;
 
 export const useProcessStatistics = () => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   return useQuery({
     queryKey: ['stats', currentProjectId],
     queryFn: ({ signal }) =>
@@ -88,7 +89,8 @@ export interface InstanceFilter {
  * the operator watching it for a failure has no reason to think it is stale.
  */
 export const useInstances = (page = 1, pageSize = 25, filter: InstanceFilter = {}, live = true) => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   const { status, definitionId, needsAttention } = filter;
   return useQuery({
     // The page and the filter are part of the key, so stepping back to a page
@@ -137,7 +139,7 @@ const WAITING_EVENTS = ['ProcessStarted', 'ProcessCompleted', 'NodeReached', 'Ta
  * of instances every five seconds and still missed everything past the page.
  */
 export const useWaitingByStep = () => {
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   useInvalidateOnEvents(WAITING_EVENTS, ['waiting-by-step', currentProjectId]);
   return useQuery({
     queryKey: ['waiting-by-step', currentProjectId],

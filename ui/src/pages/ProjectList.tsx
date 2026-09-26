@@ -20,6 +20,7 @@ import { useState } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
+import { listDetails } from '../domain/listDetails';
 import { useOrganizations } from '../hooks/useOrganization';
 import { useCreateProject, useDeleteProject, useProjects, useUpdateProject } from '../hooks/useProcess';
 import { failureMessage } from '../services/shared/errors';
@@ -147,6 +148,7 @@ export function ProjectList() {
               ) : (
                 projects.map((project) => {
                   const selected = currentProjectId === project.id;
+                  const details = listDetails(expertMode, project.organization?.name, project.id);
                   return (
                     <Table.Tr key={project.id}>
                       <Table.Td>
@@ -165,9 +167,12 @@ export function ProjectList() {
                                 </Badge>
                               )}
                             </Group>
-                            <Text size="xs" c="dimmed">
-                              {expertMode ? project.id : project.organization?.name ?? ''}
-                            </Text>
+                            {details.detail !== undefined && (
+                              <Text size="xs" c="dimmed">{details.detail}</Text>
+                            )}
+                            {details.id !== undefined && (
+                              <Text size="xs" c="dimmed" ff="monospace">{details.id}</Text>
+                            )}
                           </Stack>
                         </Group>
                       </Table.Td>

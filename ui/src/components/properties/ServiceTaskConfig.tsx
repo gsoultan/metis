@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Box,
   Button,
+  Code,
   Group,
   Paper,
   PasswordInput,
@@ -15,13 +16,16 @@ import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
+import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
+import { canChooseImplementation, implementationOptions } from '../../domain/implementationOptions';
 import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
 import { asText, asTextMap } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
-import { ConnectorCatalog, MappingTable, MultiInstanceConfig, NodeTestModal } from './CommonProperties';
+import { ConnectorCatalog, MappingTable, NodeTestModal } from './CommonProperties';
 import { ConnectorStepFields } from './ConnectorStepFields';
+import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -35,7 +39,7 @@ import { PropertySection } from './PropertySection';
 export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const implementation = serviceImplementation(data as Record<string, unknown>);
   const { data: connectorsData } = useConnectors();
-  const { expertMode } = useAppStore();
+  const expertMode = useAppStore((state) => state.expertMode);
   const [testModalOpened, setTestModalOpened] = useState(false);
 
   const connectors = connectorsData?.connectors ?? [];
@@ -45,28 +49,26 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const stepSchema = selectedConnector?.node_schema ?? [];
   const takesStepFields = stepSchema.length > 0;
 
-  const options = [
-    { value: 'push', label: 'Call a web address', description: 'We send the request and wait for the answer' },
-    { value: 'connector', label: 'Use a connector', description: 'Slack, email and the rest, already set up' },
-    { value: 'external', label: 'Let a worker pick it up', description: 'Your own program asks for work and reports back' },
-    ...(expertMode
-      ? [{ value: 'script', label: 'Run a script here', description: 'A little JavaScript, sandboxed' }]
-      : []),
-  ];
+  const options = implementationOptions(expertMode, implementation);
+  const chosen = options.find((option) => option.value === implementation);
+  const choosable = canChooseImplementation(expertMode, implementation);
+  const script = implementation === 'script' ? advancedVisibility(expertMode, data.script) : 'hidden';
 
   return (
     <Stack gap="xl">
-      <PropertySection title="What it calls" hint="Everything below follows from this.">
-        <Select
-          aria-label="Implementation"
-          data={options.map(({ value, label }) => ({ value, label }))}
-          value={implementation}
-          onChange={(val) => onUpdate({ implementation: val })}
-          allowDeselect={false}
-        />
-        <Text size="xs" c="dimmed">
-          {options.find((option) => option.value === implementation)?.description}
-        </Text>
+      <PropertySection title="What it calls" hint={choosable ? 'Everything below follows from this.' : CHANGE_IN_EXPERT_MODE}>
+        {choosable ? (
+          <Select
+            aria-label="Implementation"
+            data={options.map(({ value, label }) => ({ value, label }))}
+            value={implementation}
+            onChange={(val) => onUpdate({ implementation: val })}
+            allowDeselect={false}
+          />
+        ) : (
+          <Text size="sm" fw={500}>{chosen?.label}</Text>
+        )}
+        <Text size="xs" c="dimmed">{chosen?.description}</Text>
       </PropertySection>
 
       {implementation === 'connector' && (
@@ -173,7 +175,13 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </PropertySection>
       )}
 
-      {implementation === 'script' && expertMode && (
+      {script === 'summary' && (
+        <PropertySection title="The script" hint={CHANGE_IN_EXPERT_MODE}>
+          <Code block>{asText(data.script)}</Code>
+        </PropertySection>
+      )}
+
+      {script === 'edit' && (
         <PropertySection title="The script" hint="Runs here, with the process variables available to it.">
           <Textarea
             aria-label="Script"
@@ -192,7 +200,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </PropertySection>
       )}
 
-      {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
+      <LoopSettings data={data} onUpdate={onUpdate} />
 
       <NodeTestModal
         data={data}

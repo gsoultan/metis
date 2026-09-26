@@ -9,6 +9,7 @@
  */
 import { migrateConnectorMappings } from '../domain/connectorMappings';
 import type { Edge, Node } from '@xyflow/react';
+import { heldOnce, storedName } from './settingNames';
 import type { BPMNEdgeData, BPMNNodeData } from '../types/bpmn';
 import type {
   ApiFlow,
@@ -35,19 +36,18 @@ export function mapLoadedNodes(rawNodes: ApiNode[] = []): Node<BPMNNodeData>[] {
 }
 
 function mapLoadedNode(node: ApiNode): Node<BPMNNodeData> {
+  const settings = heldOnce(node.properties ?? {});
   return {
     id: node.id,
     type: node.type,
     position: { x: node.x, y: node.y },
-    // The data object intentionally spreads node.properties last so unknown
-    // server-side keys are preserved in the properties bag without polluting
-    // the typed surface.
     data: {
-      // Every stored setting, under the name the server uses. The property
-      // editors read several of them directly — decision_key, input_mapping,
-      // connector_id — and without this they opened blank for a node that was
-      // configured, which reads as "not set" and invites setting it again.
-      ...(node.properties ?? {}),
+      // Every stored setting, once, under the name the property panel reads.
+      // The editors read several under the server's name — decision_key,
+      // input_mapping, connector_id — and without them they opened blank for a
+      // node that was configured, which reads as "not set" and invites setting
+      // it again. See settingNames.ts for why once.
+      ...settings,
       // Needed by the discriminated union but we use a cast because the server
       // sends a plain string and the union covers all known values.
       nodeType: node.type as BPMNNodeData['nodeType'],
@@ -82,29 +82,9 @@ function mapLoadedNode(node: ApiNode): Node<BPMNNodeData> {
       width: node.width,
       height: node.height,
       isExpanded: node.is_expanded,
-      // Properties extracted from the server property bag
-      implementation: node.properties?.implementation as string | undefined,
-      connector_instance_id: node.properties?.connector_instance_id as string | undefined,
-      lockDuration: node.properties?.lock_duration as string | undefined,
-      httpUrl: node.properties?.http_url as string | undefined,
-      httpMethod: node.properties?.http_method as string | undefined,
-      headers: node.properties?.headers as string | undefined,
-      inputMapping: node.properties?.input_mapping as string | undefined,
-      outputMapping: node.properties?.output_mapping as string | undefined,
-      resultVariable: node.properties?.result_variable as string | undefined,
-      eventType: node.properties?.event_type as string | undefined,
-      timerType: node.properties?.timer_type as 'duration' | 'date' | 'cycle' | undefined,
-      duration: (node.properties?.timer_duration ?? node.condition) as string | undefined,
-      signalName: node.properties?.signal_name as string | undefined,
-      messageName: node.properties?.message_name as string | undefined,
-      correlationKey: node.properties?.correlation_key as string | undefined,
-      conditionExpression: node.properties?.condition_expression as string | undefined,
-      escalationCode: node.properties?.escalation_code as string | undefined,
-      activityRef: node.properties?.activity_ref as string | undefined,
-      nonInterrupting: node.properties?.non_interrupting as boolean | undefined,
-      formDefinition: node.properties?.form_definition,
-      // Raw property bag for round-trip preservation
-      properties: node.properties,
+      // A timer's wait, read from the condition column when it is not stored
+      // as a setting.
+      duration: (settings.duration ?? node.condition) as string | undefined,
     } as BPMNNodeData,
   };
 }
@@ -127,6 +107,16 @@ export function mapLoadedEdges(rawFlows: ApiFlow[] = []): Edge<BPMNEdgeData>[] {
       waypoints: flow.waypoints,
     },
   }));
+}
+
+/**
+ * Nodes read back from a draft kept in the browser, each setting held once.
+ *
+ * A draft kept before steps held each setting once can hold one up to three
+ * times. Put back as it was, a stale copy would be saved over the panel's.
+ */
+export function restoredNodes(nodes: Node<BPMNNodeData>[]): Node<BPMNNodeData>[] {
+  return nodes.map((node) => ({ ...node, data: heldOnce(node.data) as BPMNNodeData }));
 }
 
 // ─── React Flow → Server ─────────────────────────────────────────────────────
@@ -182,8 +172,13 @@ function mapNodeToPayload(node: Node<BPMNNodeData>): CreateNodePayload {
  *
  * So the rule is inverted. Anything the editors put on a node is configuration
  * unless it is either the designer's own business or has a column of its own on
- * the payload, and the aliases below only exist to give a camelCase editor field
- * the name the server stores it under.
+ * the payload, and it is sent under the name the server stores it by
+ * (settingNames.ts).
+ *
+ * `properties` is the nested copy of the server's settings that steps used to
+ * carry. A draft kept in the browser before that changed can still hold one,
+ * and it is never sent: what it held is on the step itself, minus whatever
+ * was deleted since.
  */
 const CANVAS_ONLY_KEYS = new Set([
   'label', 'nodeType', 'documentation', 'status', 'heatmapValue', 'properties',
@@ -198,53 +193,15 @@ const CANVAS_ONLY_KEYS = new Set([
   'width', 'height', 'isExpanded',
 ]);
 
-/** Editor field name → the name the server stores the setting under. */
-const PROPERTY_ALIASES: Record<string, string> = {
-  connectorInstanceId: 'connector_instance_id',
-  lockDuration: 'lock_duration',
-  httpUrl: 'http_url',
-  httpMethod: 'http_method',
-  inputMapping: 'input_mapping',
-  outputMapping: 'output_mapping',
-  resultVariable: 'result_variable',
-  eventType: 'event_type',
-  timerType: 'timer_type',
-  duration: 'timer_duration',
-  signalName: 'signal_name',
-  messageName: 'message_name',
-  correlationKey: 'correlation_key',
-  conditionExpression: 'condition_expression',
-  escalationCode: 'escalation_code',
-  activityRef: 'activity_ref',
-  nonInterrupting: 'non_interrupting',
-  formDefinition: 'form_definition',
-  decisionKey: 'decision_key',
-  decisionVersion: 'decision_version',
-  calledProcessKey: 'called_process_key',
-  calledProcessVersion: 'called_process_version',
-};
-
-/**
- * The editor field an older editor writes a stored setting under, if any.
- *
- * A step field is written under the name the server stores it by. If an editor
- * also holds it under a camelCase alias, a value loaded earlier would be
- * renamed onto the same key on save and could outvote the edit, so a writer
- * clears the alias as it sets the field.
- */
-export function editorKeyFor(storedKey: string): string | undefined {
-  return Object.keys(PROPERTY_ALIASES).find((editorKey) => PROPERTY_ALIASES[editorKey] === storedKey);
-}
-
 /**
  * A node's settings under the names the server stores them by — what a deploy
  * sends, and what trying one step sends.
  */
 export function nodeProperties(d: BPMNNodeData): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...(d['properties'] as Record<string, unknown> ?? {}) };
+  const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(d)) {
     if (value === undefined || CANVAS_ONLY_KEYS.has(key)) continue;
-    out[PROPERTY_ALIASES[key] ?? key] = value;
+    out[storedName(key)] = value;
   }
   return out;
 }

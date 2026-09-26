@@ -90,14 +90,15 @@ describe('designer palette coverage', () => {
     }
   });
 
-  it('gives every placeable type somewhere to configure it', () => {
+  it('gives every placeable type somewhere to configure it', async () => {
     // A palette entry with no config panel is a step you can draw and cannot
     // finish: an error end event whose code cannot be set throws an empty one,
     // which every boundary catches, so two different failures become
     // indistinguishable.
-    const panel = read('ui', 'src', 'components', 'PropertyPanel.tsx');
+    const { CONFIG_REGISTRY } = await import('../components/properties/nodeConfigRegistry');
+    const { ThrowEventConfig } = await import('../components/properties/ThrowEventConfig');
     for (const type of ['errorEndEvent', 'escalationThrowEvent', 'compensationThrowEvent']) {
-      expect(panel).toContain(`${type}: ThrowEventConfig`);
+      expect(CONFIG_REGISTRY[type]).toBe(ThrowEventConfig);
     }
   });
 });
