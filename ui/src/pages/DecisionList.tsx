@@ -20,7 +20,7 @@ import { DecisionListCard } from '../components/decisions/DecisionListCard';
 import { DeleteDecisionModal } from '../components/decisions/DeleteDecisionModal';
 import { PageHeader } from '../components/PageHeader';
 import { useDecisionSummaries, useDecisions } from '../hooks/useDecisions';
-import type { ApiDecision } from '../services/types';
+import type { ApiDecisionSummary } from '../services/types';
 import { useTranslation } from '../i18n/context';
 
 export const DECISIONS_PAGE_SIZE = 25;
@@ -37,9 +37,9 @@ export function DecisionList({ onEdit, hideHeader }: { onEdit: (id: string) => v
   const listed = useDecisions(page, DECISIONS_PAGE_SIZE, sentSearch);
   const keys = useDecisionSummaries();
   const [wizardOpened, setWizardOpened] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ApiDecision | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ApiDecisionSummary | null>(null);
 
-  const rows = listed.data?.decisions ?? [];
+  const rows = listed.data?.summaries ?? [];
   const afterDelete = () => {
     setPendingDelete(null);
     // The last row of a page is gone; the page before it is the one that exists.

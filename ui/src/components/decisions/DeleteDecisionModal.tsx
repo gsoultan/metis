@@ -19,7 +19,7 @@ export function DeleteDecisionModal({
   onDeleted,
 }: {
   /** The decision waiting for "yes, delete it"; null when nothing is. */
-  decision: ApiDecision | null;
+  decision: Pick<ApiDecision, 'id' | 'key' | 'name'> | null;
   onClose: () => void;
   onDeleted: () => void;
 }) {

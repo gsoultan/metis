@@ -114,10 +114,15 @@ func (s *decisionService) ListDecisionsPaged(ctx context.Context, projectID uuid
 	return repocontracts.NewPage(decisions, result.Total, page), nil
 }
 
-// ListDecisionSummaries returns one page of a project's decision keys, each as
-// its newest version, without the tables.
-func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error) {
-	result, err := s.repo.Decision().ListLatestByProject(ctx, projectID, page)
+// ListDecisionSummaries returns one page of a project's decision keys, one row
+// each, without the tables: the decision list, a step's picker and the
+// dependency graph all want every key once, and which version of it is live.
+func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error) {
+	if utf8.RuneCountInString(search) > maxDecisionSearch {
+		return repocontracts.Page[entities.DecisionSummary]{}, apierr.Invalidf(
+			"a search is at most %d characters, the longest a decision's name or key can be", maxDecisionSearch)
+	}
+	result, err := s.repo.Decision().ListKeysByProject(ctx, projectID, search, page)
 	if err != nil {
 		return repocontracts.Page[entities.DecisionSummary]{}, err
 	}
@@ -128,7 +133,11 @@ func (s *decisionService) ListDecisionSummaries(ctx context.Context, projectID u
 			Key:               m.Key,
 			Name:              m.Name,
 			Version:           m.Version,
+			HitPolicy:         m.HitPolicy,
 			RequiredDecisions: m.RequiredDecisions,
+			LiveVersion:       m.LiveVersion,
+			NewestVersion:     m.NewestVersion,
+			LastChangedAt:     m.LastChangedAt,
 		}
 	}
 	return repocontracts.NewPage(summaries, result.Total, page), nil

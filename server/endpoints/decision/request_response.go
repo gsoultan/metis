@@ -37,11 +37,17 @@ func (r ListDecisionsResponse) Failed() error { return r.Err }
 // ListDecisionSummariesRequest asks for one page of a project's decision keys.
 type ListDecisionSummariesRequest struct {
 	ProjectID string `json:"project_id,omitzero"`
-	Page      int    `json:"page,omitzero"`
-	PageSize  int    `json:"page_size,omitzero"`
+
+	// Search keeps the keys whose key, or live version's name, contains it,
+	// ignoring case. Empty lists them all.
+	Search string `json:"q,omitzero"`
+
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
 }
 
-// ListDecisionSummariesResponse carries each key as its newest version.
+// ListDecisionSummariesResponse carries each key once, with its live and
+// newest versions.
 type ListDecisionSummariesResponse struct {
 	Page      *PageInfo                  `json:"page,omitempty"`
 	Summaries []entities.DecisionSummary `json:"summaries,omitzero"`

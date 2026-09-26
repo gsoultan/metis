@@ -5,6 +5,11 @@
  * page sits in the whole. The searching and the paging happen on the server;
  * the list used to load up to a thousand full tables, one request after
  * another, to show twenty-five rows of them.
+ *
+ * A row is a decision, not a version of one. Every save is a new version, and
+ * a row per version showed a table edited five times five times, none of them
+ * saying which was in force. Each row names the live version — what opening it
+ * opens — and the newest when that is waiting behind it.
  */
 import { ActionIcon, Badge, Box, Button, Card, Group, Pagination, Skeleton, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
 import dayjs from 'dayjs';
@@ -12,17 +17,18 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { Edit2, Search, Table2, Trash2 } from 'lucide-react';
 
 import { hitPolicyOf } from '../../domain/decisionTable';
+import { decisionRowVersions } from '../../domain/decisionVersions';
 import { pageSpan } from '../../domain/pageSpan';
-import type { ApiDecision } from '../../services/types';
+import type { ApiDecisionSummary } from '../../services/types';
 import { ErrorState } from '../state';
 
 dayjs.extend(relativeTime);
 
-const COLUMNS = 5;
+const COLUMNS = 6;
 const SEARCH_MAX_LENGTH = 255;
 
 export interface DecisionListCardProps {
-  rows: ApiDecision[];
+  rows: ApiDecisionSummary[];
   /** How many decisions match, across every page. */
   total: number;
   page: number;
@@ -35,7 +41,7 @@ export interface DecisionListCardProps {
   error: unknown;
   onRetry: () => void;
   onEdit: (id: string) => void;
-  onDelete: (decision: ApiDecision) => void;
+  onDelete: (decision: ApiDecisionSummary) => void;
   onCreate: () => void;
 }
 
@@ -141,9 +147,9 @@ function DecisionRow({
   onEdit,
   onDelete,
 }: {
-  decision: ApiDecision;
+  decision: ApiDecisionSummary;
   onEdit: (id: string) => void;
-  onDelete: (decision: ApiDecision) => void;
+  onDelete: (decision: ApiDecisionSummary) => void;
 }) {
   const policy = hitPolicyOf(decision.hit_policy || 'FIRST');
   return (
@@ -164,6 +170,9 @@ function DecisionRow({
         </Badge>
       </Table.Td>
       <Table.Td>
+        <VersionBadges decision={decision} />
+      </Table.Td>
+      <Table.Td>
         {/* The letter code means nothing to whoever owns the rule; what it settles does. */}
         <Tooltip label={policy?.description ?? decision.hit_policy}>
           <Badge variant="light" color="blue" styles={{ label: { textTransform: 'none' } }}>
@@ -173,12 +182,12 @@ function DecisionRow({
       </Table.Td>
       <Table.Td>
         <Text size="xs" c="dimmed">
-          {dayjs(decision.created_at).fromNow()}
+          {decision.last_changed_at ? dayjs(decision.last_changed_at).fromNow() : '—'}
         </Text>
       </Table.Td>
       <Table.Td>
         <Group gap="xs" justify="flex-end">
-          <Tooltip label="Edit decision">
+          <Tooltip label="Open the live version">
             <ActionIcon aria-label={`Edit ${decision.name}`} variant="light" color="blue" onClick={() => onEdit(decision.id)}>
               <Edit2 size={16} />
             </ActionIcon>
@@ -194,6 +203,39 @@ function DecisionRow({
   );
 }
 
+/**
+ * Which version is in force, and which is waiting behind it. The live version
+ * is what a step that names no version reads, so it is the single most
+ * important thing a row can say about a decision.
+ */
+function VersionBadges({ decision }: { decision: ApiDecisionSummary }) {
+  const { live, staged } = decisionRowVersions(decision);
+  return (
+    <Group gap={6} wrap="nowrap">
+      {live !== null ? (
+        <Tooltip label="Steps that name no version use this one.">
+          <Badge color="green" variant="light" styles={{ label: { textTransform: 'none' } }}>
+            v{live} live
+          </Badge>
+        </Tooltip>
+      ) : (
+        <Tooltip label="No version is in force, so a step that names no version fails.">
+          <Badge color="orange" variant="light" styles={{ label: { textTransform: 'none' } }}>
+            Nothing live
+          </Badge>
+        </Tooltip>
+      )}
+      {staged !== null && (
+        <Tooltip label={live !== null ? `Saved, and not in use: steps still use v${live}.` : 'Saved, and not in use.'}>
+          <Badge color="blue" variant="outline" styles={{ label: { textTransform: 'none' } }}>
+            v{staged} staged
+          </Badge>
+        </Tooltip>
+      )}
+    </Group>
+  );
+}
+
 function SkeletonRows() {
   return Array.from({ length: 4 }).map((_, i) => (
     <Table.Tr key={i}>
@@ -202,6 +244,9 @@ function SkeletonRows() {
       </Table.Td>
       <Table.Td>
         <Skeleton height={16} width="40%" />
+      </Table.Td>
+      <Table.Td>
+        <Skeleton height={16} width={60} />
       </Table.Td>
       <Table.Td>
         <Skeleton height={16} width={60} />
@@ -225,9 +270,10 @@ function HeaderRow() {
           <span>Reference</span>
         </Tooltip>
       </Table.Th>
+      <Table.Th>Version</Table.Th>
       <Table.Th>Hit Policy</Table.Th>
-      {/* The column read "Last Modified" and showed created_at. */}
-      <Table.Th>Created</Table.Th>
+      {/* When a version was last saved or made live: the history, not the row's birthday. */}
+      <Table.Th>Last changed</Table.Th>
       <Table.Th ta="right">Actions</Table.Th>
     </Table.Tr>
   );

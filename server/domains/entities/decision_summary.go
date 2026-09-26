@@ -1,18 +1,35 @@
 package entities
 
-import "github.com/google/uuid"
+import (
+	"time"
 
-// DecisionSummary is one decision key, as its newest version, without the
-// table: enough to name it, open it, and say which decisions it requires.
+	"github.com/google/uuid"
+)
+
+// DecisionSummary is one decision key, without the table: enough to name it,
+// open it, say which version of it is in force, and say which decisions it
+// requires.
 //
-// The dependency graph and a step's decision picker need every key a project
-// has. They were given full definitions to learn that — every version of
-// every table, its lines and its examples included — a thousand at a time,
-// before the page showed a row.
+// One per key rather than one per version. Every save of a decision is a new
+// version, so a list of versions shows a table edited five times five times,
+// and not which of the five is in force.
 type DecisionSummary struct {
+	// ID, Name, Version, HitPolicy and RequiredDecisions are the live
+	// version's — what opening the row opens and what an evaluation that names
+	// no version reads — or the newest's when no version is live.
 	ID                uuid.UUID `json:"id"`
 	Key               string    `json:"key"`
 	Name              string    `json:"name"`
 	Version           int       `json:"version"`
+	HitPolicy         string    `json:"hit_policy,omitzero"`
 	RequiredDecisions []string  `json:"required_decisions,omitzero"`
+
+	// LiveVersion is the version in force, zero when none is. NewestVersion
+	// is the highest stored; above LiveVersion, it is staged: saved, and
+	// waiting to be made live.
+	LiveVersion   int `json:"live_version"`
+	NewestVersion int `json:"newest_version"`
+
+	// LastChangedAt is when a version was last saved or made live.
+	LastChangedAt time.Time `json:"last_changed_at,omitzero"`
 }

@@ -34,11 +34,13 @@ type DecisionRepository interface {
 	// at a time rather than by loading all of it.
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, search string, p Pagination) (Page[models.DecisionDefinitionModel], error)
 
-	// ListLatestByProject returns one page of a project's decision keys, each
-	// as its newest version and without the table columns, ordered by key: what
-	// a picker or the dependency graph needs, and a small fraction of what the
-	// full rows weigh.
-	ListLatestByProject(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.DecisionSummaryModel], error)
+	// ListKeysByProject returns one page of a project's decision keys, one
+	// row each without the table columns, ordered by key: the live version,
+	// the newest, and when either last changed. What the decision list, a
+	// picker or the dependency graph needs, and a small fraction of what the
+	// full rows weigh. A non-empty search keeps the keys whose key, or shown
+	// version's name, contains it, ignoring case.
+	ListKeysByProject(ctx context.Context, projectID uuid.UUID, search string, p Pagination) (Page[models.DecisionSummaryModel], error)
 
 	// NextVersion proposes the version a new deployment of key should claim,
 	// counted over the rows the (project_id, key, version) unique index covers.

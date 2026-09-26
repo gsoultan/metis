@@ -10,12 +10,6 @@ import { raiseIfRefused } from "../raise";
 
 type PageResponse = { total: number; page: number; page_size: number; has_more: boolean };
 
-type DecisionListResponse = {
-  decisions?: ApiDecision[];
-  page?: PageResponse;
-  err?: string;
-};
-
 type DecisionSummaryListResponse = {
   summaries?: ApiDecisionSummary[];
   page?: PageResponse;
@@ -96,15 +90,11 @@ type EvaluateDecisionResponse = {
 };
 
 export const decisionService = {
-  async listDecisions(projectId: string, page?: DecisionListPage, signal?: AbortSignal) {
-    const data = await requestJSON<DecisionListResponse>(`/decisions?${pageQuery(projectId, page)}`, { signal });
-    return { decisions: data.decisions ?? [], err: data.err, pageInfo: pageInfoOf(data.page) };
-  },
-
   /**
-   * One page of the project's decision keys, each as its newest version and
-   * without the table: for views that need every decision's name and
-   * dependencies, and none of its lines.
+   * One page of the project's decisions, one row per key and without the
+   * table: its live version, the newest, and when either last changed. The
+   * decision list reads it a page at a time, searched on the server; the views
+   * that need every decision's name and dependencies read all of it.
    */
   async listDecisionSummaries(projectId: string, page: DecisionListPage, signal?: AbortSignal) {
     const data = await requestJSON<DecisionSummaryListResponse>(

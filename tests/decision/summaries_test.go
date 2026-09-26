@@ -72,43 +72,53 @@ func (w listWorld) siblingProject(t *testing.T) uuid.UUID {
 	return id
 }
 
-func TestDecisionSummariesNameEachKeyOnceAsItsNewestVersion(t *testing.T) {
+func TestDecisionSummariesNameEachKeyOnceAsItsLiveVersion(t *testing.T) {
 	w := newListWorld(t)
 	w.deploy(t, w.project, "credit-band", "Credit band")
 	w.deploy(t, w.project, "credit-band", "Credit band, revised", "risk")
 	w.deploy(t, w.project, "risk", "Risk")
 	w.deploy(t, w.siblingProject(t), "elsewhere", "In another project")
 
-	page, err := w.svc.ListDecisionSummaries(w.ctx, w.project, repocontracts.Pagination{})
+	// A third version, staged: saved, and not what anything evaluates.
+	live, err := w.repo.Decision().GetByKeyAndVersion(w.ctx, w.project, "credit-band", 2)
+	if err != nil {
+		t.Fatalf("read the live credit-band: %v", err)
+	}
+	draft := entities.DecisionDefinition{
+		Key: "credit-band", Name: "Credit band, draft", HitPolicy: entities.HitPolicyFirst,
+		Outputs: []entities.DecisionOutput{{ID: "out", Label: "Band", Name: "band", Type: "string"}},
+		Rules:   []entities.DecisionRule{{ID: "r1", Inputs: []string{"-"}, Outputs: []any{"LOW"}}},
+	}
+	if _, err := w.svc.UpdateDecision(w.ctx, uuid.UUID(live.ID), draft, false); err != nil {
+		t.Fatalf("stage v3: %v", err)
+	}
+
+	page, err := w.svc.ListDecisionSummaries(w.ctx, w.project, "", repocontracts.Pagination{})
 	if err != nil {
 		t.Fatalf("list the summaries: %v", err)
 	}
 	want := []entities.DecisionSummary{
-		{Key: "credit-band", Name: "Credit band, revised", Version: 2, RequiredDecisions: []string{"risk"}},
-		{Key: "risk", Name: "Risk", Version: 1},
+		{Key: "credit-band", Name: "Credit band, revised", Version: 2, RequiredDecisions: []string{"risk"}, LiveVersion: 2, NewestVersion: 3},
+		{Key: "risk", Name: "Risk", Version: 1, LiveVersion: 1, NewestVersion: 1},
 	}
 	if page.Total != int64(len(want)) || len(page.Items) != len(want) {
 		t.Fatalf("got %d summaries of %d, want %d: %+v", len(page.Items), page.Total, len(want), page.Items)
 	}
 	for i, got := range page.Items {
-		if got.ID == uuid.Nil {
-			t.Errorf("summary %d has no id to open it by", i)
+		if got.ID == uuid.Nil || got.LastChangedAt.IsZero() {
+			t.Errorf("summary %d has no id to open it by, or no time it last changed: %+v", i, got)
 		}
-		got.ID = uuid.Nil
 		if got.Key != want[i].Key || got.Name != want[i].Name || got.Version != want[i].Version ||
+			got.LiveVersion != want[i].LiveVersion || got.NewestVersion != want[i].NewestVersion ||
 			!slices.Equal(got.RequiredDecisions, want[i].RequiredDecisions) {
 			t.Errorf("summary %d = %+v, want %+v", i, got, want[i])
 		}
 	}
 
-	// The id is the newest version's, so opening a summary opens what the
-	// engine evaluates.
-	newest, err := w.repo.Decision().GetByKeyAndVersion(w.ctx, w.project, "credit-band", 2)
-	if err != nil {
-		t.Fatalf("read the newest credit-band: %v", err)
-	}
-	if page.Items[0].ID != uuid.UUID(newest.ID) {
-		t.Errorf("credit-band opens %v, want the newest version %v", page.Items[0].ID, uuid.UUID(newest.ID))
+	// The id is the live version's, so opening a summary opens what the
+	// engine evaluates rather than the draft staged beside it.
+	if page.Items[0].ID != uuid.UUID(live.ID) {
+		t.Errorf("credit-band opens %v, want the live version %v", page.Items[0].ID, uuid.UUID(live.ID))
 	}
 }
 
@@ -120,7 +130,7 @@ func TestDecisionSummariesArePagedByKey(t *testing.T) {
 
 	var keys []string
 	for number := 1; number <= 2; number++ {
-		page, err := w.svc.ListDecisionSummaries(w.ctx, w.project, repocontracts.Pagination{Page: number, PageSize: 2})
+		page, err := w.svc.ListDecisionSummaries(w.ctx, w.project, "", repocontracts.Pagination{Page: number, PageSize: 2})
 		if err != nil {
 			t.Fatalf("list page %d: %v", number, err)
 		}
@@ -184,6 +194,11 @@ func TestDecisionListRefusesASearchLongerThanAnyName(t *testing.T) {
 	_, err := w.svc.ListDecisionsPaged(w.ctx, w.project, strings.Repeat("x", 256), repocontracts.Pagination{})
 	if !errors.Is(err, apierr.ErrInvalidArgument) {
 		t.Fatalf("a 256-character search: got %v, want an invalid-argument refusal", err)
+	}
+	// The list of keys is searched the same way, and refuses the same.
+	_, err = w.svc.ListDecisionSummaries(w.ctx, w.project, strings.Repeat("x", 256), repocontracts.Pagination{})
+	if !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Fatalf("a 256-character search of the keys: got %v, want an invalid-argument refusal", err)
 	}
 	page, err := w.svc.ListDecisionsPaged(w.ctx, w.project, strings.Repeat("é", 255), repocontracts.Pagination{})
 	if err != nil || page.Total != 0 {

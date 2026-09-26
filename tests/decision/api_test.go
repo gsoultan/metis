@@ -124,10 +124,15 @@ func (a *decisionAPI) as(t *testing.T, role, method, path string, body any) (int
 // table is a one-line credit band table in the harness's project, answering
 // band for any score over ten.
 func (a *decisionAPI) table(band string) map[string]any {
+	return a.tableFor("credit-band", "Credit band", band)
+}
+
+// tableFor is table under another key and name.
+func (a *decisionAPI) tableFor(key, name, band string) map[string]any {
 	return map[string]any{
 		"project":    map[string]any{"id": a.project.String()},
-		"key":        "credit-band",
-		"name":       "Credit band",
+		"key":        key,
+		"name":       name,
 		"hit_policy": entities.HitPolicyFirst,
 		"inputs":     []any{map[string]any{"id": "in", "label": "Score", "expression": "score", "type": "number"}},
 		"outputs":    []any{map[string]any{"id": "out", "label": "Band", "name": "band", "type": "string"}},
@@ -139,7 +144,13 @@ func (a *decisionAPI) table(band string) map[string]any {
 // its id.
 func (a *decisionAPI) create(t *testing.T, band string) string {
 	t.Helper()
-	status, body := a.as(t, entities.RoleDesigner, http.MethodPost, "/api/v1/decisions", map[string]any{"decision": a.table(band)})
+	return a.createTable(t, a.table(band))
+}
+
+// createTable stores table, as a designer, and returns its id.
+func (a *decisionAPI) createTable(t *testing.T, table map[string]any) string {
+	t.Helper()
+	status, body := a.as(t, entities.RoleDesigner, http.MethodPost, "/api/v1/decisions", map[string]any{"decision": table})
 	id, _ := body["id"].(string)
 	if status != http.StatusOK || id == "" {
 		t.Fatalf("create: status %d (%v)", status, body)

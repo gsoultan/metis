@@ -63,8 +63,8 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	}
 }
 
-// MakeListDecisionSummariesEndpoint lists a project's decision keys, each as its
-// newest version, without the tables.
+// MakeListDecisionSummariesEndpoint lists a project's decision keys, one row
+// each with its live and newest versions, without the tables.
 func MakeListDecisionSummariesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req, ok := request.(ListDecisionSummariesRequest)
@@ -75,7 +75,7 @@ func MakeListDecisionSummariesEndpoint(s services.ServiceFacade) endpoint.Endpoi
 		if err != nil {
 			return ListDecisionSummariesResponse{Err: err}, nil
 		}
-		page, err := s.ListDecisionSummaries(ctx, projectID, repocontracts.Pagination{
+		page, err := s.ListDecisionSummaries(ctx, projectID, req.Search, repocontracts.Pagination{
 			Page:     req.Page,
 			PageSize: req.PageSize,
 		})

@@ -12,11 +12,11 @@ import { MantineProvider } from '@mantine/core';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { CollectedPages } from '../domain/allPages';
-import type { ApiDecision, ApiDecisionSummary } from '../services/types';
+import type { ApiDecisionSummary } from '../services/types';
 
 interface Stage {
   listCalls: unknown[][];
-  rows: ApiDecision[];
+  rows: ApiDecisionSummary[];
   total: number;
   summaries: { data?: CollectedPages<ApiDecisionSummary>; isLoading: boolean; isError: boolean };
 }
@@ -31,7 +31,7 @@ mock.module('../hooks/useDecisions', () => ({
   useDecisions: (...args: unknown[]) => {
     stage.listCalls.push(args);
     return {
-      data: { decisions: stage.rows, pageInfo: { total: stage.total, page: 1, pageSize: 25, hasMore: stage.total > 25 } },
+      data: { summaries: stage.rows, pageInfo: { total: stage.total, page: 1, pageSize: 25, hasMore: stage.total > 25 } },
       isLoading: false,
       error: null,
       refetch: () => {},
@@ -48,7 +48,15 @@ mock.module('@tanstack/react-router', () => ({ ...router, useNavigate: () => () 
 
 const { DecisionList } = await import('./DecisionList');
 
-const row = (i: number): ApiDecision => ({ id: `id-${i}`, key: `d${i}`, name: `Decision ${i}`, version: 1, hit_policy: 'FIRST' });
+const row = (i: number, live = 1, newest = live): ApiDecisionSummary => ({
+  id: `id-${i}`,
+  key: `d${i}`,
+  name: `Decision ${i}`,
+  version: live || newest,
+  hit_policy: 'FIRST',
+  live_version: live,
+  newest_version: newest,
+});
 const summary = (i: number, requires: string[] = []): ApiDecisionSummary => ({
   id: `id-${i}`,
   key: `d${i}`,
@@ -106,6 +114,28 @@ describe('the decision list page', () => {
     const failed = textOf(render());
     expect(failed).toContain('The decisions could not be loaded, so how they fit together cannot be shown.');
     expect(failed).toContain('Decision 0');
+  });
+
+  it('shows each decision once, with the version in force and the one waiting behind it', () => {
+    stage.rows = [row(0, 2, 3), row(1, 1, 1)];
+    stage.total = 2;
+    stage.summaries = { data: { items: [], truncated: false, total: 0 }, isLoading: false, isError: false };
+
+    const text = textOf(render());
+    expect(text).toContain('v2 live');
+    expect(text).toContain('v3 staged');
+    expect(text).toContain('v1 live');
+    expect(text.match(/Decision 0/g)?.length).toBe(1);
+  });
+
+  it('says so when no version of a decision is live', () => {
+    stage.rows = [row(0, 0, 1)];
+    stage.total = 1;
+    stage.summaries = { data: { items: [], truncated: false, total: 0 }, isLoading: false, isError: false };
+
+    const text = textOf(render());
+    expect(text).toContain('Nothing live');
+    expect(text).toContain('v1 staged');
   });
 
   it('counts decisions, not versions of them, when the graph stops short', () => {

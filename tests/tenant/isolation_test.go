@@ -292,12 +292,13 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 				want: []uuid.UUID{f.notificationA, f.systemNotification},
 			},
 			// Both organizations hold a decision under the same key; the other
-			// one's is the newer version, so a summary that picked the newest
-			// row regardless of tenant would answer with it.
+			// one's is the newer version, and each is live in its own project,
+			// so a list that picked a row regardless of tenant would answer
+			// with it.
 			{
 				name: "decision keys of another tenant's project",
 				read: func() ([]uuid.UUID, error) {
-					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, f.projectB, contracts.Pagination{})
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListKeysByProject(ctx, f.projectB, "", contracts.Pagination{})
 					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: nil,
@@ -305,7 +306,7 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 			{
 				name: "decision keys across all projects",
 				read: func() ([]uuid.UUID, error) {
-					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, uuid.Nil, contracts.Pagination{})
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListKeysByProject(ctx, uuid.Nil, "", contracts.Pagination{})
 					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: []uuid.UUID{f.decisionA},

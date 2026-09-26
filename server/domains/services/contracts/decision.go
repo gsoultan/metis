@@ -51,9 +51,11 @@ type DecisionManager interface {
 // callers that want it — the dependency graph, a step's decision picker — want
 // nothing else from the service.
 type DecisionCatalog interface {
-	// ListDecisionSummaries returns one page of a project's decision keys, each
-	// as its newest version, ordered by key.
-	ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error)
+	// ListDecisionSummaries returns one page of a project's decision keys,
+	// one row each with its live and newest versions, ordered by key and
+	// narrowed to the keys whose key or name contains search when it is not
+	// empty.
+	ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error)
 }
 
 // DecisionVersioning is a decision key's history, and the choice of which
