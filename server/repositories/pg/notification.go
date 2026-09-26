@@ -87,6 +87,55 @@ func (r *notificationRepository) ListByUser(ctx context.Context, userID string) 
 	return out, nil
 }
 
+// CountUnreadByUser counts one person's unread notifications: one COUNT, over
+// every one of them the caller's organization may see.
+func (r *notificationRepository) CountUnreadByUser(ctx context.Context, userID string) (int64, error) {
+	inbox, err := r.inboxOf(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	unread, err := inbox.Where(notification.IsRead.Eq(false)).Count(ctx, ex)
+	if err != nil {
+		return 0, fmt.Errorf("could not count the unread notifications: %w", err)
+	}
+	return unread, nil
+}
+
+// inboxOf is one person's notifications as the caller may see them, with the
+// scope in the query rather than applied to its rows afterwards.
+//
+// It is the scope projectFilter applies row by row: the projects of the
+// caller's organization, and no project at all, because a system message is
+// addressed to the person and belongs to no organization. Filtering after the
+// read is only right when the read is every row. After a capped one it counts
+// and pages what the cap let through — the newest thousand of the person's
+// notifications across all their organizations, of which this one may hold
+// none.
+func (r *notificationRepository) inboxOf(ctx context.Context, userID string) (notification.Query, error) {
+	scope, err := r.scopeOf(ctx)
+	if err != nil {
+		return notification.Query{}, err
+	}
+	inbox := notification.New().Where(notification.UserID.Eq(userID))
+	if scope.unrestricted() {
+		return inbox, nil
+	}
+	if len(scope.projects) == 0 {
+		return inbox.Where(notification.ProjectID.IsNull()), nil
+	}
+	// The project list before the null test: storm's Any keeps what comes
+	// before an IsNull and silently drops what follows it, so the other order
+	// would match the system messages alone.
+	return inbox.Any(
+		notification.ProjectID.In(uuidsToRaw(scope.projects)...),
+		notification.ProjectID.IsNull(),
+	), nil
+}
+
 func (r *notificationRepository) MarkAsRead(ctx context.Context, id uuid.UUID) error {
 	row, err := r.one(ctx, id)
 	if err != nil {

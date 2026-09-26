@@ -33,6 +33,8 @@ func (r *recordingNotifier) MarkAsRead(context.Context, uuid.UUID) error { retur
 func (r *recordingNotifier) MarkAllAsRead(context.Context, string) error { return nil }
 func (r *recordingNotifier) Delete(context.Context, uuid.UUID) error     { return nil }
 
+func (r *recordingNotifier) CountUnreadByUser(context.Context, string) (int64, error) { return 0, nil }
+
 func (r *recordingNotifier) recipients() []string {
 	out := make([]string, 0, len(r.sent))
 	for _, n := range r.sent {

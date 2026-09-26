@@ -79,6 +79,16 @@ func (s *notificationService) ListByUser(ctx context.Context, userID string) ([]
 	return ns, nil
 }
 
+// CountUnreadByUser counts a person's unread notifications where they are kept.
+//
+// The bell used to count them in the browser, among the notifications the list
+// had sent it — the newest thousand — so an unread one older than those was
+// never counted. Counting here is one statement and a number on the wire,
+// which is also what makes it cheap enough to poll.
+func (s *notificationService) CountUnreadByUser(ctx context.Context, userID string) (int64, error) {
+	return s.repo.CountUnreadByUser(ctx, userID)
+}
+
 func (s *notificationService) MarkAsRead(ctx context.Context, id uuid.UUID) error {
 	return s.repo.MarkAsRead(ctx, id)
 }

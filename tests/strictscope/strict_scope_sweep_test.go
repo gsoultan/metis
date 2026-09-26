@@ -91,6 +91,8 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 		"/api/v1/connectors/instances",
 		"/api/v1/connector-manifests",
 		"/api/v1/notifications",
+		// What the bell polls, for the signed-in person.
+		"/api/v1/users/me/notifications/unread-count",
 		"/api/v1/webhooks",
 		"/api/v1/setup/status",
 		// Absent from this list until a soak found it. ExportOCEL was registered

@@ -982,6 +982,33 @@ func TestTenantIsolation_NoTenantContextReadsWhatTheFlagAllows(t *testing.T) {
 		}
 		assertSameIDs(t, idsOf(notifications, func(m models.NotificationModel) uuid.UUID { return uuid.UUID(m.ID) }),
 			wantNotifications)
+
+		// The bell's count is scoped as the list is, in both cases. Every
+		// fixture notification is unread, so it counts what the list shows.
+		unread, err := pg.NewNotificationRepository(testutils.StormConn(db)).CountUnreadByUser(ctx, sharedUserID)
+		if err != nil {
+			t.Fatalf("count unread notifications: %v", err)
+		}
+		if unread != int64(len(wantNotifications)) {
+			t.Errorf("counted %d unread notifications; the list shows %d", unread, len(wantNotifications))
+		}
+	})
+}
+
+// TestTenantIsolation_UnreadCountIsScopedAsTheListIs counts, as organization A,
+// the notifications the list shows A: its own and the system message, and not
+// B's, which is addressed to the same user id. Every fixture notification is
+// unread.
+func TestTenantIsolation_UnreadCountIsScopedAsTheListIs(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		f := seedTenantFixture(t, db)
+		unread, err := pg.NewNotificationRepository(testutils.StormConn(db)).CountUnreadByUser(f.ctxAsA(t), sharedUserID)
+		if err != nil {
+			t.Fatalf("count unread notifications: %v", err)
+		}
+		if unread != 2 {
+			t.Errorf("as A, counted %d unread notifications; A's own and the system message make 2", unread)
+		}
 	})
 }
 

@@ -13,6 +13,19 @@ type ListNotificationsResponse struct {
 	Error         string                  `json:"error,omitzero"`
 }
 
+// CountUnreadNotificationsRequest names nobody: the count is the signed-in
+// person's.
+type CountUnreadNotificationsRequest struct{}
+
+// CountUnreadNotificationsResponse is how many of the signed-in person's
+// notifications are unread.
+type CountUnreadNotificationsResponse struct {
+	UnreadCount int64 `json:"unread_count"`
+	Err         error `json:"err,omitzero"`
+}
+
+func (r CountUnreadNotificationsResponse) Failed() error { return r.Err }
+
 type MarkAsReadRequest struct {
 	ID string `json:"id"`
 }

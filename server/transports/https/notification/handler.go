@@ -17,6 +17,16 @@ func RegisterHandlers(m *http.ServeMux, eps notification.Endpoints, options []ht
 		options...,
 	))
 
+	// Under users/me, beside the profile and the password: what is read here is
+	// the session's own, and there is nothing in the request to name anybody
+	// else by.
+	m.Handle("GET /api/v1/users/me/notifications/unread-count", httptransport.NewServer(
+		eps.CountUnreadNotifications,
+		decodeCountUnreadNotificationsRequest,
+		common.EncodeResponse,
+		options...,
+	))
+
 	m.Handle("POST /api/v1/notifications/{id}/read", httptransport.NewServer(
 		eps.MarkAsRead,
 		decodeMarkAsReadRequest,
@@ -43,6 +53,10 @@ func decodeListNotificationsRequest(_ context.Context, r *http.Request) (any, er
 	return notification.ListNotificationsRequest{
 		UserID: r.URL.Query().Get("user_id"),
 	}, nil
+}
+
+func decodeCountUnreadNotificationsRequest(context.Context, *http.Request) (any, error) {
+	return notification.CountUnreadNotificationsRequest{}, nil
 }
 
 func decodeMarkAsReadRequest(_ context.Context, r *http.Request) (any, error) {

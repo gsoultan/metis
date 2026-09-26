@@ -50,6 +50,8 @@ func (s *storingNotifier) MarkAsRead(context.Context, uuid.UUID) error { return 
 func (s *storingNotifier) MarkAllAsRead(context.Context, string) error { return nil }
 func (s *storingNotifier) Delete(context.Context, uuid.UUID) error     { return nil }
 
+func (s *storingNotifier) CountUnreadByUser(context.Context, string) (int64, error) { return 0, nil }
+
 type countingChannel struct {
 	delivered int
 	err       error
