@@ -287,6 +287,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the webhooks card had been named one at a time. The theme now names every one
   of them, in the interface's language: "Close", or "Tutup" in Indonesian. A
   dialog that names its own close button keeps its name.
+- **In dark mode the webhooks card's "Add a webhook" button and message badges
+  could not be read.** axe measured the button's white label at 2.99:1 and the
+  badges' text at 2.14:1, where AA asks for 4.5:1, and the red "Stop accepting
+  legacy signatures now" in the card's dialog at 2.30:1. A button, badge or
+  icon given no colour of its own fell back to the dark scheme's lighter blue
+  under a label chosen for the light scheme's darker one, and every
+  light-variant control kept, in dark mode, the dark text meant for a light
+  tint. They now take the theme's filled shade in both schemes and the
+  scheme's own text on a tint: 5.02:1, 11.77:1 and 11.75:1 in dark mode, and
+  nothing changes in light mode. The same controls read on every other page
+  too: across six pages scanned in dark mode, contrast failures fell from 70
+  to 31, and the 31 left belong to other components and were there before.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,
