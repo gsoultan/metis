@@ -38,6 +38,32 @@ type evaluator struct {
 	// authors write `status = approved`; left off for ordinary expressions,
 	// where a name means a variable.
 	lenientEquality bool
+
+	// unconverted holds variables that are in scope but not yet read, as the Go
+	// values they arrived as. lookup converts one the first time it is read and
+	// keeps it in scope.
+	//
+	// A decision cell sees every variable the decision was evaluated with and
+	// reads one or two of them, and a table tests every cell of every line.
+	// Converting them all up front made that cost grow with the process's data:
+	// an order with five thousand lines was converted once per cell, whether or
+	// not a cell mentioned it.
+	unconverted map[string]any
+}
+
+// lookup returns the value of a name in scope, and whether it is in scope at
+// all.
+func (e *evaluator) lookup(name string) (Value, bool) {
+	if value, ok := e.scope[name]; ok {
+		return value, true
+	}
+	raw, ok := e.unconverted[name]
+	if !ok {
+		return Null, false
+	}
+	value := FromAny(raw)
+	e.scope[name] = value
+	return value, true
 }
 
 func (e *evaluator) eval(node Node) (Value, error) {
@@ -53,7 +79,7 @@ func (e *evaluator) eval(node Node) (Value, error) {
 		return n.Value, nil
 
 	case *Name:
-		value, ok := e.scope[n.Text]
+		value, ok := e.lookup(n.Text)
 		if !ok {
 			// An unknown name is null, per the specification. It is not an
 			// error: a decision table routinely tests inputs a given instance
@@ -313,7 +339,7 @@ func (e *evaluator) asTextIfUnresolved(node Node, value Value) Value {
 	if !isName {
 		return value
 	}
-	if _, inScope := e.scope[name.Text]; inScope {
+	if _, inScope := e.lookup(name.Text); inScope {
 		return value
 	}
 	return Str(name.Text)
@@ -618,7 +644,7 @@ func (e *evaluator) evalUnaryTest(n *UnaryTest) (Value, error) {
 		// `otherInput` keep their FEEL meaning. The ambiguity only resolves
 		// toward text when there is nothing to resolve toward.
 		if name, ok := n.Expr.(*Name); ok {
-			if _, inScope := e.scope[name.Text]; !inScope {
+			if _, inScope := e.lookup(name.Text); !inScope {
 				return Bool(equal(input, Str(name.Text))), nil
 			}
 		}

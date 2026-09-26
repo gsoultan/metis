@@ -24,10 +24,11 @@ func EvaluateUnaryTests(cell string, input any, vars map[string]any) (bool, erro
 		return false, err
 	}
 
-	scope := NewScope(vars)
-	scope[InputName] = FromAny(input)
-
-	result, err := Eval(node, scope)
+	// Only the input is converted up front; a variable is converted when the
+	// cell reads it. The input is in scope before any variable is looked at,
+	// so it is what `_input` names whatever the variables hold.
+	e := &evaluator{scope: Scope{InputName: FromAny(input)}, unconverted: vars}
+	result, err := e.eval(node)
 	if err != nil {
 		return false, err
 	}
