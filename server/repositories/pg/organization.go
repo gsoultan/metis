@@ -46,6 +46,9 @@ func (r *organizationRepository) Get(ctx context.Context, id uuid.UUID) (models.
 // than the row itself is the contract the setup wizard and the organization
 // picker already read, and narrowing it here would make the picker's "which
 // tenant am I in" question unanswerable.
+//
+// System work sees every organization, not the store's first thousand; the id
+// breaks ties in name so the keyset cursor is a position.
 func (r *organizationRepository) List(ctx context.Context) ([]models.OrganizationModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -56,14 +59,14 @@ func (r *organizationRepository) List(ctx context.Context) ([]models.Organizatio
 		return nil, err
 	}
 
-	q := organization.New().Order(organization.Name.Asc())
+	q := organization.New().Order(organization.Name.Asc(), organization.ID.Asc())
 	if !scope.unrestricted() {
 		if scope.organization == uuid.Nil {
 			return nil, nil
 		}
 		q = q.Where(organization.ID.Eq(scope.organization))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[organization.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list organizations: %w", err)
 	}
