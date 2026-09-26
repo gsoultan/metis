@@ -990,8 +990,33 @@
   - The last PR: the architecture audit and its eight cheap fixes.
   - Decisions left open are in the final report and in the Serena memory
     `verified-findings`: manifest scoping and the built-in override, the canary cohort,
-    OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
-    service task's script runs, and task-edit authorization.
+    ~~OIDC users' organizations~~ (decided and delivered as `IAM-05`, entry below), the
+    RabbitMQ bridge, decision versioning, whether a service task's script runs, and
+    task-edit authorization.
+- 2026-09-26 (completed): `IAM-05` — somebody signing in through OIDC can be placed in an
+  organization. Branch `oidc-organizations`.
+  - The gap: with `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, every OIDC user was refused with
+    401 on every organization-scoped endpoint. The token's claims were the principal and
+    carry no membership, so the tenant resolver — rightly, since P0-SEC-05 — refused them.
+    OIDC was unusable in practice.
+  - Decided by the product owner and delivered: `METIS_OIDC_ORGANIZATION_CLAIM` names the
+    claim listing a person's organizations, matched by organization **id** (names are not
+    unique and change); a first sign-in creates an account linked to (issuer, subject),
+    never by email, with no role — the inbox needs none; the account is the principal,
+    admitted to exactly the organizations its token's claim names, and each sign-in makes
+    its memberships match the claim (every membership a linked account has came from its
+    claim, so nothing an administrator granted is undone). No claim configured, none in
+    the token, or none naming an organization here: 403 naming what is missing, and no
+    account. Migration 27 adds `users.identity_issuer`/`identity_subject`.
+  - Tests that failed first: `tests/auth/oidc_organizations_test.go` and
+    `oidc_refusals_test.go` against a fake issuer (go-oidc's `oidctest`) — 401 before;
+    `tests/migrations/user_identity_link_test.go` — the index missing before.
+  - Found, not changed: while OIDC is on, the API takes only the provider's tokens and
+    refuses a local account's with 401 — the mandatory interceptor has one strategy. It
+    was so before and is documented now; running both is a decision of its own.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
+    set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
+    scope each; UI typecheck, lint (0 errors) and 1377 tests pass.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
