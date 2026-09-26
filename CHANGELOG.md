@@ -10,6 +10,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **`--reset-password` could give an account that signs in through an
+  identity provider a password here.** The maintenance command set one on
+  whatever account it was named — including one linked to the provider, which
+  has none — and printed it. That was a second way in that the provider did not
+  control: it kept working after the provider disabled the person, and skipped
+  whatever the provider asks for at sign-in. Such an account is now refused,
+  with a message naming the provider to reset the password at, and nothing
+  about it changes. Local accounts reset as before.
+- **A task nobody was named for could be taken by anybody in its
+  organization.** A user task with no assignee, no candidate users and no
+  candidate groups could be claimed and completed by anybody signed in to
+  its organization, with variables of their own — somebody in accounts
+  payable could pick up an approval nobody had meant them to have. Such a
+  task is now the administrators' and operators' to take: they may claim it,
+  complete it, or give it to somebody by delegating or assigning it, and
+  *Available to Claim* lists it for them. Anybody else gets a 403 that says
+  the task has no assignee and no candidates and that an administrator or an
+  operator can take it, and the inbox's board no longer offers them Claim on
+  it. A manual task, which the designer has no field to name anybody for, is
+  still anybody's. The designer warns about a user task that names nobody.
+
+  **Upgrading:** a process whose user tasks name nobody stops being workable
+  by the members who took those tasks from the board: they are refused them
+  and not offered them, and the work waits for an administrator or an
+  operator, whose *Available to Claim* lists it. Give each such step an
+  assignee, candidate users or candidate groups — the designer points them
+  out, and `docs/upgrading.md` has the query for the tasks already waiting —
+  and deploy. Until then `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the
+  old rule back for a migration window: anybody signed in may claim and
+  complete such a task, and it is offered to everybody. It is off by
+  default, and the server warns at boot while it is on.
 - **A captured webhook delivery could be replayed as often as anyone liked.**
   A webhook signature covered the body alone; the delivery ID that
   de-duplication keys on was unsigned, and nothing was timestamped. A delivery
@@ -144,7 +175,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   account's memberships match the claim, so an organization the provider stops
   naming is left. Somebody the claim places nowhere now gets a 403 naming the
   setting or claim that is missing, and the log says so; a token that does not
-  verify is still a 401, and so, while OIDC is on, is a local account's token.
+  verify is still a 401. Local accounts sign in beside it (see **Changed**).
   See *Signing in with OIDC* in `docs/integration.md`.
 
   Upgrading: migration 27 adds `identity_issuer` and `identity_subject` to
@@ -232,6 +263,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **Local accounts sign in while OIDC is on.** With `OIDC_ISSUER` and
+  `OIDC_CLIENT_ID` set, the API took the identity provider's ID tokens and
+  refused every local account's token with 401, so an installation that turned
+  OIDC on lost its break-glass administrator whenever the provider was
+  unreachable. Both kinds are accepted now, and each is checked by its own rules
+  alone, chosen by what the token says it is: a token signed with an HMAC and
+  naming no issuer is a local one, checked against `JWT_SECRET` exactly as
+  before; one signed with a public key is an ID token, checked against the
+  provider's keys, issuer, audience and expiry and signed in as the account
+  linked to it, as before; anything else — an HMAC token that names an issuer,
+  `alg: none` — is refused unchecked. A token its own rules refuse is not tried
+  against the other's, so one signed with `JWT_SECRET` that names the provider
+  as its issuer is refused. Without OIDC nothing changes. See *Signing in with
+  OIDC* in `docs/integration.md`.
+
+  **Upgrading:** if you turned OIDC on to keep local accounts out, it no longer
+  does — every local account whose password works can sign in again, the
+  administrator the setup wizard created included. Delete the ones nobody
+  should use, and keep one administrator with a strong password held offline
+  for the day the provider is down.
 - **Saving a decision table adds a version; it no longer rewrites the one you
   opened.** Every save stores the edit as the decision's next version, and a
   stored version is never changed again, so what an instance decided under v3
@@ -318,6 +369,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   place, the shared error formatter, and only from the very start of a
   message, so a sentence that merely uses one of the words keeps it; logs and
   a failed page's "Technical details" keep the whole text.
+- **Authentication errors lost a word to the redactor.** Errors and logs pass
+  through a redactor that hides whatever follows a secret's name and a colon,
+  so `missing or invalid token: the ID token names no issuer` read
+  `missing or invalid token: ***REDACTED*** ID token names no issuer`, and
+  `invalid token: no such user` read `invalid token: ***REDACTED*** such user` —
+  the first word of every such error, in the log, in the reply a client is shown
+  and in stored incidents. It also spent itself on that word: in
+  `token: jwt: <a token>` it hid `jwt:` and left the token in clear. What
+  follows the colon is now kept only when it reads as the next word of a
+  sentence: a space after the colon, a plain word, and more words after it on
+  the same line. After a password's, a secret's or a key's name, the word must
+  also open the next link of an error chain (`password: bcrypt: …`), because
+  such a value can be a plain word with a sentence after it. Anything else is
+  redacted as before, including a token or password after `token:`,
+  `password=`, in JSON, in a URL's query and in an `Authorization` header.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,
