@@ -103,6 +103,9 @@ type App struct {
 	// environments is what runs for each environment, so one that is deleted
 	// or disabled can be stopped. See environment_runtime.go.
 	environments environmentRuntimes
+	// rabbitMQ runs the RabbitMQ bridges and consumers the environment names.
+	// Nil when it names none, which is the default. See rabbitmq.go.
+	rabbitMQ *rabbitMQRunner
 }
 
 const (
@@ -788,7 +791,8 @@ func (a *App) startSharedLimits(ctx context.Context) {
 
 // startBackgroundWork starts everything that acts on its own: the job workers,
 // the scheduled directory syncs, the SSE fan-out, the per-environment workers,
-// the shared rate-limit counters and the retention sweeps.
+// the shared rate-limit counters, the retention sweeps, and the RabbitMQ
+// bridges and consumers the environment names.
 //
 // This used to be the tail of setupService, which runs at step 3 — *before* the
 // --reset-password branch returns at step 3b. So a password reset started ten
@@ -815,6 +819,9 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	a.watchEnvironments(ctx)
 	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
+	// Off unless configured. Each starts in the background, so a broker, a
+	// project or a connection that is not there yet does not hold up the boot.
+	a.startRabbitMQ(ctx)
 }
 
 // startSSEFanout connects this replica's SSE observer to the shared bus, so a
@@ -1145,14 +1152,27 @@ func (a *App) runServers(ctx context.Context) error {
 	drainCtx, cancelDrain := context.WithTimeout(context.Background(), ShutdownDrainBudget())
 	defer cancelDrain()
 	//nolint:contextcheck // Not inheriting the cancelled ctx is the whole point; see above.
-	if stopErr := a.svc.StopWorkers(drainCtx); stopErr != nil {
-		log.Error().Err(stopErr).Msg("Draining the job worker failed")
-	}
+	a.stopBackgroundWork(drainCtx)
 
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server crashed: %w", err)
 	}
 	return nil
+}
+
+// stopBackgroundWork drains the job worker and stops the RabbitMQ bridges and
+// consumers, side by side, within ctx.
+//
+// Side by side rather than one after the other: a bridge blocked dialling a
+// broker that has gone away must not spend the time in-flight jobs have to
+// finish.
+func (a *App) stopBackgroundWork(ctx context.Context) {
+	var stopping sync.WaitGroup
+	stopping.Go(func() { a.stopRabbitMQ(ctx) })
+	if err := a.svc.StopWorkers(ctx); err != nil {
+		log.Error().Err(err).Msg("Draining the job worker failed")
+	}
+	stopping.Wait()
 }
 
 // ShutdownDrainBudget is the ceiling on the whole drain, a little above the

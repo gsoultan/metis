@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
@@ -143,18 +144,35 @@ func (a *App) startEnvironmentWorkers(ctx context.Context) {
 	log.Info().Int("environments", len(ids)).Msg("Background workers started per environment")
 }
 
-// organizationOfProject answers which tenant a project belongs to.
-//
-// Read under a system context because it is asked on behalf of background work
-// that legitimately spans tenants — the point of the question is to find out
-// which one, so it cannot be asked from inside one.
+// organizationOfProject answers which tenant a project belongs to, for the
+// event stream, which has nobody to tell why it could not.
 func (a *App) organizationOfProject(ctx context.Context, projectID uuid.UUID) (uuid.UUID, bool) {
-	project, err := a.repo.Project().Get(entities.WithSystemContext(ctx), projectID)
+	organization, err := a.projectOrganization(ctx, projectID)
 	if err != nil {
 		log.Debug().Err(err).Str("project", projectID.String()).
 			Msg("Could not resolve a project's organization, so an event was not delivered to any browser.")
 		return uuid.Nil, false
 	}
+	return organization, true
+}
+
+// projectOrganization answers which tenant a project belongs to, or says why it
+// cannot.
+//
+// Read under a system context because it is asked on behalf of background work
+// that legitimately spans tenants — the point of the question is to find out
+// which one, so it cannot be asked from inside one.
+func (a *App) projectOrganization(ctx context.Context, projectID uuid.UUID) (uuid.UUID, error) {
+	project, err := a.repo.Project().Get(entities.WithSystemContext(ctx), projectID)
+	if errors.Is(err, apierr.ErrNotFound) {
+		return uuid.Nil, fmt.Errorf("project %s does not exist", projectID)
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("could not read project %s: %w", projectID, err)
+	}
 	organization := uuid.UUID(project.OrganizationID)
-	return organization, organization != uuid.Nil
+	if organization == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("project %s belongs to no organization", projectID)
+	}
+	return organization, nil
 }

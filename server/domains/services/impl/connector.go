@@ -172,7 +172,7 @@ func NewConnectorService(
 	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
 	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
 	s.executors[sqlconnector.Key] = sqlconnector.New()
-	s.executors["rabbitmq-publish"] = NewRabbitMQExecutor()
+	s.executors[RabbitMQConnectorKey] = NewRabbitMQExecutor()
 
 	// Discord Connector
 	s.executors["discord-message"] = &DiscordMessageExecutor{}
@@ -547,7 +547,7 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 		},
 		{
 			ID:          uuid.MustParse("018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a1c"),
-			Key:         "rabbitmq-publish",
+			Key:         RabbitMQConnectorKey,
 			Name:        "RabbitMQ Publisher",
 			Description: "Publish a message to a RabbitMQ exchange",
 			Icon:        "Send",
@@ -775,6 +775,11 @@ func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]
 // go. One pushed out is closed.
 const maxBrokerConnections = 32
 
+// RabbitMQConnectorKey names the built-in RabbitMQ connector: the one a service
+// task publishes through, and the kind of connection a RabbitMQ bridge or
+// consumer reaches its broker by.
+const RabbitMQConnectorKey = "rabbitmq-publish"
+
 type RabbitMQExecutor struct {
 	conns *lru.Cache[string, *amqp.Connection]
 	// dialing makes concurrent first publishes to one URL share a dial. Each
@@ -899,7 +904,7 @@ func BuiltInConnectorKeys() []string {
 		"http-json",
 		"slack-message",
 		"email-smtp",
-		"rabbitmq-publish",
+		RabbitMQConnectorKey,
 		"discord-message",
 		"sendgrid-email",
 		"ms-teams-message",
