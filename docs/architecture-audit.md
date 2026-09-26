@@ -3,9 +3,10 @@
 The three open items under `.junie/roadmap.md` §9.2, checked against commit
 `ad1b477` on `roadmap-architecture`, 2026-09-25.
 
-**Since then** (#93, #94 and this branch): defects 1.1, 3.6, 3.8, 3.9, 3.12,
-3.13, 3.14 and 3.15 are fixed, 1.2 in part, and the environment defect found on
-the way; the eight cheap fixes are done. Each is listed, with the test that
+**Since then** (#93–#95, `roadmap-chaos` and this branch): defects 1.1, 3.6,
+3.7, 3.8, 3.9, 3.12, 3.13, 3.14 and 3.15 are fixed, 1.2 in part, and the
+environment defect found on the way; the eight cheap fixes are done; and the
+load tests found and fixed reads that stopped at a thousand rows. Each is listed, with the test that
 fails without it, under
 [Fixed since the data was taken](#fixed-since-the-data-was-taken). The rows
 below are left as found, so the reasoning stays readable.
@@ -289,7 +290,9 @@ delivered after it.
 | 3.12: external-task completion lost one of two parallel advances | Completion reads the instance for update | `impl/external_task.go` `Complete`; `tests/bpmn/external_task_parallel_test.go` |
 | 3.13: claim, unclaim, delegate, assign and update read the task without a lock | Every one takes a locking read, `TaskRepository.GetForUpdate`, so none writes a stale copy over a completion | `impl/task.go` `lockedTask`; `tests/task/claim_race_test.go`, `tests/task/release_race_test.go` |
 | Found on the way: deleting an environment left it served until a restart | Deleting or disabling one stops its listener, its workers and its connections on every replica within 15 s. Creating or re-enabling one still takes a restart | `internal/app/environment_runtime.go`; `internal/app/environment_runtime_test.go` (#94) |
-| The eight cheap fixes below | Applied, one commit each, on this branch. Nothing listed was still referenced | this branch's history |
+| The eight cheap fixes below | Applied, one commit each, on this branch. Nothing listed was still referenced, except `principal.LocalUserID`, which the self-service profile (#96) now calls and which stays | this branch's history |
+| 3.7: live-update hints reached browsers before the data they point to committed | Delivery waits for `UnitOfWork().AfterCommit` and is dropped on a rollback, local and cross-replica alike | `server/domains/observers/impl/sse.go` `DeliverAfterCommitWith`; `tests/sse/after_commit_test.go` (#95) |
+| Found by the load tests: reads that stopped at a thousand rows | A generated storm query starts with a limit of 1,000, and reads the engine acts on relied on it as if it were unbounded: a signal woke the first thousand waiting instances, a migration moved the newest thousand, a deadline withdrew a thousand tasks. Those reads now walk every row with a keyset cursor (`pg.everyRow`) | `server/repositories/pg/every_row.go`; `tests/bpmn/signal_audience_test.go` and the tests beside each fix (`roadmap-chaos`) |
 | 3.14: external-task failure ran without a transaction, raised no incident at zero retries, and never read `retryTimeout` | One transaction; an incident at zero; the wait is honoured; a sweep offers again a task stranded at zero with no incident | `impl/external_task.go` `HandleFailure`; `server/repositories/pg/external_task.go` `ReofferStranded`; `tests/bpmn/external_task_failure_test.go`, `tests/postgres/external_task_reoffer_test.go` |
 | 3.15: an unknown node type was a silent hang | Deploy refuses a type the engine does not declare; the null handler fails | `server/domains/validation/visitor.go`; `handlers/null.go`; `tests/bpmn/unknown_node_type_test.go` |
 
