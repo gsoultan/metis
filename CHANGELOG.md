@@ -280,6 +280,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A decision cell could not compare with another column, or with any other
+  variable of the decision.** A cell was tested with its own column's value and
+  nothing else, so `> minimum` beside a minimum column — or `> credit_limit`, a
+  variable the table has no column for — compared with nothing: no error, the
+  line just never matched. `!= minimum` matched every case, and a range between
+  two columns, `[low..high]`, failed the decision with "cannot compare a number
+  with a null". A cell now sees what DMN gives it: its own column's value as
+  the implicit subject (`_input`, which no variable can shadow) and every
+  variable the decision was evaluated with, by the names the columns read, the
+  answers of required decisions included. A word on its own, with no operator,
+  is still the word unless it names one of the table's columns: `manager` in an
+  approval matrix stays the word even when the process holds a variable called
+  manager, and `= manager` asks for the variable. `?` and names with spaces are
+  still not part of the FEEL subset. **Upgrading:** a table with such cells
+  decides as written from now on, rather than as if the value were missing, and
+  a lone word that is another column's name now means that column.
+  `docs/upgrading.md` (*Decision cells see the rest of the case*) has a query
+  that lists them.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

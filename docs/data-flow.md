@@ -54,6 +54,15 @@ for this line" — which is why the last row matches anything.
 **The `amount` in the Condition header is a variable name.** That is the join
 between the table and the process: the decision looks up `amount` in the bag.
 
+A condition can compare with something else in the bag by naming it, instead of
+with a value written into the cell. Beside a `minimum` column, `> minimum`
+passes an amount above the minimum that came with it; `> credit_limit` compares
+with a variable the table has no column for; `[low..high]` checks a band whose
+ends are two other variables. The cell's own column is always the thing being
+tested. A word on its own, with no `>` or `=` in front, is still just that word
+— `approved` means the text "approved" — unless it is the name of one of the
+table's own columns, which it then means. `= approved` asks for the variable.
+
 ## Trace
 
 ### 1. Someone starts the process

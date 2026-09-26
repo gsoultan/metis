@@ -16,9 +16,16 @@ func Evaluate(expression string, vars map[string]any) (Value, error) {
 	return Eval(node, NewScope(vars))
 }
 
-// EvaluateUnaryTests evaluates a DMN decision-table cell against an input
-// value. An empty cell, or `-`, matches anything.
-func EvaluateUnaryTests(cell string, input any, vars map[string]any) (bool, error) {
+// EvaluateUnaryTests evaluates a DMN decision-table cell against the case in
+// front of it. An empty cell, or `-`, matches anything.
+//
+// input is the value of the cell's own column: what every test compares, and
+// what `_input` names. vars are the variables the decision was evaluated with,
+// every one in scope by name, so `< maximum` compares with another column and
+// `> credit_limit` with a variable no column reads. columns are the variables
+// the table's condition columns read; they decide what a lone word means (see
+// evalUnaryTest).
+func EvaluateUnaryTests(cell string, input any, vars map[string]any, columns []string) (bool, error) {
 	node, err := unaryTestCache.parse(cell, ParseUnaryTests)
 	if err != nil {
 		return false, err
@@ -27,7 +34,7 @@ func EvaluateUnaryTests(cell string, input any, vars map[string]any) (bool, erro
 	// Only the input is converted up front; a variable is converted when the
 	// cell reads it. The input is in scope before any variable is looked at,
 	// so it is what `_input` names whatever the variables hold.
-	e := &evaluator{scope: Scope{InputName: FromAny(input)}, unconverted: vars}
+	e := &evaluator{scope: Scope{InputName: FromAny(input)}, unconverted: vars, columns: columns}
 	result, err := e.eval(node)
 	if err != nil {
 		return false, err
@@ -97,8 +104,9 @@ func (c *astCache) parse(text string, parse func(string) (Node, error)) (Node, e
 //
 // It differs from Evaluate in one way: in an equality comparison, a bare word
 // that names no variable is read as text. That is what lets `status = approved`
-// mean what its author meant, and it matches how the same ambiguity is resolved
-// in decision cells. Conditions in deployed definitions are written that way —
+// mean what its author meant. Decision cells have the same leniency, narrowed
+// to the table's own columns (see evalUnaryTest). Conditions in deployed
+// definitions are written that way —
 // the legacy evaluator compared the right-hand side as a literal — so reading
 // it as an unresolvable variable would turn working gateways into dead ones.
 //

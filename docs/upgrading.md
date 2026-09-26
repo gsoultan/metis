@@ -54,6 +54,44 @@ on it; this adds a `NOT VALID` check first and validates that under
 `SHARE UPDATE EXCLUSIVE`, which readers and writers do not contend with, so the
 exclusive lock is held for a catalog update rather than a scan.
 
+## Decision cells see the rest of the case
+
+No migration, but decisions can answer differently after the upgrade, and the
+tables that will are ones you can find first.
+
+A condition cell used to be tested against its own column's value and nothing
+else. A cell that named anything — `> minimum`, `> credit_limit`,
+`[low..high]` — compared with nothing: the line did not match, `!=` matched
+every case, and a range failed the decision with "cannot compare a number with
+a null". A cell now sees every variable the decision is evaluated with, as DMN
+specifies, so each of those compares with what it names. A table that has them
+decides as written from the upgrade on, where before it decided as if the named
+value were missing.
+
+A word on its own, with no operator, is still the word, with one exception: a
+word that is the name of another column of the same table is now that column's
+value. `manager` in a table with a `manager` column compares with that column;
+write `"manager"` to mean the word.
+
+To list the cells worth a look before upgrading:
+
+```sql
+SELECT d.key, d.version, cell
+FROM decision_definitions d
+CROSS JOIN LATERAL jsonb_array_elements(d.rules::jsonb) AS rule
+CROSS JOIN LATERAL jsonb_array_elements_text(rule -> 'inputs') AS cell
+WHERE cell ~ '(>=|<=|!=|<|>|=)\s*[A-Za-z_]'
+   OR cell ~ '[A-Za-z_]\w*\s*\.\.|\.\.\s*[A-Za-z_]'
+   OR btrim(cell) IN (SELECT btrim(input ->> 'expression')
+                      FROM jsonb_array_elements(d.inputs::jsonb) AS input)
+ORDER BY d.key, d.version;
+```
+
+It covers every stored version, and errs toward listing too much: a function
+call such as `> date("2026-01-01")` shows up and decides exactly as before.
+Rolling the release back restores the old reading; nothing is stored
+differently.
+
 ## Migration 26: decisions have a live version
 
 Saving a decision now adds a version instead of rewriting the one you opened,

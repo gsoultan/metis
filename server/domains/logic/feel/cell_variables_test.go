@@ -36,7 +36,7 @@ func TestACellConvertsOnlyTheVariablesItReads(t *testing.T) {
 
 	for _, cell := range []string{"> 10", "> minimum", `"GOLD", "SILVER"`} {
 		allocations := testing.AllocsPerRun(20, func() {
-			if _, err := EvaluateUnaryTests(cell, 70.0, vars); err != nil {
+			if _, err := EvaluateUnaryTests(cell, 70.0, vars, nil); err != nil {
 				t.Fatalf("cell %q: %v", cell, err)
 			}
 		})
@@ -66,7 +66,7 @@ func TestAVariableReadByACellIsTheVariable(t *testing.T) {
 		{"> minimum, = minimum", 40.0, false},
 	}
 	for _, tc := range tests {
-		got, err := EvaluateUnaryTests(tc.cell, tc.input, vars)
+		got, err := EvaluateUnaryTests(tc.cell, tc.input, vars, nil)
 		if err != nil {
 			t.Fatalf("cell %q: %v", tc.cell, err)
 		}
@@ -76,10 +76,33 @@ func TestAVariableReadByACellIsTheVariable(t *testing.T) {
 	}
 }
 
+// TestInputIsTheCellsOwnValue: `_input` names the cell's own column even when
+// the variables hold one of that name, lone or after an operator.
+func TestInputIsTheCellsOwnValue(t *testing.T) {
+	vars := map[string]any{InputName: 1000.0}
+	tests := []struct {
+		cell string
+		want bool
+	}{
+		{"_input", true},
+		{"= _input", true},
+		{"< _input", false},
+	}
+	for _, tc := range tests {
+		got, err := EvaluateUnaryTests(tc.cell, 70.0, vars, nil)
+		if err != nil {
+			t.Fatalf("cell %q: %v", tc.cell, err)
+		}
+		if got != tc.want {
+			t.Errorf("cell %q against 70 beside a variable _input of 1000 = %v, want %v", tc.cell, got, tc.want)
+		}
+	}
+}
+
 func BenchmarkACellBesideALargeOrder(b *testing.B) {
 	vars := largeOrder()
 	for b.Loop() {
-		if _, err := EvaluateUnaryTests("> minimum", 70.0, vars); err != nil {
+		if _, err := EvaluateUnaryTests("> minimum", 70.0, vars, nil); err != nil {
 			b.Fatal(err)
 		}
 	}

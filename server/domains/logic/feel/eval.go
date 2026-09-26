@@ -3,12 +3,14 @@ package feel
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
 
-// InputName is the variable a decision-table cell compares against. The table
-// evaluator binds the row's input value to it before testing each cell.
+// InputName names the value of a decision-table cell's own column, which every
+// test in the cell compares. EvaluateUnaryTests binds it before any variable
+// is looked at, so a variable of the same name cannot shadow it.
 const InputName = "_input"
 
 // Scope holds the variables an expression can see.
@@ -49,6 +51,10 @@ type evaluator struct {
 	// an order with five thousand lines was converted once per cell, whether or
 	// not a cell mentioned it.
 	unconverted map[string]any
+
+	// columns are the variables a decision table's condition columns read. In
+	// a cell they decide what a lone word means; see evalUnaryTest.
+	columns []string
 }
 
 // lookup returns the value of a name in scope, and whether it is in scope at
@@ -629,8 +635,8 @@ func (e *evaluator) evalUnaryTest(n *UnaryTest) (Value, error) {
 	input := e.scope[InputName]
 
 	if n.Op == "" {
-		// A bare word in a decision cell is read as text when no variable of
-		// that name is in scope.
+		// A lone word in a decision cell — a name with no operator — is text,
+		// unless it names one of the table's columns or is `_input`.
 		//
 		// Strict FEEL says a bare name is always a variable reference, and
 		// Camunda requires cells to quote their strings. Real tables in this
@@ -640,13 +646,17 @@ func (e *evaluator) evalUnaryTest(n *UnaryTest) (Value, error) {
 		// null and stop matching, which for a deployed decision table means
 		// wrong answers rather than an error someone would notice.
 		//
-		// A variable of that name still wins, so `> threshold` and
-		// `otherInput` keep their FEEL meaning. The ambiguity only resolves
-		// toward text when there is nothing to resolve toward.
-		if name, ok := n.Expr.(*Name); ok {
-			if _, inScope := e.lookup(name.Text); !inScope {
-				return Bool(equal(input, Str(name.Text))), nil
-			}
+		// The table's columns decide it, not every variable in scope. A cell
+		// sees all of the decision's variables — for a business rule task with
+		// no input mapping, all of the process's — and a table's words must not
+		// change meaning with the process that consults it: `manager` in an
+		// approval matrix is the word, whether or not the process holds a
+		// variable called manager. The columns are the table's own and on
+		// screen in its editor, so `minimum` beside a minimum column keeps its
+		// FEEL meaning. With an operator a name is always the variable:
+		// `= manager`, `> threshold`.
+		if name, ok := n.Expr.(*Name); ok && !e.namesCellValue(name.Text) {
+			return Bool(equal(input, Str(name.Text))), nil
 		}
 		return e.testAgainst(input, n.Expr)
 	}
@@ -674,6 +684,12 @@ func (e *evaluator) evalUnaryTest(n *UnaryTest) (Value, error) {
 		return False, nil
 	}
 	return result, nil
+}
+
+// namesCellValue reports whether a lone word in a cell names a value rather
+// than being text: the cell's own `_input`, or one of the table's columns.
+func (e *evaluator) namesCellValue(word string) bool {
+	return word == InputName || slices.Contains(e.columns, word)
 }
 
 func (e *evaluator) evalUnaryTests(n *UnaryTests) (Value, error) {
