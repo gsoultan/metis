@@ -1,9 +1,13 @@
 package entities
 
-import "github.com/google/uuid"
+import (
+	"time"
 
-// DefaultWebhookSignatureHeader is where a signature is looked for when the
-// sender's own header has not been named.
+	"github.com/google/uuid"
+)
+
+// DefaultWebhookSignatureHeader is where a legacy (v1) signature is looked for
+// first.
 //
 // There is no standard: GitHub uses X-Hub-Signature-256, Stripe uses
 // Stripe-Signature, others invent their own. This is the closest thing to a
@@ -25,7 +29,8 @@ type Webhook struct {
 	// can be read back is one that will be found in a response log.
 	Secret string `json:"secret,omitzero"`
 
-	// SignatureHeader is where the sender puts the signature.
+	// SignatureHeader is where a legacy sender puts its signature. A v2
+	// signature always travels in X-Metis-Signature.
 	SignatureHeader string `json:"signature_header,omitzero"`
 
 	// MessageName is the BPMN message a delivery becomes.
@@ -37,6 +42,11 @@ type Webhook struct {
 	CorrelationExpression string `json:"correlation_expression,omitzero"`
 
 	Enabled bool `json:"enabled"`
+
+	// LegacySignaturesUntil is when this webhook stops accepting legacy (v1)
+	// signatures, which cover the body alone. Nil means it accepts only v2,
+	// which is true of every webhook created since v2 existed.
+	LegacySignaturesUntil *time.Time `json:"legacy_signatures_until,omitzero"`
 }
 
 // WebhookDelivery is one inbound request, before anything is believed about it.
@@ -77,4 +87,10 @@ type WebhookOutcome struct {
 
 	MessageName    string `json:"message_name,omitzero"`
 	CorrelationKey string `json:"correlation_key,omitzero"`
+
+	// LegacySignaturesUntil is set when the delivery was signed the legacy
+	// way: it is when this webhook stops accepting that. It is in the reply so
+	// that it reaches whoever reads the sender's delivery log, who is the one
+	// person able to move the sender to v2.
+	LegacySignaturesUntil *time.Time `json:"legacy_signatures_until,omitzero"`
 }

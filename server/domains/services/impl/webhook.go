@@ -80,12 +80,8 @@ func (s *webhookService) Receive(ctx context.Context, delivery entities.WebhookD
 	// The signature, before anything is parsed. Nothing in the body is looked at
 	// — not even to see whether it is JSON — until it is known to have come from
 	// someone holding the secret.
-	if err := authenticateDelivery(hook, delivery, time.Now()); err != nil {
-		log.Warn().
-			Err(err).
-			Str("webhook", hook.Name).
-			Str("token", redactToken(delivery.Token)).
-			Msg("Refused a webhook delivery that did not authenticate")
+	legacyUntil, err := authenticateWebhookDelivery(hook, delivery)
+	if err != nil {
 		return entities.WebhookOutcome{}, err
 	}
 
@@ -105,7 +101,7 @@ func (s *webhookService) Receive(ctx context.Context, delivery entities.WebhookD
 	// remembered as delivered anyway: the sender's retry was answered
 	// "duplicate", the event was lost, and the sender had been told it
 	// arrived. Now a failed send forgets the delivery with it.
-	outcome := entities.WebhookOutcome{MessageName: hook.MessageName, CorrelationKey: correlationKey}
+	outcome := entities.WebhookOutcome{MessageName: hook.MessageName, CorrelationKey: correlationKey, LegacySignaturesUntil: legacyUntil}
 	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// The sender's own ID for this event, if it gave one. Without it there
 		// is no way to tell a retry from a new event, so the delivery is acted
@@ -119,7 +115,7 @@ func (s *webhookService) Receive(ctx context.Context, delivery entities.WebhookD
 			if !first {
 				// Answered as success. A sender that gets an error retries, and
 				// retrying is exactly what produced this.
-				outcome = entities.WebhookOutcome{Duplicate: true, MessageName: hook.MessageName}
+				outcome = entities.WebhookOutcome{Duplicate: true, MessageName: hook.MessageName, LegacySignaturesUntil: legacyUntil}
 				return nil
 			}
 		} else {
@@ -171,6 +167,9 @@ func (s *webhookService) CreateWebhook(ctx context.Context, hook entities.Webhoo
 		signatureHeader = entities.DefaultWebhookSignatureHeader
 	}
 
+	// No window for legacy signatures. A new webhook's sender is being set up
+	// now, so it can sign with v2 from the first delivery, and a window opened
+	// here would be ninety days in which its deliveries could be replayed.
 	m := models.WebhookModel{
 		Base:                  models.Base{ID: models.UUID(id)},
 		ProjectID:             models.UUID(hook.Project.ID),
@@ -191,6 +190,7 @@ func (s *webhookService) CreateWebhook(ctx context.Context, hook entities.Webhoo
 	hook.Secret = secret
 	hook.SignatureHeader = signatureHeader
 	hook.Enabled = true
+	hook.LegacySignaturesUntil = nil
 	return hook, nil
 }
 
@@ -210,6 +210,7 @@ func (s *webhookService) ListWebhooks(ctx context.Context, projectID uuid.UUID) 
 			MessageName:           m.MessageName,
 			CorrelationExpression: m.CorrelationExpression,
 			Enabled:               m.Enabled,
+			LegacySignaturesUntil: m.LegacySignaturesUntil,
 		}
 	}
 	return out, nil

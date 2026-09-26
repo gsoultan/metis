@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/metis/internal/pkg/webhooksig"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
@@ -39,10 +38,9 @@ func TestADeliveryThatFailedIsActedOnWhenTheSenderRetries(t *testing.T) {
 		service := serviceimpl.NewWebhookService(h.repo, &flakyEngine{ExecutionEngine: h.engine, failures: 1})
 		hook := h.register(t, "order.paid", "")
 		body := []byte(`{"order":{"id":"ORD-9"}}`)
+		// Each attempt signed when it is sent, as a sender's retries are.
 		send := func() (entities.WebhookOutcome, error) {
-			return service.Receive(h.ctx, entities.WebhookDelivery{
-				Token: hook.Token, LegacySignature: webhooksig.Sign(body, hook.Secret), DeliveryID: "d-9", Body: body,
-			})
+			return service.Receive(h.ctx, signedNow(hook, hook.Secret, body, "d-9"))
 		}
 		if _, err := send(); err == nil {
 			t.Fatal("the first attempt should have failed")
@@ -58,7 +56,7 @@ func TestADeliveryThatFailedIsActedOnWhenTheSenderRetries(t *testing.T) {
 	t.Run("the delivery named nothing to correlate with", func(t *testing.T) {
 		hook := h.register(t, "order.shipped", "order.id")
 		for i, body := range [][]byte{[]byte(`{"order":{}}`), []byte(`{"order":{"id":"ORD-10"}}`)} {
-			outcome, err := h.deliver(t, hook, body, webhooksig.Sign(body, hook.Secret), "d-10")
+			outcome, err := h.deliver(t, hook, body, "d-10")
 			if i == 0 {
 				if err == nil {
 					t.Fatal("a delivery with no correlation key was accepted")

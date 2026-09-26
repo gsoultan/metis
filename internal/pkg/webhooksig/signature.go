@@ -8,8 +8,8 @@
 // There are two schemes. v2 (v2.go) signs when the delivery was made and the
 // sender's ID for it as well as the body, which is what makes a captured
 // delivery useless to replay. v1, in this file, signs the body alone; it is
-// what every sender used before v2, and is kept for the ones that have not
-// moved yet.
+// what every sender used before v2, and a webhook accepts it only while its
+// window for legacy signatures is open.
 //
 // The checking is small and the ways to get it wrong are well known, so they are
 // all handled here rather than at the call site: comparison in constant time, no
