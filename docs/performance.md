@@ -11,6 +11,7 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 | :--- | :--- | :--- |
 | `tests/slo` | The HTTP handler meets the targets in-process, with one to two orders of magnitude of headroom. It catches a regression that costs an order of magnitude, such as an N+1 or a per-request compile. | Every `make test` |
 | `tests/loadtest` | The same targets hold with production-shaped volume across tenants. It catches a plan that flips at scale, which ten rows cannot show. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -v -timeout 30m`, sized with `METIS_LOADTEST_INSTANCES` and `METIS_LOADTEST_TENANTS` |
+| `tests/loadtest`, concurrent writes | Many people completing work at once, on a process that splits into two approvals, joins, and calls a partner. Every instance finishes once, every task is completed once, nothing is left at the join, and the partner is called once per instance under its own key. A second submission of a completion is refused with a 400, and nothing else may fail. The action target is asserted; throughput is reported. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run ConcurrentApprovals -v`, sized with `METIS_LOADTEST_WRITE_INSTANCES` (200) and `METIS_LOADTEST_WRITE_WORKERS` (16). `METIS_LOADTEST_SEED` replays an order of submissions |
 | The metrics endpoint | Production: `metis_http_request_duration_seconds` has buckets on the 150ms and 500ms lines, plus the engine's backlog and the connection pools. | Always, on its own port |
 | `deploy/grafana/metis-slo.json` | Availability and budget left over 30 days, burn rate, latency against the objectives, backlog, pools. | Import once |
 | `deploy/kubernetes/alerts.yaml` | Pages on the error budget's burn rate and on a backlog nobody is claiming. | With the rules loaded |
@@ -24,9 +25,27 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 | 5xx over those runs | 0.000% | 0.1% |
 | Process starts, PostgreSQL | 170,569 a minute | 10,000 |
 | Read p95, `tests/loadtest` at 500,000 instances | under 5ms | 150ms |
+| Completion p95, concurrent writes, 200 instances and 16 writers (2026-09-25) | 18.9–22.3ms | 500ms |
+| The same at 2,000 and at 5,000 instances | 19.5ms and 30.6ms | 500ms |
+| Start p95 in those runs | 16.7–37.0ms | 500ms |
+| Throughput in those runs | 314–424 instances/s end to end, 1,069–1,393 completions/s | reported |
 
 Throughput is reported rather than asserted: it is a property of the hardware,
 and a threshold would either prove nothing or fail on a busy machine.
+
+The concurrent writes were measured on an Apple M5 Pro (15 cores) with
+PostgreSQL 17.11 on the same machine, at a load average around 7. The job
+worker polled every 100ms (`METIS_JOB_POLL_INTERVAL`; the default is 2s), so
+instances/s measures the engine rather than the poll interval. With other
+suites sharing the CPU and the database (load average 20–40), the same test
+measured a completion p95 of 218ms at 2,000 instances and a start p95 of 766ms
+at 5,000. That was contention, not volume: rerun on a quiet machine, 5,000
+instances gave the figures above. Take a number to compare from a quiet machine.
+
+A deadlock or a serialization failure fails that test; it is not retried past.
+The engine serializes the work on one instance with a row lock at READ
+COMMITTED, and nothing retries a transaction, so either would reach the caller
+as a 500 for work that was not done. None has been seen.
 
 ## Decisions that were measured
 

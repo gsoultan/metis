@@ -13,6 +13,10 @@
 // server/domains/services/impl/messaging_test.go (the consumer reconnect
 // loop); the network dimension is this same proxy.
 //
+// The narrower fault is one connection dying while the rest stay up — a
+// failover, a pooler restart, pg_terminate_backend. killed_worker_test.go
+// kills the job worker's own backend in the middle of a service task.
+//
 // Requires METIS_TEST_POSTGRES_DSN, like every test that needs a real engine
 // underneath — see AGENTS.md §4.
 package outage
@@ -34,6 +38,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -226,7 +231,7 @@ func TestReadinessTellsTheTruthThroughAnOutage(t *testing.T) {
 // arbitrary database. Duplicated from tests/postgres deliberately: test
 // packages cannot import each other, and a shared harness in testutils would
 // couple every suite to the engine's constructor churn.
-func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, uuid.UUID, context.Context) {
+func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, servicecontracts.JobService, uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -260,7 +265,7 @@ func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return repo, engine, proj.ID, ctx
+	return repo, engine, jobSvc, proj.ID, ctx
 }
 
 // externalDefinition is start → external service task → end: the smallest
@@ -295,7 +300,7 @@ func TestEngineSurvivesADatabaseOutage(t *testing.T) {
 
 	// The tenant-scoped context the fixture created the project in. Everything
 	// this test does is work inside that tenant, which is how a request does it.
-	repo, engine, projectID, ctx := newEngine(t, db)
+	repo, engine, _, projectID, ctx := newEngine(t, db)
 	defSvc := serviceimpl.NewDefinitionService(repo)
 
 	if _, err := defSvc.CreateDefinition(ctx, externalDefinition(projectID, "outage-drill")); err != nil {

@@ -9,10 +9,12 @@ import (
 
 // DefinitionInstanceCount is how much work one version of a process still
 // holds. Running is what has to finish before that version has fully drained;
+// Suspended is stopped but not finished, and will run again when resumed;
 // Total is every instance it has ever had.
 type DefinitionInstanceCount struct {
-	Running int64
-	Total   int64
+	Running   int64
+	Suspended int64
+	Total     int64
 }
 
 // InstanceFilter narrows a page of instances to the ones somebody asked for.

@@ -212,15 +212,21 @@ func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus
 		All(ctx, ex, nil)
 }
 
+// ListByInstance returns every job an instance has, soonest first.
+//
+// Every one, not the store's first thousand. A repeating timer leaves a job
+// per occurrence, so a long-running instance collects them, and the one still
+// waiting is due last: behind a thousand that already ran, a migration never
+// saw it and left it naming the old version.
 func (r *jobRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.JobModel, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := job.New().
+	// The id breaks ties in due time, so the cursor is a position.
+	rows, err := everyRow[job.Row](ctx, ex, job.New().
 		Where(job.InstanceID.Eq(instanceID)).
-		Order(job.NextRunAt.Asc()).
-		All(ctx, ex, nil)
+		Order(job.NextRunAt.Asc(), job.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the instance's jobs: %w", err)
 	}

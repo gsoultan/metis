@@ -2,6 +2,7 @@ package replicas
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -92,6 +93,42 @@ func TestEachReplicaOwnsItsOwnRow(t *testing.T) {
 		}
 		if totals["client"] != 14 {
 			t.Fatalf("total is %d, want 14 (replica A's latest 9 plus replica B's 5)", totals["client"])
+		}
+	})
+}
+
+// busyClients is more rows than one read of the store returns: storm starts
+// every query with a limit of 1000.
+const busyClients = 1050
+
+// The shared totals cover every client a replica has seen, not a thousand rows.
+//
+// They were read with a query the store caps at a thousand rows, in no order,
+// so on a replica that had seen more clients than that in one window some
+// clients' totals never came back. For those the replica went on enforcing
+// its own count alone, and the installation admitted them up to once per
+// replica — the limit the sharing exists to stop. Nothing said so.
+func TestTheSharedTotalsCoverEveryClient(t *testing.T) {
+	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+		repo := repositories.NewRepository(testutils.StormConn(db)).SharedCounter()
+		window := time.Now().Truncate(time.Minute)
+		ctx := t.Context()
+
+		keys := make([]string, busyClients)
+		for i := range keys {
+			keys[i] = fmt.Sprintf("198.51.%d.%d", i/250, i%250+1)
+			if err := repo.Record(ctx, "http-rate", keys[i], "replica-a", window, 1); err != nil {
+				t.Fatalf("record: %v", err)
+			}
+		}
+
+		totals, err := repo.Totals(ctx, "http-rate", keys, window)
+		if err != nil {
+			t.Fatalf("totals: %v", err)
+		}
+		if len(totals) != busyClients {
+			t.Fatalf("the totals cover %d of %d clients; for the rest each replica enforces only its own count",
+				len(totals), busyClients)
 		}
 	})
 }

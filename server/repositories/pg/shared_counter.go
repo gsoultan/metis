@@ -49,9 +49,13 @@ func (r *sharedCounterRepository) Record(ctx context.Context, scope, key, replic
 // Totals adds up every replica's count for each key in one window.
 //
 // Summed in Go rather than by the database. The rows are one per replica per
-// key for a single window — a handful — and a declared aggregate would put the
-// GROUP BY in the model layer, where it would be the only thing in it that
-// exists to serve one caller.
+// key for a single window — a handful for each key — and a declared aggregate
+// would put the GROUP BY in the model layer, where it would be the only thing
+// in it that exists to serve one caller.
+//
+// Every row, not the store's first thousand: a replica that has seen more
+// clients than that in a window used to get no total back for some of them,
+// and enforced only its own count for those — once per replica.
 func (r *sharedCounterRepository) Totals(ctx context.Context, scope string, keys []string, windowStart time.Time) (map[string]int64, error) {
 	totals := make(map[string]int64, len(keys))
 	if len(keys) == 0 {
@@ -61,14 +65,14 @@ func (r *sharedCounterRepository) Totals(ctx context.Context, scope string, keys
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sharedcounter.New().
+	// In the key's order, which the walk pages on; the rows were read in no
+	// order before, for a sum that does not need one.
+	rows, err := everyRow[sharedcounter.Row](ctx, ex, sharedcounter.New().
 		Where(
 			sharedcounter.Scope.Eq(scope),
 			sharedcounter.WindowStart.Eq(windowStart.UTC()),
 			sharedcounter.CounterKey.In(keys...),
-		).
-		Unordered().
-		All(ctx, ex, nil)
+		))
 	if err != nil {
 		return nil, fmt.Errorf("could not read shared counters: %w", err)
 	}

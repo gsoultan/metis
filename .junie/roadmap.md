@@ -926,6 +926,32 @@
     `tasks.variables` and `variable_snapshots.variables` 1 each), the check exited 0,
     and after a restart under the new key alone the instance read back its variables.
 
+- 2026-09-25 (completed): 90-day plan Phase 3, "load/chaos testing". Branch `roadmap-chaos`.
+  - **Concurrent writes** (`tests/loadtest`, opt-in): 16 writers complete the two branches
+    of a parallel approval in a seeded random order. For one instance in four both are
+    sent at the same instant, and one submission in eight is sent twice. The job worker
+    runs the service task after the join. Every task is completed once, no instance is
+    left at the join, the partner gets one call per instance under its own key, and
+    nothing fails with a deadlock or a serialization error. Completion p95 is 19-22ms at
+    200 instances and 31ms at 5,000; throughput 314-424 instances/s
+    (`docs/performance.md`).
+  - **A worker's connection killed mid-job** (`tests/outage`). The worker holds no
+    transaction across the partner's call, so the faults are aimed at the two writes
+    after it. The job is retried, the partner is called once (or twice under one key),
+    and the instance finishes.
+  - **Found and fixed**, each with a test that failed first. A second submission of a
+    completion was answered 500; it is a 400 refusal now. storm's default limit of 1,000
+    rows silently truncated reads the engine acts on: a signal's audience, a migration's
+    instances and jobs, the decision delete guard, the withdrawal of a deadline's open
+    tasks, and the shared rate limit's totals.
+  - **Open**: capped reads behind views and exports (an instance's audit trail and
+    execution path, the OCEL export, the dashboard's step heat map, users and group
+    members, sub-processes, incidents). Also the definitions list that the decision guard
+    and message and signal start events walk (over 1,000 versions in one project), the
+    last-administrator guard (over 1,000 members), and the one-time backfills v2 and v3.
+    Separately, paged lists that order by creation time alone repeat and drop rows across
+    a page boundary when one transaction created them.
+
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

@@ -53,7 +53,16 @@ func newSLOHarnessWithService(t *testing.T) (*sloHarness, services.ServiceFacade
 	db := testutils.SetupPostgresDB(t, 16)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "loadtest-secret", nil, nil, nil, func(*gorm.DB) {})
+	dispatcher := observersimpl.NewEventDispatcher()
+	svc := services.NewServiceFacade(repo, dispatcher, sse, "loadtest-secret", nil, nil, nil, func(*gorm.DB) {})
+
+	// The observers every installation registers (app.setupService): the audit
+	// trail, the live-update stream and the assignment notifications. They write
+	// inside the transaction that raised the event, so a write measured without
+	// them does less than the same write in production.
+	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
+	dispatcher.Register(sse)
+	dispatcher.Register(observersimpl.NewNotificationObserver(svc))
 
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)
