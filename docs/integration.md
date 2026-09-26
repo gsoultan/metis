@@ -33,11 +33,37 @@ caller's actual memberships — it is a selection, never an assertion.
 ### Signing in with OIDC
 
 With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API accepts ID tokens from
-that identity provider as the bearer token — and only those: while OIDC is on,
-a token from `/api/v1/login` is refused with 401. Metis does not run the
-sign-in itself. The client gets an ID token from the provider, for the client
-ID Metis is configured with, and sends it as `Authorization: Bearer <id_token>`;
-Metis checks its signature, issuer, audience and expiry.
+that identity provider as the bearer token, beside the tokens `/api/v1/login`
+issues to local accounts. Metis does not run the sign-in itself. The client
+gets an ID token from the provider, for the client ID Metis is configured with,
+and sends it as `Authorization: Bearer <id_token>`; Metis checks its signature,
+issuer, audience and expiry.
+
+**Which rules check a token** is decided by what the token says it is, before
+anything in it is trusted, and those rules alone check it:
+
+| The header's `alg` | The payload | The token is | Checked by |
+| :-- | :-- | :-- | :-- |
+| an HMAC — `HS256`, as `/api/v1/login` signs | names no `iss` | a local account's | `JWT_SECRET`, its expiry, and the account it names — exactly as without OIDC |
+| a public-key signature — `RS256`, `PS256`, `ES256`, `EdDSA` and their kin | — | an ID token | the provider's published keys and algorithms, `OIDC_ISSUER`, `OIDC_CLIENT_ID` and its expiry; then the account linked to its issuer and subject, placed by the organization claim below |
+| anything else — an HMAC that names an issuer, `none`, no `alg` | | neither | nothing: refused with 401 |
+
+A token refused by its own rules is not tried against the other rules. So a
+token that names the provider as its issuer cannot be signed with `JWT_SECRET`
+instead — the provider's rules have no shared secret in them, and the local
+rules, which never read an issuer, never see it — and an RS256 token is never
+checked against `JWT_SECRET`. Trying one set of rules and falling back to the
+other would do exactly that: whatever the stricter rules refused, the looser
+ones would decide, and every refusal would carry the second check's reason
+rather than the one that applied. What a token says about itself only chooses
+the rules; it cannot get it accepted, because those rules read the same header
+and claims again and verify them. A token that lies about its kind reaches
+rules that refuse it.
+
+**Keep a local administrator.** Because a local account's token works while OIDC
+is on, an administrator with a password can still sign in when the provider is
+unreachable. Keep one, with a strong password held offline. Turning OIDC on does
+not switch local accounts off; delete the ones nobody should use.
 
 **Which organizations somebody is in** comes from the token, in the claim
 `METIS_OIDC_ORGANIZATION_CLAIM` names. The claim is one string or a list of
@@ -75,7 +101,9 @@ its name and email from the token. It holds **no role**: the task inbox —
 listing, claiming and completing tasks — needs none. An administrator grants
 Designer, Operator or Administrator on the account in Metis afterwards; a
 `roles` claim in the token grants nothing. Changing the password in Metis is
-refused with "change it at your identity provider".
+refused with "change it at your identity provider", and so is setting one with
+`--reset-password`, which names the provider to reset it at: a password here
+would be a way in that the provider does not control.
 
 **Memberships follow the claim.** A request is admitted only to the
 organizations its own token's claim names; `X-Organization-ID` chooses among

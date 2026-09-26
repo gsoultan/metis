@@ -18,6 +18,25 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## With OIDC on, local accounts sign in again
+
+With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API used to take the identity
+provider's ID tokens and nothing else, so a local account's token was refused
+with 401 — including the administrator's you would need on the day the
+provider is down. Both kinds are accepted now, each checked by its own rules;
+[Signing in with OIDC](integration.md#signing-in-with-oidc) has the rule.
+
+If you turned OIDC on in order to keep local accounts out, it no longer does:
+every local account whose password works can sign in after the upgrade. Before
+upgrading, list them, delete the ones nobody should use, and keep one
+administrator with a strong password held offline:
+
+```sql
+SELECT username, roles FROM users
+ WHERE identity_issuer IS NULL AND deleted_at IS NULL
+ ORDER BY username;
+```
+
 ## Tasks nobody was named for are the administrators' and operators'
 
 A user task with no assignee and no candidates used to be anybody's: anybody
