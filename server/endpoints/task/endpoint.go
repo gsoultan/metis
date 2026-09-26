@@ -352,7 +352,7 @@ func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) er
 		return err
 	}
 	if task.FallsToOperators() {
-		if caller, ok := principal.LocalUser(ctx); ok && entities.TakesUnnamedWork(caller.Roles) {
+		if entities.TakesUnnamedWork(principal.Roles(ctx)) {
 			return nil
 		}
 		return servicecontracts.ErrNobodyNamed

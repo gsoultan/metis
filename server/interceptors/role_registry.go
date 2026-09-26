@@ -20,23 +20,30 @@ import (
 // them written while the endpoints are built at startup.
 type roleRegistry struct {
 	mu       sync.Mutex
-	required map[string][]string
+	required map[string]gate
+}
+
+// gate is what one method requires: one of roles, held in the organization the
+// request is for — or, when global, held in every organization.
+type gate struct {
+	roles  []string
+	global bool
 }
 
 func newRoleRegistry() *roleRegistry {
-	return &roleRegistry{required: map[string][]string{}}
+	return &roleRegistry{required: map[string]gate{}}
 }
 
 // record notes that method requires one of roles. A chain that requires no
 // role only proves somebody is signed in, so it gates nothing and is not
 // recorded.
-func (r *roleRegistry) record(method string, roles []string) {
+func (r *roleRegistry) record(method string, roles []string, global bool) {
 	if len(roles) == 0 {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.required[method] = slices.Clone(roles)
+	r.required[method] = gate{roles: slices.Clone(roles), global: global}
 }
 
 // access lists every role with the actions it is required for.
@@ -65,7 +72,7 @@ func (r *roleRegistry) roles() []string {
 	}
 	var others []string
 	for _, required := range r.required {
-		for _, role := range required {
+		for _, role := range required.roles {
 			if !entities.HasRole(builtIn, role) && !entities.HasRole(others, role) {
 				others = append(others, role)
 			}
@@ -80,9 +87,12 @@ func (r *roleRegistry) roles() []string {
 func (r *roleRegistry) actionsFor(role string) []entities.RoleAction {
 	actions := []entities.RoleAction{}
 	for method, required := range r.required {
-		if entities.HasRole(required, role) {
-			actions = append(actions, entities.NewRoleAction(method))
+		if !entities.HasRole(required.roles, role) {
+			continue
 		}
+		action := entities.NewRoleAction(method)
+		action.Global = required.global
+		actions = append(actions, action)
 	}
 	slices.SortFunc(actions, entities.CompareRoleActions)
 	return actions

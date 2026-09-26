@@ -153,9 +153,9 @@ func hydrateAll(ctx context.Context, ex runtime.Executor, rows []user.Row) ([]mo
 	if err != nil {
 		return nil, fmt.Errorf("could not read the accounts' projects: %w", err)
 	}
-	orgsOf := make(map[[16]byte][]models.OrganizationModel, len(rows))
+	membershipsOf := make(map[[16]byte][]userorganization.Row, len(rows))
 	for _, org := range orgs {
-		orgsOf[org.UserID] = append(orgsOf[org.UserID], models.OrganizationModel{Base: models.Base{ID: models.UUID(org.OrganizationID)}})
+		membershipsOf[org.UserID] = append(membershipsOf[org.UserID], org)
 	}
 	projectsOf := make(map[[16]byte][]models.ProjectModel, len(rows))
 	for _, project := range projects {
@@ -166,11 +166,49 @@ func hydrateAll(ctx context.Context, ex runtime.Executor, rows []user.Row) ([]mo
 		if err != nil {
 			return nil, err
 		}
-		account.Organizations = orgsOf[row.ID]
+		if err := withMemberships(&account, membershipsOf[row.ID]); err != nil {
+			return nil, err
+		}
 		account.Projects = projectsOf[row.ID]
 		out = append(out, account)
 	}
 	return out, nil
+}
+
+// withMemberships puts an account in its organizations, with the roles it
+// holds in each one alone.
+func withMemberships(account *models.UserModel, memberships []userorganization.Row) error {
+	for _, membership := range memberships {
+		organization := models.UUID(membership.OrganizationID)
+		account.Organizations = append(account.Organizations, models.OrganizationModel{
+			Base: models.Base{ID: organization},
+		})
+		roles, err := membershipRoles(membership.Roles)
+		if err != nil {
+			return err
+		}
+		if len(roles) == 0 {
+			continue
+		}
+		if account.RolesByOrganization == nil {
+			account.RolesByOrganization = map[models.UUID][]string{}
+		}
+		account.RolesByOrganization[organization] = roles
+	}
+	return nil
+}
+
+// membershipRoles decodes the roles a membership holds. A membership written
+// before migration 30 holds the column's default, an empty list.
+func membershipRoles(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var roles []string
+	if err := json.Unmarshal(raw, &roles); err != nil {
+		return nil, fmt.Errorf("could not decode the roles an account holds in an organization: %w", err)
+	}
+	return roles, nil
 }
 
 // otherAdministratorCandidates reads the roles of an organization's members,
@@ -475,10 +513,8 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 	if err != nil {
 		return models.UserModel{}, fmt.Errorf("could not read the account's organizations: %w", err)
 	}
-	for _, org := range orgs {
-		user.Organizations = append(user.Organizations, models.OrganizationModel{
-			Base: models.Base{ID: models.UUID(org.OrganizationID)},
-		})
+	if err := withMemberships(&user, orgs); err != nil {
+		return models.UserModel{}, err
 	}
 
 	projects, err := userproject.New().

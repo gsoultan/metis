@@ -57,8 +57,9 @@ func LocalUserID(ctx context.Context) uuid.UUID {
 	return uuid.Nil
 }
 
-// HasRole reports whether the caller carries the role. Absent principal,
-// absent roles: false. Absent constraint means deny.
+// HasRole reports whether the caller carries the role in the organization the
+// request is for: globally, or there — the same roles the endpoint's gate
+// counted. Absent principal, absent roles: false. Absent constraint means deny.
 //
 // Case is ignored, through entities.HasRole, because that is how the role
 // check on every administrator-only endpoint compares — and accounts written
@@ -66,14 +67,21 @@ func LocalUserID(ctx context.Context) uuid.UUID {
 // administrator passed the endpoint's gate and was refused the override
 // inside it.
 func HasRole(ctx context.Context, role string) bool {
-	var roles []string
 	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
 	case entities.User:
-		roles = u.Roles
+		return u.HoldsRoleIn(entities.ActingOrganization(ctx), role)
 	case *entities.User:
-		if u != nil {
-			roles = u.Roles
-		}
+		return u != nil && u.HoldsRoleIn(entities.ActingOrganization(ctx), role)
 	}
-	return entities.HasRole(roles, role)
+	return false
+}
+
+// Roles is every role the caller acts with in the organization the request is
+// for: its global roles and the ones it holds there. None for a request from
+// nobody.
+func Roles(ctx context.Context) []string {
+	if u, ok := LocalUser(ctx); ok {
+		return u.RolesIn(entities.ActingOrganization(ctx))
+	}
+	return nil
 }

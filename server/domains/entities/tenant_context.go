@@ -1,6 +1,10 @@
 package entities
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 type tenantContextKey struct{}
 
@@ -21,6 +25,24 @@ func WithTenantContext(ctx context.Context, tc TenantContext) context.Context {
 func TenantContextFrom(ctx context.Context) (TenantContext, bool) {
 	tc, ok := ctx.Value(tenantContextKey{}).(TenantContext)
 	return tc, ok
+}
+
+// ActingOrganization is the organization a request is for — the one the tenant
+// resolver settled on, and so the one whose roles count beside the caller's
+// global ones — or uuid.Nil when it is for none.
+//
+// An unreadable tenant is none: it grants no organization's roles, and the
+// repositories refuse to scope by it anyway.
+func ActingOrganization(ctx context.Context) uuid.UUID {
+	tc, ok := TenantContextFrom(ctx)
+	if !ok {
+		return uuid.Nil
+	}
+	id, err := uuid.Parse(tc.TenantID)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
 }
 
 type systemContextKey struct{}

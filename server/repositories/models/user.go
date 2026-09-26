@@ -44,6 +44,11 @@ type UserModel struct {
 	// UserProject) and these are plain fields the repository fills.
 	Organizations []OrganizationModel `gorm:"-" json:"organizations,omitzero"`
 	Projects      []ProjectModel      `gorm:"-" json:"projects,omitzero"`
+
+	// RolesByOrganization are the roles the account holds in one organization
+	// alone, by organization, read from the same membership rows as
+	// Organizations. An organization it holds nothing in has no entry.
+	RolesByOrganization map[UUID][]string `gorm:"-" json:"-"`
 }
 
 // TableName overrides the table name for UserModel.

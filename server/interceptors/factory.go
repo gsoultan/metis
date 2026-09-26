@@ -135,23 +135,53 @@ func (f *InterceptorFactory) ProtectedChain(method string) func(endpoint.Endpoin
 	}
 }
 
-// ProtectedChainWithRoles applies logging, authentication and role-based
-// authorization to an endpoint.
+// ProtectedChainWithRoles applies logging, authentication, tenant resolution
+// and role-based authorization to an endpoint.
 //
 // ProtectedChain only proves the caller is signed in. Endpoints that mutate
 // tenant-wide state — users, groups, organizations, connectors, deployments —
 // need to prove *who* is signed in, which is what this adds. Passing no roles
 // is equivalent to ProtectedChain and should be reserved for endpoints where
 // any authenticated participant is legitimately allowed.
+//
+// The roles that count are the caller's global ones and the ones it holds in
+// the organization the request is for, so the organization is settled first:
+// the role is checked in the organization the repositories will then scope
+// the request to, and in no other.
 func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
-	f.roles.record(method, roles)
+	f.roles.record(method, roles, false)
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
+	tenantResolver := f.NewTenantResolver()
 	rbac := authinterceptor.NewRequireRoles(roles...)
+	return func(e endpoint.Endpoint) endpoint.Endpoint {
+		// Order matters: authenticate, then settle the organization, then
+		// authorize in it. A missing token reports "unauthenticated" rather
+		// than "insufficient role", and a request for an organization the
+		// caller is not in is refused as not a member before any role is
+		// looked at, as it is on every other endpoint.
+		return auth.Intercept(tenantResolver.Intercept(rbac.Intercept(logging.Intercept(e))))
+	}
+}
+
+// ProtectedChainWithGlobalRoles is ProtectedChainWithRoles for what no one
+// organization owns — the platform accounts, the list of organizations itself.
+// Only a role the caller holds in every organization counts: one granted in a
+// single organization was that organization's administrators' to give, and
+// does not reach past it.
+//
+// Unlike PlatformChain it does not ask for the operator's list of platform
+// administrators. These gates admit exactly who they admitted before roles
+// could be held in one organization.
+func (f *InterceptorFactory) ProtectedChainWithGlobalRoles(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
+	f.roles.record(method, roles, true)
+	logging := f.NewLogging(method)
+	auth := f.NewEndpointAuth()
+	rbac := authinterceptor.NewRequireGlobalRoles(roles...)
 	tenantResolver := f.NewTenantResolver()
 	return func(e endpoint.Endpoint) endpoint.Endpoint {
-		// Order matters: authenticate, then authorize, then scope. A missing
-		// token reports "unauthenticated" rather than "insufficient role".
+		// The role before the organization: it does not depend on which
+		// organization the request is for.
 		return auth.Intercept(rbac.Intercept(tenantResolver.Intercept(logging.Intercept(e))))
 	}
 }
@@ -166,19 +196,20 @@ func (f *InterceptorFactory) RoleAccess() []entities.RoleAccess {
 }
 
 // PlatformChain is for what every organization on the installation shares, where
-// administering one of them is not enough: ProtectedChainWithRoles for
-// administrators, then the platform administrator gate.
+// administering one of them is not enough: the administrator role held in
+// every organization, then the platform administrator gate.
 //
-// Roles are global, so the administrator role alone admits the administrator
-// of any organization — to a change every other organization then runs. The
-// role it requires is recorded like any other gate's, so the legend lists
-// these methods under the administrator; the platform gate after it is the
-// operator's list, which no role grants.
+// A global role is held in every organization an account belongs to, so the
+// administrator role alone admits the administrator of any organization — to a
+// change every other organization then runs. A role held in one organization
+// does not count at all. The role it requires is recorded like any other
+// gate's, so the legend lists these methods under the administrator; the
+// platform gate after it is the operator's list, which no role grants.
 func (f *InterceptorFactory) PlatformChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
-	f.roles.record(method, []string{entities.RoleAdmin})
+	f.roles.record(method, []string{entities.RoleAdmin}, true)
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
-	rbac := authinterceptor.NewRequireRoles(entities.RoleAdmin)
+	rbac := authinterceptor.NewRequireGlobalRoles(entities.RoleAdmin)
 	platform := f.platform()
 	tenantResolver := f.NewTenantResolver()
 	return func(e endpoint.Endpoint) endpoint.Endpoint {

@@ -79,10 +79,20 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	operator := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleOperator)
 	}
+	// The chains above count the roles an account holds in every organization
+	// and the ones it holds in the organization the request is for. globalAdmin
+	// counts only the first: it is for what no one organization owns, which an
+	// administrator of one organization must not reach through a role granted
+	// there. It admits exactly the administrators it admitted before roles
+	// could be granted in one organization.
+	globalAdmin := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+		return f.ProtectedChainWithGlobalRoles(method, entities.RoleAdmin)
+	}
 	// platformAdmin is for what every organization on the installation shares.
-	// adminOnly admits the administrator of any one organization, because roles
-	// are global; this admits, where there is more than one organization, only
-	// the administrators the operator named in METIS_PLATFORM_ADMINS.
+	// adminOnly admits the administrator of any one organization, and a global
+	// role is held in every organization its holder belongs to; this counts
+	// only global roles and admits, where there is more than one organization,
+	// only the administrators the operator named in METIS_PLATFORM_ADMINS.
 	platformAdmin := f.PlatformChain
 	public := f.PublicChain
 
@@ -202,12 +212,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 	// Platform accounts are administrative in full, listing included: the list
 	// is who can reconfigure this installation, which is the first thing an
-	// attacker with a designer's token would want to read.
+	// attacker with a designer's token would want to read. They belong to no
+	// organization, so an administrator role granted in one does not reach
+	// them.
 	accountEndpoints := platformuser.MakeEndpoints(s)
-	accountEndpoints.ListAccounts = adminOnly("ListPlatformUsers")(accountEndpoints.ListAccounts)
-	accountEndpoints.SaveAccount = adminOnly("SavePlatformUser")(accountEndpoints.SaveAccount)
-	accountEndpoints.DeleteAccount = adminOnly("DeletePlatformUser")(accountEndpoints.DeleteAccount)
-	accountEndpoints.SetRoles = adminOnly("SetPlatformRoles")(accountEndpoints.SetRoles)
+	accountEndpoints.ListAccounts = globalAdmin("ListPlatformUsers")(accountEndpoints.ListAccounts)
+	accountEndpoints.SaveAccount = globalAdmin("SavePlatformUser")(accountEndpoints.SaveAccount)
+	accountEndpoints.DeleteAccount = globalAdmin("DeletePlatformUser")(accountEndpoints.DeleteAccount)
+	accountEndpoints.SetRoles = globalAdmin("SetPlatformRoles")(accountEndpoints.SetRoles)
 	definitionEndpoints.ListDefinitions = protected("ListDefinitions")(definitionEndpoints.ListDefinitions)
 	definitionEndpoints.CreateDefinition = designer("CreateDefinition")(definitionEndpoints.CreateDefinition)
 	definitionEndpoints.GetDefinition = protected("GetDefinition")(definitionEndpoints.GetDefinition)
@@ -251,7 +263,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// create organizations over HTTP, and anybody at all over the gRPC
 	// listener, which authenticates nothing. Names are unique, so it doubled as
 	// a way to squat on one and to learn which already existed.
-	organizationEndpoints.CreateOrganization = adminOnly("CreateOrganization")(organizationEndpoints.CreateOrganization)
+	//
+	// A new organization is nobody's yet, and it turns an installation of one
+	// organization into one of several, which is what hands what they all
+	// share to the operator's platform administrators. Neither is an
+	// organization's own business, so a role granted in one does not reach it.
+	organizationEndpoints.CreateOrganization = globalAdmin("CreateOrganization")(organizationEndpoints.CreateOrganization)
 	organizationEndpoints.GetOrganization = protected("GetOrganization")(organizationEndpoints.GetOrganization)
 	organizationEndpoints.ListOrganizations = protected("ListOrganizations")(organizationEndpoints.ListOrganizations)
 	organizationEndpoints.UpdateOrganization = adminOnly("UpdateOrganization")(organizationEndpoints.UpdateOrganization)
