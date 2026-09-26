@@ -31,6 +31,15 @@ func (s *decisionService) UpdateDecision(ctx context.Context, id uuid.UUID, d en
 	if err != nil {
 		return entities.SavedDecision{}, err
 	}
+	// A table with no output column answers nothing, and a save goes live
+	// unless asked not to. A request that omits the "decision" object arrives
+	// as exactly that empty table, so it is refused rather than made the policy
+	// every process consulting the key is given.
+	if len(d.Outputs) == 0 {
+		return entities.SavedDecision{}, apierr.Invalidf(
+			"a decision table needs at least one output column, and this save has none, so it would answer nothing; " +
+				"send the whole table in \"decision\"")
+	}
 	projectID := uuid.UUID(stored.ProjectID)
 
 	d.ID = uuid.Nil

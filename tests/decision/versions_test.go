@@ -2,11 +2,13 @@ package decision_test
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -184,5 +186,35 @@ func TestAnotherOrganizationsDecisionVersionsCannotBeReadOrMadeLive(t *testing.T
 	if err != nil || result.Values["band"] != "VERY HIGH" || result.DecisionVersion != 2 {
 		t.Errorf("their live version answers %v from v%d (%v), want VERY HIGH from v2 as they left it",
 			result.Values["band"], result.DecisionVersion, err)
+	}
+}
+
+// A table with no output column answers nothing, whatever its rules say, and a
+// save makes the new version live unless asked not to. A request that omits
+// the "decision" object arrives as exactly that empty table: saved, it became
+// the live version, and every process consulting the key was given nothing.
+// The version before it could be made live again, but not before whatever ran
+// in between had decided on nothing.
+func TestASaveWithNoOutputIsRefusedAndTheLiveVersionStays(t *testing.T) {
+	w := newListWorld(t)
+	id, err := w.svc.CreateDecision(w.ctx, bandTable(w.project, "HIGH"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	_, err = w.svc.UpdateDecision(w.ctx, id, entities.DecisionDefinition{}, true)
+	if err == nil {
+		t.Fatal("a save carrying no table at all was stored and made live")
+	}
+	if common.CodeFrom(err) != http.StatusBadRequest {
+		t.Errorf("the refusal is not a 400 (status %d): %v", common.CodeFrom(err), err)
+	}
+
+	result, err := w.svc.Evaluate(w.ctx, w.project, "credit-band", 0, map[string]any{"score": 20})
+	if err != nil {
+		t.Fatalf("evaluate the live version: %v", err)
+	}
+	if result.Values["band"] != "HIGH" || result.DecisionVersion != 1 {
+		t.Errorf("after the refused save the live version answers %v as v%d, want HIGH as v1", result.Values["band"], result.DecisionVersion)
 	}
 }
