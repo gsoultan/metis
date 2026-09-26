@@ -857,7 +857,15 @@ func (a *App) setupAuth(ctx context.Context) {
 			log.Error().Err(err).Msg("failed to initialize OIDC validator")
 		} else {
 			a.validator = v
-			log.Info().Str("issuer", redaction.RedactText(oidcIssuer)).Msg("OIDC Authentication enabled")
+			log.Info().Str("issuer", redaction.RedactText(oidcIssuer)).
+				Str("organization_claim", v.OrganizationClaim()).Msg("OIDC Authentication enabled")
+			if v.OrganizationClaim() == "" {
+				// Said once here, where the operator is looking, as well as to
+				// every person refused.
+				log.Warn().Msg("OIDC sign-in is enabled but " + auth.EnvOrganizationClaim +
+					" is not set: nobody signing in through the identity provider can be placed in an organization, " +
+					"and every one of them will be refused with 403 until it names the ID-token claim that lists their organizations.")
+			}
 		}
 	}
 }

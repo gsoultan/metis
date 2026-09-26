@@ -513,6 +513,12 @@ func accountFrom(row user.Row) (models.UserModel, error) {
 	if validFrom, ok := row.TokensValidFrom.Get(); ok {
 		account.TokensValidFrom = &validFrom
 	}
+	if issuer, ok := row.IdentityIssuer.Get(); ok {
+		account.IdentityIssuer = &issuer
+	}
+	if subject, ok := row.IdentitySubject.Get(); ok {
+		account.IdentitySubject = &subject
+	}
 	if len(row.Roles) > 0 {
 		if err := json.Unmarshal(row.Roles, &account.Roles); err != nil {
 			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)

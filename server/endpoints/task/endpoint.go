@@ -310,9 +310,9 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 // callerGroups resolves the candidate groups of the signed-in caller.
 //
 // Both the group names and IDs are returned because definitions name
-// candidate groups either way. An OIDC principal has no local account and so
-// no local groups; it matches candidate-user tasks only, which is the honest
-// answer until claims are mapped to memberships.
+// candidate groups either way. Somebody signed in through an identity provider
+// is in the groups an administrator put their linked account in, as a local
+// account is.
 func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, error) {
 	user, ok := principal.LocalUser(ctx)
 	if !ok || user.ID == uuid.Nil {

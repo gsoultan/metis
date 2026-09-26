@@ -794,6 +794,42 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 27,
+			Name:    "an account can be linked to the identity provider that signs it in",
+			// Somebody signing in through an OpenID Connect provider is given an
+			// account here, and found again by the issuer and subject the
+			// provider vouched for — never by an email address, which two
+			// providers can each assert. The link is two columns on the account
+			// row, so every read of an account says how it signs in without a
+			// second query.
+			//
+			// Unique over the live rows only: an administrator deleting a linked
+			// account ends that account, and the person's next sign-in is given a
+			// new one rather than refused by a row nobody can see. Built plainly,
+			// not CONCURRENTLY: users is small and rarely written, so the lock is
+			// held for the milliseconds the build takes, and a plain build cannot
+			// leave behind the invalid index a failed concurrent one does.
+			//
+			// PostgreSQL only, as 21 to 23: anywhere else the baseline has just
+			// built the table from the current model, link and index included.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				if db.Name() != "postgres" {
+					return nil
+				}
+				for _, stmt := range []string{
+					`ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_issuer text`,
+					`ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_subject text`,
+					`CREATE UNIQUE INDEX IF NOT EXISTS uq_users_identity_issuer_identity_subject
+					   ON users (identity_issuer, identity_subject) WHERE deleted_at IS NULL`,
+				} {
+					if err := db.WithContext(ctx).Exec(stmt).Error; err != nil {
+						return fmt.Errorf("link accounts to their identity provider: %w", err)
+					}
+				}
+				return nil
+			},
+		},
 	}
 }
 

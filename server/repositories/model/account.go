@@ -41,6 +41,15 @@ type User struct {
 	// same breath as the ORM.
 	Roles storm.JSON
 
+	// IdentityIssuer and IdentitySubject link the account to the identity
+	// provider that signs it in: the provider's issuer URL, and the subject it
+	// gave the person. The pair is the identity, and nothing else is — an
+	// email address is not, since two providers can each vouch for one.
+	//
+	// Both NULL for a local account, which signs in with the password above.
+	IdentityIssuer  *string
+	IdentitySubject *string
+
 	DeletedAt *time.Time
 }
 
@@ -56,6 +65,11 @@ func (a *User) Schema(t *storm.Table) {
 	// username reissued to a different person makes two people indistinguishable
 	// in it.
 	t.UniqueAcrossDeleted(&a.Username)
+	// Over the live rows only: one account per identity, and an administrator
+	// deleting a linked account ends that account without locking the person
+	// out for ever — their next sign-in is given a new one, under a new
+	// username, so nothing of the old account's history is inherited.
+	t.Unique(&a.IdentityIssuer, &a.IdentitySubject)
 }
 
 // UserOrganization is an account's membership of a tenant.

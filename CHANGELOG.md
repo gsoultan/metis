@@ -101,6 +101,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Signing in through OIDC places people in their organizations.** With
+  `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, everybody signing in through the
+  identity provider was refused with 401 on every organization-scoped page: the
+  token's claims carry no membership, so nothing could place them. The new
+  `METIS_OIDC_ORGANIZATION_CLAIM` names the ID-token claim that lists a
+  person's organizations — a string or a list, each value an organization's
+  **id**; names are not matched, and organizations are never created from a
+  claim. A first sign-in creates an account linked to the token's issuer and
+  subject, never to an existing account by email, and gives it no role — the
+  task inbox needs none; an administrator grants more in Metis, and a `roles`
+  claim in the token grants nothing. A request is admitted only to the
+  organizations its own token's claim names, and each sign-in makes the
+  account's memberships match the claim, so an organization the provider stops
+  naming is left. Somebody the claim places nowhere now gets a 403 naming the
+  setting or claim that is missing, and the log says so; a token that does not
+  verify is still a 401, and so, while OIDC is on, is a local account's token.
+  See *Signing in with OIDC* in `docs/integration.md`.
+
+  Upgrading: migration 27 adds `identity_issuer` and `identity_subject` to
+  `users`, nullable, with a unique index over the pair for accounts that are
+  not deleted. Nothing is backfilled, and every existing account stays a local
+  account.
+
 - **Each environment's backlog is on the metrics endpoint.** The engine's
   gauges — `metis_engine_state_up`, `metis_jobs_due`,
   `metis_jobs_oldest_due_age_seconds`, `metis_jobs_lease_expired` and
@@ -192,6 +215,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An identity provider that stopped answering could hold the server's boot
+  for good.** With `OIDC_ISSUER` set, the server fetches the provider's
+  configuration while it starts, and its keys whenever a token names one it
+  has not seen, through a client with no deadline. Each request to the provider
+  now gives up after 10 seconds: boot goes on without OIDC and says why, and
+  a key fetch is retried on the next token that needs it.
 - **No process could schedule work in an environment.** An environment's
   database was migrated with the schema migrations but never given what the
   engine's storage writes against: its own tables, and the column defaults it

@@ -85,9 +85,21 @@ func (f *InterceptorFactory) NewJWTStrategy() authinterceptor.SecurityStrategy {
 	return authinterceptor.NewJWTStrategy(f.users.ValidateToken)
 }
 
+// NewOIDCStrategy authenticates an identity provider's ID token and signs its
+// holder in as the account linked to it.
+//
+// The token proves who somebody is to the provider. Which account that is here,
+// and which organizations it may act in, is the sign-in's to decide — so the
+// principal a request carries is that account, never the token's claims. That
+// is what lets every check downstream treat an OIDC user as the account it is:
+// roles an administrator granted, organizations the tenant resolver can place.
 func (f *InterceptorFactory) NewOIDCStrategy(validator *auth.TokenValidator) authinterceptor.SecurityStrategy {
 	return authinterceptor.NewOIDCStrategy(func(ctx context.Context, token string) (any, error) {
-		return validator.ValidateToken(ctx, token)
+		claims, err := validator.ValidateToken(ctx, token)
+		if err != nil {
+			return nil, err
+		}
+		return f.users.SignInThroughIdentityProvider(ctx, claims)
 	})
 }
 

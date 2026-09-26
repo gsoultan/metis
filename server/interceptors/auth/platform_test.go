@@ -65,9 +65,12 @@ func TestThePlatformAdministratorGate(t *testing.T) {
 			says:          []string{PlatformAdministratorsEnv, other.String()},
 		},
 		{
-			name:          "a sign-in with no local account, on a shared installation",
+			// An identity provider's sign-in reaches here as the account linked
+			// to it, which the operator can name like any other. Anything that is
+			// still not an account cannot be named, whatever it claims.
+			name:          "a principal that is not an account, on a shared installation",
 			organizations: organizationCount{n: 2},
-			caller:        signedIn(pkgauth.UserClaims{Subject: named.String(), Roles: []string{entities.RoleAdmin}}),
+			caller:        signedIn(entities.IdentityClaims{Issuer: "https://idp.example", Subject: named.String()}),
 			want:          apierr.ErrForbidden,
 			says:          []string{PlatformAdministratorsEnv, "a local account's id"},
 		},

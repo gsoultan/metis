@@ -73,16 +73,24 @@ func (a UserEntityAdapter) ToEntity() entities.User {
 	if a.Model.Organization != "" {
 		org = &entities.Organization{Name: a.Model.Organization}
 	}
+	// The issuer alone: it says how the account signs in. The subject is the
+	// provider's identifier for the person, and nothing but the sign-in that
+	// looks an account up by it has a use for it.
+	var identityProvider string
+	if a.Model.IdentityIssuer != nil {
+		identityProvider = *a.Model.IdentityIssuer
+	}
 	return entities.User{
-		ID:            uuid.UUID(a.Model.ID),
-		Organizations: orgs,
-		Projects:      projects,
-		Username:      a.Model.Username,
-		FullName:      a.Model.FullName,
-		DisplayName:   a.Model.DisplayName,
-		Organization:  org,
-		Email:         a.Model.Email,
-		Roles:         a.Model.Roles,
-		CreatedAt:     a.Model.CreatedAt,
+		ID:               uuid.UUID(a.Model.ID),
+		Organizations:    orgs,
+		Projects:         projects,
+		Username:         a.Model.Username,
+		FullName:         a.Model.FullName,
+		DisplayName:      a.Model.DisplayName,
+		Organization:     org,
+		Email:            a.Model.Email,
+		Roles:            a.Model.Roles,
+		CreatedAt:        a.Model.CreatedAt,
+		IdentityProvider: identityProvider,
 	}
 }
