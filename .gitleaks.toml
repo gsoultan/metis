@@ -5,6 +5,11 @@
 # file and the exact text rather than switching a detector off or excusing a
 # directory. A blanket exclusion is how the one real secret in a test fixture
 # directory goes unnoticed.
+#
+# Each entry says condition = "AND". gitleaks matches an allowlist when any one
+# of its criteria matches unless told otherwise, so an entry naming a file and a
+# string excused the whole file: a real secret added to the README would have
+# passed the scan.
 
 [extend]
 useDefault = true
@@ -22,6 +27,7 @@ id = "generic-api-key"
   anything.
   """
   paths = ['''^README\.md$''']
+  condition = "AND"
   regexTarget = "match"
   regexes = ['''M6vY8yCdp879cTsmmWxp''']
 
@@ -34,6 +40,7 @@ id = "generic-api-key"
   would defeat the test, which needs to control both ends.
   """
   paths = ['''^tests/config/config_test\.go$''']
+  condition = "AND"
   regexTarget = "match"
   regexes = ['''my-encryption-key-16ch''']
 
@@ -49,5 +56,19 @@ id = "generic-api-key"
   pair that has to match, and make a failure to match unreadable.
   """
   paths = ['''^\.github/workflows/security_reliability_ci\.yml$''']
+  condition = "AND"
   regexTarget = "match"
-  regexes = ['''Gobpm_Str0ngPass1''']
+  regexes = ['''GobpmTest2026x''']
+
+  [[rules.allowlists]]
+  description = """
+  The keys in the key-rotation tests.
+
+  The tests prove that data sealed under one key reads back under the next, so
+  they must control every key involved, and each key says what it is in its
+  value. None was ever a key for anything.
+  """
+  paths = ['''^internal/app/reseal_test\.go$''', '''^tests/crypto/keyring_test\.go$''']
+  condition = "AND"
+  regexTarget = "match"
+  regexes = ['''the-key-that-leaked-9f2c7a41e0b3d865''', '''the-key-that-replaces-it-4be81d07c2f9a653''']

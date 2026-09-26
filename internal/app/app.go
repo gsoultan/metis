@@ -250,6 +250,8 @@ func (a *App) Run() error {
 	// 0. Flag Parsing
 	buildUI := flag.Bool("build-ui", false, "Build the UI using bun")
 	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
+	reseal := flag.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
+	resealCheck := flag.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
 	flag.Parse()
 
 	if *buildUI {
@@ -326,6 +328,11 @@ func (a *App) Run() error {
 	// configured database and then exits, without opening a port — an operator
 	// doing this has usually been locked out, and starting a server they cannot
 	// log into would not help.
+	// Resealing is maintenance too: it walks every database once and exits.
+	if *reseal || *resealCheck {
+		return a.handleReseal(ctx, *resealCheck)
+	}
+
 	if *resetPassword != "" {
 		return a.handleResetPassword(ctx, *resetPassword)
 	}
@@ -443,9 +450,9 @@ func requireStrongSecret(name, value string) error {
 	return fmt.Errorf("%w\n\n"+
 		"Refusing to start. A weak %s is not a degraded mode — it is indistinguishable from a strong one\n"+
 		"until somebody guesses it offline, and then it is total.\n\n"+
-		"If this is an existing installation, note that ENCRYPTION_KEY cannot simply be changed: rotating it\n"+
-		"does not re-encrypt anything, it makes existing variables unreadable. To start anyway while you\n"+
-		"plan a re-encryption, set %s=true", err, name, secrets.EnvAllowWeak)
+		"If this is an existing installation, rotate to a strong key rather than replacing it: set the new\n"+
+		"key as ENCRYPTION_KEY and the old one as ENCRYPTION_KEY_PREVIOUS, then run `metis --reseal`\n"+
+		"(docs/runbooks.md, \"Rotating secrets\"). To start anyway on the weak key, set %s=true", err, name, secrets.EnvAllowWeak)
 }
 
 // logFeatureConfiguration reads the feature flags before anything serves, so the
@@ -458,7 +465,41 @@ func logFeatureConfiguration() {
 	features.Resolve()
 }
 
+// envEncryptionKeyPrevious names a key being retired: read with, never
+// written with. See docs/runbooks.md, "Rotating secrets".
+const envEncryptionKeyPrevious = "ENCRYPTION_KEY_PREVIOUS"
+
 func (a *App) setupEncryption() error {
+	if err := a.configureCurrentKey(); err != nil {
+		return err
+	}
+	return configurePreviousKey()
+}
+
+// configurePreviousKey installs the key being rotated away from, for reading
+// only, until `metis --reseal` has sealed everything again under the current
+// one.
+//
+// Not held to the strength check: a key is retired because it leaked or was
+// weak, and refusing to start with it would refuse the rotation itself.
+func configurePreviousKey() error {
+	previousKey := envvar.Get(envEncryptionKeyPrevious)
+	if previousKey == "" {
+		return nil
+	}
+	if !crypto.IsConfigured() {
+		return errors.New(envEncryptionKeyPrevious + " is set but there is no current key to rotate to; set ENCRYPTION_KEY")
+	}
+	if err := crypto.ConfigurePrevious(previousKey); err != nil {
+		return fmt.Errorf("invalid %s: %w", envEncryptionKeyPrevious, err)
+	}
+	log.Warn().Msg(envEncryptionKeyPrevious + " is set: data sealed under it is still read, and nothing is written with it. " +
+		"Run `metis --reseal` to seal it again under the current key, check with `metis --reseal-check`, then remove " +
+		envEncryptionKeyPrevious + ".")
+	return nil
+}
+
+func (a *App) configureCurrentKey() error {
 	envKey := envvar.Get("ENCRYPTION_KEY")
 
 	// A configured system's key is whatever its data was actually encrypted
@@ -478,7 +519,7 @@ func (a *App) setupEncryption() error {
 				log.Warn().Msg(
 					"ENCRYPTION_KEY differs from the key in config.yaml; using the key from config.yaml, " +
 						"because that is what the existing data was encrypted with. " +
-						"To rotate the key, re-encrypt the data first.")
+						"To rotate the key, see docs/runbooks.md, \"Rotating secrets\".")
 			}
 			if err := requireStrongSecret("encryption_key in config.yaml", cfg.EncryptionKey); err != nil {
 				return err

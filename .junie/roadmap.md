@@ -896,10 +896,35 @@
     - **`ENCRYPTION_KEY` cannot be rotated.** Sealed values are encrypted under the
       one key and nothing re-encrypts them, so a leaked key cannot be retired. The
       ciphertext is already prefix-tagged, which is the start of a keyring: new key
-      for writes, old keys for reads, and a batched re-encryption.
+      for writes, old keys for reads, and a batched re-encryption. **Fixed in the
+      key-rotation batch below.**
     - The engine gauges read the main database only; an environment's jobs are not
       counted.
     - No broker/DLQ runbook: the consumer it would cover is never started (INT-15).
+
+- 2026-09-25 (completed): 90-day plan Phase 3, "hardening" — `ENCRYPTION_KEY` can be
+  rotated. Branch `roadmap-key-rotation`, stacked on `roadmap-observability`.
+  - **The gap.** One key sealed and opened everything, so changing it made every sealed
+    value unreadable, and a key that had leaked could never be retired. The docs said
+    so, and the only advice was not to rotate.
+  - **The keyring.** `ENCRYPTION_KEY` seals and is tried first. `ENCRYPTION_KEY_PREVIOUS`
+    is only ever read with: GCM authenticates the ciphertext, so a wrong key fails
+    cleanly and the next one is tried. config.yaml's connection string reads under
+    it too, since without that the server cannot reach its database after a rotation.
+  - **`metis --reseal`** finds sealed values by their `gcm1:` prefix in every text,
+    json, jsonb and bytea column of every table, rather than trusting a list of columns
+    — a column a list missed would be data lost the moment the old key goes. It covers
+    the main database, each environment's, and config.yaml. It works in batches, in
+    ctid order, and each update only lands if the value is unchanged since it was read.
+    `--reseal-check` fails while anything is left under the old key.
+  - The integration test found a fourth storage form the scan first missed: a sealed
+    map JSON-encoded into a *text* column (`jobs.payload`).
+  - **Driven end to end** with the built binary. Under the new key alone, an instance
+    sealed under the old one failed with `cipher: message authentication failed`. The
+    check then exited 1 ("7 value(s) are still sealed under a previous key"). The
+    reseal moved 7 (`audit_logs.data` 4, `process_instances.variables`,
+    `tasks.variables` and `variable_snapshots.variables` 1 each), the check exited 0,
+    and after a restart under the new key alone the instance read back its variables.
 
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
