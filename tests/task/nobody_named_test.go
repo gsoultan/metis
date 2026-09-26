@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,6 +196,77 @@ func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *te
 	if status, body := h.post(t, h.tokens["olga"], "/api/v1/tasks/"+offered+"/delegate", map[string]any{"user_id": "alice"}); status != http.StatusForbidden {
 		t.Fatalf("an operator delegating a task offered to finance: got %d (%s), want 403", status, strings.TrimSpace(body))
 	}
+}
+
+// The inbox's "Available to Claim" is the work its reader may claim. A task
+// nobody was named for was listed for nobody — not even for the
+// administrators and operators who are now the only people who may take it —
+// so the work that fell to them would wait where none of them looked. It is
+// listed for them, and still for nobody else.
+func TestTheInboxOffersATaskNobodyWasNamedForOnlyToThoseWhoMayTakeIt(t *testing.T) {
+	h := newTaskHarness(t)
+	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
+	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
+	unnamed := h.openTask(t, nobodyNamed())
+	offered := h.openTask(t, entities.Node{
+		Name: "Check the invoice", Type: entities.UserTask,
+		CandidateUsers: []*entities.User{{Username: "mallory"}},
+	})
+	// A row written some other way than by this server can hold its empty
+	// lists as NULL or as the JSON null rather than []. It names nobody all
+	// the same.
+	stored := h.openTask(t, nobodyNamed())
+	if err := h.db.Exec(`UPDATE tasks SET candidate_users = NULL, candidate_groups = 'null' WHERE id = ?`, stored).Error; err != nil {
+		t.Fatalf("store the candidate lists as NULL: %v", err)
+	}
+
+	mallorys := h.availableToClaim(t, "mallory")
+	if !slices.Contains(mallorys, offered) || slices.Contains(mallorys, unnamed) || slices.Contains(mallorys, stored) {
+		t.Fatalf("mallory, a member with no role, is offered %v; want the task offered to her (%s) and neither task "+
+			"nobody was named for (%s, %s)", mallorys, offered, unnamed, stored)
+	}
+	for _, who := range []string{"olga", "ada"} {
+		if theirs := h.availableToClaim(t, who); !slices.Contains(theirs, unnamed) || !slices.Contains(theirs, stored) {
+			t.Fatalf("%s may take a task nobody was named for and is offered %v; want %s and %s among them",
+				who, theirs, unnamed, stored)
+		}
+	}
+}
+
+// With the old rule back, anybody may take such a task, so anybody is offered
+// it.
+func TestWithTheLegacySettingTheInboxOffersATaskNobodyWasNamedForToAnybody(t *testing.T) {
+	t.Setenv(legacyUnassignedClaims, "true")
+	h := newTaskHarness(t)
+	unnamed := h.openTask(t, nobodyNamed())
+
+	if mallorys := h.availableToClaim(t, "mallory"); !slices.Contains(mallorys, unnamed) {
+		t.Fatalf("with %s on, mallory is offered %v; want the task nobody was named for (%s) among them",
+			legacyUnassignedClaims, mallorys, unnamed)
+	}
+}
+
+// availableToClaim lists the ids of the tasks the inbox offers somebody to
+// claim.
+func (h *taskHarness) availableToClaim(t *testing.T, who string) []string {
+	t.Helper()
+	status, body := h.post(t, h.tokens[who], "/api/v1/tasks/candidates", map[string]any{"page": 1, "page_size": 50})
+	if status != http.StatusOK {
+		t.Fatalf("list %s's available tasks: status %d (%s)", who, status, body)
+	}
+	var out struct {
+		Tasks []struct {
+			ID string `json:"id"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode %s's available tasks: %v", who, err)
+	}
+	ids := make([]string, 0, len(out.Tasks))
+	for _, task := range out.Tasks {
+		ids = append(ids, task.ID)
+	}
+	return ids
 }
 
 // taskAssignee reads back who holds a task, or "" when nobody does.

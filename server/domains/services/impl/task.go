@@ -580,8 +580,16 @@ func (s *taskService) ListTasksByAssigneePaged(ctx context.Context, assignee str
 
 // ListTasksByCandidatesPaged returns one page of the unclaimed tasks a user
 // could take, with the total.
+//
+// What it offers is what its reader may claim, so a task nobody was named for
+// is among them for whoever may take one — an administrator or an operator,
+// or anybody while the old rule is back — and for nobody else.
 func (s *taskService) ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error) {
-	result, err := s.repo.Task().ListByCandidatesPaged(ctx, userID, groups, page)
+	result, err := s.repo.Task().ListByCandidatesPaged(ctx, repocontracts.Candidacy{
+		User:    userID,
+		Groups:  groups,
+		Unnamed: mayTakeUnnamedTask(ctx, userID),
+	}, page)
 	if err != nil {
 		return repocontracts.Page[entities.Task]{}, err
 	}
