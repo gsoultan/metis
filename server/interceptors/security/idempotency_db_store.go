@@ -271,3 +271,36 @@ func openBody(stored []byte) ([]byte, error) {
 	}
 	return []byte(plain), nil
 }
+
+// abandonedClaimAge is how long an unanswered claim is left alone.
+//
+// Far longer than the TTL, because the server sets no write deadline — the
+// event stream needs an open-ended one — so a claim past the TTL may still
+// belong to a request that is running, and removing it would let a retry run
+// the same write alongside it. A day is past anything that can still be
+// running: what is left by then is a claim whose replica died before it could
+// answer or abandon it.
+const abandonedClaimAge = 24 * time.Hour
+
+// ForgetIdempotencyRecords drops the records no retry can use any more: the
+// answers older than ttl, which a retry would reclaim rather than replay, and
+// the claims nobody finished.
+//
+// The table only ever grew. Keys are chosen by the caller, one per write, so
+// every command anyone ever retried-safely stayed in it for good — its answer
+// with it — and the sweep the model was written for was never built.
+func ForgetIdempotencyRecords(ctx context.Context, conn *db.Conn, ttl time.Duration, now time.Time) (int64, error) {
+	ex, err := conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	removed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM idempotency_records WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM idempotency_records
+		      WHERE created_at < $1 AND (completed OR created_at < $2) LIMIT $3))`,
+		now.Add(-ttl).UTC(), now.Add(-abandonedClaimAge).UTC())
+	if err != nil {
+		return removed, fmt.Errorf("forget idempotency records: %w", err)
+	}
+	return removed, nil
+}

@@ -42,25 +42,30 @@ func KeyFrom(ctx context.Context) (string, bool) {
 // repeated.
 //
 // It is derived rather than random, and derived from nothing that changes
-// between attempts: one service task, in one instance, on one iteration of a
-// multi-instance node, is one unit of work however many times the engine tries
-// it. A random key would make every retry look like a new request, which is the
-// behaviour this exists to prevent.
+// between attempts: one visit to a service task — the job the engine created
+// when the process arrived there, reused by every retry — in one instance, on
+// one iteration of a multi-instance node, is one unit of work however many
+// times the engine tries it. A random key would make every retry look like a
+// new request, which is the behaviour this exists to prevent.
+//
+// The visit is part of it because a process can come back through the same
+// step — a loop polling a partner until it is ready — and each pass is a new
+// request. Without it the second pass carried the first pass's key, so a
+// partner that honours keys answered it as a replay, and the engine's own
+// record replayed the first response before the call was even made.
 //
 // Hashed rather than concatenated because a node ID comes from a deployed BPMN
 // file — untrusted input, of no bounded length, and free to contain anything a
 // header value cannot. The hash is truncated to 32 characters: this identifies a
 // request within one deployment's traffic, not a document within a corpus, and
 // 160 bits is far past any collision that matters here.
-// The "gobpm-" prefix is deliberately not renamed to match the project, and
-// must not be: this key is regenerated from scratch on every retry (job.go),
-// not read back from service_calls, so it is the only thing tying a retry to
-// the attempt it repeats. Change the prefix and a job that was mid-retry across
-// an upgrade presents a key the downstream has never seen — which is not a
-// cosmetic inconsistency but a second charge, shipment or payment. The name is
-// a wire value, and the wire does not care what the project is called.
-func ForServiceCall(instanceID uuid.UUID, nodeID, iterationID string) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s", instanceID, nodeID, iterationID))
+//
+// The engine sends the key stored on the call's record, not one computed
+// afresh, so a record written by an earlier version keeps the key it was first
+// sent with. The "gobpm-" prefix is still not to be renamed: the wire does not
+// care what the project is called, and a partner's own records of old keys do.
+func ForServiceCall(instanceID uuid.UUID, nodeID, iterationID string, visit uuid.UUID) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s\x00%s", instanceID, nodeID, iterationID, visit))
 	return keyPrefix + base64.RawURLEncoding.EncodeToString(sum[:])[:32]
 }
 

@@ -21,8 +21,9 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import '@mantine/dates/styles.css';
 import { DateTimePicker } from '@mantine/dates';
 import { AlertTriangle, CalendarClock, CircleDot, Eye, History, MoveRight, Play, Trash2, Undo2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
+import { diffVersions, rolloutEffect } from '../domain/versionDiff';
 import {
   canDelete,
   canSchedule,
@@ -35,6 +36,7 @@ import {
 } from '../domain/versionRollout';
 import {
   useCancelScheduledVersion,
+  useDefinition,
   useDefinitionVersions,
   useDeleteDefinition,
   usePromoteDefinitionVersion,
@@ -106,6 +108,16 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
   // The same version as `live`, but the row from the API — it carries the
   // definition id, which the domain type deliberately does not.
   const liveRow = versions.find((v) => v.live) ?? null;
+
+  // Only while a confirmation is open: the two versions being compared, so the
+  // dialog can say what actually changes rather than only which number goes
+  // live. Nothing is fetched until somebody asks the question.
+  const liveDefinition = useDefinition(confirming ? (liveRow?.id ?? null) : null);
+  const targetDefinition = useDefinition(confirming?.id ?? null);
+  const rolloutDiff = useMemo(
+    () => diffVersions(liveDefinition.data?.definition ?? null, targetDefinition.data?.definition ?? null),
+    [liveDefinition.data?.definition, targetDefinition.data?.definition],
+  );
   const draining = drainingVersions(versions);
   const upcoming = pendingCutovers(versions);
 
@@ -339,6 +351,31 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
                   </>
                 )}
               </Text>
+              {(() => {
+                // What changes for instances started after this. Phrased in the
+                // direction being travelled: a step the older version still has
+                // comes back, it is not new, and reading that forward is how
+                // somebody rolls back believing they rolled forward.
+                const effects = rolloutEffect(rolloutDiff, isRollback(versions, confirming.version));
+                if (liveDefinition.isLoading || targetDefinition.isLoading) {
+                  return <Text size="xs" c="dimmed">Comparing with v{live?.version}…</Text>;
+                }
+                if (effects.length === 0) {
+                  return (
+                    <Text size="xs" c="dimmed">
+                      The steps are the same as v{live?.version}; only the version number changes.
+                    </Text>
+                  );
+                }
+                return (
+                  <Stack gap={2}>
+                    <Text size="xs" fw={600}>What changes for new instances</Text>
+                    {effects.map((effect) => (
+                      <Text key={effect} size="xs" c="dimmed">• {effect}</Text>
+                    ))}
+                  </Stack>
+                );
+              })()}
               <Group gap="xs">
                 <Button size="compact-sm" variant="default" onClick={() => setConfirming(null)} disabled={promote.isPending}>
                   Cancel

@@ -25,31 +25,40 @@ func NewServiceCallRepository(c *db.Conn) contracts.ServiceCallRepository {
 // Begin records that a call is about to be made, or returns the record of one
 // that already was.
 //
-// The unique key on (instance, node, iteration) is what makes a retry find the
-// call rather than make a second one, and it is declared across the deleted
-// rows so a marked row keeps holding it. The insert races deliberately: two
-// workers reaching the same step both try, one wins on the constraint, and the
-// loser reads back what the winner wrote. Checking first and inserting second
-// would leave a window where both check, both find nothing and both call.
+// The unique key on (instance, node, iteration, job) is what makes a retry of
+// one visit find the call rather than make a second one, and it is declared
+// across the deleted rows so a marked row keeps holding it. The insert races
+// deliberately: two workers reaching the same visit both try, one wins on the
+// constraint, and the loser reads back what the winner wrote. Checking first
+// and inserting second would leave a window where both check, both find
+// nothing and both call.
 //
 // Unscoped. This runs inside the engine on behalf of a process that is already
 // running, and a refusal would mean an outbound call with no record of it.
-func (r *serviceCallRepository) Begin(ctx context.Context, call models.ServiceCallModel) (models.ServiceCallModel, error) {
+func (r *serviceCallRepository) Begin(ctx context.Context, call models.ServiceCallModel, visitStarted time.Time) (models.ServiceCallModel, error) {
+	if call.JobID == nil {
+		return models.ServiceCallModel{}, fmt.Errorf("a service call is recorded against the job that makes it, and none was given")
+	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return models.ServiceCallModel{}, err
 	}
+	adopted, found, err := r.adoptEarlierAttempt(ctx, ex, call, visitStarted)
+	if err != nil || found {
+		return adopted, err
+	}
+
 	id := uuid.UUID(call.ID)
 	if id == uuid.Nil {
 		if id, err = uuid.NewV7(); err != nil {
 			return models.ServiceCallModel{}, fmt.Errorf("could not generate a service call id: %w", err)
 		}
 	}
-
 	ins := servicecall.Create()
 	ins.SetID(id)
 	ins.SetInstanceID(uuid.UUID(call.InstanceID))
 	ins.SetProjectID(uuid.UUID(call.ProjectID))
+	ins.SetJobID(uuid.UUID(*call.JobID))
 	ins.SetNodeID(call.NodeID)
 	ins.SetIterationID(call.IterationID)
 	ins.SetIdempotencyKey(call.IdempotencyKey)
@@ -63,27 +72,73 @@ func (r *serviceCallRepository) Begin(ctx context.Context, call models.ServiceCa
 		return models.ServiceCallModel{}, fmt.Errorf("could not record the service call: %w", err)
 	}
 
-	existing, err := r.Get(ctx, uuid.UUID(call.InstanceID), call.NodeID, call.IterationID)
+	existing, found, err := servicecall.New().
+		Where(
+			servicecall.InstanceID.Eq(uuid.UUID(call.InstanceID)),
+			servicecall.NodeID.Eq(call.NodeID),
+			servicecall.IterationID.Eq(call.IterationID),
+			servicecall.JobID.Eq(uuid.UUID(*call.JobID)),
+		).
+		One(ctx, ex)
 	if err != nil {
-		return models.ServiceCallModel{}, err
+		return models.ServiceCallModel{}, fmt.Errorf("could not read the service call: %w", err)
 	}
-	// Count the attempt, so an operator reading this table during an incident
-	// can see that the call was started more than once.
-	if existing.Status == models.ServiceCallInFlight {
-		stored, found, err := servicecall.New().Where(servicecall.ID.Eq(uuid.UUID(existing.ID))).One(ctx, ex)
-		if err != nil {
-			return models.ServiceCallModel{}, fmt.Errorf("could not read the service call: %w", err)
-		}
-		if found {
-			mut := servicecall.Mutate(stored)
-			mut.SetAttempts(stored.Attempts + 1)
-			if err := mut.Update(ctx, ex); err != nil {
-				return models.ServiceCallModel{}, fmt.Errorf("could not count the service call attempt: %w", err)
-			}
-			existing.Attempts++
-		}
+	if !found {
+		return models.ServiceCallModel{}, fmt.Errorf("%w: no such service call", apierr.ErrNotFound)
 	}
-	return existing, nil
+	return countAttempt(ctx, ex, existing, nil)
+}
+
+// adoptEarlierAttempt gives a row written before the visit was part of the
+// identity to the visit that wrote it — the one call that was in flight, or
+// answered and not yet acted on, when the engine was upgraded. Its idempotency
+// key goes with it, so the partner still recognises the repeat.
+//
+// Only a row written after this visit began can be one of its attempts; an
+// older one is a previous pass through a loop, and adopting it is the replay
+// the job column exists to end.
+func (r *serviceCallRepository) adoptEarlierAttempt(ctx context.Context, ex runtime.Executor, call models.ServiceCallModel, visitStarted time.Time) (models.ServiceCallModel, bool, error) {
+	legacy, found, err := servicecall.New().
+		Where(
+			servicecall.InstanceID.Eq(uuid.UUID(call.InstanceID)),
+			servicecall.NodeID.Eq(call.NodeID),
+			servicecall.IterationID.Eq(call.IterationID),
+			servicecall.JobID.IsNull(),
+			servicecall.CreatedAt.Gte(visitStarted),
+		).
+		One(ctx, ex)
+	if err != nil {
+		return models.ServiceCallModel{}, false, fmt.Errorf("could not read an earlier attempt: %w", err)
+	}
+	if !found {
+		return models.ServiceCallModel{}, false, nil
+	}
+	job := uuid.UUID(*call.JobID)
+	adopted, err := countAttempt(ctx, ex, legacy, &job)
+	return adopted, err == nil, err
+}
+
+// countAttempt records that a known call is being started again, so an
+// operator reading this table during an incident can see it was started more
+// than once, and gives it to job when there is one to give it to.
+func countAttempt(ctx context.Context, ex runtime.Executor, row servicecall.Row, job *uuid.UUID) (models.ServiceCallModel, error) {
+	inFlight := row.Status == models.ServiceCallInFlight
+	if !inFlight && job == nil {
+		return serviceCallFrom(row)
+	}
+	mut := servicecall.Mutate(row)
+	if inFlight {
+		row.Attempts++
+		mut.SetAttempts(row.Attempts)
+	}
+	if job != nil {
+		mut.SetJobID(*job)
+		row.JobID = runtime.Null[[16]byte]{V: *job, Valid: true}
+	}
+	if err := mut.Update(ctx, ex); err != nil {
+		return models.ServiceCallModel{}, fmt.Errorf("could not count the service call attempt: %w", err)
+	}
+	return serviceCallFrom(row)
 }
 
 // Complete records what the call returned.
@@ -113,7 +168,8 @@ func (r *serviceCallRepository) Complete(ctx context.Context, id uuid.UUID, resp
 	return nil
 }
 
-// Get returns the record for one step of one instance.
+// Get returns the most recent record for one step of one instance — the last
+// visit's, when a loop has been through it more than once.
 func (r *serviceCallRepository) Get(ctx context.Context, instanceID uuid.UUID, nodeID, iterationID string) (models.ServiceCallModel, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
@@ -125,6 +181,7 @@ func (r *serviceCallRepository) Get(ctx context.Context, instanceID uuid.UUID, n
 			servicecall.NodeID.Eq(nodeID),
 			servicecall.IterationID.Eq(iterationID),
 		).
+		Order(servicecall.CreatedAt.Desc()).
 		One(ctx, ex)
 	if err != nil {
 		return models.ServiceCallModel{}, fmt.Errorf("could not read the service call: %w", err)
@@ -157,6 +214,10 @@ func serviceCallFrom(row servicecall.Row) (models.ServiceCallModel, error) {
 	}
 	if completed, ok := row.CompletedAt.Get(); ok {
 		call.CompletedAt = &completed
+	}
+	if job, ok := row.JobID.Get(); ok {
+		id := models.UUID(job)
+		call.JobID = &id
 	}
 	return call, nil
 }

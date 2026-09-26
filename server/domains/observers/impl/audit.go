@@ -21,6 +21,11 @@ func NewAuditLogObserver(repo contracts.AuditRepository) *AuditLogObserver {
 }
 
 func (o *AuditLogObserver) OnEvent(ctx context.Context, event entities.ProcessEvent) {
+	// Its raiser has already written the entry, with more in it than the event
+	// carries. Another one here is the same action recorded twice.
+	if event.Audited {
+		return
+	}
 	entry := entities.AuditEntry{
 		Project:   event.Project,
 		Instance:  event.Instance,

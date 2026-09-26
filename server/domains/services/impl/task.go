@@ -115,16 +115,14 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskClaimed,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: map[string]any{"assignee": userID},
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskClaimed, userID)
+		}, task, EventTaskClaimed, userID)
 		return nil
 	})
 }
@@ -212,16 +210,14 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskUnclaimed, "")
+		}, task, EventTaskUnclaimed, "")
 		return nil
 	})
 }
@@ -239,16 +235,14 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID str
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskDelegated, userID)
+		}, task, EventTaskDelegated, userID)
 		return nil
 	})
 }
@@ -342,16 +336,14 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			instance.SetVariable(k, v)
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskCompleted,
 			Instance:  &instance,
 			Project:   instance.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: vars,
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskCompleted, userID)
+		}, task, EventTaskCompleted, userID)
 
 		fullDef, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
 		if err != nil {
@@ -409,16 +401,14 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 			return err
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskCreated,
 			Instance:  &instance,
 			Project:   instance.Project,
 			Node:      &node,
 			Timestamp: time.Now().Unix(),
 			Variables: instance.Variables,
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskCreated, "")
+		}, task, EventTaskCreated, "")
 		return nil
 	})
 }
@@ -466,18 +456,28 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 			return err
 		}
 
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
+		s.announce(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskClaimed,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: map[string]any{"assignee": userID},
-		})
-
-		s.recordAuditEvent(txCtx, task, EventTaskAssigned, userID)
+		}, task, EventTaskAssigned, userID)
 		return nil
 	})
+}
+
+// announce raises a task event and writes the task's audit entry for it.
+//
+// Together, because the entry is written here — with who acted, which the
+// event does not carry — and the audit observer would otherwise write its own
+// from the event, so every task action was in the trail twice. The event says
+// it has been audited only when there is a writer to have done it.
+func (s *taskService) announce(ctx context.Context, event entities.ProcessEvent, task entities.Task, auditType, actor string) {
+	event.Audited = s.auditWriter != nil
+	s.engine.DispatchEvent(ctx, event)
+	s.recordAuditEvent(ctx, task, auditType, actor)
 }
 
 // recordAuditEvent writes a Business Timeline narrative audit entry for a task

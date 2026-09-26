@@ -726,8 +726,8 @@ func (a *App) startSharedLimits(ctx context.Context) {
 }
 
 // startBackgroundWork starts everything that acts on its own: the job workers,
-// the scheduled directory syncs, the SSE fan-out, the per-environment workers
-// and the shared rate-limit counters.
+// the scheduled directory syncs, the SSE fan-out, the per-environment workers,
+// the shared rate-limit counters and the retention sweeps.
 //
 // This used to be the tail of setupService, which runs at step 3 — *before* the
 // --reset-password branch returns at step 3b. So a password reset started ten
@@ -750,6 +750,7 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	// database. Without it a process started on a staging port never advances.
 	a.startEnvironmentWorkers(ctx)
 	a.startSharedLimits(ctx)
+	a.startRetentionSweeps(ctx)
 }
 
 // startSSEFanout connects this replica's SSE observer to the shared bus, so a

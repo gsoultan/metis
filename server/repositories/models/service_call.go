@@ -17,15 +17,21 @@ import "time"
 type ServiceCallModel struct {
 	Base
 
-	// The call's identity. One service task, in one instance, on one iteration
-	// of a multi-instance node, makes one call — so these three are unique
-	// together, and that uniqueness is what makes a retry recognisable.
+	// The call's identity. One visit to a service task — one job, reused by
+	// its retries — in one instance, on one iteration of a multi-instance node,
+	// makes one call; so these four are unique together, and that uniqueness is
+	// what makes a retry recognisable. The visit is what lets a process come
+	// back through the same step and make a new call rather than replay the
+	// first one's answer.
 	//
-	// 191 rather than 255 because these three make up a unique index and MySQL
-	// bounds an index key by bytes, not characters.
-	InstanceID  UUID   `gorm:"index;uniqueIndex:ux_service_calls_identity,priority:1" json:"instance_id,omitzero"`
-	NodeID      string `gorm:"size:191;uniqueIndex:ux_service_calls_identity,priority:2" json:"node_id"`
-	IterationID string `gorm:"size:191;uniqueIndex:ux_service_calls_identity,priority:3" json:"iteration_id,omitzero"`
+	// 191 rather than 255 because these make up a unique index and MySQL bounds
+	// an index key by bytes, not characters.
+	InstanceID  UUID   `gorm:"index;uniqueIndex:ux_service_calls_visit,priority:1" json:"instance_id,omitzero"`
+	NodeID      string `gorm:"size:191;uniqueIndex:ux_service_calls_visit,priority:2" json:"node_id"`
+	IterationID string `gorm:"size:191;uniqueIndex:ux_service_calls_visit,priority:3" json:"iteration_id,omitzero"`
+	// JobID is the visit. Null on a row written before it was part of the
+	// identity (migration 23).
+	JobID *UUID `gorm:"uniqueIndex:ux_service_calls_visit,priority:4" json:"job_id,omitzero"`
 
 	// ProjectID carries the tenant, so this table scopes like every other.
 	ProjectID UUID `gorm:"index" json:"project_id,omitzero"`

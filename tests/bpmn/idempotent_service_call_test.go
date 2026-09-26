@@ -1,8 +1,10 @@
 package bpmn_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -94,7 +96,12 @@ func TestServiceTask_CarriesAKeyDerivedFromTheUnitOfWork(t *testing.T) {
 	if len(seen) != 1 || seen[0] == "" {
 		t.Fatalf("headers = %v, want one call carrying a key", seen)
 	}
-	if want := idempotency.ForServiceCall(instance.ID, "charge", ""); seen[0] != want {
+	jobs, err := h.repo.Job().ListByInstance(h.ctx, instance.ID)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("read the call's job: jobs=%d err=%v", len(jobs), err)
+	}
+	visit := uuid.UUID(jobs[0].ID)
+	if want := idempotency.ForServiceCall(instance.ID, "charge", "", visit); seen[0] != want {
 		t.Errorf("key = %q, want %q — it must be derived from the unit of work, not the attempt", seen[0], want)
 	}
 }
@@ -102,22 +109,27 @@ func TestServiceTask_CarriesAKeyDerivedFromTheUnitOfWork(t *testing.T) {
 // The key identifies a unit of work, which is what makes it survive a restart
 // and stay the same across attempts.
 func TestIdempotencyKeyIsStableAndPerIteration(t *testing.T) {
-	instance := uuid.New()
+	instance, visit := uuid.New(), uuid.New()
 
-	first := idempotency.ForServiceCall(instance, "charge", "")
-	if again := idempotency.ForServiceCall(instance, "charge", ""); again != first {
+	first := idempotency.ForServiceCall(instance, "charge", "", visit)
+	if again := idempotency.ForServiceCall(instance, "charge", "", visit); again != first {
 		t.Errorf("the key is not stable: %q then %q", first, again)
 	}
-	if other := idempotency.ForServiceCall(instance, "charge", "item-2"); other == first {
+	if other := idempotency.ForServiceCall(instance, "charge", "item-2", visit); other == first {
 		t.Error("two iterations of one node share a key; each is its own unit of work")
 	}
-	if other := idempotency.ForServiceCall(uuid.New(), "charge", ""); other == first {
+	if other := idempotency.ForServiceCall(uuid.New(), "charge", "", visit); other == first {
 		t.Error("two instances share a key")
+	}
+	// A loop's second pass through the step is a new request, and a partner
+	// that honours keys would answer it as a replay of the first.
+	if other := idempotency.ForServiceCall(instance, "charge", "", uuid.New()); other == first {
+		t.Error("two visits to one step share a key")
 	}
 
 	// A node ID comes from a deployed BPMN file, so it is untrusted input of no
 	// bounded length. The key is a header value and must stay one.
-	long := idempotency.ForServiceCall(instance, string(make([]byte, 8192)), "")
+	long := idempotency.ForServiceCall(instance, string(make([]byte, 8192)), "", visit)
 	if len(long) > 64 {
 		t.Errorf("key is %d characters; a node ID must not be able to grow it", len(long))
 	}
@@ -280,5 +292,54 @@ func TestServiceTask_WithoutALimitIsNotLimited(t *testing.T) {
 	}
 	if got := calls.Load(); got != 4 {
 		t.Errorf("the endpoint was called %d times with no limit configured, want 4", got)
+	}
+}
+
+// A process that polls a partner until it is ready comes back through the same
+// service task. Each pass is a new request; the call's record was keyed to the
+// step rather than the visit, so the second pass found the first pass's
+// completed call and replayed its answer without calling — the loop never saw
+// anything change, and went round until the engine stopped it.
+func TestAServiceTaskVisitedAgainByALoopCallsAgain(t *testing.T) {
+	var calls atomic.Int64
+	var keys sync.Map
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := calls.Add(1)
+		keys.Store(r.Header.Get(idempotency.Header), attempt)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"attempt": %d}`, attempt)
+	}))
+	defer api.Close()
+
+	h := newServiceTaskHarness(t)
+	instance := h.runDefinition(t, &entities.ProcessDefinition{
+		Key:  "poll-until-ready",
+		Name: "Poll until ready",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "poll", Type: entities.ServiceTask, Properties: map[string]any{
+				"http_url": api.URL, "http_method": "POST", "output_attempt": "attempt",
+			}},
+			{ID: "ready", Type: entities.ExclusiveGateway, Name: "Ready yet?"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "poll"},
+			{ID: "f2", SourceRef: "poll", TargetRef: "ready"},
+			{ID: "f3", SourceRef: "ready", TargetRef: "end", Condition: "attempt >= 3"},
+			{ID: "f4", SourceRef: "ready", TargetRef: "poll", Condition: "attempt < 3"},
+		},
+	}, nil)
+
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("the loop made %d calls, want 3 — a revisited step replayed its first answer", got)
+	}
+	if instance.Status != entities.ProcessCompleted {
+		t.Fatalf("the process is %s; it should have finished once the partner was ready", instance.Status)
+	}
+	distinct := 0
+	keys.Range(func(any, any) bool { distinct++; return true })
+	if distinct != 3 {
+		t.Fatalf("the three passes carried %d distinct keys; a partner honouring keys would answer a pass as a replay", distinct)
 	}
 }

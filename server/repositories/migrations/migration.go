@@ -705,6 +705,47 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 23,
+			Name:    "a service call is one visit to a step, not the step",
+			// A service call was identified by (instance, node, iteration), so a
+			// process that came back through the same service task — a loop that
+			// polls a partner until it is ready — found the first visit's
+			// completed call and replayed its response instead of calling. The
+			// loop never saw anything change. The visit is the job, one per
+			// arrival at the step and reused by its retries, so it joins the
+			// identity.
+			//
+			// Rows written before this carry no job. PostgreSQL treats NULLs as
+			// distinct in a unique index, so they never conflict with a row that
+			// has one; the repository adopts a legacy row only for the attempt of
+			// the visit that wrote it.
+			//
+			// The new index is built before the old one is dropped, both
+			// CONCURRENTLY: service_calls is written on every outbound call, and
+			// a moment with neither index would let a retry record a second call.
+			//
+			// PostgreSQL only, as 21 and 22: anywhere else the baseline has just
+			// built the table from the current model, job_id and all.
+			Run: func(ctx context.Context, db *gorm.DB) error {
+				if db.Name() != "postgres" {
+					return nil
+				}
+				if err := db.WithContext(ctx).Exec(
+					`ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS job_id uuid`).Error; err != nil {
+					return fmt.Errorf("add service_calls.job_id: %w", err)
+				}
+				if err := createUniqueIndexConcurrently(ctx, db, "service_calls", "ux_service_calls_visit",
+					"instance_id, node_id, iteration_id, job_id"); err != nil {
+					return err
+				}
+				if err := db.WithContext(ctx).Exec(
+					`DROP INDEX CONCURRENTLY IF EXISTS ux_service_calls_identity`).Error; err != nil {
+					return fmt.Errorf("drop the per-step identity: %w", err)
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -863,9 +904,18 @@ func setColumnNotNull(ctx context.Context, db *gorm.DB, table, column string) er
 // falls back to a plain create — correct there, and the locking concern that
 // makes CONCURRENTLY necessary does not exist on a fresh in-memory database.
 func createIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
+	return buildIndexConcurrently(ctx, db, "INDEX", table, name, columns)
+}
+
+// createUniqueIndexConcurrently is createIndexConcurrently for a unique index.
+func createUniqueIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
+	return buildIndexConcurrently(ctx, db, "UNIQUE INDEX", table, name, columns)
+}
+
+func buildIndexConcurrently(ctx context.Context, db *gorm.DB, kind, table, name, columns string) error {
 	if db.Name() != "postgres" {
 		if err := db.WithContext(ctx).Exec(fmt.Sprintf(
-			"CREATE INDEX IF NOT EXISTS %s ON %s (%s)", name, table, columns,
+			"CREATE %s IF NOT EXISTS %s ON %s (%s)", kind, name, table, columns,
 		)).Error; err != nil {
 			return fmt.Errorf("create %s: %w", name, err)
 		}
@@ -887,7 +937,7 @@ func createIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, colu
 		return fmt.Errorf("drop the invalid %s: %w", name, err)
 	}
 	if err := db.WithContext(ctx).Exec(fmt.Sprintf(
-		"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (%s)", name, table, columns,
+		"CREATE %s CONCURRENTLY IF NOT EXISTS %s ON %s (%s)", kind, name, table, columns,
 	)).Error; err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
