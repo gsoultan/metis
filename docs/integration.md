@@ -101,7 +101,9 @@ its name and email from the token. It holds **no role**: the task inbox —
 listing, claiming and completing tasks — needs none. An administrator grants
 Designer, Operator or Administrator on the account in Metis afterwards; a
 `roles` claim in the token grants nothing. Changing the password in Metis is
-refused with "change it at your identity provider".
+refused with "change it at your identity provider", and so is setting one with
+`--reset-password`, which names the provider to reset it at: a password here
+would be a way in that the provider does not control.
 
 **Memberships follow the claim.** A request is admitted only to the
 organizations its own token's claim names; `X-Organization-ID` chooses among

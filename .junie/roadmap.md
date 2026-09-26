@@ -1165,6 +1165,13 @@
     token was 401 with OIDC on; replacing the dispatch with a provider-then-local fallback
     makes the forged-issuer row 200 and the test fail. Unit tests for the dispatch rule in
     `server/interceptors/auth/token_kind*_test.go`.
+  - **`--reset-password` refuses an account linked to an identity provider**, naming the
+    provider to reset it at. It set a password on one, which then signed in without the
+    provider — a way in the provider could not revoke. The refusal is in `SetPassword`,
+    the command's only caller; nothing about the account changes. Test:
+    `internal/app/reset_password_test.go` — before, "Password updated for "ada"" and the
+    password signed in; after, refused and the hash still empty. A local account still
+    resets.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

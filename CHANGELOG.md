@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **`--reset-password` could give an account that signs in through an
+  identity provider a password here.** The maintenance command set one on
+  whatever account it was named — including one linked to the provider, which
+  has none — and printed it. That was a second way in that the provider did not
+  control: it kept working after the provider disabled the person, and skipped
+  whatever the provider asks for at sign-in. Such an account is now refused,
+  with a message naming the provider to reset the password at, and nothing
+  about it changes. Local accounts reset as before.
 - **A captured webhook delivery could be replayed as often as anyone liked.**
   A webhook signature covered the body alone; the delivery ID that
   de-duplication keys on was unsigned, and nothing was timestamped. A delivery

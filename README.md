@@ -313,6 +313,10 @@ This runs against the configured database and exits without starting a server,
 so it works on an installation nobody can log into. It needs access to the
 machine and the database, which is the same access a backup restore would.
 
+It refuses an account that signs in through an identity provider, and names the
+provider: that password is the provider's to reset, and one set here would be a
+way in that the provider does not control.
+
 ## 🔌 Integrating from your application
 
 Metis is built to be driven by other systems: deploy definitions, start
