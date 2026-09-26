@@ -141,8 +141,11 @@ reads in the order it happened. It adds a nullable column and gives it a
 default, which rewrites no rows, so it needs `audit_logs` to itself only for a
 catalog update. But while it *waits* for the table, PostgreSQL queues every
 later audit write behind it, and every step of every running process writes
-audit entries. During a rolling upgrade one long read — an export, a report, an
-anti-wraparound vacuum — would stop the engine on the replicas still serving.
+audit entries. A canary runs the release's migrations as it starts, beside the
+stable pods ([Rolling out through a canary](runbooks.md#rolling-out-through-a-canary)),
+so one long read — an export, a report, an anti-wraparound vacuum — would stop
+the stable pods' engine for as long as it ran; with nothing else serving, the
+upgrade would hang without saying why.
 
 So it waits **at most two seconds**. If `audit_logs` is held longer, the upgrade
 stops with:

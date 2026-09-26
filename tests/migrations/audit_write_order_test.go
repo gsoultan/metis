@@ -116,10 +116,10 @@ func TestMigration28GivesEveryNewAuditEntryThePlaceItWasWrittenIn(t *testing.T) 
 // A long read of the audit trail — an export, a report, an anti-wraparound
 // vacuum — holds a lock the migration's ALTER TABLE has to wait for, and
 // PostgreSQL queues every later writer of the table behind a waiting ALTER.
-// Every step of every running process writes audit entries, so during a
-// rolling upgrade one slow reader would stop the engine on the replicas still
-// serving for as long as the read ran. The migration gives up after a bounded
-// wait instead, says why, and runs when it is started again.
+// Every step of every running process writes audit entries, so while a canary
+// runs the release's migrations beside the stable pods, one slow reader would
+// stop the stable pods' engine for as long as the read ran. The migration gives
+// up after a bounded wait instead, says why, and runs when it is started again.
 func TestMigration28GivesUpRatherThanHoldEveryAuditWriteBehindALongRead(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	ctx := t.Context()

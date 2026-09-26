@@ -19,11 +19,13 @@ const AuditWriteOrderMigration = 28
 // The ALTER TABLE needs the table to itself for as long as the catalogue takes,
 // and while it waits for a reader to finish, PostgreSQL queues every later
 // writer of the table behind it. Every step of every running process writes
-// audit entries, so during a rolling upgrade a long read — an export, a
-// report, an anti-wraparound vacuum — would stop the engine on the replicas
-// still serving for as long as it ran. Long enough for a step's own
-// transaction, which takes milliseconds, to finish; short enough that what
-// queues behind the wait is a slow request and not an outage.
+// audit entries, so while a canary starts beside the stable pods — it runs the
+// release's migrations as it starts — a long read (an export, a report, an
+// anti-wraparound vacuum) would stop the stable pods' engine for as long as it
+// ran; with nothing else serving, the boot would hang without saying why. Long
+// enough for a step's own transaction, which takes milliseconds, to finish;
+// short enough that what queues behind the wait is a slow request and not an
+// outage.
 const auditWriteOrderLockWait = "2s"
 
 // postgresLockNotAvailable is lock_not_available: lock_timeout expired.
@@ -42,7 +44,7 @@ const postgresLockNotAvailable = "55P03"
 // trail is read by created_at and then by that. A sequence rather than
 // time-ordered ids, for three reasons. It is the database's: every writer gets
 // one without supplying anything — the audit observer, which leaves the id to
-// the column's default, a release still running during a rolling upgrade, a
+// the column's default, the release before still running beside a canary, a
 // script — and replicas need not agree about the time. Within a transaction it
 // is the order of the inserts, exactly. And entries written before this
 // migration keep the order they had, where ordering by random ids would have
