@@ -133,16 +133,31 @@ FROM jobs WHERE instance_id = '<instance-id>' ORDER BY created_at DESC LIMIT 20;
 ### It is waiting on a person
 
 A row in `tasks` with status `unclaimed` or `claimed` is not stuck; it is
-waiting, correctly. Check the task actually reaches somebody: a user task whose
-assignee and candidate lists are all empty is offered to nobody.
+waiting, correctly. Check the task actually reaches somebody:
 
 ```sql
-SELECT node_id, assignee_id, candidate_users, candidate_groups
+SELECT node_id, type, assignee, candidate_users, candidate_groups
 FROM tasks WHERE instance_id = '<instance-id>' AND status <> 'completed';
 ```
 
 If it names a group nobody is in, add a member. The task then appears in their
 inbox with no further action.
+
+If it names nobody — no assignee, empty candidate lists — it is waiting for an
+administrator or an operator. Only they may take it, and it is under
+*Available to Claim* in their inbox; everybody else is refused it with a 403
+that says so. One of them can claim it, or give it to the person it should go
+to:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id": "<username>"}' "$METIS/api/v1/tasks/<task-id>/assign"
+```
+
+Then fix the step in the designer, which warns about it, so the next instance
+names somebody. A manual task is the exception: anybody in the organization
+may take one. `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` lets anybody take these
+tasks again for a migration window; see [`upgrading.md`](upgrading.md).
 
 ### It is waiting on a job that keeps failing
 

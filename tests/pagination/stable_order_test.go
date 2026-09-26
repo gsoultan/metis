@@ -55,7 +55,7 @@ func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 			return idsOf(page.Items, taskIDOf), err
 		}},
 		{"tasks a candidate could take", func(p contracts.Pagination) ([]uuid.UUID, error) {
-			page, err := repo.Task().ListByCandidatesPaged(ctx, "alice", []string{"clerks"}, p)
+			page, err := repo.Task().ListByCandidatesPaged(ctx, contracts.Candidacy{User: "alice", Groups: []string{"clerks"}}, p)
 			return idsOf(page.Items, taskIDOf), err
 		}},
 		{"instances of a project", func(p contracts.Pagination) ([]uuid.UUID, error) {

@@ -340,7 +340,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 			taskA = t
 		}
 	}
-	_ = svc.CompleteTask(ctx, taskA.ID, "", nil)
+	_ = svc.CompleteTask(testutils.AsOperator(ctx, "carol"), taskA.ID, "carol", nil)
 
 	// Instance should still be active, waiting at Join
 	instance, _ := svc.GetInstance(ctx, instanceID)
@@ -356,7 +356,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 			taskB = t
 		}
 	}
-	_ = svc.CompleteTask(ctx, taskB.ID, "", nil)
+	_ = svc.CompleteTask(testutils.AsOperator(ctx, "carol"), taskB.ID, "carol", nil)
 
 	// Now instance should be completed
 	instance, _ = svc.GetInstance(ctx, instanceID)
