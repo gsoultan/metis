@@ -120,9 +120,39 @@ func MakeCreateDefinitionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		return CreateDefinitionResponse{
 			ID:      id,
 			Version: req.Definition.Version,
-			Live:    !req.Stage,
+			Live:    deployedLive(ctx, s, req),
 		}, nil
 	}
+}
+
+// deployedLive says whether the version a deploy made is the one new instances
+// start on.
+//
+// A promoted version is. A staged one is not — unless the process had no live
+// version, and then the only version is the one they get. The reply copied the
+// request, so staging a process's first version answered "not live". Asked
+// rather than assumed; if the answer cannot be read, the request's intent is
+// the best guess left.
+func deployedLive(ctx context.Context, s services.ServiceFacade, req CreateDefinitionRequest) bool {
+	if !req.Stage {
+		return true
+	}
+	var projectID uuid.UUID
+	if req.Definition.Project != nil {
+		projectID = req.Definition.Project.ID
+	}
+	live, err := s.ListLiveVersions(ctx, projectID)
+	if err != nil {
+		return false
+	}
+	version, chosen := live[req.Definition.Key]
+	if !chosen {
+		// Nobody has chosen, so the highest version is live, and this deploy
+		// has just made the highest. Staging a later version pins the one
+		// that was live first, so this is the first version.
+		return true
+	}
+	return version == req.Definition.Version
 }
 
 // MakePromoteDefinitionEndpoint makes one deployed version the one new

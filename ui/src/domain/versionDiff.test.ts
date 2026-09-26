@@ -8,7 +8,7 @@ import {
   removedNodes,
   rolloutEffect,
 } from './versionDiff';
-import type { ApiDefinition, ApiNode } from '../services/types';
+import type { ApiDefinition, ApiFlow, ApiNode } from '../services/types';
 
 const node = (over: Partial<ApiNode> & { id: string }): ApiNode => ({
   name: over.id,
@@ -18,14 +18,21 @@ const node = (over: Partial<ApiNode> & { id: string }): ApiNode => ({
   ...over,
 });
 
-const version = (v: number, nodes: ApiNode[]): ApiDefinition => ({
+const flow = (id: string, source: string, target: string, condition?: string): ApiFlow => ({
+  id,
+  source_ref: source,
+  target_ref: target,
+  condition,
+});
+
+const version = (v: number, nodes: ApiNode[], flows: ApiFlow[] = []): ApiDefinition => ({
   id: `def-${v}`,
   project_id: 'p',
   key: 'quotation',
   name: 'Quotation',
   version: v,
   nodes,
-  flows: [],
+  flows,
 });
 
 // The case this was built for: management deletes the operations manager's
@@ -98,7 +105,7 @@ describe('versionDiff', () => {
   it('summarises whether this is a rename or a rewrite', () => {
     expect(diffSummary(diffVersions(v1, v2))).toBe('1 step removed.');
     expect(diffSummary(diffVersions(v1, v1))).toBe(
-      'The two versions have the same steps, configured the same way.',
+      'The two versions have the same steps and paths, configured the same way.',
     );
   });
 
@@ -171,5 +178,165 @@ describe('rolloutEffect', () => {
 
   it('says nothing about steps that did not change', () => {
     expect(rolloutEffect(diffVersions(live, live), false)).toEqual([]);
+  });
+});
+
+// Everything below is a way for two versions to behave differently that the
+// comparison used to call "the same steps, configured the same way".
+describe('versionDiff beyond the steps themselves', () => {
+  const steps = [
+    node({ id: 'start', name: 'Quote requested', type: 'startEvent' }),
+    node({ id: 'check', name: 'Credit check', type: 'exclusiveGateway', default_flow: 'toReview' }),
+    node({ id: 'review', name: 'Manual review' }),
+    node({ id: 'approve', name: 'Approve quote' }),
+    node({ id: 'reject', name: 'Reject quote' }),
+  ];
+  const paths = [
+    flow('toCheck', 'start', 'check'),
+    flow('toApprove', 'check', 'approve', 'amount < 500'),
+    flow('toReview', 'check', 'review'),
+    flow('toReject', 'review', 'reject'),
+  ];
+  const base = version(1, steps, paths);
+
+  it('finds a path that was added, removed or pointed somewhere else', () => {
+    const rerouted = version(2, steps, [
+      flow('toCheck', 'start', 'check'),
+      flow('toApprove', 'check', 'approve', 'amount < 500'),
+      flow('toReview', 'check', 'reject'),
+      flow('reviewed', 'review', 'approve'),
+    ]);
+    const changes = diffVersions(base, rerouted).flows;
+    expect(changes.map((change) => [change.kind, change.id])).toEqual([
+      ['removed', 'toReject'],
+      ['changed', 'toReview'],
+      ['added', 'reviewed'],
+    ]);
+    // Named by the steps it joins, not by its id.
+    expect(changes[0].route).toBe('from "Manual review" to "Reject quote"');
+    expect(changes[1].differences).toEqual(['now leads to "Reject quote"']);
+    expect(changes[2].route).toBe('from "Manual review" to "Approve quote"');
+  });
+
+  it('finds a path whose condition changed', () => {
+    const stricter = version(2, steps, [
+      flow('toCheck', 'start', 'check'),
+      flow('toApprove', 'check', 'approve', 'amount < 100'),
+      flow('toReview', 'check', 'review'),
+      flow('toReject', 'review', 'reject'),
+    ]);
+    const [change] = diffVersions(base, stricter).flows;
+    expect(change.route).toBe('from "Credit check" to "Approve quote"');
+    expect(change.differences).toEqual(['condition: amount < 500 → amount < 100']);
+  });
+
+  it('does not report a path that was only drawn again', () => {
+    // Same two steps, same condition, a new id: the designer redrew the
+    // arrow. Nothing a new instance could notice.
+    const redrawn = version(2, steps, [
+      flow('toCheck', 'start', 'check'),
+      flow('edge-7f3a', 'check', 'approve', 'amount < 500'),
+      flow('toReview', 'check', 'review'),
+      flow('toReject', 'review', 'reject'),
+    ]);
+    expect(diffVersions(base, redrawn).flows).toEqual([]);
+  });
+
+  it('says a script changed without printing it', () => {
+    const scripted = (script: string) =>
+      version(1, [node({ id: 'price', name: 'Work out the price', type: 'scriptTask', script, condition: script })]);
+    const change = diffVersions(scripted('total = net * 1.2'), scripted('total = net * 1.25')).changes[0];
+    expect(change.kind).toBe('changed');
+    // Once, although the designer stores the script twice.
+    expect(change.differences).toEqual(['script changed']);
+  });
+
+  it('says what changed in a step’s settings, in the words of the property panel', () => {
+    const charge = (properties: Record<string, unknown>) =>
+      version(1, [node({ id: 'charge', name: 'Charge the card', type: 'serviceTask', properties })]);
+    const change = diffVersions(
+      charge({ implementation: 'push', http_url: 'https://pay.example/v1/charge', auth_token: 'tok_live_old' }),
+      charge({ implementation: 'push', http_url: 'https://pay.example/v2/charge', auth_token: 'tok_live_new' }),
+    ).changes[0];
+    expect(change.differences).toEqual([
+      // A credential changed, and that is all a comparison may say about it.
+      'credentials changed',
+      'web address: https://pay.example/v1/charge → https://pay.example/v2/charge',
+    ]);
+  });
+
+  it('reads a timer’s wait as a length of time', () => {
+    const waiting = (duration: string) =>
+      version(1, [
+        node({
+          id: 'cooling',
+          name: 'Cooling-off period',
+          type: 'intermediateCatchEvent',
+          condition: duration,
+          properties: { event_type: 'timer', timer_type: 'duration', timer_duration: duration },
+        }),
+      ]);
+    expect(diffVersions(waiting('PT5M'), waiting('P1DT12H')).changes[0].differences).toEqual([
+      'wait: 5 minutes → 1 day, 12 hours',
+    ]);
+  });
+
+  it('names the form fields that came and went', () => {
+    const form = (fields: Array<{ id: string; label: string; type: string }>) =>
+      version(1, [node({ id: 'approve', name: 'Approve quote', properties: { form_definition: fields } })]);
+    const change = diffVersions(
+      form([
+        { id: 'approved', label: 'Approved', type: 'boolean' },
+        { id: 'marginReason', label: 'Margin override reason', type: 'textarea' },
+      ]),
+      form([
+        { id: 'approved', label: 'Approved', type: 'boolean' },
+        { id: 'riskTier', label: 'Risk tier', type: 'select' },
+      ]),
+    ).changes[0];
+    expect(change.differences).toEqual([
+      'form field "Risk tier" added',
+      'form field "Margin override reason" removed',
+    ]);
+  });
+
+  it('follows the fallback path to where it leads', () => {
+    const fallback = version(2, [...steps.filter((n) => n.id !== 'check'),
+      node({ id: 'check', name: 'Credit check', type: 'exclusiveGateway', default_flow: 'toReject2' }),
+    ], [...paths, flow('toReject2', 'check', 'reject')]);
+    const change = diffVersions(base, fallback).changes.find((c) => c.id === 'check');
+    expect(change?.differences).toEqual(['fall back to: "Manual review" → "Reject quote"']);
+  });
+
+  it('leaves out what only the designer reads', () => {
+    // Sample data for a test run, and which tab the start event's editor was
+    // on, change nothing about what the process does.
+    const start = (properties: Record<string, unknown>) =>
+      version(1, [node({ id: 'start', type: 'startEvent', properties })]);
+    expect(
+      diffVersions(start({ sampleData: '{"amount": 1}', startedBy: 'manual' }), start({ sampleData: '{"amount": 9}' }))
+        .changes[0].kind,
+    ).toBe('unchanged');
+  });
+
+  it('never calls two versions that behave differently the same', () => {
+    const rerouted = version(2, steps, paths.map((p) => (p.id === 'toApprove' ? { ...p, condition: 'amount < 100' } : p)));
+    expect(diffSummary(diffVersions(base, rerouted))).toBe('1 path changed.');
+    expect(diffSummary(diffVersions(base, base))).toBe(
+      'The two versions have the same steps and paths, configured the same way.',
+    );
+  });
+
+  it('tells a rollback what happens to the paths, in the direction travelled', () => {
+    const live = version(5, steps, paths.filter((p) => p.id !== 'toReject'));
+    expect(rolloutEffect(diffVersions(live, base), true)).toEqual([
+      'The path from "Manual review" to "Reject quote" is back.',
+    ]);
+    expect(rolloutEffect(diffVersions(live, base), false)).toEqual([
+      'There is a new path from "Manual review" to "Reject quote".',
+    ]);
+    expect(rolloutEffect(diffVersions(base, live), false)).toEqual([
+      'There is no longer a path from "Manual review" to "Reject quote".',
+    ]);
   });
 });
