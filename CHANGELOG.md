@@ -10,6 +10,58 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **The administrator of any one organization could change the connectors
+  every organization runs.** A connector manifest is installation-wide — a step
+  in any organization that names its key runs it, with that organization's
+  credentials attached — and roles are global, so an administrator of one
+  organization could install, switch off or remove a connector for all of them,
+  or put an address of their own under a key the others' steps call. On an
+  installation with more than one organization, installing, importing,
+  switching and removing a manifest now takes a platform administrator: an
+  administrator whose account id the operator lists in `METIS_PLATFORM_ADMINS`.
+  Anybody else is refused with a 403 that names the setting and their account
+  id. An installation with one organization needs nothing configured; its
+  administrators may, as before.
+
+  Connector templates (`/api/v1/connectors`) are behind the same gate, for the
+  same reason. A template has no organization, its key is unique across the
+  installation, and its schema is what marks every organization's connection
+  settings as passwords. One organization's administrator could rewrite or
+  remove the templates every other organization's connections use.
+
+  Upgrading an installation of several organizations: until
+  `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests or
+  templates. The ones installed keep running.
+- **A connector manifest could take over a built-in connector.** A manifest
+  installed under the key of a connector built into Metis — `http-json`,
+  `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`,
+  `ms-teams-message`, `rabbitmq-publish`, `sql-query` — replaced it in every
+  step, in every organization, that uses it, each step still sending its own
+  organization's connection settings. Installing one is now refused with a 400
+  that names the key, unless the operator sets
+  `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
+
+  Upgrading: a manifest already installed under a built-in's key keeps
+  answering. Installing it again to fix it needs the setting, and so does
+  switching it back on once it has been switched off. Look for one among the
+  installed connectors on the Connectors page; switching it off or removing it
+  hands the key back to the built-in.
+- **Anybody in an organization could edit a task somebody else held.**
+  `PUT /api/v1/tasks/{id}` changes a task's name, priority and due date, and it
+  needed only a login, so any member could push the due date of a colleague's
+  task out or drop its priority. It now takes the person holding the task or
+  an administrator — the rule releasing, delegating and assigning already
+  followed — and a task nobody holds is an administrator's to edit. Anybody
+  else gets a 403 that says so.
+- **A group could hold another organization's account.** An administrator
+  could add another organization's account to one of their groups by naming
+  its id, and the member list then showed that person's username, name and
+  email to everybody in the group's organization. Adding one is refused now,
+  and upgrading removes the ones already there: migration 24 deletes every
+  group membership whose account is not a member of the group's organization,
+  and logs each removal by group and account id, then the count — zero when
+  there were none. To put one back, make the account a member of the group's
+  organization first, then add it to the group again.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial
@@ -137,6 +189,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   import generates are now installed in one transaction: if one cannot be
   installed, none are, and the error names it. An operation the importer
   cannot read is still skipped rather than failing the import.
+- **An installed connector could not be chosen in the designer, nor connected
+  to a project.** Both offer the connector catalogue, and installing a manifest
+  never added to it. A step reaches a manifest only through a catalogue entry,
+  so an installed connector could not be used by any process unless somebody
+  also built a matching template by hand in Expert Mode. Installing now adds
+  the entry, with a connection form that asks for what the manifest reads:
+  its credentials, its `config_schema`, and any other `{{config.…}}` its
+  templates use. Switching a connector off or removing it takes the entry out
+  of the catalogue. The steps and connections that use it are kept, fail
+  saying the connector was switched off or removed, and work again once it is
+  switched back on or installed again. A manifest under a built-in's key leaves
+  the built-in's entry alone.
+
+  Upgrading: a manifest installed before this version joins the catalogue the
+  next time it is installed; installing the same document again will do. A
+  template made by hand under a manifest's key becomes that manifest's entry,
+  so its settings are replaced by the ones the manifest reads.
 - **"Try it" on a connector step works.** It sent the connector's id where the
   server expected its key, and the step's mappings where it expected a
   connection, so it failed for every connector. It now runs the step once

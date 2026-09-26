@@ -144,6 +144,23 @@ func (r *organizationRepository) Delete(ctx context.Context, id uuid.UUID) error
 	return nil
 }
 
+// Count is how many organizations the installation holds.
+//
+// Deliberately unscoped, like Create: the number of tenants is not any one
+// tenant's data, and the question it answers — whether the installation is
+// shared — has the same answer whoever asks.
+func (r *organizationRepository) Count(ctx context.Context) (int64, error) {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n, err := organization.New().Count(ctx, ex)
+	if err != nil {
+		return 0, fmt.Errorf("could not count the organizations: %w", err)
+	}
+	return n, nil
+}
+
 func organizationFrom(row organization.Row) models.OrganizationModel {
 	return models.OrganizationModel{
 		Base: models.Base{

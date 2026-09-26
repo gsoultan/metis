@@ -914,7 +914,7 @@ func BuildAPIHandler(
 ) (http.Handler, *metrics.Collector) {
 	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
-	f := interceptors.NewInterceptorFactory(svc)
+	f := interceptors.NewInterceptorFactory(svc, svc)
 	var strategy authinterceptor.SecurityStrategy
 	if validator != nil {
 		strategy = f.NewOIDCStrategy(validator)

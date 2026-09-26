@@ -26,7 +26,7 @@ import (
 // decided by the pair: the interceptor picks the error, the encoder the code.
 
 func servedBehind(roles ...string) http.Handler {
-	chain := interceptors.NewInterceptorFactory(nil).ProtectedChainWithRoles("DeleteSomething", roles...)
+	chain := interceptors.NewInterceptorFactory(nil, nil).ProtectedChainWithRoles("DeleteSomething", roles...)
 	reached := func(context.Context, any) (any, error) {
 		return map[string]string{"status": "done"}, nil
 	}

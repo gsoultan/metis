@@ -127,7 +127,8 @@ export function ConnectorManifests() {
               <Title order={4}>Connectors from a document</Title>
             </Group>
             <Text size="xs" c="dimmed">
-              A connector described by a manifest, or imported from an API specification. No redeploy.
+              A connector described by a manifest, or imported from an API specification, joins the catalogue below,
+              where a project connects it and a step can choose it. No redeploy.
             </Text>
           </div>
           <Button size="xs" leftSection={<Plus size={14} />} onClick={modal.open}>
@@ -167,7 +168,7 @@ export function ConnectorManifests() {
                     </Badge>
                   </Table.Td>
                   <Table.Td>
-                    <Tooltip label="Switching off leaves the document in place" withArrow>
+                    <Tooltip label="Switching off takes it out of the catalogue and leaves the document in place" withArrow>
                       <Switch
                         size="xs"
                         aria-label={`Switch ${manifest.key} ${manifest.enabled ? 'off' : 'on'}`}

@@ -545,8 +545,9 @@ still caught. `retry_after` is honoured — being asked to wait two minutes and
 waiting two minutes is the difference between backing off and being blocked.
 
 Manifests are consulted before the built-in connectors, so one can replace a
-built-in without a redeploy. Genuinely code-shaped connectors — an SDK, a
-stream, anything stateful — keep the Go interface.
+built-in without a redeploy, where the operator allows it (below). Genuinely
+code-shaped connectors — an SDK, a stream, anything stateful — keep the Go
+interface.
 
 ## Installing a connector
 
@@ -554,20 +555,62 @@ stream, anything stateful — keep the Go interface.
 installs one; `"format": "openapi"` installs one per operation in a
 specification. Both are in the UI, on the Connectors page.
 
+**Who may.** A manifest is installation-wide: a step in any organization that
+names its key runs it, with that organization's connection attached. So
+installing, importing, switching and removing one changes what every
+organization runs, and on an installation with more than one organization it
+takes a **platform administrator** — an administrator whose account id whoever
+operates the installation has listed in `METIS_PLATFORM_ADMINS`. Anybody else
+is refused with a 403 that names the setting and gives them their account id to
+pass on. An installation with one organization needs nothing configured: its
+administrators may, as they always could.
+
+The same goes for **connector templates** (`/api/v1/connectors`), for the same
+reason. A template has no organization: its key is unique across the
+installation, and every organization's connections are configured through its
+schema, which is what marks a setting as a password.
+
 A manifest is stored as its author wrote it and read back the same way, comments
 and all. Installing an existing key **replaces** it, because installing again is
 how a manifest is fixed. It keeps the switch it had: a connector somebody
 switched off stays off when its document is fixed, and only a new one is
 installed switched on. A document whose `version` is lower than the installed
 one is refused with a 400 naming both — the same version again is a fix and a
-higher one an upgrade, but going back is almost always a stale copy. A manifest
-can carry the key of a built-in connector, which is how one is replaced without
-a redeploy.
+higher one an upgrade, but going back is almost always a stale copy.
+
+**A built-in's key.** A manifest under the key of a connector built into Metis —
+`http-json`, `slack-message`, `email-smtp`, `sendgrid-email`,
+`discord-message`, `ms-teams-message`, `rabbitmq-publish` or `sql-query` —
+replaces that connector in every step, in every organization, that uses it. So
+installing one is refused with a 400 naming the key unless the operator sets
+`METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`. A manifest installed under a
+built-in's key before this rule keeps answering; removing it hands the key back
+to the built-in.
 
 Manifests are read from the database on every call rather than cached, so a
 connector installed on one replica is live on all of them immediately, and a
 switched-off one stops being used everywhere at once. Switching off leaves the
 document in place — deleting loses it.
+
+Installing a connector adds it to the catalogue: on the Connectors page, where a
+project connects it, and in the designer, where a step chooses it. A step
+reaches a manifest only this way — it names a catalogue entry, the entry's
+connection supplies `config`, and the entry's key finds the manifest. The
+connection form asks for what the manifest reads from `config`: the credentials
+its `auth` needs (`token`, `api_key`, `username` and `password`, or `client_id`
+and `client_secret`), every property of `config_schema` — its `title`,
+`description`, `type`, `enum`, `default` and `required` become the field — and
+any other `{{config.…}}` a template reads. A setting that holds a credential is
+kept from the browser by its **name**, so include `secret`, `password`, `token`
+or `key` in it; `format: password` alone does not hide it, and the form does not
+pretend otherwise.
+
+Switching a connector off or removing it takes it out of the catalogue. The
+steps and connections that use it are kept; while it is gone they fail saying
+so, and they work again once it is switched back on or installed again. A
+manifest under a built-in's key leaves the built-in's entry as it is. A manifest
+installed before this behaviour arrived joins the catalogue the next time it is
+installed — the same document again will do.
 
 ## Importing a connector from an OpenAPI document
 
@@ -598,6 +641,10 @@ An operation the importer cannot read is skipped, not an error. What it did
 generate is installed as one step: if any of it cannot be installed — an
 operation you took further and gave a higher `version` than the import's 1, for
 instance — none of it is, and the error names the operation that stopped it.
+
+Each operation is its own entry in the catalogue, so a project connects each one
+it uses — with the same `base_url` and credentials, which is one more reason to
+delete the operations you will not call.
 
 ## Errors
 

@@ -746,6 +746,16 @@ func Schema(models []any) []Migration {
 				return nil
 			},
 		},
+		{
+			Version: 24,
+			Name:    "no group membership crosses organizations",
+			// A one-off: AddMembership now refuses an account from outside the
+			// group's organization, and this removes the ones added before it
+			// did, logging each. Transactional, so the removals and the record
+			// that they were made land together.
+			Transactional: true,
+			Run:           removeCrossOrganizationMemberships,
+		},
 	}
 }
 
