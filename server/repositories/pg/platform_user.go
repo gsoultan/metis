@@ -26,14 +26,18 @@ func NewPlatformUserRepository(conn *db.Conn) contracts.PlatformUserRepository {
 	return &platformUserRepository{conn: conn}
 }
 
+// List returns every platform account with its roles.
+//
+// Every one, not the store's first thousand, and with every grant: both reads
+// go through pg.everyRow. The id breaks ties in username so the keyset cursor
+// is a position.
 func (r *platformUserRepository) List(ctx context.Context) ([]entities.PlatformUser, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := platformuser.New().
-		Order(platformuser.Username.Asc()).
-		All(ctx, ex, nil)
+	rows, err := everyRow[platformuser.Row](ctx, ex, platformuser.New().
+		Order(platformuser.Username.Asc(), platformuser.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not list platform accounts: %w", err)
 	}
@@ -417,7 +421,7 @@ func (r *platformUserRepository) grantsByUser(ctx context.Context) (map[uuid.UUI
 		return nil, err
 	}
 
-	assignments, err := platformroleassignment.New().All(ctx, ex, nil)
+	assignments, err := everyRow[platformroleassignment.Row](ctx, ex, platformroleassignment.New())
 	if err != nil {
 		return nil, fmt.Errorf("could not read role assignments: %w", err)
 	}
