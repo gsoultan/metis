@@ -44,12 +44,23 @@ type WebhookDelivery struct {
 	// Token is the address from the URL.
 	Token string
 
-	// Signature is the value from the webhook's configured header.
+	// Signature is the v2 signature, from X-Metis-Signature: "v2=" and the hex
+	// HMAC of the timestamp, the delivery ID and the body. Empty when the
+	// sender signed the legacy way.
 	Signature string
+
+	// Timestamp is X-Metis-Timestamp exactly as sent — when a v2 delivery was
+	// signed, in Unix seconds. Kept as text because the text is what is signed.
+	Timestamp string
+
+	// LegacySignature is a v1 signature, over the body alone, from whichever of
+	// the headers senders use for one. It proves who sent the body and nothing
+	// about when, or how many times.
+	LegacySignature string
 
 	// DeliveryID is the sender's own ID for this event, used to recognise a
 	// retry. Empty when the sender gives none, in which case a retry cannot be
-	// told from a new event.
+	// told from a new event. A v2 signature covers it; a v1 signature does not.
 	DeliveryID string
 
 	// Body is the exact bytes delivered. The signature is over these, so they

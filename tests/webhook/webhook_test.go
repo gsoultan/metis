@@ -282,10 +282,10 @@ func (h *webhookHarness) register(t *testing.T, messageName, correlation string)
 func (h *webhookHarness) deliver(t *testing.T, hook entities.Webhook, body []byte, signature, deliveryID string) (entities.WebhookOutcome, error) {
 	t.Helper()
 	return h.service.Receive(h.ctx, entities.WebhookDelivery{
-		Token:      hook.Token,
-		Signature:  signature,
-		DeliveryID: deliveryID,
-		Body:       body,
+		Token:           hook.Token,
+		LegacySignature: signature,
+		DeliveryID:      deliveryID,
+		Body:            body,
 	})
 }
 

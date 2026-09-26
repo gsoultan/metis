@@ -41,7 +41,7 @@ func TestADeliveryThatFailedIsActedOnWhenTheSenderRetries(t *testing.T) {
 		body := []byte(`{"order":{"id":"ORD-9"}}`)
 		send := func() (entities.WebhookOutcome, error) {
 			return service.Receive(h.ctx, entities.WebhookDelivery{
-				Token: hook.Token, Signature: webhooksig.Sign(body, hook.Secret), DeliveryID: "d-9", Body: body,
+				Token: hook.Token, LegacySignature: webhooksig.Sign(body, hook.Secret), DeliveryID: "d-9", Body: body,
 			})
 		}
 		if _, err := send(); err == nil {

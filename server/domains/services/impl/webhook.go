@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/metis/internal/pkg/webhooksig"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic/feel"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -81,11 +80,12 @@ func (s *webhookService) Receive(ctx context.Context, delivery entities.WebhookD
 	// The signature, before anything is parsed. Nothing in the body is looked at
 	// — not even to see whether it is JSON — until it is known to have come from
 	// someone holding the secret.
-	if err := webhooksig.Verify(delivery.Body, hook.Secret, delivery.Signature); err != nil {
+	if err := authenticateDelivery(hook, delivery, time.Now()); err != nil {
 		log.Warn().
+			Err(err).
 			Str("webhook", hook.Name).
 			Str("token", redactToken(delivery.Token)).
-			Msg("Rejected a webhook delivery whose signature did not match")
+			Msg("Refused a webhook delivery that did not authenticate")
 		return entities.WebhookOutcome{}, err
 	}
 
