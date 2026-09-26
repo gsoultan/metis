@@ -109,6 +109,7 @@ func setupTestSchema(t *testing.T) (*gorm.DB, *db.Conn) {
 		t.Fatalf("failed to migrate db: %v", err)
 	}
 	ensureVersionIndexes(t, gormDB)
+	ensureAuditWriteOrder(t, gormDB)
 
 	conn, err := db.Open(context.Background(), stormDSN(dsn, namespace))
 	if err != nil {
@@ -154,6 +155,17 @@ func ensureVersionIndexes(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	if err := migrations.EnsureVersionIndexes(db, migrationModels()); err != nil {
 		t.Fatalf("failed to create version indexes: %v", err)
+	}
+}
+
+// ensureAuditWriteOrder gives the audit table the sequence migration 28 puts
+// behind audit_logs.seq. AutoMigrate creates the column and not the sequence,
+// and a trail read without it would come back in storage order — the defect
+// the migration closes.
+func ensureAuditWriteOrder(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := migrations.EnsureAuditWriteOrder(context.Background(), db); err != nil {
+		t.Fatalf("failed to number audit entries as they are written: %v", err)
 	}
 }
 

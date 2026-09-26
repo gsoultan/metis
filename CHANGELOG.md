@@ -280,6 +280,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An instance's history could show a step before the step that led to it.**
+  Everything one step of a process records carries the same time — the moment
+  the step began — and nothing recorded the order among those entries, so the
+  timeline, the path drawn on the diagram and the OCEL export listed them in
+  whatever order the database returned them: the order the rows were stored in,
+  which is the order they were written only until something moves a row.
+  Rewriting an entry in place (as the reseal after a key rotation does),
+  CLUSTER or pg_repack was enough to start a path at the first task instead of
+  the start event. Each audit entry is now numbered as it is written, and all
+  three read in that order. The business timeline, which re-sorted entries by
+  their shared time and so showed a step's last entry below its first, now
+  shows the newest first exactly.
+
+  Upgrading: migration 28 adds `audit_logs.seq` and the sequence that numbers
+  it. It changes the table's definition only — no row is rewritten, and the
+  table is locked for milliseconds. Entries written before the upgrade are not
+  numbered, because nothing recorded the order they were written in; they keep
+  the order they had.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

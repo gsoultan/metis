@@ -24,6 +24,10 @@ func NewAuditRepository(c *db.Conn) contracts.AuditRepository {
 // thing it describes, and a write that could fail here would mean an action
 // that happened with no record of it — which is worse than a record nobody
 // reads.
+//
+// The entry's place in the trail is never assigned here: the insert names only
+// the columns it sets, so seq takes its default, the next number of a sequence,
+// in the order this transaction writes.
 func (r *auditRepository) Create(ctx context.Context, entry models.AuditModel) error {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
@@ -73,14 +77,21 @@ func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID
 // execution path stopped at the same place, and the OCEL export lost its most
 // recent events.
 //
-// One statement with the limit lifted, not pg.everyRow. A keyset walk needs an
-// order with no ties, and nothing on this table records the order entries were
-// written in: created_at is the moment their transaction began, so every entry
-// one step writes shares it, and the ids are random. Walking on (created_at,
-// id) put a step's entries in id order — the execution path began at the task
-// instead of the start event. Ordered by created_at alone they come back in
-// the order PostgreSQL holds them, which for a trail that is only appended to
-// is the order they were written: what this read has always relied on.
+// Oldest first, by created_at and then by seq. created_at is the moment the
+// writing transaction began, so every entry one step writes shares it; seq is
+// the order that transaction wrote them in, from a sequence. Ordered by
+// created_at alone they came back in whatever order PostgreSQL returned the
+// ties — where the rows happen to be stored, which a reseal, CLUSTER or
+// pg_repack moves — and the ids could not break the tie: they are random, and
+// ordering by them started the execution path at the task instead of the start
+// event.
+//
+// Entries written before migration 28 have no seq. They tie as they always did
+// and come back as they always have; NULLS FIRST, because every one of them was
+// written before any entry that has one.
+//
+// One statement with the limit lifted, not pg.everyRow: a keyset walk needs an
+// order with no ties, and those older entries still have them.
 func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]models.AuditModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -91,7 +102,7 @@ func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]mod
 		return nil, err
 	}
 
-	q := auditentry.New().Where(pred).Order(auditentry.CreatedAt.Asc())
+	q := auditentry.New().Where(pred).Order(auditentry.CreatedAt.Asc(), auditentry.Seq.AscNullsFirst())
 	if !scope.unrestricted() {
 		if len(scope.projects) == 0 {
 			return nil, nil
@@ -117,6 +128,9 @@ func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]mod
 			NodeName:   valueOr(row.NodeName),
 			Message:    row.Message,
 			Narrative:  valueOr(row.Narrative),
+		}
+		if seq, ok := row.Seq.Get(); ok {
+			entry.Seq = &seq
 		}
 		if len(row.Data) > 0 {
 			if err := unseal(row.Data, &entry.Data); err != nil {
