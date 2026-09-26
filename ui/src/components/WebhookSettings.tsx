@@ -192,7 +192,6 @@ export function WebhookSettings() {
         onClose={form.close}
         title="Add a webhook"
         size="lg"
-        closeButtonProps={{ 'aria-label': 'Close' }}
       >
         <Stack gap="md">
           <TextInput
@@ -233,7 +232,6 @@ export function WebhookSettings() {
         onClose={() => setJustCreated(null)}
         title="Give these to the sender"
         size="lg"
-        closeButtonProps={{ 'aria-label': 'Close' }}
       >
         {justCreated && (
           <Stack gap="md">

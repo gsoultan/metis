@@ -5,6 +5,7 @@ import { Notifications } from '@mantine/notifications'
 import { TranslationProvider } from '../i18n/TranslationProvider'
 import { useAppStore } from '../store/useAppStore'
 import { cssVariablesResolver, theme } from '../theme'
+import { LocalisedTheme } from '../theme/LocalisedTheme'
 import '@mantine/core/styles.css'
 // @mantine/dates has its own stylesheet, imported by the three components that
 // use a picker rather than here — see the note in TaskForm. It had never been
@@ -42,13 +43,16 @@ function RootComponent() {
       forceColorScheme={colorScheme}
     >
       <TranslationProvider>
-        <Notifications position="top-right" limit={4} />
-        <Outlet />
-        {/* Says when a new version is waiting, when the connection has gone,
-            and what is still waiting to be sent. */}
-        <Suspense fallback={null}>
-          <ServiceWorkerPrompt />
-        </Suspense>
+        {/* Names every dialog's close button, in the interface's language. */}
+        <LocalisedTheme>
+          <Notifications position="top-right" limit={4} />
+          <Outlet />
+          {/* Says when a new version is waiting, when the connection has gone,
+              and what is still waiting to be sent. */}
+          <Suspense fallback={null}>
+            <ServiceWorkerPrompt />
+          </Suspense>
+        </LocalisedTheme>
       </TranslationProvider>
     </MantineProvider>
   )

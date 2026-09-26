@@ -280,6 +280,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **The close button of a dialog had no name.** Mantine draws the close button
+  of a dialog, a drawer, a notification and an alert as an icon alone, so a
+  screen reader announced it as "button" and nothing more — axe's
+  `button-name`, rated critical, on every dialog in the app. Three dialogs on
+  the webhooks card had been named one at a time. The theme now names every one
+  of them, in the interface's language: "Close", or "Tutup" in Indonesian. A
+  dialog that names its own close button keeps its name.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,
