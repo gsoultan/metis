@@ -2,6 +2,7 @@ package task_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -144,6 +145,76 @@ func TestAnOperatorsRolesAreNotLentToSomebodyElse(t *testing.T) {
 	if err := svc.ClaimTask(asOlga, taskID, "olga"); err != nil {
 		t.Fatalf("the operator claiming it herself: %v", err)
 	}
+}
+
+// Handing a task on — delegating it, or assigning it — was its holder's or an
+// administrator's. A task nobody was named for has no holder, so an operator,
+// whose work such a task now is, could claim it and could not give it to the
+// person it should have gone to, and a member was told only that the holder
+// could. Giving it to somebody is taking it on their behalf, so the rule that
+// decides claiming decides this too.
+func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *testing.T) {
+	h := newTaskHarness(t)
+	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
+	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
+
+	for _, action := range []string{"delegate", "assign"} {
+		taskID := h.openTask(t, nobodyNamed())
+		status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "mallory"})
+		if status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
+			t.Fatalf("mallory, a member with no role, trying to %s a task nobody was named for: got %d (%s); "+
+				"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
+				action, status, strings.TrimSpace(body))
+		}
+		if got := h.taskAssignee(t, taskID); got != "" {
+			t.Fatalf("after mallory was refused the task is held by %q, want nobody", got)
+		}
+
+		for _, who := range []string{"olga", "ada"} {
+			taskID := h.openTask(t, nobodyNamed())
+			if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "alice"}); status != http.StatusOK {
+				t.Fatalf("%s trying to %s a task nobody was named for to alice: got %d (%s), want 200",
+					who, action, status, strings.TrimSpace(body))
+			}
+			if got := h.taskAssignee(t, taskID); got != "alice" {
+				t.Fatalf("after %s gave it to alice (%s) the task is held by %q", who, action, got)
+			}
+			if status, body := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/complete",
+				map[string]any{"variables": map[string]any{"approved": true}}); status != http.StatusOK {
+				t.Fatalf("alice completing the task %s gave her (%s): got %d (%s)", who, action, status, strings.TrimSpace(body))
+			}
+		}
+	}
+
+	// Work somebody was named for is still its holder's or an administrator's
+	// to give away: an operator cannot hand on a task offered to a team.
+	offered := h.openTask(t, entities.Node{
+		Name: "Approve the refund", Type: entities.UserTask,
+		CandidateGroups: []*entities.Group{{Name: "finance"}},
+	})
+	if status, body := h.post(t, h.tokens["olga"], "/api/v1/tasks/"+offered+"/delegate", map[string]any{"user_id": "alice"}); status != http.StatusForbidden {
+		t.Fatalf("an operator delegating a task offered to finance: got %d (%s), want 403", status, strings.TrimSpace(body))
+	}
+}
+
+// taskAssignee reads back who holds a task, or "" when nobody does.
+func (h *taskHarness) taskAssignee(t *testing.T, id string) string {
+	t.Helper()
+	status, body := h.get(t, h.tokens["alice"], "/api/v1/tasks/"+id)
+	if status != http.StatusOK {
+		t.Fatalf("get task: status %d (%s)", status, body)
+	}
+	var out struct {
+		Task struct {
+			Assignee struct {
+				Username string `json:"username"`
+			} `json:"assignee"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode task: %v", err)
+	}
+	return out.Task.Assignee.Username
 }
 
 // saysWhoMayTakeIt reports whether a refusal says why, and who can.
