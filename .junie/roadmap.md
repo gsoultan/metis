@@ -1148,6 +1148,51 @@
     the scheme with Go, Node.js and Python examples checked against a live server.
   - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
     in `docs/upgrading.md`).
+- 2026-09-26 (completed): `DMN-17` — a decision cell sees the rest of the case. Branch
+  `decision-cells-see-inputs`, one commit per change, each with a test that fails without it.
+  - **The gap.** A condition cell was tested against its own column's value and nothing
+    else (`ruleMatches` built `{"_input": value}`), so `> minimum` beside a minimum column,
+    `> credit_limit`, or `[low..high]` compared with null: no match and no error, `!=`
+    matching every case, and only a range failing ("cannot compare a number with a null").
+  - **The rule now.** DMN's: the column's value is the implicit subject (`_input`, bound
+    first, so no variable shadows it) and every variable the decision was evaluated with is
+    in scope by name, required decisions' answers included — the names the columns read,
+    so a column and a variable of the same name are one value, and a heading is not a name.
+    The bare-word deviation stays, narrowed: a lone word is text unless it names one of the
+    table's columns, so a table's words do not change meaning with the process that consults
+    it; `= name` reads any variable. `?` and names with spaces stay outside the subset
+    (execution-plan §2.1, pinned by `TestSubsetIsDocumented`). Outputs are literals and
+    unchanged. `ExpressionEvaluator.EvaluateBool` became `MatchesCell` with an explicit
+    `entities.DecisionCellScope`.
+  - **Cost.** A variable is converted when a cell reads it: a cell beside a 5,000-line
+    order went from 1.6 ms and 10,005 allocations to 159 ns and none; a 100-line table from
+    38.7 µs and 339 allocations to 28.1 µs and 2.
+  - **Editor.** The checks no longer read a lone column name as a word (that produced a
+    false overlap error that blocked Save); hover text names the column; the coverage card
+    says what a column is compared with; a line under the grid says a condition can name
+    another; `?` is marked with what to write instead. Found on the way and fixed in their
+    own commits: the card told an author to quote any unread column that had a `-` line,
+    and a broken condition's `aria-invalid` never reached the page.
+  - **Upgrading.** No migration. Tables whose cells name a variable decide as written from
+    the upgrade on; `docs/upgrading.md` has a query that lists those cells, and rolling the
+    release back restores the old reading.
+  - Tests: `tests/decision/conformance_test.go` (new corpus cases),
+    `tests/decision/cell_scope_test.go` (a business rule task on PostgreSQL),
+    `impl/decision_cell_scope_test.go` (precedence; the caller's variables untouched),
+    `feel/cell_variables_test.go` (allocation bound), and the UI's `columnComparison`,
+    `columnComparisonHint`, `ConditionCell` and editor page tests.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
+    set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
+    scope each; UI typecheck, lint (0 errors) and 1485 tests pass. The changed packages run
+    verbose: 506 pass, none fail, and the only two skips need a RabbitMQ broker.
+    `golangci-lint run ./...`: 0 issues.
+  - **Not done, and why:** `?` is flagged, not implemented (it means DMN 1.2's boolean unary
+    tests). A range whose end names a variable nobody supplied still fails the evaluation,
+    as a range with an incomparable bound always has; changing it would change gateway
+    conditions too. Try it gives values to the table's columns only, so it cannot supply a
+    variable no column reads; the coverage card says so rather than suggesting Try it. The
+    Serena `verified-findings` memory and the PRD row for DMN-17 live outside the
+    repository and are updated once this merges.
 - 2026-09-26 (completed): Signing in stays possible when the identity provider is not, as
   the product owner decided it. Branch `auth-both-tokens`, one commit per change, each with
   a test that fails against the code before it.

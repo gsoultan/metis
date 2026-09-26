@@ -331,6 +331,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A decision cell could not compare with another column, or with any other
+  variable of the decision.** A cell was tested with its own column's value and
+  nothing else, so `> minimum` beside a minimum column — or `> credit_limit`, a
+  variable the table has no column for — compared with nothing: no error, the
+  line just never matched. `!= minimum` matched every case, and a range between
+  two columns, `[low..high]`, failed the decision with "cannot compare a number
+  with a null". A cell now sees what DMN gives it: its own column's value as
+  the implicit subject (`_input`, which no variable can shadow) and every
+  variable the decision was evaluated with, by the names the columns read, the
+  answers of required decisions included. A word on its own, with no operator,
+  is still the word unless it names one of the table's columns: `manager` in an
+  approval matrix stays the word even when the process holds a variable called
+  manager, and `= manager` asks for the variable. `?` and names with spaces are
+  still not part of the FEEL subset. **Upgrading:** a table with such cells
+  decides as written from now on, rather than as if the value were missing, and
+  a lone word that is another column's name now means that column.
+  `docs/upgrading.md` (*Decision cells see the rest of the case*) has a query
+  that lists them.
+- **The decision editor misread a condition that names another column.** It
+  took `minimum` on its own for the word, where the engine reads the minimum
+  column, so a table could be refused on save for an overlap that is not there
+  (`minimum` and `"minimum"` "both apply when Level is minimum"). Such a cell
+  now reads back on hover as "Score is the same as Minimum", and `> minimum` as
+  "Score is more than Minimum"; the coverage card says the column is compared
+  with Minimum rather than calling the condition unreadable, and suggests Try it
+  only when Try it can set what the condition names (it has a box for each of
+  the table's conditions, so not for `credit_limit` in `> credit_limit`); a
+  line under the grid says a condition can name another; and a cell holding
+  `?`, Camunda's name for a condition's own value, which the engine cannot
+  read, is marked with what to write instead.
+- **A decision condition the engine cannot read was marked for sighted users
+  only.** The cell drew a red wavy underline and set `aria-invalid`, which the
+  input component replaced with its own, so a screen reader never heard that
+  the condition was wrong. It is announced as invalid now.
+- **The decision editor told an author to put working conditions in quotes.**
+  When the table checks could not read a column (a cell calling a function,
+  say) and the column also had a line with `-`, as every new line does, the
+  coverage card said the column "has text the engine cannot read without
+  quotes": it took the dash for unquoted text. Quoting the cells as told would
+  have turned them into plain words. The dash no longer counts, and the card
+  says only that it could not check the column.
 - **Authentication errors lost a word to the redactor.** Errors and logs pass
   through a redactor that hides whatever follows a secret's name and a colon,
   so `missing or invalid token: the ID token names no issuer` read

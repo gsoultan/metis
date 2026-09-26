@@ -28,7 +28,6 @@ import {
   Divider,
   Group,
   Kbd,
-  Menu,
   Paper,
   Radio,
   ScrollArea,
@@ -49,7 +48,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  ChevronDown,
   ChevronsUpDown,
   History,
   Info,
@@ -57,38 +55,30 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 import { DecisionTests } from '../components/DecisionTests';
+import { ConditionCell } from '../components/decisions/ConditionCell';
 import { CoverageCard } from '../components/decisions/CoverageCard';
 import { DecisionVersionsModal } from '../components/decisions/DecisionVersionsModal';
 import { SaveDecisionModal } from '../components/decisions/SaveDecisionModal';
 import { TrialPanel } from '../components/decisions/TrialPanel';
+import type { GridCellProps } from '../components/decisions/gridCell';
 import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
   ANY_VALUE,
-  CELL_TEMPLATES,
   COLUMN_TYPES,
   HIT_POLICIES,
   applyPastedGrid,
-  describeCell,
+  columnComparisonHint,
+  columnHeadingsOf,
   describeTable,
   hitPolicyOf,
   moveRule,
   newRuleRow,
   parseClipboardGrid,
-  validateCell,
   type DecisionInputColumn,
   slugVariable,
   variableFollowsLabel,
@@ -137,83 +127,6 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 const RAIL_WIDTH = 340;
-
-/**
- * What every grid cell needs to behave like a spreadsheet cell.
- *
- * Its position, so the keyboard can find its neighbours, plus the two handlers
- * that make a grid a grid: moving between cells, and accepting a block of them
- * off the clipboard.
- */
-interface GridCellProps {
-  'data-row': number;
-  'data-col': number;
-  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
-  onPaste: (event: ReactClipboardEvent<HTMLElement>) => void;
-}
-
-/** A condition cell: free text, with the notation available from a menu. */
-function ConditionCell({
-  value,
-  type,
-  columnLabel,
-  cellProps,
-  onChange,
-}: {
-  value: string;
-  type: string;
-  columnLabel: string;
-  cellProps: GridCellProps;
-  onChange: (next: string) => void;
-}) {
-  const templates = CELL_TEMPLATES[type] ?? CELL_TEMPLATES.string;
-  const problem = validateCell(value);
-  const meaning = problem ?? describeCell(value, columnLabel);
-
-  return (
-    <Group gap={0} wrap="nowrap" align="center">
-      <Tooltip label={meaning} openDelay={problem ? 0 : 400} position="top-start" withArrow color={problem ? 'red' : undefined}>
-        <TextInput
-          {...cellProps}
-          variant="unstyled"
-          px="sm"
-          aria-label={`${columnLabel} condition`}
-          aria-invalid={problem ? true : undefined}
-          placeholder={ANY_VALUE}
-          value={value}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          styles={{
-            input: {
-              fontSize: rem(13),
-              // A wavy underline rather than a red box: the cell is still being
-              // typed, and a box round every half-written condition is noise.
-              textDecoration: problem ? 'underline wavy var(--mantine-color-red-6)' : undefined,
-            },
-            root: { flex: 1 },
-          }}
-        />
-      </Tooltip>
-      <Menu position="bottom-end" shadow="md" width={260}>
-        <Menu.Target>
-          <ActionIcon aria-label={`Condition choices for ${columnLabel}`} size="xs" variant="subtle" color="gray" mr={4}>
-            <ChevronDown size={12} />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Label>{columnLabel}</Menu.Label>
-          {templates.map((template) => (
-            <Menu.Item key={template.value} onClick={() => onChange(template.value)}>
-              <Group justify="space-between" wrap="nowrap" gap="sm">
-                <Text size="xs">{template.label}</Text>
-                <Code fz={10}>{template.value}</Code>
-              </Group>
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
-    </Group>
-  );
-}
 
 /**
  * A result cell.
@@ -362,6 +275,9 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const problems = [...findStructureProblems(hitPolicy, inputs, outputs, rules), ...overlaps];
   const blocking = problems.filter(isError);
   const summary = describeTable(hitPolicy, aggregation, inputs, outputs, rules.length);
+  // A condition can name another column; its hover text says which.
+  const headings = useMemo(() => columnHeadingsOf(inputs), [inputs]);
+  const comparisonHint = columnComparisonHint(inputs);
 
   const addInput = () => {
     const label = `Condition ${inputs.length + 1}`;
@@ -823,6 +739,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                               value={rule.input_entries[columnIndex] ?? ''}
                               type={input.type}
                               columnLabel={input.label || input.expression}
+                              headings={headings}
                               cellProps={cellPropsFor(ruleIndex, columnIndex)}
                               onChange={(next) => setCell(ruleIndex, columnIndex, next)}
                             />
@@ -916,6 +833,12 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
               Paste a block from a spreadsheet to fill the table
             </Text>
           </Group>
+          {/* Comparing two inputs is written, not picked from the cell menu,
+              so it has to be said somewhere nobody has to hover to find. */}
+          <Text size="xs" c="dimmed">
+            To compare with another condition, write its name: <Code fz={11}>{comparisonHint.example}</Code>
+            {comparisonHint.meaning ? ` means ${comparisonHint.meaning}.` : '.'}
+          </Text>
         </Stack>
 
         {/* Everything about the table, beside the table. */}
