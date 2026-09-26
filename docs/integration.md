@@ -289,43 +289,175 @@ closed — posts to an address you register:
 
 ```
 POST /api/v1/hooks/<token>
-X-Signature-256: sha256=<hmac>
-X-Delivery-Id: <the sender's id for this event>
+Content-Type: application/json
+X-Metis-Timestamp: 1767225600
+X-Delivery-Id: evt_0001
+X-Metis-Signature: v2=bb84c51b81746277520c49e834388c1fdaa0680755ef30bc087b6a7eba752675
 
-{"order": {"id": "ORD-1"}}
+{"order":{"id":"ORD-1"}}
 ```
 
 The endpoint is public, because a partner's configuration screen has nowhere to
-put a token this engine would recognise. What authenticates a delivery is the
-signature: **HMAC-SHA256 over the exact bytes of the body**, hex-encoded, using
-the secret you were given when the webhook was created.
+put a token this engine would recognise. What authenticates a delivery is its
+signature, computed with the secret you were given when the webhook was
+created. **The secret is shown once**; it is encrypted at rest and no read path
+returns it. Use it exactly as shown — its characters are the key, it is not
+base64 to be decoded.
+
+### Signing a delivery
+
+Three headers, all required:
+
+| Header | Value |
+| :-- | :-- |
+| `X-Metis-Timestamp` | When this attempt is sent, in Unix **seconds** |
+| `X-Delivery-Id` | Your own ID for the event: unique per event, **the same on every retry** |
+| `X-Metis-Signature` | `v2=` and the hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<delivery id>.<raw body>` |
 
 ```
-signature = hex(hmac_sha256(secret, raw_request_body))
+X-Metis-Signature = "v2=" + hex(hmac_sha256(secret, timestamp + "." + delivery_id + "." + raw_body))
 ```
 
-An `sha256=` prefix is accepted and ignored — the algorithm is ours, not the
-caller's to declare. The header name is configurable per webhook, because there
-is no standard: GitHub uses `X-Hub-Signature-256`, Stripe uses
-`Stripe-Signature`.
+- **Sign the exact bytes you send.** Serialise the JSON once, sign that, send
+  that. Re-encoding after signing changes the bytes, and the signature no
+  longer matches.
+- **Sign every attempt when it is sent, retries included.** A delivery signed
+  more than **5 minutes** from Metis's clock, either way, is refused, so a stored
+  copy cannot be replayed later and a retry needs a fresh timestamp.
+- **Keep `X-Delivery-Id` the same across retries of one event.** A delivery
+  whose ID Metis has already acted on is answered `202` with
+  `"duplicate": true` and not acted on again; IDs are remembered for 48 hours.
+  Because the ID is signed, a captured delivery sent again under a new ID no
+  longer matches its signature.
 
-**The secret is shown once**, when the webhook is created. It is encrypted at
-rest and no read path returns it.
+Check your code before sending anything: with the secret
+`your-webhook-secret`, timestamp `1767225600`, delivery ID `evt_0001` and body
+`{"order":{"id":"ORD-1"}}`, the signature is
+`v2=bb84c51b81746277520c49e834388c1fdaa0680755ef30bc087b6a7eba752675`.
 
-**Send a delivery ID.** Any of `X-Delivery-Id`, `X-GitHub-Delivery`,
-`X-Request-Id` or `Idempotency-Key`. A delivery carrying an ID already seen is
-answered `202` and not acted on again — senders retry, and without an ID a retry
-cannot be told from a new event and will move the process twice. IDs are
-remembered for 48 hours.
+Go:
+
+```go
+func signV2(secret, timestamp, deliveryID string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "." + deliveryID + "."))
+	mac.Write(body)
+	return "v2=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// For each attempt, retries included:
+timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+req.Header.Set("Content-Type", "application/json")
+req.Header.Set("X-Metis-Timestamp", timestamp)
+req.Header.Set("X-Delivery-Id", deliveryID)
+req.Header.Set("X-Metis-Signature", signV2(secret, timestamp, deliveryID, body))
+```
+
+Node.js (18 or later):
+
+```js
+import { createHmac } from "node:crypto";
+
+function signV2(secret, timestamp, deliveryId, body) {
+  return "v2=" + createHmac("sha256", secret)
+    .update(`${timestamp}.${deliveryId}.`)
+    .update(body)
+    .digest("hex");
+}
+
+// For each attempt, retries included:
+const body = JSON.stringify(event); // sign and send these exact bytes
+const timestamp = Math.floor(Date.now() / 1000).toString();
+await fetch(url, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-Metis-Timestamp": timestamp,
+    "X-Delivery-Id": event.id,
+    "X-Metis-Signature": signV2(secret, timestamp, event.id, body),
+  },
+  body,
+});
+```
+
+Python:
+
+```python
+import hashlib, hmac, json, time, urllib.request
+
+def sign_v2(secret: str, timestamp: str, delivery_id: str, body: bytes) -> str:
+    message = f"{timestamp}.{delivery_id}.".encode() + body
+    return "v2=" + hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
+
+# For each attempt, retries included:
+body = json.dumps(event).encode()  # sign and send these exact bytes
+timestamp = str(int(time.time()))
+request = urllib.request.Request(url, data=body, method="POST", headers={
+    "Content-Type": "application/json",
+    "X-Metis-Timestamp": timestamp,
+    "X-Delivery-Id": event["id"],
+    "X-Metis-Signature": sign_v2(secret, timestamp, event["id"], body),
+})
+urllib.request.urlopen(request, timeout=10)
+```
 
 Each webhook names the BPMN message a delivery becomes, and optionally a FEEL
 expression over the payload — `order.id` — picking the value that says which
 waiting instance it concerns. Leave that empty and every delivery starts a
 process instead of moving one.
 
-Responses: `202` accepted, `401` for anything about who sent it (an unknown
-address and a bad signature are deliberately indistinguishable), `400` for a
-body that could not be used.
+Responses:
+
+| Status | Meaning |
+| :-- | :-- |
+| `202` | Accepted — or, with `"duplicate": true`, already acted on and not acted on again |
+| `400` | Signed correctly but not usable: the timestamp is missing or more than 5 minutes out, there is no delivery ID, the body is not a JSON object, the correlation value is missing, or the webhook no longer accepts legacy signatures. The body says which, and what to change |
+| `401` | Anything about who sent it: an unknown address, a switched-off webhook, a signature that does not match. Deliberately indistinguishable, so the reply cannot be used to find addresses — a `400` explanation is only given to a delivery whose signature matched |
+
+A `401` for a sender you believe is right is nearly always the wrong secret, a
+body re-encoded after signing, a timestamp or delivery ID header that differs
+from what was signed, or a timestamp in milliseconds.
+
+### Legacy signatures, and moving off them
+
+Before v2 a signature was the HMAC of the body alone, sent as
+`X-Signature-256` (or `X-Hub-Signature-256`, `X-Signature`,
+`Stripe-Signature`, `X-Webhook-Signature`), optionally prefixed `sha256=`, with
+the delivery ID in `X-Delivery-Id`, `X-GitHub-Delivery`, `X-Request-Id` or
+`Idempotency-Key`. It says nothing about when a delivery was sent or under which
+ID, so anyone who captured one could post it again under a new ID, as often as
+they liked, and each copy was acted on.
+
+- **Webhooks created from this release on accept v2 only.**
+- **Webhooks that existed before it accept legacy signatures for 90 days from
+  the upgrade**, so no sender is cut off on the day. The webhooks screen shows
+  the date under each of them, and the reply to an accepted legacy delivery
+  carries it as `legacy_signatures_until`.
+- Inside that window a legacy signature works as it always did — replays
+  included. That is the risk the window accepts; move senders early.
+- After it, a legacy-signed delivery is refused with `400` and a message saying
+  how to sign with v2. v2 is accepted throughout, and a delivery carrying
+  `X-Metis-Signature` is judged by v2 alone, so a sender can switch whenever it
+  is ready.
+
+To move a sender:
+
+1. On the Connectors page, under *Incoming webhooks*, find the webhooks that say
+   *Still accepts legacy signatures until …*. The server logs each legacy
+   delivery it accepts, with the webhook's name: *Accepted a webhook delivery
+   signed the legacy way*.
+2. Send the sender's developers this section, or the screen's *How to move the
+   sender to v2*. The secret does not change.
+3. They send `X-Metis-Timestamp`, a stable `X-Delivery-Id`, and
+   `X-Metis-Signature` as above, signing each attempt as it is sent.
+4. Their replies stop carrying `legacy_signatures_until`, and the log line stops
+   naming that webhook. [`upgrading.md`](upgrading.md) shows how to close a webhook's
+   window early once its sender has moved.
+
+A sender that can only sign the body — a service whose webhook settings you
+cannot change, such as GitHub's `X-Hub-Signature-256` — cannot produce v2.
+Before its window closes, put a small relay in front of Metis that checks the
+sender's own signature and re-signs each delivery with v2 as it forwards it.
 
 ## Letting a decision table say who approves
 

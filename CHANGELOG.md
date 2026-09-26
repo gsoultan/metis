@@ -10,6 +10,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A captured webhook delivery could be replayed as often as anyone liked.**
+  A webhook signature covered the body alone; the delivery ID that
+  de-duplication keys on was unsigned, and nothing was timestamped. A delivery
+  taken from any log between a sender and Metis could be posted again under a
+  new `X-Delivery-Id`, and each copy sent the message or started the process
+  again. Senders now sign with v2 — `X-Metis-Timestamp`, `X-Delivery-Id` and
+  `X-Metis-Signature: v2=<HMAC-SHA256 of "<timestamp>.<delivery id>.<body>">` —
+  and a delivery signed more than five minutes from the server's clock is
+  refused. **Webhooks created from now on accept v2 only. Existing webhooks
+  keep accepting the old body-only signature for 90 days from the upgrade**
+  (migration 25), then refuse it with a message saying how to sign with v2.
+  Move your senders before then: the webhooks screen shows each webhook's date,
+  *Receiving events: webhooks* in `docs/integration.md` has the scheme with Go,
+  Node.js and Python examples, and `docs/upgrading.md` shows how to close a
+  window early once a sender has moved.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial
