@@ -100,6 +100,15 @@ func (s *connectorService) SetManifestEnabled(ctx context.Context, id uuid.UUID,
 		if err != nil {
 			return err
 		}
+		// Switching one on puts it back in every step that names its key, which
+		// under a built-in's key takes that connector over again: the same
+		// decision as installing it. Switching off is always allowed, since it
+		// hands the key back.
+		if enabled && !current.Enabled {
+			if err := s.refuseBuiltInKey(current.Key); err != nil {
+				return err
+			}
+		}
 		if err := s.repo.ConnectorManifest().SetEnabled(ctx, id, enabled); err != nil {
 			return err
 		}

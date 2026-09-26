@@ -296,6 +296,50 @@ func TestAManifestUnderABuiltInsKeyIsRefusedUnlessTheOperatorAllowsIt(t *testing
 	}
 }
 
+// Switching a manifest on puts it back in every step that names its key, which
+// for a built-in's key is taking that connector over again: the same decision
+// as installing it, and the operator's to make. A manifest installed under a
+// built-in's key while overrides were allowed — or before this release — and
+// then switched off is not switched back on once they are not.
+func TestAManifestUnderABuiltInsKeyIsNotSwitchedBackOnUnlessTheOperatorAllowsIt(t *testing.T) {
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "true")
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	installed, err := svc.InstallManifest(ctx, []byte("key: http-json\nversion: 1\nrequest:\n  url: https://example.com\n"))
+	if err != nil {
+		t.Fatalf("install under the built-in's key while overrides are allowed: %v", err)
+	}
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Fatalf("switch off: %v", err)
+	}
+
+	t.Setenv("METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE", "")
+	err = svc.SetManifestEnabled(ctx, installed.ID, true)
+	if err == nil {
+		t.Fatal("a manifest under the built-in's key was switched back on without the operator allowing overrides")
+	}
+	if common.CodeFrom(err) != http.StatusBadRequest {
+		t.Errorf("the refusal is not a 400 (status %d): %v", common.CodeFrom(err), err)
+	}
+	if !strings.Contains(err.Error(), `"http-json"`) || !strings.Contains(err.Error(), "METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE") {
+		t.Errorf("the refusal does not name the key and the setting: %v", err)
+	}
+
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Enabled {
+		t.Errorf("after the refusal the catalogue holds %+v, want the manifest still switched off", manifests)
+	}
+
+	// Switching it off is always allowed: it hands the key back to the built-in.
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Errorf("switching an override off again was refused: %v", err)
+	}
+}
+
 // An OpenAPI document installs one connector per operation, in one action.
 func TestImportingASpecificationInstallsEveryOperation(t *testing.T) {
 	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))

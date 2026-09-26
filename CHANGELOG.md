@@ -42,9 +42,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
 
   Upgrading: a manifest already installed under a built-in's key keeps
-  answering, and installing it again to fix it needs the setting. Look for one
-  among the installed connectors on the Connectors page; removing it hands the
-  key back to the built-in.
+  answering. Installing it again to fix it needs the setting, and so does
+  switching it back on once it has been switched off. Look for one among the
+  installed connectors on the Connectors page; switching it off or removing it
+  hands the key back to the built-in.
 - **Anybody in an organization could edit a task somebody else held.**
   `PUT /api/v1/tasks/{id}` changes a task's name, priority and due date, and it
   needed only a login, so any member could push the due date of a colleague's
