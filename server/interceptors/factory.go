@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
@@ -18,10 +19,13 @@ import (
 // InterceptorFactory creates various interceptors.
 type InterceptorFactory struct {
 	users servicecontracts.UserService
+	// roles is every role-gated chain this factory has built, so what each
+	// role is required for can be read from the gates. See RoleAccess.
+	roles *roleRegistry
 }
 
 func NewInterceptorFactory(users servicecontracts.UserService) *InterceptorFactory {
-	return &InterceptorFactory{users: users}
+	return &InterceptorFactory{users: users, roles: newRoleRegistry()}
 }
 
 func (f *InterceptorFactory) NewLogging(method string) contracts.EndpointInterceptor {
@@ -108,6 +112,7 @@ func (f *InterceptorFactory) ProtectedChain(method string) func(endpoint.Endpoin
 // is equivalent to ProtectedChain and should be reserved for endpoints where
 // any authenticated participant is legitimately allowed.
 func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
+	f.roles.record(method, roles)
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
 	rbac := authinterceptor.NewRequireRoles(roles...)
@@ -117,6 +122,15 @@ func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...str
 		// token reports "unauthenticated" rather than "insufficient role".
 		return auth.Intercept(rbac.Intercept(tenantResolver.Intercept(logging.Intercept(e))))
 	}
+}
+
+// RoleAccess lists each role with the actions its gates were built for, by
+// the method names the chains were given.
+//
+// Read it once every chain is built: a chain built afterwards is enforced and
+// missing from the answer, which is why MakeEndpoints reads it last.
+func (f *InterceptorFactory) RoleAccess() []entities.RoleAccess {
+	return f.roles.access()
 }
 
 // PublicChain returns a function that applies only logging to an endpoint.
