@@ -31,6 +31,8 @@ func TestMigrationsProduceValidIndexesOnPostgres(t *testing.T) {
 	for _, name := range []string{
 		"ix_process_instances_project_created",
 		"ix_process_instances_project_status",
+		"ix_notifications_user_unread",
+		"ix_notifications_user_newest",
 	} {
 		var valid bool
 		err := db.Raw(`
@@ -43,7 +45,7 @@ func TestMigrationsProduceValidIndexesOnPostgres(t *testing.T) {
 			t.Fatalf("check %s: %v", name, err)
 		}
 		if !valid {
-			t.Errorf("%s is missing or INVALID; the instance list falls back to scanning the table", name)
+			t.Errorf("%s is missing or INVALID; the reads it is for fall back to scanning the table", name)
 		}
 	}
 
