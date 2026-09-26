@@ -298,6 +298,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   table is locked for milliseconds. Entries written before the upgrade are not
   numbered, because nothing recorded the order they were written in; they keep
   the order they had.
+- **Every case in the OCEL export said it ran version 0 of a process with no
+  name.** An instance records only which definition it runs, and the export
+  used that as it came: each case carried an empty `definition_key` and a
+  `definition_version` of `0`, and was related to no definition. A case of
+  version 3 and one of version 4 looked the same to a mining tool, which then
+  discovered one model from two different processes. Each case now carries its
+  process's key and the version it runs, and is related to that version's
+  definition object (`claim:3`), as the export always declared it would be. A
+  case whose version has since been deleted carries neither, rather than an
+  invented one. A migrated case carries the version it runs now; its
+  `instance_migrated` event says which version it came from.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

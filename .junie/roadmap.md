@@ -997,8 +997,9 @@
     over every running token (984038e).
   - **Still open**: a person's notifications are the newest 1,000 and the bell counts
     unread among them; the fix is a paged list with a server-side unread count, a
-    change to the UI's contract. The OCEL export never names a case's process version
-    (the instance it reads carries only the definition id), at any size.
+    change to the UI's contract. ~~The OCEL export never names a case's process version
+    (the instance it reads carries only the definition id), at any size.~~ *Done
+    2026-09-26: see that date's "audit order" entry.*
     ~~The audit trail is read in one statement rather than keyset-walked: the entries
     one transaction writes share its created_at and their ids are random, so their
     order rests on PostgreSQL returning ties as written; writing audit ids as UUIDv7
@@ -1166,6 +1167,19 @@
     timestamp one step's entries share. Tests: `tests/bpmn/audit_write_order_test.go` (the
     table clustered on its primary key; before, the path began at the task),
     `tests/migrations/audit_write_order_test.go`, `BusinessTimeline.test.tsx`.
+  - **Each case in the OCEL export names the process version it ran.** The instance row
+    carries only its definition's id, and the export used it as it came: every case said
+    `definition_key` "" and `definition_version` "0" and was related to no definition, so a
+    case of v3 and one of v4 were the same to a miner. The export now reads each version
+    once, through the engine's tenant-keyed definition cache, and fills in the key, the
+    version and the relation to the `key:version` definition object it always declared. A
+    case whose definition was deleted carries none of them rather than version 0. Tests:
+    `tests/bpmn/ocel_version_test.go` (an instance of v2 and one of v3; before, both said
+    version "0") and `TestOCELNamesNoVersionItCouldNotRead`.
+  - **Found, not changed:** a migrated case carries the version it runs now, stamped at
+    its first event. OCEL can carry the change as a second time-stamped value at the
+    migration; the `instance_migrated` entry already records the source and target
+    versions it would take.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
