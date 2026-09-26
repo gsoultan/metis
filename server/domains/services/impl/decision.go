@@ -254,8 +254,8 @@ func (s *decisionService) refuseToStrandTheKey(ctx context.Context, projectID uu
 	}
 	if others := len(versions) - 1; others > 0 {
 		return apierr.Invalidf(
-			"v%d is the live version of the decision %q and %d other %s remain; make another version live first, then delete this one",
-			decision.Version, decision.Key, others, pluralVersions(others))
+			"v%d is the live version of the decision %q and %d other %s; make another version live first, then delete this one",
+			decision.Version, decision.Key, others, otherVersionsRemain(others))
 	}
 	return nil
 }
@@ -403,11 +403,11 @@ const handlerAssignmentDecisionKey = "assignment_decision_key"
 // goes quietly blind to every approval matrix.
 const AssignmentDecisionKeyForTest = handlerAssignmentDecisionKey
 
-func pluralVersions(n int) string {
+func otherVersionsRemain(n int) string {
 	if n == 1 {
-		return "version"
+		return "version remains"
 	}
-	return "versions"
+	return "versions remain"
 }
 
 func pluralInstances(n int) string {

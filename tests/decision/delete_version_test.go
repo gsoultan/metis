@@ -33,6 +33,9 @@ func TestTheLiveVersionCannotBeDeletedWhileOtherVersionsRemain(t *testing.T) {
 	if !strings.Contains(message, "make another version live") {
 		t.Errorf("the refusal says %q, which does not say what to do instead", message)
 	}
+	if !strings.Contains(message, "and 1 other version remains;") {
+		t.Errorf("the refusal says %q; it should say how many other versions remain, in a sentence", message)
+	}
 	if band, version := api.unpinned(t); band != "VERY HIGH" || version != 2 {
 		t.Errorf("after the refusal: %s from v%d, want v2 still live", band, version)
 	}
