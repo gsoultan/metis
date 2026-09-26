@@ -964,13 +964,30 @@
     rows silently truncated reads the engine acts on: a signal's audience, a migration's
     instances and jobs, the decision delete guard, the withdrawal of a deadline's open
     tasks, and the shared rate limit's totals.
-  - **Open**: capped reads behind views and exports (an instance's audit trail and
-    execution path, the OCEL export, the dashboard's step heat map, users and group
-    members, sub-processes, incidents). Also the definitions list that the decision guard
-    and message and signal start events walk (over 1,000 versions in one project), the
-    last-administrator guard (over 1,000 members), and the one-time backfills v2 and v3.
-    Separately, paged lists that order by creation time alone repeat and drop rows across
-    a page boundary when one transaction created them.
+  - **Was open, done 2026-09-26** (branch `complete-reads`, one commit per fix, each with
+    a test past 1,000 rows that failed first). Guards: the last-administrator guard of an
+    organization (asked of the database, not a member list) and of the installation (it
+    read the account's grants from a capped list of every grant, and let the last
+    administrator go; a deleted administrator also still counted). Walks: the decision
+    delete guard and message and signal start events (every version of a project), the
+    tenant scope itself (an organization with over 1,000 projects lost the rest), a
+    directory sync's deactivation and a participant's removal, the backfills v2 and v3,
+    an incident's external-task re-offer and a migration's repeated hold. Views and
+    exports: an instance's audit trail and execution path, the OCEL export, users, group
+    members and groups, platform accounts, projects and organizations, sub-processes,
+    incidents, the version history and the live-version marks. Paging: every paged list
+    orders by creation time and then id. The step heat map was already a grouped count
+    over every running token (984038e).
+  - **Still open**: a person's notifications are the newest 1,000 and the bell counts
+    unread among them; the fix is a paged list with a server-side unread count, a
+    change to the UI's contract. The OCEL export never names a case's process version
+    (the instance it reads carries only the definition id), at any size. The audit
+    trail is read in one statement rather than keyset-walked: the entries one
+    transaction writes share its created_at and their ids are random, so their order
+    rests on PostgreSQL returning ties as written; writing audit ids as UUIDv7 would
+    make it explicit. Unreached reads that still stop at 1,000:
+    Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
+    deployments, forms, variable snapshots and compensatable activities by instance.
 
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
