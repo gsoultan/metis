@@ -83,9 +83,9 @@ func (p *patterns) redactColonValues(text string) string {
 		if m == nil {
 			break
 		}
-		separator, value, after := rest[m[4]:m[5]], rest[m[6]:m[7]], rest[m[7]:]
+		key, separator, value, after := rest[m[2]:m[3]], rest[m[4]:m[5]], rest[m[6]:m[7]], rest[m[7]:]
 		out.WriteString(rest[:m[6]])
-		if p.readsAsProse(separator, value, after) {
+		if p.readsAsProse(key, separator, value, after) {
 			rest = rest[m[6]:]
 			continue
 		}
@@ -99,7 +99,7 @@ func (p *patterns) redactColonValues(text string) string {
 // readsAsProse reports whether value, after a secret's name and separator, is
 // the next word of a sentence rather than a credential.
 //
-// All three must hold, so anything that could be a credential is redacted:
+// All of these must hold, so anything that could be a credential is redacted:
 //
 //   - the colon is followed by a space, as it is between the links of an error.
 //     Go prints a map or struct as password:letmein, with none, and a value on
@@ -109,11 +109,14 @@ func (p *patterns) redactColonValues(text string) string {
 //     key almost always has;
 //   - the sentence goes on after it, on the same line, with another word. A
 //     value that ends the text, the line or the field is what a key's value
-//     does, and a password can be a plain word.
-//
-// So a plain-word password followed by more words on the same line is not
-// redacted. That shape is a sentence, and redacting it is what hid the errors.
-func (p *patterns) readsAsProse(separator, value, after string) bool {
+//     does;
+//   - the name is one Go errors start sentences with — "invalid token: the ID
+//     token names no issuer" — or else the word opens the next link of an
+//     error chain, as bcrypt: does in "the new password: bcrypt: password
+//     length exceeds 72 bytes". A password, a secret or a key can be a plain
+//     word with a sentence after it ("password: letmein was rejected"), and
+//     only the chain link is a shape no such value takes.
+func (p *patterns) readsAsProse(key, separator, value, after string) bool {
 	if !strings.HasSuffix(separator, " ") || strings.ContainsAny(separator, "\r\n") {
 		return false
 	}
@@ -121,7 +124,18 @@ func (p *patterns) readsAsProse(separator, value, after string) bool {
 		return false
 	}
 	next := strings.TrimLeft(after, " \t")
-	return len(next) < len(after) && next != "" && isASCIILetter(next[0])
+	if len(next) == len(after) || next == "" || !isASCIILetter(next[0]) {
+		return false
+	}
+	return startsSentences(key) || strings.HasSuffix(value, ":")
+}
+
+// startsSentences reports whether a secret's name is one Go errors use as a
+// noun, so that the word after it is the error going on. The token is: jwt and
+// oidc say "token is expired", "invalid token: …". A password or a key is not
+// written about that way, and its value can be a plain word.
+func startsSentences(key string) bool {
+	return strings.EqualFold(key, "token") || strings.EqualFold(key, "jwt")
 }
 
 func isASCIILetter(c byte) bool {

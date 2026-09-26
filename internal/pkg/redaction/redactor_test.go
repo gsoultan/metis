@@ -63,6 +63,13 @@ func TestRedactText(t *testing.T) {
 		{name: "a quoted password", input: `password: "letmein" was rejected`, want: `password: ***REDACTED*** was rejected`},
 		{name: "a word in mixed case", input: "api_key: AbCdEfGhIjKl was rejected", want: "api_key: ***REDACTED*** was rejected"},
 		{name: "a map printed with %v", input: "map[password:letmein user:svc]", want: "map[password:***REDACTED*** user:svc]"},
+		// A password or secret can be a plain word, and a log line can go on
+		// after it. Only the token's name starts sentences in Go errors; the
+		// others keep a word only when it opens the next link of an error chain.
+		{name: "a plain-word password in a sentence", input: "password: letmein was rejected", want: "password: ***REDACTED*** was rejected"},
+		{name: "a plain-word secret in a sentence", input: "secret: hunter was wrong for bob", want: "secret: ***REDACTED*** was wrong for bob"},
+		{name: "a plain-word API key in a sentence", input: "api_key: sesame was refused", want: "api_key: ***REDACTED*** was refused"},
+		{name: "a capitalised word after a secret's name", input: "secret: Rotation is overdue for this connection", want: "secret: ***REDACTED*** is overdue for this connection"},
 		{name: "a struct printed with %+v", input: "{User:svc Password:letmein}", want: "{User:svc Password:***REDACTED***"},
 		{name: "a lone word ending the text, which a password can be", input: "invalid token: expired", want: "invalid token: ***REDACTED***"},
 		{name: "a secret's name inside a sentence, then a token", input: "failed to verify token: jwt: " + jwtLike, want: "failed to verify token: jwt: ***REDACTED***"},
@@ -129,11 +136,6 @@ func TestRedactText(t *testing.T) {
 			name:  "a word in capitals",
 			input: "unauthorized: missing or invalid token: ID token has no subject",
 			want:  "unauthorized: missing or invalid token: ID token has no subject",
-		},
-		{
-			name:  "a capitalised word",
-			input: "secret: Rotation is overdue for this connection",
-			want:  "secret: Rotation is overdue for this connection",
 		},
 		{
 			name:  "a word with an apostrophe",

@@ -317,11 +317,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   and in stored incidents. It also spent itself on that word: in
   `token: jwt: <a token>` it hid `jwt:` and left the token in clear. What
   follows the colon is now kept only when it reads as the next word of a
-  sentence — a space after the colon, a plain word, and more words after it on
-  the same line — and anything else is redacted as before, including a token or
-  password after `token:`, `password=`, in JSON, in a URL's query and in an
-  `Authorization` header. A password that is a plain word and is followed by
-  more words on the same line now reads as a sentence and is kept.
+  sentence: a space after the colon, a plain word, and more words after it on
+  the same line. After a password's, a secret's or a key's name, the word must
+  also open the next link of an error chain (`password: bcrypt: …`), because
+  such a value can be a plain word with a sentence after it. Anything else is
+  redacted as before, including a token or password after `token:`,
+  `password=`, in JSON, in a URL's query and in an `Authorization` header.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,
