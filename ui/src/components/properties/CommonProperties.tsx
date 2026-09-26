@@ -31,13 +31,9 @@ import { workerTopic } from '../../domain/serviceImplementation';
 import { useConnectors, useExecuteScript, useTryConnectorStep } from '../../hooks/useProcess';
 import { nodeProperties } from '../../mappers/definitionMapper';
 import { useAppStore } from '../../store/useAppStore';
+import { errorMessage } from '../../services/shared/errors';
 import type { ApiConnector } from '../../services/types';
 import { asText, type BPMNNodeData } from '../../types/bpmn';
-
-/** A caught value is `unknown`; take its message when it has one. */
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback;
-}
 
 /**
  * Pairs of names: what a value is called here, and what it is called there.

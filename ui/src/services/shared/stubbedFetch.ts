@@ -24,6 +24,17 @@ type GlobalWithStorage = typeof globalThis & { localStorage?: Pick<Storage, "get
  * function that puts the real `fetch` and `localStorage` back.
  */
 export function stubFetch(body: unknown, status = 200): { sent: RecordedRequest[]; restore: () => void } {
+  return stubFetchAnswering(() => body, status);
+}
+
+/**
+ * stubFetch for something that makes more than one read: each request is
+ * answered with whatever `answer` returns for the URL it asked for.
+ */
+export function stubFetchAnswering(
+  answer: (url: URL) => unknown,
+  status = 200,
+): { sent: RecordedRequest[]; restore: () => void } {
   const sent: RecordedRequest[] = [];
   const global = globalThis as GlobalWithStorage;
   const originalFetch = globalThis.fetch;
@@ -37,7 +48,7 @@ export function stubFetch(body: unknown, status = 200): { sent: RecordedRequest[
       method: init?.method ?? "GET",
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
     });
-    return new Response(JSON.stringify(body), {
+    return new Response(JSON.stringify(answer(new URL(String(input), "http://stub.invalid"))), {
       status,
       headers: { "Content-Type": "application/json" },
     });

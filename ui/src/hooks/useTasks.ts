@@ -5,6 +5,7 @@ import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ProcessVariables } from '../services/types';
 import { useInvalidateOnEvents } from './useEventStream';
+import { errorMessage } from '../services/shared/errors';
 
 type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
 
@@ -134,7 +135,7 @@ export const useCompleteTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'The task was not completed',
-        message: error.message || 'Nothing was changed. Try again, or ask an administrator if it keeps failing.',
+        message: errorMessage(error, 'Nothing was changed. Try again, or ask an administrator if it keeps failing.'),
         color: 'red',
       });
     }
@@ -165,7 +166,7 @@ export const useClaimTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'Could not claim the task',
-        message: error.message || 'Someone else may have taken it first.',
+        message: errorMessage(error, 'Someone else may have taken it first.'),
         color: 'red',
       });
     }
@@ -187,7 +188,7 @@ export const useUnclaimTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'Could not release the task',
-        message: error.message || 'It is still assigned to you.',
+        message: errorMessage(error, 'It is still assigned to you.'),
         color: 'red',
       });
     }
@@ -209,7 +210,7 @@ export const useDelegateTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'Could not delegate the task',
-        message: error.message || 'It is still with you.',
+        message: errorMessage(error, 'It is still with you.'),
         color: 'red',
       });
     }
@@ -232,7 +233,7 @@ export const useUpdateTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'Could not save the changes',
-        message: error.message || 'The task is unchanged.',
+        message: errorMessage(error, 'The task is unchanged.'),
         color: 'red',
       });
     }
@@ -254,7 +255,7 @@ export const useAssignTask = () => {
     onError: (error) => {
       notifications.show({
         title: 'Could not reassign the task',
-        message: error.message || 'The assignment is unchanged.',
+        message: errorMessage(error, 'The assignment is unchanged.'),
         color: 'red',
       });
     }
