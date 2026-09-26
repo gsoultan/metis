@@ -227,6 +227,9 @@
         **Corrected 2026-09-25:** nothing starts the RabbitMQ bridge or the inbound
         consumer (INT-15), so in a running server there is no broker connection for
         that reconnect logic to recover. The unit tests cover code that does not run.
+        **Done 2026-09-26 (INT-15):** both start when `METIS_RABBITMQ_BRIDGES` or
+        `METIS_RABBITMQ_CONSUMERS` names them, so the reconnect logic runs in a server
+        that is configured to use it. Off by default; see the entry of that date below.
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
@@ -852,7 +855,8 @@
     audit observer from the event. The service's entry, which names who acted, is kept.
   - **Not done, and why:** INT-15 (the RabbitMQ bridge and consumer are never started) is
     an open question in the PRD: wire them up with configuration, or remove them and their
-    docs. It waits for that decision.
+    docs. It waits for that decision. **Decided and done 2026-09-26:** wired up behind
+    configuration, off by default — see the entry of that date below.
   - **Found and not fixed — for the backlog:**
     - A webhook signature covers the body only. The delivery-ID header is unsigned and
       nothing is timestamped, so a captured delivery can be replayed under a new ID.
@@ -925,6 +929,11 @@
     - The engine gauges read the main database only; an environment's jobs are not
       counted. **Fixed on `environments-live` (entry below).**
     - No broker/DLQ runbook: the consumer it would cover is never started (INT-15).
+      **2026-09-26:** the consumer now starts when configured. Still no runbook, because
+      still no alert: nothing measures a bridge's or consumer's connection, and
+      `tests/drift` ties runbooks to alerts. Until a metric exists, what is logged at
+      start and on each reconnect, and when a message is dead-lettered, is in
+      `docs/integration.md`.
 
 - 2026-09-25 (completed): 90-day plan Phase 3, "hardening" — `ENCRYPTION_KEY` can be
   rotated. Branch `roadmap-key-rotation`, stacked on `roadmap-observability`.
@@ -1060,6 +1069,43 @@
     set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
     scope each; UI typecheck, lint (0 errors) and 1377 tests pass.
     OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
+    service task's script runs, and task-edit authorization. (The RabbitMQ bridge was
+    decided and done 2026-09-26, INT-15: entry below.)
+- 2026-09-26 (completed): Executed INT-15 — the RabbitMQ bridge and inbound consumer run
+  when configured. Branch `rabbitmq-bridge`. The product owner chose to wire them up behind
+  configuration, off by default, rather than remove them and their docs.
+  - **The gap.** The README advertised inbound correlation and an external-task bridge;
+    `StartBridge`, `StartInboundConsumer` and `StopAll` had no callers, so a running server
+    held no broker connection at all (architecture audit, "Found on the way").
+  - **Configuration.** `METIS_RABBITMQ_BRIDGES` (project, connection, topic, exchange,
+    routing key) and `METIS_RABBITMQ_CONSUMERS` (project, connection, queue, message), each
+    a JSON list, in the operator's environment and not the API. The broker is reached
+    through a RabbitMQ connection of the project on the Connectors page, so its password
+    stays where it is encrypted, masked and rotated. An entry that cannot be read is
+    named and skipped; a project or connection that does not exist is retried from 5s,
+    doubling to 5 minutes; neither stops the server.
+  - **Scope.** Each runs under the project's organization as its tenant, not as system
+    work, which would have forwarded every organization's tasks of a topic to one
+    project's broker. Stopped with `StopAll` beside the job worker's drain.
+  - **Logs.** Every line a bridge or consumer writes names it, and each says when it
+    connects and reconnects.
+  - Tests: `internal/app/rabbitmq_*_test.go` and
+    `server/domains/services/impl/messaging_identity_test.go`, each failing before its
+    change. The broker-backed ones skip without `METIS_TEST_RABBITMQ_URL` and run in CI.
+  - **Found and not fixed — for the backlog:**
+    - A bridge's lock is a fixed 30 seconds, and it is the downstream worker's whole
+      budget, time on the queue included. A task not completed in time is published
+      again at the next poll, so a backlog on the queue multiplies itself. Wants a
+      per-bridge lock setting; changing `StartBridge` for it needs a broker to prove.
+    - A channel the broker closes — an exchange that does not exist, or one the user may
+      not publish to — is not reopened while the connection lives, so the bridge hands
+      every task back at every poll until it is restarted. `runBridge` should reopen a
+      closed channel as it redials a closed connection. Needs a broker to prove.
+    - A bridge's publish waits for its confirm with no deadline of its own, so a blocked
+      broker holds the fetched tasks past their lock.
+    - A bridge takes its topic from every project of the organization, as an API worker
+      does; there is no per-project fetch.
+    - Reconnection after start is every 5 seconds, not backed off.
     service task's script runs, and task-edit authorization.
 - 2026-09-26 (completed): environments go live without a restart, and each one's backlog
   is measured. Branch `environments-live`; the two items left open by #94 and by the
