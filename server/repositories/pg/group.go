@@ -31,6 +31,9 @@ func NewGroupRepository(c *db.Conn) contracts.GroupRepository {
 //
 // Scoped, and it was not: this returned every group in the installation with
 // its memberships preloaded.
+//
+// Every group, not the store's first thousand; the id breaks ties in name so
+// the keyset cursor is a position.
 func (r *groupRepository) List(ctx context.Context, organizationID uuid.UUID) ([]models.GroupModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -50,11 +53,11 @@ func (r *groupRepository) List(ctx context.Context, organizationID uuid.UUID) ([
 	if err != nil {
 		return nil, err
 	}
-	q := storegroup.New().Order(storegroup.Name.Asc())
+	q := storegroup.New().Order(storegroup.Name.Asc(), storegroup.ID.Asc())
 	if organizationID != uuid.Nil {
 		q = q.Where(storegroup.OrganizationID.Eq(organizationID))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	rows, err := everyRow[storegroup.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list groups: %w", err)
 	}
@@ -145,6 +148,9 @@ func (r *groupRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // ListGroupMembers returns who is in a group.
+//
+// Everybody, not the store's first thousand: the memberships and then the
+// accounts are both read through pg.everyRow.
 func (r *groupRepository) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]models.UserModel, error) {
 	if !r.canSeeGroup(ctx, groupID) {
 		return nil, nil
@@ -153,10 +159,8 @@ func (r *groupRepository) ListGroupMembers(ctx context.Context, groupID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	rows, err := membership.New().
-		Where(membership.GroupID.Eq(groupID)).
-		Unordered().
-		All(ctx, ex, nil)
+	rows, err := everyRow[membership.Row](ctx, ex, membership.New().
+		Where(membership.GroupID.Eq(groupID)))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the group's members: %w", err)
 	}
@@ -167,10 +171,9 @@ func (r *groupRepository) ListGroupMembers(ctx context.Context, groupID uuid.UUI
 	for _, row := range rows {
 		ids = append(ids, row.UserID)
 	}
-	members, err := user.New().
+	members, err := everyRow[user.Row](ctx, ex, user.New().
 		Where(user.ID.In(ids...)).
-		Order(user.Username.Asc()).
-		All(ctx, ex, nil)
+		Order(user.Username.Asc(), user.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the group's members: %w", err)
 	}

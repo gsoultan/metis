@@ -69,6 +69,14 @@ type DefinitionRepository interface {
 	// than every version of every process the installation has ever held.
 	ScanWithGraphs(ctx context.Context, visit func([]models.ProcessDefinitionModel) error) error
 
+	// ScanProjectWithGraphs is ScanWithGraphs over one project, newest version
+	// first: every version of every process it has deployed, a batch at a time.
+	ScanProjectWithGraphs(ctx context.Context, projectID uuid.UUID, visit func([]models.ProcessDefinitionModel) error) error
+
+	// ListKeysByProject returns the key of every process the project has, once
+	// each, however many versions each has.
+	ListKeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error)
+
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.ProcessDefinitionModel, error)
 
 	// ListByProjectPaged returns one page of a project's definitions. The

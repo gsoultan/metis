@@ -26,14 +26,18 @@ func NewPlatformUserRepository(conn *db.Conn) contracts.PlatformUserRepository {
 	return &platformUserRepository{conn: conn}
 }
 
+// List returns every platform account with its roles.
+//
+// Every one, not the store's first thousand, and with every grant: both reads
+// go through pg.everyRow. The id breaks ties in username so the keyset cursor
+// is a position.
 func (r *platformUserRepository) List(ctx context.Context) ([]entities.PlatformUser, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := platformuser.New().
-		Order(platformuser.Username.Asc()).
-		All(ctx, ex, nil)
+	rows, err := everyRow[platformuser.Row](ctx, ex, platformuser.New().
+		Order(platformuser.Username.Asc(), platformuser.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not list platform accounts: %w", err)
 	}
@@ -296,7 +300,20 @@ func (r *platformUserRepository) EnsureBuiltInRoles(ctx context.Context) error {
 	return nil
 }
 
+// liveGrantCount counts one role's grants held by accounts that have not been
+// deleted. Raw SQL for the join: the generated store counts one table.
+const liveGrantCount = `SELECT count(*)
+	  FROM platform_role_assignments a
+	  JOIN platform_users u ON u.id = a.platform_user_id
+	 WHERE a.platform_role_id = $1
+	   AND u.deleted_at IS NULL`
+
 // CountAdministrators reports how many accounts still hold the admin role.
+//
+// Accounts that exist, not grants. Deleting an account marks its row and
+// leaves its grants in place, so counting grants counted a deleted
+// administrator as a live one: after one of two was deleted the other still
+// counted two, and could be deleted or demoted in turn.
 func (r *platformUserRepository) CountAdministrators(ctx context.Context) (int, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
@@ -310,10 +327,18 @@ func (r *platformUserRepository) CountAdministrators(ctx context.Context) (int, 
 	if !ok {
 		return 0, nil
 	}
-	count, err := platformroleassignment.New().
-		Where(platformroleassignment.PlatformRoleID.Eq(adminID)).
-		Count(ctx, ex)
+	rows, err := ex.Query(ctx, liveGrantCount, []any{adminID})
 	if err != nil {
+		return 0, fmt.Errorf("could not count administrators: %w", err)
+	}
+	defer rows.Close()
+	var count int64
+	if rows.Next() {
+		if err := scanInt(rows.RawValues(), &count); err != nil {
+			return 0, err
+		}
+	}
+	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("could not count administrators: %w", err)
 	}
 	return int(count), nil
@@ -336,12 +361,49 @@ func (r *platformUserRepository) readAccount(ctx context.Context, id uuid.UUID) 
 	return row, nil
 }
 
+// rolesOf reads the grants of one account.
+//
+// Only that account's. It read every grant in the installation and picked this
+// account's out, through a query the store caps at a thousand rows: past a
+// thousand grants an administrator's own could fall outside the window, the
+// account read as holding no role, and the last-administrator checks in Delete
+// and SetRoles — which run only for an account holding the role — let the last
+// one go.
 func (r *platformUserRepository) rolesOf(ctx context.Context, id uuid.UUID) ([]string, error) {
-	grants, err := r.grantsByUser(ctx)
+	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return grants[id], nil
+	nameByID, err := roleNamesByID(ctx, ex)
+	if err != nil {
+		return nil, err
+	}
+	assignments, err := platformroleassignment.New().
+		Where(platformroleassignment.PlatformUserID.Eq(id)).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the account's roles: %w", err)
+	}
+	var roles []string
+	for _, row := range assignments {
+		if name, ok := nameByID[row.PlatformRoleID]; ok {
+			roles = append(roles, name)
+		}
+	}
+	return roles, nil
+}
+
+// roleNamesByID reads the role list, which is a handful of rows.
+func roleNamesByID(ctx context.Context, ex runtime.Executor) (map[uuid.UUID]string, error) {
+	roleRows, err := platformrole.New().All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not read roles: %w", err)
+	}
+	nameByID := make(map[uuid.UUID]string, len(roleRows))
+	for _, row := range roleRows {
+		nameByID[row.ID] = row.Name
+	}
+	return nameByID, nil
 }
 
 // grantsByUser reads every grant and indexes it by account.
@@ -354,16 +416,12 @@ func (r *platformUserRepository) grantsByUser(ctx context.Context) (map[uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	roleRows, err := platformrole.New().All(ctx, ex, nil)
+	nameByID, err := roleNamesByID(ctx, ex)
 	if err != nil {
-		return nil, fmt.Errorf("could not read roles: %w", err)
-	}
-	nameByID := make(map[uuid.UUID]string, len(roleRows))
-	for _, row := range roleRows {
-		nameByID[row.ID] = row.Name
+		return nil, err
 	}
 
-	assignments, err := platformroleassignment.New().All(ctx, ex, nil)
+	assignments, err := everyRow[platformroleassignment.Row](ctx, ex, platformroleassignment.New())
 	if err != nil {
 		return nil, fmt.Errorf("could not read role assignments: %w", err)
 	}
