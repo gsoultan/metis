@@ -61,10 +61,10 @@ func (r *environmentRepository) ListByProject(ctx context.Context, projectID uui
 
 // ListAll returns every environment in the installation.
 //
-// Unscoped by design: the caller is the boot sequence, which opens each
-// runtime's database and binds it to a port. A tenant-scoped answer there would
-// serve only whichever organization happened to be on the context, which at
-// boot is none.
+// Unscoped by design: the caller is the environment watcher, which opens each
+// runtime's database and binds it to a port, at boot and at every check after.
+// A tenant-scoped answer there would serve only whichever organization happened
+// to be on the context, which for background work is none.
 func (r *environmentRepository) ListAll(ctx context.Context) ([]models.EnvironmentModel, error) {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
@@ -170,7 +170,7 @@ func (r *environmentRepository) Delete(ctx context.Context, id uuid.UUID) error 
 //
 // Installation-wide, not per tenant: two environments cannot both bind 8081
 // whoever owns them, and a check that only saw the caller's own would refuse to
-// notice the collision until the next restart failed to bind.
+// notice the collision until every replica failed to bind it.
 func (r *environmentRepository) PortTaken(ctx context.Context, port int, excluding uuid.UUID) (bool, error) {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {

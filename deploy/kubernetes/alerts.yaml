@@ -274,6 +274,11 @@ spec:
               metis_strict_tenant_scope_denied_site{site=...}, and in the log as
               "A repository query carried neither a tenant nor a system identity". See docs/strict-tenant-scope.md.
 
+    # One series per database: the main one, which carries no environment
+    # label, and each environment's, labelled with its id (`environment`) and
+    # its name (`environment_name`). Every rule below is per series, so an
+    # environment whose worker stopped claiming fires on its own, and each
+    # description names the environment when there is one.
     - name: metis.engine
       rules:
         - alert: MetisJobsWaitingUnclaimed
@@ -288,7 +293,9 @@ spec:
           annotations:
             summary: Due jobs have waited more than ten minutes for a worker
             description: >-
-              The oldest due job has waited {{ $value | humanizeDuration }}.
+              {{ if $labels.environment }}In the {{ $labels.environment_name }}
+              environment ({{ $labels.environment }}), the{{ else }}The{{ end }}
+              oldest due job has waited {{ $value | humanizeDuration }}.
               Timers are late and service tasks are not running. See
               docs/runbooks.md, "Jobs are due and nobody is claiming them".
 
@@ -303,9 +310,11 @@ spec:
           annotations:
             summary: Jobs with expired leases are not being reclaimed
             description: >-
-              {{ $value }} job(s) were claimed by a worker that stopped renewing
-              them, and no worker has taken them back for 15 minutes. See
-              docs/runbooks.md, "A job stuck in running".
+              {{ $value }} job(s){{ if $labels.environment }} in the
+              {{ $labels.environment_name }} environment
+              ({{ $labels.environment }}){{ end }} were claimed by a worker
+              that stopped renewing them, and no worker has taken them back for
+              15 minutes. See docs/runbooks.md, "A job stuck in running".
 
         - alert: MetisIncidentsRising
           # One incident is a job that ran out of retries. Ten more in half an
@@ -317,8 +326,10 @@ spec:
           annotations:
             summary: Incidents are being opened faster than they are resolved
             description: >-
-              {{ $value | printf "%.0f" }} more incidents are open than half an
-              hour ago. They usually share a cause. See docs/runbooks.md, "Incidents are
+              {{ $value | printf "%.0f" }} more incidents are open{{ if $labels.environment }}
+              in the {{ $labels.environment_name }} environment
+              ({{ $labels.environment }}){{ end }} than half an hour ago. They
+              usually share a cause. See docs/runbooks.md, "Incidents are
               piling up".
 
         - alert: MetisEngineStateUnreadable
@@ -330,9 +341,13 @@ spec:
             summary: The engine's backlog cannot be read
             description: >-
               The metrics endpoint on {{ $labels.instance }} has not been able to
-              read the job queue or the incidents for 10 minutes, so the alerts
+              read the job queue or the incidents{{ if $labels.environment }} of
+              the {{ $labels.environment_name }} environment
+              ({{ $labels.environment }}){{ end }} for 10 minutes, so the alerts
               on them cannot fire. The server logs "Could not read the engine's
-              backlog for the metrics endpoint" with the reason.
+              backlog for the metrics endpoint" with the reason{{ if $labels.environment }},
+              or, for an environment it could not start, "This environment could
+              not be started" once per reason{{ end }}.
 
         - alert: MetisDatabasePoolSaturated
           # Nearly every connection handed out, and callers waiting for one:

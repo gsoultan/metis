@@ -11,6 +11,9 @@
 #   metis_http_requests_total{method,route,status_class}
 #   metis_http_request_duration_seconds_bucket{method,route,status,le}
 #   metis_http_requests_in_flight
+#   metis_engine_state_up, metis_jobs_*, metis_incidents_open
+#     {environment,environment_name} on an environment's series; neither on
+#     the main database's, whose empty values Prometheus drops on ingestion
 #
 #   make alerts-test
 rule_files:
@@ -434,6 +437,101 @@ tests:
               summary: The engine's backlog cannot be read
               description: >-
                 The metrics endpoint on 10.0.0.1:9464 has not been able to read the job queue or the incidents for 10 minutes, so the alerts on them cannot fire. The server logs "Could not read the engine's backlog for the metrics endpoint" with the reason.
+
+  # ------------------------------------------------------ an environment's engine
+  # Each environment's backlog is its own set of series, labelled with its id
+  # and its name; the main database's carries neither. The main database's
+  # series stay healthy in each case below, so what fires is the environment
+  # alone, and the description names it.
+  - interval: 1m
+    name: an environment whose jobs nobody claims fires for that environment alone
+    input_series:
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x30'
+      - series: 'metis_jobs_oldest_due_age_seconds{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 17m
+        alertname: MetisJobsWaitingUnclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Due jobs have waited more than ten minutes for a worker
+              description: >-
+                In the staging environment (0199a1b2-0000-7000-8000-000000000001), the oldest due job has waited 17m 0s. Timers are late and service tasks are not running. See docs/runbooks.md, "Jobs are due and nobody is claiming them".
+
+  - interval: 1m
+    name: an environment's expired leases name the environment
+    input_series:
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464"}'
+        values: '0+0x30'
+      - series: 'metis_jobs_lease_expired{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '0 0 2+0x30'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: MetisJobLeasesNotReclaimed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Jobs with expired leases are not being reclaimed
+              description: >-
+                2 job(s) in the staging environment (0199a1b2-0000-7000-8000-000000000001) were claimed by a worker that stopped renewing them, and no worker has taken them back for 15 minutes. See docs/runbooks.md, "A job stuck in running".
+
+  - interval: 1m
+    name: incidents piling up in an environment name the environment
+    input_series:
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464"}'
+        values: '4+0x60'
+      - series: 'metis_incidents_open{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '4x30 40+0x30'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: MetisIncidentsRising
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: Incidents are being opened faster than they are resolved
+              description: >-
+                37 more incidents are open in the staging environment (0199a1b2-0000-7000-8000-000000000001) than half an hour ago. They usually share a cause. See docs/runbooks.md, "Incidents are piling up".
+
+  - interval: 1m
+    name: an environment that cannot be read is down on its own
+    input_series:
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464"}'
+        values: '1+0x20'
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000001", environment_name="staging"}'
+        values: '1 1 0+0x20'
+      - series: 'metis_engine_state_up{job="metis", instance="10.0.0.1:9464", environment="0199a1b2-0000-7000-8000-000000000002", environment_name="production"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: MetisEngineStateUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+              environment: 0199a1b2-0000-7000-8000-000000000001
+              environment_name: staging
+            exp_annotations:
+              summary: The engine's backlog cannot be read
+              description: >-
+                The metrics endpoint on 10.0.0.1:9464 has not been able to read the job queue or the incidents of the staging environment (0199a1b2-0000-7000-8000-000000000001) for 10 minutes, so the alerts on them cannot fire. The server logs "Could not read the engine's backlog for the metrics endpoint" with the reason, or, for an environment it could not start, "This environment could not be started" once per reason.
 
   - interval: 1m
     name: a pool that is full and making callers wait fires

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/config"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
@@ -16,18 +17,19 @@ import (
 )
 
 // openEnvironments connects to every enabled environment's database and brings
-// its schema up to date.
+// its schema up to date, without serving any of them.
 //
-// One database that will not open must not stop the server. A project with a
+// For the maintenance commands that have to reach every database this
+// installation holds — resealing after a key rotation is one. A server does not
+// call this: it opens each environment as it starts serving it
+// (serveEnvironments), through the same openEnvironmentDatabases.
+//
+// One database that will not open must not stop the others. A project with a
 // development, staging and production runtime has three chances to be
-// misconfigured, and refusing to boot over any of them takes down the two that
-// were fine — including production, over a development database somebody
-// pointed at a laptop. So a failure here is recorded against that environment
-// and the rest carry on; the environment simply has no connection, and requests
-// bound to it are refused with the reason.
-//
-// Called after the main database is migrated, because the list of environments
-// lives there.
+// misconfigured, and refusing over any of them takes down the two that were
+// fine — including production, over a development database somebody pointed at
+// a laptop. So a failure is recorded against that environment and the rest
+// carry on.
 func (a *App) openEnvironments(ctx context.Context) error {
 	rows, err := a.repo.Environment().ListAll(entities.WithSystemContext(ctx))
 	if err != nil {
@@ -36,44 +38,22 @@ func (a *App) openEnvironments(ctx context.Context) error {
 
 	var opened, skipped, failed int
 	for _, row := range rows {
-		id := uuid.UUID(row.ID)
 		if !row.Enabled {
 			skipped++
 			continue
 		}
-		db, err := a.openEnvironment(ctx, row)
-		if err != nil {
+		if err := a.openEnvironmentDatabases(ctx, row); err != nil {
 			failed++
 			// Named, at error level, with the environment: this is the message
 			// somebody reads when a runtime is missing, and "which one" is the
 			// first thing they need.
-			log.Error().Err(err).
+			log.Error().Str("error", redaction.RedactError(err)).
 				Str("environment", row.Name).
 				Int("port", row.Port).
-				Msg("This environment's database could not be opened. It will not be served; the others are unaffected.")
-			continue
-		}
-		if previous := gorms.RegisterEnvironmentDB(id, db); previous != nil {
-			closeDB(previous)
-		}
-		// Both layers, or the environment is half-open: the GORM repositories
-		// would reach it and the storm ones would refuse with
-		// ErrEnvironmentUnavailable, which is the same failure as not opening
-		// it at all but harder to read.
-		if err := a.openEnvironmentStorm(ctx, row, id); err != nil {
-			failed++
-			log.Error().Err(err).
-				Str("environment", row.Name).
-				Int("port", row.Port).
-				Msg("This environment's storm connection could not be opened. It will not be served; the others are unaffected.")
+				Msg("This environment's database could not be opened; the others are unaffected.")
 			continue
 		}
 		opened++
-		log.Info().
-			Str("environment", row.Name).
-			Int("port", row.Port).
-			Str("driver", row.Driver).
-			Msg("Environment ready")
 	}
 
 	if len(rows) > 0 {
@@ -84,6 +64,43 @@ func (a *App) openEnvironments(ctx context.Context) error {
 			Msg("Environments")
 	}
 	return nil
+}
+
+// openEnvironmentDatabases opens one environment's database through both
+// layers, migrated, and registers it, so that work bound to the environment
+// reaches it.
+//
+// Both layers or neither. Half open, the GORM side would reach the database
+// and the storm side would refuse with ErrEnvironmentUnavailable — the same
+// failure as not opening it at all, but harder to read.
+func (a *App) openEnvironmentDatabases(ctx context.Context, row models.EnvironmentModel) error {
+	id := uuid.UUID(row.ID)
+	gormDB, err := a.openEnvironment(ctx, row)
+	if err != nil {
+		return err
+	}
+	if previous := gorms.RegisterEnvironmentDB(id, gormDB); previous != nil {
+		closeDB(previous)
+	}
+	if err := a.openEnvironmentStorm(ctx, row, id); err != nil {
+		a.closeEnvironmentConnections(id)
+		return err
+	}
+	return nil
+}
+
+// closeEnvironmentConnections lets go of one environment's database, both
+// layers. Work bound to the environment is refused from here on, with
+// ErrEnvironmentUnavailable rather than a fall back to the main database.
+func (a *App) closeEnvironmentConnections(id uuid.UUID) {
+	if gormDB, open := gorms.ForgetEnvironmentDB(id); open {
+		closeDB(gormDB)
+	}
+	if a.storm != nil {
+		if pool, open := a.storm.ForgetEnvironment(id); open {
+			pool.Close()
+		}
+	}
 }
 
 // openEnvironment connects to one environment's database and migrates it.
@@ -104,7 +121,7 @@ func (a *App) openEnvironment(ctx context.Context, row models.EnvironmentModel) 
 	}
 	// Opening does not contact the server, so without this a database that is
 	// simply not there would be registered as ready and fail at the first
-	// request instead of at boot, where somebody is watching.
+	// request, instead of here, where the failure is reported and retried.
 	if err := gorms.Ping(db); err != nil {
 		closeDB(db)
 		return nil, err
@@ -224,6 +241,17 @@ func (a *App) openEnvironmentStorm(ctx context.Context, row models.EnvironmentMo
 	pool, err := db.NewPool(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return fmt.Errorf("could not open this environment's storm connection: %w", err)
+	}
+	// After the migrations openEnvironment has run, as for the main database:
+	// the defaults are reconciled on the tables those migrations create.
+	want, err := stormModel()
+	if err != nil {
+		pool.Close()
+		return err
+	}
+	if err := ensureStormTables(ctx, pool, want); err != nil {
+		pool.Close()
+		return fmt.Errorf("could not prepare this environment's database for the engine: %w", err)
 	}
 	if previous := a.storm.RegisterEnvironment(id, pool); previous != nil {
 		previous.Close()

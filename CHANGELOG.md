@@ -101,6 +101,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Each environment's backlog is on the metrics endpoint.** The engine's
+  gauges — `metis_engine_state_up`, `metis_jobs_due`,
+  `metis_jobs_oldest_due_age_seconds`, `metis_jobs_lease_expired` and
+  `metis_incidents_open` — read the main database only, so a job worker that
+  stopped claiming in an environment, or incidents piling up there, looked like
+  an environment with nothing to do. Every environment a replica serves now has
+  its own set of these series, labelled `environment` (its id, which a rename
+  does not change) and `environment_name`. The main database's series are
+  unchanged: they carry neither label. An environment whose database cannot be
+  read — or that could not be started at all — reports `metis_engine_state_up
+  0` on its own and leaves the others alone, and the databases are read at
+  once, so a scrape still takes at most two seconds. The engine alerts fire
+  per environment and name it; the dashboard's incidents panel draws a line
+  per environment. If your scrape configuration adds a target label called
+  `environment`, Prometheus renames this one to `exported_environment`.
 - **The dashboard prints as a report.** "Print or save as PDF", where a
   disabled "Generate Report" used to be, opens the browser's print dialog on a
   report of the project: the headline figures, every late task with who holds
@@ -177,6 +192,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **No process could schedule work in an environment.** An environment's
+  database was migrated with the schema migrations but never given what the
+  engine's storage writes against: its own tables, and the column defaults it
+  leaves to the database. The first job a process there scheduled failed on
+  insert (`storm: not-null constraint violated (jobs)`), so no timer, service
+  task or retry could run in any environment. Each environment's database now
+  gets the same preparation as the main one, whenever the environment starts.
+- **An environment is served without a restart.** Creating one, enabling one
+  again, or giving one another port or database changed its row and nothing
+  else: nothing listened on its port, and a re-pointed one went on reading and
+  writing its old database, until every replica was restarted. Every replica
+  now checks the environments every 15 seconds and starts, restarts or stops
+  them to match. Boot is the first of those checks rather than a path of its
+  own, so an environment created while the server runs is opened, migrated and
+  served exactly as one that was there when it started — after the main port is
+  up, where boot used to open them before it. One that cannot start (its
+  database unreachable, its port taken) does not hold up the others, is tried
+  again at every check, and is logged once per reason rather than every 15
+  seconds. A re-pointed environment is stopped first and started on the new
+  database once its old connections have closed, so work in flight finishes
+  where it began. The settings page says when a change takes effect instead of
+  asking for a restart.
 - **A service task set to run a script said it did, and did nothing.** The
   designer offered "Run a script here" on a service task in Expert mode, and the
   engine runs scripts only on script tasks. It skipped the step and moved on as
