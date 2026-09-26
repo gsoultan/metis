@@ -23,7 +23,6 @@ import {
   Alert,
   Badge,
   Button,
-  Card,
   Center,
   Code,
   Divider,
@@ -52,16 +51,14 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronsUpDown,
-  CircleCheck,
-  FlaskConical,
   Info,
-  Play,
   Plus,
   Save,
   Trash2,
 } from 'lucide-react';
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -72,16 +69,18 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import { DecisionTests } from '../components/DecisionTests';
+import { CoverageCard } from '../components/decisions/CoverageCard';
+import { TrialPanel } from '../components/decisions/TrialPanel';
 import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
   ANY_VALUE,
+  CELL_TEMPLATES,
+  COLUMN_TYPES,
   HIT_POLICIES,
   applyPastedGrid,
   describeCell,
   describeTable,
-  findProblems,
-  formatOutputValue,
   hitPolicyOf,
   moveRule,
   newRuleRow,
@@ -93,58 +92,32 @@ import {
   type DecisionOutputColumn,
   type DecisionRuleRow,
 } from '../domain/decisionTable';
+import { ruleForGap, type CoverageGap } from '../domain/decisionCoverage';
+import { coverageCheckKey, coverageFor, overlapCheckKey, overlapsFor } from '../domain/decisionChecks';
+import { findProblems, findStructureProblems, type TableProblem } from '../domain/decisionProblems';
+import {
+  matchedLines,
+  staleNote,
+  tableFingerprint,
+  trialOutcome,
+  trialRequest,
+  trialStanding,
+  trialTarget,
+  type TrialOutcome,
+  type TrialValues,
+} from '../domain/decisionTrial';
 import { decisionPayload, editorStateFrom } from '../domain/decisionSave';
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useCreateDecision, useDecision, useDecisionImpact, useEvaluateDecision, useUpdateDecision } from '../hooks/useDecisions';
-import type { ProcessVariables } from '../services/types';
+import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+
+const isError = (problem: TableProblem) => problem.severity === 'error';
 
 /** A caught value is `unknown`; take its message when it has one. */
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
-
-/**
- * Ready-made conditions, per column type.
- *
- * Someone writing their first table does not know that `]1..10]` excludes the
- * lower bound, and should not have to. Picking the sentence writes the notation.
- */
-const CELL_TEMPLATES: Record<string, { value: string; label: string }[]> = {
-  string: [
-    { value: ANY_VALUE, label: 'Any value' },
-    { value: 'Approved', label: 'Exactly this word' },
-    { value: '"A", "B"', label: 'Either of two values' },
-    { value: 'not("A")', label: 'Anything except' },
-    { value: '""', label: 'Empty' },
-  ],
-  number: [
-    { value: ANY_VALUE, label: 'Any number' },
-    { value: '> 10', label: 'More than' },
-    { value: '>= 10', label: 'At least' },
-    { value: '< 10', label: 'Less than' },
-    { value: '[1..10]', label: 'Between, inclusive' },
-    { value: ']1..10]', label: 'Between, excluding the low end' },
-    { value: '10, 20', label: 'One of several' },
-  ],
-  boolean: [
-    { value: ANY_VALUE, label: 'Either' },
-    { value: 'true', label: 'Yes' },
-    { value: 'false', label: 'No' },
-  ],
-  date: [
-    { value: ANY_VALUE, label: 'Any date' },
-    { value: '> "2024-01-01"', label: 'After' },
-    { value: '< "2024-01-01"', label: 'Before' },
-  ],
-};
-
-const COLUMN_TYPES = [
-  { value: 'string', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'boolean', label: 'Yes / no' },
-  { value: 'date', label: 'Date' },
-];
 
 const RAIL_WIDTH = 340;
 
@@ -311,6 +284,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const updateDecision = useUpdateDecision();
   const evaluateDecision = useEvaluateDecision();
   const { data: impact } = useDecisionImpact(definitionId || null);
+  const target = trialTarget(existingDef?.decision);
 
   const [name, setName] = useState(search.name || 'New Decision');
   const [key, setKey] = useState(search.key || 'new_decision');
@@ -328,9 +302,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   // What the server holds, as the save would send it: set on load and on save.
   const [savedPayload, setSavedPayload] = useState<string | null>(null);
 
-  const [testInputs, setTestInputs] = useState<Record<string, string>>({});
-  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
-  const [matchedRules, setMatchedRules] = useState<number[]>([]);
+  const [testInputs, setTestInputs] = useState<TrialValues>({});
+  const [outcome, setOutcome] = useState<TrialOutcome | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
 
@@ -351,20 +324,19 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     setRules(loaded.rules);
     setTests(loaded.tests);
     setSavedPayload(JSON.stringify(decisionPayload(loaded)));
-
-    const seeded: Record<string, string> = {};
-    decision.inputs?.forEach((input) => {
-      seeded[input.expression] = '';
-    });
-    setTestInputs(seeded);
   }, [existingDef]);
 
   const policy = hitPolicyOf(hitPolicy);
-  const problems = useMemo(
-    () => findProblems(hitPolicy, inputs, outputs, rules),
-    [hitPolicy, inputs, outputs, rules],
-  );
-  const blocking = problems.filter((problem) => problem.severity === 'error');
+  // The two checks that compare lines run only when what they read changes —
+  // not on a result or a note — and behind the keystroke rather than in it:
+  // the deferred key lets React finish the typing first and run the check in
+  // the render after.
+  const overlapKey = useDeferredValue(overlapCheckKey(hitPolicy, inputs, outputs, rules));
+  const overlaps = useMemo(() => overlapsFor(overlapKey), [overlapKey]);
+  const coverageKey = useDeferredValue(coverageCheckKey(inputs, rules));
+  const coverage = useMemo(() => coverageFor(coverageKey), [coverageKey]);
+  const problems = [...findStructureProblems(hitPolicy, inputs, outputs, rules), ...overlaps];
+  const blocking = problems.filter(isError);
   const summary = describeTable(hitPolicy, aggregation, inputs, outputs, rules.length);
 
   const addInput = () => {
@@ -372,7 +344,6 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     const expression = slugVariable(label);
     setInputs([...inputs, { id: uuidv4(), label, expression, type: 'string' }]);
     setRules(rules.map((rule) => ({ ...rule, input_entries: [...rule.input_entries, ANY_VALUE] })));
-    setTestInputs({ ...testInputs, [expression]: '' });
   };
 
   const addOutput = () => {
@@ -384,6 +355,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   };
 
   const addRule = () => setRules([...rules, newRuleRow(uuidv4(), inputs.length, outputs.length)]);
+  const addRuleForGap = (gap: CoverageGap) => setRules([...rules, ruleForGap(gap, uuidv4(), outputs.length)]);
 
   const removeInput = (index: number) => {
     setInputs(inputs.filter((_, i) => i !== index));
@@ -505,11 +477,23 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   );
   const hasUnsavedChanges = JSON.stringify(payload) !== savedPayload;
 
+  // What a Try-it answer is about. It runs the stored table, so its highlight
+  // holds only while the table on screen, and the stored table, are the ones
+  // it ran against: a save replaces the stored table and the answer with it.
+  const table = useMemo(() => tableFingerprint(payload), [payload]);
+  const savedTable = useMemo(
+    () => (savedPayload ? tableFingerprint(JSON.parse(savedPayload) as CreateDecisionPayload) : null),
+    [savedPayload],
+  );
+  const highlighted = matchedLines(outcome, rules, table, savedTable);
+
   const handleSave = async () => {
-    if (blocking.length > 0) {
+    // Checked again as it stands: the list on screen can be a keystroke behind.
+    const refusal = findProblems(hitPolicy, inputs, outputs, rules).find(isError);
+    if (refusal) {
       notifications.show({
         title: 'The table cannot be saved yet',
-        message: blocking[0].message,
+        message: refusal.message,
         color: 'red',
       });
       return;
@@ -546,30 +530,18 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   };
 
   const handleTest = async () => {
+    const request = trialRequest(target, inputs, testInputs);
+    if (!request) return;
     setIsTesting(true);
     setTestError(null);
-    setTestResult(null);
-    setMatchedRules([]);
-
-    const variables: ProcessVariables = {};
-    Object.entries(testInputs).forEach(([variable, raw]) => {
-      const column = inputs.find((input) => input.expression === variable);
-      if (column?.type === 'boolean') {
-        variables[variable] = raw === 'true';
-      } else if (column?.type === 'number' && raw.trim() !== '' && !Number.isNaN(Number(raw))) {
-        variables[variable] = Number(raw);
-      } else {
-        variables[variable] = raw;
-      }
-    });
+    setOutcome(null);
 
     try {
-      const response = await evaluateDecision.mutateAsync({ key, variables });
+      const response = await evaluateDecision.mutateAsync(request);
       if (response.err) {
         setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
       } else {
-        setTestResult(response.result?.values ?? {});
-        setMatchedRules(response.matchedRules ?? []);
+        setOutcome(trialOutcome(response, table, savedTable));
       }
     } catch (err: unknown) {
       setTestError(errorMessage(err, 'Could not evaluate the decision'));
@@ -706,7 +678,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
                 <Table.Tbody>
                   {rules.map((rule, ruleIndex) => {
-                    const matched = matchedRules.includes(ruleIndex);
+                    const matched = highlighted.includes(ruleIndex);
                     return (
                       <Table.Tr key={rule.id} bg={matched ? 'var(--mantine-color-orange-0)' : undefined}>
                         <Table.Td ta="center">
@@ -939,110 +911,26 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
             </Stack>
           </Paper>
 
-          <Paper radius="md" withBorder p="md">
-            <Stack gap="sm">
-              <Group gap={6}>
-                <FlaskConical size={15} color="var(--mantine-color-orange-6)" />
-                <Title order={6}>Try it</Title>
-              </Group>
-              <Text size="xs" c="dimmed">
-                Runs the saved table and highlights the lines that matched.
-              </Text>
+          <CoverageCard report={coverage} ruleCount={rules.length} onAddLine={addRuleForGap} />
 
-              {inputs.map((input) =>
-                input.type === 'boolean' ? (
-                  <Select
-                    key={input.id}
-                    size="xs"
-                    label={input.label}
-                    value={testInputs[input.expression] || ''}
-                    onChange={(next) => setTestInputs({ ...testInputs, [input.expression]: next ?? '' })}
-                    data={[
-                      { value: 'true', label: 'Yes' },
-                      { value: 'false', label: 'No' },
-                    ]}
-                  />
-                ) : (
-                  <TextInput
-                    key={input.id}
-                    size="xs"
-                    label={input.label}
-                    placeholder={input.type === 'number' ? '100' : 'Sample value'}
-                    value={testInputs[input.expression] || ''}
-                    onChange={(event) =>
-                      setTestInputs({ ...testInputs, [input.expression]: event.currentTarget.value })
-                    }
-                  />
-                ),
-              )}
-
-              <Button
-                size="xs"
-                color="orange"
-                leftSection={<Play size={14} />}
-                onClick={handleTest}
-                loading={isTesting}
-              >
-                Run
-              </Button>
-
-              {testError && (
-                <Alert variant="light" color="red" icon={<AlertCircle size={14} />} py="xs">
-                  <Text size="xs">{testError}</Text>
-                </Alert>
-              )}
-
-              {testResult && (
-                <Card
-                  withBorder
-                  radius="sm"
-                  p="xs"
-                  bg={matchedRules.length === 0 ? 'var(--mantine-color-yellow-0)' : 'var(--mantine-color-gray-0)'}
-                >
-                  <Stack gap={6}>
-                    {/*
-                      Nothing matching is not a success. It used to be reported
-                      under a green tick beside an empty result, so a table that
-                      quietly decides nothing looked like a table that worked —
-                      and the process carries on with the variable unset.
-                    */}
-                    <Group gap={6}>
-                      {matchedRules.length === 0 ? (
-                        <AlertCircle size={14} color="var(--mantine-color-yellow-7)" />
-                      ) : (
-                        <CircleCheck size={14} color="var(--mantine-color-green-6)" />
-                      )}
-                      <Text size="xs" fw={600}>
-                        {matchedRules.length === 0
-                          ? 'No line matched'
-                          : `Line ${matchedRules.map((index) => index + 1).join(', ')} matched`}
-                      </Text>
-                    </Group>
-
-                    {matchedRules.length === 0 ? (
-                      <Text size="xs" c="dimmed">
-                        The process would get no value for{' '}
-                        {outputs.map((output) => output.label).filter(Boolean).join(', ') || 'this table'}
-                        . Add a line that catches this case, or a catch-all line at the bottom.
-                      </Text>
-                    ) : (
-                      /* Results named the way the columns are, rather than raw JSON. */
-                      <Stack gap={2}>
-                        {outputs.map((output) => (
-                          <Group key={output.id} gap={6} wrap="nowrap">
-                            <Text size="xs" c="dimmed">{output.label || output.name}:</Text>
-                            <Text size="xs" fw={600}>
-                              {formatOutputValue(testResult[output.name])}
-                            </Text>
-                          </Group>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                </Card>
-              )}
-            </Stack>
-          </Paper>
+          <TrialPanel
+            target={target}
+            inputs={inputs}
+            outputs={outputs}
+            values={testInputs}
+            onValues={setTestInputs}
+            onRun={handleTest}
+            running={isTesting}
+            error={testError}
+            answer={
+              outcome && {
+                outcome,
+                standing: trialStanding(outcome, table, savedTable),
+                staleReason: staleNote(table, savedTable),
+                lines: highlighted,
+              }
+            }
+          />
 
           {/* The examples were stored with the table and shown nowhere, and
               every save wiped them. They are saved with the table now, and run

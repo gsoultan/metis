@@ -1,17 +1,50 @@
 import { requestJSON } from "../shared/rest";
 import type {
   ApiDecision,
+  ApiDecisionSummary,
   CreateDecisionPayload,
   DecisionResult,
   ProcessVariables,
 } from "../types";
 import { raiseIfRefused } from "../raise";
 
+type PageResponse = { total: number; page: number; page_size: number; has_more: boolean };
+
 type DecisionListResponse = {
   decisions?: ApiDecision[];
-  page?: { total: number; page: number; page_size: number; has_more: boolean };
+  page?: PageResponse;
   err?: string;
 };
+
+type DecisionSummaryListResponse = {
+  summaries?: ApiDecisionSummary[];
+  page?: PageResponse;
+  err?: string;
+};
+
+/** One page of a list, and where it sits in the whole. */
+export interface DecisionListPage {
+  page: number;
+  pageSize: number;
+  /** Keeps the decisions whose name or key contains it; the server does the searching. */
+  search?: string;
+}
+
+function pageQuery(projectId: string, page?: DecisionListPage): URLSearchParams {
+  const query = new URLSearchParams({ project_id: projectId });
+  if (page) {
+    query.set("page", String(page.page));
+    query.set("page_size", String(page.pageSize));
+    if (page.search?.trim()) query.set("q", page.search.trim());
+  }
+  return query;
+}
+
+function pageInfoOf(page: PageResponse | undefined) {
+  return page
+    ? { total: page.total, page: page.page, pageSize: page.page_size, hasMore: page.has_more }
+    : undefined;
+}
 
 type DecisionResponse = {
   decision?: ApiDecision;
@@ -28,34 +61,31 @@ type MutationResponse = {
 };
 
 type EvaluateDecisionResponse = {
-  result?: DecisionResult;
+  /**
+   * matched_rule_ids is on entities.DecisionResult and not yet on the shared
+   * DecisionResult type; it is read here, where it is used.
+   */
+  result?: DecisionResult & { matched_rule_ids?: string[] };
   err?: string;
 };
 
 export const decisionService = {
-  async listDecisions(
-    projectId: string,
-    page?: { page: number; pageSize: number },
-    signal?: AbortSignal,
-  ) {
-    const query = new URLSearchParams({ project_id: projectId });
-    if (page) {
-      query.set("page", String(page.page));
-      query.set("page_size", String(page.pageSize));
-    }
-    const data = await requestJSON<DecisionListResponse>(`/decisions?${query}`, { signal });
-    return {
-      decisions: data.decisions ?? [],
-      err: data.err,
-      pageInfo: data.page
-        ? {
-            total: data.page.total,
-            page: data.page.page,
-            pageSize: data.page.page_size,
-            hasMore: data.page.has_more,
-          }
-        : undefined,
-    };
+  async listDecisions(projectId: string, page?: DecisionListPage, signal?: AbortSignal) {
+    const data = await requestJSON<DecisionListResponse>(`/decisions?${pageQuery(projectId, page)}`, { signal });
+    return { decisions: data.decisions ?? [], err: data.err, pageInfo: pageInfoOf(data.page) };
+  },
+
+  /**
+   * One page of the project's decision keys, each as its newest version and
+   * without the table: for views that need every decision's name and
+   * dependencies, and none of its lines.
+   */
+  async listDecisionSummaries(projectId: string, page: DecisionListPage, signal?: AbortSignal) {
+    const data = await requestJSON<DecisionSummaryListResponse>(
+      `/decisions/summaries?${pageQuery(projectId, page)}`,
+      { signal },
+    );
+    return { summaries: raiseIfRefused(data).summaries ?? [], pageInfo: pageInfoOf(data.page) };
   },
 
   async getDecision(id: string, signal?: AbortSignal) {
@@ -105,8 +135,10 @@ export const decisionService = {
     return {
       result: data.result,
       // Which lines of the table produced the answer, so the editor can show
-      // the reasoning rather than only the outcome.
+      // the reasoning rather than only the outcome. Positions count lines in
+      // the stored table; ids name them, and survive lines being moved.
       matchedRules: data.result?.matched_rules ?? [],
+      matchedRuleIds: data.result?.matched_rule_ids ?? [],
       err: data.err,
     };
   },

@@ -120,6 +120,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 	decisionEndpoints := decision.MakeEndpoints(s)
 	decisionEndpoints.ListDecisions = protected("ListDecisions")(decisionEndpoints.ListDecisions)
+	decisionEndpoints.ListSummaries = protected("ListDecisionSummaries")(decisionEndpoints.ListSummaries)
 	decisionEndpoints.GetDecision = protected("GetDecision")(decisionEndpoints.GetDecision)
 	decisionEndpoints.CreateDecision = designer("CreateDecision")(decisionEndpoints.CreateDecision)
 	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)

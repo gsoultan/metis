@@ -14,6 +14,7 @@ import (
 
 type Endpoints struct {
 	ListDecisions    endpoint.Endpoint
+	ListSummaries    endpoint.Endpoint
 	GetDecision      endpoint.Endpoint
 	CreateDecision   endpoint.Endpoint
 	DeleteDecision   endpoint.Endpoint
@@ -26,6 +27,7 @@ type Endpoints struct {
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
 		ListDecisions:    MakeListDecisionsEndpoint(s),
+		ListSummaries:    MakeListDecisionSummariesEndpoint(s),
 		GetDecision:      MakeGetDecisionEndpoint(s),
 		CreateDecision:   MakeCreateDecisionEndpoint(s),
 		DeleteDecision:   MakeDeleteDecisionEndpoint(s),
@@ -42,30 +44,63 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if !ok {
 			return nil, fmt.Errorf("decision: expected a ListDecisionsRequest, got %T", request)
 		}
-		var projectID uuid.UUID
-		var err error
-		if req.ProjectID != "" {
-			projectID, err = uuid.Parse(req.ProjectID)
-			if err != nil {
-				return ListDecisionsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
-			}
+		projectID, err := optionalProject(req.ProjectID)
+		if err != nil {
+			return ListDecisionsResponse{Err: err}, nil
 		}
-		page, err := s.ListDecisionsPaged(ctx, projectID, repocontracts.Pagination{
+		page, err := s.ListDecisionsPaged(ctx, projectID, req.Search, repocontracts.Pagination{
 			Page:     req.Page,
 			PageSize: req.PageSize,
 		})
 		if err != nil {
 			return ListDecisionsResponse{Err: err}, nil
 		}
-		return ListDecisionsResponse{
-			Decisions: page.Items,
-			Page: &PageInfo{
-				Total:    page.Total,
-				Page:     page.Page,
-				PageSize: page.PageSize,
-				HasMore:  page.HasMore(),
-			},
-		}, nil
+		return ListDecisionsResponse{Decisions: page.Items, Page: pageInfoOf(page)}, nil
+	}
+}
+
+// MakeListDecisionSummariesEndpoint lists a project's decision keys, each as its
+// newest version, without the tables.
+func MakeListDecisionSummariesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDecisionSummariesRequest)
+		if !ok {
+			return ListDecisionSummariesResponse{Err: errWrongDecisionRequest}, nil
+		}
+		projectID, err := optionalProject(req.ProjectID)
+		if err != nil {
+			return ListDecisionSummariesResponse{Err: err}, nil
+		}
+		page, err := s.ListDecisionSummaries(ctx, projectID, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if err != nil {
+			return ListDecisionSummariesResponse{Err: err}, nil
+		}
+		return ListDecisionSummariesResponse{Summaries: page.Items, Page: pageInfoOf(page)}, nil
+	}
+}
+
+// optionalProject reads a project id a list may leave out; absent is uuid.Nil,
+// which the repository reads as "every project the caller may see".
+func optionalProject(raw string) (uuid.UUID, error) {
+	if raw == "" {
+		return uuid.Nil, nil
+	}
+	projectID, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, apierr.Invalidf("project_id %q is not a valid identifier: %v", raw, err)
+	}
+	return projectID, nil
+}
+
+func pageInfoOf[T any](page repocontracts.Page[T]) *PageInfo {
+	return &PageInfo{
+		Total:    page.Total,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+		HasMore:  page.HasMore(),
 	}
 }
 

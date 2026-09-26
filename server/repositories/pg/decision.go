@@ -61,7 +61,7 @@ func (r *decisionRepository) ListByProject(ctx context.Context, projectID uuid.U
 	return r.list(ctx, scoped)
 }
 
-func (r *decisionRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.DecisionDefinitionModel], error) {
+func (r *decisionRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, search string, p contracts.Pagination) (contracts.Page[models.DecisionDefinitionModel], error) {
 	empty := contracts.NewPage([]models.DecisionDefinitionModel{}, 0, p)
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -75,6 +75,9 @@ func (r *decisionRepository) ListByProjectPaged(ctx context.Context, projectID u
 	q := decisiondefinition.New()
 	if scoped != nil {
 		q = q.Where(decisiondefinition.ProjectID.In(uuidsToRaw(scoped)...))
+	}
+	if pattern, ok := containsPattern(search); ok {
+		q = q.Any(decisiondefinition.Name.ILike(pattern), decisiondefinition.Key.ILike(pattern))
 	}
 	// The count is a separate statement over the same predicate. A page without
 	// a total cannot say "51-100 of 1,234", which is the whole reason the caller

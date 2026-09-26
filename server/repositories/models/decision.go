@@ -65,3 +65,15 @@ type DecisionTest struct {
 	Inputs   map[string]any `json:"inputs,omitzero"`
 	Expected map[string]any `json:"expected,omitzero"`
 }
+
+// DecisionSummaryModel is one key of decision_definitions as its newest
+// version, read without the table columns: a list of decisions names them and
+// says what each requires, and has no use for their lines or examples.
+type DecisionSummaryModel struct {
+	ID                UUID
+	ProjectID         UUID
+	Key               string
+	Name              string
+	Version           int
+	RequiredDecisions []string
+}

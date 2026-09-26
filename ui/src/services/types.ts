@@ -631,6 +631,18 @@ export interface ApiDecision {
   created_at?: string;
 }
 
+/**
+ * Mirrors entities.DecisionSummary: one decision key as its newest version,
+ * without the table — what the dependency graph and a step's picker need.
+ */
+export interface ApiDecisionSummary {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  required_decisions?: string[];
+}
+
 /** Payload accepted when creating or updating a decision. */
 export type CreateDecisionPayload = Omit<ApiDecision, 'id' | 'version' | 'created_at'> &
   Partial<Pick<ApiDecision, 'id' | 'version'>>;

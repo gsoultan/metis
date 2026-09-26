@@ -1,26 +1,66 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { collectPages, type CollectedPages, type ListPage } from '../domain/allPages';
 import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
-import type { CreateDecisionPayload, ProcessVariables } from '../services/types';
+import type { ApiDecisionSummary, CreateDecisionPayload, ProcessVariables } from '../services/types';
 
 type DecisionsResult = Awaited<ReturnType<typeof processService.listDecisions>>;
 
 type DecisionResult = Awaited<ReturnType<typeof processService.getDecision>>;
 
-export const useDecisions = (page = 1, pageSize = 25) => {
+/**
+ * One page of the current project's decisions, searched on the server: a list
+ * holds the page it shows and nothing more, however many decisions there are.
+ */
+export const useDecisions = (page = 1, pageSize = 25, search = '') => {
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useQuery({
     staleTime: AUTHORED_STALE_TIME,
-    queryKey: ['decisions', currentProjectId, page, pageSize],
+    queryKey: ['decisions', currentProjectId, page, pageSize, search],
     queryFn: ({ signal }) =>
       currentProjectId
-        ? processService.listDecisions(currentProjectId, { page, pageSize }, signal)
+        ? processService.listDecisions(currentProjectId, { page, pageSize, search }, signal)
         : Promise.resolve({ decisions: [], err: undefined, pageInfo: undefined } as DecisionsResult),
     enabled: !!currentProjectId,
     placeholderData: (previous) => previous,
   });
 };
+
+/**
+ * How many decision keys a view that needs all of them reads: five pages of
+ * the largest page the server serves (MaxPageSize). Past that the result says
+ * it stopped short.
+ */
+const SUMMARY_PAGE_SIZE = 200;
+const SUMMARY_MAX_PAGES = 5;
+
+const NO_SUMMARIES: CollectedPages<ApiDecisionSummary> = { items: [], truncated: false, total: 0 };
+
+/**
+ * Every decision key in the current project, each as its newest version and
+ * without its table, up to that bound: for a view that cannot work from a page.
+ * The dependency graph cannot tell a decision that does not exist from one on
+ * the next page, and a step's picker has to offer every decision.
+ */
+export const useDecisionSummaries = () => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useQuery({
+    staleTime: AUTHORED_STALE_TIME,
+    // Under 'decisions', so saving, adding or deleting a decision refreshes it.
+    queryKey: ['decisions', currentProjectId, 'summaries'],
+    queryFn: ({ signal }) =>
+      currentProjectId
+        ? collectPages((page) => summaryPage(currentProjectId, page, signal), SUMMARY_PAGE_SIZE, SUMMARY_MAX_PAGES)
+        : Promise.resolve(NO_SUMMARIES),
+    enabled: !!currentProjectId,
+  });
+};
+
+async function summaryPage(projectId: string, page: number, signal: AbortSignal): Promise<ListPage<ApiDecisionSummary>> {
+  const listed = await processService.listDecisionSummaries(projectId, { page, pageSize: SUMMARY_PAGE_SIZE }, signal);
+  return { items: listed.summaries, total: listed.pageInfo?.total ?? listed.summaries.length };
+}
 
 export const useDecision = (id: string | null) => {
   return useQuery({

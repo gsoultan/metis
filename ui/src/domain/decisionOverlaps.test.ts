@@ -1,0 +1,134 @@
+import { describe, expect, it } from 'bun:test';
+
+import { findOverlaps } from './decisionOverlaps';
+import type { DecisionInputColumn, DecisionOutputColumn, DecisionRuleRow } from './decisionTable';
+
+const amount: DecisionInputColumn = { id: 'i1', label: 'Amount', expression: 'amount', type: 'number' };
+const urgent: DecisionInputColumn = { id: 'i2', label: 'Urgent', expression: 'urgent', type: 'boolean' };
+const outputs: DecisionOutputColumn[] = [{ id: 'o1', label: 'Band', name: 'band', type: 'string' }];
+
+function rule(condition: string, result = 'X'): DecisionRuleRow {
+  return { id: `${condition}-${result}`, input_entries: [condition], output_entries: [result] };
+}
+
+function messages(hitPolicy: string, rules: DecisionRuleRow[], columns = [amount], budget?: number): string[] {
+  return findOverlaps(hitPolicy, columns, outputs, rules, budget).map((problem) => problem.message);
+}
+
+/**
+ * A catch-all line collides with every other line. It is reported once, in
+ * words that say so, rather than once for every line it collides with.
+ */
+describe('findOverlaps and catch-all lines', () => {
+  it('leaves the lines below a catch-all to its own warning when the first match wins', () => {
+    // Line 3 is inside line 1 as well, but the catch-all already hides it.
+    expect(messages('FIRST', [rule('> 10'), rule('-'), rule('> 20'), rule('> 30')])).toEqual([
+      'Line 2 matches everything, so no line below it can ever be reached. Catch-all lines belong last.',
+    ]);
+  });
+
+  it('names a catch-all once under UNIQUE, not once per line it overlaps', () => {
+    const found = messages('UNIQUE', [rule('< 5'), rule('-'), rule('> 10')]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toStartWith('Line 2 matches everything');
+  });
+
+  it('names two catch-alls that disagree once under ANY', () => {
+    const found = messages('ANY', [rule('-', 'LOW'), rule('', 'HIGH')]);
+    expect(found).toEqual([
+      'Line 1 matches everything, so it applies alongside every other line, and line 2 gives a different result. Lines that apply together must agree, so those cases fail the decision.',
+    ]);
+  });
+});
+
+describe('findOverlaps', () => {
+  it('reads yes/no columns', () => {
+    expect(messages('UNIQUE', [rule('true'), rule('false')], [urgent])).toEqual([]);
+    expect(messages('UNIQUE', [rule('true'), rule('true')], [urgent])).toEqual([
+      'Lines 1 and 2 both apply when Urgent is yes, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+  });
+
+  it('leaves out a line that can never match anything', () => {
+    // [10..1] is empty: nothing is at least 10 and at most 1.
+    expect(messages('UNIQUE', [rule('[10..1]'), rule('> 0')])).toEqual([]);
+    expect(messages('FIRST', [rule('> 0'), rule('[10..1]')])).toEqual([]);
+  });
+
+  it('finds the line that hides another, not merely one before it', () => {
+    expect(messages('FIRST', [rule('< 5'), rule('> 10'), rule('> 20')])).toEqual([
+      'Line 3 can never be reached: line 2 comes before it and applies to every case it does. Move it above line 2, or remove it.',
+    ]);
+  });
+
+  it('keeps the warning about a line written twice where overlapping is allowed', () => {
+    expect(messages('COLLECT', [rule('> 10', 'A'), rule('>10', 'B')])).toEqual([
+      'Lines 1 and 2 test the same conditions.',
+    ]);
+    expect(messages('COLLECT', [rule('> 10'), rule('> 20')])).toEqual([]);
+  });
+
+  /**
+   * An error here disables Save, so a collision the engine does not have is a
+   * table nobody can save. `"10"` is text, and the engine never finds text
+   * equal to a number: that line matches no amount at all.
+   */
+  it('does not block a table over a collision the engine would never see', () => {
+    expect(messages('UNIQUE', [rule('"10"'), rule('10')])).toEqual([]);
+    expect(messages('UNIQUE', [rule('TRUE'), rule('true')], [urgent])).toEqual([]);
+    // not( ) around something the matcher cannot read is itself unreadable.
+    expect(messages('UNIQUE', [rule('not(sum(items) > 10)'), rule('> 5')])).toEqual([]);
+  });
+
+  it('says nothing about a table of one line', () => {
+    expect(messages('UNIQUE', [rule('-')])).toEqual([]);
+  });
+
+  /**
+   * `""` is the cell menu's "Empty", and the engine matches it against empty
+   * text like any other text. The check read it as matching nothing, so two
+   * lines both saying Empty, or Empty beside "anything but GOLD", were never
+   * compared, and a table the engine fails for an empty tier saved cleanly.
+   */
+  it('reads the Empty condition as the empty text', () => {
+    const tier: DecisionInputColumn = { id: 'i3', label: 'Tier', expression: 'tier', type: 'string' };
+    expect(messages('UNIQUE', [rule('""', 'A'), rule('""', 'B')], [tier])).toEqual([
+      'Lines 1 and 2 both apply when Tier is empty, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(messages('UNIQUE', [rule('"GOLD"', 'A'), rule('""', 'B'), rule('not("GOLD")', 'C')], [tier])).toEqual([
+      'Lines 2 and 3 both apply when Tier is empty, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+    expect(messages('UNIQUE', [rule('"GOLD"', 'A'), rule('""', 'B'), rule('not("GOLD", "")', 'C')], [tier])).toEqual([]);
+  });
+});
+
+/**
+ * The check compared every pair of lines on every keystroke: 280 ms for a
+ * table of two thousand lines where only one may match, and 840 ms where the
+ * first match wins. It now does a bounded amount of pairwise work, and says so
+ * when a table needs more, as the coverage check does, rather than holding up
+ * the editor or implying the rest is clean.
+ */
+describe('findOverlaps on a long table', () => {
+  const band = (i: number) => rule(`[${i * 10}..${(i + 1) * 10}[`, `B${i}`);
+
+  it('says how far it got when the table needs more work than it will do', () => {
+    const everyLineOverlaps = Array.from({ length: 100 }, (_, i) => rule(`> ${i}`, `R${i}`));
+    const unique = messages('UNIQUE', everyLineOverlaps, [amount], 2_000);
+    expect(unique[unique.length - 1]).toMatch(
+      /^Only lines 1 to \d+ were checked against each other: the table is too long to compare every pair of lines, so a problem further down would not be listed here\.$/,
+    );
+    const first = messages('FIRST', Array.from({ length: 100 }, (_, i) => band(i)), [amount], 50);
+    expect(first[first.length - 1]).toStartWith('Only lines 1 to ');
+  });
+
+  it('still compares every pair of two thousand banded lines', () => {
+    const banded = Array.from({ length: 2000 }, (_, i) => band(i));
+    expect(messages('UNIQUE', banded)).toEqual([]);
+    expect(messages('FIRST', banded)).toEqual([]);
+    const overlapAtTheEnd = [...banded, rule('[19990..19995[', 'X')];
+    expect(messages('UNIQUE', overlapAtTheEnd)).toEqual([
+      'Lines 2000 and 2001 both apply when Amount is 19990, and only one line may match, so the decision fails there. Narrow one of them so they no longer overlap.',
+    ]);
+  });
+});

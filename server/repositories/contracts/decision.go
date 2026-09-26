@@ -22,8 +22,16 @@ type DecisionRepository interface {
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.DecisionDefinitionModel, error)
 
 	// ListByProjectPaged returns one page of a project's decisions, for the
-	// same reason definitions have one.
-	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.DecisionDefinitionModel], error)
+	// same reason definitions have one. A non-empty search keeps the ones whose
+	// name or key contains it, ignoring case, so a list can be searched a page
+	// at a time rather than by loading all of it.
+	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, search string, p Pagination) (Page[models.DecisionDefinitionModel], error)
+
+	// ListLatestByProject returns one page of a project's decision keys, each
+	// as its newest version and without the table columns, ordered by key: what
+	// a picker or the dependency graph needs, and a small fraction of what the
+	// full rows weigh.
+	ListLatestByProject(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.DecisionSummaryModel], error)
 
 	// NextVersion proposes the version a new deployment of key should claim,
 	// counted over the rows the (project_id, key, version) unique index covers.

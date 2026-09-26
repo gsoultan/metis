@@ -22,8 +22,9 @@ type DecisionEvaluator interface {
 type DecisionManager interface {
 	ListDecisions(ctx context.Context, projectID uuid.UUID) ([]entities.DecisionDefinition, error)
 
-	// ListDecisionsPaged returns one page of a project's decisions.
-	ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error)
+	// ListDecisionsPaged returns one page of a project's decisions, narrowed to
+	// those whose name or key contains search when it is not empty.
+	ListDecisionsPaged(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionDefinition], error)
 	GetDecision(ctx context.Context, id uuid.UUID) (entities.DecisionDefinition, error)
 	CreateDecision(ctx context.Context, def entities.DecisionDefinition) (uuid.UUID, error)
 	UpdateDecision(ctx context.Context, id uuid.UUID, def entities.DecisionDefinition) error
@@ -39,9 +40,22 @@ type DecisionManager interface {
 	DeleteDecision(ctx context.Context, id uuid.UUID) error
 }
 
-// DecisionService composes DecisionEvaluator and DecisionManager into the full
-// decision service contract used by the service facade.
+// DecisionCatalog lists what decisions a project has, without their tables.
+//
+// Its own interface rather than an eighth method on DecisionManager: the
+// callers that want it — the dependency graph, a step's decision picker — want
+// nothing else from the service.
+type DecisionCatalog interface {
+	// ListDecisionSummaries returns one page of a project's decision keys, each
+	// as its newest version, ordered by key.
+	ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error)
+}
+
+// DecisionService composes DecisionEvaluator, DecisionManager and
+// DecisionCatalog into the full decision service contract used by the service
+// facade.
 type DecisionService interface {
 	DecisionEvaluator
 	DecisionManager
+	DecisionCatalog
 }
