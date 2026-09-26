@@ -62,17 +62,18 @@ func handleDelivery(svc contracts.WebhookService) http.Handler {
 			return
 		}
 
-		// Which header carries the signature is a property of the webhook, not
-		// of the request, so the webhook has to be resolved before the header
-		// can be read. Rather than resolve it twice, every plausible header is
-		// collected and the service picks — the signature is what it is checked
-		// against, so offering a value from the wrong header cannot help an
-		// attacker.
+		// A v2 signature has exactly one header, and so does its timestamp. A
+		// legacy signature could be in any of several, so the first one present
+		// is taken — the signature is what it is checked against, so offering a
+		// value from the wrong header cannot help an attacker. The service
+		// decides which scheme applies.
 		delivery := entities.WebhookDelivery{
-			Token:      token,
-			Signature:  signatureFrom(r),
-			DeliveryID: deliveryIDFrom(r),
-			Body:       body,
+			Token:           token,
+			Signature:       strings.TrimSpace(r.Header.Get(webhooksig.SignatureHeader)),
+			Timestamp:       strings.TrimSpace(r.Header.Get(webhooksig.TimestampHeader)),
+			LegacySignature: legacySignatureFrom(r),
+			DeliveryID:      deliveryIDFrom(r),
+			Body:            body,
 		}
 
 		outcome, err := svc.Receive(r.Context(), delivery)
@@ -87,8 +88,9 @@ func handleDelivery(svc contracts.WebhookService) http.Handler {
 	})
 }
 
-// signatureFrom finds the signature among the headers senders use for it.
-func signatureFrom(r *http.Request) string {
+// legacySignatureFrom finds a v1 signature among the headers senders use for
+// one.
+func legacySignatureFrom(r *http.Request) string {
 	for _, header := range []string{
 		entities.DefaultWebhookSignatureHeader,
 		"X-Hub-Signature-256",
@@ -130,8 +132,10 @@ func writeRejection(w http.ResponseWriter, err error) {
 		writeJSON(w, map[string]string{"error": "this delivery was not accepted"})
 	default:
 		// Everything else is about the delivery's content — malformed JSON, a
-		// correlation key that found nothing — and saying so helps whoever is
-		// configuring the sending end.
+		// correlation key that found nothing, a timestamp too far from now —
+		// and saying so helps whoever is configuring the sending end. None of it
+		// is reached until the signature has matched, so it is said only to
+		// somebody holding the secret.
 		w.WriteHeader(http.StatusBadRequest)
 		writeJSON(w, map[string]string{"error": err.Error()})
 	}

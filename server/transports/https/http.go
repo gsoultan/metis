@@ -32,6 +32,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/platformusers"
 	"github.com/gsoultan/metis/server/transports/https/processes"
 	"github.com/gsoultan/metis/server/transports/https/projects"
+	"github.com/gsoultan/metis/server/transports/https/roles"
 	"github.com/gsoultan/metis/server/transports/https/setup"
 	"github.com/gsoultan/metis/server/transports/https/simulations"
 	"github.com/gsoultan/metis/server/transports/https/tasks"
@@ -47,7 +48,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	m := http.NewServeMux()
 
 	// Auth Middleware to extract user from token and put it in context
-	f := interceptors.NewInterceptorFactory(svc)
+	f := interceptors.NewInterceptorFactory(svc, svc)
 	authMiddleware := f.NewHTTPAuth(f.NewJWTStrategy())
 
 	options := []httptransport.ServerOption{
@@ -85,6 +86,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	collaboration.RegisterHandlers(m, eps.Collaboration, options)
 	webhookadmin.RegisterHandlers(m, eps.Webhook, options)
 	simulations.RegisterHandlers(m, eps.Simulation, options)
+	roles.RegisterHandlers(m, eps.Role, options)
 
 	// The public delivery endpoint. Registered straight onto the mux rather than
 	// through an endpoint: the signature is over the exact bytes delivered, so

@@ -23,6 +23,8 @@ func RegisterHandlers(m *http.ServeMux, eps webhook.Endpoints, options []httptra
 		eps.CreateWebhook, decodeCreate, common.EncodeResponse, options...))
 	m.Handle("POST /api/v1/webhooks/{id}/enabled", httptransport.NewServer(
 		eps.SetWebhookEnabled, decodeSetEnabled, common.EncodeResponse, options...))
+	m.Handle("DELETE /api/v1/webhooks/{id}/legacy-signatures", httptransport.NewServer(
+		eps.CloseLegacySignatures, decodeCloseLegacySignatures, common.EncodeResponse, options...))
 	m.Handle("DELETE /api/v1/webhooks/{id}", httptransport.NewServer(
 		eps.DeleteWebhook, decodeDelete, common.EncodeResponse, options...))
 }
@@ -47,6 +49,10 @@ func decodeSetEnabled(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	return webhook.SetWebhookEnabledRequest{ID: r.PathValue("id"), Enabled: body.Enabled}, nil
+}
+
+func decodeCloseLegacySignatures(_ context.Context, r *http.Request) (any, error) {
+	return webhook.CloseLegacySignaturesRequest{ID: r.PathValue("id")}, nil
 }
 
 func decodeDelete(_ context.Context, r *http.Request) (any, error) {

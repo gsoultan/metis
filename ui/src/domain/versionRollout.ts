@@ -109,10 +109,11 @@ export interface PromotionContext {
  * instance pins the version it started on (PromoteDefinitionVersion →
  * releaseAt). New instances resolve the live version however they start — by
  * hand, from a message or a signal, or from a call activity that names no
- * version. And the timeline is read as "the newest row whose moment has
- * passed", so a cutover already scheduled for later still happens and undoes
- * this one when it does. The dialog said the first of these and only the
- * first; the rest are the ones people act on wrongly.
+ * version. Going forward, a cutover already scheduled for later still happens
+ * when its moment comes. A rollback cancels every cutover scheduled for later,
+ * since left in place the first to arrive would undo it. The dialog said the
+ * first of these and only the first; the rest are the ones people act on
+ * wrongly.
  */
 export function promotionFacts(versions: SchedulableVersion[], target: number, context: PromotionContext): string[] {
   const live = liveVersion(versions);
@@ -133,12 +134,16 @@ export function promotionFacts(versions: SchedulableVersion[], target: number, c
     );
   }
   if (replaced) facts.push(`v${replaced.version} is not deleted, and can be made live again from this list.`);
+  const rollingBack = isRollback(versions, target);
   for (const cutover of pendingCutovers(versions)) {
     if (cutover.version === target || cutover.at.getTime() <= context.now.getTime()) continue;
     facts.push(
-      `v${cutover.version} is still scheduled to take over at ${context.formatTime(cutover.at)}. ` +
-        `From then, new instances start on v${cutover.version}, not v${target}. ` +
-        `Cancel it under Scheduled changes to keep v${target} live.`,
+      rollingBack
+        ? `The change to v${cutover.version} scheduled for ${context.formatTime(cutover.at)} is cancelled, ` +
+            `so v${target} stays live until somebody makes another version live.`
+        : `v${cutover.version} is still scheduled to take over at ${context.formatTime(cutover.at)}. ` +
+            `From then, new instances start on v${cutover.version}, not v${target}. ` +
+            `Cancel it under Scheduled changes to keep v${target} live.`,
     );
   }
   return facts;

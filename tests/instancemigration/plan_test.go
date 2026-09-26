@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
+	"gorm.io/gorm"
 )
 
 type fixture struct {
@@ -28,6 +29,8 @@ type fixture struct {
 	// taken out of somebody's hands is an event before it is a notification,
 	// and that is the level a migration test can assert at.
 	dispatcher observercontracts.EventDispatcher
+	// db is the schema's GORM handle, for seeding rows in bulk.
+	db *gorm.DB
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -48,7 +51,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher}
+	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher, db: db}
 }
 
 // approval is start → one user task → end. The task's id is the parameter,

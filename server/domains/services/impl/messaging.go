@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -98,6 +99,15 @@ func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID,
 }
 
 func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, topic string, rabbitURL string, exchange string, routingKey string) {
+	// Every line names the bridge. With several running, one that does not is
+	// a line nobody can act on.
+	logger := loggerFrom(ctx).With().
+		Str("project", projectID.String()).
+		Str("topic", topic).
+		Str("exchange", exchange).
+		Str("routingKey", routingKey).
+		Logger()
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -128,12 +138,13 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 				cleanup()
 				conn, err = amqp.Dial(rabbitURL)
 				if err != nil {
-					log.Error().Err(err).Msg("Bridge RabbitMQ connection error")
+					logger.Error().Err(err).Dur("retryIn", pollInterval).
+						Msg("A RabbitMQ bridge could not connect to its broker")
 					continue
 				}
 				ch, err = conn.Channel()
 				if err != nil {
-					log.Error().Err(err).Msg("Bridge RabbitMQ channel error")
+					logger.Error().Err(err).Msg("A RabbitMQ bridge could not open a channel")
 					cleanup()
 					continue
 				}
@@ -141,16 +152,20 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 				// and this loop publishes for as long as the connection lives.
 				publisher, err = newConfirmingPublisher(ch)
 				if err != nil {
-					log.Error().Err(err).Msg("Bridge could not enable publisher confirms")
+					logger.Error().Err(err).Msg("A RabbitMQ bridge could not enable publisher confirms")
 					cleanup()
 					continue
 				}
+				// Said on every connection, the first and each one after a
+				// loss, so the log shows when forwarding resumed and not only
+				// when it stopped.
+				logger.Info().Msg("A RabbitMQ bridge connected to its broker")
 			}
 
 			// Fetch and lock tasks
 			tasks, err := s.externalSvc.FetchAndLock(ctx, topic, workerID, maxTasks, lockDurationMS)
 			if err != nil {
-				log.Error().Err(err).Msg("Bridge fetch error")
+				logger.Error().Err(err).Msg("Bridge fetch error")
 				continue
 			}
 
@@ -159,7 +174,7 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 				if err != nil {
 					// Publishing "null" onto a work queue hands a worker a
 					// message it cannot act on and loses the task.
-					log.Error().Err(err).Str("taskId", task.ID.String()).
+					logger.Error().Err(err).Str("taskId", task.ID.String()).
 						Msg("A task could not be encoded and was not published")
 					s.releaseUnforwardedTask(ctx, task, err)
 					continue
@@ -177,13 +192,12 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 					// line below claimed it had been forwarded — so hand it
 					// back now, and let the retry the engine already has do its
 					// job.
-					log.Error().Err(err).Str("taskID", task.ID.String()).
-						Str("exchange", exchange).Str("routingKey", routingKey).
+					logger.Error().Err(err).Str("taskID", task.ID.String()).
 						Msg("A task was not accepted by the broker and was handed back")
 					s.releaseUnforwardedTask(ctx, task, err)
 					continue
 				}
-				log.Info().Str("taskID", task.ID.String()).Msg("Forwarded external task to RabbitMQ")
+				logger.Info().Str("taskID", task.ID.String()).Msg("Forwarded external task to RabbitMQ")
 			}
 		}
 	}
@@ -209,14 +223,22 @@ func (s *messagingService) StartInboundConsumer(ctx context.Context, projectID u
 }
 
 func (s *messagingService) runConsumer(ctx context.Context, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) {
+	// Every line names the consumer, as the bridge's do.
+	logger := loggerFrom(ctx).With().
+		Str("project", projectID.String()).
+		Str("queue", queueName).
+		Str("messageName", messageName).
+		Logger()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			err := s.consumeOnce(ctx, projectID, rabbitURL, queueName, messageName)
+			err := s.consumeOnce(ctx, &logger, projectID, rabbitURL, queueName, messageName)
 			if err != nil {
-				log.Error().Err(err).Dur("retryIn", reconnectInterval).Msg("Consumer error; retrying")
+				logger.Error().Err(err).Dur("retryIn", reconnectInterval).
+					Msg("A RabbitMQ consumer could not consume from its queue; retrying")
 				if sleepErr := sleepWithContext(ctx, reconnectInterval); sleepErr != nil {
 					return
 				}
@@ -225,7 +247,7 @@ func (s *messagingService) runConsumer(ctx context.Context, projectID uuid.UUID,
 	}
 }
 
-func (s *messagingService) consumeOnce(ctx context.Context, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) error {
+func (s *messagingService) consumeOnce(ctx context.Context, logger *zerolog.Logger, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) error {
 	conn, err := amqp.Dial(rabbitURL)
 	if err != nil {
 		return err
@@ -270,6 +292,8 @@ func (s *messagingService) consumeOnce(ctx context.Context, projectID uuid.UUID,
 	if err != nil {
 		return err
 	}
+	// On every connection, the first and each one after a loss.
+	logger.Info().Str("deadLetterQueue", dlqName).Msg("A RabbitMQ consumer is consuming from its queue")
 
 	publishToQueue := func(ctx context.Context, queueName string, message amqp.Publishing) error {
 		// The default exchange routes by queue name, and the queue is declared
@@ -281,7 +305,7 @@ func (s *messagingService) consumeOnce(ctx context.Context, projectID uuid.UUID,
 	for d := range msgs {
 		outcome, err := s.processInboundDelivery(ctx, projectID, q.Name, dlqName, messageName, d, publishToQueue)
 		if err != nil {
-			log.Error().Err(err).Str("queue", q.Name).Str("deadLetterQueue", dlqName).Msg("Error processing inbound message")
+			logger.Error().Err(err).Str("deadLetterQueue", dlqName).Msg("Error processing inbound message")
 		}
 		settleInboundDelivery(d, outcome, q.Name)
 	}
@@ -550,6 +574,20 @@ func (s *messagingService) StopAll() {
 	}
 
 	s.wg.Wait()
+}
+
+// loggerFrom returns the logger ctx carries, or the global one when it carries
+// none.
+//
+// Whoever starts a bridge or a consumer knows things about it this service
+// does not — which connection it reads, which organization it acts for — and
+// hands them down on the context's logger, so they are on every line the loop
+// writes too.
+func loggerFrom(ctx context.Context) *zerolog.Logger {
+	if logger := zerolog.Ctx(ctx); logger.GetLevel() != zerolog.Disabled {
+		return logger
+	}
+	return &log.Logger
 }
 
 // closeQuietly closes an AMQP handle and says so when it will not close.

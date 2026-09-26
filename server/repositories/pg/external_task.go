@@ -204,10 +204,13 @@ func (r *externalTaskRepository) ListByProcessInstance(ctx context.Context, inst
 	if err != nil {
 		return nil, err
 	}
-	rows, err := externaltask.New().
+	// Every task, not the store's oldest thousand: resolving an incident offers
+	// the task at its step again, and an instance with a thousand older tasks
+	// kept that one out of reach. The id breaks ties in time, so the cursor is a
+	// position.
+	rows, err := everyRow[externaltask.Row](ctx, ex, externaltask.New().
 		Where(externaltask.InstanceID.Eq(instanceID)).
-		Order(externaltask.CreatedAt.Asc()).
-		All(ctx, ex, nil)
+		Order(externaltask.CreatedAt.Asc(), externaltask.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not list the external tasks: %w", err)
 	}

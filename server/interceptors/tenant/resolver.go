@@ -32,13 +32,15 @@ var ErrNotAMember = fmt.Errorf("tenant: %w", pkgauth.ErrUnauthorized)
 //
 // This case used to be indistinguishable from an unauthenticated request, and
 // both were waved through. That was a cross-tenant read: OIDC token validation
-// yields *auth.UserClaims, which carries roles but no membership list, so every
-// OIDC-authenticated request arrived with no TenantContext — which the
+// left the token's claims in the context, with roles but no membership list,
+// so every OIDC-authenticated request arrived with no TenantContext — which the
 // repository layer reads as a system call and does not scope at all.
 //
-// Refusing is the only safe answer. A principal whose tenant cannot be
-// determined has no bounded view of the data, and serving it an unbounded one
-// is the failure this error exists to prevent.
+// An identity provider's sign-in now reaches here as the account linked to it,
+// placed in the organizations its claim names. Anything that is still not an
+// account is refused: a principal whose tenant cannot be determined has no
+// bounded view of the data, and serving it an unbounded one is the failure
+// this error exists to prevent.
 var ErrUnresolvedTenant = fmt.Errorf("tenant: %w: the authenticated principal could not be resolved to an organization",
 	pkgauth.ErrUnauthorized)
 
@@ -127,10 +129,11 @@ func organizationsFromContext(ctx context.Context) ([]string, bool, error) {
 	case *entities.User:
 		user = u
 	default:
-		// OIDC claims carry no membership list, so this principal cannot be
-		// placed in an organization. Until the OIDC deployment path maps claims
-		// to organizations, the honest answer is to refuse the request — the
-		// alternative was serving it unscoped.
+		// Not an account. Both strategies leave one — an identity provider's
+		// sign-in is resolved to the account linked to it, with the
+		// organizations its claim names — so whatever this is carries no
+		// memberships to scope by. Refused: the alternative is serving it
+		// unscoped.
 		return nil, true, fmt.Errorf("%w (principal type %T)", ErrUnresolvedTenant, v)
 	}
 

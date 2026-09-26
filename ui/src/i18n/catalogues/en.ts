@@ -127,6 +127,51 @@ const en: Catalogue = {
   'page.settings.title': 'Application Settings',
   'page.settings.subtitle': 'Configure your workspace and preferences.',
 
+  // Platform access: who holds which role, and what each role is required
+  // for. The role names and their one-line sentences come from domain/roles.ts
+  // and are still English; the action names come from the server, which reads
+  // them from its own gates, and are English too.
+  'access.tabAccounts': 'Accounts',
+  'access.tabRoles': 'Roles',
+  'access.search': 'Search people',
+  'access.searchPlaceholder': 'Search by name, username or email…',
+  'access.columnPerson': 'Person',
+  'access.legendButton': 'What {role} allows',
+  'access.requiredFor': 'Required for',
+  'access.requiredForNothing': 'No action requires this role by itself. It is checked as part of other actions, as described above.',
+  'access.everythingElse': 'Actions not listed here need no role, only a sign-in.',
+  'access.legendUnavailable': 'Could not load what this role allows. Try again later.',
+  'access.holds': '{name} holds {role}',
+  'access.lacks': '{name} does not hold {role}',
+  'access.editHint': 'Tick a box to grant a role and clear it to take the role away. Each change is saved as you make it.',
+  'access.readOnlyHint': 'Only an administrator can change who holds a role.',
+  'access.cell': '{role} for {name}',
+  'access.saving': 'Saving {role} for {name}…',
+  'access.savedTitle': 'Roles changed',
+  'access.granted': '{name} now holds {role}.',
+  'access.revoked': '{name} no longer holds {role}.',
+  'access.refusedTitle': 'Could not change {name}’s roles',
+  'access.confirmOwnAdmin':
+    'Take away your own Administrator role? You will no longer be able to manage accounts, and only another administrator can give it back.',
+  'access.showing': '{count, plural, =1 {Showing the only account} other {Showing all # accounts}}',
+  'access.matching': '{count} of {total} accounts match',
+  'access.noMatch': 'Nobody matches “{query}”.',
+  'access.empty': 'No accounts in this organization yet.',
+  'access.area.processes': 'Processes',
+  'access.area.decisions': 'Decisions',
+  'access.area.connectors': 'Connectors',
+  'access.area.webhooks': 'Webhooks',
+  'access.area.instances': 'Running instances',
+  'access.area.people': 'People',
+  'access.area.directories': 'Directories',
+  'access.area.projects': 'Projects',
+  'access.area.organizations': 'Organizations',
+  'access.area.groups': 'Groups',
+  'access.area.accounts': 'Accounts',
+  'access.area.platform': 'Platform accounts',
+  'access.area.environments': 'Environments',
+  'access.area.other': 'Other',
+
   // The dashboard, which is where the interface's own language was most
   // visibly at odds with itself: the navigation translated and the cards
   // beside it did not.
@@ -142,7 +187,7 @@ const en: Catalogue = {
   'dash.timeline': 'Business Timeline',
   'dash.recentActivity': 'Recent Activity',
   'dash.viewAllInstances': 'View all instances',
-  'dash.generateReport': 'Generate Report',
+  'dash.generateReport': 'Print or save as PDF',
   'dash.noActivity': 'No recent activity',
   'dash.noActivityHint': 'Start a process to see the activity timeline here.',
   'dash.readyTitle': 'Ready to automate?',

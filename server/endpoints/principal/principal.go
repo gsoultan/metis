@@ -7,6 +7,10 @@
 // colleague's task by naming the colleague, and the audit trail recorded the
 // colleague as having done it. In an orchestrator that executes approvals and
 // payments, the actor is not a parameter.
+//
+// Whichever way somebody signed in, what the context holds is an account. An
+// identity provider's sign-in is resolved to the account linked to it before
+// any endpoint runs, so its claims are never the caller here.
 package principal
 
 import (
@@ -17,47 +21,22 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
-// Username returns the signed-in caller's username.
-//
-// An OIDC principal has no local account; its preferred username is used, and
-// failing that the subject, so the audit trail still names someone stable.
-// An anonymous request is refused — there is no actor to attribute work to.
+// Username returns the signed-in caller's username: their account's, which is
+// what the audit trail names them by. An anonymous request is refused — there
+// is no actor to attribute work to.
 func Username(ctx context.Context) (string, error) {
-	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
-	case entities.User:
-		if u.Username != "" {
-			return u.Username, nil
-		}
-	case *entities.User:
-		if u != nil && u.Username != "" {
-			return u.Username, nil
-		}
-	case pkgauth.UserClaims:
-		return claimsName(u)
-	case *pkgauth.UserClaims:
-		if u != nil {
-			return claimsName(*u)
-		}
+	if u, ok := LocalUser(ctx); ok {
+		return u.Username, nil
 	}
 	return "", pkgauth.ErrUnauthorized
 }
 
-func claimsName(c pkgauth.UserClaims) (string, error) {
-	if c.Username != "" {
-		return c.Username, nil
-	}
-	if c.Subject != "" {
-		return c.Subject, nil
-	}
-	return "", pkgauth.ErrUnauthorized
-}
-
-// LocalUser returns the signed-in local account, when there is one.
+// LocalUser returns the account the caller signed in as.
 //
 // It is the source for anything that needs more than a name: the account ID
-// (for group membership), the roles, the organizations. An OIDC principal
-// returns false; callers must then fall back to name-only behaviour rather
-// than guess.
+// (for group membership), the roles, the organizations. "Local" is the account
+// held here, as against a token's claims — somebody signed in through an
+// identity provider has one too, the account linked to them.
 func LocalUser(ctx context.Context) (entities.User, bool) {
 	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
 	case entities.User:
@@ -70,7 +49,7 @@ func LocalUser(ctx context.Context) (entities.User, bool) {
 	return entities.User{}, false
 }
 
-// LocalUserID returns the signed-in local account's ID, or uuid.Nil.
+// LocalUserID returns the signed-in account's ID, or uuid.Nil.
 func LocalUserID(ctx context.Context) uuid.UUID {
 	if u, ok := LocalUser(ctx); ok {
 		return u.ID
@@ -92,12 +71,6 @@ func HasRole(ctx context.Context, role string) bool {
 	case entities.User:
 		roles = u.Roles
 	case *entities.User:
-		if u != nil {
-			roles = u.Roles
-		}
-	case pkgauth.UserClaims:
-		roles = u.Roles
-	case *pkgauth.UserClaims:
 		if u != nil {
 			roles = u.Roles
 		}

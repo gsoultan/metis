@@ -10,15 +10,18 @@ import {
   PasswordInput,
   Stack,
   Table,
+  Tabs,
   Text,
   TextInput,
   ThemeIcon,
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { Edit2, Plus, Search, Trash2, User, UserCircle } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { Edit2, Plus, Search, ShieldCheck, Trash2, User, UserCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
 
+import { RoleMatrix } from '../components/access/RoleMatrix';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
@@ -30,11 +33,14 @@ import { errorMessage } from '../services/shared/errors';
 import type { ApiOrganizationUser } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 import { useTranslation } from '../i18n/context';
+import { Route } from '../routes/_authenticated.users';
 
 const COLUMNS = 4;
 
 export function UserList() {
   const { t } = useTranslation();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { tab } = Route.useSearch();
   const { data, isLoading, error, refetch } = useUsers();
   const { data: orgData } = useOrganizations();
   const createUser = useCreateUser();
@@ -141,100 +147,125 @@ export function UserList() {
         }
       />
 
-      <Card shadow="sm" radius="lg" withBorder p={0}>
-        <Box p="md">
-          <TextInput
-            aria-label="Search people"
-            placeholder="Search by name, username or email…"
-            leftSection={<Search size={16} />}
-            style={{ maxWidth: 400 }}
-            variant="filled"
-            radius="md"
-            onChange={(e) => handleSearchChange(e.currentTarget.value)}
-          />
-        </Box>
+      {/* Two views of the same accounts: each one's details, or who holds
+          which role. Only the open one is rendered, so the role matrix asks
+          for nothing until somebody opens it. */}
+      <Tabs
+        value={tab}
+        onChange={(value) => navigate({ search: { tab: value === 'roles' ? 'roles' : 'accounts' } })}
+        variant="outline"
+        radius="md"
+        keepMounted={false}
+      >
+        <Tabs.List mb="md">
+          <Tabs.Tab value="accounts" leftSection={<UserCircle size={16} />}>
+            {t('access.tabAccounts')}
+          </Tabs.Tab>
+          <Tabs.Tab value="roles" leftSection={<ShieldCheck size={16} />}>
+            {t('access.tabRoles')}
+          </Tabs.Tab>
+        </Tabs.List>
 
-        {isLoading ? (
-          <TableLoadingState rows={5} columns={COLUMNS} />
-        ) : error ? (
-          <ErrorState error={error} action="load the platform accounts" onRetry={() => refetch()} />
-        ) : (
-        <Table.ScrollContainer minWidth={800}>
-          <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
-            <Table.Thead bg="gray.0">
-              <Table.Tr>
-                <Table.Th>Account</Table.Th>
-                <Table.Th>Email</Table.Th>
-                <Table.Th>Roles</Table.Th>
-                <Table.Th ta="right">Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {users.length === 0 ? (
-                <Table.Tr>
-                  <Table.Td colSpan={COLUMNS}>
-                    {searchQuery ? (
-                      <Text ta="center" c="dimmed" py="xl">Nobody matches “{searchQuery}”.</Text>
-                    ) : (
-                      <EmptyState icon={User} title="No accounts yet" description="Add the people who administer this installation. Process participants are managed separately, on the People page." />
-                    )}
-                  </Table.Td>
-                </Table.Tr>
-              ) : (
-                users.map((u) => (
-                  <Table.Tr key={u.id}>
-                    <Table.Td>
-                      <Group gap="sm">
-                        <ThemeIcon color="indigo" variant="light" radius="md">
-                          <UserCircle size={16} />
-                        </ThemeIcon>
-                        <Stack gap={0}>
-                          <Text fw={700} size="sm">{u.full_name || u.username}</Text>
-                          <Text size="xs" c="dimmed">@{u.username}</Text>
-                        </Stack>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{u.email || '—'}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap={4}>
-                        {(u.roles || []).map((role) => (
-                          <Badge key={role} variant="light" size="sm" color={isPrivilegedRole(role) ? 'red' : 'blue'}>
-                            {roleLabel(role)}
-                          </Badge>
-                        ))}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" justify="flex-end">
-                        <Tooltip label="Edit account">
-                          <ActionIcon aria-label={`Edit ${u.full_name || u.username}`} variant="light" color="indigo" onClick={() => handleOpenModal(u)}>
-                            <Edit2 size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Delete account">
-                          <ActionIcon aria-label={`Delete ${u.full_name || u.username}`} variant="light" color="red" onClick={() => handleDelete(u)}>
-                            <Trash2 size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Table.Td>
+        <Tabs.Panel value="accounts">
+          <Card shadow="sm" radius="lg" withBorder p={0}>
+            <Box p="md">
+              <TextInput
+                aria-label="Search people"
+                placeholder="Search by name, username or email…"
+                leftSection={<Search size={16} />}
+                style={{ maxWidth: 400 }}
+                variant="filled"
+                radius="md"
+                onChange={(e) => handleSearchChange(e.currentTarget.value)}
+              />
+            </Box>
+
+            {isLoading ? (
+              <TableLoadingState rows={5} columns={COLUMNS} />
+            ) : error ? (
+              <ErrorState error={error} action="load the platform accounts" onRetry={() => refetch()} />
+            ) : (
+            <Table.ScrollContainer minWidth={800}>
+              <Table verticalSpacing="md" horizontalSpacing="xl" highlightOnHover>
+                <Table.Thead bg="gray.0">
+                  <Table.Tr>
+                    <Table.Th>Account</Table.Th>
+                    <Table.Th>Email</Table.Th>
+                    <Table.Th>Roles</Table.Th>
+                    <Table.Th ta="right">Actions</Table.Th>
                   </Table.Tr>
-                ))
-              )}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-        )}
-        {/* The directory arrives whole; this says how much of it is on screen
-            until it is paged. */}
-        {!isLoading && !error && allUsers.length > 0 && (
-          <Text size="xs" c="dimmed" px="md" py="sm">
-            {searchQuery ? `${users.length} of ${allUsers.length} accounts match` : `Showing all ${allUsers.length} accounts`}
-          </Text>
-        )}
-      </Card>
+                </Table.Thead>
+                <Table.Tbody>
+                  {users.length === 0 ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={COLUMNS}>
+                        {searchQuery ? (
+                          <Text ta="center" c="dimmed" py="xl">Nobody matches “{searchQuery}”.</Text>
+                        ) : (
+                          <EmptyState icon={User} title="No accounts yet" description="Add the people who administer this installation. Process participants are managed separately, on the People page." />
+                        )}
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : (
+                    users.map((u) => (
+                      <Table.Tr key={u.id}>
+                        <Table.Td>
+                          <Group gap="sm">
+                            <ThemeIcon color="indigo" variant="light" radius="md">
+                              <UserCircle size={16} />
+                            </ThemeIcon>
+                            <Stack gap={0}>
+                              <Text fw={700} size="sm">{u.full_name || u.username}</Text>
+                              <Text size="xs" c="dimmed">@{u.username}</Text>
+                            </Stack>
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{u.email || '—'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap={4}>
+                            {(u.roles || []).map((role) => (
+                              <Badge key={role} variant="light" size="sm" color={isPrivilegedRole(role) ? 'red' : 'blue'}>
+                                {roleLabel(role)}
+                              </Badge>
+                            ))}
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs" justify="flex-end">
+                            <Tooltip label="Edit account">
+                              <ActionIcon aria-label={`Edit ${u.full_name || u.username}`} variant="light" color="indigo" onClick={() => handleOpenModal(u)}>
+                                <Edit2 size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Delete account">
+                              <ActionIcon aria-label={`Delete ${u.full_name || u.username}`} variant="light" color="red" onClick={() => handleDelete(u)}>
+                                <Trash2 size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+            )}
+            {/* The directory arrives whole; this says how much of it is on screen
+                until it is paged. */}
+            {!isLoading && !error && allUsers.length > 0 && (
+              <Text size="xs" c="dimmed" px="md" py="sm">
+                {searchQuery ? `${users.length} of ${allUsers.length} accounts match` : `Showing all ${allUsers.length} accounts`}
+              </Text>
+            )}
+          </Card>
+        </Tabs.Panel>
+        <Tabs.Panel value="roles">
+          <RoleMatrix />
+        </Tabs.Panel>
+      </Tabs>
 
       <Modal
         opened={isModalOpen}

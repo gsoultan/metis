@@ -109,12 +109,14 @@ func TestLocalUserIDFromContext_TakesTheSignedInAccount(t *testing.T) {
 	}
 }
 
-// An OIDC principal has no password here — theirs lives at the identity
-// provider, and Metis holds no hash that logging in consults. Rotating one
-// would change a value that gates nothing while reporting success, so a user
-// who thought they had locked an attacker out would not have.
+// An account that signs in through an identity provider has no password here —
+// theirs lives at the provider, and Metis holds no hash that logging in
+// consults. Rotating one would change a value that gates nothing while
+// reporting success, so a user who thought they had locked an attacker out
+// would not have.
 func TestLocalUserIDFromContext_RefusesAnOIDCPrincipal(t *testing.T) {
-	ctx := context.WithValue(t.Context(), pkgauth.UserContextKey, pkgauth.UserClaims{Subject: "sub-123"})
+	ctx := context.WithValue(t.Context(), pkgauth.UserContextKey,
+		entities.User{ID: uuid.New(), Username: "sso-user", IdentityProvider: "https://id.example.com"})
 
 	if _, err := serviceimpl.LocalUserIDFromContext(ctx); err == nil {
 		t.Fatal("an OIDC principal was allowed to change a local password that never gates their login")

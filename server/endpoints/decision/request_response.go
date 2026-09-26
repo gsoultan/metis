@@ -37,11 +37,17 @@ func (r ListDecisionsResponse) Failed() error { return r.Err }
 // ListDecisionSummariesRequest asks for one page of a project's decision keys.
 type ListDecisionSummariesRequest struct {
 	ProjectID string `json:"project_id,omitzero"`
-	Page      int    `json:"page,omitzero"`
-	PageSize  int    `json:"page_size,omitzero"`
+
+	// Search keeps the keys whose key, or live version's name, contains it,
+	// ignoring case. Empty lists them all.
+	Search string `json:"q,omitzero"`
+
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
 }
 
-// ListDecisionSummariesResponse carries each key as its newest version.
+// ListDecisionSummariesResponse carries each key once, with its live and
+// newest versions.
 type ListDecisionSummariesResponse struct {
 	Page      *PageInfo                  `json:"page,omitempty"`
 	Summaries []entities.DecisionSummary `json:"summaries,omitzero"`
@@ -75,10 +81,28 @@ func (r CreateDecisionResponse) Failed() error { return r.Err }
 type UpdateDecisionRequest struct {
 	ID       string                      `json:"id"`
 	Decision entities.DecisionDefinition `json:"decision,omitzero"`
+
+	// Stage saves the new version without making it live: evaluations that
+	// name no version keep reading whichever version is live now.
+	//
+	// Negative ("stage") rather than positive ("promote") for the reason a
+	// process deploy's is: a client that has never heard of staging keeps
+	// getting a save that takes effect.
+	Stage bool `json:"stage,omitzero"`
 }
 
 type UpdateDecisionResponse struct {
-	Err error `json:"err,omitzero"`
+	// ID and Version name the version the save resulted in. A save never
+	// changes the version it was sent to — it stores the edit as the key's
+	// next version — so the id the caller sent no longer names what it now
+	// holds. NewVersion is false when the table was unchanged and nothing was
+	// stored.
+	ID         uuid.UUID `json:"id,omitzero"`
+	Version    int       `json:"version,omitzero"`
+	NewVersion bool      `json:"new_version"`
+	// Live says whether that version is now the one evaluations read.
+	Live bool  `json:"live"`
+	Err  error `json:"err,omitzero"`
 }
 
 func (r UpdateDecisionResponse) Failed() error { return r.Err }
@@ -134,3 +158,31 @@ type RunDecisionTestsResponse struct {
 }
 
 func (r RunDecisionTestsResponse) Failed() error { return r.Err }
+
+// ListDecisionVersionsRequest asks for one decision key's version history.
+type ListDecisionVersionsRequest struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
+}
+
+// ListDecisionVersionsResponse carries every stored version, newest first.
+type ListDecisionVersionsResponse struct {
+	Versions []entities.DecisionVersionStatus `json:"versions"`
+	Err      error                            `json:"err,omitzero"`
+}
+
+func (r ListDecisionVersionsResponse) Failed() error { return r.Err }
+
+// PromoteDecisionRequest names the version evaluations that name none should
+// read from now on.
+type PromoteDecisionRequest struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
+	Version   int    `json:"version"`
+}
+
+type PromoteDecisionResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r PromoteDecisionResponse) Failed() error { return r.Err }

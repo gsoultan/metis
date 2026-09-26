@@ -16,6 +16,12 @@ export interface ApiWebhook {
   message_name: string;
   correlation_expression?: string;
   enabled: boolean;
+  /**
+   * When this webhook stops accepting legacy signatures, which cover the body
+   * alone. Absent for a webhook that accepts v2 only — every one created since
+   * v2 existed.
+   */
+  legacy_signatures_until?: string;
 }
 
 type ListWebhooksResponse = { webhooks?: ApiWebhook[]; err?: string };
@@ -56,6 +62,15 @@ export const webhookService = {
       body: { enabled },
       signal,
     });
+    return { err: raiseIfRefused(data).err };
+  },
+
+  /**
+   * Stops a webhook accepting legacy signatures from now. The server only ever
+   * shortens a window, so this cannot extend one.
+   */
+  async closeLegacySignatures(id: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/webhooks/${id}/legacy-signatures`, { method: "DELETE", signal });
     return { err: raiseIfRefused(data).err };
   },
 

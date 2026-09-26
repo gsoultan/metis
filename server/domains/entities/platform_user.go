@@ -58,7 +58,7 @@ func BuiltInPlatformRoles() []PlatformRole {
 		},
 		{
 			Name:        RoleOperator,
-			Description: "Runs the system day to day: resolves incidents, retries jobs, migrates instances.",
+			Description: "Runs the system day to day: resolves incidents, starts ad hoc tasks, broadcasts signals.",
 		},
 		{
 			Name:        RoleQueryAuthor,

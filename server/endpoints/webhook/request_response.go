@@ -48,6 +48,18 @@ type SetWebhookEnabledResponse struct {
 
 func (r SetWebhookEnabledResponse) Failed() error { return r.Err }
 
+// CloseLegacySignaturesRequest stops a webhook accepting legacy signatures now.
+type CloseLegacySignaturesRequest struct {
+	ID string `json:"id"`
+}
+
+// CloseLegacySignaturesResponse reports the outcome.
+type CloseLegacySignaturesResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r CloseLegacySignaturesResponse) Failed() error { return r.Err }
+
 // DeleteWebhookRequest removes an address, and with it its token.
 type DeleteWebhookRequest struct {
 	ID string `json:"id"`

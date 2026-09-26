@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"math"
 
 	"github.com/gsoultan/storm/runtime"
 )
@@ -10,6 +11,12 @@ import (
 // time. The same as the store's own default, so a read that used to stop at a
 // thousand now takes the thousand it always took and then asks for the next.
 const everyRowBatch = 1000
+
+// allRows lifts the store's default limit for a read that has to see every row
+// in one statement: one whose order has ties that carry meaning, which a keyset
+// cursor cannot page through without breaking them (see auditRepository.list).
+// Prefer everyRow wherever the order can be made unique.
+const allRows = math.MaxInt64
 
 // keysetQuery is the part of a generated query a keyset walk needs.
 type keysetQuery[R any, Q any] interface {
@@ -27,21 +34,42 @@ type keysetQuery[R any, Q any] interface {
 // owed to every waiting instance, a migration of every running one — which is
 // what this is for.
 //
-// It pages on the query's order with a keyset cursor, as ScanWithGraphs does,
-// so the order has to be unique for the cursor to be a position rather than a
-// tie. The default, the primary key, is; an explicit order must end in one.
+// It pages on the query's order with a keyset cursor, so the order has to be
+// unique for the cursor to be a position rather than a tie. The default, the
+// primary key, is; an explicit order must end in one.
 func everyRow[R any, Q keysetQuery[R, Q]](ctx context.Context, ex runtime.Executor, q Q) ([]R, error) {
 	var rows []R
-	next := q.Limit(everyRowBatch)
+	err := everyBatch(ctx, ex, q, everyRowBatch, func(batch []R) error {
+		rows = append(rows, batch...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// everyBatch hands every row q matches to visit, size rows at a time, in q's
+// order.
+//
+// everyRow for a read too large to hold at once: a definition carries its whole
+// graph, so a walk over every version a project has deployed holds one batch
+// rather than all of them. The order has to be unique, as for everyRow.
+func everyBatch[R any, Q keysetQuery[R, Q]](ctx context.Context, ex runtime.Executor, q Q, size int64, visit func([]R) error) error {
+	next := q.Limit(size)
 	for {
 		batch, err := next.All(ctx, ex, nil)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		rows = append(rows, batch...)
-		if len(batch) < everyRowBatch {
-			return rows, nil
+		if len(batch) > 0 {
+			if err := visit(batch); err != nil {
+				return err
+			}
 		}
-		next = q.Limit(everyRowBatch).After(batch[len(batch)-1])
+		if int64(len(batch)) < size {
+			return nil
+		}
+		next = q.Limit(size).After(batch[len(batch)-1])
 	}
 }

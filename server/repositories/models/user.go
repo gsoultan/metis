@@ -25,6 +25,15 @@ type UserModel struct {
 	Organization    string     `json:"organization"`
 	Email           string     `json:"email"`
 	Roles           []string   `gorm:"type:text;serializer:json" json:"roles,omitzero"`
+
+	// IdentityIssuer and IdentitySubject link the account to the identity
+	// provider that signs it in, and are nil for a local account. Unique over
+	// the live rows, under the name the storm model gives the index, so the two
+	// layers describe one index rather than two. Migration 27 adds both to an
+	// installation that predates them.
+	IdentityIssuer  *string `gorm:"uniqueIndex:uq_users_identity_issuer_identity_subject,where:deleted_at IS NULL" json:"-"`
+	IdentitySubject *string `gorm:"uniqueIndex:uq_users_identity_issuer_identity_subject,where:deleted_at IS NULL" json:"-"`
+
 	// Loaded by the repository, not by the ORM. These were a GORM many-to-many,
 	// which derived the join columns from the Go type names — user_model_id,
 	// organization_model_id — and then kept creating them alongside the ones

@@ -92,7 +92,7 @@ function toFlowMessage(f: CreateFlowPayload) {
  * the disagreement would show up as a process that reopens with its arrows
  * disconnected rather than as an error.
  */
-function fromDefinitionMessage(d: ProcessDefinition | undefined): ApiDefinition | undefined {
+export function fromDefinitionMessage(d: ProcessDefinition | undefined): ApiDefinition | undefined {
   if (!d) return undefined;
   return {
     id: d.id,
@@ -100,42 +100,75 @@ function fromDefinitionMessage(d: ProcessDefinition | undefined): ApiDefinition 
     key: d.key,
     name: d.name,
     version: d.version,
-    nodes: (d.nodes ?? []).map((n) => ({
-      id: n.id,
-      name: n.name,
-      type: n.type,
-      x: n.x,
-      y: n.y,
-      assignee: n.assignee?.username,
-      candidate_users: (n.candidateUsers ?? []).map((u) => ({ username: u.username })),
-      candidate_groups: (n.candidateGroups ?? []).map((g) => ({ name: g.name })),
-      priority: n.priority,
-      due_date: n.dueDate,
-      form_key: n.formKey,
-      default_flow: n.defaultFlow,
-      script: n.script,
-      script_format: n.scriptFormat,
-      external_topic: n.externalTopic,
-      documentation: n.documentation,
-      attached_to_ref: n.attachedToRef,
-      parent_id: n.parentId,
-      cancel_activity: n.cancelActivity,
-      multi_instance_type: n.multiInstanceType,
-      loop_cardinality: n.loopCardinality,
-      collection: n.collection,
-      element_variable: n.elementVariable,
-      completion_condition: n.completionCondition,
-      is_event_sub_process: n.isEventSubProcess,
-      condition: n.condition,
-      properties: n.properties as Record<string, unknown> | undefined,
-    })),
-    flows: (d.flows ?? []).map((f) => ({
+    nodes: flatNodes(d.nodes ?? []),
+    flows: flatFlows(d.nodes ?? [], d.flows ?? []).map((f) => ({
       id: f.id,
       source_ref: f.sourceRef,
       target_ref: f.targetRef,
       condition: f.condition,
       documentation: f.documentation,
     })),
+  };
+}
+
+type DefinitionNode = ProcessDefinition["nodes"][number];
+type DefinitionFlow = ProcessDefinition["flows"][number];
+
+/**
+ * Every step, at any depth, as one list, the way the designer holds them: a
+ * sub-process's steps carry its id as their parent.
+ *
+ * A process imported from a BPMN file keeps a sub-process's steps nested inside
+ * it. Only the top level was read, so the designer opened the sub-process
+ * empty, the version comparison could not see inside it, and saving from the
+ * designer dropped the steps it had never shown. The engine runs a sub-process
+ * either way: from its nested steps, or from the steps that name it as parent.
+ */
+function flatNodes(nodes: readonly DefinitionNode[], parentId = ""): ApiDefinition["nodes"] {
+  return nodes.flatMap((n) => [toApiNode(n, parentId), ...flatNodes(n.nodes ?? [], n.id)]);
+}
+
+/** Every path, at any depth: a sub-process's paths are nested with its steps. */
+function flatFlows(nodes: readonly DefinitionNode[], flows: readonly DefinitionFlow[]): DefinitionFlow[] {
+  return [...flows, ...nodes.flatMap((n) => flatFlows(n.nodes ?? [], n.flows ?? []))];
+}
+
+function toApiNode(n: DefinitionNode, parentId: string): ApiDefinition["nodes"][number] {
+  return {
+    id: n.id,
+    name: n.name,
+    type: n.type,
+    x: n.x,
+    y: n.y,
+    // A diagram's own sizes, and whether a sub-process is drawn open: dropped
+    // here, the first save flattened an imported diagram to this tool's defaults.
+    width: n.width || undefined,
+    height: n.height || undefined,
+    is_expanded: n.isExpanded || undefined,
+    assignee: n.assignee?.username,
+    candidate_users: (n.candidateUsers ?? []).map((u) => ({ username: u.username })),
+    candidate_groups: (n.candidateGroups ?? []).map((g) => ({ name: g.name })),
+    priority: n.priority,
+    due_date: n.dueDate,
+    form_key: n.formKey,
+    default_flow: n.defaultFlow,
+    script: n.script,
+    script_format: n.scriptFormat,
+    external_topic: n.externalTopic,
+    documentation: n.documentation,
+    attached_to_ref: n.attachedToRef,
+    parent_id: n.parentId || parentId || undefined,
+    cancel_activity: n.cancelActivity,
+    // What an error boundary catches: dropped here, it caught every error.
+    error_code: n.errorCode || undefined,
+    multi_instance_type: n.multiInstanceType,
+    loop_cardinality: n.loopCardinality,
+    collection: n.collection,
+    element_variable: n.elementVariable,
+    completion_condition: n.completionCondition,
+    is_event_sub_process: n.isEventSubProcess,
+    condition: n.condition,
+    properties: n.properties as Record<string, unknown> | undefined,
   };
 }
 

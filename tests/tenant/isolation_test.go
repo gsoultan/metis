@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/features"
 
@@ -153,6 +154,10 @@ func seedTenantFixture(t *testing.T, db *gorm.DB) tenantFixture {
 		&models.ProcessDefinitionModel{Base: id(f.definitionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDefinitionKey, Name: "def B", Version: 2},
 		&models.DecisionDefinitionModel{Base: id(f.decisionA), ProjectID: models.FromUUID(f.projectA), Key: sharedDecisionKey, Name: "dec A", Version: 1},
 		&models.DecisionDefinitionModel{Base: id(f.decisionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDecisionKey, Name: "dec B", Version: 2},
+		// Each is its key's live version, so a live lookup has an answer in
+		// both organizations to get wrong.
+		&models.DecisionReleaseModel{Base: id(uuid.New()), ProjectID: models.FromUUID(f.projectA), DecisionKey: sharedDecisionKey, Version: 1, ActivateAt: time.Now().Add(-time.Hour)},
+		&models.DecisionReleaseModel{Base: id(uuid.New()), ProjectID: models.FromUUID(f.projectB), DecisionKey: sharedDecisionKey, Version: 2, ActivateAt: time.Now().Add(-time.Hour)},
 
 		&models.ProcessInstanceModel{Base: id(f.instanceA), ProjectID: models.FromUUID(f.projectA), DefinitionID: models.FromUUID(f.definitionA), Status: models.ProcessActive},
 		&models.ProcessInstanceModel{Base: id(f.instanceB), ProjectID: models.FromUUID(f.projectB), DefinitionID: models.FromUUID(f.definitionB), Status: models.ProcessActive},
@@ -287,12 +292,13 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 				want: []uuid.UUID{f.notificationA, f.systemNotification},
 			},
 			// Both organizations hold a decision under the same key; the other
-			// one's is the newer version, so a summary that picked the newest
-			// row regardless of tenant would answer with it.
+			// one's is the newer version, and each is live in its own project,
+			// so a list that picked a row regardless of tenant would answer
+			// with it.
 			{
 				name: "decision keys of another tenant's project",
 				read: func() ([]uuid.UUID, error) {
-					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, f.projectB, contracts.Pagination{})
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListKeysByProject(ctx, f.projectB, "", contracts.Pagination{})
 					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: nil,
@@ -300,7 +306,7 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 			{
 				name: "decision keys across all projects",
 				read: func() ([]uuid.UUID, error) {
-					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListLatestByProject(ctx, uuid.Nil, contracts.Pagination{})
+					page, err := pg.NewDecisionRepository(testutils.StormConn(db)).ListKeysByProject(ctx, uuid.Nil, "", contracts.Pagination{})
 					return idsOf(page.Items, func(m models.DecisionSummaryModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: []uuid.UUID{f.decisionA},
@@ -429,13 +435,26 @@ func TestTenantIsolation_KeyLookupsStayInTenant(t *testing.T) {
 			}
 		})
 
-		t.Run("decision by key resolves to own project", func(t *testing.T) {
-			got, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetByKey(ctx, f.projectA, sharedDecisionKey)
+		t.Run("live decision by key resolves to own project", func(t *testing.T) {
+			got, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetLiveByKey(ctx, f.projectA, sharedDecisionKey)
 			if err != nil {
 				t.Fatalf("get: %v", err)
 			}
 			if uuid.UUID(got.ID) != f.decisionA {
 				t.Fatalf("got decision %v, want own %v", uuid.UUID(got.ID), f.decisionA)
+			}
+		})
+
+		// The timeline is scoped as the versions are: naming the other
+		// tenant's project reads neither its live version nor its table.
+		t.Run("live decision in another tenant's project is not found", func(t *testing.T) {
+			_, err := pg.NewDecisionRepository(testutils.StormConn(db)).GetLiveByKey(ctx, f.projectB, sharedDecisionKey)
+			if !isNotFound(err) {
+				t.Fatalf("got %v, want a not-found", err)
+			}
+			_, err = pg.NewDecisionRepository(testutils.StormConn(db)).GetRelease(ctx, f.projectB, sharedDecisionKey)
+			if !isNotFound(err) {
+				t.Fatalf("release: got %v, want a not-found", err)
 			}
 		})
 
@@ -484,20 +503,6 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				write: func() error { return pg.NewDecisionRepository(testutils.StormConn(db)).Delete(ctx, f.decisionB) },
 				unchanged: func() bool {
 					return rowExists(t, db, &models.DecisionDefinitionModel{}, "decision_definitions", f.decisionB)
-				},
-			},
-			{
-				name: "rewrite another tenant's decision",
-				write: func() error {
-					return pg.NewDecisionRepository(testutils.StormConn(db)).Update(ctx, f.decisionB,
-						models.DecisionDefinitionModel{ProjectID: models.FromUUID(f.projectA), Name: "stolen"})
-				},
-				unchanged: func() bool {
-					var m models.DecisionDefinitionModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.decisionB)).Error; err != nil {
-						t.Fatalf("reload decision: %v", err)
-					}
-					return m.Name == "dec B" && uuid.UUID(m.ProjectID) == f.projectB
 				},
 			},
 			{

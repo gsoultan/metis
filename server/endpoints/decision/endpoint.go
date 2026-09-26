@@ -13,28 +13,32 @@ import (
 )
 
 type Endpoints struct {
-	ListDecisions    endpoint.Endpoint
-	ListSummaries    endpoint.Endpoint
-	GetDecision      endpoint.Endpoint
-	CreateDecision   endpoint.Endpoint
-	DeleteDecision   endpoint.Endpoint
-	UpdateDecision   endpoint.Endpoint
-	EvaluateDecision endpoint.Endpoint
-	DecisionImpact   endpoint.Endpoint
-	RunTests         endpoint.Endpoint
+	ListDecisions        endpoint.Endpoint
+	ListSummaries        endpoint.Endpoint
+	GetDecision          endpoint.Endpoint
+	CreateDecision       endpoint.Endpoint
+	DeleteDecision       endpoint.Endpoint
+	UpdateDecision       endpoint.Endpoint
+	EvaluateDecision     endpoint.Endpoint
+	DecisionImpact       endpoint.Endpoint
+	RunTests             endpoint.Endpoint
+	ListDecisionVersions endpoint.Endpoint
+	PromoteDecision      endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListDecisions:    MakeListDecisionsEndpoint(s),
-		ListSummaries:    MakeListDecisionSummariesEndpoint(s),
-		GetDecision:      MakeGetDecisionEndpoint(s),
-		CreateDecision:   MakeCreateDecisionEndpoint(s),
-		DeleteDecision:   MakeDeleteDecisionEndpoint(s),
-		UpdateDecision:   MakeUpdateDecisionEndpoint(s),
-		EvaluateDecision: MakeEvaluateDecisionEndpoint(s),
-		DecisionImpact:   MakeDecisionImpactEndpoint(s),
-		RunTests:         MakeRunDecisionTestsEndpoint(s),
+		ListDecisions:        MakeListDecisionsEndpoint(s),
+		ListSummaries:        MakeListDecisionSummariesEndpoint(s),
+		GetDecision:          MakeGetDecisionEndpoint(s),
+		CreateDecision:       MakeCreateDecisionEndpoint(s),
+		DeleteDecision:       MakeDeleteDecisionEndpoint(s),
+		UpdateDecision:       MakeUpdateDecisionEndpoint(s),
+		EvaluateDecision:     MakeEvaluateDecisionEndpoint(s),
+		DecisionImpact:       MakeDecisionImpactEndpoint(s),
+		RunTests:             MakeRunDecisionTestsEndpoint(s),
+		ListDecisionVersions: MakeListDecisionVersionsEndpoint(s),
+		PromoteDecision:      MakePromoteDecisionEndpoint(s),
 	}
 }
 
@@ -59,8 +63,8 @@ func MakeListDecisionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	}
 }
 
-// MakeListDecisionSummariesEndpoint lists a project's decision keys, each as its
-// newest version, without the tables.
+// MakeListDecisionSummariesEndpoint lists a project's decision keys, one row
+// each with its live and newest versions, without the tables.
 func MakeListDecisionSummariesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req, ok := request.(ListDecisionSummariesRequest)
@@ -71,7 +75,7 @@ func MakeListDecisionSummariesEndpoint(s services.ServiceFacade) endpoint.Endpoi
 		if err != nil {
 			return ListDecisionSummariesResponse{Err: err}, nil
 		}
-		page, err := s.ListDecisionSummaries(ctx, projectID, repocontracts.Pagination{
+		page, err := s.ListDecisionSummaries(ctx, projectID, req.Search, repocontracts.Pagination{
 			Page:     req.Page,
 			PageSize: req.PageSize,
 		})
@@ -155,8 +159,11 @@ func MakeUpdateDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return UpdateDecisionResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		err = s.UpdateDecision(ctx, id, req.Decision)
-		return UpdateDecisionResponse{Err: err}, nil
+		saved, err := s.UpdateDecision(ctx, id, req.Decision, !req.Stage)
+		if err != nil {
+			return UpdateDecisionResponse{Err: err}, nil
+		}
+		return UpdateDecisionResponse{ID: saved.ID, Version: saved.Version, NewVersion: saved.NewVersion, Live: saved.Live}, nil
 	}
 }
 
@@ -207,5 +214,41 @@ func MakeRunDecisionTestsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		results, err := s.RunDecisionTests(ctx, id)
 		return RunDecisionTestsResponse{Results: results, Err: err}, nil
+	}
+}
+
+// MakeListDecisionVersionsEndpoint returns one decision key's version history,
+// marking the live version.
+func MakeListDecisionVersionsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDecisionVersionsRequest)
+		if !ok {
+			return ListDecisionVersionsResponse{Err: errWrongDecisionRequest}, nil
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListDecisionVersionsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		versions, err := s.ListDecisionVersions(ctx, projectID, req.Key)
+		if err != nil {
+			return ListDecisionVersionsResponse{Err: err}, nil
+		}
+		return ListDecisionVersionsResponse{Versions: versions}, nil
+	}
+}
+
+// MakePromoteDecisionEndpoint makes one stored version of a decision the live
+// one.
+func MakePromoteDecisionEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(PromoteDecisionRequest)
+		if !ok {
+			return PromoteDecisionResponse{Err: errWrongDecisionRequest}, nil
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return PromoteDecisionResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		return PromoteDecisionResponse{Err: s.PromoteDecisionVersion(ctx, projectID, req.Key, req.Version)}, nil
 	}
 }

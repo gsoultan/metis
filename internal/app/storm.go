@@ -13,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/storm"
+	"github.com/gsoultan/storm/schema"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
 
@@ -63,32 +65,12 @@ func (a *App) openStorm(ctx context.Context) error {
 // needs somebody to remember a manual step is an upgrade that half the
 // installations will not have had.
 func (a *App) ensureStormSchema(ctx context.Context) error {
-	want, err := storm.Build(model.All()...)
+	want, err := stormModel()
 	if err != nil {
-		// The model layer not building is a programming error, not a
-		// configuration one, and it is the same failure `make generate` would
-		// have reported. Refusing to boot is right: the generated store was
-		// built from a model that no longer holds.
-		return fmt.Errorf("the model layer does not build: %w", err)
+		return err
 	}
-	created, err := db.EnsureTables(ctx, a.storm.Main(), want)
-	if err != nil {
-		return fmt.Errorf("could not create the storm tables: %w", err)
-	}
-	if len(created) > 0 {
-		log.Info().Strs("tables", created).Msg("Created tables for the storm repositories")
-	}
-
-	// The tables GORM made have no database defaults on the columns storm
-	// expects the database to supply. Reconciled here rather than left to drift,
-	// because the symptom is a decode panic on a NULL timestamp rather than
-	// anything that reads like a schema problem.
-	defaulted, err := db.EnsureColumnDefaults(ctx, a.storm.Main(), want)
-	if err != nil {
-		return fmt.Errorf("could not reconcile the storm column defaults: %w", err)
-	}
-	if len(defaulted) > 0 {
-		log.Info().Strs("columns", defaulted).Msg("Gave shared columns the defaults storm writes against")
+	if err := ensureStormTables(ctx, a.storm.Main(), want); err != nil {
+		return err
 	}
 
 	// Named, not fixed, and not fatal. An installation whose tables predate a
@@ -127,6 +109,49 @@ func (a *App) ensureStormSchema(ctx context.Context) error {
 	accounts := pg.NewPlatformUserRepository(a.storm)
 	if err := accounts.EnsureBuiltInRoles(ctx); err != nil {
 		return fmt.Errorf("could not create the built-in platform roles: %w", err)
+	}
+	return nil
+}
+
+// stormModel is the schema the storm repositories write against.
+func stormModel() (*schema.Schema, error) {
+	want, err := storm.Build(model.All()...)
+	if err != nil {
+		// The model layer not building is a programming error, not a
+		// configuration one, and it is the same failure `make generate` would
+		// have reported. Refusing to boot is right: the generated store was
+		// built from a model that no longer holds.
+		return nil, fmt.Errorf("the model layer does not build: %w", err)
+	}
+	return want, nil
+}
+
+// ensureStormTables gives one database what storm writes against: the tables
+// only storm knows about, and the column defaults it leaves to the database.
+//
+// Every database the repositories reach needs it, the main one and each
+// environment's. An environment's used to have only the GORM migrations, so
+// the first job a process there scheduled failed on insert with a NULL where
+// storm expected the database to fill one in.
+func ensureStormTables(ctx context.Context, pool *pgxpool.Pool, want *schema.Schema) error {
+	created, err := db.EnsureTables(ctx, pool, want)
+	if err != nil {
+		return fmt.Errorf("could not create the storm tables: %w", err)
+	}
+	if len(created) > 0 {
+		log.Info().Strs("tables", created).Msg("Created tables for the storm repositories")
+	}
+
+	// The tables GORM made have no database defaults on the columns storm
+	// expects the database to supply. Reconciled here rather than left to drift,
+	// because the symptom is a decode panic on a NULL timestamp, or a refused
+	// insert, rather than anything that reads like a schema problem.
+	defaulted, err := db.EnsureColumnDefaults(ctx, pool, want)
+	if err != nil {
+		return fmt.Errorf("could not reconcile the storm column defaults: %w", err)
+	}
+	if len(defaulted) > 0 {
+		log.Info().Strs("columns", defaulted).Msg("Gave shared columns the defaults storm writes against")
 	}
 	return nil
 }
