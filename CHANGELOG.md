@@ -307,6 +307,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   by its method name, all 61 of them in English and Indonesian, and a method
   they do not know yet — a gate added since — keeps the server's words rather
   than showing a blank or a key.
+- **A refusal was shown with the server's error class in front of it.** A
+  notification read "forbidden: qa-admin is the last administrator of QA Co;
+  make somebody else an administrator first", and one refused over the app's
+  RPC transport "Failed to save project: [unknown] forbidden: this needs the
+  ADMIN role…" — the class the server words a refusal with so that it can
+  answer 403, 400 or 404 (`forbidden`, `invalid argument`, `not found`), and
+  the RPC code, printed as if they were part of the sentence. Notifications and
+  inline errors now show the sentence alone. The class is dropped in one
+  place, the shared error formatter, and only from the very start of a
+  message, so a sentence that merely uses one of the words keeps it; logs and
+  a failed page's "Technical details" keep the whole text.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

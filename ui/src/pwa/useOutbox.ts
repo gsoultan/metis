@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { describeQueue, type OutboxEntry } from '../domain/outbox';
 import { flushOutbox } from './outbox';
 import { watchOutbox } from './outboxStore';
+import { errorMessage } from '../services/shared/errors';
 
 export interface OutboxState {
   entries: OutboxEntry[];
@@ -53,7 +54,7 @@ export function useOutbox(): OutboxState {
       if (outcome.kind !== 'refused') continue;
       notifications.show({
         title: 'A change made offline could not be applied',
-        message: `${entry.label}: ${outcome.reason}`,
+        message: `${entry.label}: ${errorMessage(outcome.reason)}`,
         color: 'red',
         autoClose: false,
       });

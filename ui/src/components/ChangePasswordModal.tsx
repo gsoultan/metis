@@ -7,6 +7,7 @@ import { useChangeOwnPassword } from '../hooks/useUser';
 import { useAppStore } from '../store/useAppStore';
 import { notifications } from '@mantine/notifications';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
+import { errorMessage } from '../services/shared/errors';
 
 interface ChangePasswordModalProps {
   opened: boolean;
@@ -56,7 +57,7 @@ export function ChangePasswordModal({ opened, onClose }: ChangePasswordModalProp
         // an input.
         notifications.show({
           title: 'Could not change your password',
-          message: error instanceof Error ? error.message : 'The server refused the change.',
+          message: errorMessage(error, 'The server refused the change.'),
           color: 'red',
         });
       }

@@ -39,6 +39,7 @@ import { useState } from 'react';
 
 import { useCreateWebhook, useDeleteWebhook, useSetWebhookEnabled, useWebhooks } from '../hooks/useWebhooks';
 import type { ApiWebhook } from '../services/domains/webhookService';
+import { errorMessage } from '../services/shared/errors';
 import { LegacySigningNotice } from './webhooks/LegacySigningNotice';
 import { WebhookSigningHelp } from './webhooks/WebhookSigningHelp';
 
@@ -63,7 +64,7 @@ export function WebhookSettings() {
     const who = hook.name || hook.message_name;
     if (!window.confirm(`Remove the ${who} webhook? The partner's URL stops working and their deliveries are refused.`)) return;
     remove.mutate(hook.id, {
-      onError: (err) => notifications.show({ title: `Could not remove ${who}`, message: err.message, color: 'red' }),
+      onError: (err) => notifications.show({ title: `Could not remove ${who}`, message: errorMessage(err), color: 'red' }),
     });
   };
 
@@ -86,7 +87,7 @@ export function WebhookSettings() {
     } catch (err: unknown) {
       notifications.show({
         title: 'Could not create the webhook',
-        message: err instanceof Error ? err.message : 'Something went wrong.',
+        message: errorMessage(err, 'Something went wrong.'),
         color: 'red',
       });
     }
@@ -161,7 +162,7 @@ export function WebhookSettings() {
                           { id: hook.id, enabled: event.currentTarget.checked },
                           {
                             onError: (err) =>
-                              notifications.show({ title: 'Could not switch it', message: err.message, color: 'red' }),
+                              notifications.show({ title: 'Could not switch it', message: errorMessage(err), color: 'red' }),
                           },
                         )
                       }

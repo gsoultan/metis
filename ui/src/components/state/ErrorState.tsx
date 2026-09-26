@@ -1,7 +1,7 @@
 import { Button, Code, Collapse, Group, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { AlertTriangle, ChevronDown, RefreshCw, WifiOff } from 'lucide-react';
-import { errorMessage } from '../../services/shared/errors';
+import { errorDetail } from '../../services/shared/errors';
 
 interface ErrorStateProps {
   /** The thrown value. Narrowed here rather than at every call site. */
@@ -33,7 +33,9 @@ export function ErrorState({ error, action = 'load this', onRetry, size = 'md' }
   const [detailOpen, { toggle }] = useDisclosure(false);
   const compact = size === 'sm';
 
-  const message = errorMessage(error);
+  // Whole, class and all: this is the text passed on to whoever is asked for
+  // help, and "forbidden" or "not found" in front of it is part of the answer.
+  const message = errorDetail(error);
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const networkish =
     offline || /network|fetch|connection|timeout|ECONN|Failed to fetch/i.test(message);

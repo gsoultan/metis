@@ -126,15 +126,11 @@ import {
   useEvaluateDecision,
   useUpdateDecision,
 } from '../hooks/useDecisions';
+import { errorMessage } from '../services/shared/errors';
 import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
 const isError = (problem: TableProblem) => problem.severity === 'error';
-
-/** A caught value is `unknown`; take its message when it has one. */
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback;
-}
 
 const RAIL_WIDTH = 340;
 
@@ -591,7 +587,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     try {
       const response = await evaluateDecision.mutateAsync(request);
       if (response.err) {
-        setTestError(typeof response.err === 'string' ? response.err : JSON.stringify(response.err));
+        setTestError(typeof response.err === 'string' ? errorMessage(response.err) : JSON.stringify(response.err));
       } else {
         setOutcome(trialOutcome(response, table, savedTable));
       }

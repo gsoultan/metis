@@ -22,6 +22,8 @@
  * decision it can actually make.
  */
 
+import { errorMessage } from '../services/shared/errors';
+
 /** What happened to one row. */
 export interface BulkOutcome<Id> {
   id: Id;
@@ -136,7 +138,5 @@ function commonReason<Id>(failed: BulkOutcome<Id>[]): string {
 }
 
 function describe(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === 'string' && error) return error;
-  return 'no reason given';
+  return errorMessage(error, 'no reason given');
 }

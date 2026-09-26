@@ -45,6 +45,7 @@ import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 import type { ApiNode, ApiFlow } from '../services/types';
 import { fromBase64 } from '../services/shared/bytes';
+import { errorMessage } from '../services/shared/errors';
 // The issue shape lives beside the checks that produce it. Re-exported here
 // because the designer page and the checklist modal import it from the hook.
 export type { ValidationIssue } from '../domain/processValidation';
@@ -251,7 +252,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       onError: (error) => {
         notifications.show({
           title: stage ? 'Could not stage this version' : 'Deployment Failed',
-          message: error.message,
+          message: errorMessage(error),
           color: 'red',
         });
       },
