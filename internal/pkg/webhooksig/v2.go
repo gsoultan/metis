@@ -21,7 +21,7 @@ import (
 // v2 signs all three together:
 //
 //	X-Metis-Timestamp: <Unix seconds>
-//	X-Delivery-Id:     <the sender's ID for the event>
+//	X-Delivery-Id:     <the sender's ID for the event: no dot, at most 191 characters>
 //	X-Metis-Signature: v2=hex(HMAC-SHA256(secret, "<timestamp>.<delivery id>.<raw body>"))
 //
 // and refuses a delivery signed more than Tolerance from this server's clock.
@@ -31,11 +31,13 @@ import (
 // remembered for days, far longer than the window, so there is no gap between
 // the two.
 //
-// Moving a dot does not make one signed string read as another delivery: the
-// timestamp must be an integer, so the first dot ends it, and what follows the
-// second must be a whole JSON object — which neither the tail of a longer body
-// nor an ID with a body behind it can be. A rearrangement that fits the
-// signature therefore fails the body check, and nothing is acted on.
+// The signed string has one reading. The timestamp is an integer and the
+// delivery ID may not contain a dot, so the first two dots are the separators,
+// whatever the body holds. Were a dot allowed in the ID, the same bytes could be
+// read as a longer ID and a shorter body (a body's own dots, in a decimal or an
+// address, are where the reading would shift), and the signature would carry
+// over to an ID never seen before. Whether that body was then of any use would
+// be up to whatever reads it, which is not a property of the signature.
 
 const (
 	// SignatureHeader carries a v2 signature: "v2=" and the hex digest.
@@ -62,6 +64,15 @@ var ErrBadTimestamp = errors.New("webhooksig: X-Metis-Timestamp must be the time
 
 // ErrStale is returned when a v2 delivery was signed too far from now.
 var ErrStale = fmt.Errorf("webhooksig: the delivery was not signed within %d minutes of this server's clock", toleranceMinutes)
+
+// MaxDeliveryIDLength is the longest delivery ID a v2 delivery may carry: the
+// size of the column the IDs already seen are kept in.
+const MaxDeliveryIDLength = 191
+
+// ErrBadDeliveryID is returned when a v2 delivery's ID has a dot or is too long.
+var ErrBadDeliveryID = fmt.Errorf("webhooksig: X-Delivery-Id must be at most %d characters and contain no dot: "+
+	"the signed string is <timestamp>.<delivery id>.<body>, and a dot in the ID would let the same signature read "+
+	"as another ID and another body", MaxDeliveryIDLength)
 
 // ErrNoDeliveryID is returned when a v2 delivery carries no ID.
 var ErrNoDeliveryID = errors.New("webhooksig: a v2 delivery must carry X-Delivery-Id — the sender's own ID for the event, the same on every retry — and sign it; without one a copy cannot be told from a new event")
@@ -107,6 +118,9 @@ func VerifyV2(body []byte, secret, timestamp, deliveryID, provided string, now t
 	}
 	if deliveryID == "" {
 		return ErrNoDeliveryID
+	}
+	if strings.Contains(deliveryID, ".") || len(deliveryID) > MaxDeliveryIDLength {
+		return ErrBadDeliveryID
 	}
 	return nil
 }

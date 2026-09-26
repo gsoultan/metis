@@ -18,7 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   again. Senders now sign with v2 — `X-Metis-Timestamp`, `X-Delivery-Id` and
   `X-Metis-Signature: v2=<HMAC-SHA256 of "<timestamp>.<delivery id>.<body>">` —
   and a delivery signed more than five minutes from the server's clock is
-  refused. **Webhooks created from now on accept v2 only. Existing webhooks
+  refused. A v2 delivery ID has no dot and at most 191 characters, so the
+  signed string has only one reading. **Webhooks created from now on accept v2 only. Existing webhooks
   keep accepting the old body-only signature for 90 days from the upgrade**
   (migration 25), then refuse it with a message saying how to sign with v2.
   Move your senders before then: the webhooks screen shows each webhook's date,

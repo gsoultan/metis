@@ -162,3 +162,52 @@ func TestAV2WebhookWithNoSecretVerifiesNothing(t *testing.T) {
 		}
 	}
 }
+
+// The signed string is "<timestamp>.<delivery id>.<body>", and a body often has
+// dots of its own: a decimal, an email address, a domain. With a dot allowed in
+// the ID, the same bytes read another way — the ID running on into the body and
+// the body starting later — carry the same signature under a new ID, which the
+// record of IDs already seen does not catch. What such a body is worth is then
+// up to whatever reads it. A v2 delivery ID has no dot, so the signed string has
+// one reading and the signature covers exactly one (ID, body) pair.
+func TestAV2SignatureCoversOneReadingOfTheSignedString(t *testing.T) {
+	body := `{"amount":12.5,"order":"ORD-1"}`
+	signature := SignV2([]byte(body), secret, vectorTimestamp, vectorDeliveryID)
+
+	cut := strings.Index(body, ".")
+	shiftedID := vectorDeliveryID + "." + body[:cut]
+	shiftedBody := body[cut+1:]
+
+	err := VerifyV2([]byte(shiftedBody), secret, vectorTimestamp, shiftedID, signature, signedAt)
+	if err == nil {
+		t.Fatalf("the signature verified for delivery ID %q and body %q, which were never signed as such", shiftedID, shiftedBody)
+	}
+	if !errors.Is(err, ErrBadDeliveryID) {
+		t.Errorf("err = %v, want ErrBadDeliveryID", err)
+	}
+}
+
+// A sender whose own IDs have a dot, or run past what is stored, is told so
+// once its signature has matched, rather than having its deliveries fail
+// somewhere further on.
+func TestAV2DeliveryIDIsShortAndHasNoDot(t *testing.T) {
+	for name, id := range map[string]string{
+		"a dot":           "evt.0001",
+		"too long":        strings.Repeat("e", MaxDeliveryIDLength+1),
+		"a dot at an end": "evt_0001.",
+	} {
+		t.Run(name, func(t *testing.T) {
+			signature := SignV2([]byte(vectorBody), secret, vectorTimestamp, id)
+			err := VerifyV2([]byte(vectorBody), secret, vectorTimestamp, id, signature, signedAt)
+			if !errors.Is(err, ErrBadDeliveryID) {
+				t.Errorf("err = %v, want ErrBadDeliveryID", err)
+			}
+		})
+	}
+
+	longest := strings.Repeat("e", MaxDeliveryIDLength)
+	signature := SignV2([]byte(vectorBody), secret, vectorTimestamp, longest)
+	if err := VerifyV2([]byte(vectorBody), secret, vectorTimestamp, longest, signature, signedAt); err != nil {
+		t.Errorf("an ID of exactly %d characters was refused: %v", MaxDeliveryIDLength, err)
+	}
+}

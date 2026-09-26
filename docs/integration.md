@@ -311,7 +311,7 @@ Three headers, all required:
 | Header | Value |
 | :-- | :-- |
 | `X-Metis-Timestamp` | When this attempt is sent, in Unix **seconds** |
-| `X-Delivery-Id` | Your own ID for the event: unique per event, **the same on every retry** |
+| `X-Delivery-Id` | Your own ID for the event: unique per event, **the same on every retry**, at most 191 characters and **without a dot** |
 | `X-Metis-Signature` | `v2=` and the hex HMAC-SHA256, keyed with the secret, of `<timestamp>.<delivery id>.<raw body>` |
 
 ```
@@ -329,6 +329,11 @@ X-Metis-Signature = "v2=" + hex(hmac_sha256(secret, timestamp + "." + delivery_i
   `"duplicate": true` and not acted on again; IDs are remembered for 48 hours.
   Because the ID is signed, a captured delivery sent again under a new ID no
   longer matches its signature.
+- **No dot in the ID.** The signed string is split by its dots, and a body has
+  dots of its own: allowing one in the ID would let the same signature read as
+  a longer ID and a shorter body. A UUID, a ULID or an `evt_…` ID is fine. An ID
+  with a dot, or longer than 191 characters, is refused with a `400` that says
+  so.
 
 Check your code before sending anything: with the secret
 `your-webhook-secret`, timestamp `1767225600`, delivery ID `evt_0001` and body
