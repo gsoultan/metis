@@ -39,12 +39,17 @@ type externalTaskBridge struct {
 	pollInterval   time.Duration
 	confirmTimeout time.Duration
 	// reconnect is how long to wait after each failed attempt to reach the
-	// broker; failedAttempts counts them since it was last reached.
+	// broker; failedAttempts counts them since a connection last lasted.
 	reconnect      backoff
 	failedAttempts int
-	sleep          func(ctx context.Context, delay time.Duration) error
-	logger         *zerolog.Logger
-	problems       problemLog
+	// unproven is a connection the bridge has not yet seen last: opened at a
+	// round, and neither found still up at a later one nor used to forward a
+	// task. The broker closing it counts as a failed attempt, not as an
+	// outage after a success.
+	unproven bool
+	sleep    func(ctx context.Context, delay time.Duration) error
+	logger   *zerolog.Logger
+	problems problemLog
 }
 
 // run polls until ctx ends.
@@ -70,7 +75,6 @@ func (b *externalTaskBridge) poll(ctx context.Context) time.Duration {
 			Msg(msgBridgeCouldNotConnect)
 		return wait
 	}
-	b.failedAttempts = 0
 	// The repository reads the lock in milliseconds. It was once passed 30
 	// meaning seconds, and every lock ran out after thirty milliseconds.
 	tasks, err := b.tasks.FetchAndLock(ctx, b.topic, workerID, maxTasks, b.lockDuration.Milliseconds())
@@ -85,12 +89,16 @@ func (b *externalTaskBridge) poll(ctx context.Context) time.Duration {
 // connect makes sure the bridge has a channel in confirm mode to publish on,
 // opening a new one in place of one the broker closed.
 func (b *externalTaskBridge) connect() error {
-	if lost := b.link.lost(); lost != nil {
-		b.problems.event(msgBridgeLostLink, lost).Msg(msgBridgeLostLink)
+	if err := b.noteWhatClosed(); err != nil {
+		return err
 	}
 	ch, change, err := b.link.open()
 	if err != nil {
 		return err
+	}
+	if change != linkReconnected {
+		// The connection it had is still up a round on.
+		b.connectionLasted()
 	}
 	if change == linkUnchanged && b.publisher != nil {
 		return nil
@@ -106,10 +114,40 @@ func (b *externalTaskBridge) connect() error {
 	if change == linkReconnected {
 		// Said on every connection, the first and each one after a loss, so
 		// the log shows when forwarding resumed and not only when it stopped.
+		b.unproven = true
 		b.problems.working()
 		b.logger.Info().Msg("A RabbitMQ bridge connected to its broker")
 	}
 	return nil
+}
+
+// noteWhatClosed says what the broker has closed since the last round.
+//
+// A connection it closed before the bridge had seen it last is answered as a
+// failed attempt to connect, and the bridge waits as it would after a dial
+// that failed. Counted as a success, a broker that took each connection and
+// dropped it straight away was dialled again at every round, for as long as
+// it went on.
+func (b *externalTaskBridge) noteWhatClosed() error {
+	lost := b.link.lost()
+	if lost == nil {
+		return nil
+	}
+	if b.unproven && b.link.connectionLost() != nil {
+		b.unproven = false
+		b.link.close()
+		return fmt.Errorf("the connection it made was closed before its next round: %w", lost)
+	}
+	b.problems.event(msgBridgeLostLink, lost).Msg(msgBridgeLostLink)
+	return nil
+}
+
+// connectionLasted records that the bridge's connection works — it was still
+// up a round after it was made, or it carried a task — so the next time the
+// broker cannot be reached, the waits start over.
+func (b *externalTaskBridge) connectionLasted() {
+	b.unproven = false
+	b.failedAttempts = 0
 }
 
 // forward publishes each task, and hands back the ones the broker did not
@@ -191,6 +229,7 @@ func (b *externalTaskBridge) forwardOne(ctx context.Context, task *entities.Exte
 		b.releaseUnforwardedTask(ctx, task, err)
 		return err
 	}
+	b.connectionLasted()
 	b.problems.working()
 	b.logger.Info().Str("taskID", task.ID.String()).Msg("Forwarded external task to RabbitMQ")
 	return nil

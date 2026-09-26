@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,9 @@ import (
 // as the broker stayed down: a broker gone for a weekend was dialled some
 // fifty thousand times by every bridge and consumer of every replica. The
 // wait now doubles from 5 seconds to 5 minutes, each one varied by a quarter
-// so replicas do not come back in step, and starts over once connected.
+// so replicas do not come back in step, and starts over once a connection
+// has lasted. A broker that takes each connection and drops it straight away
+// is waited for as if it were down.
 
 var errConnectionRefused = errors.New("dial tcp 127.0.0.1:5672: connect: connection refused")
 
@@ -52,18 +55,75 @@ func takeWait(t *testing.T, waits waitRecorder) time.Duration {
 	}
 }
 
-// nextBackoff takes waits until one is not the poll interval, and returns it:
-// a round may run on a connection that has gone before the broker's word of
-// it arrives.
-func nextBackoff(t *testing.T, waits waitRecorder, pollInterval time.Duration) time.Duration {
+// steppedWaits stands in for a bridge's sleep and holds the bridge between
+// rounds: each wait goes to the test, and the bridge stays in it until the
+// test asks for the next. A test changes the broker while the bridge is
+// held, so the change cannot race the round it is meant to come before.
+//
+// It replaces a recorder that let the bridge go the moment the test took a
+// wait. The test's next step then raced the bridge's next round, and making
+// the broker reachable nearly always beat the dial it was meant to follow:
+// TestABridgeBacksOffFromABrokerItCannotReachAndStartsOverOnceItConnects
+// failed in CI with "after 3 failed attempts it waited 1s", a bridge that had
+// connected, as it should have, a round early.
+type steppedWaits struct {
+	waits   chan time.Duration
+	release chan struct{}
+	holding bool // the bridge is held in a wait; the test's alone
+}
+
+func newSteppedWaits() *steppedWaits {
+	return &steppedWaits{waits: make(chan time.Duration), release: make(chan struct{})}
+}
+
+func (s *steppedWaits) sleep(ctx context.Context, delay time.Duration) error {
+	select {
+	case s.waits <- delay:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// next lets the bridge go from the wait it is held in, if any, and returns
+// the next one, holding the bridge in it.
+func (s *steppedWaits) next(t *testing.T) time.Duration {
+	t.Helper()
+	if s.holding {
+		select {
+		case s.release <- struct{}{}:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the bridge was not waiting to be let go")
+		}
+	}
+	select {
+	case wait := <-s.waits:
+		s.holding = true
+		return wait
+	case <-time.After(5 * time.Second):
+		t.Fatal("no wait came within 5s")
+		return 0
+	}
+}
+
+// nextBackoff takes waits until one is not the poll interval, and returns it.
+// A round or two can run on a connection a proxy has cut before the AMQP
+// library has read the cut, so it pauses between them, with the bridge held.
+func nextBackoff(t *testing.T, waits *steppedWaits, pollInterval time.Duration) time.Duration {
 	t.Helper()
 	var seen []time.Duration
-	for range 10 {
-		wait := takeWait(t, waits)
+	for range 50 {
+		wait := waits.next(t)
 		if wait != pollInterval {
 			return wait
 		}
 		seen = append(seen, wait)
+		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("waited %v; the poll interval every time, never a wait to reconnect", seen)
 	return 0
@@ -84,33 +144,72 @@ func runBridge(t *testing.T, bridge *externalTaskBridge) {
 	})
 }
 
-func TestABridgeWhoseBrokerIsDownWaitsLongerEachTimeAndStartsOverOnceItConnects(t *testing.T) {
+// The path the broker-backed test runs through a proxy, against the broker in
+// memory: refusing, then reachable, a connection that lasts, then cut and
+// refusing again. Every change is made while the bridge is held.
+func TestABridgeWhoseBrokerIsDownWaitsLongerEachTimeAndStartsOverOnceAConnectionLasts(t *testing.T) {
 	t.Parallel()
 	var logs lockedBuffer
 	broker := newFakeBroker()
-	const down = 8 // enough to reach the ceiling and stay there
-	broker.failDials(slices.Repeat([]error{errConnectionRefused}, down)...)
+	broker.refuse(true)
 	board, _ := newTaskBoard(0)
 	bridge := bridgeOn(t, broker, board, &logs, time.Second)
 	bridge.pollInterval = time.Second
-	waits := make(waitRecorder)
+	waits := newSteppedWaits()
 	bridge.sleep = waits.sleep
 	runBridge(t, bridge)
 
-	if first := takeWait(t, waits); first != time.Second {
+	if first := waits.next(t); first != time.Second {
 		t.Fatalf("the bridge waited %v before its first round, want its poll interval", first)
 	}
+	const down = 8 // enough to reach the ceiling and stay there
 	for attempt := 1; attempt <= down; attempt++ {
-		assertBackoff(t, takeWait(t, waits), attempt)
+		assertBackoff(t, waits.next(t), attempt)
 	}
-	if polling := takeWait(t, waits); polling != time.Second {
-		t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", polling)
+
+	broker.refuse(false)
+	if connected := waits.next(t); connected != time.Second {
+		t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", connected)
+	}
+	if lasted := waits.next(t); lasted != time.Second {
+		t.Fatalf("its connection still up, the bridge waited %v, want its poll interval", lasted)
 	}
 
 	// The broker goes away again, and the schedule starts over.
-	broker.failDials(errConnectionRefused)
+	broker.refuse(true)
 	broker.dropConnection(&amqp.Error{Code: amqp.ConnectionForced, Reason: "CONNECTION_FORCED - shutdown", Server: true})
-	assertBackoff(t, nextBackoff(t, waits, time.Second), 1)
+	assertBackoff(t, waits.next(t), 1)
+}
+
+// A broker that takes each connection and drops it before the bridge's next
+// round is not a broker that is up. Each such connection used to count as a
+// success, so the bridge dialled it again at every round, 5 seconds apart,
+// for as long as it went on. A connection counts once it has lasted a round
+// or carried a task; one lost before then is a failed attempt.
+func TestABridgeWhoseBrokerDropsEachConnectionWaitsLongerEachTime(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	board, _ := newTaskBoard(0)
+	bridge := bridgeOn(t, broker, board, &logs, time.Second)
+	bridge.pollInterval = time.Second
+	waits := newSteppedWaits()
+	bridge.sleep = waits.sleep
+	runBridge(t, bridge)
+
+	if first := waits.next(t); first != time.Second {
+		t.Fatalf("the bridge waited %v before its first round, want its poll interval", first)
+	}
+	for attempt := 1; attempt <= 4; attempt++ {
+		if connected := waits.next(t); connected != time.Second {
+			t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", connected)
+		}
+		broker.dropConnection(&amqp.Error{Code: amqp.ConnectionForced, Reason: "CONNECTION_FORCED - closed by a proxy", Server: true})
+		assertBackoff(t, waits.next(t), attempt)
+	}
+	if lost := errorLines(t, &logs, "CONNECTION_FORCED"); len(lost) == 0 {
+		t.Errorf("a connection dropped before it had lasted was not said at all: %v", logs.entries(t))
+	}
 }
 
 func TestAConsumerWhoseBrokerIsDownWaitsLongerEachTimeAndStartsOverOnceItConsumes(t *testing.T) {
@@ -129,6 +228,59 @@ func TestAConsumerWhoseBrokerIsDownWaitsLongerEachTimeAndStartsOverOnceItConsume
 	consuming := test.awaitConsuming(t, 0)
 	consuming.closeWith(&amqp.Error{Code: amqp.InternalError, Reason: "INTERNAL_ERROR", Server: true})
 	assertBackoff(t, takeWait(t, test.waits), 1)
+}
+
+// The consumer's counterpart: a session whose connection the broker drops as
+// soon as it is consuming counted as a success, and the consumer came back
+// after 5 seconds, every time. A session counts once it has lasted the
+// schedule's first wait, or ended with its connection still up.
+func TestAConsumerWhoseBrokerDropsEachConnectionWaitsLongerEachTime(t *testing.T) {
+	t.Parallel()
+	test := &consumerTest{broker: newFakeBroker(), waits: make(waitRecorder)}
+	runConsumer(t, test)
+
+	for attempt := 1; attempt <= 4; attempt++ {
+		test.awaitConsuming(t, attempt-1)
+		test.broker.dropConnection(&amqp.Error{Code: amqp.ConnectionForced, Reason: "CONNECTION_FORCED - closed by a proxy", Server: true})
+		assertBackoff(t, takeWait(t, test.waits), attempt)
+	}
+}
+
+// A session that lasted is a success however it ends: after a broker that was
+// down for a while, one hour of consuming and then a lost connection starts
+// the schedule over, rather than going on from where the outage left it.
+func TestAConsumerWhoseConnectionLastedStartsOverWhenItIsLost(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{now: time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)}
+	test := &consumerTest{broker: newFakeBroker(), waits: make(waitRecorder), now: clock.read}
+	test.broker.failDials(errConnectionRefused, errConnectionRefused, errConnectionRefused)
+	runConsumer(t, test)
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		assertBackoff(t, takeWait(t, test.waits), attempt)
+	}
+	test.awaitConsuming(t, 0)
+	clock.advance(time.Hour)
+	test.broker.dropConnection(&amqp.Error{Code: amqp.ConnectionForced, Reason: "CONNECTION_FORCED - shutdown", Server: true})
+	assertBackoff(t, takeWait(t, test.waits), 1)
+}
+
+// fakeClock is a time a test moves on by hand.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) read() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) advance(by time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(by)
 }
 
 // Waiting to reconnect still ends the moment the server stops: a wait of

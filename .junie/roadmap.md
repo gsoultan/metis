@@ -1139,8 +1139,13 @@
     at error once, naming the bridge or consumer, and at debug while it lasts
     (`problem_log.go`, bounded).
   - **Backoff.** Reconnecting waits 5s doubling to 5 minutes, ±25%, and starts over once
-    connected. It reuses the schedule `backoff.go` had for job retries, now a `backoff`
-    type, rather than a second one.
+    a connection has lasted: to the bridge's next round or a forwarded task, through
+    the consumer's first 5 seconds of consuming. A broker that drops each connection
+    straight away is waited for as if it were down. It reuses the schedule `backoff.go`
+    had for job retries, now a `backoff` type, rather than a second one. (The
+    broker-backed backoff test first failed in CI: it changed the proxy while the bridge
+    ran, and raced the dial it meant to follow. It now changes it only while the bridge
+    is held between rounds.)
   - **A lock long enough for a queue.** `lock_seconds` per entry of
     `METIS_RABBITMQ_BRIDGES`, 30 to 86400, 300 unless set. A worker cannot extend it, so it
     covers queue time and work; `docs/integration.md` says how to size it. Tasks fetched

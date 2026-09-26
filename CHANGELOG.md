@@ -302,8 +302,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - **A broker that was down was dialled every 5 seconds for as long as it
   stayed down,** by every bridge and consumer of every replica, in step.
   Reconnecting now waits 5 seconds, then 10, 20 and so on up to 5 minutes,
-  each wait varied by up to a quarter, and starts from 5 seconds again once
-  connected.
+  each wait varied by up to a quarter, and starts from 5 seconds again once a
+  connection has lasted. A broker that takes each connection and drops it
+  straight away is waited for the same way.
 - **A bridge's worker had 30 seconds, time on the queue included.** Past that
   the bridge published the same task again, so a queue that backed up
   multiplied itself. Each bridge now takes `lock_seconds` in

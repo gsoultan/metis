@@ -65,6 +65,13 @@ func (l *brokerLink) lost() error {
 	return l.chWhy
 }
 
+// connectionLost reports why the broker closed the connection, or nil while
+// it is up.
+func (l *brokerLink) connectionLost() error {
+	l.watch()
+	return l.connWhy
+}
+
 // dropChannel closes the channel, so the next open replaces it on the same
 // connection.
 func (l *brokerLink) dropChannel() {

@@ -36,7 +36,8 @@ type consumerTest struct {
 	logs       lockedBuffer
 	correlated chan string
 	waits      waitRecorder
-	dispatch   error // what correlating a message returns
+	dispatch   error            // what correlating a message returns
+	now        func() time.Time // the consumer's clock, when not the real one
 	stopped    chan struct{}
 }
 
@@ -61,6 +62,9 @@ func runConsumer(t *testing.T, test *consumerTest) {
 	ctx, cancel := context.WithCancel(logger.WithContext(t.Context()))
 	consumer := svc.newConsumer(ctx, uuid.New(), "amqp://broker.test/", "orders", "OrderPaid")
 	consumer.sleep = test.waits.sleep
+	if test.now != nil {
+		consumer.now = test.now
+	}
 	go func() {
 		defer close(test.stopped)
 		consumer.run(ctx)

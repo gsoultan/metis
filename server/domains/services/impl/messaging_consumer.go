@@ -30,9 +30,10 @@ type inboundConsumer struct {
 	message        string
 	confirmTimeout time.Duration
 	// reconnect is how long to wait after the deliveries stop, growing with
-	// each attempt in a row that does not get as far as consuming.
+	// each attempt in a row that does not consume for long: see lasted.
 	reconnect backoff
 	sleep     func(ctx context.Context, delay time.Duration) error
+	now       func() time.Time
 	logger    *zerolog.Logger
 	problems  problemLog
 }
@@ -43,15 +44,17 @@ func (c *inboundConsumer) run(ctx context.Context) {
 	defer c.link.close()
 	failedAttempts := 0
 	for {
+		started := c.now()
 		consumed, err := c.consume(ctx)
 		if ctx.Err() != nil {
 			return
 		}
 		message := msgConsumerCouldNotConsume
 		if consumed {
-			// It got as far as consuming, so the schedule starts over.
-			failedAttempts = 0
 			message = msgConsumerStopped
+			if c.lasted(started) {
+				failedAttempts = 0
+			}
 		}
 		failedAttempts++
 		wait := c.reconnect.delay(failedAttempts)
@@ -154,6 +157,18 @@ func (c *inboundConsumer) whyDeliveriesStopped(ctx context.Context) error {
 	// cancelled the consumer. A new channel declares the queue again.
 	c.link.dropChannel()
 	return errConsumerCancelled
+}
+
+// lasted reports whether a session that got as far as consuming counts as
+// the consumer working, so that the schedule of waits starts over: it ended
+// with its connection still up — the broker cancelled the consumer or closed
+// its channel — or it had consumed for at least the schedule's first wait.
+//
+// Every session that consumed used to count, so a broker that dropped each
+// connection as soon as it was consuming was come back to after 5 seconds,
+// every time, for as long as it went on.
+func (c *inboundConsumer) lasted(started time.Time) bool {
+	return c.link.connectionLost() == nil || c.now().Sub(started) >= c.reconnect.first
 }
 
 func (c *inboundConsumer) deadLetterQueue() string {

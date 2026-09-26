@@ -35,6 +35,7 @@ var missingExchange = &amqp.Error{Code: amqp.NotFound, Reason: "NOT_FOUND - no e
 type fakeBroker struct {
 	mu        sync.Mutex
 	dials     int
+	refusing  bool    // every dial fails while set, as with a broker that is down
 	dialErrs  []error // one per dial, in order; nil or exhausted means the dial succeeds
 	conns     []*fakeConnection
 	channels  []*fakeChannel
@@ -61,10 +62,20 @@ func (b *fakeBroker) failDials(errs ...error) {
 	b.dialErrs = append(b.dialErrs, errs...)
 }
 
+// refuse makes every dial fail while on is true.
+func (b *fakeBroker) refuse(on bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refusing = on
+}
+
 func (b *fakeBroker) dial(string) (brokerConnection, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.dials++
+	if b.refusing {
+		return nil, errConnectionRefused
+	}
 	if len(b.dialErrs) > 0 {
 		err := b.dialErrs[0]
 		b.dialErrs = b.dialErrs[1:]

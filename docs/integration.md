@@ -343,9 +343,12 @@ When something is wrong:
 - **A broker that is down**, at start or later, is tried again after 5 seconds,
   then 10, 20 and so on, up to every 5 minutes, each wait varied by up to a
   quarter so that replicas do not come back in step. The log line gives the
-  wait as `retryIn`. Once it connects, the log says so, and the next outage
-  starts again from 5 seconds. Nothing is lost meanwhile: tasks wait in Metis,
-  and messages wait on the broker.
+  wait as `retryIn`. Once it connects the log says so, and once the connection
+  has lasted — to a bridge's next round, or a task forwarded; through a
+  consumer's first 5 seconds of consuming — the next outage starts again from
+  5 seconds. A broker that takes each connection and drops it before then is
+  waited for as if it were down. Nothing is lost meanwhile: tasks wait in
+  Metis, and messages wait on the broker.
 - **A connection the broker drops** — the broker restarting, the network
   cut — is noticed at once. A bridge connects again at its next round, a
   consumer after about 5 seconds.
@@ -377,7 +380,7 @@ afresh. What an operator sees:
 | Line | Level | When |
 | :-- | :-- | :-- |
 | `A RabbitMQ bridge connected to its broker` | info | Every connection, the first and each after a loss. |
-| `A RabbitMQ bridge could not connect to its broker` | error, then debug | The broker cannot be reached; with the reason and `retryIn`. |
+| `A RabbitMQ bridge could not connect to its broker` | error, then debug | The broker cannot be reached, or dropped the connection the bridge made before its next round; with the reason and `retryIn`. |
 | `The broker closed a RabbitMQ bridge's channel or connection; the bridge opens a new one at its next round` | error, then debug | With the broker's reason, such as `the broker closed the channel: Exception (404) Reason: "NOT_FOUND - no exchange 'billing' in vhost '/'"`. |
 | `A task was not accepted by the broker and was handed back` | error, then debug | With `taskID` and why: refused, returned as unroutable, or not confirmed in time. |
 | `Tasks the bridge fetched and did not publish were handed back` | warn | The rest of a round after a closed channel or a missed confirm, or what was fetched when the bridge stopped. |

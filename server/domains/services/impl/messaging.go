@@ -52,7 +52,8 @@ var (
 
 // brokerReconnects is how long a bridge or consumer waits between attempts to
 // reach a broker it cannot: 5 seconds, doubling to 5 minutes, each wait varied
-// by a quarter either way, and back to 5 seconds once it has reached it.
+// by a quarter either way, and back to 5 seconds once a connection to it has
+// lasted.
 //
 // It was every 5 seconds for as long as the broker stayed down, so a broker
 // gone for a weekend was dialled some fifty thousand times by each bridge and
@@ -177,6 +178,7 @@ func (s *messagingService) newConsumer(ctx context.Context, projectID uuid.UUID,
 		confirmTimeout: s.confirmTimeout,
 		reconnect:      brokerReconnects,
 		sleep:          s.sleep,
+		now:            time.Now,
 		logger:         &logger,
 		problems:       problemLog{logger: &logger},
 	}

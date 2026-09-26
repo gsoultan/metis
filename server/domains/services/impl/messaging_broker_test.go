@@ -329,8 +329,15 @@ func TestAConsumerWhoseQueueIsDeletedSaysSoAndConsumesItAgain(t *testing.T) {
 }
 
 // A broker that cannot be reached is tried again after a wait that grows with
-// each attempt, and once reached, the schedule starts over the next time it
-// goes away. It was a flat 5 seconds for as long as the broker stayed down.
+// each attempt, and once reached, and the connection has lasted a round, the
+// schedule starts over the next time it goes away. It was a flat 5 seconds
+// for as long as the broker stayed down.
+//
+// The proxy is only ever changed while the bridge is held in a wait. It was
+// changed while the bridge ran, so making the broker reachable raced the dial
+// it was meant to follow, nearly always won, and this failed in CI with
+// "after 3 failed attempts it waited 1s": a bridge that had connected, as it
+// should have, a round early.
 func TestABridgeBacksOffFromABrokerItCannotReachAndStartsOverOnceItConnects(t *testing.T) {
 	url := testBrokerURL(t)
 	proxy, proxied := newBrokerProxy(t, url)
@@ -347,23 +354,29 @@ func TestABridgeBacksOffFromABrokerItCannotReachAndStartsOverOnceItConnects(t *t
 	}
 	logger := zerolog.New(&logs)
 	bridge := svc.newBridge(logger.WithContext(t.Context()), uuid.New(), "reverse-charge", proxied, "", "metis-test-unused", time.Minute)
-	waits := make(waitRecorder)
+	waits := newSteppedWaits()
 	bridge.sleep = waits.sleep
 	runBridge(t, bridge)
 
-	if first := takeWait(t, waits); first != time.Second {
+	if first := waits.next(t); first != time.Second {
 		t.Fatalf("the bridge waited %v before its first round, want its poll interval", first)
 	}
-	assertBackoff(t, takeWait(t, waits), 1)
-	assertBackoff(t, takeWait(t, waits), 2)
-	// Reachable from the round after the next wait.
+	assertBackoff(t, waits.next(t), 1)
+	assertBackoff(t, waits.next(t), 2)
+	assertBackoff(t, waits.next(t), 3)
+
+	// Held in its third wait, the bridge finds the broker reachable at the
+	// round after it.
 	proxy.refuse(false)
-	assertBackoff(t, takeWait(t, waits), 3)
-	if polling := takeWait(t, waits); polling != time.Second {
-		t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", polling)
+	if connected := waits.next(t); connected != time.Second {
+		t.Fatalf("connected, the bridge waited %v before its next round, want its poll interval", connected)
 	}
 	awaitEntry(t, &logs, "info", "connected", 5*time.Second)
+	if lasted := waits.next(t); lasted != time.Second {
+		t.Fatalf("its connection still up, the bridge waited %v, want its poll interval", lasted)
+	}
 
+	// The broker goes away again, and the schedule starts over.
 	proxy.refuse(true)
 	proxy.sever()
 	assertBackoff(t, nextBackoff(t, waits, time.Second), 1)
