@@ -833,6 +833,7 @@ func Schema(models []any) []Migration {
 			},
 		},
 		liveDecisionVersions(models),
+		notificationIndexes(),
 	}
 }
 
@@ -997,18 +998,27 @@ func setColumnNotNull(ctx context.Context, db *gorm.DB, table, column string) er
 // falls back to a plain create — correct there, and the locking concern that
 // makes CONCURRENTLY necessary does not exist on a fresh in-memory database.
 func createIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
-	return buildIndexConcurrently(ctx, db, "INDEX", table, name, columns)
+	return buildIndexConcurrently(ctx, db, "INDEX", table, name, "("+columns+")")
 }
 
 // createUniqueIndexConcurrently is createIndexConcurrently for a unique index.
 func createUniqueIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns string) error {
-	return buildIndexConcurrently(ctx, db, "UNIQUE INDEX", table, name, columns)
+	return buildIndexConcurrently(ctx, db, "UNIQUE INDEX", table, name, "("+columns+")")
 }
 
-func buildIndexConcurrently(ctx context.Context, db *gorm.DB, kind, table, name, columns string) error {
+// createPartialIndexConcurrently is createIndexConcurrently over only the rows
+// the condition admits.
+func createPartialIndexConcurrently(ctx context.Context, db *gorm.DB, table, name, columns, condition string) error {
+	return buildIndexConcurrently(ctx, db, "INDEX", table, name, "("+columns+") WHERE "+condition)
+}
+
+// buildIndexConcurrently creates the index named name on table, where
+// definition is everything after the table: the columns, in parentheses, and
+// any condition.
+func buildIndexConcurrently(ctx context.Context, db *gorm.DB, kind, table, name, definition string) error {
 	if db.Name() != "postgres" {
 		if err := db.WithContext(ctx).Exec(fmt.Sprintf(
-			"CREATE %s IF NOT EXISTS %s ON %s (%s)", kind, name, table, columns,
+			"CREATE %s IF NOT EXISTS %s ON %s %s", kind, name, table, definition,
 		)).Error; err != nil {
 			return fmt.Errorf("create %s: %w", name, err)
 		}
@@ -1030,7 +1040,7 @@ func buildIndexConcurrently(ctx context.Context, db *gorm.DB, kind, table, name,
 		return fmt.Errorf("drop the invalid %s: %w", name, err)
 	}
 	if err := db.WithContext(ctx).Exec(fmt.Sprintf(
-		"CREATE %s CONCURRENTLY IF NOT EXISTS %s ON %s (%s)", kind, name, table, columns,
+		"CREATE %s CONCURRENTLY IF NOT EXISTS %s ON %s %s", kind, name, table, definition,
 	)).Error; err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}

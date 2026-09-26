@@ -1,16 +1,8 @@
 package contracts
 
-import (
-	"context"
-
-	"github.com/google/uuid"
-	"github.com/gsoultan/metis/server/repositories/models"
-)
-
+// NotificationRepository keeps the notifications addressed to people: what
+// records them and what they did with them, and what reads a person's own.
 type NotificationRepository interface {
-	Create(ctx context.Context, n models.NotificationModel) error
-	ListByUser(ctx context.Context, userID string) ([]models.NotificationModel, error)
-	MarkAsRead(ctx context.Context, id uuid.UUID) error
-	MarkAllAsRead(ctx context.Context, userID string) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	NotificationWriter
+	NotificationReader
 }
