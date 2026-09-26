@@ -2,18 +2,17 @@ package app
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/metis/server/domains/entities"
-	"github.com/gsoultan/metis/server/repositories/gorms"
-	"github.com/rs/zerolog/log"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// environmentWatchEvery is how soon every replica stops serving an environment
-// after it is deleted or disabled. A var so a test need not wait for it.
+// environmentWatchEvery is how soon every replica catches up with a change to
+// the environments: one created, re-enabled or pointed at another database is
+// served, and one deleted or disabled stops being served. A var so a test need
+// not wait for it.
 var environmentWatchEvery = 15 * time.Second
 
 // environmentCloseAfter is how long a stopped environment's connections stay
@@ -22,118 +21,153 @@ var environmentWatchEvery = 15 * time.Second
 var environmentCloseAfter = httpShutdownTimeout
 
 // environmentRuntimes is what this replica runs for each environment: the
-// listener on its port and its background workers. Each part runs under a
-// context this cancels, so an environment can be stopped without a restart.
+// listener on its port and its background workers, under a context of their
+// own, so an environment can be started and stopped without a restart.
 //
-// Deleting an environment used to remove its row and nothing else. Its port
-// kept answering, its workers kept polling its database and its connections
-// stayed open until the next restart, although the service said removing the
-// row stops the runtime being served.
+// Deleting an environment used to remove its row and nothing else, and
+// creating one did nothing until the next restart: what ran was decided once,
+// at boot, and nothing looked again.
 type environmentRuntimes struct {
-	mu    sync.Mutex
-	stops map[uuid.UUID][]context.CancelFunc
+	mu      sync.Mutex
+	running map[uuid.UUID]*environmentRuntime
+	// settling are the environments being started or closed. The watcher
+	// leaves them alone until that has finished, so an environment is never
+	// opened while the connections it would replace are still closing.
+	settling map[uuid.UUID]bool
+	// failures is why each environment last failed to start, so that a
+	// failure is logged once for each cause rather than at every check.
+	failures map[uuid.UUID]string
+	// work is the watcher and the starts it has under way, so a test can wait
+	// for them to finish.
+	work sync.WaitGroup
 }
 
-// run derives the context one part of an environment's runtime runs under.
-func (r *environmentRuntimes) run(ctx context.Context, id uuid.UUID) context.Context {
-	ctx, cancel := context.WithCancel(ctx)
+// environmentRuntime is one environment as this replica serves it.
+type environmentRuntime struct {
+	name string
+	// settings is what it was started with, to tell when its row has changed
+	// underneath it.
+	settings environmentSettings
+	// stop cancels its workers and shuts its listener down.
+	stop context.CancelFunc
+}
+
+// serving returns the settings an environment was started with, if this
+// replica runs it.
+func (r *environmentRuntimes) serving(id uuid.UUID) (environmentSettings, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.stops == nil {
-		r.stops = map[uuid.UUID][]context.CancelFunc{}
+	runtime, ok := r.running[id]
+	if !ok {
+		return environmentSettings{}, false
 	}
-	r.stops[id] = append(r.stops[id], cancel)
-	return ctx
+	return runtime.settings, true
 }
 
-// running returns the environments this replica runs anything for.
-func (r *environmentRuntimes) running() []uuid.UUID {
+// runningIDs returns the environments this replica runs.
+func (r *environmentRuntimes) runningIDs() []uuid.UUID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ids := make([]uuid.UUID, 0, len(r.stops))
-	for id := range r.stops {
+	ids := make([]uuid.UUID, 0, len(r.running))
+	for id := range r.running {
 		ids = append(ids, id)
 	}
 	return ids
 }
 
-// stop cancels everything one environment runs, and reports whether there was
-// anything to cancel.
-func (r *environmentRuntimes) stop(id uuid.UUID) bool {
+// rename records a running environment's new name, which is only what it is
+// called in the log: nothing about serving it changes.
+func (r *environmentRuntimes) rename(id uuid.UUID, name string) {
 	r.mu.Lock()
-	cancels := r.stops[id]
-	delete(r.stops, id)
-	r.mu.Unlock()
-	for _, cancel := range cancels {
-		cancel()
-	}
-	return len(cancels) > 0
-}
-
-// watchEnvironments stops, on every replica, the environments that were
-// deleted or disabled since they were opened at boot.
-//
-// Only stopping. An environment created, re-enabled or re-pointed at another
-// database is served from the next restart, as before: opening one means
-// migrating its database and binding a port, which boot does with somebody
-// watching.
-func (a *App) watchEnvironments(ctx context.Context) {
-	ctx = entities.WithSystemContext(ctx)
-	go func() {
-		ticker := time.NewTicker(environmentWatchEvery)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				a.stopRemovedEnvironments(ctx)
-			}
-		}
-	}()
-}
-
-// stopRemovedEnvironments stops each environment this replica runs that is no
-// longer there, or no longer enabled.
-func (a *App) stopRemovedEnvironments(ctx context.Context) {
-	running := a.environments.running()
-	if len(running) == 0 {
-		return
-	}
-	rows, err := a.repo.Environment().ListAll(ctx)
-	if err != nil {
-		log.Warn().Err(err).
-			Msg("Could not read the environments to check which are still served. A deleted one is served until a check succeeds.")
-		return
-	}
-	enabled := make([]uuid.UUID, 0, len(rows))
-	for _, row := range rows {
-		if row.Enabled {
-			enabled = append(enabled, uuid.UUID(row.ID))
-		}
-	}
-	for _, id := range running {
-		if !slices.Contains(enabled, id) {
-			a.stopEnvironment(id)
-		}
+	defer r.mu.Unlock()
+	if runtime, ok := r.running[id]; ok {
+		runtime.name = name
 	}
 }
 
-// stopEnvironment stops serving one environment and lets go of its database.
-func (a *App) stopEnvironment(id uuid.UUID) {
-	if !a.environments.stop(id) {
-		return
+// claim marks an environment as starting, and reports false when it is
+// running, starting or closing already.
+func (r *environmentRuntimes) claim(id uuid.UUID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.settling[id] || r.running[id] != nil {
+		return false
 	}
-	log.Warn().Str("environment", id.String()).
-		Msg("This environment was deleted or disabled. Its port and its workers are stopped, and its database connections close shortly.")
-	time.AfterFunc(environmentCloseAfter, func() {
-		if db, open := gorms.ForgetEnvironmentDB(id); open {
-			closeDB(db)
+	if r.settling == nil {
+		r.settling = map[uuid.UUID]bool{}
+	}
+	r.settling[id] = true
+	return true
+}
+
+// started records a claimed environment as running.
+func (r *environmentRuntimes) started(id uuid.UUID, runtime *environmentRuntime) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running == nil {
+		r.running = map[uuid.UUID]*environmentRuntime{}
+	}
+	r.running[id] = runtime
+	delete(r.settling, id)
+}
+
+// take removes a running environment so it can be stopped, and marks it as
+// closing until settled is called.
+func (r *environmentRuntimes) take(id uuid.UUID) (*environmentRuntime, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	runtime, ok := r.running[id]
+	if !ok {
+		return nil, false
+	}
+	delete(r.running, id)
+	if r.settling == nil {
+		r.settling = map[uuid.UUID]bool{}
+	}
+	r.settling[id] = true
+	return runtime, true
+}
+
+// settled marks an environment as neither starting nor closing: a start that
+// failed, or a close that has finished.
+func (r *environmentRuntimes) settled(id uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.settling, id)
+}
+
+// failed records why an environment could not start, and reports whether the
+// cause is new — the only time it is worth an error in the log.
+func (r *environmentRuntimes) failed(id uuid.UUID, cause string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failures[id] == cause {
+		return false
+	}
+	if r.failures == nil {
+		r.failures = map[uuid.UUID]string{}
+	}
+	r.failures[id] = cause
+	return true
+}
+
+// clearFailure forgets an environment's failure once it has started, so the
+// next one is reported whatever its cause.
+func (r *environmentRuntimes) clearFailure(id uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.failures, id)
+}
+
+// forgetFailuresExcept drops the failures of environments no longer enabled,
+// so the map holds no more than the registry does, and an environment enabled
+// again later has its failure reported afresh.
+func (r *environmentRuntimes) forgetFailuresExcept(enabled map[uuid.UUID]models.EnvironmentModel) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id := range r.failures {
+		if _, ok := enabled[id]; !ok {
+			delete(r.failures, id)
 		}
-		if a.storm != nil {
-			if pool, open := a.storm.ForgetEnvironment(id); open {
-				pool.Close()
-			}
-		}
-	})
+	}
 }

@@ -86,6 +86,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An environment is served without a restart.** Creating one, enabling one
+  again, or giving one another port or database changed its row and nothing
+  else: nothing listened on its port, and a re-pointed one went on reading and
+  writing its old database, until every replica was restarted. Every replica
+  now checks the environments every 15 seconds and starts, restarts or stops
+  them to match. Boot is the first of those checks rather than a path of its
+  own, so an environment created while the server runs is opened, migrated and
+  served exactly as one that was there when it started — after the main port is
+  up, where boot used to open them before it. One that cannot start (its
+  database unreachable, its port taken) does not hold up the others, is tried
+  again at every check, and is logged once per reason rather than every 15
+  seconds. A re-pointed environment is stopped first and started on the new
+  database once its old connections have closed, so work in flight finishes
+  where it began. The settings page says when a change takes effect instead of
+  asking for a restart.
 - **Installing a connector's document again switched it back on.** An
   administrator who switched a connector off and then fixed its document found
   it running again. Installing over an installed manifest now keeps the switch

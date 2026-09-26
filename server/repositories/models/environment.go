@@ -24,8 +24,8 @@ type EnvironmentModel struct {
 
 	// Port is where this environment is served. Unique across the whole
 	// installation rather than per project: two listeners cannot share a port,
-	// and finding that out at bind time — after the row is saved and the
-	// server is restarting — is worse than being refused on save.
+	// and finding that out at bind time — after the row is saved, when every
+	// replica tries to serve it — is worse than being refused on save.
 	Port int `gorm:"uniqueIndex;not null;default:0" json:"port"`
 
 	// Driver is the database engine backing this environment. PostgreSQL is
