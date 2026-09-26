@@ -191,18 +191,14 @@ func callerIdentity(ctx context.Context) (tenant, principal string) {
 		tenant = tc.TenantID
 	}
 
+	// Always an account: an identity provider's sign-in is resolved to the
+	// account linked to it before it reaches here.
 	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
 	case entities.User:
 		principal = principalOf(u)
 	case *entities.User:
 		if u != nil {
 			principal = principalOf(*u)
-		}
-	case pkgauth.UserClaims:
-		principal = claimsPrincipal(u)
-	case *pkgauth.UserClaims:
-		if u != nil {
-			principal = claimsPrincipal(*u)
 		}
 	}
 	return tenant, principal
@@ -214,15 +210,6 @@ func principalOf(u entities.User) string {
 		return u.ID.String()
 	}
 	return u.Username
-}
-
-// claimsPrincipal prefers the token subject, the one field an OIDC provider
-// guarantees is stable and unique.
-func claimsPrincipal(c pkgauth.UserClaims) string {
-	if c.Subject != "" {
-		return c.Subject
-	}
-	return c.Username
 }
 
 func hashRequest(r *http.Request) (string, error) {

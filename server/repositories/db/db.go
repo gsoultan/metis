@@ -273,6 +273,24 @@ func (c *Conn) Transact(ctx context.Context, fn func(context.Context) error) (er
 	return nil
 }
 
+// TransactMain runs fn inside a transaction on the main database, whichever
+// runtime the work is bound to.
+//
+// Accounts and their memberships live in the main database, and are written
+// while serving requests that may have arrived on an environment's port. There
+// Transact would begin on the environment's database — and MainExecutor, which
+// the account repository reads and writes through, deliberately does not join a
+// transaction on another database, so every statement would run on its own,
+// outside any transaction at all. Unbinding for the length of fn puts them
+// inside one. A transaction the caller holds on a runtime's database is not
+// joined either, for the same reason; one it holds on the main database is.
+func (c *Conn) TransactMain(ctx context.Context, fn func(context.Context) error) error {
+	if _, bound := EnvironmentFrom(ctx); !bound {
+		return c.Transact(ctx, fn)
+	}
+	return c.Transact(withTx(Bind(ctx, uuid.Nil), nil), fn)
+}
+
 // Attempt runs fn so that its failure can be recovered from.
 //
 // Transact reuses an enclosing transaction, which is right for work that must

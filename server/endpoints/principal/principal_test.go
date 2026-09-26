@@ -17,8 +17,8 @@ func TestUsernameComesFromTheVerifiedPrincipalOnly(t *testing.T) {
 	}{
 		{"local user", entities.User{Username: "alice", Roles: []string{entities.RoleUser}}, "alice"},
 		{"local user pointer", &entities.User{Username: "bob"}, "bob"},
-		{"oidc preferred username", pkgauth.UserClaims{Subject: "sub-1", Username: "carol"}, "carol"},
-		{"oidc subject only", pkgauth.UserClaims{Subject: "sub-2"}, "sub-2"},
+		{"an account signed in through an identity provider",
+			entities.User{Username: "carol", IdentityProvider: "https://id.example.com"}, "carol"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -39,7 +39,10 @@ func TestUsernameRefusesAnonymousAndEmptyPrincipals(t *testing.T) {
 		context.Background(),
 		context.WithValue(context.Background(), pkgauth.UserContextKey, entities.User{}),
 		context.WithValue(context.Background(), pkgauth.UserContextKey, (*entities.User)(nil)),
-		context.WithValue(context.Background(), pkgauth.UserContextKey, pkgauth.UserClaims{}),
+		// A token's claims are evidence for a sign-in, never the caller: the
+		// OIDC strategy resolves them to an account before any endpoint runs.
+		context.WithValue(context.Background(), pkgauth.UserContextKey,
+			entities.IdentityClaims{Issuer: "https://id.example.com", Subject: "sub-1", Username: "carol"}),
 	} {
 		if _, err := Username(ctx); !errors.Is(err, pkgauth.ErrUnauthorized) {
 			t.Fatalf("expected ErrUnauthorized, got %v", err)
@@ -58,6 +61,13 @@ func TestHasRoleDeniesWhenAbsent(t *testing.T) {
 	if !HasRole(ctx, entities.RoleUser) {
 		t.Fatal("USER not reported as USER")
 	}
+	// Roles are what an administrator granted the account. A token's claims in
+	// the context are nobody, whatever they say.
+	claims := context.WithValue(context.Background(), pkgauth.UserContextKey,
+		entities.IdentityClaims{Issuer: "https://id.example.com", Subject: "sub-1"})
+	if HasRole(claims, entities.RoleAdmin) {
+		t.Fatal("a token's claims were reported as holding a role")
+	}
 }
 
 // Every administrator-only endpoint checks the role ignoring case, and accounts
@@ -71,7 +81,8 @@ func TestHasRoleIgnoresCaseAsTheEndpointGatesDo(t *testing.T) {
 		principal any
 	}{
 		{"a local account", "admin", entities.User{Username: "olga", Roles: []string{"admin"}}},
-		{"an identity provider's token", "Admin", pkgauth.UserClaims{Subject: "sub-1", Roles: []string{"Admin"}}},
+		{"an account signed in through an identity provider", "Admin",
+			entities.User{Username: "olga-sso", Roles: []string{"Admin"}, IdentityProvider: "https://id.example.com"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

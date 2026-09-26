@@ -9,6 +9,11 @@ import (
 
 // UserRepository defines the contract for user persistence.
 type UserRepository interface {
+	// UserIdentityRepository is the part a sign-in through an identity
+	// provider uses: the account an identity is linked to, and where it is
+	// placed.
+	UserIdentityRepository
+
 	Get(ctx context.Context, id uuid.UUID) (models.UserModel, error)
 	GetByUsername(ctx context.Context, username string) (models.UserModel, error)
 	GetWithPasswordByUsername(ctx context.Context, username string) (models.UserModel, string, error)

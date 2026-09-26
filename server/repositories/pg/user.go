@@ -382,6 +382,12 @@ func (r *userRepository) hydrate(ctx context.Context, row user.Row) (models.User
 	if validFrom, ok := row.TokensValidFrom.Get(); ok {
 		user.TokensValidFrom = &validFrom
 	}
+	if issuer, ok := row.IdentityIssuer.Get(); ok {
+		user.IdentityIssuer = &issuer
+	}
+	if subject, ok := row.IdentitySubject.Get(); ok {
+		user.IdentitySubject = &subject
+	}
 	if len(row.Roles) > 0 {
 		if err := json.Unmarshal(row.Roles, &user.Roles); err != nil {
 			return models.UserModel{}, fmt.Errorf("could not decode an account's roles: %w", err)
