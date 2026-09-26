@@ -109,6 +109,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An identity provider that stopped answering could hold the server's boot
+  for good.** With `OIDC_ISSUER` set, the server fetches the provider's
+  configuration while it starts, and its keys whenever a token names one it
+  has not seen, through a client with no deadline. Each request to the provider
+  now gives up after 10 seconds: boot goes on without OIDC and says why, and
+  a key fetch is retried on the next token that needs it.
 - **Installing a connector's document again switched it back on.** An
   administrator who switched a connector off and then fixed its document found
   it running again. Installing over an installed manifest now keeps the switch

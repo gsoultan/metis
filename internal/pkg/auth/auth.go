@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
@@ -40,6 +42,14 @@ type idTokenProfile struct {
 	Email    string `json:"email"`
 }
 
+// providerTimeout bounds each request to the identity provider: fetching its
+// configuration when the validator is built at boot, and fetching its keys when
+// a token names one not seen yet. go-oidc uses the client it finds in the
+// context it is built with, for both, and http.DefaultClient has no deadline:
+// a provider that accepted the connection and never answered held boot for
+// good, and every request needing a new key behind it.
+var providerTimeout = 10 * time.Second
+
 type TokenValidator struct {
 	verifier *oidc.IDTokenVerifier
 	// organizationClaim is read once, with the provider it belongs to, rather
@@ -48,6 +58,7 @@ type TokenValidator struct {
 }
 
 func NewTokenValidator(ctx context.Context, issuer string, clientID string) (*TokenValidator, error) {
+	ctx = oidc.ClientContext(ctx, &http.Client{Timeout: providerTimeout})
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %w", err)
