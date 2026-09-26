@@ -123,3 +123,15 @@ describe('countUrgent', () => {
     expect(countUrgent([{ dueDate: at(-100), status: 'completed' }], now)).toEqual({ overdue: 0, dueToday: 0 });
   });
 });
+
+describe('a withdrawn task', () => {
+  // An interrupting boundary event — the usual way to escalate — cancels the
+  // task and leaves its due date behind. Nobody can act on it any more, so
+  // listing it as late puts work on the deadlines card that nobody can do.
+  it('is not late, whatever its due date says', () => {
+    const now = new Date('2026-09-25T12:00:00Z');
+    const withdrawn = { status: 'canceled', dueDate: '2026-09-20T12:00:00Z' };
+    expect(urgencyOf(withdrawn, now).level).toBe('done');
+    expect(urgencyOf(withdrawn, now).label).toBe('Withdrawn');
+  });
+});

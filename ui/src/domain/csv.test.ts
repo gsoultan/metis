@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { csvField, csvFilename, toCsv } from './csv';
+import { csvBlob, csvField, csvFilename, toCsv } from './csv';
 
 describe('csvField', () => {
   it('leaves an ordinary value alone', () => {
@@ -62,5 +62,16 @@ describe('toCsv', () => {
 describe('csvFilename', () => {
   it('dates the file so two downloads do not collide', () => {
     expect(csvFilename('sla', new Date('2026-09-23T11:00:00Z'))).toBe('sla-2026-09-23.csv');
+  });
+});
+
+// Excel on Windows reads a CSV file with no byte order mark in the machine's
+// legacy code page, so an assignee called José arrived as "JosÃ©" and a
+// process named in Indonesian with any accented letter came out garbled.
+describe('csvBlob', () => {
+  it('starts with a UTF-8 byte order mark, so a spreadsheet reads the text as written', async () => {
+    const bytes = new Uint8Array(await csvBlob('Assignee\r\nJosé').arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(bytes)).toBe('Assignee\r\nJosé');
   });
 });

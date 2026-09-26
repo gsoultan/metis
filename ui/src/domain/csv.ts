@@ -70,3 +70,14 @@ export function csvFilename(prefix: string, now: Date = new Date()): string {
   const stamp = now.toISOString().slice(0, 10);
   return `${prefix}-${stamp}.csv`;
 }
+
+/**
+ * The file a browser hands over for a CSV document.
+ *
+ * It starts with a UTF-8 byte order mark. Without one, Excel on Windows reads
+ * the file in the machine's legacy code page, so an assignee called José
+ * arrives as "JosÃ©". Every other reader skips the mark.
+ */
+export function csvBlob(contents: string): Blob {
+  return new Blob(['\uFEFF', contents], { type: 'text/csv;charset=utf-8;' });
+}

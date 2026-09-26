@@ -58,6 +58,12 @@ export function urgencyOf(task: UrgencyInput, now: Date = new Date()): Urgency {
   if (task.status === 'completed') {
     return { level: 'done', label: 'Done', color: 'green', weight: 0 };
   }
+  // Withdrawn by the engine — an interrupting boundary event, the usual way
+  // to escalate, cancels the task and leaves its due date behind. Nobody can
+  // act on it any more, so it is not late; it used to be listed as overdue.
+  if (task.status === 'canceled') {
+    return { level: 'done', label: 'Withdrawn', color: 'gray', weight: 0 };
+  }
 
   const priority = task.priority ?? 0;
   const important = priority >= HIGH_PRIORITY;
@@ -124,8 +130,14 @@ function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
-/** "3 days", "5 hours", "20 minutes" — never "0.21 days". */
-function describeSpan(hours: number): string {
+/**
+ * "3 days", "5 hours", "20 minutes" — never "0.21 days".
+ *
+ * Exported so the deadline report says the same thing about the same task:
+ * it rounded down on its own, and sixty hours read "3 days" in the inbox and
+ * "2 days" on the dashboard.
+ */
+export function describeSpan(hours: number): string {
   if (hours >= 48) return `${Math.round(hours / 24)} days`;
   if (hours >= 1) {
     const rounded = Math.round(hours);

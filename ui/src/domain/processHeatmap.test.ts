@@ -1,32 +1,17 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  busiestStep,
-  heatColor,
-  heatSummary,
-  processHeat,
-  type HeatmapInstance,
-} from './processHeatmap';
+import { busiestStep, heatColor, heatFromWaiting, heatmapCsv, heatSummary, type WaitingProcess } from './processHeatmap';
 
-const quotation = { key: 'quotation', name: 'Quotation approval' };
-const onboarding = { key: 'onboarding', name: 'Onboarding' };
-
-const at = (id: string, node: string, over: Partial<HeatmapInstance> = {}): HeatmapInstance => ({
-  id,
-  status: 'active',
-  definition: quotation,
-  activeNodes: [{ id: node }],
-  ...over,
+const waiting = (key: string, name: string, instances: number, steps: Array<[string, number]>): WaitingProcess => ({
+  key,
+  name,
+  instances,
+  steps: steps.map(([node_id, count]) => ({ node_id, waiting: count })),
 });
 
-describe('processHeat', () => {
-  it('counts how many instances are sitting on each step', () => {
-    const heat = processHeat([
-      at('1', 'opsApprove'),
-      at('2', 'opsApprove'),
-      at('3', 'salesApprove'),
-    ]);
-
+describe('heatFromWaiting', () => {
+  it('lists each step with how much work is sitting on it, the most first', () => {
+    const heat = heatFromWaiting([waiting('quotation', 'Quotation approval', 3, [['salesApprove', 1], ['opsApprove', 2]])]);
     expect(heat).toHaveLength(1);
     expect(heat[0].nodes.map((n) => [n.nodeId, n.waiting])).toEqual([
       ['opsApprove', 2],
@@ -37,68 +22,44 @@ describe('processHeat', () => {
   it('scores heat against the busiest step rather than an absolute', () => {
     // Forty waiting is a crisis in a process that normally holds two and a
     // quiet morning in one that holds four hundred, so the scale is relative.
-    const heat = processHeat([
-      at('1', 'opsApprove'),
-      at('2', 'opsApprove'),
-      at('3', 'opsApprove'),
-      at('4', 'salesApprove'),
-    ]);
+    const heat = heatFromWaiting([waiting('quotation', 'Quotation approval', 4, [['opsApprove', 3], ['salesApprove', 1]])]);
     expect(heat[0].nodes[0].intensity).toBe(1);
     expect(heat[0].nodes[1].intensity).toBeCloseTo(1 / 3);
   });
 
   it('keeps processes apart, because a step id is only unique within one', () => {
-    const heat = processHeat([
-      at('1', 'approve'),
-      at('2', 'approve', { definition: onboarding }),
-      at('3', 'approve', { definition: onboarding }),
+    // The old count read each instance's process from a key the server never
+    // sent, and put two processes' "approve" steps together as one.
+    const heat = heatFromWaiting([
+      waiting('quotation', 'Quotation approval', 1, [['approve', 1]]),
+      waiting('onboarding', 'Onboarding', 2, [['approve', 2]]),
     ]);
-
-    // Adding the two "approve" steps together would produce a number about
-    // nothing. Busiest process first.
     expect(heat.map((p) => [p.processName, p.instances])).toEqual([
       ['Onboarding', 2],
       ['Quotation approval', 1],
     ]);
   });
 
-  it('counts an instance in every place it is waiting', () => {
-    // Parallel branches: it is held up in two places and both are holding it.
-    const heat = processHeat([
-      at('1', 'x', { activeNodes: [{ id: 'legalReview' }, { id: 'creditCheck' }] }),
-    ]);
-    expect(heat[0].nodes.map((n) => n.waiting)).toEqual([1, 1]);
-    expect(heat[0].instances).toBe(1);
+  it('names a process by its key when it has no name', () => {
+    expect(heatFromWaiting([waiting('quotation', '', 1, [['approve', 1]])])[0].processName).toBe('quotation');
   });
 
-  it('ignores work that has stopped', () => {
-    const heat = processHeat([
-      at('1', 'opsApprove', { status: 'completed' }),
-      at('2', 'opsApprove', { status: 'cancelled' }),
-      at('3', 'opsApprove', { status: 'failed' }),
-      at('4', 'opsApprove', { status: 'suspended' }),
-    ]);
-    // Suspended work is still somewhere — it is paused, not finished.
-    expect(heat[0].nodes[0].waiting).toBe(1);
-  });
-
-  it('ignores an instance that is not sitting anywhere yet', () => {
-    expect(processHeat([at('1', 'x', { activeNodes: [] })])).toEqual([]);
-    expect(processHeat([])).toEqual([]);
+  it('draws nothing for a process with no step holding work', () => {
+    expect(heatFromWaiting([waiting('quotation', 'Quotation approval', 0, [])])).toEqual([]);
+    expect(heatFromWaiting([])).toEqual([]);
   });
 
   it('reads a step id the way a person would', () => {
-    const heat = processHeat([at('1', 'Activity_AskDirector')]);
+    const heat = heatFromWaiting([waiting('quotation', 'Quotation approval', 1, [['Activity_AskDirector', 1]])]);
     expect(heat[0].nodes[0].label).toBe('Ask Director');
   });
 });
 
 describe('busiestStep', () => {
   it('finds the worst step across every process', () => {
-    const heat = processHeat([
-      at('1', 'opsApprove'),
-      at('2', 'legalReview', { definition: onboarding }),
-      at('3', 'legalReview', { definition: onboarding }),
+    const heat = heatFromWaiting([
+      waiting('quotation', 'Quotation approval', 1, [['opsApprove', 1]]),
+      waiting('onboarding', 'Onboarding', 2, [['legalReview', 2]]),
     ]);
     expect(busiestStep(heat)).toMatchObject({
       nodeId: 'legalReview',
@@ -114,12 +75,12 @@ describe('busiestStep', () => {
 
 describe('heatSummary', () => {
   it('names the step rather than quoting a number to interpret', () => {
-    const heat = processHeat([at('1', 'opsApprove'), at('2', 'opsApprove')]);
+    const heat = heatFromWaiting([waiting('quotation', 'Quotation approval', 2, [['opsApprove', 2]])]);
     expect(heatSummary(heat)).toBe('2 instances are waiting on "Ops Approve" in Quotation approval.');
   });
 
   it('reads one as one', () => {
-    expect(heatSummary(processHeat([at('1', 'opsApprove')]))).toBe(
+    expect(heatSummary(heatFromWaiting([waiting('quotation', 'Quotation approval', 1, [['opsApprove', 1]])]))).toBe(
       'One instance is waiting on "Ops Approve" in Quotation approval.',
     );
   });
@@ -136,5 +97,21 @@ describe('heatColor', () => {
     expect(heatColor(0.5)).toBe('orange');
     expect(heatColor(0.2)).toBe('blue');
     expect(heatColor(0)).toBe('blue');
+  });
+});
+
+describe('heatmapCsv', () => {
+  it('writes one row per step, as the dashboard lists them', () => {
+    const heat = heatFromWaiting([
+      { key: 'quotation', name: 'Quotation approval', instances: 5, steps: [{ node_id: 'managerReview', waiting: 3 }, { node_id: 'finance', waiting: 2 }] },
+    ]);
+    expect(heatmapCsv(heat)).toBe(
+      'Process,Step,Waiting\r\nQuotation approval,Manager Review,3\r\nQuotation approval,Finance,2',
+    );
+  });
+
+  it('keeps a process name a spreadsheet would run as a formula as text', () => {
+    const heat = heatFromWaiting([{ key: 'x', name: '=HYPERLINK("http://evil")', instances: 1, steps: [{ node_id: 'a', waiting: 1 }] }]);
+    expect(heatmapCsv(heat).split('\r\n')[1].startsWith(`"'=HYPERLINK`)).toBe(true);
   });
 });

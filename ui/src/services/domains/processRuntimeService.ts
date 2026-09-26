@@ -2,6 +2,8 @@ import { processClient } from "../shared/connect";
 import { raiseIfRefused } from "../raise";
 import { requestJSON } from "../shared/rest";
 import type { ApiAuditEntry, ApiSubProcess, ProcessVariables } from "../types";
+import type { WaitingProcess } from "../../domain/processHeatmap";
+import type { Deadlines } from "../../domain/slaReport";
 
 type GetAuditLogsResponse = {
   entries?: ApiAuditEntry[];
@@ -90,6 +92,22 @@ export const processRuntimeService = {
   async getExecutionPath(id: string, signal?: AbortSignal) {
     const response = await processClient.getExecutionPath({ instanceId: id }, { signal });
     return { nodes: response.nodes ?? [], node_frequencies: response.nodeFrequencies ?? {}, err: response.error };
+  },
+
+  /** A project's open work with a due date, soonest first, read on the server. */
+  async deadlines(projectId: string, signal?: AbortSignal): Promise<Deadlines> {
+    const data = await requestJSON<{ deadlines?: Deadlines; err?: string }>(`/projects/${projectId}/deadlines`, {
+      signal,
+    });
+    return raiseIfRefused(data).deadlines ?? {};
+  },
+
+  /** Where a project's running work is sitting now, counted on the server. */
+  async waitingByStep(projectId: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ processes?: WaitingProcess[]; err?: string }>(`/projects/${projectId}/waiting`, {
+      signal,
+    });
+    return raiseIfRefused(data).processes ?? [];
   },
 
   async getAuditLogs(id: string, signal?: AbortSignal) {

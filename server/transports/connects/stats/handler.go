@@ -37,6 +37,7 @@ func (h *StatsHandler) GetProcessStatistics(ctx context.Context, req *connect.Re
 		FailedInstances:    clamp.Int32(resp.FailedInstances),
 		TotalTasks:         clamp.Int32(resp.TotalTasks),
 		PendingTasks:       clamp.Int32(resp.PendingTasks),
+		CompletedTasks:     clamp.Int32(resp.CompletedTasks),
 		Error:              common.ErrString(resp.Err),
 	}), nil
 }

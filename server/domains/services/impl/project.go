@@ -1,9 +1,11 @@
 package impl
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,7 +14,6 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/rs/zerolog/log"
 )
 
 type projectService struct {
@@ -114,6 +115,9 @@ func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uui
 		{"failed", func() (int64, error) { return s.repo.Process().CountByStatus(ctx, projectID, models.ProcessFailed) }},
 		{"tasks", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, "") }},
 		{"unclaimed", func() (int64, error) { return s.repo.Task().CountByStatus(ctx, projectID, models.TaskUnclaimed) }},
+		{"completed tasks", func() (int64, error) {
+			return s.repo.Task().CountByStatus(ctx, projectID, models.TaskCompleted)
+		}},
 	} {
 		value, err := wanted.read()
 		if err != nil {
@@ -124,27 +128,78 @@ func (s *projectService) GetProcessStatistics(ctx context.Context, projectID uui
 	active, completed, failed := counts["active"], counts["completed"], counts["failed"]
 	totalTasks, pendingTasks := counts["tasks"], counts["unclaimed"]
 
-	nodeFreqs := make(map[string]int)
-	if projectID != uuid.Nil {
-		// The step heat map is decoration on top of the counts. Losing it is
-		// worth a log line rather than a failed dashboard.
-		ms, auditErr := s.repo.Audit().ListByProject(ctx, projectID)
-		if auditErr != nil {
-			log.Warn().Err(auditErr).Msg("Could not read the audit trail for the step heat map")
-		}
-		for _, m := range ms {
-			if m.NodeID != "" {
-				nodeFreqs[m.NodeID]++
-			}
-		}
-	}
-
+	// There used to be a step heat map here, built by reading the project's
+	// whole audit trail on every dashboard load — work that grows with the
+	// project's history — and no transport ever sent it.
 	return entities.ProcessStatistics{
 		ActiveInstances:    int(active),
 		CompletedInstances: int(completed),
 		FailedInstances:    int(failed),
 		TotalTasks:         int(totalTasks),
 		PendingTasks:       int(pendingTasks),
-		NodeFrequencies:    nodeFreqs,
+		CompletedTasks:     int(counts["completed tasks"]),
 	}, nil
+}
+
+// WaitingByStep says where the project's running work is sitting now.
+func (s *projectService) WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]entities.WaitingProcess, error) {
+	rows, err := s.repo.Process().WaitingByStep(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[string]*entities.WaitingProcess{}
+	var order []string
+	for _, row := range rows {
+		process, ok := byKey[row.ProcessKey]
+		if !ok {
+			process = &entities.WaitingProcess{Key: row.ProcessKey, Name: row.ProcessName}
+			byKey[row.ProcessKey] = process
+			order = append(order, row.ProcessKey)
+		}
+		if row.NodeID == "" {
+			process.Instances = int(row.Instances)
+			continue
+		}
+		process.Steps = append(process.Steps, entities.WaitingStep{NodeID: row.NodeID, Waiting: int(row.Waiting)})
+	}
+	out := make([]entities.WaitingProcess, 0, len(order))
+	for _, key := range order {
+		process := byKey[key]
+		// The step holding the most first: that is where somebody looks.
+		slices.SortFunc(process.Steps, func(a, b entities.WaitingStep) int {
+			return cmp.Or(cmp.Compare(b.Waiting, a.Waiting), cmp.Compare(a.NodeID, b.NodeID))
+		})
+		out = append(out, *process)
+	}
+	slices.SortFunc(out, func(a, b entities.WaitingProcess) int {
+		return cmp.Or(cmp.Compare(b.Instances, a.Instances), cmp.Compare(a.Name, b.Name))
+	})
+	return out, nil
+}
+
+// deadlineLimit is the most open tasks with a due date the dashboard is sent.
+// They come soonest first, so every overdue task arrives before any that is
+// not, unless more than this many are overdue.
+const deadlineLimit = 500
+
+// Deadlines reads the project's open work with a due date, soonest first, and
+// counts all of its open work.
+func (s *projectService) Deadlines(ctx context.Context, projectID uuid.UUID) (entities.Deadlines, error) {
+	rows, counts, err := s.repo.Task().Deadlines(ctx, projectID, deadlineLimit)
+	if err != nil {
+		return entities.Deadlines{}, err
+	}
+	out := entities.Deadlines{
+		Tasks:           make([]entities.DeadlineTask, 0, len(rows)),
+		WithDeadline:    int(counts.WithDeadline),
+		WithoutDeadline: int(counts.WithoutDeadline),
+	}
+	for _, row := range rows {
+		out.Tasks = append(out.Tasks, entities.DeadlineTask{
+			ID: row.TaskID, Name: row.Name, NodeID: row.NodeID, Status: row.Status,
+			Priority: int(row.Priority), Assignee: row.Assignee, DueDate: row.DueDate,
+			ProcessKey: row.ProcessKey, ProcessName: row.ProcessName,
+		})
+	}
+	return out, nil
 }

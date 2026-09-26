@@ -2,10 +2,30 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
+
+// DeadlineRow is one open task with a due date and the process it is part of.
+type DeadlineRow struct {
+	TaskID      uuid.UUID
+	Name        string
+	NodeID      string
+	Status      string
+	Priority    int64
+	Assignee    string
+	DueDate     time.Time
+	ProcessKey  string
+	ProcessName string
+}
+
+// DeadlineCounts counts a project's open tasks, with a due date and without.
+type DeadlineCounts struct {
+	WithDeadline    int64
+	WithoutDeadline int64
+}
 
 type TaskFilter struct {
 	ProjectID *uuid.UUID
@@ -25,6 +45,10 @@ type TaskRepository interface {
 	ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error)
 	ListByCandidates(ctx context.Context, userID string, groups []string) ([]models.TaskModel, error)
 	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.TaskModel, error)
+	// Deadlines reads a project's open tasks with a due date, soonest first
+	// and at most limit of them, and counts all its open tasks. Scoped to the
+	// caller's tenant like every project read.
+	Deadlines(ctx context.Context, projectID uuid.UUID, limit int) ([]DeadlineRow, DeadlineCounts, error)
 
 	// Paged variants for the lists a user browses. The unpaged ones above stay
 	// for internal callers — the engine and job worker genuinely need every

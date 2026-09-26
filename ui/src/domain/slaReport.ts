@@ -1,5 +1,5 @@
 import { toCsv, type CsvValue } from './csv';
-import { urgencyOf, type UrgencyInput } from './taskUrgency';
+import { describeSpan, urgencyOf, type UrgencyInput } from './taskUrgency';
 
 /**
  * Which work has missed its deadline, and whose it is.
@@ -31,6 +31,8 @@ export interface BreachedTask {
   dueDate: string;
   /** Whole hours past the deadline. Negative means it has not passed yet. */
   hoursLate: number;
+  /** How late, in the words the inbox uses for the same task. */
+  lateBy: string;
 }
 
 /** How much is late, per person or per process. */
@@ -39,6 +41,8 @@ export interface BreachGroup {
   breached: number;
   /** The worst one in this group, in whole hours. */
   worstHoursLate: number;
+  /** The worst one in this group, in words. */
+  worstLateBy: string;
 }
 
 export interface SlaReport {
@@ -50,6 +54,35 @@ export interface SlaReport {
   withoutDeadline: number;
   byAssignee: BreachGroup[];
   byProcess: BreachGroup[];
+  /**
+   * Open tasks with a deadline that the server did not send: past its limit,
+   * so the ones with the latest deadlines. None of them is late unless every
+   * one that was sent is.
+   */
+  laterDeadlinesNotShown?: number;
+}
+
+/** A project's open work as far as deadlines go, as the server reads it. */
+export interface Deadlines {
+  /** The open tasks with a due date, soonest first. */
+  tasks?: DeadlineTask[];
+  /** All of the project's open tasks with a due date, sent or not. */
+  with_deadline?: number;
+  /** All of the project's open tasks with no due date. */
+  without_deadline?: number;
+}
+
+/** One open task with a due date, and the process it is part of. */
+export interface DeadlineTask {
+  id: string;
+  name?: string;
+  node_id?: string;
+  status?: string;
+  priority?: number;
+  assignee?: string;
+  due_date: string;
+  process_key?: string;
+  process_name?: string;
 }
 
 const HOUR = 60 * 60 * 1000;
@@ -81,13 +114,15 @@ export function slaReport(tasks: readonly ReportableTask[], now: Date = new Date
     }
 
     const due = new Date(task.dueDate);
+    const late = (now.getTime() - due.getTime()) / HOUR;
     breached.push({
       id: task.id,
       name: task.name ?? task.nodeId ?? task.id,
       assignee: task.assignee?.trim() ? task.assignee : UNASSIGNED,
       processName: task.processName?.trim() ? task.processName : 'Unknown process',
       dueDate: task.dueDate,
-      hoursLate: Math.floor((now.getTime() - due.getTime()) / HOUR),
+      hoursLate: Math.floor(late),
+      lateBy: describeHours(late),
     });
   }
 
@@ -104,6 +139,37 @@ export function slaReport(tasks: readonly ReportableTask[], now: Date = new Date
   };
 }
 
+/**
+ * The report over what the server read: every open task with a deadline,
+ * soonest first, each naming its process.
+ *
+ * The dashboard built it from the first page of the task list, which held the
+ * newest 200 tasks of any status and named no process. In a project with 200
+ * newer tasks the late ones were not on the page, and a late task that was
+ * read "Unknown process".
+ */
+export function slaReportFromDeadlines(deadlines: Deadlines, now: Date = new Date()): SlaReport {
+  const tasks = deadlines.tasks ?? [];
+  const report = slaReport(
+    tasks.map((task) => ({
+      id: task.id,
+      name: task.name,
+      nodeId: task.node_id,
+      status: task.status,
+      priority: task.priority,
+      dueDate: task.due_date,
+      assignee: task.assignee || null,
+      processName: task.process_name || task.process_key,
+    })),
+    now,
+  );
+  // Work with no deadline is counted by the server and never sent.
+  report.withoutDeadline = deadlines.without_deadline ?? 0;
+  const notShown = (deadlines.with_deadline ?? tasks.length) - tasks.length;
+  if (notShown > 0) report.laterDeadlinesNotShown = notShown;
+  return report;
+}
+
 function groupBreaches(breached: readonly BreachedTask[], key: (task: BreachedTask) => string): BreachGroup[] {
   const groups = new Map<string, BreachGroup>();
   for (const task of breached) {
@@ -111,10 +177,13 @@ function groupBreaches(breached: readonly BreachedTask[], key: (task: BreachedTa
     const group = groups.get(name);
     if (group) {
       group.breached += 1;
-      group.worstHoursLate = Math.max(group.worstHoursLate, task.hoursLate);
+      if (task.hoursLate > group.worstHoursLate) {
+        group.worstHoursLate = task.hoursLate;
+        group.worstLateBy = task.lateBy;
+      }
       continue;
     }
-    groups.set(name, { name, breached: 1, worstHoursLate: task.hoursLate });
+    groups.set(name, { name, breached: 1, worstHoursLate: task.hoursLate, worstLateBy: task.lateBy });
   }
   return [...groups.values()].sort(
     (a, b) => b.breached - a.breached || b.worstHoursLate - a.worstHoursLate || a.name.localeCompare(b.name),
@@ -136,15 +205,20 @@ export function slaSummary(report: SlaReport): string {
   }
   const count = report.breached.length;
   const worst = report.breached[0];
-  return `${count} ${count === 1 ? 'task is' : 'tasks are'} past their deadline, the oldest by ${describeHours(worst.hoursLate)}.`;
+  const late = `${count} ${count === 1 ? 'task is' : 'tasks are'} past their deadline, the oldest by ${worst.lateBy}.`;
+  const notShown = report.laterDeadlinesNotShown ?? 0;
+  return notShown > 0
+    ? `${late} ${notShown} more open ${notShown === 1 ? 'task has' : 'tasks have'} a later deadline and ${notShown === 1 ? 'is' : 'are'} not listed.`
+    : late;
 }
 
-/** Hours as something readable — days once there are enough of them. */
+/**
+ * Hours as something readable — days once there are enough of them — in the
+ * inbox's words, so the same lateness reads the same wherever it is shown.
+ */
 export function describeHours(hours: number): string {
   if (hours < 1) return 'less than an hour';
-  if (hours < 48) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
-  const days = Math.floor(hours / 24);
-  return `${days} days`;
+  return describeSpan(hours);
 }
 
 /** The report as a spreadsheet, one row per breached task. */

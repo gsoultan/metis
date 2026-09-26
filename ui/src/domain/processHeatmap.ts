@@ -1,3 +1,4 @@
+import { toCsv } from './csv';
 import { humanizeNodeId } from './instanceList';
 
 /**
@@ -14,13 +15,16 @@ import { humanizeNodeId } from './instanceList';
  * the step where forty quotations are stuck right now looks quiet.
  */
 
-/** An instance, as the heatmap needs it. */
-export interface HeatmapInstance {
-  id: string;
-  status?: string;
-  definition?: { id?: string; key?: string; name?: string };
-  /** The steps this instance is sitting on. Usually one; more with parallelism. */
-  activeNodes?: Array<{ id: string }>;
+/**
+ * Where one process's running work is sitting, as the server counts it
+ * (`GET /api/v1/projects/{id}/waiting`).
+ */
+export interface WaitingProcess {
+  key: string;
+  name: string;
+  /** Running instances sitting on at least one step. */
+  instances: number;
+  steps?: Array<{ node_id: string; waiting: number }>;
 }
 
 /** One step, and how much work is waiting on it. */
@@ -48,56 +52,30 @@ export interface ProcessHeat {
   instances: number;
 }
 
-/** Statuses that mean the instance is still somewhere. */
-function isLive(status?: string): boolean {
-  const value = (status ?? '').toLowerCase();
-  return value === '' || value === 'active' || value === 'suspended';
-}
-
 /**
- * Counts where the running work is, one entry per process.
+ * The heat the dashboard draws, from the server's counts.
  *
- * Grouped by process because a step id is only unique within one: two processes
- * can both have "approve", and adding them together produces a number that is
- * about nothing.
+ * Counted on the server across all of the project's running work. It used to
+ * be counted here from the newest 25 instances, reading each one's process from
+ * a field the server never sends: every process was "Unknown process", steps
+ * with the same id were added together across processes, and at volume the
+ * longest-stuck work was the first to fall off the page.
  */
-export function processHeat(instances: readonly HeatmapInstance[]): ProcessHeat[] {
-  const byProcess = new Map<string, { name: string; counts: Map<string, number>; instances: number }>();
-
-  for (const instance of instances) {
-    if (!isLive(instance.status)) continue;
-    const nodes = instance.activeNodes ?? [];
-    if (nodes.length === 0) continue;
-
-    const key = instance.definition?.key ?? instance.definition?.id ?? 'unknown';
-    const name = instance.definition?.name || instance.definition?.key || 'Unknown process';
-    let group = byProcess.get(key);
-    if (!group) {
-      group = { name, counts: new Map(), instances: 0 };
-      byProcess.set(key, group);
-    }
-    group.instances += 1;
-
-    // An instance on two branches is waiting in two places, and both places are
-    // holding it up. Counting it once would hide the branch that is stuck.
-    for (const node of nodes) {
-      if (!node?.id) continue;
-      group.counts.set(node.id, (group.counts.get(node.id) ?? 0) + 1);
-    }
-  }
-
+export function heatFromWaiting(processes: readonly WaitingProcess[]): ProcessHeat[] {
   const result: ProcessHeat[] = [];
-  for (const group of byProcess.values()) {
-    const busiest = Math.max(...group.counts.values(), 0);
-    const nodes: NodeHeat[] = [...group.counts.entries()]
-      .map(([nodeId, waiting]) => ({
-        nodeId,
-        label: humanizeNodeId(nodeId),
-        waiting,
-        intensity: busiest === 0 ? 0 : waiting / busiest,
+  for (const process of processes) {
+    const steps = (process.steps ?? []).filter((step) => step.node_id && step.waiting > 0);
+    if (steps.length === 0) continue;
+    const busiest = Math.max(...steps.map((step) => step.waiting));
+    const nodes: NodeHeat[] = steps
+      .map((step) => ({
+        nodeId: step.node_id,
+        label: humanizeNodeId(step.node_id),
+        waiting: step.waiting,
+        intensity: busiest === 0 ? 0 : step.waiting / busiest,
       }))
       .sort((a, b) => b.waiting - a.waiting || a.label.localeCompare(b.label));
-    result.push({ processName: group.name, nodes, instances: group.instances });
+    result.push({ processName: process.name || process.key || 'Unknown process', nodes, instances: process.instances });
   }
 
   // The process holding the most work first: that is where somebody looks.
@@ -151,4 +129,17 @@ export function heatColor(intensity: number): string {
   if (intensity >= 0.66) return 'red';
   if (intensity >= 0.33) return 'orange';
   return 'blue';
+}
+
+/**
+ * Where the work is waiting, as a spreadsheet: one row per step, busiest
+ * process first, as the dashboard shows it. The deadline report could be taken
+ * away and passed on; this could not, although it is the one that says where
+ * to send help.
+ */
+export function heatmapCsv(heat: readonly ProcessHeat[]): string {
+  const rows = heat.flatMap((process) =>
+    process.nodes.map((node) => [process.processName, node.label, node.waiting]),
+  );
+  return toCsv(['Process', 'Step', 'Waiting'], rows);
 }

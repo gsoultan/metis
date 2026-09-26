@@ -25,6 +25,7 @@ import {
   useProjects,
   useProcessStatistics,
   useInstances,
+  useWaitingByStep,
 } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 import { PageHeader } from '../components/PageHeader';
@@ -35,10 +36,11 @@ import { StatsLoadingState, ErrorState } from '../components/state';
 import { PROCESS_TEMPLATES } from '../domain/processTemplates';
 import { useTranslation } from '../i18n/context';
 import { useMemo } from 'react';
-import { useTasks } from '../hooks/useTasks';
-import { csvFilename } from '../domain/csv';
-import { slaReport, slaReportCsv, slaSummary, describeHours, type ReportableTask } from '../domain/slaReport';
-import { heatColor, heatSummary, processHeat } from '../domain/processHeatmap';
+import { useDeadlines } from '../hooks/useTasks';
+import { csvBlob, csvFilename } from '../domain/csv';
+import { slaReportCsv, slaReportFromDeadlines, slaSummary } from '../domain/slaReport';
+import { taskCompletion } from '../domain/dashboardFigures';
+import { heatColor, heatFromWaiting, heatmapCsv, heatSummary } from '../domain/processHeatmap';
 
 /**
  * A single headline number.
@@ -115,20 +117,21 @@ export function Dashboard() {
   const { data: defs } = useDefinitions();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const { data: instancesData } = useInstances();
-  // A page of open work, for the deadline report below. The inbox already
+  // The open work with a deadline, for the report below. The inbox already
   // tells one person that one task is late; nothing answered "how much is
-  // late, and whose" for somebody who has to do something about it.
-  const { data: tasksData } = useTasks(1, 200);
+  // late, and whose" for somebody who has to do something about it. Read on
+  // the server across all of it: a page of the task list held the newest 200
+  // tasks of any status, and named no process.
+  const { data: deadlines } = useDeadlines();
 
-  const report = useMemo(
-    () => slaReport((tasksData?.tasks ?? []).map(toReportableTask)),
-    [tasksData?.tasks],
-  );
+  const report = useMemo(() => slaReportFromDeadlines(deadlines ?? {}), [deadlines]);
 
   // Where the running work is sitting. The instance list already says which
   // step each instance is on, one row at a time; this asks it the other way
-  // round, which is the direction that finds a bottleneck.
-  const heat = useMemo(() => processHeat(instancesData?.instances ?? []), [instancesData?.instances]);
+  // round, which is the direction that finds a bottleneck. Counted on the
+  // server across all of it; it used to be counted here from one page.
+  const { data: waiting } = useWaitingByStep();
+  const heat = useMemo(() => heatFromWaiting(waiting ?? []), [waiting]);
   
 
   // Falling back to zeros made an unloaded dashboard indistinguishable from a
@@ -147,8 +150,6 @@ export function Dashboard() {
    */
   const stats = statsData?.stats;
   const activeInstances = stats?.activeInstances ?? 0;
-  const totalTasks = stats?.totalTasks ?? 0;
-  const pendingTasks = stats?.pendingTasks ?? 0;
 
   /*
    * Deliberately NOT stats.failedInstances, which counts instances whose
@@ -211,9 +212,7 @@ export function Dashboard() {
     );
   }
 
-  const completionRate = totalTasks > 0 
-    ? Math.round(((totalTasks - pendingTasks) / totalTasks) * 100) 
-    : 0;
+  const completion = taskCompletion(stats ?? {});
 
   return (
     <Stack gap="xl">
@@ -254,11 +253,11 @@ export function Dashboard() {
         <Grid.Col span={{ base: 12, md: 3 }}>
           <StatCard
             title={t('dash.tasksCompleted')}
-            value={`${completionRate}%`}
+            value={`${completion.rate}%`}
             icon={CheckCircle}
             color="orange"
-            progress={completionRate}
-            progressLabel={t('dash.tasksProgress', { done: totalTasks - pendingTasks, total: totalTasks })}
+            progress={completion.rate}
+            progressLabel={t('dash.tasksProgress', { done: completion.done, total: completion.total })}
           />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 3 }}>
@@ -315,7 +314,7 @@ export function Dashboard() {
                 <Group key={group.name} justify="space-between" wrap="nowrap">
                   <Text size="xs">{group.name}</Text>
                   <Text size="xs" c="dimmed">
-                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                    {group.breached} late, worst {group.worstLateBy}
                   </Text>
                 </Group>
               ))}
@@ -326,7 +325,7 @@ export function Dashboard() {
                 <Group key={group.name} justify="space-between" wrap="nowrap">
                   <Text size="xs">{group.name}</Text>
                   <Text size="xs" c="dimmed">
-                    {group.breached} late, worst {describeHours(group.worstHoursLate)}
+                    {group.breached} late, worst {group.worstLateBy}
                   </Text>
                 </Group>
               ))}
@@ -347,9 +346,19 @@ export function Dashboard() {
       <Card shadow="sm" radius="lg" withBorder mb="xl">
         <Group justify="space-between" mb="md">
           <Title order={4}>Where work is waiting</Title>
-          <Button component={Link} to="/instances" variant="subtle" size="xs">
-            {t('dash.viewAllInstances')}
-          </Button>
+          <Group gap="xs">
+            <Button
+              variant="subtle"
+              size="xs"
+              disabled={heat.length === 0}
+              onClick={() => downloadCsv(heatmapCsv(heat), csvFilename('waiting-work'))}
+            >
+              Export CSV
+            </Button>
+            <Button component={Link} to="/instances" variant="subtle" size="xs">
+              {t('dash.viewAllInstances')}
+            </Button>
+          </Group>
         </Group>
 
         <Text size="sm" c={heat.length > 0 ? undefined : 'dimmed'} mb={heat.length > 0 ? 'md' : 0}>
@@ -466,35 +475,6 @@ export function Dashboard() {
 
 
 /**
- * Reads a task from the API as the deadline report needs it.
- *
- * The report deliberately takes a small shape of its own rather than the API
- * type: it is arithmetic over four fields, and coupling it to the wire format
- * would mean a field rename breaking a calculation that does not care.
- */
-function toReportableTask(task: {
-  id: string;
-  name?: string;
-  nodeId?: string;
-  status?: string;
-  priority?: number;
-  dueDate?: string | null;
-  assignee?: { username?: string } | null;
-  instance?: { definition?: { name?: string; key?: string } | null } | null;
-}): ReportableTask {
-  return {
-    id: task.id,
-    name: task.name,
-    nodeId: task.nodeId,
-    status: task.status,
-    priority: task.priority,
-    dueDate: task.dueDate,
-    assignee: task.assignee?.username ?? null,
-    processName: task.instance?.definition?.name || task.instance?.definition?.key,
-  };
-}
-
-/**
  * Hands the browser a file.
  *
  * An object URL rather than a data: one because a data URL carrying a few
@@ -502,7 +482,7 @@ function toReportableTask(task: {
  * report matters most.
  */
 function downloadCsv(contents: string, filename: string) {
-  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8;' });
+  const blob = csvBlob(contents);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

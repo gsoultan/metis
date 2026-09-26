@@ -15,4 +15,10 @@ type ProjectService interface {
 	UpdateProject(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, name, description string) error
 	DeleteProject(ctx context.Context, id uuid.UUID) error
 	GetProcessStatistics(ctx context.Context, projectID uuid.UUID) (entities.ProcessStatistics, error)
+	// WaitingByStep says where the project's running work is sitting now, per
+	// process, busiest first.
+	WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]entities.WaitingProcess, error)
+	// Deadlines reads the project's open work with a due date, soonest first,
+	// and counts all of its open work.
+	Deadlines(ctx context.Context, projectID uuid.UUID) (entities.Deadlines, error)
 }
