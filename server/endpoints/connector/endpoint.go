@@ -24,6 +24,7 @@ type Endpoints struct {
 	UpdateConnectorInstance endpoint.Endpoint
 	DeleteConnectorInstance endpoint.Endpoint
 	ExecuteConnector        endpoint.Endpoint
+	TryConnectorStep        endpoint.Endpoint
 	InstallManifest         endpoint.Endpoint
 	ListManifests           endpoint.Endpoint
 	GetManifest             endpoint.Endpoint
@@ -42,6 +43,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		UpdateConnectorInstance: MakeUpdateConnectorInstanceEndpoint(s),
 		DeleteConnectorInstance: MakeDeleteConnectorInstanceEndpoint(s),
 		ExecuteConnector:        MakeExecuteConnectorEndpoint(s),
+		TryConnectorStep:        MakeTryConnectorStepEndpoint(s),
 		InstallManifest:         MakeInstallManifestEndpoint(s),
 		ListManifests:           MakeListManifestsEndpoint(s),
 		GetManifest:             MakeGetManifestEndpoint(s),
@@ -172,6 +174,24 @@ func MakeExecuteConnectorEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		res, err := s.ExecuteConnector(ctx, req.ConnectorKey, req.Config, req.Payload)
 		return ExecuteConnectorResponse{Result: res, Err: err}, nil
+	}
+}
+
+// MakeTryConnectorStepEndpoint runs one connector step against its project's
+// saved connection, so a designer can see what the step would store.
+func MakeTryConnectorStepEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(TryConnectorStepRequest)
+		if !ok {
+			return TryConnectorStepResponse{Err: errWrongConnectorRequest}, nil
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return TryConnectorStepResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier", req.ProjectID)}, nil
+		}
+		step := entities.Node{ID: "try", Name: req.StepName, Type: entities.ServiceTask, Properties: req.Properties}
+		stored, err := s.TryConnectorStep(ctx, projectID, step, req.Variables)
+		return TryConnectorStepResponse{Variables: stored, Err: err}, nil
 	}
 }
 

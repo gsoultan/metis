@@ -645,3 +645,12 @@ export interface DecisionResult {
   matched_rules?: number[];
   values: ProcessVariables;
 }
+
+/** One run of a connector step against its project's saved connection. */
+export interface TryConnectorStepRequest {
+  projectId: string;
+  stepName?: string;
+  /** The step's settings, under the names the server stores them by. */
+  properties: Record<string, unknown>;
+  variables: Record<string, unknown>;
+}

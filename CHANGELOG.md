@@ -62,6 +62,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   — worth setting on a shared installation, where the project administrator who
   sets up a connection is not whoever runs the servers.
 
+- **A database lookup takes a list.** A value that is a list expands to one
+  parameter per item, for `WHERE id IN (:ids)`, still bound rather than written
+  into the query. An empty list is refused, not treated as matching nothing.
+- **Testing a database lookup's connection works.** The Connectors page's
+  "Test" answered that a lookup cannot run on its own; it now opens the
+  connection with every check a lookup gets and runs nothing of anybody's.
 - **The Query author role.** Deploying a process with a database lookup in it
   needs `QUERY_AUTHOR`, held beside Designer; administrators have it already.
   It is created on the next start with no migration. Grant it on the Platform
@@ -80,6 +86,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **"Try it" on a connector step works.** It sent the connector's id where the
+  server expected its key, and the step's mappings where it expected a
+  connection, so it failed for every connector. It now runs the step once
+  against the connection its project saved, with the step's mappings, and shows
+  what the step would store (`POST /api/v1/connectors/try-step`, designers and
+  administrators). It is real — a Slack step posts — and says so; nothing is
+  recorded on any process. Trying a database lookup needs the Query author role,
+  as deploying one does.
+- **Mappings set on a connector step were ignored.** The designer's "If the
+  names differ" tables saved them under names the server never read, so a step
+  configured to rename a value did not. The engine now reads `input_mapping` and
+  `output_mapping` on a connector step — the same target → source maps a
+  decision uses, FEEL included — and with either set, only the listed fields are
+  sent or kept, as an HTTP step's mappings have always worked. A definition
+  already deployed is unaffected: its mappings move to the new names when it is
+  opened in the designer, and take effect when it is next deployed.
 - **Headers configured on an HTTP connection were never sent.** The Connectors
   page saves them as text and the connector read only an object, so an
   `Authorization` header typed into the form never left the server. A call that

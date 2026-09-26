@@ -8,20 +8,24 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
-// A connector call with no step behind it arrives from POST
-// /connectors/execute, with a configuration its caller wrote. The lookup must
-// refuse it without connecting anywhere, or that endpoint becomes a way to try
-// any database host and credential the server can reach.
-func TestALookupWithNoStepConnectsNowhere(t *testing.T) {
-	e := &Executor{pools: newPools(poolSettings{maxConns: 1, maxPools: 1}, hostPolicy{})}
-	_, err := e.Execute(context.Background(), map[string]any{
-		"driver": "postgres", "dsn": "postgres://svc:pw@10.0.0.1:5432/anything",
-	}, map[string]any{})
-	if !errors.Is(err, errNoRequest) {
-		t.Fatalf("got %v", err)
+// Testing a connection holds it to the checks a lookup gets, before anything is
+// dialled.
+func TestTestingAConnectionHoldsItToTheSameChecks(t *testing.T) {
+	e := &Executor{pools: newPools(poolSettings{maxConns: 1, maxPools: 1}, hostPolicyOf("allowed.internal"))}
+	for name, tc := range map[string]struct {
+		config map[string]any
+		want   error
+	}{
+		"no kind of database": {map[string]any{"dsn": "postgres://svc:pw@allowed.internal/crm"}, errUnknownDriver},
+		"a host not on the operator's list": {
+			map[string]any{"driver": "postgres", "dsn": "postgres://svc:pw@10.0.0.1:5432/anything"}, errHostNotAllowed},
+	} {
+		if _, err := e.Execute(context.Background(), tc.config, nil); !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v, want %v", name, err, tc.want)
+		}
 	}
 	if e.pools.cache.Len() != 0 {
-		t.Fatal("a pool was opened for a call with no step")
+		t.Fatal("a refused connection test still opened a pool")
 	}
 }
 

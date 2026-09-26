@@ -14,7 +14,7 @@ import {
 import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { clearedStepFields } from '../../domain/connectorStep';
+import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
 import { asText, asTextMap } from '../../types/bpmn';
@@ -40,8 +40,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const connectors = connectorsData?.connectors ?? [];
   const selectedConnector = connectors.find((c) => c.id === asText(data.connector_id));
   // A connector that asks the step for fields of its own — a database lookup's
-  // query — has them drawn here, and cannot be tried on its own: it runs as a
-  // step of a process, which says what to look up.
+  // query — has them drawn here.
   const stepSchema = selectedConnector?.node_schema ?? [];
   const takesStepFields = stepSchema.length > 0;
 
@@ -87,16 +86,14 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                       <Text size="xs" c="dimmed" lineClamp={2}>{selectedConnector.description}</Text>
                     </Box>
                     <Group gap={4} wrap="nowrap">
-                      {!takesStepFields && (
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          leftSection={<Play size={12} />}
-                          onClick={() => setTestModalOpened(true)}
-                        >
-                          Try it
-                        </Button>
-                      )}
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        leftSection={<Play size={12} />}
+                        onClick={() => setTestModalOpened(true)}
+                      >
+                        Try it
+                      </Button>
                       <ActionIcon
                         aria-label="Remove this connector"
                         size="sm"
@@ -119,21 +116,21 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
             ) : (
             <PropertySection
               title="If the names differ"
-              hint="Only needed when the connector calls things differently from your process."
+              hint="Leave these empty to send every process value and keep the whole answer. List anything, and only what is listed is sent or kept."
             >
               <MappingTable
                 title="SENDING"
-                sourceLabel="Your variable"
-                targetLabel="Their field"
-                mapping={asTextMap(data.inputs)}
-                onUpdate={(m) => onUpdate({ inputs: m })}
+                sourceLabel="Their field"
+                targetLabel="From the process"
+                mapping={asTextMap(stepFieldValue(data as Record<string, unknown>, 'input_mapping'))}
+                onUpdate={(m) => onUpdate(stepFieldPatch('input_mapping', m))}
               />
               <MappingTable
                 title="RECEIVING"
-                sourceLabel="Their field"
-                targetLabel="Store it as"
-                mapping={asTextMap(data.outputs)}
-                onUpdate={(m) => onUpdate({ outputs: m })}
+                sourceLabel="Store it as"
+                targetLabel="From their answer"
+                mapping={asTextMap(stepFieldValue(data as Record<string, unknown>, 'output_mapping'))}
+                onUpdate={(m) => onUpdate(stepFieldPatch('output_mapping', m))}
               />
             </PropertySection>
             )}
@@ -195,7 +192,6 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
       {expertMode && <MultiInstanceConfig data={data} onUpdate={onUpdate} />}
 
       <NodeTestModal
-        nodeId="test"
         data={data}
         opened={testModalOpened}
         onClose={() => setTestModalOpened(false)}

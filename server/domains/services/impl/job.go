@@ -786,11 +786,13 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 	if err != nil {
 		return nil, fmt.Errorf("connector lookup failed: %w", err)
 	}
-	result, err := s.connectorSvc.ExecuteConnectorRequest(ctx, connector.Key, ci.Config, connectorRequestFor(node, payload))
+	req := connectorRequestFor(node, payload)
+	req.Variables = stepInputs(node, payload)
+	result, err := s.connectorSvc.ExecuteConnectorRequest(ctx, connector.Key, ci.Config, req)
 	if err != nil {
 		return nil, fmt.Errorf("connector execution failed: %w", err)
 	}
-	return result, nil
+	return stepOutputs(node, result), nil
 }
 
 // findConnectorInstance resolves the connector instance for a node.

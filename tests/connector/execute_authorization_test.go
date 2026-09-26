@@ -182,3 +182,25 @@ func newCountingListener(t *testing.T) *countingListener {
 	}()
 	return c
 }
+
+// Trying a step is a designer's: the connection it runs against is the
+// project's saved one, never the caller's to choose, so it is not the hole
+// execute was. Somebody who only works the task inbox is still refused.
+func TestTryingAStepIsForDesignersAndAdministrators(t *testing.T) {
+	h := newExecuteHarness(t)
+	body := map[string]any{
+		"project_id": "018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1aff",
+		"properties": map[string]any{"connector_id": "018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a1a"},
+		"variables":  map[string]any{},
+	}
+	for role, allowed := range map[string]bool{
+		entities.RoleUser: false, entities.RoleOperator: false,
+		entities.RoleDesigner: true, entities.RoleAdmin: true,
+	} {
+		status, response := h.post(t, h.tokens[role], "/api/v1/connectors/try-step", body)
+		refused := status == http.StatusUnauthorized || status == http.StatusForbidden
+		if refused == allowed {
+			t.Errorf("%s: status %d (%s), allowed=%v", role, status, response, allowed)
+		}
+	}
+}

@@ -94,6 +94,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// connection test is its only working caller, and that page is theirs; an
 	// administrator can already point a saved connection anywhere.
 	connectorEndpoints.ExecuteConnector = adminOnly("ExecuteConnector")(connectorEndpoints.ExecuteConnector)
+	// Designers write the steps, and the connection a step is tried against is
+	// the project's saved one — never the caller's to choose, which is what
+	// lets this be theirs where ExecuteConnector cannot be.
+	connectorEndpoints.TryConnectorStep = designer("TryConnectorStep")(connectorEndpoints.TryConnectorStep)
 
 	// The connector *templates*, as opposed to the instances above. These three
 	// were routed and never wrapped, so any authenticated account could add,

@@ -77,6 +77,12 @@ func RegisterHandlers(m *http.ServeMux, eps connector.Endpoints, options []httpt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("POST /api/v1/connectors/try-step", httptransport.NewServer(
+		eps.TryConnectorStep,
+		decodeTryConnectorStepRequest,
+		common.EncodeResponse,
+		options...,
+	))
 }
 
 func decodeListConnectorsRequest(_ context.Context, _ *http.Request) (any, error) {
@@ -129,6 +135,14 @@ func decodeDeleteConnectorInstanceRequest(_ context.Context, r *http.Request) (a
 
 func decodeExecuteConnectorRequest(_ context.Context, r *http.Request) (any, error) {
 	var req connector.ExecuteConnectorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+func decodeTryConnectorStepRequest(_ context.Context, r *http.Request) (any, error) {
+	var req connector.TryConnectorStepRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, err
 	}

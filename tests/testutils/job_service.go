@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,4 +80,10 @@ func (s *SynchronousJobService) ListIncidents(ctx context.Context, instanceID uu
 
 func (s *SynchronousJobService) ResolveIncident(ctx context.Context, incidentID uuid.UUID) error {
 	return nil
+}
+
+// TryConnectorStep is not something the synchronous double does: it stands in
+// for a job queue, and trying a step runs a real connector.
+func (s *SynchronousJobService) TryConnectorStep(context.Context, uuid.UUID, entities.Node, map[string]any) (map[string]any, error) {
+	return nil, errors.New("the synchronous test job service does not run connectors")
 }
