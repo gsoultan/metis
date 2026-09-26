@@ -26,7 +26,7 @@ function straightThrough(): { nodes: CheckableNode[]; edges: CheckableEdge[] } {
   return {
     nodes: [
       node('s', 'startEvent', { label: 'Expense submitted' }),
-      node('a', 'userTask', { label: 'Manager approves' }),
+      node('a', 'userTask', { label: 'Manager approves', candidateGroups: ['line-managers'] }),
       node('e', 'endEvent', { label: 'Done' }),
     ],
     edges: [edge('f1', 's', 'a'), edge('f2', 'a', 'e')],
@@ -77,7 +77,7 @@ describe('the shape of the process', () => {
 
   it('names a step that can never be reached', () => {
     const { nodes, edges } = straightThrough();
-    nodes.push(node('orphan', 'userTask', { label: 'Forgotten review' }));
+    nodes.push(node('orphan', 'userTask', { label: 'Forgotten review', candidateGroups: ['auditors'] }));
     const issues = validateProcess(nodes, edges);
     const unreachable = issues.find((i) => i.message.includes('Forgotten review'));
     expect(unreachable?.severity).toBe('error');
@@ -286,6 +286,65 @@ describe('a step that calls another system but has nothing to call', () => {
     nodes.push(node('m', 'manualTask', { label: 'File the paperwork' }));
     edges.push(edge('f3', 'a', 'm'), edge('f4', 'm', 'e'));
     expect(validateProcess(nodes, edges)).toEqual([]);
+  });
+});
+
+/*
+ * A step that asks a person, with nobody named to do it.
+ *
+ * With no assignee and no candidates the task used to be everybody's: anybody
+ * signed in could take it and complete it. Absent constraint means deny, so the
+ * server offers it to nobody and lets only an administrator or an operator take
+ * it. That can be meant — a step nobody owns yet — so it is a warning, and the
+ * designer says what will happen before the first instance gets there.
+ */
+describe('a step that asks a person but names nobody', () => {
+  const askProcess = (type: string, data: Record<string, unknown>) => ({
+    nodes: [
+      node('s', 'startEvent', { label: 'Refund requested' }),
+      node('a', type, { label: 'Approve the refund', ...data }),
+      node('e', 'endEvent', { label: 'Refund decided' }),
+    ],
+    edges: [edge('f1', 's', 'a'), edge('f2', 'a', 'e')],
+  });
+  const issuesFor = (data: Record<string, unknown>, type = 'userTask') => {
+    const { nodes, edges } = askProcess(type, data);
+    return validateProcess(nodes, edges);
+  };
+
+  const NOBODY_NAMED: ValidationIssue = {
+    message: '"Approve the refund" does not say who does it, so only administrators and operators will be able to take it.',
+    severity: 'warning',
+    id: 'a',
+    suggestion: 'Under “Who does this” on the step, choose one person, or the people or teams who may pick it up.',
+  };
+
+  it('warns, naming the step and who will be able to take it', () => {
+    expect(issuesFor({})).toEqual([NOBODY_NAMED]);
+  });
+
+  it('counts a name left blank as nobody', () => {
+    expect(issuesFor({ assignee: '  ', candidateUsers: [''], candidateGroups: [' '] })).toEqual([NOBODY_NAMED]);
+  });
+
+  /* The step works as it is; it is somebody's decision whether that is what they meant. */
+  it('does not stop a deploy', () => {
+    expect(hasBlockingIssues(issuesFor({}))).toBe(false);
+  });
+
+  it.each([
+    ['one person', { assignee: 'dana' }],
+    ['people who may pick it up', { candidateUsers: ['dana', 'eli'] }],
+    ['a team who may pick it up', { candidateGroups: ['finance'] }],
+    /* A decision table names who does it when the task arrives. */
+    ['a decision table that decides who', { assignment_decision_key: 'refund-approvers' }],
+  ])('is satisfied by %s', (_, data) => {
+    expect(issuesFor(data)).toEqual([]);
+  });
+
+  /* The designer offers a manual step no way to name anybody, and tells its author an empty one is anybody's. */
+  it('leaves a manual step alone', () => {
+    expect(issuesFor({}, 'manualTask')).toEqual([]);
   });
 });
 
