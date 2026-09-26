@@ -46,6 +46,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   an administrator — the rule releasing, delegating and assigning already
   followed — and a task nobody holds is an administrator's to edit. Anybody
   else gets a 403 that says so.
+- **A group could hold another organization's account.** An administrator
+  could add another organization's account to one of their groups by naming
+  its id, and the member list then showed that person's username, name and
+  email to everybody in the group's organization. Adding one is refused now,
+  and upgrading removes the ones already there: migration 24 deletes every
+  group membership whose account is not a member of the group's organization,
+  and logs each removal by group and account id, then the count — zero when
+  there were none. To put one back, make the account a member of the group's
+  organization first, then add it to the group again.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial
