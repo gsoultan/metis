@@ -330,7 +330,11 @@
         report and CSV export, all counted on the server (#97; no PDF export); 6, done
         before; 8, version comparison, rollback and migration (#98). Item 7 in part:
         memberships stay inside an organization, role refusals are 403, and anybody can
-        edit their own profile (#96). The visual role editor is not built.
+        edit their own profile (#96); the visual role editor is the Roles tab on Platform
+        access — who holds which role, ticked by an administrator, beside what each role
+        is required for as the gates enforce it (`GET /api/v1/roles`, held to endpoints.go
+        by a test; #118). Roles are still the four fixed in code, and group- or
+        organization-scoped access is not built.
   - [ ] Lower-priority UX items (9-12) delivered. Delivered: 10, the decision-table editor
         (#101); 11, progressive disclosure (#100); 12, onboarding and help (#102).
         Item 9 in part: manifests are hardened (#99). Listing installed manifests in the
