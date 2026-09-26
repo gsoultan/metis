@@ -39,18 +39,27 @@ func NewWorkflowUserRepository(conn *db.Conn) contracts.WorkflowUserRepository {
 //
 // A limit above zero is applied in the query, so asking whether a project has
 // anybody reads one row rather than the directory.
+//
+// No limit means the whole directory, as the contract says — not the store's
+// first thousand. A sync deactivating whoever its source stopped naming, and a
+// removal checking that somebody is in this project, both act on what this
+// returns, and past a thousand people they missed everyone after the window.
 func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// The id breaks ties so the cursor is a position; a username is unique
+	// within a project, so it never has to.
 	query := workflowuser.New().
 		Where(workflowuser.ProjectID.Eq(projectID)).
-		Order(workflowuser.Username.Asc())
+		Order(workflowuser.Username.Asc(), workflowuser.ID.Asc())
+	var rows []workflowuser.Row
 	if limit > 0 {
-		query = query.Limit(int64(limit))
+		rows, err = query.Limit(int64(limit)).All(ctx, ex, nil)
+	} else {
+		rows, err = everyRow[workflowuser.Row](ctx, ex, query)
 	}
-	rows, err := query.All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not list participants: %w", err)
 	}
