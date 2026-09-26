@@ -16,6 +16,12 @@ export interface ApiWebhook {
   message_name: string;
   correlation_expression?: string;
   enabled: boolean;
+  /**
+   * When this webhook stops accepting legacy signatures, which cover the body
+   * alone. Absent for a webhook that accepts v2 only — every one created since
+   * v2 existed.
+   */
+  legacy_signatures_until?: string;
 }
 
 type ListWebhooksResponse = { webhooks?: ApiWebhook[]; err?: string };
