@@ -160,7 +160,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     try {
       const reply = await apply.mutateAsync(request);
       if (reply.err) {
-        setApplyError(reply.err);
+        setApplyError(errorMessage(reply.err));
         planned.replan();
         return;
       }

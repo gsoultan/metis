@@ -11,6 +11,7 @@ import { notifications } from '@mantine/notifications';
 import { useState } from 'react';
 
 import { useCloseLegacySignatures } from '../../hooks/useWebhooks';
+import { errorMessage } from '../../services/shared/errors';
 
 export function CloseLegacyWindow({ hookId, deadline }: { hookId: string; deadline: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -20,7 +21,7 @@ export function CloseLegacyWindow({ hookId, deadline }: { hookId: string; deadli
     close.mutate(hookId, {
       onSuccess: () => notifications.show({ message: 'Legacy signatures are no longer accepted.', color: 'green' }),
       onError: (err) =>
-        notifications.show({ title: 'Could not stop legacy signatures', message: err.message, color: 'red' }),
+        notifications.show({ title: 'Could not stop legacy signatures', message: errorMessage(err), color: 'red' }),
     });
 
   return (

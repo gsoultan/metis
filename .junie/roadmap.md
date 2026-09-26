@@ -230,6 +230,11 @@
         **Done 2026-09-26 (INT-15):** both start when `METIS_RABBITMQ_BRIDGES` or
         `METIS_RABBITMQ_CONSUMERS` names them, so the reconnect logic runs in a server
         that is configured to use it. Off by default; see the entry of that date below.
+        **Corrected 2026-09-26 (`rabbitmq-hardening`):** `messaging_test.go` never had a
+        reconnect test. Reconnecting is tested now: against a broker in memory
+        (`messaging_bridge_test.go`, `messaging_consumer_test.go`,
+        `messaging_reconnect_test.go`) and, in CI, against a real one through a proxy that
+        drops confirms, refuses and cuts connections (`messaging_broker_test.go`).
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
@@ -336,7 +341,10 @@
         edit their own profile (#96); the visual role editor is the Roles tab on Platform
         access — who holds which role, ticked by an administrator, beside what each role
         is required for as the gates enforce it (`GET /api/v1/roles`, held to endpoints.go
-        by a test; #118). Roles are still the four fixed in code, and group- or
+        by a test; #118). That legend reads in the interface's language: its headings and
+        its actions, which the catalogues word by method name, with the server's English
+        for a method they do not know yet (2026-09-27); the role names and their sentences
+        are still English. Roles are still the four fixed in code, and group- or
         organization-scoped access is not built.
   - [ ] Lower-priority UX items (9-12) delivered. Delivered: 10, the decision-table editor
         (#101); 11, progressive disclosure (#100); 12, onboarding and help (#102).
@@ -1113,16 +1121,75 @@
       budget, time on the queue included. A task not completed in time is published
       again at the next poll, so a backlog on the queue multiplies itself. Wants a
       per-bridge lock setting; changing `StartBridge` for it needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below):** `lock_seconds`, five minutes
+      unless set.
     - A channel the broker closes — an exchange that does not exist, or one the user may
       not publish to — is not reopened while the connection lives, so the bridge hands
       every task back at every poll until it is restarted. `runBridge` should reopen a
       closed channel as it redials a closed connection. Needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below).**
     - A bridge's publish waits for its confirm with no deadline of its own, so a blocked
-      broker holds the fetched tasks past their lock.
+      broker holds the fetched tasks past their lock. **Fixed on `rabbitmq-hardening`
+      (entry below):** `METIS_RABBITMQ_CONFIRM_TIMEOUT`, 10 seconds unless set.
     - A bridge takes its topic from every project of the organization, as an API worker
       does; there is no per-project fetch.
-    - Reconnection after start is every 5 seconds, not backed off.
+    - Reconnection after start is every 5 seconds, not backed off. **Fixed on
+      `rabbitmq-hardening` (entry below).**
     service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): the RabbitMQ bridge and consumer survive a broker that
+  misbehaves — four of the five items INT-15 left for the backlog. Branch
+  `rabbitmq-hardening`, one commit per gap, each with a test that fails against the code
+  before it. Driver: arch · Challengers: perf, sec, test.
+  - **A confirm that never comes.** Every publish — the bridge's, the consumer's
+    dead-letter publish, the RabbitMQ connector's — waits at most
+    `METIS_RABBITMQ_CONFIRM_TIMEOUT` (10s) for its confirm. It waited for ever: the
+    bridge held the task and its topic until a restart, and the connector a job worker's
+    slot. A missed confirm is a refusal: the task is handed back, the rest of the round
+    unpublished, and the channel replaced, because the broker's late answer about the lost
+    message could be read as its answer about the next.
+  - **What the broker closes is opened again.** The bridge and the consumer watch
+    `NotifyClose` on their channel and connection and reopen the channel alone while the
+    connection is up. The consumer says why its deliveries stopped (the broker's reason,
+    or that it cancelled the consumer) and declares the queue again. Each problem is logged
+    at error once, naming the bridge or consumer, and at debug while it lasts
+    (`problem_log.go`, bounded).
+  - **Backoff.** Reconnecting waits 5s doubling to 5 minutes, ±25%, and starts over once
+    a connection has lasted: to the bridge's next round or a forwarded task, through
+    the consumer's first 5 seconds of consuming. A broker that drops each connection
+    straight away is waited for as if it were down. It reuses the schedule `backoff.go`
+    had for job retries, now a `backoff` type, rather than a second one. (The
+    broker-backed backoff test first failed in CI: it changed the proxy while the bridge
+    ran, and raced the dial it meant to follow. It now changes it only while the bridge
+    is held between rounds.)
+  - **A lock long enough for a queue.** `lock_seconds` per entry of
+    `METIS_RABBITMQ_BRIDGES`, 30 to 86400, 300 unless set. A worker cannot extend it, so it
+    covers queue time and work; `docs/integration.md` says how to size it. Tasks fetched
+    as the bridge stops are handed back at once instead of waiting out the lock.
+  - **How it is tested without a broker.** The loops depend on narrow, consumer-owned
+    interfaces (`brokerConnection`, `brokerChannel` and the ones they compose), which
+    `amqp_connection.go` and `amqp_channel.go` adapt the library to, and run in the tests
+    against a broker in memory. What only a real broker can vouch for runs in CI:
+    `messaging_broker_test.go` (a missed confirm, through a proxy that drops
+    `basic.ack`/`basic.nack` frames; a missing exchange created mid-run; a deleted queue;
+    backoff and its reset through a proxy that refuses and cuts) and the lock in
+    `internal/app/rabbitmq_broker_test.go`. The proxy's framing is tested locally.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and
+    `STORM_DSN` set against PostgreSQL 17 — 83 packages pass under test, race and the
+    strict tenant scope each; UI typecheck, lint (0 errors) and 1469 tests pass.
+    `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
+    no broker, and run in CI.
+  - **Found and not fixed — for the backlog:**
+    - A worker cannot extend an external task's lock: the API has fetch-and-lock,
+      complete and failure, on every transport. A bridged worker's whole budget is
+      therefore the bridge's lock, so a long job needs a long lock, and a lost message
+      waits that long to be published again. An extend-lock operation would let locks
+      stay short; it is API surface on HTTP, gRPC and Connect, and in the SDK.
+    - The bridge publishes transient messages, so a broker restart loses what is queued
+      and those tasks wait out their lock. Persistent delivery is a small change and a
+      decision about the broker's disk.
+    - Still nothing measures a bridge's or consumer's connection, so still no alert and
+      no runbook.
+    - A bridge takes its topic from every project of the organization (above).
 - 2026-09-26 (completed): environments go live without a restart, and each one's backlog
   is measured. Branch `environments-live`; the two items left open by #94 and by the
   observability batch.
@@ -1190,6 +1257,51 @@
     its first event. OCEL can carry the change as a second time-stamped value at the
     migration; the `instance_migrated` entry already records the source and target
     versions it would take.
+- 2026-09-26 (completed): `DMN-17` — a decision cell sees the rest of the case. Branch
+  `decision-cells-see-inputs`, one commit per change, each with a test that fails without it.
+  - **The gap.** A condition cell was tested against its own column's value and nothing
+    else (`ruleMatches` built `{"_input": value}`), so `> minimum` beside a minimum column,
+    `> credit_limit`, or `[low..high]` compared with null: no match and no error, `!=`
+    matching every case, and only a range failing ("cannot compare a number with a null").
+  - **The rule now.** DMN's: the column's value is the implicit subject (`_input`, bound
+    first, so no variable shadows it) and every variable the decision was evaluated with is
+    in scope by name, required decisions' answers included — the names the columns read,
+    so a column and a variable of the same name are one value, and a heading is not a name.
+    The bare-word deviation stays, narrowed: a lone word is text unless it names one of the
+    table's columns, so a table's words do not change meaning with the process that consults
+    it; `= name` reads any variable. `?` and names with spaces stay outside the subset
+    (execution-plan §2.1, pinned by `TestSubsetIsDocumented`). Outputs are literals and
+    unchanged. `ExpressionEvaluator.EvaluateBool` became `MatchesCell` with an explicit
+    `entities.DecisionCellScope`.
+  - **Cost.** A variable is converted when a cell reads it: a cell beside a 5,000-line
+    order went from 1.6 ms and 10,005 allocations to 159 ns and none; a 100-line table from
+    38.7 µs and 339 allocations to 28.1 µs and 2.
+  - **Editor.** The checks no longer read a lone column name as a word (that produced a
+    false overlap error that blocked Save); hover text names the column; the coverage card
+    says what a column is compared with; a line under the grid says a condition can name
+    another; `?` is marked with what to write instead. Found on the way and fixed in their
+    own commits: the card told an author to quote any unread column that had a `-` line,
+    and a broken condition's `aria-invalid` never reached the page.
+  - **Upgrading.** No migration. Tables whose cells name a variable decide as written from
+    the upgrade on; `docs/upgrading.md` has a query that lists those cells, and rolling the
+    release back restores the old reading.
+  - Tests: `tests/decision/conformance_test.go` (new corpus cases),
+    `tests/decision/cell_scope_test.go` (a business rule task on PostgreSQL),
+    `impl/decision_cell_scope_test.go` (precedence; the caller's variables untouched),
+    `feel/cell_variables_test.go` (allocation bound), and the UI's `columnComparison`,
+    `columnComparisonHint`, `ConditionCell` and editor page tests.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
+    set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
+    scope each; UI typecheck, lint (0 errors) and 1485 tests pass. The changed packages run
+    verbose: 506 pass, none fail, and the only two skips need a RabbitMQ broker.
+    `golangci-lint run ./...`: 0 issues.
+  - **Not done, and why:** `?` is flagged, not implemented (it means DMN 1.2's boolean unary
+    tests). A range whose end names a variable nobody supplied still fails the evaluation,
+    as a range with an incomparable bound always has; changing it would change gateway
+    conditions too. Try it gives values to the table's columns only, so it cannot supply a
+    variable no column reads; the coverage card says so rather than suggesting Try it. The
+    Serena `verified-findings` memory and the PRD row for DMN-17 live outside the
+    repository and are updated once this merges.
 - 2026-09-26 (completed): Signing in stays possible when the identity provider is not, as
   the product owner decided it. Branch `auth-both-tokens`, one commit per change, each with
   a test that fails against the code before it.
@@ -1253,6 +1365,45 @@
     open; closing them needs that field first. And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
     asks nobody for any.
+- 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand
+  projects, measured. Branch `tenant-scope-at-scale`. Every scoped repository call reads the
+  organization's project ids and filters on `project_id = ANY(ids)`; since the scope reads
+  every project (5d5016b), past a thousand, nobody had measured it past a handful.
+  - **Measured (P1).** `tests/loadtest` `TestTenantScopeAtScale`: 10,000 projects against 4,
+    the same 20,000 instances and tasks in each. The list was read once per scoped call —
+    six times a statistics request, five an instance list — at about 4ms and 10 MB a read:
+    statistics p95 26.3ms against 2.1ms, 201ms on a loaded run, 55 MB allocated a request.
+    Tasks by assignee paid 31.7ms against 2.1ms with one read, because a generic plan walks
+    the 10,000-element array for every row. `metis_tenant_scope_reads_total` counts the
+    reads. Numbers in `docs/performance.md`.
+  - **Read once per request (P1).** `tenantscope.Request`: the tenant resolver gives each
+    request a place to keep its organization's project ids, and every scoped call in it
+    reuses the first read. Ended with the endpoint, forgotten when the request creates or
+    deletes a project, never used for a context naming another organization, so nothing is
+    cached across requests. Test first: `tests/slo` `TestEachRequestReadsItsTenantScopeOnce`
+    failed with 5 reads to start a process, 5 for the instance list, 6 for the statistics and
+    9 to complete a task; each is 1 now. Isolation through the kept scope, under the default
+    and the strict scope, in `tests/tenant/request_scope_test.go`. Large-organization p95
+    after: statistics 6.3–9.8ms (was 26.3–201.3), instance list 6.2–6.6ms (was 35.6–142.0).
+    A subquery on `projects.organization_id` instead of the list was not an option: storm has
+    no subquery predicate, and an environment's instances and tasks are in a different
+    database from its projects.
+  - **The ids only (P1).** `projectsOf` read whole project rows through the store, ten keyset
+    statements at 10,000 projects; it reads the ids in one statement now, with the store's
+    soft-delete predicate written out (pinned by the deleted-project test). Large-organization
+    p95 after both: statistics 2.9–6.0ms, instance list 3.6–7.1ms, a task by id 1.8–4.9ms,
+    against 1.7–3.8, 2.2–4.2 and 0.31–0.85ms for 4 projects; allocation per request 0.7–2.1 MB
+    where it was 9–55 MB.
+  - **Still open: the list inside the query.** Reads spanning the whole organization still
+    pay for 10,000 ids per statement: the inbox 7–10ms more, tasks by assignee 8–55ms more,
+    because on its generic plan PostgreSQL filters the assignee's rows against the array one
+    id at a time (21–26ms against 4.9ms planned with the values). A `tasks (assignee,
+    project_id)` index was tried; the generic plan does not use it. Everything is inside the
+    150ms target at 10,000 projects, but the cost grows with projects × rows. The fixes are an
+    organization column on the tables a project owns (schema change and backfill, main and
+    environment databases) or planning these statements with their values (a pool-wide
+    change to how every query is planned). Neither is done; measure with
+    `TestTenantScopeAtScale` before and after.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

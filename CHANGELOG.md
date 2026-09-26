@@ -164,9 +164,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   five minutes, without holding up the server. Each bridge and consumer logs
   when it starts, when it connects and when it reconnects, naming itself.
   A bridge reads only its project's organization's tasks, and it gives a
-  worker 30 seconds to complete one before publishing it again. See
-  *RabbitMQ: tasks out to a queue, messages in from one* in
-  `docs/integration.md`.
+  worker its `lock_seconds` (five minutes unless set) to complete one before
+  publishing it again. See *RabbitMQ: tasks out to a queue, messages in from
+  one* in `docs/integration.md`.
 
 - **Signing in through OIDC places people in their organizations.** With
   `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, everybody signing in through the
@@ -220,6 +220,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   reached a repository with no identity, labelled with that path. Staging soaks
   become a dashboard and an alert instead of reading logs for a line that
   appears once per site; `docs/strict-tenant-scope.md` has the alert rule.
+- **What tenant scoping costs is on the metrics endpoint.**
+  `metis_tenant_scope_reads_total` counts the reads of an organization's
+  project list that scope a request's reads and writes. Each returns every
+  project the organization has; against the request rate it is what each
+  request pays for scoping. `docs/performance.md` has what one costs at ten
+  thousand projects.
 
 - **Database Lookup.** A process step can read rows from your own PostgreSQL,
   MySQL or SQL Server database into one process variable, so the gateway or
@@ -371,6 +377,119 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   case whose version has since been deleted carries neither, rather than an
   invented one. A migrated case carries the version it runs now; its
   `instance_migrated` event says which version it came from.
+- **The close button of a dialog had no name.** Mantine draws the close button
+  of a dialog, a drawer, a notification and an alert as an icon alone, so a
+  screen reader announced it as "button" and nothing more — axe's
+  `button-name`, rated critical, on every dialog in the app. Three dialogs on
+  the webhooks card had been named one at a time. The theme now names every one
+  of them, in the interface's language: "Close", or "Tutup" in Indonesian. A
+  dialog that names its own close button keeps its name.
+- **In dark mode the webhooks card's "Add a webhook" button and message badges
+  could not be read.** axe measured the button's white label at 2.99:1 and the
+  badges' text at 2.14:1, where AA asks for 4.5:1, and the red "Stop accepting
+  legacy signatures now" in the card's dialog at 2.30:1. A button, badge or
+  icon given no colour of its own fell back to the dark scheme's lighter blue
+  under a label chosen for the light scheme's darker one, and every
+  light-variant control kept, in dark mode, the dark text meant for a light
+  tint. They now take the theme's filled shade in both schemes and the
+  scheme's own text on a tint: 5.02:1, 11.77:1 and 11.75:1 in dark mode, and
+  nothing changes in light mode. The same controls read on every other page
+  too: across six pages scanned in dark mode, contrast failures fell from 70
+  to 31, and the 31 left belong to other components and were there before.
+- **The role legend on the Platform access page listed its actions in English
+  whatever the interface's language.** In Indonesian, what a designer may do
+  read "Proses: Create definition, Promote definition": the area headings were
+  translated, and the actions under them, which the server words in English
+  from its gates' method names, were not. The catalogues now word every action
+  by its method name, all 61 of them in English and Indonesian, and a method
+  they do not know yet — a gate added since — keeps the server's words rather
+  than showing a blank or a key.
+- **A refusal was shown with the server's error class in front of it.** A
+  notification read "forbidden: qa-admin is the last administrator of QA Co;
+  make somebody else an administrator first", and one refused over the app's
+  RPC transport "Failed to save project: [unknown] forbidden: this needs the
+  ADMIN role…" — the class the server words a refusal with so that it can
+  answer 403, 400 or 404 (`forbidden`, `invalid argument`, `not found`), and
+  the RPC code, printed as if they were part of the sentence. Notifications and
+  inline errors now show the sentence alone. The class is dropped in one
+  place, the shared error formatter, and only from the very start of a
+  message, so a sentence that merely uses one of the words keeps it; logs and
+  a failed page's "Technical details" keep the whole text.
+- **A decision cell could not compare with another column, or with any other
+  variable of the decision.** A cell was tested with its own column's value and
+  nothing else, so `> minimum` beside a minimum column — or `> credit_limit`, a
+  variable the table has no column for — compared with nothing: no error, the
+  line just never matched. `!= minimum` matched every case, and a range between
+  two columns, `[low..high]`, failed the decision with "cannot compare a number
+  with a null". A cell now sees what DMN gives it: its own column's value as
+  the implicit subject (`_input`, which no variable can shadow) and every
+  variable the decision was evaluated with, by the names the columns read, the
+  answers of required decisions included. A word on its own, with no operator,
+  is still the word unless it names one of the table's columns: `manager` in an
+  approval matrix stays the word even when the process holds a variable called
+  manager, and `= manager` asks for the variable. `?` and names with spaces are
+  still not part of the FEEL subset. **Upgrading:** a table with such cells
+  decides as written from now on, rather than as if the value were missing, and
+  a lone word that is another column's name now means that column.
+  `docs/upgrading.md` (*Decision cells see the rest of the case*) has a query
+  that lists them.
+- **The decision editor misread a condition that names another column.** It
+  took `minimum` on its own for the word, where the engine reads the minimum
+  column, so a table could be refused on save for an overlap that is not there
+  (`minimum` and `"minimum"` "both apply when Level is minimum"). Such a cell
+  now reads back on hover as "Score is the same as Minimum", and `> minimum` as
+  "Score is more than Minimum"; the coverage card says the column is compared
+  with Minimum rather than calling the condition unreadable, and suggests Try it
+  only when Try it can set what the condition names (it has a box for each of
+  the table's conditions, so not for `credit_limit` in `> credit_limit`); a
+  line under the grid says a condition can name another; and a cell holding
+  `?`, Camunda's name for a condition's own value, which the engine cannot
+  read, is marked with what to write instead.
+- **A decision condition the engine cannot read was marked for sighted users
+  only.** The cell drew a red wavy underline and set `aria-invalid`, which the
+  input component replaced with its own, so a screen reader never heard that
+  the condition was wrong. It is announced as invalid now.
+- **The decision editor told an author to put working conditions in quotes.**
+  When the table checks could not read a column (a cell calling a function,
+  say) and the column also had a line with `-`, as every new line does, the
+  coverage card said the column "has text the engine cannot read without
+  quotes": it took the dash for unquoted text. Quoting the cells as told would
+  have turned them into plain words. The dash no longer counts, and the card
+  says only that it could not check the column.
+- **A RabbitMQ broker that took a publish and never confirmed it stalled the
+  bridge for good.** The bridge waited for the confirm with no deadline, so
+  the task stayed locked and nothing else of its topic was forwarded until the
+  server restarted; a *RabbitMQ Publisher* step held a job worker the same
+  way. Every publish now waits at most `METIS_RABBITMQ_CONFIRM_TIMEOUT`
+  (default `10s`). One not confirmed in time is treated as refused: the bridge
+  hands the task back, and the rest of that round unpublished, and publishes
+  on a new channel; a step fails and is retried.
+- **A channel the broker closed stayed closed until a restart.** The broker
+  closes a bridge's channel on the first publish to an exchange that does not
+  exist, or that its user may not publish to. The bridge then handed back
+  every task at every poll, and creating the exchange changed nothing. It now
+  opens a new channel on the same connection at its next round, and dials
+  again when the broker drops the connection. A consumer whose channel the
+  broker closed, or which the broker cancelled because its queue was deleted,
+  stopped without a word and dialled a new connection at once; it now says
+  why and consumes again on a new channel, declaring the queue again. Each
+  problem is logged at error once, naming the bridge or consumer and giving
+  the broker's reason, and at debug while it lasts.
+- **A broker that was down was dialled every 5 seconds for as long as it
+  stayed down,** by every bridge and consumer of every replica, in step.
+  Reconnecting now waits 5 seconds, then 10, 20 and so on up to 5 minutes,
+  each wait varied by up to a quarter, and starts from 5 seconds again once a
+  connection has lasted. A broker that takes each connection and drops it
+  straight away is waited for the same way.
+- **A bridge's worker had 30 seconds, time on the queue included.** Past that
+  the bridge published the same task again, so a queue that backed up
+  multiplied itself. Each bridge now takes `lock_seconds` in
+  `METIS_RABBITMQ_BRIDGES`: whole seconds from 30 to 86400, 300 (five minutes)
+  when not set. A worker cannot extend the lock, so it has to cover the task's
+  time on the queue and in the worker; *The worker's budget is the bridge's
+  lock* in `docs/integration.md` says how to size it. Tasks the bridge had
+  fetched when the server stopped are handed back at once, rather than when
+  their lock runs out.
 - **The bell counted unread notifications among the newest thousand only.**
   Somebody with more than a thousand notifications was never told about the
   unread ones older than those, and the list could not reach them either. The
@@ -401,6 +520,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   such a value can be a plain word with a sentence after it. Anything else is
   redacted as before, including a token or password after `token:`,
   `password=`, in JSON, in a URL's query and in an `Authorization` header.
+- **An organization with thousands of projects paid for all of them on every
+  call a request made.** Each repository call read the ids of every project
+  in the organization again: six times for the dashboard's statistics, five
+  for the instance list, nine to complete a task. At 10,000 projects a read
+  is about 4ms and 10 MB, so the statistics took 26–201ms and allocated
+  55 MB. A request reads the list once now — the ids alone, in one statement
+  — and every call in it reuses that: the statistics take 3–6ms and allocate
+  under 1 MB. Nothing is kept past the request, so a project created by one
+  request is in scope for the next, as before. Reads that span the whole
+  organization, such as a person's tasks, still pay for the size of the list
+  inside the query; `docs/performance.md` has the numbers.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

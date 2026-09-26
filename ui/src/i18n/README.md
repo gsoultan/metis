@@ -43,16 +43,24 @@ ugly, which is the point.
 The one exception is a catalogue that fails to *load* — a network error leaves
 English in place, because the wrong language beats a page of identifiers.
 
+The other is an action in the role legend on the Platform access page. The
+server lists them, worded in English from the method name of each gate, and the
+catalogues word them by the same name (`access.action.<Method>`). A gate added
+on the server is listed before any catalogue has words for it, so the legend
+shows the server's words for a method the catalogue does not know yet rather
+than the bare key; `tests/roledrift` fails on a key that names no gate.
+
 ## What is translated so far
 
 The shell: navigation, the language menu itself, and the offline and update
 messages. The page headings, the Dashboard's figures, the getting-started card
 and Help's checklist and glossary. The glossary's steps keep the palette's
 names, which are still English, so a step can be looked up by the name seen on
-it. The Roles view on the Platform access page, whose role names and their
-sentences come from `domain/roles.ts` and the actions under each from the
-server, both still English. **Everything else is still hardcoded English** — the rest of the pages,
-forms, designer and decision editor, which is the large majority of the strings.
+it. The Roles view on the Platform access page and the actions each role is
+required for, except the role names and their sentences, which come from
+`domain/roles.ts` and are still English. **Everything else is still hardcoded
+English** — the rest of the pages, forms, designer and decision editor, which is
+the large majority of the strings.
 
 That is a deliberate stopping point rather than a claim of completeness. The
 machinery is in place, proven by a second language that is not a copy of English
