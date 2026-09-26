@@ -50,6 +50,13 @@ type WebhookModel struct {
 	// without deleting it, because deleting it loses the token and the sender
 	// has to be reconfigured.
 	Enabled bool `gorm:"default:true" json:"enabled"`
+
+	// LegacySignaturesUntil is when this webhook stops accepting v1 signatures —
+	// an HMAC of the body alone, which a captured delivery can be replayed
+	// under. Nil means it never accepts them: every webhook created since v2
+	// existed. Webhooks that existed before were given ninety days by
+	// migration 25, so their senders are not cut off at once.
+	LegacySignaturesUntil *time.Time `json:"legacy_signatures_until,omitzero"`
 }
 
 // TableName overrides the table name for WebhookModel.

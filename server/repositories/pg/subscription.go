@@ -131,17 +131,19 @@ func (r *subscriptionRepository) FindMessages(ctx context.Context, projectID uui
 // Unscoped, because it is the backfill's input: a key written before templates
 // were resolved per instance is stale wherever it is, and finding only one
 // tenant's would leave the rest permanently unmatched.
+//
+// Every one, not the store's first thousand, for the same reason: the backfill
+// runs once, and a subscription it did not see stays unmatchable.
 func (r *subscriptionRepository) ListTemplatedMessageSubscriptions(ctx context.Context) ([]models.Subscription, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := subscription.New().
+	rows, err := everyRow[subscription.Row](ctx, ex, subscription.New().
 		Where(
 			subscription.Type.Eq(string(models.SubscriptionMessage)),
 			subscription.CorrelationKey.Like("%${%"),
-		).
-		All(ctx, ex, nil)
+		))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the templated subscriptions: %w", err)
 	}

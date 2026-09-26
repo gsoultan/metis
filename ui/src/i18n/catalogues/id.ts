@@ -131,7 +131,7 @@ const id: Catalogue = {
   'dash.timeline': 'Lini Masa Bisnis',
   'dash.recentActivity': 'Aktivitas Terbaru',
   'dash.viewAllInstances': 'Lihat semua instansi',
-  'dash.generateReport': 'Buat Laporan',
+  'dash.generateReport': 'Cetak atau simpan sebagai PDF',
   'dash.noActivity': 'Belum ada aktivitas',
   'dash.noActivityHint': 'Mulai sebuah proses untuk melihat lini masa aktivitas di sini.',
   'dash.readyTitle': 'Siap mengotomatiskan?',

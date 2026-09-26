@@ -932,23 +932,24 @@ func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubs
 // A start event inside an event sub-process is not a way into a new instance —
 // it belongs to one already running, and reaches it through its subscription.
 //
+// The processes are the project's keys, read once each. They were found by
+// reading the project's definitions, every version of every process newest
+// first, which stopped at a thousand rows: a process deployed before another
+// had a thousand newer versions was never looked at, and the message or signal
+// did not start it.
+//
 // Failures are collected rather than returned at the first: a broadcast owes
 // every process that listens its start, and one that fails must not silence
 // the rest.
 func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) error {
-	ms, err := e.repo.Definition().ListByProject(ctx, projectID)
+	keys, err := e.repo.Definition().ListKeysByProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("list definitions for project %s: %w", projectID, err)
+		return fmt.Errorf("list the processes of project %s: %w", projectID, err)
 	}
 
-	considered := make(map[string]bool, len(ms))
 	var errs []error
-	for _, m := range ms {
-		if considered[m.Key] {
-			continue
-		}
-		considered[m.Key] = true
-		if err := e.startIfListening(ctx, projectID, m.Key, propName, propValue, vars); err != nil {
+	for _, key := range keys {
+		if err := e.startIfListening(ctx, projectID, key, propName, propValue, vars); err != nil {
 			errs = append(errs, err)
 		}
 	}

@@ -327,7 +327,7 @@
         failed stays selected so it can be retried. Claiming is a race the engine
         allows, so a partial failure is normal and had to be reportable.
   - [ ] Medium-priority UX items (5-8) delivered. Delivered: 5, the heat map, the deadline
-        report and CSV export, all counted on the server (#97; no PDF export); 6, done
+        report and CSV export, all counted on the server (#97), and the PDF export (a printable report, 2026-09-26); 6, done
         before; 8, version comparison, rollback and migration (#98). Item 7 in part:
         memberships stay inside an organization, role refusals are 403, and anybody can
         edit their own profile (#96). The visual role editor is not built.
@@ -347,11 +347,13 @@
   - [x] Phase 2 complete (`architecture cleanup`, `high-value UX improvements`).
         Cleanup: the audit and its eight cheap fixes; transactions and idempotency in
         #93–#95. UX: #89 and #96–#102.
-  - [ ] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`). Load/chaos:
+  - [x] Phase 3 complete (`load/chaos`, `canary + hardening`, `playbooks/docs`). Load/chaos:
         #103. Hardening: key rotation (#91) and the fixes since. Playbooks: the
-        runbooks (`docs/runbooks.md`), held to the alerts by a drift test. The canary
-        rollout waits on a decision: flags are installation-wide, and an organization
-        cohort needs a tenant where the flag is read.
+        runbooks (`docs/runbooks.md`), held to the alerts by a drift test. Canary
+        (decided 2026-09-26: a deployment-level canary, while flags stay
+        installation-wide): `deploy/kubernetes/canary.yaml`, judged by two alerts
+        that compare its 5xx and read latency with the stable track's, with the
+        procedure in the runbooks and `tests/drift` holding its pod to the stable one.
 
 #### 10. Session Execution Log
 
@@ -854,7 +856,8 @@
   - **Found and not fixed — for the backlog:**
     - A webhook signature covers the body only. The delivery-ID header is unsigned and
       nothing is timestamped, so a captured delivery can be replayed under a new ID.
-      Closing it needs senders to sign a timestamp as well.
+      Closing it needs senders to sign a timestamp as well. **Closed 2026-09-26** by v2
+      signatures (branch `webhook-replay`; entry below).
     - An idempotency claim left by a replica that died blocks its key until the sweep
       removes it after a day. Meanwhile every retry with that key waits out the 10s budget
       and fails.
@@ -920,7 +923,7 @@
       for writes, old keys for reads, and a batched re-encryption. **Fixed in the
       key-rotation batch below.**
     - The engine gauges read the main database only; an environment's jobs are not
-      counted.
+      counted. **Fixed on `environments-live` (entry below).**
     - No broker/DLQ runbook: the consumer it would cover is never started (INT-15).
 
 - 2026-09-25 (completed): 90-day plan Phase 3, "hardening" — `ENCRYPTION_KEY` can be
@@ -965,13 +968,30 @@
     rows silently truncated reads the engine acts on: a signal's audience, a migration's
     instances and jobs, the decision delete guard, the withdrawal of a deadline's open
     tasks, and the shared rate limit's totals.
-  - **Open**: capped reads behind views and exports (an instance's audit trail and
-    execution path, the OCEL export, the dashboard's step heat map, users and group
-    members, sub-processes, incidents). Also the definitions list that the decision guard
-    and message and signal start events walk (over 1,000 versions in one project), the
-    last-administrator guard (over 1,000 members), and the one-time backfills v2 and v3.
-    Separately, paged lists that order by creation time alone repeat and drop rows across
-    a page boundary when one transaction created them.
+  - **Was open, done 2026-09-26** (branch `complete-reads`, one commit per fix, each with
+    a test past 1,000 rows that failed first). Guards: the last-administrator guard of an
+    organization (asked of the database, not a member list) and of the installation (it
+    read the account's grants from a capped list of every grant, and let the last
+    administrator go; a deleted administrator also still counted). Walks: the decision
+    delete guard and message and signal start events (every version of a project), the
+    tenant scope itself (an organization with over 1,000 projects lost the rest), a
+    directory sync's deactivation and a participant's removal, the backfills v2 and v3,
+    an incident's external-task re-offer and a migration's repeated hold. Views and
+    exports: an instance's audit trail and execution path, the OCEL export, users, group
+    members and groups, platform accounts, projects and organizations, sub-processes,
+    incidents, the version history and the live-version marks. Paging: every paged list
+    orders by creation time and then id. The step heat map was already a grouped count
+    over every running token (984038e).
+  - **Still open**: a person's notifications are the newest 1,000 and the bell counts
+    unread among them; the fix is a paged list with a server-side unread count, a
+    change to the UI's contract. The OCEL export never names a case's process version
+    (the instance it reads carries only the definition id), at any size. The audit
+    trail is read in one statement rather than keyset-walked: the entries one
+    transaction writes share its created_at and their ids are random, so their order
+    rests on PostgreSQL returning ties as written; writing audit ids as UUIDv7 would
+    make it explicit. Unreached reads that still stop at 1,000:
+    Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
+    deployments, forms, variable snapshots and compensatable activities by instance.
 
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
@@ -983,6 +1003,8 @@
     refused at deploy; a failed migration skip leaves the task; a service task does what
     the modeller chose.
   - #94: a deleted or disabled environment stops being served, without a restart.
+    Creating, re-enabling or re-pointing one still needed one; fixed on
+    `environments-live` (entry below).
   - #95: a live-update hint is sent once the work it points at has committed.
   - #96: access control (organization-scoped group membership, 403 for a missing role,
     self-service profile, case-insensitive roles).
@@ -1010,6 +1032,70 @@
     when either last changed; the editor asks whether a save goes live and has a version
     history (open, make live, roll back, delete a version).
   - **Delete** removes one version, and refuses the live version while others remain.
+    ~~OIDC users' organizations~~ (decided and delivered as `IAM-05`, entry below), the
+    RabbitMQ bridge, decision versioning, whether a service task's script runs, and
+    task-edit authorization.
+- 2026-09-26 (completed): `IAM-05` — somebody signing in through OIDC can be placed in an
+  organization. Branch `oidc-organizations`.
+  - The gap: with `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, every OIDC user was refused with
+    401 on every organization-scoped endpoint. The token's claims were the principal and
+    carry no membership, so the tenant resolver — rightly, since P0-SEC-05 — refused them.
+    OIDC was unusable in practice.
+  - Decided by the product owner and delivered: `METIS_OIDC_ORGANIZATION_CLAIM` names the
+    claim listing a person's organizations, matched by organization **id** (names are not
+    unique and change); a first sign-in creates an account linked to (issuer, subject),
+    never by email, with no role — the inbox needs none; the account is the principal,
+    admitted to exactly the organizations its token's claim names, and each sign-in makes
+    its memberships match the claim (every membership a linked account has came from its
+    claim, so nothing an administrator granted is undone). No claim configured, none in
+    the token, or none naming an organization here: 403 naming what is missing, and no
+    account. Migration 27 adds `users.identity_issuer`/`identity_subject`.
+  - Tests that failed first: `tests/auth/oidc_organizations_test.go` and
+    `oidc_refusals_test.go` against a fake issuer (go-oidc's `oidctest`) — 401 before;
+    `tests/migrations/user_identity_link_test.go` — the index missing before.
+  - Found, not changed: while OIDC is on, the API takes only the provider's tokens and
+    refuses a local account's with 401 — the mandatory interceptor has one strategy. It
+    was so before and is documented now; running both is a decision of its own.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
+    set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
+    scope each; UI typecheck, lint (0 errors) and 1377 tests pass.
+    OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
+    service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): environments go live without a restart, and each one's backlog
+  is measured. Branch `environments-live`; the two items left open by #94 and by the
+  observability batch.
+  - **Served without a restart (E6).** Creating an environment, enabling one again or
+    giving one another port or database now takes effect on every replica within a
+    check (15 s): boot is the first pass of the same check, so there is one code path
+    for opening, migrating under the schema lock, binding and working an environment.
+    A change is detected by the port and a keyed digest of the connection, never the
+    password itself. One that cannot start is retried at every check, does not hold up
+    the others, and is logged once per cause. Test: `internal/app/environment_start_test.go`.
+  - **Measured per environment (E5).** The backlog gauges carry `environment` (the id)
+    and `environment_name`; the main database's series are unchanged. An unreadable
+    environment is `metis_engine_state_up 0` on its own; the databases are read at once
+    inside the two-second scrape budget. The engine alerts name the environment. Test:
+    `internal/app/engine_metrics_test.go`, promtool cases in `alerts_test.yaml`.
+  - **Found and fixed on the same branch:** an environment's database got the GORM
+    migrations but not storm's tables or column defaults (`db.EnsureTables`,
+    `db.EnsureColumnDefaults` ran on the main database only), so a storm insert there — a
+    job, for one — failed with `storm: not-null constraint violated`: no timer, service
+    task or retry could run in any environment. `openEnvironmentStorm`, the shared open
+    path, now runs the same step (`ensureStormTables`) before registering the pool. Test:
+    `TestAnEnvironmentsDatabaseTakesTheJobsItsProcessesSchedule`.
+- 2026-09-26 (completed): A captured webhook delivery can no longer be replayed (the
+  backlog item from the engine-reliability entry). Branch `webhook-replay`, one commit per
+  change, each with a test that fails against the code before it:
+  - v2 signatures: `X-Metis-Signature: v2=` HMAC-SHA256 of `<timestamp>.<delivery id>.<body>`
+    with `X-Metis-Timestamp` and `X-Delivery-Id`; five minutes either way; explanations only
+    once the signature has matched, so they cannot find addresses.
+  - Body-only (v1) signatures bounded per webhook by `legacy_signatures_until`: migration 25
+    gives existing webhooks 90 days, new webhooks get none, and a v1 delivery after the date
+    is refused with how to move.
+  - The webhooks screen shows each webhook's date and the v2 help; `docs/integration.md` has
+    the scheme with Go, Node.js and Python examples checked against a live server.
+  - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
+    in `docs/upgrading.md`).
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

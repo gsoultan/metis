@@ -43,6 +43,13 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 	} else if !n.Type.Known() {
 		v.errors = append(v.errors, fmt.Sprintf("Flow node %s has type %q, which the engine cannot run", n.ID, n.Type))
 	}
+	// The engine runs a script task's script and never a service task's: a
+	// service task set to run one was skipped as if it had nothing to call, and
+	// the process moved on as though the script had run.
+	if n.Type == entities.ServiceTask && n.Implementation() == "script" {
+		v.errors = append(v.errors, fmt.Sprintf(
+			"Flow node %s is a service task set to run a script, which a service task cannot do; use a script task", n.ID))
+	}
 	if !entities.KnownMultiInstanceType(n.MultiInstanceType) {
 		v.errors = append(v.errors, fmt.Sprintf(
 			"Flow node %s repeats %q, which the engine cannot run; a step repeats parallel, sequential or none", n.ID, n.MultiInstanceType))

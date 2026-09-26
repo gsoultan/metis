@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/circuit"
 	"github.com/gsoultan/metis/internal/pkg/idempotency"
 	"github.com/gsoultan/metis/internal/pkg/ratelimit"
@@ -746,7 +747,15 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 		return nil, nil
 	}
 	connector, err := s.connectorSvc.GetConnector(ctx, ci.Connector.ID)
-	if err != nil {
+	switch {
+	case errors.Is(err, apierr.ErrNotFound):
+		// The connection is still there; the catalogue entry it configures is
+		// not. Saying "not found" alone sent people to recreate the connection,
+		// when what happened is that its connector was taken out of the
+		// catalogue — an installed one switched off or removed.
+		return nil, fmt.Errorf("connector lookup failed: the connection %q uses a connector the catalogue no longer "+
+			"offers; it was switched off or removed on the Connectors page: %w", ci.Name, err)
+	case err != nil:
 		return nil, fmt.Errorf("connector lookup failed: %w", err)
 	}
 	req := connectorRequestFor(node, payload)

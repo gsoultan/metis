@@ -14,4 +14,5 @@ type OrganizationService interface {
 	ListOrganizations(ctx context.Context) ([]entities.Organization, error)
 	UpdateOrganization(ctx context.Context, id uuid.UUID, name, description string) error
 	DeleteOrganization(ctx context.Context, id uuid.UUID) error
+	OrganizationCounter
 }

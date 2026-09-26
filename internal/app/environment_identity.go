@@ -29,7 +29,8 @@ import (
 // MainTx sends them: they are installation-wide, and a second copy of who may
 // sign in is a second answer to that question.
 //
-// Run at every boot and whenever an environment is saved, because it has to be
+// Run whenever an environment's database is opened — at boot, and when one is
+// created, enabled again or pointed at another database — because it has to be
 // true of a database that was just pointed at, not only of one that existed
 // when the feature was first switched on.
 func SeedEnvironmentIdentity(ctx context.Context, environmentDB *gorm.DB, project models.ProjectModel, organization models.OrganizationModel) error {

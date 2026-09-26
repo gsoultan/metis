@@ -33,23 +33,28 @@ func withPrincipal(t *testing.T, principal any) context.Context {
 // TestOIDCPrincipalCannotReachTheDatabaseUnscoped is the regression guard for a
 // live cross-tenant read.
 //
-// OIDC token validation returns *auth.UserClaims, which carries roles but no
-// organization membership. organizationsFromContext could not resolve it, and
-// the resolver used to treat that exactly like an unauthenticated request: it
-// passed the call through with no TenantContext. The repository layer reads a
-// missing TenantContext as a system call and applies no scoping at all, so an
-// OIDC-authenticated user reached every tenant's rows, for reads and writes.
+// OIDC token validation used to leave the token's claims in the context, which
+// carry no organization membership. organizationsFromContext could not resolve
+// them, and the resolver used to treat that exactly like an unauthenticated
+// request: it passed the call through with no TenantContext. The repository
+// layer reads a missing TenantContext as a system call and applies no scoping
+// at all, so an OIDC-authenticated user reached every tenant's rows, for reads
+// and writes.
 //
-// An authenticated principal that cannot be resolved to a tenant must be
+// The OIDC strategy now resolves a sign-in to its linked account. Anything
+// that is still not an account — the claims themselves included — must be
 // refused, not waved through.
 func TestOIDCPrincipalCannotReachTheDatabaseUnscoped(t *testing.T) {
 	var got reached
 	handler := NewEndpointTenantResolver().Intercept(endpointRecording(&got))
 
-	ctx := withPrincipal(t, &pkgauth.UserClaims{
-		Subject:  "oidc-subject",
-		Username: "someone",
-		Roles:    []string{"admin"},
+	ctx := withPrincipal(t, &entities.IdentityClaims{
+		Issuer:               "https://id.example.com",
+		Subject:              "oidc-subject",
+		Username:             "someone",
+		OrganizationClaim:    "organizations",
+		HasOrganizationClaim: true,
+		Organizations:        []string{uuid.NewString()},
 	})
 
 	_, err := handler(ctx, nil)

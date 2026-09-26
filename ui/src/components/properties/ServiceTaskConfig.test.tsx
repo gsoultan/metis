@@ -28,12 +28,14 @@ const SCRIPT_STEP = { implementation: 'script', script: 'setVar("total", 1)' };
  * so there was no way back short of finding Expert mode.
  */
 describe('what a service task calls', () => {
-  it('shows a script step read-only in basic mode', () => {
+  it('shows a script step as something this step cannot do, and lets basic mode move off it', () => {
+    // A service task cannot run a script: the engine skipped it as if it called
+    // nothing, and deploy refuses it now. Leaving it is the fix, so the choice
+    // stays open even in basic mode.
     const html = render(SCRIPT_STEP, false);
 
-    expect(namedControl(html, 'Implementation')).toBeUndefined();
-    expect(visibleText(html)).toContain('Run a script here');
-    expect(visibleText(html)).toContain('Turn on Expert mode to change it.');
+    expect(namedControl(html, 'Implementation')?.value).toBe('Run a script (this step cannot)');
+    expect(visibleText(html)).toContain('A step that calls another system cannot run a script');
   });
 
   it('shows a way this editor does not know read-only in basic mode, under its own name', () => {
@@ -47,7 +49,7 @@ describe('what a service task calls', () => {
     expect(namedControl(render({ implementation: 'push' }, false), 'Implementation')?.value).toBe('Call a web address');
   });
 
-  it('lets expert mode change a script step', () => {
-    expect(namedControl(render(SCRIPT_STEP, true), 'Implementation')?.value).toBe('Run a script here');
+  it('lets expert mode move a script step off running a script', () => {
+    expect(namedControl(render(SCRIPT_STEP, true), 'Implementation')?.value).toBe('Run a script (this step cannot)');
   });
 });

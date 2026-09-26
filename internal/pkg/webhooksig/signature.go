@@ -2,8 +2,14 @@
 //
 // A webhook endpoint is public: it has to be, because a partner's configuration
 // screen has nowhere to put a bearer token that this engine would recognise.
-// What stands between it and anyone on the internet is a signature — an HMAC of
-// the exact bytes delivered, computed with a secret only the two ends know.
+// What stands between it and anyone on the internet is a signature — an HMAC
+// computed with a secret only the two ends know.
+//
+// There are two schemes. v2 (v2.go) signs when the delivery was made and the
+// sender's ID for it as well as the body, which is what makes a captured
+// delivery useless to replay. v1, in this file, signs the body alone; it is
+// what every sender used before v2, and a webhook accepts it only while its
+// window for legacy signatures is open.
 //
 // The checking is small and the ways to get it wrong are well known, so they are
 // all handled here rather than at the call site: comparison in constant time, no
@@ -29,7 +35,10 @@ var ErrNoSecret = errors.New("webhooksig: the webhook has no secret, so nothing 
 // ErrBadSignature is returned when the signature does not match the body.
 var ErrBadSignature = errors.New("webhooksig: the signature does not match the delivered body")
 
-// Verify checks a delivery's signature against the body it was computed over.
+// Verify checks a v1 signature against the body it was computed over.
+//
+// It says nothing about when the body was sent or how many times: that is what
+// v2 adds, and why VerifyV2 is the one new senders are given.
 //
 // The signature is compared as bytes, in constant time. A comparison that
 // returns early on the first differing character leaks how much of a guess was

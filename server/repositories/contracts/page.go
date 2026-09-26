@@ -15,6 +15,11 @@ package contracts
 // inserted while someone pages can shift the window. For an operational list
 // that is acceptable; a cursor would be the answer if these were exported or
 // consumed by a worker.
+//
+// The order has to be total: creation time, then the primary key. Rows written
+// by one transaction share a created_at, and among ties the database may
+// return a different order for each LIMIT and OFFSET — so a list ordered by
+// creation time alone showed some rows on two pages and others on none.
 type Pagination struct {
 	// Page is 1-based. Values below 1 are treated as 1.
 	Page int

@@ -31,6 +31,8 @@ type Row struct {
 	Organization    string
 	Email           string
 	Roles           runtime.JSON
+	IdentityIssuer  runtime.Null[string]
+	IdentitySubject runtime.Null[string]
 	DeletedAt       runtime.Null[time.Time]
 }
 
@@ -69,7 +71,7 @@ const (
 	opNotExists runtime.Op = 26
 )
 
-const nCols = 12
+const nCols = 14
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -253,6 +255,20 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.strs[q.ns] = r.Email
 		q.ns++
 	case 11:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.IdentityIssuer.V
+		q.ns++
+	case 12:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.IdentitySubject.V
+		q.ns++
+	case 13:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -428,7 +444,9 @@ var (
 	Organization    = TextCol{8}
 	Email           = TextCol{9}
 	Roles           = JSONCol{10}
-	DeletedAt       = NullTimeCol{11}
+	IdentityIssuer  = NullTextCol{11}
+	IdentitySubject = NullTextCol{12}
+	DeletedAt       = NullTimeCol{13}
 )
 
 // UUIDCol addresses a uuid column.
@@ -537,6 +555,35 @@ func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
 }
 func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
 func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
+
+// NullTextCol addresses a text column.
+type NullTextCol struct{ c uint8 }
+
+func (h NullTextCol) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h NullTextCol) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h NullTextCol) AscNullsFirst() Sort {
+	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
+}
+func (h NullTextCol) DescNullsLast() Sort {
+	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
+}
+
+func (h NullTextCol) Eq(v string) Pred    { return Pred{col: h.c, op: opEq, str: v} }
+func (h NullTextCol) NotEq(v string) Pred { return Pred{col: h.c, op: opNotEq, str: v} }
+func (h NullTextCol) Gt(v string) Pred    { return Pred{col: h.c, op: opGt, str: v} }
+func (h NullTextCol) Gte(v string) Pred   { return Pred{col: h.c, op: opGte, str: v} }
+func (h NullTextCol) Lt(v string) Pred    { return Pred{col: h.c, op: opLt, str: v} }
+func (h NullTextCol) Lte(v string) Pred   { return Pred{col: h.c, op: opLte, str: v} }
+func (h NullTextCol) Like(v string) Pred  { return Pred{col: h.c, op: opLike, str: v} }
+func (h NullTextCol) ILike(v string) Pred { return Pred{col: h.c, op: opILike, str: v} }
+func (h NullTextCol) In(v ...string) Pred { return Pred{col: h.c, op: opIn, anyStr: v} }
+
+// NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
+// comparison NULL for every row and the result empty —
+// PostgreSQL's rule for NOT IN, not storm's.
+func (h NullTextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: v} }
+func (h NullTextCol) IsNull() Pred           { return Pred{col: h.c, op: opIsNull} }
+func (h NullTextCol) IsNotNull() Pred        { return Pred{col: h.c, op: opIsNotNull} }
 
 // Where applies predicates, ANDed together.
 func (q Query) Where(ps ...Pred) Query {
@@ -735,6 +782,20 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
+		case 11:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 12:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -822,6 +883,20 @@ func (q *Query) leaf(p Pred) {
 		q.jsns[q.njs] = p.jsn
 		q.njs++
 	case 11:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 12:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 13:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -921,6 +996,30 @@ func (q Query) RolesContains(v runtime.JSON) Query     { return q.Where(Roles.Co
 func (q Query) RolesContainedBy(v runtime.JSON) Query  { return q.Where(Roles.ContainedBy(v)) }
 func (q Query) RolesHasAnyKey(v ...string) Query       { return q.Where(Roles.HasAnyKey(v...)) }
 func (q Query) RolesHasAllKeys(v ...string) Query      { return q.Where(Roles.HasAllKeys(v...)) }
+func (q Query) IdentityIssuerEq(v string) Query        { return q.Where(IdentityIssuer.Eq(v)) }
+func (q Query) IdentityIssuerNotEq(v string) Query     { return q.Where(IdentityIssuer.NotEq(v)) }
+func (q Query) IdentityIssuerGt(v string) Query        { return q.Where(IdentityIssuer.Gt(v)) }
+func (q Query) IdentityIssuerGte(v string) Query       { return q.Where(IdentityIssuer.Gte(v)) }
+func (q Query) IdentityIssuerLt(v string) Query        { return q.Where(IdentityIssuer.Lt(v)) }
+func (q Query) IdentityIssuerLte(v string) Query       { return q.Where(IdentityIssuer.Lte(v)) }
+func (q Query) IdentityIssuerLike(v string) Query      { return q.Where(IdentityIssuer.Like(v)) }
+func (q Query) IdentityIssuerILike(v string) Query     { return q.Where(IdentityIssuer.ILike(v)) }
+func (q Query) IdentityIssuerIn(v ...string) Query     { return q.Where(IdentityIssuer.In(v...)) }
+func (q Query) IdentityIssuerNotIn(v ...string) Query  { return q.Where(IdentityIssuer.NotIn(v...)) }
+func (q Query) IdentityIssuerIsNull() Query            { return q.Where(IdentityIssuer.IsNull()) }
+func (q Query) IdentityIssuerIsNotNull() Query         { return q.Where(IdentityIssuer.IsNotNull()) }
+func (q Query) IdentitySubjectEq(v string) Query       { return q.Where(IdentitySubject.Eq(v)) }
+func (q Query) IdentitySubjectNotEq(v string) Query    { return q.Where(IdentitySubject.NotEq(v)) }
+func (q Query) IdentitySubjectGt(v string) Query       { return q.Where(IdentitySubject.Gt(v)) }
+func (q Query) IdentitySubjectGte(v string) Query      { return q.Where(IdentitySubject.Gte(v)) }
+func (q Query) IdentitySubjectLt(v string) Query       { return q.Where(IdentitySubject.Lt(v)) }
+func (q Query) IdentitySubjectLte(v string) Query      { return q.Where(IdentitySubject.Lte(v)) }
+func (q Query) IdentitySubjectLike(v string) Query     { return q.Where(IdentitySubject.Like(v)) }
+func (q Query) IdentitySubjectILike(v string) Query    { return q.Where(IdentitySubject.ILike(v)) }
+func (q Query) IdentitySubjectIn(v ...string) Query    { return q.Where(IdentitySubject.In(v...)) }
+func (q Query) IdentitySubjectNotIn(v ...string) Query { return q.Where(IdentitySubject.NotIn(v...)) }
+func (q Query) IdentitySubjectIsNull() Query           { return q.Where(IdentitySubject.IsNull()) }
+func (q Query) IdentitySubjectIsNotNull() Query        { return q.Where(IdentitySubject.IsNotNull()) }
 func (q Query) DeletedAtEq(v time.Time) Query          { return q.Where(DeletedAt.Eq(v)) }
 func (q Query) DeletedAtNotEq(v time.Time) Query       { return q.Where(DeletedAt.NotEq(v)) }
 func (q Query) DeletedAtGt(v time.Time) Query          { return q.Where(DeletedAt.Gt(v)) }
@@ -935,7 +1034,7 @@ func (q Query) DeletedAtIsNotNull() Query              { return q.Where(DeletedA
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "deleted_at" FROM "users"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "identity_issuer", "identity_subject", "deleted_at" FROM "users"`
 const countPrefix = `SELECT count(*) FROM "users"`
 const existsPrefix = `SELECT 1 FROM "users"`
 const existsSuffix = ` LIMIT 1`
@@ -1038,6 +1137,18 @@ var orderTable = [nCols][4]string{
 		"\"roles\" ASC NULLS FIRST",
 		"\"roles\" DESC NULLS LAST",
 	},
+	{ // identity_issuer
+		"\"identity_issuer\"",
+		"\"identity_issuer\" DESC",
+		"\"identity_issuer\" ASC NULLS FIRST",
+		"\"identity_issuer\" DESC NULLS LAST",
+	},
+	{ // identity_subject
+		"\"identity_subject\"",
+		"\"identity_subject\" DESC",
+		"\"identity_subject\" ASC NULLS FIRST",
+		"\"identity_subject\" DESC NULLS LAST",
+	},
 	{ // deleted_at
 		"\"deleted_at\"",
 		"\"deleted_at\" DESC",
@@ -1060,6 +1171,8 @@ var identTable = [nCols]string{
 	"\"organization\"",
 	"\"email\"",
 	"\"roles\"",
+	"\"identity_issuer\"",
+	"\"identity_subject\"",
 	"\"deleted_at\"",
 }
 
@@ -1093,7 +1206,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [12][27]runtime.Frag{
+var fragTable = [14][27]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1413,6 +1526,64 @@ var fragTable = [12][27]runtime.Frag{
 		{},
 		{},
 	},
+	{ // identity_issuer
+		{}, // opNone
+		{A: "\"identity_issuer\" = $", B: ""},
+		{A: "\"identity_issuer\" <> $", B: ""},
+		{A: "\"identity_issuer\" > $", B: ""},
+		{A: "\"identity_issuer\" >= $", B: ""},
+		{A: "\"identity_issuer\" < $", B: ""},
+		{A: "\"identity_issuer\" <= $", B: ""},
+		{A: "\"identity_issuer\" LIKE $", B: ""},
+		{A: "\"identity_issuer\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"identity_issuer\" = ANY($", B: ")"},
+		{A: "\"identity_issuer\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"identity_issuer\" IS NULL", B: ""},
+		{A: "\"identity_issuer\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // identity_subject
+		{}, // opNone
+		{A: "\"identity_subject\" = $", B: ""},
+		{A: "\"identity_subject\" <> $", B: ""},
+		{A: "\"identity_subject\" > $", B: ""},
+		{A: "\"identity_subject\" >= $", B: ""},
+		{A: "\"identity_subject\" < $", B: ""},
+		{A: "\"identity_subject\" <= $", B: ""},
+		{A: "\"identity_subject\" LIKE $", B: ""},
+		{A: "\"identity_subject\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"identity_subject\" = ANY($", B: ")"},
+		{A: "\"identity_subject\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"identity_subject\" IS NULL", B: ""},
+		{A: "\"identity_subject\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 	{ // deleted_at
 		{}, // opNone
 		{A: "\"deleted_at\" = $", B: ""},
@@ -1608,7 +1779,9 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Organization = sl.Str(rv[8])
 	r.Email = sl.Str(rv[9])
 	r.Roles = runtime.JSON(runtime.JSONB(rv[10], sl))
-	r.DeletedAt = runtime.Nullable(rv[11], runtime.Timestamptz)
+	r.IdentityIssuer = runtime.NullText(rv[11], sl)
+	r.IdentitySubject = runtime.NullText(rv[12], sl)
+	r.DeletedAt = runtime.Nullable(rv[13], runtime.Timestamptz)
 	return nil
 }
 
@@ -1706,6 +1879,14 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
+			case 11:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 12:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			}
 			continue
 		}
@@ -1755,6 +1936,14 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.jsns[njs])
 			njs++
 		case 11:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 12:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 13:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -1895,7 +2084,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "users" ("id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "deleted_at"`
+const insertSQL = `INSERT INTO "users" ("id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "identity_issuer", "identity_subject", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING "id", "created_at", "updated_at", "username", "password_hash", "tokens_valid_from", "full_name", "display_name", "organization", "email", "roles", "identity_issuer", "identity_subject", "deleted_at"`
 
 const updatePrefix = `UPDATE "users" SET `
 const deletePrefix = `DELETE FROM "users"`
@@ -1912,10 +2101,12 @@ const (
 	dOrganization    uint64 = 1 << 6
 	dEmail           uint64 = 1 << 7
 	dRoles           uint64 = 1 << 8
-	dDeletedAt       uint64 = 1 << 9
+	dIdentityIssuer  uint64 = 1 << 9
+	dIdentitySubject uint64 = 1 << 10
+	dDeletedAt       uint64 = 1 << 11
 )
 
-const nUpdatable = 10
+const nUpdatable = 12
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1928,6 +2119,8 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"organization\" = $", B: ""},      // organization
 	{A: "\"email\" = $", B: ""},             // email
 	{A: "\"roles\" = $", B: ""},             // roles
+	{A: "\"identity_issuer\" = $", B: ""},   // identity_issuer
+	{A: "\"identity_subject\" = $", B: ""},  // identity_subject
 	{A: "\"deleted_at\" = $", B: ""},        // deleted_at
 }
 
@@ -1951,10 +2144,12 @@ const (
 	iOrganization    uint64 = 1 << 8
 	iEmail           uint64 = 1 << 9
 	iRoles           uint64 = 1 << 10
-	iDeletedAt       uint64 = 1 << 11
+	iIdentityIssuer  uint64 = 1 << 11
+	iIdentitySubject uint64 = 1 << 12
+	iDeletedAt       uint64 = 1 << 13
 )
 
-const nInsertable = 12
+const nInsertable = 14
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1969,6 +2164,8 @@ var insCols = [nInsertable]string{
 	"\"organization\"",
 	"\"email\"",
 	"\"roles\"",
+	"\"identity_issuer\"",
+	"\"identity_subject\"",
 	"\"deleted_at\"",
 }
 
@@ -1978,7 +2175,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"users\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"username\", \"password_hash\", \"tokens_valid_from\", \"full_name\", \"display_name\", \"organization\", \"email\", \"roles\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"username\", \"password_hash\", \"tokens_valid_from\", \"full_name\", \"display_name\", \"organization\", \"email\", \"roles\", \"identity_issuer\", \"identity_subject\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2061,6 +2258,30 @@ func (m *Mut) SetEmail(v string) {
 func (m *Mut) SetRoles(v runtime.JSON) {
 	m.row.Roles = v
 	m.dirty |= dRoles
+}
+
+func (m *Mut) SetIdentityIssuer(v string) {
+	m.row.IdentityIssuer = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dIdentityIssuer
+}
+
+// SetIdentityIssuerNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetIdentityIssuerNull() {
+	m.row.IdentityIssuer = runtime.Null[string]{}
+	m.dirty |= dIdentityIssuer
+}
+
+func (m *Mut) SetIdentitySubject(v string) {
+	m.row.IdentitySubject = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dIdentitySubject
+}
+
+// SetIdentitySubjectNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetIdentitySubjectNull() {
+	m.row.IdentitySubject = runtime.Null[string]{}
+	m.dirty |= dIdentitySubject
 }
 
 func (m *Mut) SetDeletedAt(v time.Time) {
@@ -2162,6 +2383,30 @@ func (n *Ins) SetRoles(v runtime.JSON) {
 	n.set |= iRoles
 }
 
+func (n *Ins) SetIdentityIssuer(v string) {
+	n.row.IdentityIssuer = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iIdentityIssuer
+}
+
+// SetIdentityIssuerNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetIdentityIssuerNull() {
+	n.row.IdentityIssuer = runtime.Null[string]{}
+	n.set |= iIdentityIssuer
+}
+
+func (n *Ins) SetIdentitySubject(v string) {
+	n.row.IdentitySubject = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iIdentitySubject
+}
+
+// SetIdentitySubjectNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetIdentitySubjectNull() {
+	n.row.IdentitySubject = runtime.Null[string]{}
+	n.set |= iIdentitySubject
+}
+
 func (n *Ins) SetDeletedAt(v time.Time) {
 	n.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iDeletedAt
@@ -2216,11 +2461,12 @@ func upsertTail(conflict uint8, mask uint64) string {
 var conflictSpecs = []string{
 	" ON CONFLICT (\"id\")",
 	" ON CONFLICT (\"username\")",
+	" ON CONFLICT (\"identity_issuer\", \"identity_subject\") WHERE deleted_at IS NULL",
 }
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 10)
+	set := make([]string, 0, 12)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2251,6 +2497,12 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "roles")
 		}
 		if mask&(1<<11) != 0 {
+			set = append(set, "identity_issuer")
+		}
+		if mask&(1<<12) != 0 {
+			set = append(set, "identity_subject")
+		}
+		if mask&(1<<13) != 0 {
 			set = append(set, "deleted_at")
 		}
 	case 1:
@@ -2279,6 +2531,43 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "roles")
 		}
 		if mask&(1<<11) != 0 {
+			set = append(set, "identity_issuer")
+		}
+		if mask&(1<<12) != 0 {
+			set = append(set, "identity_subject")
+		}
+		if mask&(1<<13) != 0 {
+			set = append(set, "deleted_at")
+		}
+	case 2:
+		if mask&(1<<2) != 0 {
+			set = append(set, "updated_at")
+		}
+		if mask&(1<<3) != 0 {
+			set = append(set, "username")
+		}
+		if mask&(1<<4) != 0 {
+			set = append(set, "password_hash")
+		}
+		if mask&(1<<5) != 0 {
+			set = append(set, "tokens_valid_from")
+		}
+		if mask&(1<<6) != 0 {
+			set = append(set, "full_name")
+		}
+		if mask&(1<<7) != 0 {
+			set = append(set, "display_name")
+		}
+		if mask&(1<<8) != 0 {
+			set = append(set, "organization")
+		}
+		if mask&(1<<9) != 0 {
+			set = append(set, "email")
+		}
+		if mask&(1<<10) != 0 {
+			set = append(set, "roles")
+		}
+		if mask&(1<<13) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2302,6 +2591,16 @@ func (n *Ins) OnConflictID() *Ins {
 // entirely.
 func (n *Ins) OnConflictUsername() *Ins {
 	n.conflict = 4
+	return n
+}
+
+// OnConflictIdentityIssuerIdentitySubject upserts on the unique index over (identity_issuer, identity_subject, where deleted_at IS NULL).
+//
+// The row that already exists keeps every column this insert did
+// not assign. Follow with DoNothing() to leave it untouched
+// entirely.
+func (n *Ins) OnConflictIdentityIssuerIdentitySubject() *Ins {
+	n.conflict = 6
 	return n
 }
 
@@ -2348,6 +2647,8 @@ var assignFor = map[string]string{
 	"organization":      "\"organization\" = EXCLUDED.\"organization\"",
 	"email":             "\"email\" = EXCLUDED.\"email\"",
 	"roles":             "\"roles\" = EXCLUDED.\"roles\"",
+	"identity_issuer":   "\"identity_issuer\" = EXCLUDED.\"identity_issuer\"",
+	"identity_subject":  "\"identity_subject\" = EXCLUDED.\"identity_subject\"",
 	"deleted_at":        "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
 }
 
@@ -2415,6 +2716,10 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 10:
 			args = append(args, n.row.Roles)
 		case 11:
+			args = append(args, n.row.IdentityIssuer.Arg())
+		case 12:
+			args = append(args, n.row.IdentitySubject.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2453,7 +2758,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2465,6 +2770,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Organization)
 	args = append(args, r.Email)
 	args = append(args, r.Roles)
+	args = append(args, r.IdentityIssuer.Arg())
+	args = append(args, r.IdentitySubject.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2503,6 +2810,8 @@ var copyCols = []string{
 	"organization",
 	"email",
 	"roles",
+	"identity_issuer",
+	"identity_subject",
 	"deleted_at",
 }
 
@@ -2510,7 +2819,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [12]any
+	buf  [14]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2539,7 +2848,9 @@ func (s *rowSource) Values() []any {
 	s.buf[8] = &r.Organization
 	s.buf[9] = &r.Email
 	s.buf[10] = &r.Roles
-	s.buf[11] = r.DeletedAt.Ptr()
+	s.buf[11] = r.IdentityIssuer.Ptr()
+	s.buf[12] = r.IdentitySubject.Ptr()
+	s.buf[13] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2582,8 +2893,10 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 9
 	mask |= 1 << 10
 	mask |= 1 << 11
+	mask |= 1 << 12
+	mask |= 1 << 13
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2595,6 +2908,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Organization)
 	args = append(args, r.Email)
 	args = append(args, r.Roles)
+	args = append(args, r.IdentityIssuer.Arg())
+	args = append(args, r.IdentitySubject.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2652,6 +2967,10 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 10:
 			args = append(args, n.row.Roles)
 		case 11:
+			args = append(args, n.row.IdentityIssuer.Arg())
+		case 12:
+			args = append(args, n.row.IdentitySubject.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2714,6 +3033,10 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 8:
 			args = append(args, m.row.Roles)
 		case 9:
+			args = append(args, m.row.IdentityIssuer.Arg())
+		case 10:
+			args = append(args, m.row.IdentitySubject.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -2803,6 +3126,10 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 8:
 			args = append(args, m.row.Roles)
 		case 9:
+			args = append(args, m.row.IdentityIssuer.Arg())
+		case 10:
+			args = append(args, m.row.IdentitySubject.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

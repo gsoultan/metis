@@ -2,10 +2,12 @@ package interceptors
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
@@ -18,10 +20,19 @@ import (
 // InterceptorFactory creates various interceptors.
 type InterceptorFactory struct {
 	users servicecontracts.UserService
+	// platform is built on first use and shared, so the operator's list of
+	// platform administrators is read — and a mistyped entry reported — once
+	// per set of endpoints rather than once per endpoint.
+	platform func() contracts.EndpointInterceptor
 }
 
-func NewInterceptorFactory(users servicecontracts.UserService) *InterceptorFactory {
-	return &InterceptorFactory{users: users}
+func NewInterceptorFactory(users servicecontracts.UserService, organizations servicecontracts.OrganizationCounter) *InterceptorFactory {
+	return &InterceptorFactory{
+		users: users,
+		platform: sync.OnceValue(func() contracts.EndpointInterceptor {
+			return authinterceptor.NewRequirePlatformAdministrator(organizations)
+		}),
+	}
 }
 
 func (f *InterceptorFactory) NewLogging(method string) contracts.EndpointInterceptor {
@@ -74,9 +85,21 @@ func (f *InterceptorFactory) NewJWTStrategy() authinterceptor.SecurityStrategy {
 	return authinterceptor.NewJWTStrategy(f.users.ValidateToken)
 }
 
+// NewOIDCStrategy authenticates an identity provider's ID token and signs its
+// holder in as the account linked to it.
+//
+// The token proves who somebody is to the provider. Which account that is here,
+// and which organizations it may act in, is the sign-in's to decide — so the
+// principal a request carries is that account, never the token's claims. That
+// is what lets every check downstream treat an OIDC user as the account it is:
+// roles an administrator granted, organizations the tenant resolver can place.
 func (f *InterceptorFactory) NewOIDCStrategy(validator *auth.TokenValidator) authinterceptor.SecurityStrategy {
 	return authinterceptor.NewOIDCStrategy(func(ctx context.Context, token string) (any, error) {
-		return validator.ValidateToken(ctx, token)
+		claims, err := validator.ValidateToken(ctx, token)
+		if err != nil {
+			return nil, err
+		}
+		return f.users.SignInThroughIdentityProvider(ctx, claims)
 	})
 }
 
@@ -116,6 +139,25 @@ func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...str
 		// Order matters: authenticate, then authorize, then scope. A missing
 		// token reports "unauthenticated" rather than "insufficient role".
 		return auth.Intercept(rbac.Intercept(tenantResolver.Intercept(logging.Intercept(e))))
+	}
+}
+
+// PlatformChain is for what every organization on the installation shares, where
+// administering one of them is not enough: ProtectedChainWithRoles for
+// administrators, then the platform administrator gate.
+//
+// Roles are global, so the administrator role alone admits the administrator
+// of any organization — to a change every other organization then runs.
+func (f *InterceptorFactory) PlatformChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+	logging := f.NewLogging(method)
+	auth := f.NewEndpointAuth()
+	rbac := authinterceptor.NewRequireRoles(entities.RoleAdmin)
+	platform := f.platform()
+	tenantResolver := f.NewTenantResolver()
+	return func(e endpoint.Endpoint) endpoint.Endpoint {
+		// The role first: a caller without it is told to ask for the role,
+		// not about platform administrators.
+		return auth.Intercept(rbac.Intercept(platform.Intercept(tenantResolver.Intercept(logging.Intercept(e)))))
 	}
 }
 

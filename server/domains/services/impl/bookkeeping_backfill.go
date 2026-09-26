@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,30 +44,23 @@ type EngineBookkeepingBackfillResult struct {
 // It is idempotent: a migrated instance has no `_mi_` keys left, so a later run
 // does not touch it. Only active instances are considered — a finished process
 // has nothing left to count, and the stale keys on it are harmless history.
+//
+// Every active instance, walked a batch at a time. It read every instance of
+// every state, newest first, and kept the active ones — through a list that
+// stops at a thousand rows, so a running instance behind a thousand newer ones
+// was never migrated, and this runs once.
 func BackfillEngineBookkeeping(ctx context.Context, repo repositories.Repository) (EngineBookkeepingBackfillResult, error) {
-	ms, err := repo.Process().List(ctx)
-	if err != nil {
-		return EngineBookkeepingBackfillResult{}, fmt.Errorf("list process instances: %w", err)
-	}
-
 	var result EngineBookkeepingBackfillResult
-	for i := range ms {
-		m := &ms[i]
-		if m.Status != "active" {
-			continue
+	err := repo.Process().ScanByStatus(ctx, models.ProcessActive, func(batch []models.ProcessInstanceModel) error {
+		for i := range batch {
+			if err := migrateInstanceBookkeeping(ctx, repo, batch[i], &result); err != nil {
+				return err
+			}
 		}
-		result.Scanned++
-
-		instance := adapters.InstanceEntityAdapter{Model: *m}.ToEntity()
-		if !migrateLegacyBookkeepingKeys(&instance) {
-			result.Unchanged++
-			continue
-		}
-
-		if err := repo.Process().Update(ctx, adapters.InstanceModelAdapter{Instance: instance}.ToModel()); err != nil {
-			return result, fmt.Errorf("update instance %s: %w", instance.ID, err)
-		}
-		result.Migrated++
+		return nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("backfill the active instances: %w", err)
 	}
 
 	if result.Migrated > 0 {
@@ -76,6 +70,22 @@ func BackfillEngineBookkeeping(ctx context.Context, repo repositories.Repository
 			Msg("Moved engine bookkeeping out of the process variables")
 	}
 	return result, nil
+}
+
+// migrateInstanceBookkeeping moves one active instance's legacy keys, counting
+// what it did in result.
+func migrateInstanceBookkeeping(ctx context.Context, repo repositories.Repository, m models.ProcessInstanceModel, result *EngineBookkeepingBackfillResult) error {
+	result.Scanned++
+	instance := adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+	if !migrateLegacyBookkeepingKeys(&instance) {
+		result.Unchanged++
+		return nil
+	}
+	if err := repo.Process().Update(ctx, adapters.InstanceModelAdapter{Instance: instance}.ToModel()); err != nil {
+		return fmt.Errorf("update instance %s: %w", instance.ID, err)
+	}
+	result.Migrated++
+	return nil
 }
 
 // migrateLegacyBookkeepingKeys rewrites one instance in place, reporting

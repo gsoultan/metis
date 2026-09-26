@@ -56,9 +56,9 @@ type Failer interface {
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
-	f := interceptors.NewInterceptorFactory(s)
-	// protected proves only that the caller is signed in. The three chains
-	// below additionally prove *who* they are.
+	f := interceptors.NewInterceptorFactory(s, s)
+	// protected proves only that the caller is signed in. The chains below it
+	// additionally prove *who* they are.
 	//
 	// Everything not listed here stays on `protected` deliberately: task
 	// inbox actions, reading instances and starting a process are the daily
@@ -77,6 +77,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	operator := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleOperator)
 	}
+	// platformAdmin is for what every organization on the installation shares.
+	// adminOnly admits the administrator of any one organization, because roles
+	// are global; this admits, where there is more than one organization, only
+	// the administrators the operator named in METIS_PLATFORM_ADMINS.
+	platformAdmin := f.PlatformChain
 	public := f.PublicChain
 
 	collaborationEndpoints := collaboration.MakeEndpoints(s)
@@ -106,17 +111,23 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// rewrite or delete one — while creating an instance of the same connector
 	// needed an administrator. A connector describes what the engine calls out
 	// to and with which credentials, which is the definition of "authoring code
-	// the engine executes"; adminOnly matches the instances and the manifests.
-	connectorEndpoints.CreateConnector = adminOnly("CreateConnector")(connectorEndpoints.CreateConnector)
-	connectorEndpoints.UpdateConnector = adminOnly("UpdateConnector")(connectorEndpoints.UpdateConnector)
-	connectorEndpoints.DeleteConnector = adminOnly("DeleteConnector")(connectorEndpoints.DeleteConnector)
+	// the engine executes". And a template has no organization: its key is
+	// unique across the installation, and every organization's connections are
+	// configured through its schema, which is what marks a setting as a
+	// password. So, like the manifests below, it is the platform's to change.
+	connectorEndpoints.CreateConnector = platformAdmin("CreateConnector")(connectorEndpoints.CreateConnector)
+	connectorEndpoints.UpdateConnector = platformAdmin("UpdateConnector")(connectorEndpoints.UpdateConnector)
+	connectorEndpoints.DeleteConnector = platformAdmin("DeleteConnector")(connectorEndpoints.DeleteConnector)
 
 	// Installing a connector adds an address this engine will call with the
-	// tenant's credentials attached, which is an administrator's decision.
-	// Reading the catalogue is not.
-	connectorEndpoints.InstallManifest = adminOnly("InstallConnectorManifest")(connectorEndpoints.InstallManifest)
-	connectorEndpoints.SetManifestEnabled = adminOnly("SetConnectorManifestEnabled")(connectorEndpoints.SetManifestEnabled)
-	connectorEndpoints.DeleteManifest = adminOnly("DeleteConnectorManifest")(connectorEndpoints.DeleteManifest)
+	// tenant's credentials attached — every tenant's: a manifest is
+	// installation-wide, and a step in any organization that names its key runs
+	// it. So installing, switching and removing one is the platform's decision
+	// rather than one organization's administrator's. Reading the catalogue is
+	// neither.
+	connectorEndpoints.InstallManifest = platformAdmin("InstallConnectorManifest")(connectorEndpoints.InstallManifest)
+	connectorEndpoints.SetManifestEnabled = platformAdmin("SetConnectorManifestEnabled")(connectorEndpoints.SetManifestEnabled)
+	connectorEndpoints.DeleteManifest = platformAdmin("DeleteConnectorManifest")(connectorEndpoints.DeleteManifest)
 	connectorEndpoints.ListManifests = protected("ListConnectorManifests")(connectorEndpoints.ListManifests)
 	connectorEndpoints.GetManifest = protected("GetConnectorManifest")(connectorEndpoints.GetManifest)
 
@@ -150,6 +161,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	webhookEndpoints.ListWebhooks = protected("ListWebhooks")(webhookEndpoints.ListWebhooks)
 	webhookEndpoints.CreateWebhook = designer("CreateWebhook")(webhookEndpoints.CreateWebhook)
 	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
+	webhookEndpoints.CloseLegacySignatures = designer("CloseLegacySignatures")(webhookEndpoints.CloseLegacySignatures)
 	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
 
 	definitionEndpoints := definition.MakeEndpoints(s)

@@ -93,6 +93,10 @@ type ProcessRepository interface {
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, f InstanceFilter, p Pagination) (Page[models.ProcessInstanceModel], error)
 	ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]models.ProcessInstanceModel, error)
 	ListByParent(ctx context.Context, parentInstanceID uuid.UUID) ([]models.ProcessInstanceModel, error)
+
+	// ScanByStatus walks every instance in one state, a batch at a time, for
+	// work that has to reach all of them without holding all of them at once.
+	ScanByStatus(ctx context.Context, status models.ProcessStatus, visit func([]models.ProcessInstanceModel) error) error
 	CountByStatus(ctx context.Context, projectID uuid.UUID, status models.ProcessStatus) (int64, error)
 
 	// OpenIncidentsByInstance reports how many unresolved incidents each of the

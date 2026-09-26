@@ -36,6 +36,19 @@ describe('explainIncident', () => {
     expect(explained.worthRetrying).toBe(false);
   });
 
+  it('says a connector was switched off or removed, rather than that the connection is gone', () => {
+    // The connection is still there; what it connects to was taken out of the
+    // catalogue. Sending somebody to recreate the connection sends them the
+    // wrong way.
+    const explained = explainIncident(
+      'connector lookup failed: the connection "CRM" uses a connector the catalogue no longer offers; ' +
+        'it was switched off or removed on the Connectors page: not found: no such connector',
+    );
+    expect(explained.cause).toContain('switched off or removed');
+    expect(explained.suggestion).toContain('switch it back on');
+    expect(explained.worthRetrying).toBe(false);
+  });
+
   it('explains a decision table that contradicts itself', () => {
     const explained = explainIncident('UNIQUE hit policy violated: lines [1 2] all matched');
     expect(explained.cause).toContain('contradicted itself');
