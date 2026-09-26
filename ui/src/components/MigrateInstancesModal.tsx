@@ -33,7 +33,7 @@ import type { ActionRow, MigrationRequest } from '../domain/instanceMigration';
 import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
 import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
 import { migrationNotice } from '../domain/migrationOutcome';
-import { diffSummary, diffVersions, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
+import { compareLoaded, comparisonFailure, diffOf, diffSummary, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances } from '../hooks/useDefinitions';
 import { useMigrationPlan } from '../hooks/useMigrationPlan';
 import { VersionChangesTable } from './VersionChangesTable';
@@ -82,10 +82,26 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // is fetched that the designer does not fetch too.
   const before = useDefinition(source?.id ?? null);
   const after = useDefinition(target?.id ?? null);
-  const diff = useMemo(
-    () => diffVersions(before.data?.definition ?? null, after.data?.definition ?? null),
-    [before.data?.definition, after.data?.definition],
+  const comparison = useMemo(
+    () => compareLoaded(
+      {
+        label: `v${source?.version ?? ''}`,
+        loading: before.isLoading,
+        failed: before.isError || !!before.data?.err,
+        definition: before.data?.definition,
+      },
+      {
+        label: `v${target?.version ?? ''}`,
+        loading: after.isLoading,
+        failed: after.isError || !!after.data?.err,
+        definition: after.data?.definition,
+      },
+    ),
+    [source?.version, target?.version, before.isLoading, before.isError, before.data, after.isLoading, after.isError, after.data],
   );
+  // Nothing is proposed from a comparison that could not be made: a mapping
+  // worked out against nothing would move work somewhere it should not go.
+  const diff = useMemo(() => diffOf(comparison), [comparison]);
   const gone = removedNodes(diff);
   const landing = landingChoices(diff);
   // One step out and one in is a rename, and the only reading of it — so it is
@@ -209,13 +225,18 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           answering that without seeing the diff meant reading node ids off a
           diagram in another tab.
         */}
-        {(before.isLoading || after.isLoading) && (
+        {comparison.kind === 'loading' && (
           <Group gap="xs">
             <Loader size="xs" />
             <Text size="sm" c="dimmed">Comparing the two versions…</Text>
           </Group>
         )}
-        {!before.isLoading && !after.isLoading && (diff.changes.length > 0 || diff.flows.length > 0) && (
+        {comparison.kind === 'failed' && (
+          <Alert color="red" icon={<AlertTriangle size={16} />} radius="md">
+            <Text size="sm">{comparisonFailure(comparison.missing)}</Text>
+          </Alert>
+        )}
+        {comparison.kind === 'ready' && (diff.changes.length > 0 || diff.flows.length > 0) && (
           <Stack gap={4}>
             <Group gap="xs" justify="space-between">
               <Text size="sm" fw={600}>What changed</Text>
