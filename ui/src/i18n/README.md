@@ -49,7 +49,9 @@ The shell: navigation, the language menu itself, and the offline and update
 messages. The page headings, the Dashboard's figures, the getting-started card
 and Help's checklist and glossary. The glossary's steps keep the palette's
 names, which are still English, so a step can be looked up by the name seen on
-it. **Everything else is still hardcoded English** — the rest of the pages,
+it. The Roles view on the Platform access page, whose role names and their
+sentences come from `domain/roles.ts` and the actions under each from the
+server, both still English. **Everything else is still hardcoded English** — the rest of the pages,
 forms, designer and decision editor, which is the large majority of the strings.
 
 That is a deliberate stopping point rather than a claim of completeness. The

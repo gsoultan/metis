@@ -24,6 +24,9 @@ type InterceptorFactory struct {
 	// platform administrators is read — and a mistyped entry reported — once
 	// per set of endpoints rather than once per endpoint.
 	platform func() contracts.EndpointInterceptor
+	// roles is every role-gated chain this factory has built, so what each
+	// role is required for can be read from the gates. See RoleAccess.
+	roles *roleRegistry
 }
 
 func NewInterceptorFactory(users servicecontracts.UserService, organizations servicecontracts.OrganizationCounter) *InterceptorFactory {
@@ -32,6 +35,7 @@ func NewInterceptorFactory(users servicecontracts.UserService, organizations ser
 		platform: sync.OnceValue(func() contracts.EndpointInterceptor {
 			return authinterceptor.NewRequirePlatformAdministrator(organizations)
 		}),
+		roles: newRoleRegistry(),
 	}
 }
 
@@ -131,6 +135,7 @@ func (f *InterceptorFactory) ProtectedChain(method string) func(endpoint.Endpoin
 // is equivalent to ProtectedChain and should be reserved for endpoints where
 // any authenticated participant is legitimately allowed.
 func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
+	f.roles.record(method, roles)
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
 	rbac := authinterceptor.NewRequireRoles(roles...)
@@ -142,13 +147,26 @@ func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...str
 	}
 }
 
+// RoleAccess lists each role with the actions its gates were built for, by
+// the method names the chains were given.
+//
+// Read it once every chain is built: a chain built afterwards is enforced and
+// missing from the answer, which is why MakeEndpoints reads it last.
+func (f *InterceptorFactory) RoleAccess() []entities.RoleAccess {
+	return f.roles.access()
+}
+
 // PlatformChain is for what every organization on the installation shares, where
 // administering one of them is not enough: ProtectedChainWithRoles for
 // administrators, then the platform administrator gate.
 //
 // Roles are global, so the administrator role alone admits the administrator
-// of any organization — to a change every other organization then runs.
+// of any organization — to a change every other organization then runs. The
+// role it requires is recorded like any other gate's, so the legend lists
+// these methods under the administrator; the platform gate after it is the
+// operator's list, which no role grants.
 func (f *InterceptorFactory) PlatformChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+	f.roles.record(method, []string{entities.RoleAdmin})
 	logging := f.NewLogging(method)
 	auth := f.NewEndpointAuth()
 	rbac := authinterceptor.NewRequireRoles(entities.RoleAdmin)

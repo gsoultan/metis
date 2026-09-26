@@ -101,6 +101,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Who holds which role, and what each role is for, on one screen.** The
+  Platform access page has a Roles tab beside Accounts: every account in the
+  organization against the four roles, and beside each role a button listing
+  the actions it is required for — read from the checks the server enforces,
+  so it cannot say a role allows something the server refuses
+  (`GET /api/v1/roles`, which anybody signed in may read). An administrator
+  grants or revokes a role by ticking its box, and each change is saved as it
+  is made. A refusal — the organization's last administrator, or an account
+  another organization shares — is shown in the server's words and the box
+  stays as it was. Anybody else sees who holds what, with no boxes to tick.
 - **The RabbitMQ bridge and inbound consumer can be switched on.** Both were
   built and advertised, and nothing started either, so a running server held
   no broker connection at all. `METIS_RABBITMQ_BRIDGES` publishes a topic's
@@ -270,6 +280,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **The Users page stopped at a thousand accounts.** An organization with more
+  showed a thousand of them and said it was showing all, and the check that
+  keeps one administrator, counting from the same list, could refuse to demote
+  an administrator while another one existed past the thousandth. Every account
+  is listed and counted now.
+- **Refusing to change an account named no organization.** "ana is the last
+  administrator of ; make somebody else an administrator first" now names the
+  organization. For an account another organization shares, the refusal says
+  "another organization" rather than naming one the administrator is not in.
+- **The Operator role's description promised migrating running instances**,
+  which only an administrator may do. It now says what an operator may do:
+  resolve incidents, start ad hoc tasks and broadcast signals. The seeded role
+  takes the new description on the next start.
 - **Refusing to delete a decision that running instances still reach answered
   500.** It was a correct refusal reported as a server fault, spending the error
   budget; it is a 400 now, and names the version.

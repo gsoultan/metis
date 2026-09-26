@@ -56,6 +56,11 @@ func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
 // Roles are global, so changing an account's roles — or deleting it — acts in
 // every organization it belongs to. Being an administrator grants authority
 // over your own organizations, not over the others an account happens to share.
+//
+// The refusal does not name the other organization. Its name is not the
+// caller's to read — they are not a member — and the account's memberships
+// carry ids only, which is why this printed a blank where the name was meant
+// to be. The person the account belongs to can say where else they are.
 func requireAccountAuthority(ctx context.Context, account models.UserModel) error {
 	if err := requireAccountVisible(ctx, account); err != nil {
 		return err
@@ -67,8 +72,9 @@ func requireAccountAuthority(ctx context.Context, account models.UserModel) erro
 	for _, org := range account.Organizations {
 		if !memberships[uuid.UUID(org.ID)] {
 			return apierr.Forbiddenf(
-				"%s also belongs to %s, which you are not a member of; an administrator there has to make this change",
-				account.Username, org.Name)
+				"%s also belongs to another organization, which you are not a member of; "+
+					"an administrator there has to make this change",
+				account.Username)
 		}
 	}
 	return nil
@@ -92,13 +98,26 @@ func (s *userService) requireAnotherAdministrator(ctx context.Context, account m
 		orgCtx := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 		another, err := s.repo.User().HasAnotherAdministrator(orgCtx, orgID, uuid.UUID(account.ID))
 		if err != nil {
-			return fmt.Errorf("could not count the administrators of %s: %w", org.Name, err)
+			return fmt.Errorf("could not count the administrators of organization %s: %w", orgID, err)
 		}
 		if !another {
-			return apierr.Forbiddenf(
-				"%s is the last administrator of %s; make somebody else an administrator first",
-				account.Username, org.Name)
+			return s.lastAdministratorRefusal(orgCtx, account, orgID)
 		}
 	}
 	return nil
+}
+
+// lastAdministratorRefusal says whose organization would be left without an
+// administrator, by name.
+//
+// The account's memberships carry ids only, so the name is read here, on the
+// way to refusing and nowhere else, scoped to that organization as the count
+// before it was. The caller is a member, so the name is theirs to read.
+func (s *userService) lastAdministratorRefusal(orgCtx context.Context, account models.UserModel, orgID uuid.UUID) error {
+	org, err := s.repo.Organization().Get(orgCtx, orgID)
+	if err != nil {
+		return fmt.Errorf("could not read the organization %s: %w", orgID, err)
+	}
+	return apierr.Forbiddenf("%s is the last administrator of %s; make somebody else an administrator first",
+		account.Username, org.Name)
 }

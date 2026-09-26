@@ -19,6 +19,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
+	"github.com/gsoultan/metis/server/endpoints/role"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
 	"github.com/gsoultan/metis/server/endpoints/task"
@@ -48,6 +49,7 @@ type Endpoints struct {
 	Group             group.Endpoints
 	Notification      notification.Endpoints
 	Simulation        simulation.Endpoints
+	Role              role.Endpoints
 }
 
 // Failer is an interface that should be implemented by response types that can fail.
@@ -361,6 +363,18 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	simulationEndpoints.Simulate = designer("Simulate")(simulationEndpoints.Simulate)
 	simulationEndpoints.SimulateBatch = designer("SimulateBatch")(simulationEndpoints.SimulateBatch)
 
+	// What each role is required for, read from the gates above as the factory
+	// built them. Last, so that every one of them is in it: a gate built after
+	// this line would be enforced and missing from the legend, which is the
+	// drift the legend exists to rule out. role_legend_test.go holds what it
+	// serves to this file.
+	//
+	// protected rather than adminOnly: "what does Designer let me do" is a fair
+	// question from anybody signed in, and the answer is the same for everybody
+	// — the installation's own gates, with nothing from any organization in it.
+	roleEndpoints := role.MakeEndpoints(f.RoleAccess())
+	roleEndpoints.ListRoles = protected("ListRoles")(roleEndpoints.ListRoles)
+
 	return Endpoints{
 		Collaboration:     collaborationEndpoints,
 		Connector:         connectorEndpoints,
@@ -382,5 +396,6 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Group:             groupEndpoints,
 		Notification:      notificationEndpoints,
 		Simulation:        simulationEndpoints,
+		Role:              roleEndpoints,
 	}
 }
