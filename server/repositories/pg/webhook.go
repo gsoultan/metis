@@ -119,6 +119,27 @@ func (r *webhookRepository) SetEnabled(ctx context.Context, id uuid.UUID, enable
 	return nil
 }
 
+func (r *webhookRepository) CloseLegacyWindow(ctx context.Context, id uuid.UUID, at time.Time) error {
+	row, err := r.one(ctx, id)
+	if err != nil {
+		return err
+	}
+	until, open := row.LegacySignaturesUntil.Get()
+	if !open || !until.After(at) {
+		return nil
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	mut := webhook.Mutate(row)
+	mut.SetLegacySignaturesUntil(at.UTC())
+	if err := mut.Update(ctx, ex); err != nil {
+		return fmt.Errorf("could not close the webhook's window for legacy signatures: %w", err)
+	}
+	return nil
+}
+
 func (r *webhookRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if _, err := r.one(ctx, id); err != nil {
 		return err

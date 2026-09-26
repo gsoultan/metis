@@ -220,6 +220,15 @@ func (s *webhookService) SetWebhookEnabled(ctx context.Context, id uuid.UUID, en
 	return s.repo.Webhook().SetEnabled(ctx, id, enabled)
 }
 
+// CloseLegacySignatures ends a webhook's window for legacy signatures now.
+//
+// Every day left in the window is a day a captured legacy delivery is still
+// acted on, and once the sender signs with v2 there is nothing to wait for.
+// Truncated to the second the refusal message quotes.
+func (s *webhookService) CloseLegacySignatures(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Webhook().CloseLegacyWindow(ctx, id, time.Now().UTC().Truncate(time.Second))
+}
+
 func (s *webhookService) DeleteWebhook(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Webhook().Delete(ctx, id)
 }

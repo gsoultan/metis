@@ -27,6 +27,10 @@ type WebhookService interface {
 	// SetWebhookEnabled switches a webhook on or off without losing its token.
 	SetWebhookEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
 
+	// CloseLegacySignatures stops a webhook accepting legacy signatures from
+	// now, once its sender signs with v2. It only ever shortens the window.
+	CloseLegacySignatures(ctx context.Context, id uuid.UUID) error
+
 	DeleteWebhook(ctx context.Context, id uuid.UUID) error
 
 	// ForgetOldDeliveries drops the delivery records that have outlived any

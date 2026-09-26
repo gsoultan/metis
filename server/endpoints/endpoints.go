@@ -145,6 +145,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	webhookEndpoints.ListWebhooks = protected("ListWebhooks")(webhookEndpoints.ListWebhooks)
 	webhookEndpoints.CreateWebhook = designer("CreateWebhook")(webhookEndpoints.CreateWebhook)
 	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
+	webhookEndpoints.CloseLegacySignatures = designer("CloseLegacySignatures")(webhookEndpoints.CloseLegacySignatures)
 	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
 
 	definitionEndpoints := definition.MakeEndpoints(s)

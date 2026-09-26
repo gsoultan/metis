@@ -24,8 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   (migration 25), then refuse it with a message saying how to sign with v2.
   Move your senders before then: the webhooks screen shows each webhook's date,
   *Receiving events: webhooks* in `docs/integration.md` has the scheme with Go,
-  Node.js and Python examples, and `docs/upgrading.md` shows how to close a
-  window early once a sender has moved.
+  Node.js and Python examples. Once a sender has moved, close its webhook's
+  window at once from the same screen (*Stop accepting legacy signatures now*),
+  rather than leaving captured deliveries replayable until the date.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial

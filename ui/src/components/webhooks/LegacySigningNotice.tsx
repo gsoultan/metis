@@ -6,12 +6,13 @@
  * created since v2 existed and every older one whose window has closed: a line
  * that is always there stops being read.
  */
-import { Anchor, Group, Modal, Stack, Text } from '@mantine/core';
+import { Anchor, Divider, Group, Modal, Stack, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { AlertTriangle } from 'lucide-react';
 
 import { legacySigningOf } from '../../domain/webhookSigning';
 import type { ApiWebhook } from '../../services/domains/webhookService';
+import { CloseLegacyWindow } from './CloseLegacyWindow';
 import { WebhookSigningHelp } from './WebhookSigningHelp';
 
 const DEADLINE_FORMAT: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' };
@@ -61,6 +62,8 @@ export function LegacySigningNotice({ hook }: { hook: ApiWebhook }) {
             way are refused. Send these instructions to whoever runs the sending system — the secret stays the same.
           </Text>
           <WebhookSigningHelp />
+          <Divider />
+          <CloseLegacyWindow hookId={hook.id} deadline={deadline} />
         </Stack>
       </Modal>
     </>

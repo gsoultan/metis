@@ -65,6 +65,15 @@ export const webhookService = {
     return { err: raiseIfRefused(data).err };
   },
 
+  /**
+   * Stops a webhook accepting legacy signatures from now. The server only ever
+   * shortens a window, so this cannot extend one.
+   */
+  async closeLegacySignatures(id: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/webhooks/${id}/legacy-signatures`, { method: "DELETE", signal });
+    return { err: raiseIfRefused(data).err };
+  },
+
   async deleteWebhook(id: string, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>(`/webhooks/${id}`, { method: "DELETE", signal });
     return { err: raiseIfRefused(data).err };

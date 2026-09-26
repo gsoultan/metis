@@ -92,6 +92,80 @@ func TestALegacySignatureIsAcceptedOnlyWhileTheWindowIsOpen(t *testing.T) {
 	}
 }
 
+// Once a sender signs with v2, every day left in its webhook's window is a day
+// a captured legacy delivery still works. Whoever manages the webhook can close
+// the window at once, without waiting for it or reaching for SQL. Closing only
+// ever shortens it: it is not a way to extend one.
+func TestAWebhooksLegacyWindowCanBeClosedAtOnce(t *testing.T) {
+	h := newWebhookHarness(t)
+	engine := &countingEngine{ExecutionEngine: h.engine}
+	endpoint := h.endpoint(engine)
+	hook := h.register(t, "order.paid", "")
+	h.setLegacyWindow(t, hook, time.Now().Add(30*24*time.Hour))
+
+	captured := legacyDelivery(hook, []byte(`{"order":{"id":"ORD-1"}}`), "evt-1")
+	if reply := post(t, endpoint, hook, captured); reply.Code != http.StatusAccepted {
+		t.Fatalf("inside the window a legacy-signed delivery was answered %d: %s", reply.Code, reply.Body)
+	}
+
+	if err := h.service.CloseLegacySignatures(h.ctx, hook.ID); err != nil {
+		t.Fatalf("close the legacy window: %v", err)
+	}
+
+	replayed := captured
+	replayed.deliveryID = "evt-2"
+	reply := post(t, endpoint, hook, replayed)
+	if reply.Code != http.StatusBadRequest {
+		t.Fatalf("after the window was closed, a legacy-signed delivery was answered %d, want 400: %s", reply.Code, reply.Body)
+	}
+	assertSaysHowToMoveToV2(t, reply)
+	if engine.sends != 1 {
+		t.Errorf("acted on %d times, want once: before the window was closed", engine.sends)
+	}
+	if outcome, err := h.deliver(t, hook, []byte(`{"order":{"id":"ORD-2"}}`), "evt-3"); err != nil || outcome.Duplicate {
+		t.Errorf("a v2 delivery after the window closed: outcome %+v, err %v", outcome, err)
+	}
+
+	closedAt := h.legacyWindowOf(t, hook)
+	if closedAt == nil || closedAt.After(time.Now()) {
+		t.Fatalf("after closing, the window runs until %v, want a moment already past", closedAt)
+	}
+
+	// Again is harmless, and moves nothing later.
+	if err := h.service.CloseLegacySignatures(h.ctx, hook.ID); err != nil {
+		t.Fatalf("close the legacy window again: %v", err)
+	}
+	if again := h.legacyWindowOf(t, hook); again == nil || !again.Equal(*closedAt) {
+		t.Errorf("closing a closed window moved it from %v to %v", closedAt, again)
+	}
+
+	// A webhook that never accepted legacy signatures is left as it is.
+	v2Only := h.register(t, "order.shipped", "")
+	if err := h.service.CloseLegacySignatures(h.ctx, v2Only.ID); err != nil {
+		t.Fatalf("close the window of a webhook that has none: %v", err)
+	}
+	if until := h.legacyWindowOf(t, v2Only); until != nil {
+		t.Errorf("a v2-only webhook now has a legacy window until %v", until)
+	}
+}
+
+// legacyWindowOf is when a webhook stops accepting legacy signatures, as the
+// webhooks screen reads it.
+func (h *webhookHarness) legacyWindowOf(t *testing.T, hook entities.Webhook) *time.Time {
+	t.Helper()
+	hooks, err := h.service.ListWebhooks(h.ctx, h.projectID)
+	if err != nil {
+		t.Fatalf("list webhooks: %v", err)
+	}
+	for _, listed := range hooks {
+		if listed.ID == hook.ID {
+			return listed.LegacySignaturesUntil
+		}
+	}
+	t.Fatalf("webhook %s is not listed", hook.ID)
+	return nil
+}
+
 // v2 works throughout, so a sender can move whenever it is ready.
 func TestAV2DeliveryIsAcceptedWhileTheLegacyWindowIsOpen(t *testing.T) {
 	h := newWebhookHarness(t)
