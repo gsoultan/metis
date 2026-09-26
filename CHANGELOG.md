@@ -308,6 +308,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   grid says a condition can name another; and a cell holding `?`, Camunda's
   name for a condition's own value, which the engine cannot read, is marked
   with what to write instead.
+- **A decision condition the engine cannot read was marked for sighted users
+  only.** The cell drew a red wavy underline and set `aria-invalid`, which the
+  input component replaced with its own, so a screen reader never heard that
+  the condition was wrong. It is announced as invalid now.
 - **The decision editor told an author to put working conditions in quotes.**
   When the table checks could not read a column (a cell calling a function,
   say) and the column also had a line with `-`, as every new line does, the

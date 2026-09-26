@@ -40,11 +40,20 @@ describe('a condition cell', () => {
       const box = conditionBox(value);
       expect(box).not.toBe('');
       expect(underlined(box)).toBe(false);
+      expect(box).not.toContain('aria-invalid');
     }
   });
 
   it('marks what the engine cannot read', () => {
     expect(underlined(conditionBox('? > minimum'))).toBe(true);
     expect(underlined(conditionBox('"GOLD'))).toBe(true);
+  });
+
+  // The underline is for eyes. A screen reader learns a field is wrong from
+  // aria-invalid, which the cell set and Mantine replaced with its own, taken
+  // from `error` — so no condition was ever announced as broken.
+  it('says so to a screen reader too', () => {
+    expect(conditionBox('? > minimum')).toContain('aria-invalid="true"');
+    expect(conditionBox('"GOLD')).toContain('aria-invalid="true"');
   });
 });

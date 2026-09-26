@@ -36,7 +36,12 @@ export function ConditionCell({
           variant="unstyled"
           px="sm"
           aria-label={`${columnLabel} condition`}
-          aria-invalid={problem ? true : undefined}
+          // Mantine writes the input's aria-invalid from `error`, over any
+          // aria-invalid passed to it, so this is how a screen reader hears
+          // that the condition is wrong. A bare `true` shows no message, and
+          // the red error styling stays off for the underline below.
+          error={problem ? true : undefined}
+          withErrorStyles={false}
           placeholder={ANY_VALUE}
           value={value}
           onChange={(event) => onChange(event.currentTarget.value)}
