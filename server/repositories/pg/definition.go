@@ -292,44 +292,93 @@ func (r *definitionRepository) ScanWithGraphs(ctx context.Context, visit func([]
 	if !scope.unrestricted() && len(scope.projects) == 0 {
 		return nil
 	}
+	q := processdefinition.New().Order(processdefinition.ID.Asc())
+	if !scope.unrestricted() {
+		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scope.projects)...))
+	}
+	return r.scanGraphs(ctx, q, visit)
+}
+
+// ScanProjectWithGraphs walks one project's definitions — every version of
+// every process — a batch at a time, newest first, graphs included.
+//
+// For what only a graph can say about a whole project, such as which versions
+// consult a decision. A list of them stopped at the store's thousand rows, so
+// the version a running instance is on could be missed; and holding every
+// version at once is bounded by how much the project deployed rather than by
+// anything this process chose.
+func (r *definitionRepository) ScanProjectWithGraphs(ctx context.Context, projectID uuid.UUID, visit func([]models.ProcessDefinitionModel) error) error {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return err
+	}
+	// The id breaks ties in creation time, so the cursor is a position.
+	q := processdefinition.New().Order(processdefinition.CreatedAt.Desc(), processdefinition.ID.Desc())
+	if scoped != nil {
+		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scoped)...))
+	}
+	return r.scanGraphs(ctx, q, visit)
+}
+
+// scanGraphs hands q's definitions to visit a batch at a time.
+//
+// Keyset paging rather than OFFSET: a scan that offsets re-reads and discards
+// everything before its window, so the last batch of a large installation
+// costs as much as the whole table.
+func (r *definitionRepository) scanGraphs(ctx context.Context, q processdefinition.Query, visit func([]models.ProcessDefinitionModel) error) error {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return err
 	}
-
-	// Keyset paging on the primary key rather than OFFSET: a scan that offsets
-	// re-reads and discards everything before its window, so the last batch of
-	// a large installation costs as much as the whole table.
-	var after processdefinition.Row
-	for {
-		q := processdefinition.New().
-			Order(processdefinition.ID.Asc()).
-			Limit(definitionGraphBatchSize)
-		if !scope.unrestricted() {
-			q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scope.projects)...))
-		}
-		if after.ID != ([16]byte{}) {
-			q = q.After(after)
-		}
-		rows, err := q.All(ctx, ex, nil)
-		if err != nil {
-			return fmt.Errorf("could not scan definitions with graphs: %w", err)
-		}
-		if len(rows) == 0 {
-			return nil
-		}
+	err = everyBatch(ctx, ex, q, definitionGraphBatchSize, func(rows []processdefinition.Row) error {
 		batch, err := definitionsFrom(rows)
 		if err != nil {
 			return err
 		}
-		if err := visit(batch); err != nil {
-			return err
-		}
-		if len(rows) < definitionGraphBatchSize {
-			return nil
-		}
-		after = rows[len(rows)-1]
+		return visit(batch)
+	})
+	if err != nil {
+		return fmt.Errorf("could not scan definitions with graphs: %w", err)
 	}
+	return nil
+}
+
+// ListKeysByProject returns the key of every process a project has, once each,
+// in key order.
+//
+// A project keeps every version it has deployed, so finding its processes by
+// reading its definitions read every version, graphs included — and stopped at
+// the store's thousand rows, so one process with a thousand newer versions
+// pushed every other one out of the answer. One DISTINCT instead; raw SQL,
+// because the generated store has none.
+func (r *definitionRepository) ListKeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT DISTINCT key FROM process_definitions WHERE deleted_at IS NULL`
+	var args []any
+	if scoped != nil {
+		args = append(args, uuidsToRaw(scoped))
+		query += " AND project_id = ANY($1)"
+	}
+	rows, err := ex.Query(ctx, query+" ORDER BY key", args)
+	if err != nil {
+		return nil, fmt.Errorf("could not list the project's processes: %w", err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		keys = append(keys, string(rows.RawValues()[0]))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("could not list the project's processes: %w", err)
+	}
+	return keys, nil
 }
 
 // NextVersion is the number the next deploy of this key will claim.
@@ -459,7 +508,8 @@ func (r *definitionRepository) list(ctx context.Context, scoped []uuid.UUID) ([]
 	if err != nil {
 		return nil, err
 	}
-	q := processdefinition.New().Order(processdefinition.CreatedAt.Desc())
+	// The id breaks ties in creation time, so the cursor is a position.
+	q := processdefinition.New().Order(processdefinition.CreatedAt.Desc(), processdefinition.ID.Desc())
 	switch {
 	case scoped != nil:
 		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scoped)...))
@@ -469,7 +519,8 @@ func (r *definitionRepository) list(ctx context.Context, scoped []uuid.UUID) ([]
 		}
 		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	rows, err := q.All(ctx, ex, nil)
+	// Every version, as the contract says, not the store's newest thousand.
+	rows, err := everyRow[processdefinition.Row](ctx, ex, q)
 	if err != nil {
 		return nil, fmt.Errorf("could not list definitions: %w", err)
 	}
