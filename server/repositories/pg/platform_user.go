@@ -336,12 +336,49 @@ func (r *platformUserRepository) readAccount(ctx context.Context, id uuid.UUID) 
 	return row, nil
 }
 
+// rolesOf reads the grants of one account.
+//
+// Only that account's. It read every grant in the installation and picked this
+// account's out, through a query the store caps at a thousand rows: past a
+// thousand grants an administrator's own could fall outside the window, the
+// account read as holding no role, and the last-administrator checks in Delete
+// and SetRoles — which run only for an account holding the role — let the last
+// one go.
 func (r *platformUserRepository) rolesOf(ctx context.Context, id uuid.UUID) ([]string, error) {
-	grants, err := r.grantsByUser(ctx)
+	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return grants[id], nil
+	nameByID, err := roleNamesByID(ctx, ex)
+	if err != nil {
+		return nil, err
+	}
+	assignments, err := platformroleassignment.New().
+		Where(platformroleassignment.PlatformUserID.Eq(id)).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the account's roles: %w", err)
+	}
+	var roles []string
+	for _, row := range assignments {
+		if name, ok := nameByID[row.PlatformRoleID]; ok {
+			roles = append(roles, name)
+		}
+	}
+	return roles, nil
+}
+
+// roleNamesByID reads the role list, which is a handful of rows.
+func roleNamesByID(ctx context.Context, ex runtime.Executor) (map[uuid.UUID]string, error) {
+	roleRows, err := platformrole.New().All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not read roles: %w", err)
+	}
+	nameByID := make(map[uuid.UUID]string, len(roleRows))
+	for _, row := range roleRows {
+		nameByID[row.ID] = row.Name
+	}
+	return nameByID, nil
 }
 
 // grantsByUser reads every grant and indexes it by account.
@@ -354,13 +391,9 @@ func (r *platformUserRepository) grantsByUser(ctx context.Context) (map[uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	roleRows, err := platformrole.New().All(ctx, ex, nil)
+	nameByID, err := roleNamesByID(ctx, ex)
 	if err != nil {
-		return nil, fmt.Errorf("could not read roles: %w", err)
-	}
-	nameByID := make(map[uuid.UUID]string, len(roleRows))
-	for _, row := range roleRows {
-		nameByID[row.ID] = row.Name
+		return nil, err
 	}
 
 	assignments, err := platformroleassignment.New().All(ctx, ex, nil)
