@@ -886,7 +886,8 @@
     comes newest first, and it comes oldest first.
   - **Not done, and why:** DMN-06 (saving a decision rewrites that version in place) is an
     open question in the PRD: whether saving should always create a new version, with
-    drafts kept separately. It waits for that decision.
+    drafts kept separately. It waits for that decision. *Decided and done 2026-09-26: see
+    that date's "decision versions" entry.*
 
 - 2026-09-25 (completed): 90-day plan Phase 1, "baseline profiling + SLO dashboard" —
   what the engine does when nobody is watching it. Branch `roadmap-observability`,
@@ -990,8 +991,25 @@
   - The last PR: the architecture audit and its eight cheap fixes.
   - Decisions left open are in the final report and in the Serena memory
     `verified-findings`: manifest scoping and the built-in override, the canary cohort,
-    OIDC users' organizations, the RabbitMQ bridge, decision versioning, whether a
-    service task's script runs, and task-edit authorization.
+    OIDC users' organizations, the RabbitMQ bridge, decision versioning (since decided and
+    done, entry below), whether a service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): decision versions (DMN-06), as the product owner decided it.
+  Branch `decision-versions`; each change with a test that fails without it.
+  - **Saving a decision keeps the version it replaced.** A save stores the edit as the
+    key's next version and never changes a stored one (the repository has no Update); a
+    save that changes nothing stores nothing.
+  - **Which version is live is recorded** on `decision_releases`, a release timeline with
+    the process timeline's shape and read rule. An evaluation that names no version (a
+    business rule task with no version binding, the evaluate API, a required decision)
+    reads the live version; a key with none refuses rather than falling back to the
+    newest. A save can be staged; any version can be made live again, including an older
+    one. Scheduling is not offered.
+  - **Migration 26** records, per project and key, the version that evaluated before the
+    upgrade (the highest one not deleted) as live.
+  - **The decision list is one row per decision**, with its live and newest versions and
+    when either last changed; the editor asks whether a save goes live and has a version
+    history (open, make live, roll back, delete a version).
+  - **Delete** removes one version, and refuses the live version while others remain.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
