@@ -114,6 +114,47 @@ make alerts-test   # needs promtool: brew install prometheus
 
 CI runs the same tests on every merge.
 
+## Rolling out through a canary
+
+`canary.yaml` runs the next release beside the stable pods, on a share of the
+requests, and two alerts in `alerts.yaml` compare it with the stable track:
+`MetisCanaryErrorsAboveStable` on 5xx and `MetisCanarySlowerThanStable` on read
+latency. The procedure, and what a canary does not protect you from, is in
+[`docs/runbooks.md`, "Rolling out through a canary"](../../docs/runbooks.md#rolling-out-through-a-canary).
+
+**Prometheus has to copy the pods' `track` label onto their series**, or the
+alerts compare nothing and stay silent — the same failure as a job name that
+`MetisDown` cannot see. With a `PodMonitor` or `ServiceMonitor` from
+kube-prometheus-stack, name it as a target label:
+
+```yaml
+podTargetLabels: [track]
+```
+
+A scrape job driven by the `prometheus.io/*` annotations that maps every pod
+label (`labelmap` on `__meta_kubernetes_pod_label_(.+)`) copies it already;
+otherwise add:
+
+```yaml
+relabel_configs:
+  - source_labels: [__meta_kubernetes_pod_label_track]
+    target_label: track
+```
+
+## Upgrading
+
+**From a `metis.yaml` without `track: stable`**, `kubectl apply` refuses the
+Deployment with `spec.selector: ... field is immutable`. The selector gained the
+track so that `deploy/metis` stops matching a canary's pods, and Kubernetes
+cannot change a selector in place, so replace the Deployment once:
+
+```bash
+kubectl -n metis delete deploy/metis
+kubectl -n metis apply -f metis.yaml
+```
+
+That costs the same short gap as any release under the `Recreate` strategy.
+
 ## Measuring before you commit
 
 `tests/loadtest` seeds a configurable volume into PostgreSQL and measures the

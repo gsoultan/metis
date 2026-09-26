@@ -72,6 +72,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   needs `QUERY_AUTHOR`, held beside Designer; administrators have it already.
   It is created on the next start with no migration. Grant it on the Platform
   access page to anybody who should deploy lookups.
+- **A release can be tried on a share of the traffic first.**
+  `deploy/kubernetes/canary.yaml` runs the next image beside the stable pods,
+  and two alerts compare the tracks over ten minutes:
+  `MetisCanaryErrorsAboveStable` (5xx over 1% and twice stable's) and
+  `MetisCanarySlowerThanStable` (read p95 over 150ms and twice stable's).
+  `docs/runbooks.md` has the procedure, including the part a canary cannot
+  undo: it runs the release's migrations when it starts. Prometheus has to copy
+  the pods' new `track` label onto their series; `deploy/kubernetes/README.md`
+  says how. **Upgrading:** the stable Deployment's selector gained
+  `track: stable`, and a selector cannot change in place, so `kubectl apply`
+  refuses it until the Deployment is replaced once (the README's "Upgrading").
+- **Three runbook commands found no pods.** They selected `app=metis`, a label
+  the manifest's pods never carried; they now select
+  `app.kubernetes.io/name=metis`, and a drift test holds them to the manifest.
 
 ### Security
 
