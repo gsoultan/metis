@@ -63,7 +63,7 @@ func TestAReleaseOrAnEditRacingACompletionDoesNotReopenTheTask(t *testing.T) {
 				t.Fatalf("start: %v", err)
 			}
 			taskID := openTaskOf(ctx, t, svc, projectID, instanceID)
-			if err := svc.ClaimTask(ctx, taskID, "ada"); err != nil {
+			if err := svc.ClaimTask(testutils.AsOperator(ctx, "ada"), taskID, "ada"); err != nil {
 				t.Fatalf("claim: %v", err)
 			}
 

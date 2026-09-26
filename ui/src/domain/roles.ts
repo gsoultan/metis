@@ -33,7 +33,7 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   {
     value: 'OPERATOR',
     label: 'Operator',
-    description: 'Resolves incidents, starts ad hoc tasks and broadcasts signals to running instances',
+    description: 'Resolves incidents, starts ad hoc tasks, broadcasts signals to running instances, and takes the tasks nobody was named for',
   },
   {
     value: 'QUERY_AUTHOR',
