@@ -3,8 +3,8 @@
 The three open items under `.junie/roadmap.md` §9.2, checked against commit
 `ad1b477` on `roadmap-architecture`, 2026-09-25.
 
-**Since then** (#93–#95, `roadmap-chaos` and this branch): defects 1.1, 3.6,
-3.7, 3.8, 3.9, 3.12, 3.13, 3.14 and 3.15 are fixed, 1.2 in part, and the
+**Since then** (#93–#95, `roadmap-chaos` and this branch): defects 1.1, 1.2, 3.6,
+3.7, 3.8, 3.9, 3.12, 3.13, 3.14 and 3.15 are fixed, and the
 environment defect found on the way; the eight cheap fixes are done; the
 load tests found and fixed reads that stopped at a thousand rows; and the
 RabbitMQ bridge and consumer nothing started are started when configured
@@ -285,7 +285,8 @@ delivered after it.
 | §B: `UnitOfWork` with two methods; GORM repositories escaping transactions | Three methods (`Do`, `Attempt`, `AfterCommit`); every repository on storm, one transaction | `server/repositories/contracts/uow.go:6-20`; `server/repositories/uow.go:10-16` |
 | §G: `WebhookService.ForgetOldDeliveries` never called | Called by the retention sweep, as a method value | `internal/app/retention.go:71` |
 | 1.1: a completed or cancelled task could be delegated or assigned, and so completed again | Hand-overs hold the task row and refuse one that is completed or withdrawn | `impl/task.go` `openTaskForHandOver`; `tests/task/reopen_test.go` |
-| 1.2, in part: anyone in the tenant could release a task another person held | Only the holder or an administrator can. Editing a task is still unchecked | `server/endpoints/task/endpoint.go` (Unclaim → `mayRelease`); `tests/task/release_test.go` |
+| 1.2, in part: anyone in the tenant could release a task another person held | Only the holder or an administrator can. Editing a task was held to the same rule afterwards | `server/endpoints/task/endpoint.go` (Unclaim → `mayRelease`, UpdateTask → `mayEdit`); `tests/task/release_test.go`, `tests/task/edit_test.go` |
+| 1.2, the rest: a task with no candidates was anyone's, so a released task could be claimed and completed by whoever took it | A task with no assignee and no candidates is an administrator's or an operator's to claim, complete or hand on, and anybody else is told so with a 403 (`HUM-04`). A manual task stays anybody's | `impl/task.go` `authorizeCandidate`; `entities.Task.FallsToOperators`; `tests/task/nobody_named_test.go` |
 | 3.6: process-event webhooks were sent from inside the transaction | Sent after commit, through `UnitOfWork().AfterCommit`. The observer still has its own `http.Client`; its endpoints come from `WEBHOOK_ENDPOINTS`, the operator's, not a user's | `server/domains/observers/impl/webhook.go`; `server/domains/observers/impl/webhook_after_commit_test.go` |
 | 3.8: webhook receipt committed the claim, then sent the message separately | One unit of work; the claim is an insert that does nothing on conflict, so a PostgreSQL transaction is not aborted by it | `impl/webhook.go` `Receive`; `server/repositories/pg/webhook.go` `ClaimDelivery`; `tests/webhook/retry_after_failure_test.go` |
 | 3.9: a failed migration skip left the step's task cancelled and its token in place | One unit of work, the instance locked before the task, as `CompleteTask` does | `impl/migration.go` `skipNode`; `tests/instancemigration/skip_failure_test.go` |
