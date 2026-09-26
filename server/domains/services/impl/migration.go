@@ -1149,29 +1149,36 @@ func (s *migrationService) skipNode(
 	if s.engine == nil {
 		return apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
 	}
-	// The task goes first. Between cancelling the token and cancelling the task
-	// there is a window in which somebody could complete the step that is being
-	// skipped, and a completion that races an advance is two advances.
-	if err := s.cancelTasksOn(ctx, instanceID, nodeID); err != nil {
-		return err
-	}
-
-	live, err := s.engine.GetInstance(ctx, instanceID)
-	if err != nil {
-		return fmt.Errorf("reading instance %s to skip %q: %w", instanceID, nodeID, err)
-	}
-	def, err := s.engine.GetProcessDefinition(ctx, sourceDefID)
-	if err != nil {
-		return fmt.Errorf("reading the version %s is running to skip %q: %w", instanceID, nodeID, err)
-	}
-	// Advanced on the graph the instance is actually running, not the one it is
-	// moving to: the node being skipped is the one the new version does not
-	// have, so only the old graph knows what follows it.
-	if err := s.engine.Proceed(ctx, &live, def, nodeID); err != nil {
-		return fmt.Errorf("advancing instance %s past %q: %w", instanceID, nodeID, err)
-	}
-	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
-	return nil
+	// One unit of work. Withdrawing the task and advancing past the step each
+	// committed on their own, so an advance that failed — a gateway after the
+	// step with no branch to take — left the task withdrawn and the token on
+	// the step: nobody could do the work, and nothing would move the instance
+	// on. Now a failed advance puts the task back as it was.
+	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		// The instance first, then its task, the order CompleteTask takes
+		// them in: a completion racing the skip waits here, and then finds
+		// the task withdrawn rather than performing a step already advanced
+		// past.
+		live, err := s.engine.GetInstanceForUpdate(txCtx, instanceID)
+		if err != nil {
+			return fmt.Errorf("reading instance %s to skip %q: %w", instanceID, nodeID, err)
+		}
+		if err := s.cancelTasksOn(txCtx, instanceID, nodeID); err != nil {
+			return err
+		}
+		def, err := s.engine.GetProcessDefinition(txCtx, sourceDefID)
+		if err != nil {
+			return fmt.Errorf("reading the version %s is running to skip %q: %w", instanceID, nodeID, err)
+		}
+		// Advanced on the graph the instance is actually running, not the one
+		// it is moving to: the node being skipped is the one the new version
+		// does not have, so only the old graph knows what follows it.
+		if err := s.engine.Proceed(txCtx, &live, def, nodeID); err != nil {
+			return fmt.Errorf("advancing instance %s past %q: %w", instanceID, nodeID, err)
+		}
+		s.recordDecision(txCtx, instance, source, target, nodeID, action, options, runID)
+		return nil
+	})
 }
 
 // cancelInstance ends an instance where it stands.

@@ -15,6 +15,7 @@ import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
+import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
 import { useAppStore } from '../../store/useAppStore';
 import { asText, asTextMap } from '../../types/bpmn';
@@ -32,7 +33,7 @@ import { PropertySection } from './PropertySection';
  * someone who already knows which one they want.
  */
 export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const implementation = asText(data.implementation, 'push');
+  const implementation = serviceImplementation(data as Record<string, unknown>);
   const { data: connectorsData } = useConnectors();
   const { expertMode } = useAppStore();
   const [testModalOpened, setTestModalOpened] = useState(false);
@@ -143,8 +144,10 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <TextInput
             label="Web address"
             placeholder="https://api.example.com/webhook"
-            value={asText(data.httpUrl ?? data.http_url ?? data.url)}
-            onChange={(e) => onUpdate({ httpUrl: e.target.value })}
+            value={storedWebAddress(data as Record<string, unknown>)}
+            // The older name goes as the address is edited, so clearing the
+            // field clears the address rather than bringing the old one back.
+            onChange={(e) => onUpdate({ httpUrl: e.target.value, url: undefined })}
           />
           <PasswordInput
             label="Access token"
@@ -164,8 +167,8 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
           <TextInput
             label="Topic"
             placeholder="e.g. process-invoice"
-            value={asText(data.externalTopic ?? data.external_topic ?? data.topic)}
-            onChange={(e) => onUpdate({ externalTopic: e.target.value })}
+            value={storedWorkerTopic(data as Record<string, unknown>)}
+            onChange={(e) => onUpdate({ externalTopic: e.target.value, topic: undefined })}
           />
         </PropertySection>
       )}

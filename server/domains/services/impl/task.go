@@ -90,13 +90,19 @@ func (s *taskService) ListTasksByCandidates(ctx context.Context, userID string, 
 
 func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		// Holding the task's row. A claim read the task, saw it unclaimed and
+		// wrote it claimed with nothing held in between, so claims made at the
+		// same moment all read it unclaimed and were all told it was theirs.
+		m, err := s.lockedTask(txCtx, id)
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+		if task.Status == entities.TaskClaimed || task.Status == entities.TaskDelegated {
+			return apierr.Invalidf("somebody else has already claimed this task")
+		}
 		if task.Status != entities.TaskUnclaimed {
-			return fmt.Errorf("task %s is not unclaimed (current status: %s)", id, task.Status)
+			return apierr.Invalidf("this task is %s; there is nothing to claim", task.Status)
 		}
 
 		if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
@@ -196,9 +202,13 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 
 func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		// Held, like every other write to a task. A release that read the
+		// task while it was being completed waited for the completion's
+		// commit and then wrote its own copy back — "unclaimed" over
+		// "completed" — and the finished task was open again.
+		m, err := s.lockedTask(txCtx, id)
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		if task.Status != entities.TaskClaimed {
@@ -224,11 +234,10 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
 
 func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		task, err := s.openTaskForHandOver(txCtx, id, "delegated")
 		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
+			return err
 		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		task.Status = entities.TaskDelegated
 		task.Assignee = &entities.User{Username: userID}
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
@@ -415,8 +424,10 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 
 func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Ensure task exists before updating
-		m, err := s.repo.Task().Get(txCtx, task.ID)
+		// Held for the reason UnclaimTask holds it: the whole row is written
+		// back, status included, so an unheld read could reopen a task
+		// completed in between.
+		m, err := s.lockedTask(txCtx, task.ID)
 		if err != nil {
 			return err
 		}
@@ -445,11 +456,10 @@ func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error 
 
 func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		m, err := s.repo.Task().Get(txCtx, id)
+		task, err := s.openTaskForHandOver(txCtx, id, "assigned")
 		if err != nil {
 			return err
 		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		task.Assignee = &entities.User{Username: userID}
 		task.Status = entities.TaskClaimed
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
@@ -466,6 +476,41 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID strin
 		}, task, EventTaskAssigned, userID)
 		return nil
 	})
+}
+
+// openTaskForHandOver reads a task about to be delegated or assigned, holding
+// its row, and refuses one nobody can work on any more.
+//
+// Both hand-overs set the status without asking what it was, so a completed
+// task could be handed on — reopened — and completed again, running
+// everything after it a second time. Holding the row matters as much as the
+// check: completion writes it too, so a hand-over that read the task open
+// while it was being completed would otherwise write it back open.
+func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, action string) (entities.Task, error) {
+	m, err := s.lockedTask(ctx, id)
+	if err != nil {
+		return entities.Task{}, err
+	}
+	task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+	switch task.Status {
+	case entities.TaskCompleted:
+		return entities.Task{}, apierr.Invalidf("this task is completed; it cannot be %s", action)
+	case entities.TaskCanceled:
+		return entities.Task{}, apierr.Invalidf("this task was withdrawn; it cannot be %s", action)
+	}
+	return task, nil
+}
+
+// lockedTask reads a task and holds its row, so what is decided from the read
+// cannot be overtaken by another decision made from the same read. Everything
+// that competes for a task — a claim, a hand-over, completion, a migration
+// moving it — writes that row, so holding it is what makes them take turns.
+func (s *taskService) lockedTask(ctx context.Context, id uuid.UUID) (models.TaskModel, error) {
+	m, err := s.repo.Task().GetForUpdate(ctx, id)
+	if err != nil {
+		return models.TaskModel{}, fmt.Errorf("failed to get task: %w", err)
+	}
+	return m, nil
 }
 
 // announce raises a task event and writes the task's audit entry for it.

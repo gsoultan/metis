@@ -1101,9 +1101,9 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 	// The Camunda-namespaced attributes are the write side of the read/write
 	// pairs on bpmnNode; the plain fields stay empty so nothing is emitted
 	// twice, once legally and once not.
-	if n.ExternalTopic != "" {
+	if topic := n.WorkerTopic(); topic != "" {
 		bn.CamundaType = "external"
-		bn.CamundaTopic = n.ExternalTopic
+		bn.CamundaTopic = topic
 	}
 	bn.CamundaAssignee = n.Assignee
 	bn.CamundaFormKey = n.FormKey

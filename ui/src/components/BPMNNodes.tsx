@@ -24,6 +24,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { webAddress, workerTopic } from '../domain/serviceImplementation';
 import { useAppStore } from '../store/useAppStore';
 
 const getStatusStyles = (status?: string, heatmapValue?: number) => {
@@ -265,6 +266,10 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
   // the step does, so it now reads "Calls another system" unless expert mode
   // is on. Both names appear on hover, so the notation stays learnable.
   const typeLabel = useNodeCaption(String(data.nodeType ?? 'serviceTask'));
+  // What the step does, decided as the engine decides it: a topic left over
+  // from before the modeller chose a web address is not shown as the step.
+  const address = webAddress(data as Record<string, unknown>);
+  const topic = workerTopic(data as Record<string, unknown>);
 
   return (
     <Paper 
@@ -296,17 +301,17 @@ export const TaskNode = ({ data, selected }: NodeProps) => {
         </Group>
         <Text size="xs" fw={700} lineClamp={2}>{data.label as string}</Text>
         
-        {!!data.httpUrl && (
+        {!!address && (
           <Group gap={4} mt={2}>
              <Badge size="xs" color="teal" variant="light" p={4} radius="xs">{String(data.httpMethod || 'GET')}</Badge>
-             <Text size="10px" c="dimmed" truncate maw={100}>{String(data.httpUrl)}</Text>
+             <Text size="10px" c="dimmed" truncate maw={100}>{address}</Text>
           </Group>
         )}
 
-        {!!data.externalTopic && (
+        {!!topic && (
           <Group gap={4} mt={2}>
              <Badge size="xs" color="orange" variant="light" p={4} radius="xs">External</Badge>
-             <Text size="10px" c="dimmed" truncate maw={100}>{String(data.externalTopic)}</Text>
+             <Text size="10px" c="dimmed" truncate maw={100}>{topic}</Text>
           </Group>
         )}
 

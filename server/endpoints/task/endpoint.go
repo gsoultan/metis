@@ -156,6 +156,12 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
+		// Releasing puts the task back for anyone to claim, which is handing it
+		// over to whoever claims it next. It asked nobody's permission, so any
+		// member could release a task somebody else held and take it.
+		if err := mayHandOver(ctx, s, id); err != nil {
+			return CompleteTaskResponse{Err: err}, nil
+		}
 		err = s.UnclaimTask(ctx, id)
 		return CompleteTaskResponse{Err: err}, nil
 	}
@@ -321,9 +327,10 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 	return out, nil
 }
 
-// mayHandOver refuses a delegate or assign from anyone but the task's current
-// assignee or an administrator. A task with no assignee may be assigned by an
-// administrator only: absent constraint means deny, not "anyone".
+// mayHandOver refuses a release, delegate or assign from anyone but the task's
+// current assignee or an administrator. A task with no assignee may be
+// assigned by an administrator only: absent constraint means deny, not
+// "anyone".
 func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
 	actor, err := principal.Username(ctx)
 	if err != nil {

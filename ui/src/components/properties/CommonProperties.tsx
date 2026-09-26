@@ -29,6 +29,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useState } from 'react';
+import { workerTopic } from '../../domain/serviceImplementation';
 import { useConnectors, useExecuteScript, useTryConnectorStep } from '../../hooks/useProcess';
 import { nodeProperties } from '../../mappers/definitionMapper';
 import { useAppStore } from '../../store/useAppStore';
@@ -361,7 +362,7 @@ export function ApiExample({ type, data }: { type: string, id: string, data: BPM
   let title = 'API usage';
   let description = 'How another application drives this step.';
 
-  const topic = data.externalTopic || 'your-topic';
+  const topic = workerTopic(data as Record<string, unknown>) || 'your-topic';
   const message = data.messageName || 'your-message';
   const signal = data.signalName || 'your-signal';
 
@@ -399,7 +400,7 @@ err = client.CompleteTask(ctx, task.ID, "alice", metis.Variables{"approved": tru
       break;
 
     case 'serviceTask':
-      if (data.externalTopic) {
+      if (workerTopic(data as Record<string, unknown>)) {
         title = `Serve topic "${topic}" with a worker`;
         description = 'The engine publishes this step as work; your service pulls it, does the job in your own runtime, and reports back.';
         snippet = `// Go SDK — a long-polling worker

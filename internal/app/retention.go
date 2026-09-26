@@ -30,6 +30,9 @@ const sharedCountKept = 5 * time.Minute
 // nothing ever started one. So all three grew for as long as the server ran,
 // two of them keyed by whatever callers chose to send.
 //
+// The same pass re-offers external tasks stranded at zero retries; see
+// reoffer.
+//
 // It sweeps once at start-up, because an installation that is redeployed more
 // often than the interval would otherwise never sweep, and then on a timer.
 // Every replica sweeps. The deletes are idempotent, so two replicas sweeping at
@@ -68,6 +71,7 @@ func (a *App) sweepRetention(ctx context.Context, now time.Time) {
 }
 
 func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time) {
+	reoffer(ctx, database, a.repo.ExternalTask().ReofferStranded)
 	forget(ctx, "webhook_deliveries", database, a.svc.ForgetOldDeliveries)
 	// No storm connection means idempotency records are held in the serving
 	// process, which sweeps its own.
@@ -75,6 +79,23 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time) 
 		forget(ctx, "idempotency_records", database, func(ctx context.Context) (int64, error) {
 			return security.ForgetIdempotencyRecords(ctx, a.storm, defaultHTTPIdempotencyTTL, now)
 		})
+	}
+}
+
+// reoffer puts back on offer the external tasks that ran out of retries with
+// no incident to say so. Not retention, but the same shape: every replica, every
+// database, idempotent. Repairing any is worth a warning, since in steady state
+// there are none — each one was work nobody was offered and nobody was told of.
+func reoffer(ctx context.Context, database string, run func(context.Context) (int64, error)) {
+	reoffered, err := run(ctx)
+	if err != nil {
+		log.Warn().Err(err).Str("database", database).
+			Msg("Could not re-offer external tasks that ran out of retries with no incident; they stay off offer until a sweep succeeds.")
+		return
+	}
+	if reoffered > 0 {
+		log.Warn().Str("database", database).Int64("reoffered", reoffered).
+			Msg("Re-offered external tasks that had run out of retries with no incident to say so")
 	}
 }
 

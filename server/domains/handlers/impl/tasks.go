@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -13,8 +14,8 @@ import (
 // ServiceTaskHandler handles automated tasks that call external services.
 //
 // Execution strategy:
-//   - If the node has an ExternalTopic, it creates an external task record for a
-//     worker to claim (pull model).
+//   - If the node waits for a worker (see entities.Node.Implementation), it
+//     creates an external task record for a worker to claim (pull model).
 //   - Otherwise the task is queued as a job.  The job worker resolves connectors
 //     and HTTP calls, updates instance variables and calls engine.Proceed when
 //     done.  This keeps the handler free of HTTP/connector logic and prevents the
@@ -27,13 +28,20 @@ type ServiceTaskHandler struct {
 
 func (h *ServiceTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// 1. External Task: create a pull-model task and return – the worker completes it.
-	if node.ExternalTopic != "" {
+	if node.Implementation() == "external" {
+		topic := node.WorkerTopic()
+		if topic == "" {
+			// No worker can ask for work under no name, so the step would wait
+			// for good. It used to run as a job instead, with nothing to call,
+			// and the process moved on as though the work had been done.
+			return fmt.Errorf("step %s waits for a worker and names no topic for one to ask under", node.ID)
+		}
 		return h.externalTaskService.Create(ctx, &entities.ExternalTask{
 			Project:           instance.Project,
 			ProcessInstance:   instance,
 			ProcessDefinition: &entities.ProcessDefinition{ID: instance.Definition.ID},
 			Node:              &node,
-			Topic:             node.ExternalTopic,
+			Topic:             topic,
 			Variables:         instance.Variables,
 			Retries:           3,
 		})

@@ -53,6 +53,68 @@ type Node struct {
 	Flows      []*SequenceFlow `json:"flows,omitzero"`
 }
 
+// KnownMultiInstanceType reports whether the engine can run a step that
+// repeats this way: in parallel, in sequence, or not at all, which an empty
+// value also means. Any other value used to mark the loop started and then
+// start neither kind, and the instance waited for good.
+func KnownMultiInstanceType(loop string) bool {
+	switch loop {
+	case "", "none", "parallel", "sequential":
+		return true
+	default:
+		return false
+	}
+}
+
+// Implementation is how a service task is carried out: "push" calls a web
+// address, "connector" uses a connection, "external" waits for a worker, and
+// "script" runs a script.
+//
+// The designer records the modeller's choice and keeps what was typed under
+// every choice, so a topic entered before switching to a web address is still
+// on the node. The recorded choice decides. A file imported from another tool
+// records none, and then the settings do: a topic means a worker, a connection
+// a connector, and anything else a web address.
+func (n *Node) Implementation() string {
+	if chosen := n.GetStringProperty("implementation"); chosen != "" {
+		return chosen
+	}
+	switch {
+	case n.ExternalTopic != "" || n.GetStringProperty("topic") != "":
+		return "external"
+	case n.GetStringProperty("connector_id") != "" || n.GetStringProperty("connector_instance_id") != "":
+		return "connector"
+	default:
+		return "push"
+	}
+}
+
+// WorkerTopic is the topic a service task waits for a worker under, or "" if
+// it does not wait for one. Definitions saved from August to September 2026
+// hold it as "topic", and the designer shows that as the topic still.
+func (n *Node) WorkerTopic() string {
+	if n.Implementation() != "external" {
+		return ""
+	}
+	if n.ExternalTopic != "" {
+		return n.ExternalTopic
+	}
+	return n.GetStringProperty("topic")
+}
+
+// HTTPURL is the web address a service task calls, or "" if it calls none.
+// Definitions saved from August to September 2026 hold it as "url", and the
+// designer shows that as the address still.
+func (n *Node) HTTPURL() string {
+	if n.Implementation() != "push" {
+		return ""
+	}
+	if address := n.GetStringProperty("http_url"); address != "" {
+		return address
+	}
+	return n.GetStringProperty("url")
+}
+
 func (n *Node) GetStringProperty(key string) string {
 	if n.Properties == nil {
 		return ""

@@ -213,6 +213,7 @@ func TestADisabledWebhookAcceptsNothing(t *testing.T) {
 
 type webhookHarness struct {
 	repo      repositories.Repository
+	engine    servicecontracts.ExecutionEngine
 	service   servicecontracts.WebhookService
 	projectID uuid.UUID
 	// The tenant this harness acts inside. Every call below uses it, because
@@ -258,6 +259,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 	return &webhookHarness{
 		ctx:       ctx,
 		repo:      repo,
+		engine:    engine,
 		service:   serviceimpl.NewWebhookService(repo, engine),
 		projectID: project.ID,
 	}

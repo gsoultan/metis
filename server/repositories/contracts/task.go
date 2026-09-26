@@ -17,6 +17,8 @@ type TaskFilter struct {
 // TaskRepository defines the BPM task operations.
 type TaskRepository interface {
 	Get(ctx context.Context, id uuid.UUID) (models.TaskModel, error)
+	// GetForUpdate reads a task and holds its row until the transaction ends.
+	GetForUpdate(ctx context.Context, id uuid.UUID) (models.TaskModel, error)
 	List(ctx context.Context) ([]models.TaskModel, error)
 	ListWithFilters(ctx context.Context, filter TaskFilter) ([]models.TaskModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error)

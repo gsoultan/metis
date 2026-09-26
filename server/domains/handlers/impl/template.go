@@ -52,6 +52,11 @@ func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.Pr
 }
 
 func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node) error {
+	// Refused before anything changes. Deploy refuses it too, so this only
+	// meets a version stored before it did.
+	if !entities.KnownMultiInstanceType(node.MultiInstanceType) {
+		return fmt.Errorf("step %s repeats %q, which the engine cannot run", node.ID, node.MultiInstanceType)
+	}
 	if instance.IsMultiInstanceActive(node.ID) {
 		return nil
 	}
