@@ -11,7 +11,7 @@ import (
 // clearing them.
 type NotificationWriter interface {
 	Create(ctx context.Context, n models.NotificationModel) error
-	MarkAsRead(ctx context.Context, id uuid.UUID) error
+	MarkAsRead(ctx context.Context, id uuid.UUID, recipient string) error
 	MarkAllAsRead(ctx context.Context, userID string) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id uuid.UUID, recipient string) error
 }

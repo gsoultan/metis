@@ -30,9 +30,9 @@ func (r *recordingNotifier) Send(_ context.Context, n entities.Notification) err
 func (r *recordingNotifier) ListByUser(context.Context, string) ([]entities.Notification, error) {
 	return nil, nil
 }
-func (r *recordingNotifier) MarkAsRead(context.Context, uuid.UUID) error { return nil }
-func (r *recordingNotifier) MarkAllAsRead(context.Context, string) error { return nil }
-func (r *recordingNotifier) Delete(context.Context, uuid.UUID) error     { return nil }
+func (r *recordingNotifier) MarkAsRead(context.Context, uuid.UUID, string) error { return nil }
+func (r *recordingNotifier) MarkAllAsRead(context.Context, string) error         { return nil }
+func (r *recordingNotifier) Delete(context.Context, uuid.UUID, string) error     { return nil }
 
 func (r *recordingNotifier) CountUnreadByUser(context.Context, string) (int64, error) { return 0, nil }
 func (r *recordingNotifier) ListByUserPaged(_ context.Context, _ string, p repocontracts.Pagination) (repocontracts.Page[entities.Notification], error) {

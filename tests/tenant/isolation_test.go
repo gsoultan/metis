@@ -541,15 +541,21 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				},
 			},
 			{
-				name:  "delete another tenant's notification",
-				write: func() error { return pg.NewNotificationRepository(testutils.StormConn(db)).Delete(ctx, f.notifB) },
+				name: "delete another tenant's notification",
+				// Its own recipient's name, so only the organization's scope stands in the way.
+				write: func() error {
+					return pg.NewNotificationRepository(testutils.StormConn(db)).Delete(ctx, f.notifB, sharedUserID)
+				},
 				unchanged: func() bool {
 					return rowExists(t, db, &models.NotificationModel{}, "notifications", f.notifB)
 				},
 			},
 			{
-				name:  "mark another tenant's notification read",
-				write: func() error { return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notifB) },
+				name: "mark another tenant's notification read",
+				// Its own recipient's name, so only the organization's scope stands in the way.
+				write: func() error {
+					return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notifB, sharedUserID)
+				},
 				unchanged: func() bool {
 					var m models.NotificationModel
 					if err := db.First(&m, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
@@ -676,10 +682,10 @@ func TestTenantIsolation_OwnWritesStillSucceed(t *testing.T) {
 			write func() error
 		}{
 			{"mark own notification read", func() error {
-				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notificationA)
+				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.notificationA, sharedUserID)
 			}},
 			{"mark a system notification read", func() error {
-				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.systemNotification)
+				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAsRead(ctx, f.systemNotification, sharedUserID)
 			}},
 			{"mark whole inbox read", func() error {
 				return pg.NewNotificationRepository(testutils.StormConn(db)).MarkAllAsRead(ctx, sharedUserID)

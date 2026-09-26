@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/endpoints/principal"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
@@ -93,9 +94,13 @@ func MakeListNotificationsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if !ok {
 			return nil, fmt.Errorf("notification: expected a ListNotificationsRequest, got %T", request)
 		}
-		ns, err := s.ListByUser(ctx, req.UserID)
+		recipient, err := ownRecipient(ctx, req.UserID)
 		if err != nil {
-			return ListNotificationsResponse{Error: err.Error()}, nil
+			return ListNotificationsResponse{Err: err}, nil
+		}
+		ns, err := s.ListByUser(ctx, recipient)
+		if err != nil {
+			return ListNotificationsResponse{Err: err}, nil
 		}
 		return ListNotificationsResponse{Notifications: ns}, nil
 	}
@@ -109,13 +114,13 @@ func MakeMarkAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return MarkAsReadResponse{Error: err.Error()}, nil
+			return MarkAsReadResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		err = s.MarkAsRead(ctx, id)
+		recipient, err := principal.Username(ctx)
 		if err != nil {
-			return MarkAsReadResponse{Error: err.Error()}, nil
+			return MarkAsReadResponse{Err: err}, nil
 		}
-		return MarkAsReadResponse{}, nil
+		return MarkAsReadResponse{Err: s.MarkAsRead(ctx, id, recipient)}, nil
 	}
 }
 
@@ -125,11 +130,11 @@ func MakeMarkAllAsReadEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if !ok {
 			return nil, fmt.Errorf("notification: expected a MarkAllAsReadRequest, got %T", request)
 		}
-		err := s.MarkAllAsRead(ctx, req.UserID)
+		recipient, err := ownRecipient(ctx, req.UserID)
 		if err != nil {
-			return MarkAllAsReadResponse{Error: err.Error()}, nil
+			return MarkAllAsReadResponse{Err: err}, nil
 		}
-		return MarkAllAsReadResponse{}, nil
+		return MarkAllAsReadResponse{Err: s.MarkAllAsRead(ctx, recipient)}, nil
 	}
 }
 
@@ -141,12 +146,28 @@ func MakeDeleteNotificationEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 		}
 		id, err := uuid.Parse(req.ID)
 		if err != nil {
-			return DeleteNotificationResponse{Error: err.Error()}, nil
+			return DeleteNotificationResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		err = s.Delete(ctx, id)
+		recipient, err := principal.Username(ctx)
 		if err != nil {
-			return DeleteNotificationResponse{Error: err.Error()}, nil
+			return DeleteNotificationResponse{Err: err}, nil
 		}
-		return DeleteNotificationResponse{}, nil
+		return DeleteNotificationResponse{Err: s.Delete(ctx, id, recipient)}, nil
 	}
+}
+
+// ownRecipient is whose notifications a request may reach: the signed-in
+// person's. The older routes name a recipient in a user_id on the query
+// string; naming oneself, or nobody, is accepted, and naming anybody else is
+// refused rather than quietly answered with one's own, so a client that
+// depended on reading somebody else's hears why it no longer can.
+func ownRecipient(ctx context.Context, named string) (string, error) {
+	recipient, err := principal.Username(ctx)
+	if err != nil {
+		return "", err
+	}
+	if named != "" && named != recipient {
+		return "", apierr.Forbiddenf("notifications are their recipient's own; %q is not the signed-in account", named)
+	}
+	return recipient, nil
 }

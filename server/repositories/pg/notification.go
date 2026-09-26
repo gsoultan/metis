@@ -174,8 +174,8 @@ func (r *notificationRepository) inboxOf(ctx context.Context, userID string) (no
 	), nil
 }
 
-func (r *notificationRepository) MarkAsRead(ctx context.Context, id uuid.UUID) error {
-	row, err := r.one(ctx, id)
+func (r *notificationRepository) MarkAsRead(ctx context.Context, id uuid.UUID, recipient string) error {
+	row, err := r.ownedBy(ctx, id, recipient)
 	if err != nil {
 		return err
 	}
@@ -253,8 +253,8 @@ func (r *notificationRepository) projectFilter(ctx context.Context) (func(runtim
 	}, nil
 }
 
-func (r *notificationRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	if _, err := r.one(ctx, id); err != nil {
+func (r *notificationRepository) Delete(ctx context.Context, id uuid.UUID, recipient string) error {
+	if _, err := r.ownedBy(ctx, id, recipient); err != nil {
 		return err
 	}
 	ex, err := r.conn.conn.Executor(ctx)
@@ -268,6 +268,20 @@ func (r *notificationRepository) Delete(ctx context.Context, id uuid.UUID) error
 		return fmt.Errorf("could not delete the notification: %w", err)
 	}
 	return nil
+}
+
+// ownedBy reads a notification in the caller's organization that is
+// recipient's, and answers somebody else's as not found rather than as
+// forbidden, so an id does not tell anybody whose it is or that it exists.
+func (r *notificationRepository) ownedBy(ctx context.Context, id uuid.UUID, recipient string) (notification.Row, error) {
+	row, err := r.one(ctx, id)
+	if err != nil {
+		return notification.Row{}, err
+	}
+	if recipient == "" || row.UserID != recipient {
+		return notification.Row{}, fmt.Errorf("%w: no such notification", apierr.ErrNotFound)
+	}
+	return row, nil
 }
 
 func notificationFrom(row notification.Row) models.NotificationModel {

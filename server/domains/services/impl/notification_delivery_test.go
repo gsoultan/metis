@@ -47,9 +47,9 @@ func (s *storingNotifier) Send(_ context.Context, n entities.Notification) error
 func (s *storingNotifier) ListByUser(context.Context, string) ([]entities.Notification, error) {
 	return nil, nil
 }
-func (s *storingNotifier) MarkAsRead(context.Context, uuid.UUID) error { return nil }
-func (s *storingNotifier) MarkAllAsRead(context.Context, string) error { return nil }
-func (s *storingNotifier) Delete(context.Context, uuid.UUID) error     { return nil }
+func (s *storingNotifier) MarkAsRead(context.Context, uuid.UUID, string) error { return nil }
+func (s *storingNotifier) MarkAllAsRead(context.Context, string) error         { return nil }
+func (s *storingNotifier) Delete(context.Context, uuid.UUID, string) error     { return nil }
 
 func (s *storingNotifier) CountUnreadByUser(context.Context, string) (int64, error) { return 0, nil }
 func (s *storingNotifier) ListByUserPaged(_ context.Context, _ string, p repocontracts.Pagination) (repocontracts.Page[entities.Notification], error) {

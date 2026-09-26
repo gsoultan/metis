@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **Any member could read and clear a colleague's notifications.** Two of the
+  older notification routes, the list and "mark all read", took their
+  recipient from a `user_id` on the query string. The routes that act on one
+  notification (mark read, delete) checked its organization but not whose it
+  was. Each is now the signed-in person's own. A `user_id` naming anybody else
+  is refused with 403. Somebody else's notification is answered as not found,
+  which tells nobody it exists. These routes also report a refusal with its
+  status, where they used to answer 200 with an error in the body.
 - **A captured webhook delivery could be replayed as often as anyone liked.**
   A webhook signature covered the body alone; the delivery ID that
   de-duplication keys on was unsigned, and nothing was timestamped. A delivery

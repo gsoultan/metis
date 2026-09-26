@@ -10,8 +10,11 @@ type ListNotificationsRequest struct {
 
 type ListNotificationsResponse struct {
 	Notifications []entities.Notification `json:"notifications"`
-	Error         string                  `json:"error,omitzero"`
+	// Err is reported by the transport with its status, as {"error": …}.
+	Err error `json:"-"`
 }
+
+func (r ListNotificationsResponse) Failed() error { return r.Err }
 
 // ListOwnNotificationsRequest asks for one page of the signed-in person's
 // notifications. Zero means the first page at the server default.
@@ -57,21 +60,30 @@ type MarkAsReadRequest struct {
 }
 
 type MarkAsReadResponse struct {
-	Error string `json:"error,omitzero"`
+	// Err is reported by the transport with its status, as {"error": …}.
+	Err error `json:"-"`
 }
+
+func (r MarkAsReadResponse) Failed() error { return r.Err }
 
 type MarkAllAsReadRequest struct {
 	UserID string `json:"user_id"`
 }
 
 type MarkAllAsReadResponse struct {
-	Error string `json:"error,omitzero"`
+	// Err is reported by the transport with its status, as {"error": …}.
+	Err error `json:"-"`
 }
+
+func (r MarkAllAsReadResponse) Failed() error { return r.Err }
 
 type DeleteNotificationRequest struct {
 	ID string `json:"id"`
 }
 
 type DeleteNotificationResponse struct {
-	Error string `json:"error,omitzero"`
+	// Err is reported by the transport with its status, as {"error": …}.
+	Err error `json:"-"`
 }
+
+func (r DeleteNotificationResponse) Failed() error { return r.Err }

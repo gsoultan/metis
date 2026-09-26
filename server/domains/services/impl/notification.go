@@ -112,14 +112,14 @@ func (s *notificationService) CountUnreadByUser(ctx context.Context, userID stri
 	return s.repo.CountUnreadByUser(ctx, userID)
 }
 
-func (s *notificationService) MarkAsRead(ctx context.Context, id uuid.UUID) error {
-	return s.repo.MarkAsRead(ctx, id)
+func (s *notificationService) MarkAsRead(ctx context.Context, id uuid.UUID, recipient string) error {
+	return s.repo.MarkAsRead(ctx, id, recipient)
 }
 
 func (s *notificationService) MarkAllAsRead(ctx context.Context, userID string) error {
 	return s.repo.MarkAllAsRead(ctx, userID)
 }
 
-func (s *notificationService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+func (s *notificationService) Delete(ctx context.Context, id uuid.UUID, recipient string) error {
+	return s.repo.Delete(ctx, id, recipient)
 }

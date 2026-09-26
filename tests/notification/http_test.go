@@ -213,3 +213,88 @@ func TestTheSignedInPersonPagesThroughTheirOwnNotifications(t *testing.T) {
 		t.Errorf("GET %s with nobody signed in: status %d, want 401", ownNotificationsPath, status)
 	}
 }
+
+// A notification is its recipient's. The older routes named the recipient on
+// the query string, and the ones that act on one notification checked only its
+// organization, so any member could read a colleague's list, mark it all read,
+// or mark read and delete one of theirs by id. Each is the signed-in person's
+// own now: naming somebody else is refused, and somebody else's notification is
+// not there.
+func TestNobodyReadsOrClearsAnotherPersonsNotifications(t *testing.T) {
+	a := newAPI(t)
+	projectID := a.organization("alice", "bob")
+	seedInbox(t, a.db, "alice", projectID, 5, 3)
+	bob := a.signIn("bob")
+	alices := a.oneNotificationOf("alice")
+
+	if status := a.get("/api/v1/notifications?user_id=alice", bob, nil); status != http.StatusForbidden {
+		t.Errorf("bob listing alice's notifications: status %d, want 403", status)
+	}
+	if status := a.send(http.MethodPost, "/api/v1/notifications/read-all?user_id=alice", bob, "", nil); status != http.StatusForbidden {
+		t.Errorf("bob marking all of alice's notifications read: status %d, want 403", status)
+	}
+	if status := a.send(http.MethodPost, "/api/v1/notifications/"+alices.String()+"/read", bob, "", nil); status != http.StatusNotFound {
+		t.Errorf("bob marking one of alice's notifications read: status %d, want 404", status)
+	}
+	if status := a.send(http.MethodDelete, "/api/v1/notifications/"+alices.String(), bob, "", nil); status != http.StatusNotFound {
+		t.Errorf("bob deleting one of alice's notifications: status %d, want 404", status)
+	}
+	if unread := a.unreadOf("alice"); unread != 3 {
+		t.Errorf("after bob's requests alice has %d unread, want her 3", unread)
+	}
+	if !a.exists(alices) {
+		t.Errorf("after bob's requests alice's notification %s is gone", alices)
+	}
+
+	// Alice's own requests, with and without her name, still work.
+	alice := a.signIn("alice")
+	for _, path := range []string{"/api/v1/notifications", "/api/v1/notifications?user_id=alice"} {
+		if status := a.get(path, alice, nil); status != http.StatusOK {
+			t.Errorf("alice listing her own notifications at %s: status %d, want 200", path, status)
+		}
+	}
+	if status := a.send(http.MethodPost, "/api/v1/notifications/"+alices.String()+"/read", alice, "", nil); status != http.StatusOK {
+		t.Errorf("alice marking her own notification read: status %d, want 200", status)
+	}
+	if status := a.send(http.MethodPost, "/api/v1/notifications/read-all", alice, "", nil); status != http.StatusOK {
+		t.Errorf("alice marking all her notifications read: status %d, want 200", status)
+	}
+	if unread := a.unreadOf("alice"); unread != 0 {
+		t.Errorf("after alice marked all read she has %d unread, want 0", unread)
+	}
+	if status := a.send(http.MethodDelete, "/api/v1/notifications/"+alices.String(), alice, "", nil); status != http.StatusOK {
+		t.Errorf("alice deleting her own notification: status %d, want 200", status)
+	}
+}
+
+func (a api) oneNotificationOf(recipient string) uuid.UUID {
+	a.t.Helper()
+	var id string
+	if err := a.db.WithContext(a.t.Context()).Raw(
+		`SELECT id::text FROM notifications WHERE user_id = ? AND is_read = false ORDER BY created_at, id LIMIT 1`,
+		recipient).Scan(&id).Error; err != nil || id == "" {
+		a.t.Fatalf("find one of %s's unread notifications: %v", recipient, err)
+	}
+	return uuid.MustParse(id)
+}
+
+func (a api) unreadOf(recipient string) int64 {
+	a.t.Helper()
+	var n int64
+	if err := a.db.WithContext(a.t.Context()).Raw(
+		`SELECT count(*) FROM notifications WHERE user_id = ? AND is_read = false AND deleted_at IS NULL`,
+		recipient).Scan(&n).Error; err != nil {
+		a.t.Fatalf("count %s's unread notifications: %v", recipient, err)
+	}
+	return n
+}
+
+func (a api) exists(id uuid.UUID) bool {
+	a.t.Helper()
+	var n int64
+	if err := a.db.WithContext(a.t.Context()).Raw(
+		`SELECT count(*) FROM notifications WHERE id = ? AND deleted_at IS NULL`, id).Scan(&n).Error; err != nil {
+		a.t.Fatalf("look for notification %s: %v", id, err)
+	}
+	return n == 1
+}

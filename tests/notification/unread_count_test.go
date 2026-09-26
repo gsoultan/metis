@@ -35,7 +35,7 @@ func TestReadingNotificationsTakesThemOffTheCount(t *testing.T) {
 	elsewhere, elsewhereProject := w.elsewhere(t)
 	w.seedInbox(t, "alice", elsewhereProject, 7, 7)
 
-	if err := w.svc.MarkAsRead(w.ctx, w.oneUnread(t, "alice", w.projectID)); err != nil {
+	if err := w.svc.MarkAsRead(w.ctx, w.oneUnread(t, "alice", w.projectID), "alice"); err != nil {
 		t.Fatalf("mark one read: %v", err)
 	}
 	assertUnread(t, w, w.ctx, "alice", oldestUnread-1)
