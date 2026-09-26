@@ -42,8 +42,20 @@ type orgRolesWorld struct {
 	tokens map[string]string
 }
 
-func newOrgRolesWorld(t *testing.T) *orgRolesWorld {
+// newOrgRolesWorld builds the installation. The usernames given are the
+// platform administrators the operator names in METIS_PLATFORM_ADMINS: their
+// ids are chosen here, before anything reads the setting, and account() gives
+// them to the accounts it creates under those names.
+func newOrgRolesWorld(t *testing.T, platformAdministrators ...string) *orgRolesWorld {
 	t.Helper()
+	ids := map[string]uuid.UUID{}
+	named := make([]string, 0, len(platformAdministrators))
+	for _, username := range platformAdministrators {
+		ids[username] = uuid.Must(uuid.NewV7())
+		named = append(named, ids[username].String())
+	}
+	t.Setenv("METIS_PLATFORM_ADMINS", strings.Join(named, ","))
+
 	db := testutils.SetupTestDB(t)
 	conn := testutils.StormConn(db)
 	repo := repositories.NewRepository(conn)
@@ -55,7 +67,7 @@ func newOrgRolesWorld(t *testing.T) *orgRolesWorld {
 
 	w := &orgRolesWorld{
 		t: t, db: db, svc: svc, handler: handler,
-		ids: map[string]uuid.UUID{}, tokens: map[string]string{},
+		ids: ids, tokens: map[string]string{},
 	}
 	w.acme, w.acmeProject = w.organization("Acme")
 	w.globex, w.globexProject = w.organization("Globex")
@@ -82,8 +94,12 @@ func (w *orgRolesWorld) organization(name string) (uuid.UUID, uuid.UUID) {
 // seeds the first administrator: who may grant what is for the tests to ask.
 func (w *orgRolesWorld) account(username string, global []string, organizations ...uuid.UUID) uuid.UUID {
 	w.t.Helper()
+	id, named := w.ids[username]
+	if !named {
+		id = uuid.Must(uuid.NewV7())
+	}
 	account := entities.User{
-		ID:       uuid.Must(uuid.NewV7()),
+		ID:       id,
 		Username: username,
 		FullName: username,
 		Email:    username + "@example.com",

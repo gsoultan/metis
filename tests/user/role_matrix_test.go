@@ -21,17 +21,24 @@ import (
 )
 
 // The role matrix on the Platform access page grants and revokes one role at a
-// time through PUT /api/v1/users/{id}, sending the account's names and email
-// as the list holds them beside the new roles. These hold the answers it shows
-// to that shape of request, through the whole production chain: a change is
-// made without disturbing anything else, and each refusal comes back as a 403
-// whose words the matrix shows as they are.
+// time in the organization being worked in, through
+// PUT /api/v1/users/{id}/organization-roles, sending the roles the account is
+// to hold there. These hold the answers it shows to that shape of request,
+// through the whole production chain: a change is made in this organization
+// and nowhere else, and each refusal comes back as a 403 whose words the
+// matrix shows as they are.
+//
+// It used to send PUT /api/v1/users/{id} with the account's own roles, which
+// every organization the account belongs to shares — so a tick in one
+// organization's matrix granted the role in all of them.
 
 const matrixPassword = "a-password-long-enough"
 
 type matrixWorld struct {
 	handler http.Handler
 	svc     services.ServiceFacade
+	acme    uuid.UUID
+	globex  uuid.UUID
 	ana     entities.User // Acme's only administrator
 	dana    entities.User // a designer at Acme
 	sam     entities.User // at Acme and at Globex, where Ana is nobody
@@ -48,17 +55,20 @@ func newMatrixWorld(t *testing.T) matrixWorld {
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil,
 		map[string]health.Checker{}, testutils.StormConn(db))
 
-	acme := seedOrganization(t, repo, "Acme")
-	globex := seedOrganization(t, repo, "Globex")
 	w := matrixWorld{handler: handler, svc: svc, tokens: map[string]string{}}
-	w.ana = w.seed(t, "ana", "Ana Admin", []string{entities.RoleAdmin}, acme)
-	w.dana = w.seed(t, "dana", "Dana Scully", []string{entities.RoleDesigner}, acme)
-	w.sam = w.seed(t, "sam", "Sam Shared", nil, acme, globex)
-	w.seed(t, "bea", "Bea Globex", []string{entities.RoleAdmin}, globex)
+	w.acme = seedOrganization(t, repo, "Acme")
+	w.globex = seedOrganization(t, repo, "Globex")
+	w.ana = w.seed(t, "ana", "Ana Admin", []string{entities.RoleAdmin}, w.acme)
+	w.dana = w.seed(t, "dana", "Dana Scully", []string{entities.RoleDesigner}, w.acme)
+	w.sam = w.seed(t, "sam", "Sam Shared", nil, w.acme, w.globex)
+	bea := w.seed(t, "bea", "Bea Globex", nil, w.globex)
+	w.holds(t, bea, w.globex, entities.RoleAdmin)
 	return w
 }
 
-func (w matrixWorld) seed(t *testing.T, username, fullName string, roles []string, orgs ...uuid.UUID) entities.User {
+// seed creates an account in orgs, holding here in the first of them, and
+// signs it in.
+func (w matrixWorld) seed(t *testing.T, username, fullName string, here []string, orgs ...uuid.UUID) entities.User {
 	t.Helper()
 	account := entities.User{
 		ID:          uuid.Must(uuid.NewV7()),
@@ -66,7 +76,6 @@ func (w matrixWorld) seed(t *testing.T, username, fullName string, roles []strin
 		FullName:    fullName,
 		DisplayName: strings.Fields(fullName)[0],
 		Email:       username + "@example.com",
-		Roles:       roles,
 	}
 	for _, org := range orgs {
 		account.Organizations = append(account.Organizations, &entities.Organization{ID: org})
@@ -74,6 +83,9 @@ func (w matrixWorld) seed(t *testing.T, username, fullName string, roles []strin
 	ctx := entities.WithSystemContext(t.Context())
 	if err := w.svc.CreateUser(ctx, account, matrixPassword); err != nil {
 		t.Fatalf("seed %s: %v", username, err)
+	}
+	if len(here) > 0 {
+		w.holds(t, account, orgs[0], here...)
 	}
 	_, token, err := w.svc.Login(t.Context(), username, matrixPassword)
 	if err != nil {
@@ -83,31 +95,35 @@ func (w matrixWorld) seed(t *testing.T, username, fullName string, roles []strin
 	return account
 }
 
-// tick sends what one checkbox in the matrix sends: the account's names and
-// email as they are, and its roles with one changed.
+func (w matrixWorld) holds(t *testing.T, account entities.User, org uuid.UUID, roles ...string) {
+	t.Helper()
+	if err := w.svc.SetOrganizationRoles(inOrganization(entities.WithSystemContext(t.Context()), org), account.ID, roles); err != nil {
+		t.Fatalf("give %s %v: %v", account.Username, roles, err)
+	}
+}
+
+// tick sends what one checkbox in the matrix sends: the roles the account is
+// to hold in the organization being worked in, with one changed.
 func (w matrixWorld) tick(t *testing.T, as string, account entities.User, roles []string) (int, string) {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{"user": map[string]any{
-		"id":           account.ID.String(),
-		"full_name":    account.FullName,
-		"display_name": account.DisplayName,
-		"email":        account.Email,
-		"roles":        roles,
-	}})
+	body, err := json.Marshal(map[string]any{"roles": roles})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/users/"+account.ID.String(), bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut,
+		"/api/v1/users/"+account.ID.String()+"/organization-roles", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+w.tokens[as])
+	req.Header.Set("X-Organization-ID", w.acme.String())
 	rec := httptest.NewRecorder()
 	w.handler.ServeHTTP(rec, req)
 	return rec.Code, strings.TrimSpace(rec.Body.String())
 }
 
-func (w matrixWorld) stored(t *testing.T, id uuid.UUID) entities.User {
+// stored is the account as a request for org reads it.
+func (w matrixWorld) stored(t *testing.T, id, org uuid.UUID) entities.User {
 	t.Helper()
-	account, err := w.svc.GetUser(entities.WithSystemContext(t.Context()), id)
+	account, err := w.svc.GetUser(inOrganization(entities.WithSystemContext(t.Context()), org), id)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
@@ -125,16 +141,19 @@ func refusal(t *testing.T, body string) string {
 	return reply.Error
 }
 
-func TestATickInTheRoleMatrixChangesTheRoleAndNothingElse(t *testing.T) {
+func TestATickInTheRoleMatrixChangesTheRoleInThisOrganizationAndNothingElse(t *testing.T) {
 	w := newMatrixWorld(t)
 
 	status, body := w.tick(t, "ana", w.dana, []string{entities.RoleDesigner, entities.RoleOperator})
 	if status != http.StatusOK {
 		t.Fatalf("an administrator granting Operator: got %d (%s), want 200", status, body)
 	}
-	after := w.stored(t, w.dana.ID)
-	if !slices.Equal(after.Roles, []string{entities.RoleDesigner, entities.RoleOperator}) {
-		t.Errorf("roles after the tick: %v", after.Roles)
+	after := w.stored(t, w.dana.ID, w.acme)
+	if !slices.Equal(after.OrganizationRoles, []string{entities.RoleDesigner, entities.RoleOperator}) {
+		t.Errorf("roles in Acme after the tick: %v", after.OrganizationRoles)
+	}
+	if len(after.Roles) != 0 {
+		t.Errorf("the tick gave Dana roles in every organization: %v", after.Roles)
 	}
 	if after.FullName != w.dana.FullName || after.DisplayName != w.dana.DisplayName ||
 		after.Email != w.dana.Email || after.Username != w.dana.Username {
@@ -152,28 +171,28 @@ func TestTheRoleMatrixIsToldWhyTheLastAdministratorKeepsTheRole(t *testing.T) {
 	if want := "forbidden: ana is the last administrator of Acme; make somebody else an administrator first"; refusal(t, body) != want {
 		t.Errorf("the refusal reads %q, want %q", refusal(t, body), want)
 	}
-	if !entities.HasRole(w.stored(t, w.ana.ID).Roles, entities.RoleAdmin) {
+	if !entities.HasRole(w.stored(t, w.ana.ID, w.acme).OrganizationRoles, entities.RoleAdmin) {
 		t.Fatal("the refused change was made anyway")
 	}
 }
 
-func TestTheRoleMatrixIsToldWhyAnAccountAnotherOrganizationSharesCannotChange(t *testing.T) {
+// Sam is in Acme and in Globex. A tick in Acme's matrix is Acme's business
+// alone, so Ana needs no say in Globex to make it — and it leaves Sam as he
+// was in Globex. It used to be refused outright: the role it granted was
+// Sam's in Globex too.
+func TestATickGrantsTheRoleInThisOrganizationOnlyEvenToAnAccountAnotherShares(t *testing.T) {
 	w := newMatrixWorld(t)
 
 	status, body := w.tick(t, "ana", w.sam, []string{entities.RoleOperator})
-	if status != http.StatusForbidden {
-		t.Fatalf("changing an account Globex shares: got %d (%s), want 403", status, body)
+	if status != http.StatusOK {
+		t.Fatalf("granting Sam Operator in Acme: got %d (%s), want 200", status, body)
 	}
-	want := "forbidden: sam also belongs to another organization, which you are not a member of; " +
-		"an administrator there has to make this change"
-	if refusal(t, body) != want {
-		t.Errorf("the refusal reads %q, want %q", refusal(t, body), want)
+	if got := w.stored(t, w.sam.ID, w.acme).OrganizationRoles; !slices.Equal(got, []string{entities.RoleOperator}) {
+		t.Errorf("Sam holds %v in Acme, want [OPERATOR]", got)
 	}
-	if strings.Contains(body, "Globex") {
-		t.Errorf("the refusal names an organization Ana is not in: %s", body)
-	}
-	if len(w.stored(t, w.sam.ID).Roles) != 0 {
-		t.Fatal("the refused change was made anyway")
+	inGlobex := w.stored(t, w.sam.ID, w.globex)
+	if len(inGlobex.OrganizationRoles) != 0 || len(inGlobex.Roles) != 0 {
+		t.Errorf("the tick in Acme reached Globex: %v there, %v everywhere", inGlobex.OrganizationRoles, inGlobex.Roles)
 	}
 }
 
@@ -188,7 +207,7 @@ func TestSomebodyWhoIsNotAnAdministratorCannotChangeRoles(t *testing.T) {
 	if !strings.Contains(refusal(t, body), entities.RoleAdmin) {
 		t.Errorf("the refusal %q does not name the role it wants", refusal(t, body))
 	}
-	if entities.HasRole(w.stored(t, w.dana.ID).Roles, entities.RoleAdmin) {
+	if entities.HasRole(w.stored(t, w.dana.ID, w.acme).OrganizationRoles, entities.RoleAdmin) {
 		t.Fatal("a designer made themselves an administrator")
 	}
 }

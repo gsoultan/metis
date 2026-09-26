@@ -30,6 +30,14 @@ type User struct {
 	// belongs to, and what it holds in one of them is not the others' to read.
 	RolesByOrganization map[uuid.UUID][]string `json:"-"`
 
+	// OrganizationRoles are the roles the account holds in the organization it
+	// was read for — the one the request is in — and nowhere else: the part of
+	// RolesByOrganization that organization's own directory shows. Filled by
+	// the reads that answer a request; ignored when an account is written,
+	// since roles in an organization are granted by
+	// OrganizationRoleGrants.SetOrganizationRoles.
+	OrganizationRoles []string `json:"organization_roles,omitzero"`
+
 	// IdentityProvider is the issuer this account signs in through. Empty for
 	// a local account, which signs in with a password held here; set, the
 	// password lives at the provider and nothing here can change it.

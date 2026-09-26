@@ -96,7 +96,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	adminGated := []string{
 		"CreateGroup", "UpdateGroup", "DeleteGroup",
 		"AddMembership", "RemoveMembership",
-		"CreateUser", "UpdateUser", "DeleteUser",
+		"CreateUser", "UpdateUser", "DeleteUser", "SetOrganizationRoles",
 		"UpdateOrganization", "DeleteOrganization",
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",

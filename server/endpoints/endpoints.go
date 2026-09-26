@@ -337,6 +337,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	userEndpoints.CreateUser = adminOnly("CreateUser")(userEndpoints.CreateUser)
 	userEndpoints.UpdateUser = adminOnly("UpdateUser")(userEndpoints.UpdateUser)
 	userEndpoints.DeleteUser = adminOnly("DeleteUser")(userEndpoints.DeleteUser)
+	// An administrator of the organization the request is for grants roles
+	// there. The account, and any role it holds in every organization, are
+	// UpdateUser's — and the service asks a platform administrator for those.
+	userEndpoints.SetOrganizationRoles = adminOnly("SetOrganizationRoles")(userEndpoints.SetOrganizationRoles)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 	// Self-service, so protected rather than adminOnly: changing your own

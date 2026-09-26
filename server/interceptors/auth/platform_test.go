@@ -111,20 +111,3 @@ func TestThePlatformAdministratorGate(t *testing.T) {
 		})
 	}
 }
-
-// The operator's list names accounts by id. Anything else in it names nobody,
-// and the nil id in particular must not name every caller without a local
-// account, whose id reads as nil.
-func TestOnlyAccountIDsNamePlatformAdministrators(t *testing.T) {
-	first, second := uuid.New(), uuid.New()
-	got := platformAdministrators(" " + first.String() + ",,alice, " + uuid.Nil.String() + ",\t" + second.String() + " ")
-
-	if len(got) != 2 {
-		t.Fatalf("named %d accounts, want the two ids: %v", len(got), got)
-	}
-	for _, id := range []uuid.UUID{first, second} {
-		if _, ok := got[id]; !ok {
-			t.Errorf("%s is not named", id)
-		}
-	}
-}

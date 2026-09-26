@@ -27,6 +27,10 @@ type Endpoints struct {
 	// and email, for anybody signed in.
 	GetOwnProfile    endpoint.Endpoint
 	UpdateOwnProfile endpoint.Endpoint
+
+	// SetOrganizationRoles replaces the roles an account holds in the
+	// organization the request is for.
+	SetOrganizationRoles endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -42,6 +46,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 		GetOwnProfile:    MakeGetOwnProfileEndpoint(s),
 		UpdateOwnProfile: MakeUpdateOwnProfileEndpoint(s),
+
+		SetOrganizationRoles: MakeSetOrganizationRolesEndpoint(s),
 	}
 }
 
@@ -143,7 +149,9 @@ func MakeChangePasswordEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	}
 }
 
-// MakeGetOwnProfileEndpoint returns the signed-in account's own record.
+// MakeGetOwnProfileEndpoint returns the signed-in account's own record, and
+// whether it may change the roles accounts hold in every organization — which
+// the interface shows as fixed to everybody who may not.
 func MakeGetOwnProfileEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		if _, ok := request.(GetOwnProfileRequest); !ok {
@@ -154,7 +162,24 @@ func MakeGetOwnProfileEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return GetOwnProfileResponse{Err: err}, nil
 		}
 		u, err := s.GetOwnProfile(ctx, userID)
-		return GetOwnProfileResponse{User: u, Err: err}, nil
+		if err != nil {
+			return GetOwnProfileResponse{Err: err}, nil
+		}
+		mayChange, err := s.MayChangeGlobalRoles(ctx)
+		return GetOwnProfileResponse{User: u, MayChangeGlobalRoles: mayChange, Err: err}, nil
+	}
+}
+
+// MakeSetOrganizationRolesEndpoint replaces the roles an account holds in the
+// organization the request is for. The organization comes from the tenant
+// resolver, never from the request: the body names roles and nothing else.
+func MakeSetOrganizationRolesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(SetOrganizationRolesRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a SetOrganizationRolesRequest, got %T", request)
+		}
+		return SetOrganizationRolesResponse{Err: s.SetOrganizationRoles(ctx, req.ID, req.Roles)}, nil
 	}
 }
 

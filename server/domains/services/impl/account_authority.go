@@ -53,9 +53,12 @@ func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
 // requireAccountAuthority refuses a change to an account that belongs to an
 // organization the caller does not.
 //
-// Roles are global, so changing an account's roles — or deleting it — acts in
-// every organization it belongs to. Being an administrator grants authority
-// over your own organizations, not over the others an account happens to share.
+// The account itself — its names, its global roles, whether it exists — is
+// the same in every organization it belongs to, so changing it acts in all of
+// them. Being an administrator grants authority over your own organizations,
+// not over the others an account happens to share. The roles it holds in one
+// organization alone are that organization's to change, and do not come
+// through here.
 //
 // The refusal does not name the other organization. Its name is not the
 // caller's to read — they are not a member — and the account's memberships
@@ -81,20 +84,23 @@ func requireAccountAuthority(ctx context.Context, account models.UserModel) erro
 }
 
 // requireAnotherAdministrator refuses to take the last administrator away from
-// any organization the account belongs to.
+// any of the organizations given — the ones the change stops the account
+// administering.
 //
 // There is no default account by design, so an organization left with nobody
-// who can administer it cannot be administered through Metis again. Each
-// organization is asked scoped to itself: requireAccountAuthority has already
-// established that the caller belongs to every one of them, so this is the
-// scope the tenant resolver would have given them there.
+// who can administer it cannot be administered through Metis again. Somebody
+// administers an organization with the administrator role held in every
+// organization or held in that one, and either counts. Each organization is
+// asked scoped to itself: the caller belongs to every one of them —
+// requireAccountAuthority established it for a change to the account, and a
+// change to the roles in one organization names only the one the request is
+// for — so this is the scope the tenant resolver would have given them there.
 //
 // The repository is asked the question rather than handed the member list to
 // search: that list stops at a thousand rows, and an administrator past the end
 // of it did not count.
-func (s *userService) requireAnotherAdministrator(ctx context.Context, account models.UserModel) error {
-	for _, org := range account.Organizations {
-		orgID := uuid.UUID(org.ID)
+func (s *userService) requireAnotherAdministrator(ctx context.Context, account models.UserModel, organizations []uuid.UUID) error {
+	for _, orgID := range organizations {
 		orgCtx := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 		another, err := s.repo.User().HasAnotherAdministrator(orgCtx, orgID, uuid.UUID(account.ID))
 		if err != nil {

@@ -22,7 +22,8 @@ const (
 	maxProfileEmailLength = 320
 )
 
-// GetOwnProfile returns the signed-in account's own record.
+// GetOwnProfile returns the signed-in account's own record, with the roles it
+// holds in the organization the request is for.
 //
 // No visibility check: the ID comes from the verified session, and the tenant
 // a request runs in is always one of its own account's organizations.
@@ -31,7 +32,7 @@ func (s *userService) GetOwnProfile(ctx context.Context, userID uuid.UUID) (enti
 	if err != nil {
 		return entities.User{}, err
 	}
-	return adapters.UserEntityAdapter{Model: m}.ToEntity(), nil
+	return withRolesHere(adapters.UserEntityAdapter{Model: m}.ToEntity(), entities.ActingOrganization(ctx)), nil
 }
 
 // UpdateOwnProfile changes how the signed-in account is named and reached.

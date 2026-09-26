@@ -212,7 +212,8 @@ func membershipRoles(raw []byte) ([]string, error) {
 }
 
 // otherAdministratorCandidates reads the roles of an organization's members,
-// other than one account, whose roles could name the administrator role.
+// other than one account, whose roles could name the administrator role: the
+// ones it holds in every organization, and the ones it holds in this one.
 //
 // A narrowing, not the decision: HasAnotherAdministrator decides with
 // entities.HasRole, the same test that grants an administrator their access.
@@ -220,13 +221,14 @@ func membershipRoles(raw []byte) ([]string, error) {
 // lower() would follow the database's locale, and a Turkish one lowers 'I' to
 // a dotless 'ı' and would hide every administrator. The quotes keep
 // "ADMINISTRATOR" and the like out.
-const otherAdministratorCandidates = `SELECT u.roles::text
+const otherAdministratorCandidates = `SELECT u.roles::text, m.roles::text
 	  FROM users u
 	  JOIN user_organizations m ON m.user_id = u.id
 	 WHERE m.organization_id = $1
 	   AND u.id <> $2
 	   AND u.deleted_at IS NULL
-	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
+	   AND (translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'
+	     OR translate(m.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%')`
 
 // HasAnotherAdministrator reports whether an organization has an administrator
 // besides one account.
@@ -256,11 +258,11 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var roles []string
-		if err := json.Unmarshal(rows.RawValues()[0], &roles); err != nil {
-			return false, fmt.Errorf("could not decode an account's roles: %w", err)
+		administers, err := administersFrom(rows.RawValues())
+		if err != nil {
+			return false, err
 		}
-		if entities.HasRole(roles, entities.RoleAdmin) {
+		if administers {
 			return true, nil
 		}
 	}
@@ -268,6 +270,57 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
 	return false, nil
+}
+
+// administersFrom decides one candidate: the administrator role held in every
+// organization, or in the one asked about.
+func administersFrom(values [][]byte) (bool, error) {
+	for _, raw := range values {
+		var roles []string
+		if err := json.Unmarshal(raw, &roles); err != nil {
+			return false, fmt.Errorf("could not decode an account's roles: %w", err)
+		}
+		if entities.HasRole(roles, entities.RoleAdmin) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// SetOrganizationRoles writes the roles an account holds in one organization,
+// on its membership, and nothing else — the account's own row, and so its
+// global roles, are not touched.
+//
+// Scoped like the rest of the directory: a request for one organization writes
+// that organization's memberships only, and anybody else's reads as absent.
+func (r *userRepository) SetOrganizationRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error {
+	scope, err := r.scopeOf(ctx)
+	if err != nil {
+		return err
+	}
+	if !scope.unrestricted() && scope.organization != organizationID {
+		return fmt.Errorf("%w: no such member of this organization", apierr.ErrNotFound)
+	}
+	if roles == nil {
+		roles = []string{}
+	}
+	encoded, err := json.Marshal(roles)
+	if err != nil {
+		return fmt.Errorf("could not encode the account's roles: %w", err)
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	membership := userorganization.Mutate(userorganization.Row{UserID: userID, OrganizationID: organizationID})
+	membership.SetRoles(encoded)
+	if err := membership.Update(ctx, ex); err != nil {
+		if errors.Is(err, runtime.ErrNoRow) {
+			return fmt.Errorf("%w: no such member of this organization", apierr.ErrNotFound)
+		}
+		return fmt.Errorf("could not set the account's roles in the organization: %w", err)
+	}
+	return nil
 }
 
 // HasAccounts reports whether any account exists, deleted or not.
@@ -317,7 +370,7 @@ func (r *userRepository) Create(ctx context.Context, u models.UserModel, passwor
 		return fmt.Errorf("could not create the account: %w", err)
 	}
 	for _, org := range u.Organizations {
-		if err := r.AddOrganization(ctx, row.ID, uuid.UUID(org.ID)); err != nil {
+		if err := r.addMembership(ctx, row.ID, uuid.UUID(org.ID), u.RolesByOrganization[org.ID]); err != nil {
 			return err
 		}
 	}
@@ -423,6 +476,13 @@ func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *userRepository) AddOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
+	return r.addMembership(ctx, userID, organizationID, nil)
+}
+
+// addMembership puts an account in an organization, holding roles there. With
+// none named the column's default holds: no role of its own. A membership that
+// is already there is left as it is, roles included.
+func (r *userRepository) addMembership(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
 		return err
@@ -430,6 +490,13 @@ func (r *userRepository) AddOrganization(ctx context.Context, userID, organizati
 	ins := userorganization.Create()
 	ins.SetUserID(userID)
 	ins.SetOrganizationID(organizationID)
+	if len(roles) > 0 {
+		encoded, err := json.Marshal(roles)
+		if err != nil {
+			return fmt.Errorf("could not encode the account's roles in the organization: %w", err)
+		}
+		ins.SetRoles(encoded)
+	}
 	ins.DoNothing()
 	if _, err := ins.Insert(ctx, ex); err != nil && !errors.Is(err, runtime.ErrConflict) {
 		return fmt.Errorf("could not add the account to the organization: %w", err)
