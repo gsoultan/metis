@@ -357,9 +357,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   in the organization again: six times for the dashboard's statistics, five
   for the instance list, nine to complete a task. At 10,000 projects a read
   is about 4ms and 10 MB, so the statistics took 26–201ms and allocated
-  55 MB. A request reads the list once now and every call in it reuses that;
-  the statistics take 6–10ms. Nothing is kept past the request, so a project
-  created by one request is in scope for the next, as before.
+  55 MB. A request reads the list once now — the ids alone, in one statement
+  — and every call in it reuses that: the statistics take 3–6ms and allocate
+  under 1 MB. Nothing is kept past the request, so a project created by one
+  request is in scope for the next, as before. Reads that span the whole
+  organization, such as a person's tasks, still pay for the size of the list
+  inside the query; `docs/performance.md` has the numbers.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

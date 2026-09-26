@@ -1234,6 +1234,22 @@
     A subquery on `projects.organization_id` instead of the list was not an option: storm has
     no subquery predicate, and an environment's instances and tasks are in a different
     database from its projects.
+  - **The ids only (P1).** `projectsOf` read whole project rows through the store, ten keyset
+    statements at 10,000 projects; it reads the ids in one statement now, with the store's
+    soft-delete predicate written out (pinned by the deleted-project test). Large-organization
+    p95 after both: statistics 2.9–6.0ms, instance list 3.6–7.1ms, a task by id 1.8–4.9ms,
+    against 1.7–3.8, 2.2–4.2 and 0.31–0.85ms for 4 projects; allocation per request 0.7–2.1 MB
+    where it was 9–55 MB.
+  - **Still open: the list inside the query.** Reads spanning the whole organization still
+    pay for 10,000 ids per statement: the inbox 7–10ms more, tasks by assignee 8–55ms more,
+    because on its generic plan PostgreSQL filters the assignee's rows against the array one
+    id at a time (21–26ms against 4.9ms planned with the values). A `tasks (assignee,
+    project_id)` index was tried; the generic plan does not use it. Everything is inside the
+    150ms target at 10,000 projects, but the cost grows with projects × rows. The fixes are an
+    organization column on the tables a project owns (schema change and backfill, main and
+    environment databases) or planning these statements with their values (a pool-wide
+    change to how every query is planned). Neither is done; measure with
+    `TestTenantScopeAtScale` before and after.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

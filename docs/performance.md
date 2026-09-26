@@ -30,7 +30,8 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 | The same at 2,000 and at 5,000 instances | 19.5ms and 30.6ms | 500ms |
 | Start p95 in those runs | 16.7–37.0ms | 500ms |
 | Throughput in those runs | 314–424 instances/s end to end, 1,069–1,393 completions/s | reported |
-| Dashboard statistics p95, an organization with 10,000 projects against one with 4 (2026-09-26) | 26.3ms against 2.1ms, and 201ms on a loaded run; six reads of the project list per request | 150ms |
+| Dashboard statistics p95, an organization with 10,000 projects against one with 4 (2026-09-26) | Before: 26.3ms against 2.1ms, and 201ms on a loaded run; six reads of the project list per request. After: 2.9–6.0ms against 1.7–3.8ms, one read | 150ms |
+| Slowest read at 10,000 projects after (2026-09-26) | Tasks by assignee, 30.1–58.7ms on a generic plan (see *What is left*) | 150ms |
 
 Throughput is reported rather than asserted: it is a property of the hardware,
 and a threshold would either prove nothing or fail on a busy machine.
@@ -114,6 +115,41 @@ allocate 0.55 MB rather than 0.85 MB. The scope a request keeps costs two
 allocations and 128 bytes per authenticated request, about 25ns; a scoped call
 that reuses it costs 6ns and allocates nothing (Go benchmark).
 
+**The ids only, in one statement** (`projectsOf`). The one read left read whole
+project rows through the store, a thousand at a time, to keep 16 bytes of each.
+It reads `SELECT id FROM projects WHERE organization_id = $1 AND deleted_at IS
+NULL` now: one statement and about 1ms at 10,000 projects. Three runs after
+both changes, at a load average of about 10:
+
+| Read | Small p95 | Large p95 | Large p95 before either | Allocated per request, large: before → once per request → ids only |
+| :--- | ---: | ---: | ---: | ---: |
+| Dashboard statistics | 1.7–3.8ms | 2.9–6.0ms | 26.3–201.3ms | 55 MB → 9.6 MB → 0.75 MB |
+| Instances, paged | 2.2–4.2ms | 3.6–7.1ms | 35.6–142.0ms | 46 MB → 9.8 MB → 1.4 MB |
+| Task inbox | 6.5–8.9ms | 13.9–18.5ms | 12.9–114.1ms | 10 MB → 10 MB → 2.0 MB |
+| Tasks by assignee | 2.2–3.7ms | 30.1–58.7ms | 31.4–85.8ms | 10 MB → 10 MB → 2.1 MB |
+| Task by id | 0.31–0.85ms | 1.8–4.9ms | 5.2–9.0ms | 9.9 MB → 9.9 MB → 1.5 MB |
+| Instance by id | 0.35–0.52ms | 2.1–2.8ms | 5.9–46.5ms | 9.9 MB → 9.9 MB → 1.5 MB |
+| Definitions | 0.21–0.45ms | 1.4–2.3ms | 6.1–43.3ms | 9.1 MB → 9.1 MB → 0.7 MB |
+| Waiting by step | 7.1–16.3ms | 8.4–20.4ms | 14.0–121.4ms | 9.1 MB → 9.1 MB → 0.7 MB |
+
+Every read is inside the 150ms target at 10,000 projects, and the reads that
+name a project — the dashboard, the instance list, definitions — cost the large
+organization about what they cost the small one.
+
+**What is left is the list inside the query**, on the reads that span the whole
+organization: the inbox pays 7–10ms more, and tasks by assignee 8–55ms more
+depending on the plan. Planned with its values, the assignee count takes 4.9ms;
+on its generic plan, which PostgreSQL picks for a prepared statement it has run
+five times when it estimates that cheaper, it takes 21–26ms, because the plan
+reads the assignee's rows by the assignee index and walks the 10,000 ids for
+each. An index on `tasks (assignee, project_id)` was tried and the generic plan
+does not use it. Two ways out, neither taken here: plan these statements with
+their values every time (pgx's describe-and-execute mode, or `plan_cache_mode`),
+which changes how every query on the pool is planned; or give the tables a
+project owns an organization column, so the scope is one indexed equality with
+no list at all — a schema change and a backfill, in the main database and in
+every environment's.
+
 ## Decisions that were measured
 
 The shape of these came from a measurement, and the measurement is the reason
@@ -126,6 +162,7 @@ not to change them back:
 | The storm connection pool (`db.NewPool`) | Built through storm's constructor, whose parameter encoders the generated code assumes: `tests/bpmn` in 18.4s against 25.3s on the same machine | storm's constructor |
 | Script conditions (`logic.RunSandboxed`) | `new Array(1e9).join('x')` ran 37.6s against a 200ms budget; goja cannot interrupt one native call | Abandoned after the budget and a grace period; 0.70s |
 | The tenant scope (`pg/tenant.go`, `tenantscope.Request`) | Read once per scoped call: six reads a statistics request at 10,000 projects, 26–201ms p95 and 55 MB. A subquery on `projects.organization_id` instead of the list cannot be written — storm has no subquery predicate, its semi-joins go from parent to children, and its joins return projections rather than rows — and would be wrong where it could: an environment's instances and tasks are in the environment's database, and its projects only in the main one | Read once per request and kept for that request only; 6–10ms and 9.6 MB |
+| The scope's read (`pg.projectsOf`) | Through the store: ten keyset statements of whole rows at 10,000 projects, about 4ms and 10 MB. The ids alone: one statement, about 1ms and 0.3 MB | Raw SQL for the ids, with the store's soft-delete predicate written out; statistics 2.9–6.0ms and 0.75 MB |
 
 ## Profiling
 
