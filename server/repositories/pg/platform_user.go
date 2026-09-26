@@ -296,7 +296,20 @@ func (r *platformUserRepository) EnsureBuiltInRoles(ctx context.Context) error {
 	return nil
 }
 
+// liveGrantCount counts one role's grants held by accounts that have not been
+// deleted. Raw SQL for the join: the generated store counts one table.
+const liveGrantCount = `SELECT count(*)
+	  FROM platform_role_assignments a
+	  JOIN platform_users u ON u.id = a.platform_user_id
+	 WHERE a.platform_role_id = $1
+	   AND u.deleted_at IS NULL`
+
 // CountAdministrators reports how many accounts still hold the admin role.
+//
+// Accounts that exist, not grants. Deleting an account marks its row and
+// leaves its grants in place, so counting grants counted a deleted
+// administrator as a live one: after one of two was deleted the other still
+// counted two, and could be deleted or demoted in turn.
 func (r *platformUserRepository) CountAdministrators(ctx context.Context) (int, error) {
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
@@ -310,10 +323,18 @@ func (r *platformUserRepository) CountAdministrators(ctx context.Context) (int, 
 	if !ok {
 		return 0, nil
 	}
-	count, err := platformroleassignment.New().
-		Where(platformroleassignment.PlatformRoleID.Eq(adminID)).
-		Count(ctx, ex)
+	rows, err := ex.Query(ctx, liveGrantCount, []any{adminID})
 	if err != nil {
+		return 0, fmt.Errorf("could not count administrators: %w", err)
+	}
+	defer rows.Close()
+	var count int64
+	if rows.Next() {
+		if err := scanInt(rows.RawValues(), &count); err != nil {
+			return 0, err
+		}
+	}
+	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("could not count administrators: %w", err)
 	}
 	return int(count), nil

@@ -88,3 +88,27 @@ func TestTheLastPlatformAdministratorIsKeptPastAThousandGrants(t *testing.T) {
 			grantsAheadOfTheAdministrator+1)
 	}
 }
+
+// A deleted account administers nothing, so it must not count as the other
+// administrator that makes removing the last live one safe.
+//
+// Deleting an account marks its row and leaves its grants where they are, and
+// the count of administrators counted grants. Once one of two administrators
+// was deleted, the survivor still counted two — its own grant and the deleted
+// account's — so it could be deleted or demoted too, leaving an installation
+// nobody can sign in to administer.
+func TestADeletedPlatformAdministratorDoesNotCountAsAnother(t *testing.T) {
+	w := newPlatformWorld(t)
+	first := w.createAdministrator(t, "first-administrator")
+	second := w.createAdministrator(t, "second-administrator")
+
+	if err := w.svc.DeletePlatformUser(w.ctx, first); err != nil {
+		t.Fatalf("deleting one of two administrators must be allowed: %v", err)
+	}
+	if err := w.svc.SetPlatformRoles(w.ctx, second, []string{entities.RoleDesigner}); err == nil {
+		t.Error("the last live administrator was demoted: the deleted one still counted")
+	}
+	if err := w.svc.DeletePlatformUser(w.ctx, second); err == nil {
+		t.Fatal("the last live administrator was deleted: the deleted one still counted")
+	}
+}
