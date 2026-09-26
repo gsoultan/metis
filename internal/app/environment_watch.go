@@ -57,6 +57,7 @@ func (a *App) syncEnvironments(ctx context.Context, handler http.Handler) {
 			enabled[uuid.UUID(row.ID)] = row
 		}
 	}
+	a.environments.checked(enabled)
 	for _, id := range a.environments.runningIDs() {
 		if _, ok := enabled[id]; !ok {
 			a.stopEnvironment(id, "This environment was deleted or disabled. Its port and its workers are stopped, and its database connections close shortly.")
@@ -65,7 +66,6 @@ func (a *App) syncEnvironments(ctx context.Context, handler http.Handler) {
 	for id, row := range enabled {
 		a.syncEnvironment(ctx, handler, id, row)
 	}
-	a.environments.forgetFailuresExcept(enabled)
 }
 
 // syncEnvironment starts one enabled environment, or stops it when what it

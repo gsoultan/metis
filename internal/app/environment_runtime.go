@@ -37,6 +37,9 @@ type environmentRuntimes struct {
 	// failures is why each environment last failed to start, so that a
 	// failure is logged once for each cause rather than at every check.
 	failures map[uuid.UUID]string
+	// enabled is the name of every environment the last check found enabled,
+	// running here or not, for the metrics endpoint to report.
+	enabled map[uuid.UUID]string
 	// work is the watcher and the starts it has under way, so a test can wait
 	// for them to finish.
 	work sync.WaitGroup
@@ -159,15 +162,39 @@ func (r *environmentRuntimes) clearFailure(id uuid.UUID) {
 	delete(r.failures, id)
 }
 
-// forgetFailuresExcept drops the failures of environments no longer enabled,
-// so the map holds no more than the registry does, and an environment enabled
-// again later has its failure reported afresh.
-func (r *environmentRuntimes) forgetFailuresExcept(enabled map[uuid.UUID]models.EnvironmentModel) {
+// checked records what a check found enabled. The failures of environments no
+// longer enabled are forgotten, so the map holds no more than the registry
+// does, and an environment enabled again later has its failure reported
+// afresh.
+func (r *environmentRuntimes) checked(enabled map[uuid.UUID]models.EnvironmentModel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.enabled = make(map[uuid.UUID]string, len(enabled))
+	for id, row := range enabled {
+		r.enabled[id] = row.Name
+	}
 	for id := range r.failures {
 		if _, ok := enabled[id]; !ok {
 			delete(r.failures, id)
 		}
 	}
+}
+
+// enabledEnvironment is one environment the last check found enabled, and
+// whether this replica serves it.
+type enabledEnvironment struct {
+	id      uuid.UUID
+	name    string
+	running bool
+}
+
+// enabledEnvironments returns every environment the last check found enabled.
+func (r *environmentRuntimes) enabledEnvironments() []enabledEnvironment {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	environments := make([]enabledEnvironment, 0, len(r.enabled))
+	for id, name := range r.enabled {
+		environments = append(environments, enabledEnvironment{id: id, name: name, running: r.running[id] != nil})
+	}
+	return environments
 }

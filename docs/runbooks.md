@@ -374,9 +374,17 @@ by default (`METIS_JOB_POLL_INTERVAL`) — so a job ten minutes past its time
 means no worker is claiming. Timers are late and service tasks are not running,
 and from outside it looks like a quiet system.
 
+**Which database?** The engine's series are one set per database. An alert
+labelled `environment` (the environment's id) and `environment_name` is about
+that environment: its jobs are in its own database, its workers log under its
+name, and the SQL in this section and the next runs against that database, not
+the main one. An alert with neither label is about the main database.
+
 ```promql
 metis_jobs_due
 metis_jobs_oldest_due_age_seconds
+metis_jobs_due{environment_name="staging"}   # one environment
+metis_jobs_due{environment=""}               # the main database only
 ```
 
 **Is it falling?** If `metis_jobs_due` is going down, the workers are claiming
@@ -447,6 +455,14 @@ endpoint`. Usually the database is unreachable (see
 [Database failover](#database-failover)); if it answers everything else, the
 counts are taking longer than two seconds, which on the `jobs` table means it
 needs vacuuming — see `postgresql.md`.
+
+Each database is read on its own, at the same time, so one environment's
+database being down marks only that environment's `metis_engine_state_up` 0.
+When the alert names an environment and the log has no backlog line for it,
+this replica could not start the environment at all — its database unreachable
+or its port taken. That is logged once per reason, as `This environment could
+not be started` with the environment's name, and tried again every 15 seconds:
+fix the cause and it is served within one check.
 
 ---
 

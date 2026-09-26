@@ -493,7 +493,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Expired leases are reclaimed on the next poll, so they should not stay. Incidents are jobs that ran out of retries.",
+      "description": "Expired leases are reclaimed on the next poll, so they should not stay. Incidents are jobs that ran out of retries. One line per database: main, and each environment by name. A max across replicas, which all read the same databases.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -503,8 +503,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(metis_jobs_lease_expired)",
-          "legendFormat": "leases expired",
+          "expr": "label_replace(max by (environment, environment_name) (metis_jobs_lease_expired), \"environment_name\", \"main\", \"environment\", \"\")",
+          "legendFormat": "{{environment_name}}: leases expired",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -512,8 +512,8 @@
         },
         {
           "refId": "B",
-          "expr": "max(metis_incidents_open)",
-          "legendFormat": "open incidents",
+          "expr": "label_replace(max by (environment, environment_name) (metis_incidents_open), \"environment_name\", \"main\", \"environment\", \"\")",
+          "legendFormat": "{{environment_name}}: open incidents",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"

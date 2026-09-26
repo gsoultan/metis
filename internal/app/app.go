@@ -1020,12 +1020,14 @@ func (a *App) runServers(ctx context.Context) error {
 		// How far behind the engine is and how full its connection pools are,
 		// which the HTTP series cannot say: a job worker that stopped claiming
 		// looks like a system with nothing to do, and an exhausted pool looks
-		// like a slow API. Only with a storm connection — before setup there is
-		// no engine to watch; one set up through the wizard reports these from
-		// its next start.
+		// like a slow API. The backlog is read from the main database and from
+		// each environment's, since an environment's jobs are only in its own.
+		// Only with a storm connection — before setup there is no engine to
+		// watch; one set up through the wizard reports these from its next
+		// start.
 		if a.storm != nil {
 			metricsCollector.Registry().MustRegister(
-				metrics.NewEngineCollector(a.engineState),
+				metrics.NewEngineCollector(a.engineSources),
 				metrics.NewPoolCollector("storm", a.storm.Main().Stat),
 			)
 		}

@@ -32,6 +32,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Each environment's backlog is on the metrics endpoint.** The engine's
+  gauges — `metis_engine_state_up`, `metis_jobs_due`,
+  `metis_jobs_oldest_due_age_seconds`, `metis_jobs_lease_expired` and
+  `metis_incidents_open` — read the main database only, so a job worker that
+  stopped claiming in an environment, or incidents piling up there, looked like
+  an environment with nothing to do. Every environment a replica serves now has
+  its own set of these series, labelled `environment` (its id, which a rename
+  does not change) and `environment_name`. The main database's series are
+  unchanged: they carry neither label. An environment whose database cannot be
+  read — or that could not be started at all — reports `metis_engine_state_up
+  0` on its own and leaves the others alone, and the databases are read at
+  once, so a scrape still takes at most two seconds. The engine alerts fire
+  per environment and name it; the dashboard's incidents panel draws a line
+  per environment. If your scrape configuration adds a target label called
+  `environment`, Prometheus renames this one to `exported_environment`.
 - **The strict tenant scope's rollout is on the metrics endpoint.**
   `metis_strict_tenant_scope_enabled` says whether the flag is on, and
   `metis_strict_tenant_scope_denied_site` is one series per code path that
