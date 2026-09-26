@@ -280,6 +280,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **The bell counted unread notifications among the newest thousand only.**
+  Somebody with more than a thousand notifications was never told about the
+  unread ones older than those, and the list could not reach them either. The
+  bell's number is counted on the server now, over every notification the
+  person has in the organization they are working in, and it is all the bell
+  polls. The list is read when it is opened, twenty at a time and newest
+  first, with *Load older notifications* for the rest; marking one or all of
+  them read updates the count. For API clients,
+  `GET /api/v1/users/me/notifications/unread-count` answers
+  `{"unread_count": n}` and `GET /api/v1/users/me/notifications?page=&page_size=`
+  answers `{"notifications": [...], "page": {"total", "page", "page_size",
+  "has_more"}}`, both for the signed-in person; `GET /api/v1/notifications` is
+  unchanged. Upgrading runs migration 29, which builds two indexes on
+  `notifications` concurrently, so writes carry on while it runs (a million
+  rows took 4.3 seconds here).
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,
