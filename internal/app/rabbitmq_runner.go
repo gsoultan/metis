@@ -20,7 +20,8 @@ import (
 // doubles each time, up to five minutes: a mistake nobody notices for a week
 // costs a line every five minutes rather than one every five seconds. Once it
 // has started, a broker that goes away is the messaging service's to reconnect
-// to, which it does every five seconds.
+// to, which it does on a schedule of the same shape: from five seconds,
+// doubling to five minutes, with jitter.
 const (
 	rabbitMQRetryFirst = 5 * time.Second
 	rabbitMQRetryMost  = 5 * time.Minute
@@ -108,12 +109,12 @@ func (r *rabbitMQRunner) startBridge(ctx context.Context, bridge rabbitMQBridge,
 	if err != nil {
 		return err
 	}
-	err = r.messaging.StartBridge(scoped, bridge.target.project, bridge.topic, broker.url, bridge.exchange, bridge.routingKey)
+	err = r.messaging.StartBridge(scoped, bridge.target.project, bridge.topic, broker.url, bridge.exchange, bridge.routingKey, bridge.lock)
 	if err != nil {
 		return err
 	}
 	logger.Info().Str("organization", broker.organization.String()).
-		Str("broker", broker.address).Str("vhost", broker.vhost).
+		Str("broker", broker.address).Str("vhost", broker.vhost).Str("lock", bridge.lock.String()).
 		Msg("Started a RabbitMQ bridge; it connects to its broker in the background")
 	return nil
 }

@@ -404,6 +404,17 @@ describe('bare words', () => {
     expect(findCoverageGaps([tier], [rule('null')]).needsQuotes).toEqual([]);
   });
 
+  it('do not include the dash that means any value', () => {
+    // Every new line is written with `-`, so the dash sits beside whatever the
+    // check cannot read, and was taken for unquoted text: a table using a
+    // function was told to put its cells in quotes, which would break them.
+    const report = findCoverageGaps([amount], [rule('> sum(fees)'), rule(ANY_VALUE)]);
+    expect(report.needsQuotes).toEqual([]);
+    expect(whyNotChecked(report)).toBe(
+      'Not checked: Amount uses a condition this check cannot read, so it cannot tell whether every case is decided.',
+    );
+  });
+
   it('are still read when they are one name, as text', () => {
     for (const cell of ['GOLD', 'gold_2', '_tier', 'GOLD, SILVER', 'not(GOLD)', 'TRUE']) {
       expect(findCoverageGaps([tier], [rule(cell), rule(ANY_VALUE)]).notAnalysed).toEqual([]);

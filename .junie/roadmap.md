@@ -230,6 +230,11 @@
         **Done 2026-09-26 (INT-15):** both start when `METIS_RABBITMQ_BRIDGES` or
         `METIS_RABBITMQ_CONSUMERS` names them, so the reconnect logic runs in a server
         that is configured to use it. Off by default; see the entry of that date below.
+        **Corrected 2026-09-26 (`rabbitmq-hardening`):** `messaging_test.go` never had a
+        reconnect test. Reconnecting is tested now: against a broker in memory
+        (`messaging_bridge_test.go`, `messaging_consumer_test.go`,
+        `messaging_reconnect_test.go`) and, in CI, against a real one through a proxy that
+        drops confirms, refuses and cuts connections (`messaging_broker_test.go`).
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
@@ -998,9 +1003,17 @@
     incidents, the version history and the live-version marks. Paging: every paged list
     orders by creation time and then id. The step heat map was already a grouped count
     over every running token (984038e).
-  - **Still open**: a person's notifications are the newest 1,000 and the bell counts
-    unread among them; the fix is a paged list with a server-side unread count, a
-    change to the UI's contract. The OCEL export never names a case's process version
+  - **Was open, done 2026-09-26** (branch `notifications-paged`, one commit per change,
+    each test failing first): a person's notifications were the newest 1,000 and the bell
+    counted unread among them. The bell's number is a server-side COUNT now
+    (`GET /api/v1/users/me/notifications/unread-count`, 20 of 1,050 where it said 0), and
+    it is all the bell polls; the list reads a page at a time, newest first, ordered by
+    creation time and then id (`GET /api/v1/users/me/notifications?page=&page_size=`,
+    1,050 walked exactly once where the list reached 1,000), and offers older pages. Both
+    take the person from the session and scope in the query. Migration 29 indexes both
+    (unread count 1,797 buffers to 4 at a million rows). The older
+    `GET /api/v1/notifications?user_id=` is unchanged for other clients.
+  - **Still open**: The OCEL export never names a case's process version
     (the instance it reads carries only the definition id), at any size. The audit
     trail is read in one statement rather than keyset-walked: the entries one
     transaction writes share its created_at and their ids are random, so their order
@@ -1106,16 +1119,75 @@
       budget, time on the queue included. A task not completed in time is published
       again at the next poll, so a backlog on the queue multiplies itself. Wants a
       per-bridge lock setting; changing `StartBridge` for it needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below):** `lock_seconds`, five minutes
+      unless set.
     - A channel the broker closes — an exchange that does not exist, or one the user may
       not publish to — is not reopened while the connection lives, so the bridge hands
       every task back at every poll until it is restarted. `runBridge` should reopen a
       closed channel as it redials a closed connection. Needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below).**
     - A bridge's publish waits for its confirm with no deadline of its own, so a blocked
-      broker holds the fetched tasks past their lock.
+      broker holds the fetched tasks past their lock. **Fixed on `rabbitmq-hardening`
+      (entry below):** `METIS_RABBITMQ_CONFIRM_TIMEOUT`, 10 seconds unless set.
     - A bridge takes its topic from every project of the organization, as an API worker
       does; there is no per-project fetch.
-    - Reconnection after start is every 5 seconds, not backed off.
+    - Reconnection after start is every 5 seconds, not backed off. **Fixed on
+      `rabbitmq-hardening` (entry below).**
     service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): the RabbitMQ bridge and consumer survive a broker that
+  misbehaves — four of the five items INT-15 left for the backlog. Branch
+  `rabbitmq-hardening`, one commit per gap, each with a test that fails against the code
+  before it. Driver: arch · Challengers: perf, sec, test.
+  - **A confirm that never comes.** Every publish — the bridge's, the consumer's
+    dead-letter publish, the RabbitMQ connector's — waits at most
+    `METIS_RABBITMQ_CONFIRM_TIMEOUT` (10s) for its confirm. It waited for ever: the
+    bridge held the task and its topic until a restart, and the connector a job worker's
+    slot. A missed confirm is a refusal: the task is handed back, the rest of the round
+    unpublished, and the channel replaced, because the broker's late answer about the lost
+    message could be read as its answer about the next.
+  - **What the broker closes is opened again.** The bridge and the consumer watch
+    `NotifyClose` on their channel and connection and reopen the channel alone while the
+    connection is up. The consumer says why its deliveries stopped (the broker's reason,
+    or that it cancelled the consumer) and declares the queue again. Each problem is logged
+    at error once, naming the bridge or consumer, and at debug while it lasts
+    (`problem_log.go`, bounded).
+  - **Backoff.** Reconnecting waits 5s doubling to 5 minutes, ±25%, and starts over once
+    a connection has lasted: to the bridge's next round or a forwarded task, through
+    the consumer's first 5 seconds of consuming. A broker that drops each connection
+    straight away is waited for as if it were down. It reuses the schedule `backoff.go`
+    had for job retries, now a `backoff` type, rather than a second one. (The
+    broker-backed backoff test first failed in CI: it changed the proxy while the bridge
+    ran, and raced the dial it meant to follow. It now changes it only while the bridge
+    is held between rounds.)
+  - **A lock long enough for a queue.** `lock_seconds` per entry of
+    `METIS_RABBITMQ_BRIDGES`, 30 to 86400, 300 unless set. A worker cannot extend it, so it
+    covers queue time and work; `docs/integration.md` says how to size it. Tasks fetched
+    as the bridge stops are handed back at once instead of waiting out the lock.
+  - **How it is tested without a broker.** The loops depend on narrow, consumer-owned
+    interfaces (`brokerConnection`, `brokerChannel` and the ones they compose), which
+    `amqp_connection.go` and `amqp_channel.go` adapt the library to, and run in the tests
+    against a broker in memory. What only a real broker can vouch for runs in CI:
+    `messaging_broker_test.go` (a missed confirm, through a proxy that drops
+    `basic.ack`/`basic.nack` frames; a missing exchange created mid-run; a deleted queue;
+    backoff and its reset through a proxy that refuses and cuts) and the lock in
+    `internal/app/rabbitmq_broker_test.go`. The proxy's framing is tested locally.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and
+    `STORM_DSN` set against PostgreSQL 17 — 83 packages pass under test, race and the
+    strict tenant scope each; UI typecheck, lint (0 errors) and 1469 tests pass.
+    `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
+    no broker, and run in CI.
+  - **Found and not fixed — for the backlog:**
+    - A worker cannot extend an external task's lock: the API has fetch-and-lock,
+      complete and failure, on every transport. A bridged worker's whole budget is
+      therefore the bridge's lock, so a long job needs a long lock, and a lost message
+      waits that long to be published again. An extend-lock operation would let locks
+      stay short; it is API surface on HTTP, gRPC and Connect, and in the SDK.
+    - The bridge publishes transient messages, so a broker restart loses what is queued
+      and those tasks wait out their lock. Persistent delivery is a small change and a
+      decision about the broker's disk.
+    - Still nothing measures a bridge's or consumer's connection, so still no alert and
+      no runbook.
+    - A bridge takes its topic from every project of the organization (above).
 - 2026-09-26 (completed): environments go live without a restart, and each one's backlog
   is measured. Branch `environments-live`; the two items left open by #94 and by the
   observability batch.
@@ -1151,6 +1223,51 @@
     the scheme with Go, Node.js and Python examples checked against a live server.
   - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
     in `docs/upgrading.md`).
+- 2026-09-26 (completed): `DMN-17` — a decision cell sees the rest of the case. Branch
+  `decision-cells-see-inputs`, one commit per change, each with a test that fails without it.
+  - **The gap.** A condition cell was tested against its own column's value and nothing
+    else (`ruleMatches` built `{"_input": value}`), so `> minimum` beside a minimum column,
+    `> credit_limit`, or `[low..high]` compared with null: no match and no error, `!=`
+    matching every case, and only a range failing ("cannot compare a number with a null").
+  - **The rule now.** DMN's: the column's value is the implicit subject (`_input`, bound
+    first, so no variable shadows it) and every variable the decision was evaluated with is
+    in scope by name, required decisions' answers included — the names the columns read,
+    so a column and a variable of the same name are one value, and a heading is not a name.
+    The bare-word deviation stays, narrowed: a lone word is text unless it names one of the
+    table's columns, so a table's words do not change meaning with the process that consults
+    it; `= name` reads any variable. `?` and names with spaces stay outside the subset
+    (execution-plan §2.1, pinned by `TestSubsetIsDocumented`). Outputs are literals and
+    unchanged. `ExpressionEvaluator.EvaluateBool` became `MatchesCell` with an explicit
+    `entities.DecisionCellScope`.
+  - **Cost.** A variable is converted when a cell reads it: a cell beside a 5,000-line
+    order went from 1.6 ms and 10,005 allocations to 159 ns and none; a 100-line table from
+    38.7 µs and 339 allocations to 28.1 µs and 2.
+  - **Editor.** The checks no longer read a lone column name as a word (that produced a
+    false overlap error that blocked Save); hover text names the column; the coverage card
+    says what a column is compared with; a line under the grid says a condition can name
+    another; `?` is marked with what to write instead. Found on the way and fixed in their
+    own commits: the card told an author to quote any unread column that had a `-` line,
+    and a broken condition's `aria-invalid` never reached the page.
+  - **Upgrading.** No migration. Tables whose cells name a variable decide as written from
+    the upgrade on; `docs/upgrading.md` has a query that lists those cells, and rolling the
+    release back restores the old reading.
+  - Tests: `tests/decision/conformance_test.go` (new corpus cases),
+    `tests/decision/cell_scope_test.go` (a business rule task on PostgreSQL),
+    `impl/decision_cell_scope_test.go` (precedence; the caller's variables untouched),
+    `feel/cell_variables_test.go` (allocation bound), and the UI's `columnComparison`,
+    `columnComparisonHint`, `ConditionCell` and editor page tests.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
+    set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
+    scope each; UI typecheck, lint (0 errors) and 1485 tests pass. The changed packages run
+    verbose: 506 pass, none fail, and the only two skips need a RabbitMQ broker.
+    `golangci-lint run ./...`: 0 issues.
+  - **Not done, and why:** `?` is flagged, not implemented (it means DMN 1.2's boolean unary
+    tests). A range whose end names a variable nobody supplied still fails the evaluation,
+    as a range with an incomparable bound always has; changing it would change gateway
+    conditions too. Try it gives values to the table's columns only, so it cannot supply a
+    variable no column reads; the coverage card says so rather than suggesting Try it. The
+    Serena `verified-findings` memory and the PRD row for DMN-17 live outside the
+    repository and are updated once this merges.
 - 2026-09-26 (completed): Signing in stays possible when the identity provider is not, as
   the product owner decided it. Branch `auth-both-tokens`, one commit per change, each with
   a test that fails against the code before it.
