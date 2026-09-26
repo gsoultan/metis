@@ -11,8 +11,9 @@ import { RoleLegend, type LegendState } from './RoleLegend';
  *
  * A popover rather than a tooltip: an administrator's list runs to dozens of
  * actions and has to be scrolled, and a tooltip closes the moment the pointer
- * leaves the icon. The button carries the name a screen reader announces, and
- * Escape closes the popover and returns focus to it.
+ * leaves the icon. It is a dialog named by the button; opening it moves focus
+ * inside, onto the list, and Escape closes it and puts focus back on the
+ * button.
  */
 export function RoleColumnHeader({ option, legend }: { option: RoleOption; legend: LegendState }) {
   const { t } = useTranslation();
@@ -23,7 +24,7 @@ export function RoleColumnHeader({ option, legend }: { option: RoleOption; legen
         <Text size="sm" fw={700}>
           {option.label}
         </Text>
-        <Popover width={340} position="bottom" withArrow shadow="md" radius="md" returnFocus>
+        <Popover width={340} position="bottom" withArrow shadow="md" radius="md" trapFocus returnFocus>
           <Popover.Target>
             <ActionIcon
               variant="subtle"

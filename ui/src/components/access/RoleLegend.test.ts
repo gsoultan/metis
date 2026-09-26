@@ -65,6 +65,19 @@ describe('what a role allows', () => {
     expect(text(designer, { status: 'failed' })).toContain('Could not load what this role allows.');
   });
 
+  /*
+   * An administrator's list runs to dozens of actions and scrolls. The popover
+   * moves focus into itself when it opens; the list has to be somewhere focus
+   * can land, or a keyboard cannot scroll it and a screen reader is not told
+   * what it is.
+   */
+  it('can be reached and scrolled from the keyboard, and says what it is', () => {
+    const html = renderMarkup(createElement(RoleLegend, { option: designer, legend: designerLegend }));
+    const region = /<div[^>]*role="group"[^>]*>/.exec(html)?.[0] ?? '';
+    expect(region).toContain('tabindex="0"');
+    expect(region).toContain('aria-label="Required for"');
+  });
+
   it('gives the headings in the interface’s language', () => {
     const html = renderMarkup(inLanguage(createElement(RoleLegend, { option: designer, legend: designerLegend }), 'id', id));
     expect(visibleText(html)).toContain('Diperlukan untuk Proses Create definition');

@@ -54,8 +54,14 @@ function LegendBody({ legend }: { legend: LegendState }) {
   if (legend.areas.length === 0) {
     return <Text size="sm">{t('access.requiredForNothing')}</Text>;
   }
+  // Focusable and named, so the popover's focus lands here when it opens: the
+  // arrow keys then scroll a long list, and a screen reader says what it is.
   return (
-    <ScrollArea.Autosize mah={LEGEND_MAX_HEIGHT} type="auto">
+    <ScrollArea.Autosize
+      mah={LEGEND_MAX_HEIGHT}
+      type="auto"
+      viewportProps={{ tabIndex: 0, role: 'group', 'aria-label': t('access.requiredFor') }}
+    >
       <Stack gap="xs">
         {legend.areas.map(({ area, actions }) => (
           <div key={area}>
