@@ -140,11 +140,15 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	}
 }
 
-// Connector manifests are installation-wide, so adminOnly — which admits the
-// administrator of any one organization — is not enough to change them.
+// Connector manifests and connector templates are installation-wide, so
+// adminOnly — which admits the administrator of any one organization — is not
+// enough to change them.
 func TestMakeEndpoints_InstallationWideEndpointsNeedAPlatformAdministrator(t *testing.T) {
 	source := readEndpointsSource(t)
-	for _, name := range []string{"InstallConnectorManifest", "SetConnectorManifestEnabled", "DeleteConnectorManifest"} {
+	for _, name := range []string{
+		"InstallConnectorManifest", "SetConnectorManifestEnabled", "DeleteConnectorManifest",
+		"CreateConnector", "UpdateConnector", "DeleteConnector",
+	} {
 		if !strings.Contains(source, `platformAdmin("`+name+`")`) {
 			t.Errorf("%s is not behind the platform administrator gate; any organization's administrator could call it", name)
 		}

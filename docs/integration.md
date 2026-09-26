@@ -565,6 +565,11 @@ is refused with a 403 that names the setting and gives them their account id to
 pass on. An installation with one organization needs nothing configured: its
 administrators may, as they always could.
 
+The same goes for **connector templates** (`/api/v1/connectors`), for the same
+reason. A template has no organization: its key is unique across the
+installation, and every organization's connections are configured through its
+schema, which is what marks a setting as a password.
+
 A manifest is stored as its author wrote it and read back the same way, comments
 and all. Installing an existing key **replaces** it, because installing again is
 how a manifest is fixed. It keeps the switch it had: a connector somebody

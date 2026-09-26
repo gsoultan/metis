@@ -111,10 +111,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// rewrite or delete one — while creating an instance of the same connector
 	// needed an administrator. A connector describes what the engine calls out
 	// to and with which credentials, which is the definition of "authoring code
-	// the engine executes"; adminOnly matches the instances.
-	connectorEndpoints.CreateConnector = adminOnly("CreateConnector")(connectorEndpoints.CreateConnector)
-	connectorEndpoints.UpdateConnector = adminOnly("UpdateConnector")(connectorEndpoints.UpdateConnector)
-	connectorEndpoints.DeleteConnector = adminOnly("DeleteConnector")(connectorEndpoints.DeleteConnector)
+	// the engine executes". And a template has no organization: its key is
+	// unique across the installation, and every organization's connections are
+	// configured through its schema, which is what marks a setting as a
+	// password. So, like the manifests below, it is the platform's to change.
+	connectorEndpoints.CreateConnector = platformAdmin("CreateConnector")(connectorEndpoints.CreateConnector)
+	connectorEndpoints.UpdateConnector = platformAdmin("UpdateConnector")(connectorEndpoints.UpdateConnector)
+	connectorEndpoints.DeleteConnector = platformAdmin("DeleteConnector")(connectorEndpoints.DeleteConnector)
 
 	// Installing a connector adds an address this engine will call with the
 	// tenant's credentials attached — every tenant's: a manifest is

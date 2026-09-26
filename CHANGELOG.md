@@ -23,9 +23,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   id. An installation with one organization needs nothing configured; its
   administrators may, as before.
 
+  Connector templates (`/api/v1/connectors`) are behind the same gate, for the
+  same reason. A template has no organization, its key is unique across the
+  installation, and its schema is what marks every organization's connection
+  settings as passwords. One organization's administrator could rewrite or
+  remove the templates every other organization's connections use.
+
   Upgrading an installation of several organizations: until
-  `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests.
-  The ones installed keep running.
+  `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests or
+  templates. The ones installed keep running.
 - **A connector manifest could take over a built-in connector.** A manifest
   installed under the key of a connector built into Metis — `http-json`,
   `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`,
