@@ -279,50 +279,97 @@ export function formatOutputValue(value: unknown): string {
   return text;
 }
 
+/** The headings of a table's condition columns, by the variable each reads. */
+export type ColumnHeadings = ReadonlyMap<string, string>;
+
+const NO_HEADINGS: ColumnHeadings = new Map();
+
+export function columnHeadingsOf(inputs: DecisionInputColumn[]): ColumnHeadings {
+  return new Map(
+    inputs
+      .filter((input) => input.expression.trim() !== '')
+      .map((input) => [input.expression.trim(), input.label || input.expression.trim()]),
+  );
+}
+
+const COMPARISON_WORDS: Record<string, string> = {
+  '>': 'is more than',
+  '<': 'is less than',
+  '>=': 'is at least',
+  '<=': 'is at most',
+  '!=': 'is not',
+  '=': 'is',
+};
+
 /**
  * Reads a condition cell back in words.
  *
  * The grid is compact because it has to be, and compact is exactly what makes
  * `]1..10]` unreadable to the person whose business rule it is. This is shown
  * on hover so nobody has to learn the notation to check the table is right.
+ *
+ * A name that is another column's is read as that column: `> minimum` is "more
+ * than Minimum", and `minimum` alone "the same as Minimum". The engine compares
+ * with that column's value, not with the word.
  */
-export function describeCell(cell: string, columnLabel: string): string {
+export function describeCell(cell: string, columnLabel: string, headings: ColumnHeadings = NO_HEADINGS): string {
   const text = cell.trim();
   if (text === '' || text === ANY_VALUE) return `${columnLabel}: any value`;
   if (text === '""' || text === "''") return `${columnLabel} is empty`;
+  const value = (operand: string) => headings.get(operand.trim()) ?? unquote(operand);
 
-  const range = text.match(/^([[\]])\s*(-?[\d.]+)\s*\.\.\s*(-?[\d.]+)\s*([[\]])$/);
+  const range = text.match(/^([[\]])\s*(-?[\d.]+|[A-Za-z_]\w*)\s*\.\.\s*(-?[\d.]+|[A-Za-z_]\w*)\s*([[\]])$/);
   if (range) {
     const [, open, low, high, close] = range;
     const from = open === '[' ? 'from' : 'above';
     const to = close === ']' ? 'up to' : 'below';
-    return `${columnLabel} is ${from} ${low} ${to} ${high}`;
+    return `${columnLabel} is ${from} ${value(low)} ${to} ${value(high)}`;
   }
 
   const comparison = text.match(/^(>=|<=|>|<|!=|=)\s*(.+)$/);
   if (comparison) {
     const [, operator, operand] = comparison;
-    const words: Record<string, string> = {
-      '>': 'is more than',
-      '<': 'is less than',
-      '>=': 'is at least',
-      '<=': 'is at most',
-      '!=': 'is not',
-      '=': 'is',
-    };
-    return `${columnLabel} ${words[operator]} ${unquote(operand)}`;
+    return `${columnLabel} ${COMPARISON_WORDS[operator]} ${value(operand)}`;
   }
 
   if (text.startsWith('not(') && text.endsWith(')')) {
-    return `${columnLabel} is not ${unquote(text.slice(4, -1))}`;
+    return `${columnLabel} is not ${value(text.slice(4, -1))}`;
   }
 
   if (text.includes(',')) {
-    const options = text.split(',').map((part) => unquote(part.trim()));
+    const options = text.split(',').map((part) => value(part.trim()));
     return `${columnLabel} is ${options.slice(0, -1).join(', ')} or ${options[options.length - 1]}`;
   }
 
-  return `${columnLabel} is ${unquote(text)}`;
+  const other = headings.get(text);
+  return other ? `${columnLabel} is the same as ${other}` : `${columnLabel} is ${unquote(text)}`;
+}
+
+/** The hint under the grid: a condition can compare with another column. */
+export interface ColumnComparisonHint {
+  /** A condition naming another column, as it is typed. */
+  example: string;
+  /** What it means, when the table has another column to name. */
+  meaning?: string;
+}
+
+/**
+ * The hint under the grid that a condition can name another column.
+ *
+ * The engine tests a condition with the rest of the case in scope, so
+ * `> minimum` compares a score with the minimum beside it — which nobody
+ * guesses from a grid of literals. The example names a column the table has,
+ * once it has two.
+ */
+export function columnComparisonHint(inputs: DecisionInputColumn[]): ColumnComparisonHint {
+  const others = inputs.slice(1).filter((input) => input.expression.trim() !== '');
+  const other = others[others.length - 1];
+  if (!other) return { example: '> minimum' };
+  const name = other.expression.trim();
+  const heading = other.label || name;
+  return other.type === 'number' || other.type === 'date'
+    ? { example: `> ${name}`, meaning: `more than ${heading}` }
+    : { example: `= ${name}`, meaning: `the same as ${heading}` };
 }
 
 /**
@@ -466,6 +513,7 @@ export function validateCell(cell: string): string | undefined {
   // the cell a reversed bracket is a delimiter, not an unmatched one.
   let depth = 0;
   let quote = '';
+  let questionMark = false;
   for (const character of asRangeDelimited(text)) {
     if (quote) {
       if (character === quote) quote = '';
@@ -474,8 +522,13 @@ export function validateCell(cell: string): string | undefined {
     if (character === '"' || character === "'") quote = character;
     else if (character === '(' || character === '[') depth += 1;
     else if (character === ')' || character === ']') depth -= 1;
+    else if (character === '?') questionMark = true;
   }
   if (depth !== 0) return 'A bracket is left open';
+  // `?` is how Camunda writes a condition's own value. The engine's FEEL has no
+  // `?`, so the table would fail when it runs; a condition already tests its
+  // own column, which is all `? > minimum` asks.
+  if (questionMark) return 'Leave out the ?: a condition already tests its own column, as in > minimum';
 
   if (/^(>=|<=|>|<|!=|=)\s*$/.test(text)) return 'This comparison has nothing to compare against';
   if (text.endsWith(',')) return 'This list ends with a comma';

@@ -11,7 +11,7 @@
  * A cell in notation the matcher does not read makes an answer unknown rather
  * than false, and the check reports nothing it cannot back.
  */
-import { cellMatcher, understandsCell } from './decisionCells';
+import { cellMatcher, columnNamesOf, understandsCell, type ColumnNames } from './decisionCells';
 import { columnSamples, type Sample } from './decisionSamples';
 import { ANY_VALUE, normalizeCell, type DecisionInputColumn, type DecisionRuleRow } from './decisionTable';
 import {
@@ -41,12 +41,15 @@ export interface ColumnReading {
 export type Verdict = boolean | undefined;
 
 export function readColumns(inputs: DecisionInputColumn[], rules: DecisionRuleRow[]): ColumnReading[] {
-  return inputs.map((input, index) => readColumn(input, index, rules));
+  const names = columnNamesOf(inputs);
+  return inputs.map((input, index) => readColumn(input, index, rules, names));
 }
 
-function readColumn(input: DecisionInputColumn, index: number, rules: DecisionRuleRow[]): ColumnReading {
+function readColumn(input: DecisionInputColumn, index: number, rules: DecisionRuleRow[], names: ColumnNames): ColumnReading {
   const cells = rules.map((rule) => rule.input_entries[index] ?? '');
-  const readable = (cell: string) => understandsCell(cell, input.type);
+  // A cell naming another column is unknown here, not the word: which cases it
+  // decides depends on that column's value.
+  const readable = (cell: string) => understandsCell(cell, input.type, names);
   const samples = columnSamples(input, cells.filter(readable));
   const positions = input.type === 'number' ? samplePositions(samples) : undefined;
   const read = (cell: string): SampleSet => {

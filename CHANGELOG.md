@@ -298,6 +298,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   a lone word that is another column's name now means that column.
   `docs/upgrading.md` (*Decision cells see the rest of the case*) has a query
   that lists them.
+- **The decision editor misread a condition that names another column.** It
+  took `minimum` on its own for the word, where the engine reads the minimum
+  column, so a table could be refused on save for an overlap that is not there
+  (`minimum` and `"minimum"` "both apply when Level is minimum"). Such a cell
+  now reads back on hover as "Score is the same as Minimum", and `> minimum` as
+  "Score is more than Minimum"; the coverage card says the column is compared
+  with Minimum rather than calling the condition unreadable; a line under the
+  grid says a condition can name another; and a cell holding `?`, Camunda's
+  name for a condition's own value, which the engine cannot read, is marked
+  with what to write instead.
 - **The decision editor told an author to put working conditions in quotes.**
   When the table checks could not read a column (a cell calling a function,
   say) and the column also had a line with `-`, as every new line does, the

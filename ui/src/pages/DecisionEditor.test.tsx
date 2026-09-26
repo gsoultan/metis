@@ -99,6 +99,12 @@ describe('Try it on the decision editor page', () => {
   });
 });
 
+describe('the hint under the grid', () => {
+  it('says a condition can compare with another one by naming it', () => {
+    expect(render()).toContain('To compare with another condition, write its name');
+  });
+});
+
 describe('which version the editor has open', () => {
   it('says the open version is the live one, and offers the others', () => {
     const html = render();
