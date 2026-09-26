@@ -9,10 +9,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
  *
  * Nothing is fetched while rendering on the server, so every query reads as
  * still loading. A fresh query client each time keeps one render's cache out of
- * the next.
+ * the next; a test that needs the answers in hand passes a client holding them.
  */
-export function renderMarkup(element: ReactElement): string {
-  const client = new QueryClient();
+export function renderMarkup(element: ReactElement, client: QueryClient = new QueryClient()): string {
   return renderToStaticMarkup(
     createElement(QueryClientProvider, { client }, createElement(MantineProvider, { children: element })),
   );
