@@ -41,14 +41,22 @@ describe('what a role allows', () => {
     expect(shown).toContain('Required for Processes Create definition Promote definition Decisions Update decision');
   });
 
-  it('says that anything it does not list is open to anybody signed in', () => {
-    expect(text()).toContain('Anything not listed is open to anybody signed in.');
+  /*
+   * It said "Anything not listed is open to anybody signed in", which claims
+   * more than a role check can: completing a task still takes being the one it
+   * is assigned to, and deploying a lookup still takes the Query author role.
+   * What an unlisted action does not take is a role.
+   */
+  it('says that what it does not list needs no role, not that anybody may do it', () => {
+    const shown = text();
+    expect(shown).toContain('Actions not listed here need no role, only a sign-in.');
+    expect(shown).not.toContain('open to anybody');
   });
 
-  it('says so when no action is gated on the role alone, rather than showing an empty list', () => {
-    // The query author is checked where a process is deployed, not by a gate.
+  it('says where a role no action requires by itself is checked, rather than showing an empty list', () => {
+    // The query author is checked while a process is deployed, not by a gate.
     const shown = text(queryAuthor, { status: 'known', areas: [] });
-    expect(shown).toContain('No action is gated on this role alone.');
+    expect(shown).toContain('No action requires this role by itself. It is checked as part of other actions, as described above.');
     expect(shown).toContain(queryAuthor.description);
   });
 
