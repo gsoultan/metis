@@ -144,7 +144,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   account's memberships match the claim, so an organization the provider stops
   naming is left. Somebody the claim places nowhere now gets a 403 naming the
   setting or claim that is missing, and the log says so; a token that does not
-  verify is still a 401, and so, while OIDC is on, is a local account's token.
+  verify is still a 401. Local accounts sign in beside it (see **Changed**).
   See *Signing in with OIDC* in `docs/integration.md`.
 
   Upgrading: migration 27 adds `identity_issuer` and `identity_subject` to
@@ -232,6 +232,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **Local accounts sign in while OIDC is on.** With `OIDC_ISSUER` and
+  `OIDC_CLIENT_ID` set, the API took the identity provider's ID tokens and
+  refused every local account's token with 401, so an installation that turned
+  OIDC on lost its break-glass administrator whenever the provider was
+  unreachable. Both kinds are accepted now, and each is checked by its own rules
+  alone, chosen by what the token says it is: a token signed with an HMAC and
+  naming no issuer is a local one, checked against `JWT_SECRET` exactly as
+  before; one signed with a public key is an ID token, checked against the
+  provider's keys, issuer, audience and expiry and signed in as the account
+  linked to it, as before; anything else — an HMAC token that names an issuer,
+  `alg: none` — is refused unchecked. A token its own rules refuse is not tried
+  against the other's, so one signed with `JWT_SECRET` that names the provider
+  as its issuer is refused. Without OIDC nothing changes. See *Signing in with
+  OIDC* in `docs/integration.md`.
+
+  **Upgrading:** if you turned OIDC on to keep local accounts out, it no longer
+  does — every local account whose password works can sign in again, the
+  administrator the setup wizard created included. Delete the ones nobody
+  should use, and keep one administrator with a strong password held offline
+  for the day the provider is down.
 - **Saving a decision table adds a version; it no longer rewrites the one you
   opened.** Every save stores the edit as the decision's next version, and a
   stored version is never changed again, so what an instance decided under v3

@@ -151,7 +151,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`d
 | `METIS_JOB_LEASE` | How long a claim is held before another worker may take the job (default `5m`). Values under 2 minutes are refused: an outbound call may run for 30 seconds, and a lease shorter than that permits a second worker to run a job still in flight, which is a duplicate service call. |
 | `METIS_AUTH_CACHE_TTL` | How long a resolved caller is reused (default `5s`, `0s` disables). Validating a token read the account twice with associations preloaded — about six queries before a request reached its handler. Deliberately seconds: the cached value carries the credential cutoff that invalidates tokens, so a stale entry extends a compromised session. Password, role and membership changes drop the entry immediately. It is also how long an OIDC sign-in's placement in its organizations is reused; a changed claim is placed afresh at once. |
 | `METIS_AUTH_CACHE_SIZE` | Accounts held (default `10000`, evicting least-recently-used). |
-| `OIDC_ISSUER` | The OpenID Connect issuer URL. With `OIDC_CLIENT_ID`, turns on sign-in through that identity provider: the API then takes the provider's ID tokens as bearer tokens, and refuses a local account's token with 401. See [Signing in with OIDC](docs/integration.md#signing-in-with-oidc). |
+| `OIDC_ISSUER` | The OpenID Connect issuer URL. With `OIDC_CLIENT_ID`, turns on sign-in through that identity provider: the API then takes the provider's ID tokens as bearer tokens, beside the local accounts' tokens `/api/v1/login` issues. Each token is checked by the rules of the kind it says it is and by no others — its header's algorithm and whether it names an issuer decide which — so a local administrator can still sign in while the provider is unreachable, and turning OIDC on does not switch local accounts off. See [Signing in with OIDC](docs/integration.md#signing-in-with-oidc). |
 | `OIDC_CLIENT_ID` | The client ID the provider issues ID tokens to; a token for any other audience is refused. |
 | `METIS_OIDC_ORGANIZATION_CLAIM` | The ID-token claim that lists the organizations a person signing in through OIDC belongs to: a string or a list of strings, each an organization's **id**, matched exactly — names are not matched. **Unset, every OIDC sign-in is refused with 403** naming this setting. A first sign-in creates an account linked to the token's issuer and subject — never by email — with no role; each sign-in makes its memberships match the claim. Fill the claim from something only administrators control. |
 | `METIS_REFUSE_SCHEMA_DRIFT` | Refuse to start when a model change has no migration (default off, a warning). The drift count is published as `metis_schema_drift_items` and alerted on either way — features behind a missing table return 500 while `/readyz` stays green, so this is not otherwise visible. Useful in staging to fail the deploy rather than discover it in production. |
@@ -282,12 +282,17 @@ change a password is that somebody else may have it. The same applies to
 theirs lives at the identity provider.
 
 With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, people sign in through your
-identity provider instead, and `METIS_OIDC_ORGANIZATION_CLAIM` names the claim
+identity provider as well, and `METIS_OIDC_ORGANIZATION_CLAIM` names the claim
 that says which organizations each of them is in. Somebody that claim places
 nowhere is refused with a 403 that names what is missing.
 [Signing in with OIDC](docs/integration.md#signing-in-with-oidc) has the
 details: what the claim must hold, the account a first sign-in creates, and
 what to do when somebody is refused.
+
+Local accounts keep signing in with their passwords while OIDC is on. Keep one
+administrator among them, with a strong password held offline, for the day the
+provider is unreachable — and delete the local accounts nobody should use:
+turning OIDC on does not switch them off.
 
 If nobody can sign in at all, reset one from the machine running the server:
 

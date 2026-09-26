@@ -50,7 +50,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors"
-	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
@@ -898,8 +897,9 @@ func (a *App) readinessCheckers() map[string]health.Checker {
 // It is exported for integration tests that must enter through the real front
 // door — the strict-tenant-scope suite drives a process through this chain end
 // to end, which is the coverage rbac_wiring_test.go cannot give by reading the
-// wiring source. A nil validator selects the JWT strategy, as it does in
-// production when OIDC is not configured.
+// wiring source. A nil validator accepts local accounts' tokens alone, as
+// production does when OIDC is not configured; with one, the provider's ID
+// tokens are accepted as well, each kind checked by its own rules.
 func BuildAPIHandler(
 	svc services.ServiceFacade,
 	endpts endpoints.Endpoints,
@@ -914,11 +914,9 @@ func BuildAPIHandler(
 	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
 	f := interceptors.NewInterceptorFactory(svc, svc)
-	var strategy authinterceptor.SecurityStrategy
+	strategy := f.NewJWTStrategy()
 	if validator != nil {
-		strategy = f.NewOIDCStrategy(validator)
-	} else {
-		strategy = f.NewJWTStrategy()
+		strategy = f.NewLocalAndOIDCStrategy(validator)
 	}
 
 	publicPaths := []string{

@@ -1069,6 +1069,8 @@
   - Found, not changed: while OIDC is on, the API takes only the provider's tokens and
     refuses a local account's with 401 — the mandatory interceptor has one strategy. It
     was so before and is documented now; running both is a decision of its own.
+    **Decided 2026-09-26: both kinds, each by its own rules** (entry below, branch
+    `auth-both-tokens`).
   - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and `STORM_DSN`
     set against PostgreSQL 17 — 83 packages pass under test, race and the strict tenant
     scope each; UI typecheck, lint (0 errors) and 1377 tests pass.
@@ -1146,6 +1148,23 @@
     the scheme with Go, Node.js and Python examples checked against a live server.
   - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
     in `docs/upgrading.md`).
+- 2026-09-26 (completed): Signing in stays possible when the identity provider is not, as
+  the product owner decided it. Branch `auth-both-tokens`, one commit per change, each with
+  a test that fails against the code before it.
+  - **Local accounts sign in while OIDC is on.** The API took the provider's ID tokens
+    alone, so turning OIDC on cost the break-glass administrator. `TokenKindStrategy`
+    (`server/interceptors/auth`) accepts both, and chooses whose rules check a token by
+    what it says it is, not by trying one and falling back: an HMAC naming no issuer is
+    local (checked against `JWT_SECRET`, unchanged), a public-key signature is the
+    provider's (go-oidc, then the account link and the organization claim, unchanged),
+    anything else is refused unchecked. A fallback would make the looser rules decide what
+    the stricter refused — a `JWT_SECRET` token naming the provider as issuer would pass the
+    local check, which never reads an issuer. Reading the kind costs ~575 ns and 4
+    allocations per request, only with OIDC on (an HS256 parse alone is ~1.75 µs and 45).
+    Test: `tests/auth/both_tokens_test.go`, both kinds with OIDC on and off — the local
+    token was 401 with OIDC on; replacing the dispatch with a provider-then-local fallback
+    makes the forged-issuer row 200 and the test fail. Unit tests for the dispatch rule in
+    `server/interceptors/auth/token_kind*_test.go`.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`
