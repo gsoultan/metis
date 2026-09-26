@@ -54,7 +54,7 @@ remedy — it is not one.
 
 ```bash
 kubectl -n metis logs deploy/metis --tail=100
-kubectl -n metis describe pod -l app=metis | sed -n '/Events/,$p'
+kubectl -n metis describe pod -l app.kubernetes.io/name=metis | sed -n '/Events/,$p'
 ```
 
 If it is crash-looping, the message on the first line is the cause. The four
@@ -488,7 +488,7 @@ LIMIT 10;
 The pod restarts, and its last state says `OOMKilled`:
 
 ```bash
-kubectl -n metis describe pod -l app=metis | grep -A4 "Last State"
+kubectl -n metis describe pod -l app.kubernetes.io/name=metis | grep -A4 "Last State"
 ```
 
 Work in flight is not lost: a job whose worker died is reclaimed when its lease
@@ -580,7 +580,7 @@ picked up without restarting it.
    ```
 3. Watch readiness recover:
    ```bash
-   kubectl -n metis get pod -l app=metis -w
+   kubectl -n metis get pod -l app.kubernetes.io/name=metis -w
    ```
 4. If readiness does not recover within a few minutes and the database is
    healthy, *then* restart the pod.
