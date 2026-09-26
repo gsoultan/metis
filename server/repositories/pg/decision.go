@@ -174,7 +174,44 @@ func (r *decisionRepository) one(ctx context.Context, preds ...decisiondefinitio
 	return r.first(ctx, nil, preds)
 }
 
+// ListVersionsByKey returns every stored version of one key, newest first.
+func (r *decisionRepository) ListVersionsByKey(ctx context.Context, projectID uuid.UUID, key string) ([]models.DecisionDefinitionModel, error) {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q := decisiondefinition.New().
+		Where(decisiondefinition.Key.Eq(key)).
+		Order(decisiondefinition.Version.Desc())
+	if scoped != nil {
+		q = q.Where(decisiondefinition.ProjectID.In(uuidsToRaw(scoped)...))
+	}
+	rows, err := q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not list the versions of %s: %w", key, err)
+	}
+	return decisionsFrom(rows)
+}
+
+// LockVersion reads one version FOR UPDATE. Outside a transaction the lock is
+// released as soon as it is taken, so the callers that need it hold one.
+func (r *decisionRepository) LockVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error) {
+	return r.read(ctx, nil, []decisiondefinition.Pred{
+		decisiondefinition.ProjectID.Eq(projectID),
+		decisiondefinition.Key.Eq(key),
+		decisiondefinition.Version.Eq(int64(version)),
+	}, true)
+}
+
 func (r *decisionRepository) first(ctx context.Context, order []decisiondefinition.Sort, preds []decisiondefinition.Pred) (models.DecisionDefinitionModel, error) {
+	return r.read(ctx, order, preds, false)
+}
+
+func (r *decisionRepository) read(ctx context.Context, order []decisiondefinition.Sort, preds []decisiondefinition.Pred, lock bool) (models.DecisionDefinitionModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
 		return models.DecisionDefinitionModel{}, err
@@ -186,6 +223,9 @@ func (r *decisionRepository) first(ctx context.Context, order []decisiondefiniti
 	q := decisiondefinition.New().Where(preds...)
 	if len(order) > 0 {
 		q = q.Order(order...)
+	}
+	if lock {
+		q = q.ForUpdate()
 	}
 	if !scope.unrestricted() {
 		if len(scope.projects) == 0 {

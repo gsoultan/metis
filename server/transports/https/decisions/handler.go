@@ -69,6 +69,38 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 		common.EncodeResponse,
 		options...,
 	))
+
+	// A key's version history, and making one of its versions live. The key
+	// travels in the query and the body rather than the path, for the reason
+	// the process routes give: a wildcard segment here would be ambiguous
+	// against /decisions/{id}/..., which ServeMux refuses at registration.
+	m.Handle("GET /api/v1/decisions/versions", httptransport.NewServer(
+		eps.ListDecisionVersions,
+		decodeListDecisionVersionsRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/decisions/versions/promote", httptransport.NewServer(
+		eps.PromoteDecision,
+		decodePromoteDecisionRequest,
+		common.EncodeResponse,
+		options...,
+	))
+}
+
+func decodeListDecisionVersionsRequest(_ context.Context, r *http.Request) (any, error) {
+	return decision.ListDecisionVersionsRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		Key:       r.URL.Query().Get("key"),
+	}, nil
+}
+
+func decodePromoteDecisionRequest(_ context.Context, r *http.Request) (any, error) {
+	var req decision.PromoteDecisionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	return req, nil
 }
 
 func decodeListDecisionsRequest(_ context.Context, r *http.Request) (any, error) {

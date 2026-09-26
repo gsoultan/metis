@@ -55,4 +55,12 @@ type DecisionRepository interface {
 	// MakeLive records that from now on the key's live version is version: one
 	// more entry on its release timeline, effective now.
 	MakeLive(ctx context.Context, projectID uuid.UUID, key string, version int) error
+
+	// ListVersionsByKey returns every stored version of one key, newest first.
+	ListVersionsByKey(ctx context.Context, projectID uuid.UUID, key string) ([]models.DecisionDefinitionModel, error)
+
+	// LockVersion reads one version and holds a row lock on it until the
+	// transaction around ctx ends. Making a version live and deleting it both
+	// take it first, so neither can act on what the other is about to change.
+	LockVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error)
 }

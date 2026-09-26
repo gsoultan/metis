@@ -152,3 +152,31 @@ type RunDecisionTestsResponse struct {
 }
 
 func (r RunDecisionTestsResponse) Failed() error { return r.Err }
+
+// ListDecisionVersionsRequest asks for one decision key's version history.
+type ListDecisionVersionsRequest struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
+}
+
+// ListDecisionVersionsResponse carries every stored version, newest first.
+type ListDecisionVersionsResponse struct {
+	Versions []entities.DecisionVersionStatus `json:"versions"`
+	Err      error                            `json:"err,omitzero"`
+}
+
+func (r ListDecisionVersionsResponse) Failed() error { return r.Err }
+
+// PromoteDecisionRequest names the version evaluations that name none should
+// read from now on.
+type PromoteDecisionRequest struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
+	Version   int    `json:"version"`
+}
+
+type PromoteDecisionResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r PromoteDecisionResponse) Failed() error { return r.Err }

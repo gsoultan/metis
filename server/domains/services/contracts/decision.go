@@ -56,11 +56,29 @@ type DecisionCatalog interface {
 	ListDecisionSummaries(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.DecisionSummary], error)
 }
 
-// DecisionService composes DecisionEvaluator, DecisionManager and
-// DecisionCatalog into the full decision service contract used by the service
-// facade.
+// DecisionVersioning is a decision key's history, and the choice of which
+// version in it is live.
+//
+// Its own interface rather than two more methods on DecisionManager, which is
+// already past the size the guidelines allow: a version history reads and
+// writes something the rest of the manager does not — the release timeline.
+type DecisionVersioning interface {
+	// ListDecisionVersions returns every stored version of one key, newest
+	// first, marking the live one.
+	ListDecisionVersions(ctx context.Context, projectID uuid.UUID, key string) ([]entities.DecisionVersionStatus, error)
+
+	// PromoteDecisionVersion makes one stored version the live one: from now
+	// on, evaluations that name no version read it. An older version made live
+	// again is a rollback.
+	PromoteDecisionVersion(ctx context.Context, projectID uuid.UUID, key string, version int) error
+}
+
+// DecisionService composes DecisionEvaluator, DecisionManager,
+// DecisionCatalog and DecisionVersioning into the full decision service
+// contract used by the service facade.
 type DecisionService interface {
 	DecisionEvaluator
 	DecisionManager
 	DecisionCatalog
+	DecisionVersioning
 }
