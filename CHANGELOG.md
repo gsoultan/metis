@@ -299,6 +299,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   nothing changes in light mode. The same controls read on every other page
   too: across six pages scanned in dark mode, contrast failures fell from 70
   to 31, and the 31 left belong to other components and were there before.
+- **The role legend on the Platform access page listed its actions in English
+  whatever the interface's language.** In Indonesian, what a designer may do
+  read "Proses: Create definition, Promote definition": the area headings were
+  translated, and the actions under them, which the server words in English
+  from its gates' method names, were not. The catalogues now word every action
+  by its method name, all 61 of them in English and Indonesian, and a method
+  they do not know yet — a gate added since — keeps the server's words rather
+  than showing a blank or a key.
 - **The setup wizard said to sign in when the server needed a restart first.**
   A server started with `DATABASE_URL` but without both secrets runs the whole
   wizard. The wizard writes `config.yaml` and seeds the database the form names,

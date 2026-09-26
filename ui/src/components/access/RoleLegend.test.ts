@@ -78,8 +78,28 @@ describe('what a role allows', () => {
     expect(region).toContain('aria-label="Required for"');
   });
 
-  it('gives the headings in the interface’s language', () => {
+  it('reads in the interface’s language, the actions as well as their headings', () => {
     const html = renderMarkup(inLanguage(createElement(RoleLegend, { option: designer, legend: designerLegend }), 'id', id));
-    expect(visibleText(html)).toContain('Diperlukan untuk Proses Create definition');
+    expect(visibleText(html)).toContain(
+      'Diperlukan untuk Proses Buat definisi Promosikan definisi Keputusan Perbarui keputusan',
+    );
+  });
+
+  /*
+   * A gate added on the server is in the legend before any catalogue has words
+   * for it. It is listed as the server words it rather than as a blank.
+   */
+  it('lists an action the catalogue does not know yet in the server’s words', () => {
+    const legend: LegendState = {
+      status: 'known',
+      areas: [
+        {
+          area: 'processes',
+          actions: [{ method: 'ArchiveDefinition', area: 'processes', label: 'Archive definition' }],
+        },
+      ],
+    };
+    const html = renderMarkup(inLanguage(createElement(RoleLegend, { option: designer, legend }), 'id', id));
+    expect(visibleText(html)).toContain('Diperlukan untuk Proses Archive definition');
   });
 });
