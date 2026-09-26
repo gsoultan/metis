@@ -29,9 +29,9 @@ const (
 	// constant was named ...Sec and passed 30, so bridge locks expired after
 	// thirty milliseconds and every poll re-fetched and re-published the same
 	// tasks.
-	lockDurationMS    = 30_000
-	pollInterval      = 5 * time.Second
-	reconnectInterval = 5 * time.Second
+	lockDurationMS     = 30_000
+	bridgePollInterval = 5 * time.Second
+	reconnectInterval  = 5 * time.Second
 
 	inboundDispatchMaxAttempts    = 3
 	inboundDispatchInitialBackoff = 200 * time.Millisecond
@@ -66,6 +66,14 @@ type messagingService struct {
 	inboundPartitionExecutor *inboundPartitionExecutor
 	cancels                  sync.Map // string -> context.CancelFunc
 	wg                       sync.WaitGroup
+
+	// dial is how a bridge reaches its broker: the AMQP library, or a broker
+	// in memory in a test.
+	dial func(url string) (brokerConnection, error)
+	// confirmTimeout is how long a publish waits for the broker's confirm.
+	confirmTimeout time.Duration
+	// pollInterval is how long a bridge waits between rounds.
+	pollInterval time.Duration
 }
 
 func NewMessagingService(engine contracts.EngineEventBus, externalSvc contracts.ExternalTaskService) contracts.MessagingService {
@@ -76,6 +84,9 @@ func NewMessagingService(engine contracts.EngineEventBus, externalSvc contracts.
 		jitter:                   randomJitter,
 		inboundDispatchTimeout:   inboundDispatchTimeout,
 		inboundPartitionExecutor: newInboundPartitionExecutor(inboundPartitionWorkerCount, inboundPartitionQueueSize),
+		dial:                     dialAMQP,
+		confirmTimeout:           rabbitMQConfirmTimeout(),
+		pollInterval:             bridgePollInterval,
 	}
 }
 
@@ -88,17 +99,17 @@ func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID,
 	childCtx, cancel := context.WithCancel(ctx)
 	s.cancels.Store(id, cancel)
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	bridge := s.newBridge(ctx, projectID, topic, rabbitURL, exchange, routingKey)
+	s.wg.Go(func() {
 		defer s.cancels.Delete(id)
-		s.runBridge(childCtx, projectID, topic, rabbitURL, exchange, routingKey)
-	}()
+		bridge.run(childCtx)
+	})
 
 	return nil
 }
 
-func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, topic string, rabbitURL string, exchange string, routingKey string) {
+// newBridge assembles a bridge from what the service was given.
+func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, topic, rabbitURL, exchange, routingKey string) *externalTaskBridge {
 	// Every line names the bridge. With several running, one that does not is
 	// a line nobody can act on.
 	logger := loggerFrom(ctx).With().
@@ -107,99 +118,16 @@ func (s *messagingService) runBridge(ctx context.Context, projectID uuid.UUID, t
 		Str("exchange", exchange).
 		Str("routingKey", routingKey).
 		Logger()
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	var conn *amqp.Connection
-	var ch *amqp.Channel
-	var err error
-
-	cleanup := func() {
-		if ch != nil {
-			closeQuietly(ch, "AMQP channel")
-		}
-		if conn != nil {
-			closeQuietly(conn, "AMQP connection")
-		}
-		ch = nil
-		conn = nil
-	}
-	defer cleanup()
-
-	var publisher *confirmingPublisher
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if conn == nil || conn.IsClosed() {
-				cleanup()
-				conn, err = amqp.Dial(rabbitURL)
-				if err != nil {
-					logger.Error().Err(err).Dur("retryIn", pollInterval).
-						Msg("A RabbitMQ bridge could not connect to its broker")
-					continue
-				}
-				ch, err = conn.Channel()
-				if err != nil {
-					logger.Error().Err(err).Msg("A RabbitMQ bridge could not open a channel")
-					cleanup()
-					continue
-				}
-				// Once per channel: NotifyReturn appends a listener each call,
-				// and this loop publishes for as long as the connection lives.
-				publisher, err = newConfirmingPublisher(ch)
-				if err != nil {
-					logger.Error().Err(err).Msg("A RabbitMQ bridge could not enable publisher confirms")
-					cleanup()
-					continue
-				}
-				// Said on every connection, the first and each one after a
-				// loss, so the log shows when forwarding resumed and not only
-				// when it stopped.
-				logger.Info().Msg("A RabbitMQ bridge connected to its broker")
-			}
-
-			// Fetch and lock tasks
-			tasks, err := s.externalSvc.FetchAndLock(ctx, topic, workerID, maxTasks, lockDurationMS)
-			if err != nil {
-				logger.Error().Err(err).Msg("Bridge fetch error")
-				continue
-			}
-
-			for _, task := range tasks {
-				body, err := json.Marshal(task)
-				if err != nil {
-					// Publishing "null" onto a work queue hands a worker a
-					// message it cannot act on and loses the task.
-					logger.Error().Err(err).Str("taskId", task.ID.String()).
-						Msg("A task could not be encoded and was not published")
-					s.releaseUnforwardedTask(ctx, task, err)
-					continue
-				}
-				err = publisher.publish(ctx, exchange, routingKey, amqp.Publishing{
-					ContentType: "application/json",
-					Body:        body,
-					Headers: amqp.Table{
-						"task_id": task.ID.String(),
-					},
-				})
-				if err != nil {
-					// The task is locked to this bridge. Leaving it that way
-					// meant the work stalled until the lock expired while the
-					// line below claimed it had been forwarded — so hand it
-					// back now, and let the retry the engine already has do its
-					// job.
-					logger.Error().Err(err).Str("taskID", task.ID.String()).
-						Msg("A task was not accepted by the broker and was handed back")
-					s.releaseUnforwardedTask(ctx, task, err)
-					continue
-				}
-				logger.Info().Str("taskID", task.ID.String()).Msg("Forwarded external task to RabbitMQ")
-			}
-		}
+	return &externalTaskBridge{
+		tasks:          s.externalSvc,
+		link:           &brokerLink{url: rabbitURL, dial: s.dial},
+		topic:          topic,
+		exchange:       exchange,
+		routingKey:     routingKey,
+		pollInterval:   cmp.Or(s.pollInterval, bridgePollInterval),
+		confirmTimeout: s.confirmTimeout,
+		sleep:          s.sleep,
+		logger:         &logger,
 	}
 }
 
@@ -272,7 +200,7 @@ func (s *messagingService) consumeOnce(ctx context.Context, logger *zerolog.Logg
 
 	// The dead-letter publish has to be accounted for before the message it is
 	// standing in for can be acknowledged, so the channel needs confirms.
-	publisher, err := newConfirmingPublisher(ch)
+	publisher, err := newConfirmingPublisher(amqpChannel{ch}, s.confirmTimeout)
 	if err != nil {
 		return err
 	}
@@ -598,30 +526,5 @@ func loggerFrom(ctx context.Context) *zerolog.Logger {
 func closeQuietly(handle io.Closer, what string) {
 	if err := handle.Close(); err != nil {
 		log.Warn().Err(err).Msgf("Could not close the %s", what)
-	}
-}
-
-// releaseUnforwardedTask hands a locked task back when the bridge could not put
-// it on the broker.
-//
-// FetchAndLock makes a task invisible to other workers for lockDurationMS. A
-// bridge that fetched a task and then failed to publish it used to simply move
-// on, so the work sat idle for the whole lock — thirty seconds in which the
-// only record was a log line saying it had been forwarded. Failing it here
-// makes the engine's own retry the thing that decides what happens next, which
-// is what it is for.
-func (s *messagingService) releaseUnforwardedTask(ctx context.Context, task *entities.ExternalTask, cause error) {
-	if s.externalSvc == nil || task == nil {
-		return
-	}
-	// Retries are left where the task already had them: this is a transport
-	// failure, not the worker rejecting the work, so it should not consume an
-	// attempt the business logic is entitled to.
-	err := s.externalSvc.HandleFailure(ctx, task.ID, workerID,
-		"the bridge could not publish this task to the broker",
-		cause.Error(), task.Retries, 0)
-	if err != nil {
-		log.Error().Err(err).Str("taskID", task.ID.String()).
-			Msg("A task that was not forwarded could not be handed back either; it stays locked until its lock expires")
 	}
 }

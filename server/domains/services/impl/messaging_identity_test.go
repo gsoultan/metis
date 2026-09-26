@@ -137,7 +137,7 @@ func TestABridgeThatCannotReachItsBrokerSaysWhichBridgeItIs(t *testing.T) {
 	}
 
 	// The bridge dials on its first poll, not at once.
-	entry := awaitEntry(t, &logs, "error", "", pollInterval+5*time.Second)
+	entry := awaitEntry(t, &logs, "error", "", bridgePollInterval+5*time.Second)
 	assertNamed(t, entry, map[string]string{
 		"project":    project.String(),
 		"topic":      "reverse-charge",
@@ -217,7 +217,7 @@ func TestABridgeSaysWhenItHasConnected(t *testing.T) {
 		t.Fatalf("start the bridge: %v", err)
 	}
 
-	entry := awaitEntry(t, &logs, "info", "connected", pollInterval+10*time.Second)
+	entry := awaitEntry(t, &logs, "info", "connected", bridgePollInterval+10*time.Second)
 	assertNamed(t, entry, map[string]string{"project": project.String(), "topic": "reverse-charge"})
 }
 
