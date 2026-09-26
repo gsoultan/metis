@@ -44,6 +44,7 @@ import { csvBlob, csvFilename } from '../domain/csv';
 import { slaReportCsv, slaReportFromDeadlines, slaSummary } from '../domain/slaReport';
 import { taskCompletion } from '../domain/dashboardFigures';
 import { heatColor, heatFromWaiting, heatmapCsv, heatSummary } from '../domain/processHeatmap';
+import { errorMessage } from '../services/shared/errors';
 
 /**
  * A single headline number.
@@ -242,7 +243,7 @@ export function Dashboard() {
     } catch (err) {
       notifications.show({
         title: 'Could not prepare the report',
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
         color: 'red',
       });
     }

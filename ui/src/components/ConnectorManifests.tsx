@@ -42,6 +42,7 @@ import {
   useSetConnectorManifestEnabled,
 } from '../hooks/useConnectorManifests';
 import type { ApiConnectorManifest } from '../services/domains/connectorService';
+import { errorMessage } from '../services/shared/errors';
 
 const EXAMPLE = `key: crm.create-lead
 version: 1
@@ -85,7 +86,7 @@ export function ConnectorManifests() {
     } catch (err: unknown) {
       notifications.show({
         title: 'Could not install it',
-        message: err instanceof Error ? err.message : 'The document could not be read.',
+        message: errorMessage(err, 'The document could not be read.'),
         color: 'red',
       });
     }
@@ -100,7 +101,7 @@ export function ConnectorManifests() {
         onError: (err) =>
           notifications.show({
             title: `Could not switch ${manifest.key} ${enabled ? 'on' : 'off'}`,
-            message: err.message,
+            message: errorMessage(err),
             color: 'red',
           }),
       },
@@ -113,7 +114,7 @@ export function ConnectorManifests() {
     if (!window.confirm(consequence)) return;
     remove.mutate(manifest.id, {
       onSuccess: () => notifications.show({ title: 'Removed', message: `${manifest.key} is gone.`, color: 'blue' }),
-      onError: (err) => notifications.show({ title: `Could not remove ${manifest.key}`, message: err.message, color: 'red' }),
+      onError: (err) => notifications.show({ title: `Could not remove ${manifest.key}`, message: errorMessage(err), color: 'red' }),
     });
   };
 

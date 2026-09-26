@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 
 import { explainIncident, incidentStep, type ApiIncident } from '../domain/incidents';
 import { useIncidents, useResolveIncident } from '../hooks/useTasks';
+import { errorMessage } from '../services/shared/errors';
 
 export function IncidentInbox({ instanceId }: { instanceId: string }) {
   const { data, isLoading } = useIncidents(instanceId);
@@ -47,7 +48,7 @@ export function IncidentInbox({ instanceId }: { instanceId: string }) {
       onError: (err: unknown) =>
         notifications.show({
           title: 'Could not queue it again',
-          message: err instanceof Error ? err.message : 'The retry could not be started.',
+          message: errorMessage(err, 'The retry could not be started.'),
           color: 'red',
         }),
     });

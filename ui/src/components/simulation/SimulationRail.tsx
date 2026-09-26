@@ -26,6 +26,7 @@ import { SimulationTestModal } from './SimulationTestModal';
 import { SimulationTimeline } from './SimulationTimeline';
 import { SimulationVerdict } from './SimulationVerdict';
 import type { SimulationTarget } from '../../domain/simulationScenario';
+import { errorMessage } from '../../services/shared/errors';
 
 export function SimulationRail({
   sim,
@@ -153,7 +154,7 @@ export function SimulationRail({
           )}
 
           {sim.error !== null && (
-            <SimulationVerdict verdict={{ tone: 'bad', headline: 'The run could not start', detail: sim.error.message }} />
+            <SimulationVerdict verdict={{ tone: 'bad', headline: 'The run could not start', detail: errorMessage(sim.error) }} />
           )}
 
           {/* ── Run ──────────────────────────────────────────────────────── */}

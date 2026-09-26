@@ -130,11 +130,13 @@ describe('what the person is told', () => {
   let restore = () => {};
   afterEach(() => restore());
 
-  // The server's words, as tests/user/role_matrix_test.go holds them.
-  const lastAdministrator = 'forbidden: dana is the last administrator of Acme; make somebody else an administrator first';
+  // The server's words, as tests/user/role_matrix_test.go holds them. The
+  // "forbidden: " in front is the class a transport answers 403 by, not
+  // something to tell the person.
+  const lastAdministrator = 'dana is the last administrator of Acme; make somebody else an administrator first';
 
   it('is the server’s refusal in its own words, not swallowed', async () => {
-    ({ restore } = stubFetch({ error: lastAdministrator }, 403));
+    ({ restore } = stubFetch({ error: `forbidden: ${lastAdministrator}` }, 403));
     const update = roleUpdate(dana, 'ADMIN', false);
 
     const outcome = await sendRoleChange(update, ({ id, ...user }) => identityService.updateUser(id, user));
@@ -149,8 +151,8 @@ describe('what the person is told', () => {
 
   it('is the server’s refusal for an account another organization shares, too', async () => {
     const shared =
-      'forbidden: dana also belongs to another organization, which you are not a member of; an administrator there has to make this change';
-    ({ restore } = stubFetch({ error: shared }, 403));
+      'dana also belongs to another organization, which you are not a member of; an administrator there has to make this change';
+    ({ restore } = stubFetch({ error: `forbidden: ${shared}` }, 403));
 
     const outcome = await sendRoleChange(roleUpdate(dana, 'OPERATOR', true), ({ id, ...user }) =>
       identityService.updateUser(id, user),

@@ -331,6 +331,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **The close button of a dialog had no name.** Mantine draws the close button
+  of a dialog, a drawer, a notification and an alert as an icon alone, so a
+  screen reader announced it as "button" and nothing more — axe's
+  `button-name`, rated critical, on every dialog in the app. Three dialogs on
+  the webhooks card had been named one at a time. The theme now names every one
+  of them, in the interface's language: "Close", or "Tutup" in Indonesian. A
+  dialog that names its own close button keeps its name.
+- **In dark mode the webhooks card's "Add a webhook" button and message badges
+  could not be read.** axe measured the button's white label at 2.99:1 and the
+  badges' text at 2.14:1, where AA asks for 4.5:1, and the red "Stop accepting
+  legacy signatures now" in the card's dialog at 2.30:1. A button, badge or
+  icon given no colour of its own fell back to the dark scheme's lighter blue
+  under a label chosen for the light scheme's darker one, and every
+  light-variant control kept, in dark mode, the dark text meant for a light
+  tint. They now take the theme's filled shade in both schemes and the
+  scheme's own text on a tint: 5.02:1, 11.77:1 and 11.75:1 in dark mode, and
+  nothing changes in light mode. The same controls read on every other page
+  too: across six pages scanned in dark mode, contrast failures fell from 70
+  to 31, and the 31 left belong to other components and were there before.
+- **The role legend on the Platform access page listed its actions in English
+  whatever the interface's language.** In Indonesian, what a designer may do
+  read "Proses: Create definition, Promote definition": the area headings were
+  translated, and the actions under them, which the server words in English
+  from its gates' method names, were not. The catalogues now word every action
+  by its method name, all 61 of them in English and Indonesian, and a method
+  they do not know yet — a gate added since — keeps the server's words rather
+  than showing a blank or a key.
+- **A refusal was shown with the server's error class in front of it.** A
+  notification read "forbidden: qa-admin is the last administrator of QA Co;
+  make somebody else an administrator first", and one refused over the app's
+  RPC transport "Failed to save project: [unknown] forbidden: this needs the
+  ADMIN role…" — the class the server words a refusal with so that it can
+  answer 403, 400 or 404 (`forbidden`, `invalid argument`, `not found`), and
+  the RPC code, printed as if they were part of the sentence. Notifications and
+  inline errors now show the sentence alone. The class is dropped in one
+  place, the shared error formatter, and only from the very start of a
+  message, so a sentence that merely uses one of the words keeps it; logs and
+  a failed page's "Technical details" keep the whole text.
 - **Authentication errors lost a word to the redactor.** Errors and logs pass
   through a redactor that hides whatever follows a secret's name and a colon,
   so `missing or invalid token: the ID token names no issuer` read

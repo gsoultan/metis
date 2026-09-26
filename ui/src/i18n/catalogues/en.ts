@@ -129,8 +129,8 @@ const en: Catalogue = {
 
   // Platform access: who holds which role, and what each role is required
   // for. The role names and their one-line sentences come from domain/roles.ts
-  // and are still English; the action names come from the server, which reads
-  // them from its own gates, and are English too.
+  // and are still English; the actions under each are worded below, by the
+  // method name of the gate the server reads them from.
   'access.tabAccounts': 'Accounts',
   'access.tabRoles': 'Roles',
   'access.search': 'Search people',
@@ -171,6 +171,71 @@ const en: Catalogue = {
   'access.area.platform': 'Platform accounts',
   'access.area.environments': 'Environments',
   'access.area.other': 'Other',
+  // What each role is required for, one action per gated method, worded by
+  // the method's name. The server words them too, in English, from the same
+  // name; the legend shows these, and the server's words for a method this
+  // catalogue does not know yet (domain/roleLegend.ts).
+  'access.action.CancelScheduledDefinition': 'Cancel scheduled definition',
+  'access.action.CreateDefinition': 'Create definition',
+  'access.action.DeleteDefinition': 'Delete definition',
+  'access.action.ExecuteScript': 'Execute script',
+  'access.action.ImportDefinition': 'Import definition',
+  'access.action.ListScriptTasks': 'List script tasks',
+  'access.action.PromoteDefinition': 'Promote definition',
+  'access.action.ScheduleDefinition': 'Schedule definition',
+  'access.action.Simulate': 'Simulate',
+  'access.action.SimulateBatch': 'Simulate batch',
+  'access.action.CreateDecision': 'Create decision',
+  'access.action.DeleteDecision': 'Delete decision',
+  'access.action.PromoteDecision': 'Promote decision',
+  'access.action.UpdateDecision': 'Update decision',
+  'access.action.CreateConnector': 'Create connector',
+  'access.action.CreateConnectorInstance': 'Create connector instance',
+  'access.action.DeleteConnector': 'Delete connector',
+  'access.action.DeleteConnectorInstance': 'Delete connector instance',
+  'access.action.DeleteConnectorManifest': 'Delete connector manifest',
+  'access.action.ExecuteConnector': 'Execute connector',
+  'access.action.InstallConnectorManifest': 'Install connector manifest',
+  'access.action.SetConnectorManifestEnabled': 'Set connector manifest enabled',
+  'access.action.TryConnectorStep': 'Try connector step',
+  'access.action.UpdateConnector': 'Update connector',
+  'access.action.UpdateConnectorInstance': 'Update connector instance',
+  'access.action.CloseLegacySignatures': 'Close legacy signatures',
+  'access.action.CreateWebhook': 'Create webhook',
+  'access.action.DeleteWebhook': 'Delete webhook',
+  'access.action.SetWebhookEnabled': 'Set webhook enabled',
+  'access.action.ActivateAdHocTask': 'Activate ad hoc task',
+  'access.action.BroadcastSignal': 'Broadcast signal',
+  'access.action.MigrateInstances': 'Migrate instances',
+  'access.action.ResolveIncident': 'Resolve incident',
+  'access.action.ImportParticipants': 'Import participants',
+  'access.action.RemoveParticipant': 'Remove participant',
+  'access.action.DeleteParticipantSource': 'Delete participant source',
+  'access.action.ListParticipantSources': 'List participant sources',
+  'access.action.SaveParticipantSource': 'Save participant source',
+  'access.action.SyncParticipantSource': 'Sync participant source',
+  'access.action.CreateProject': 'Create project',
+  'access.action.DeleteProject': 'Delete project',
+  'access.action.UpdateProject': 'Update project',
+  'access.action.CreateOrganization': 'Create organization',
+  'access.action.DeleteOrganization': 'Delete organization',
+  'access.action.UpdateOrganization': 'Update organization',
+  'access.action.AddMembership': 'Add membership',
+  'access.action.CreateGroup': 'Create group',
+  'access.action.DeleteGroup': 'Delete group',
+  'access.action.RemoveMembership': 'Remove membership',
+  'access.action.UpdateGroup': 'Update group',
+  'access.action.CreateUser': 'Create user',
+  'access.action.DeleteUser': 'Delete user',
+  'access.action.UpdateUser': 'Update user',
+  'access.action.DeletePlatformUser': 'Delete platform user',
+  'access.action.ListPlatformUsers': 'List platform users',
+  'access.action.SavePlatformUser': 'Save platform user',
+  'access.action.SetPlatformRoles': 'Set platform roles',
+  'access.action.DeleteEnvironment': 'Delete environment',
+  'access.action.ListEnvironments': 'List environments',
+  'access.action.SaveEnvironment': 'Save environment',
+  'access.action.TestEnvironmentConnection': 'Test environment connection',
 
   // The dashboard, which is where the interface's own language was most
   // visibly at odds with itself: the navigation translated and the cards
