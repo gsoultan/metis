@@ -208,8 +208,8 @@ describe('a step that calls another system but has nothing to call', () => {
     suggestion: 'Choose one under “Choose a connector” on the step.',
   };
   const SCRIPT_NEVER_RUNS: ValidationIssue = {
-    message: '"Check the invoice" is set to run a script, but a script never runs on a step that calls another system, so the process would pass through it without doing the work.',
-    severity: 'warning',
+    message: '"Check the invoice" is set to run a script, which a step that calls another system cannot do, so the server refuses to deploy it.',
+    severity: 'error',
     id: 'c',
     suggestion: 'Move the script to a “Work something out” step, which does run it, or under “What it calls” choose what this step should call.',
   };
@@ -265,7 +265,7 @@ describe('a step that calls another system but has nothing to call', () => {
     ['with a script written', { implementation: 'script', script: 'vars.total = 42;' }],
     ['with none written yet', { implementation: 'script' }],
     ['with a web address left over', { implementation: 'script', script: 'vars.total = 42;', httpUrl: ADDRESS }],
-  ])('warns that a step chosen to run a script never runs it, %s', (_, data) => {
+  ])('refuses a step chosen to run a script, %s', (_, data) => {
     expect(issuesFor(data)).toEqual([SCRIPT_NEVER_RUNS]);
   });
 

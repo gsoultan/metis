@@ -100,6 +100,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A service task set to run a script said it did, and did nothing.** The
+  designer offered "Run a script here" on a service task in Expert mode, and the
+  engine runs scripts only on script tasks. It skipped the step and moved on as
+  though the script had run. The option is gone. **Upgrading:** a definition
+  with such a step is now refused at deploy with a 400 that names the step. Move
+  its script into a script task; the designer shows the script read-only so it
+  can be copied. Versions already deployed run as before, which means the step
+  is still skipped.
+- **A rollback was undone by the next scheduled change.** Making an older
+  version live left in place the changes already scheduled for later, which
+  had been planned from the version being rolled back from. The first to
+  arrive silently replaced the rollback. A rollback now cancels them, and its
+  confirmation says which. Going forward keeps them, as before.
+- **A sub-process imported from a BPMN file opened empty**, and saving it from
+  the designer dropped the steps it had never shown. The same reader dropped
+  the diagram's sizes and an error boundary's code, which made the boundary
+  catch every error.
+- **A version that failed to load was compared as if it were empty.** The
+  make-live confirmation and the migration dialog showed every step as
+  removed or added, and the migration dialog built its mapping from that. Both
+  now say which version could not be loaded.
 - **Installing a connector's document again switched it back on.** An
   administrator who switched a connector off and then fixed its document found
   it running again. Installing over an installed manifest now keeps the switch

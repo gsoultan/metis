@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  compareLoaded,
   diffSummary,
   diffVersions,
   landingChoices,
@@ -338,5 +339,30 @@ describe('versionDiff beyond the steps themselves', () => {
     expect(rolloutEffect(diffVersions(base, live), false)).toEqual([
       'There is no longer a path from "Manual review" to "Reject quote".',
     ]);
+  });
+});
+
+// A version that failed to load was compared against nothing, so every step of
+// the other one read as removed or added: a total rewrite, shown as fact.
+describe('compareLoaded', () => {
+  const loaded = (label: string, definition: ApiDefinition | null, failed = false) =>
+    ({ label, loading: false, failed, definition });
+  const v2 = {
+    id: 'd-2', project_id: 'p', key: 'refund', name: 'Refund', version: 2,
+    nodes: [{ id: 'start', name: '', type: 'startEvent', x: 0, y: 0 }, { id: 'end', name: '', type: 'endEvent', x: 0, y: 0 }],
+    flows: [{ id: 'f1', source_ref: 'start', target_ref: 'end' }],
+  } as ApiDefinition;
+
+  it('says which version could not be loaded instead of listing everything as changed', () => {
+    expect(compareLoaded(loaded('v1', null, true), loaded('v2', v2))).toEqual({ kind: 'failed', missing: ['v1'] });
+  });
+
+  it('waits while either version is loading', () => {
+    expect(compareLoaded({ ...loaded('v1', null), loading: true }, loaded('v2', v2))).toEqual({ kind: 'loading' });
+  });
+
+  it('compares two versions that loaded', () => {
+    const comparison = compareLoaded(loaded('v1', v2), loaded('v2', v2));
+    expect(comparison.kind).toBe('ready');
   });
 });

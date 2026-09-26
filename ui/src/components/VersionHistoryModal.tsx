@@ -23,7 +23,7 @@ import { DateTimePicker } from '@mantine/dates';
 import { AlertTriangle, CalendarClock, CircleDot, Eye, History, MoveRight, Play, Trash2, Undo2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { diffVersions, rolloutEffect } from '../domain/versionDiff';
+import { compareLoaded, comparisonFailure, diffOf, rolloutEffect } from '../domain/versionDiff';
 import {
   canDelete,
   canSchedule,
@@ -117,9 +117,23 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
   // live. Nothing is fetched until somebody asks the question.
   const liveDefinition = useDefinition(confirming ? (liveRow?.id ?? null) : null);
   const targetDefinition = useDefinition(confirming?.id ?? null);
-  const rolloutDiff = useMemo(
-    () => diffVersions(liveDefinition.data?.definition ?? null, targetDefinition.data?.definition ?? null),
-    [liveDefinition.data?.definition, targetDefinition.data?.definition],
+  const rolloutComparison = useMemo(
+    () => compareLoaded(
+      {
+        label: `v${liveRow?.version ?? ''}`,
+        loading: liveDefinition.isLoading,
+        failed: liveDefinition.isError || !!liveDefinition.data?.err,
+        definition: liveDefinition.data?.definition,
+      },
+      {
+        label: `v${confirming?.version ?? ''}`,
+        loading: targetDefinition.isLoading,
+        failed: targetDefinition.isError || !!targetDefinition.data?.err,
+        definition: targetDefinition.data?.definition,
+      },
+    ),
+    [liveRow?.version, confirming?.version, liveDefinition.isLoading, liveDefinition.isError, liveDefinition.data,
+      targetDefinition.isLoading, targetDefinition.isError, targetDefinition.data],
   );
   const draining = drainingVersions(versions);
   const upcoming = pendingCutovers(versions);
@@ -356,10 +370,13 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
                 // direction being travelled: a step the older version still has
                 // comes back, it is not new, and reading that forward is how
                 // somebody rolls back believing they rolled forward.
-                const effects = rolloutEffect(rolloutDiff, isRollback(versions, confirming.version));
-                if (liveDefinition.isLoading || targetDefinition.isLoading) {
+                if (rolloutComparison.kind === 'loading') {
                   return <Text size="xs" c="dimmed">Comparing with v{live?.version}…</Text>;
                 }
+                if (rolloutComparison.kind === 'failed') {
+                  return <Text size="xs" c="red">{comparisonFailure(rolloutComparison.missing)}</Text>;
+                }
+                const effects = rolloutEffect(diffOf(rolloutComparison), isRollback(versions, confirming.version));
                 if (effects.length === 0) {
                   return (
                     <Text size="xs" c="dimmed">

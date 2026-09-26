@@ -9,14 +9,13 @@ import {
   Select,
   Stack,
   Text,
-  Textarea,
   TextInput,
 } from '@mantine/core';
 import { Play, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { clearedStepFields, stepFieldPatch, stepFieldValue } from '../../domain/connectorStep';
-import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
+import { CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
 import { canChooseImplementation, implementationOptions } from '../../domain/implementationOptions';
 import { serviceImplementation, storedWebAddress, storedWorkerTopic } from '../../domain/serviceImplementation';
 import { useConnectors } from '../../hooks/useConnectors';
@@ -49,10 +48,9 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
   const stepSchema = selectedConnector?.node_schema ?? [];
   const takesStepFields = stepSchema.length > 0;
 
-  const options = implementationOptions(expertMode, implementation);
+  const options = implementationOptions(implementation);
   const chosen = options.find((option) => option.value === implementation);
   const choosable = canChooseImplementation(expertMode, implementation);
-  const script = implementation === 'script' ? advancedVisibility(expertMode, data.script) : 'hidden';
 
   return (
     <Stack gap="xl">
@@ -175,28 +173,12 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
         </PropertySection>
       )}
 
-      {script === 'summary' && (
-        <PropertySection title="The script" hint={CHANGE_IN_EXPERT_MODE}>
-          <Code block>{asText(data.script)}</Code>
-        </PropertySection>
-      )}
-
-      {script === 'edit' && (
-        <PropertySection title="The script" hint="Runs here, with the process variables available to it.">
-          <Textarea
-            aria-label="Script"
-            placeholder="// the process variables are in `vars`"
-            minRows={10}
-            autosize
-            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12 } }}
-            value={asText(data.script)}
-            onChange={(e) => onUpdate({ script: e.target.value })}
-          />
-          <Group justify="flex-end">
-            <Button size="compact-xs" variant="light" leftSection={<Play size={12} />} onClick={() => setTestModalOpened(true)}>
-              Try it
-            </Button>
-          </Group>
+      {implementation === 'script' && (
+        <PropertySection
+          title="The script"
+          hint="A step that calls another system cannot run a script, so this step would be refused at deploy. Copy the script into a script step, or choose another way above."
+        >
+          <Code block>{asText(data.script) || '(no script written)'}</Code>
         </PropertySection>
       )}
 
