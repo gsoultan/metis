@@ -268,12 +268,6 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 // back something worse than what it replaced.
 const MinPasswordLength = 8
 
-// SetPassword replaces an account's password.
-//
-// There was no way to change one at all: the only path that wrote a hash was
-// Create. A forgotten password therefore had no answer for the person who
-// forgot it or for an administrator, and since there is no default account by
-// design, an installation with one administrator became unreachable for good.
 // ChangePassword rotates one account's password after checking the current one.
 //
 // The current-password check is the whole point, and it is why this does not
@@ -321,6 +315,18 @@ func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	return nil
 }
 
+// SetPassword replaces an account's password. It is what --reset-password runs.
+//
+// There was no way to change one at all: the only path that wrote a hash was
+// Create. A forgotten password therefore had no answer for the person who
+// forgot it or for an administrator, and since there is no default account by
+// design, an installation with one administrator became unreachable for good.
+//
+// An account that signs in through an identity provider is refused, naming
+// the provider. Its password is the provider's to reset. One set here would be
+// a second way in that the provider does not control: it would keep working
+// after the provider disabled the person, and skip whatever the provider asks
+// for at sign-in.
 func (s *userService) SetPassword(ctx context.Context, username, newPassword string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
@@ -333,6 +339,10 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 	user, err := s.repo.User().GetByUsername(ctx, username)
 	if err != nil {
 		return fmt.Errorf("no such user %q", username)
+	}
+	if issuer := user.IdentityIssuer; issuer != nil && *issuer != "" {
+		return fmt.Errorf("%q signs in through the identity provider %s, which holds its password; reset it there — "+
+			"a password set here would be a second way in that the provider does not control", username, *issuer)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
