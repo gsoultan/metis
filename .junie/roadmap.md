@@ -230,6 +230,11 @@
         **Done 2026-09-26 (INT-15):** both start when `METIS_RABBITMQ_BRIDGES` or
         `METIS_RABBITMQ_CONSUMERS` names them, so the reconnect logic runs in a server
         that is configured to use it. Off by default; see the entry of that date below.
+        **Corrected 2026-09-26 (`rabbitmq-hardening`):** `messaging_test.go` never had a
+        reconnect test. Reconnecting is tested now: against a broker in memory
+        (`messaging_bridge_test.go`, `messaging_consumer_test.go`,
+        `messaging_reconnect_test.go`) and, in CI, against a real one through a proxy that
+        drops confirms, refuses and cuts connections (`messaging_broker_test.go`).
   - [~] Feature-flag mechanism defined and integrated — `internal/pkg/features`,
         used by the strict tenant scope and the system-identity work. **Canary
         rollout is not built**: there is no traffic-splitting or staged-cohort
@@ -1103,16 +1108,75 @@
       budget, time on the queue included. A task not completed in time is published
       again at the next poll, so a backlog on the queue multiplies itself. Wants a
       per-bridge lock setting; changing `StartBridge` for it needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below):** `lock_seconds`, five minutes
+      unless set.
     - A channel the broker closes — an exchange that does not exist, or one the user may
       not publish to — is not reopened while the connection lives, so the bridge hands
       every task back at every poll until it is restarted. `runBridge` should reopen a
       closed channel as it redials a closed connection. Needs a broker to prove.
+      **Fixed on `rabbitmq-hardening` (entry below).**
     - A bridge's publish waits for its confirm with no deadline of its own, so a blocked
-      broker holds the fetched tasks past their lock.
+      broker holds the fetched tasks past their lock. **Fixed on `rabbitmq-hardening`
+      (entry below):** `METIS_RABBITMQ_CONFIRM_TIMEOUT`, 10 seconds unless set.
     - A bridge takes its topic from every project of the organization, as an API worker
       does; there is no per-project fetch.
-    - Reconnection after start is every 5 seconds, not backed off.
+    - Reconnection after start is every 5 seconds, not backed off. **Fixed on
+      `rabbitmq-hardening` (entry below).**
     service task's script runs, and task-edit authorization.
+- 2026-09-26 (completed): the RabbitMQ bridge and consumer survive a broker that
+  misbehaves — four of the five items INT-15 left for the backlog. Branch
+  `rabbitmq-hardening`, one commit per gap, each with a test that fails against the code
+  before it. Driver: arch · Challengers: perf, sec, test.
+  - **A confirm that never comes.** Every publish — the bridge's, the consumer's
+    dead-letter publish, the RabbitMQ connector's — waits at most
+    `METIS_RABBITMQ_CONFIRM_TIMEOUT` (10s) for its confirm. It waited for ever: the
+    bridge held the task and its topic until a restart, and the connector a job worker's
+    slot. A missed confirm is a refusal: the task is handed back, the rest of the round
+    unpublished, and the channel replaced, because the broker's late answer about the lost
+    message could be read as its answer about the next.
+  - **What the broker closes is opened again.** The bridge and the consumer watch
+    `NotifyClose` on their channel and connection and reopen the channel alone while the
+    connection is up. The consumer says why its deliveries stopped (the broker's reason,
+    or that it cancelled the consumer) and declares the queue again. Each problem is logged
+    at error once, naming the bridge or consumer, and at debug while it lasts
+    (`problem_log.go`, bounded).
+  - **Backoff.** Reconnecting waits 5s doubling to 5 minutes, ±25%, and starts over once
+    a connection has lasted: to the bridge's next round or a forwarded task, through
+    the consumer's first 5 seconds of consuming. A broker that drops each connection
+    straight away is waited for as if it were down. It reuses the schedule `backoff.go`
+    had for job retries, now a `backoff` type, rather than a second one. (The
+    broker-backed backoff test first failed in CI: it changed the proxy while the bridge
+    ran, and raced the dial it meant to follow. It now changes it only while the bridge
+    is held between rounds.)
+  - **A lock long enough for a queue.** `lock_seconds` per entry of
+    `METIS_RABBITMQ_BRIDGES`, 30 to 86400, 300 unless set. A worker cannot extend it, so it
+    covers queue time and work; `docs/integration.md` says how to size it. Tasks fetched
+    as the bridge stops are handed back at once instead of waiting out the lock.
+  - **How it is tested without a broker.** The loops depend on narrow, consumer-owned
+    interfaces (`brokerConnection`, `brokerChannel` and the ones they compose), which
+    `amqp_connection.go` and `amqp_channel.go` adapt the library to, and run in the tests
+    against a broker in memory. What only a real broker can vouch for runs in CI:
+    `messaging_broker_test.go` (a missed confirm, through a proxy that drops
+    `basic.ack`/`basic.nack` frames; a missing exchange created mid-run; a deleted queue;
+    backoff and its reset through a proxy that refuses and cuts) and the lock in
+    `internal/app/rabbitmq_broker_test.go`. The proxy's framing is tested locally.
+  - Verification evidence: `make gate` green with `METIS_TEST_POSTGRES_DSN` and
+    `STORM_DSN` set against PostgreSQL 17 — 83 packages pass under test, race and the
+    strict tenant scope each; UI typecheck, lint (0 errors) and 1469 tests pass.
+    `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
+    no broker, and run in CI.
+  - **Found and not fixed — for the backlog:**
+    - A worker cannot extend an external task's lock: the API has fetch-and-lock,
+      complete and failure, on every transport. A bridged worker's whole budget is
+      therefore the bridge's lock, so a long job needs a long lock, and a lost message
+      waits that long to be published again. An extend-lock operation would let locks
+      stay short; it is API surface on HTTP, gRPC and Connect, and in the SDK.
+    - The bridge publishes transient messages, so a broker restart loses what is queued
+      and those tasks wait out their lock. Persistent delivery is a small change and a
+      decision about the broker's disk.
+    - Still nothing measures a bridge's or consumer's connection, so still no alert and
+      no runbook.
+    - A bridge takes its topic from every project of the organization (above).
 - 2026-09-26 (completed): environments go live without a restart, and each one's backlog
   is measured. Branch `environments-live`; the two items left open by #94 and by the
   observability batch.

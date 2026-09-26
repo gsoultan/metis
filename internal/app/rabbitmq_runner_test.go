@@ -148,6 +148,7 @@ func TestARabbitMQBridgeWaitsForItsConnectionAndStartsOnceItExists(t *testing.T)
 	runner.start(t.Context(), []rabbitMQBridge{{
 		target: rabbitMQTarget{project: project, connection: connection},
 		topic:  "reverse-charge", exchange: "billing", routingKey: "charges.reverse",
+		lock: 7 * time.Minute,
 	}}, nil)
 	t.Cleanup(func() { runner.stop(context.Background()) })
 
@@ -174,7 +175,7 @@ func TestARabbitMQBridgeWaitsForItsConnectionAndStartsOnceItExists(t *testing.T)
 
 	world.addConnection(connection, project, serviceimpl.RabbitMQConnectorKey, map[string]any{"url": testBrokerURL})
 	bridge := awaitStarted(t, messaging.bridges, "bridge")
-	if bridge.url != testBrokerURL || bridge.project != project || bridge.topic != "reverse-charge" {
+	if bridge.url != testBrokerURL || bridge.project != project || bridge.topic != "reverse-charge" || bridge.lock != 7*time.Minute {
 		t.Errorf("the bridge was started as %+v", bridge)
 	}
 	assertActsForOrganization(t, bridge.ctx, organization)

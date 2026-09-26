@@ -126,7 +126,7 @@ func TestARunningServerBridgesATaskToRabbitMQAndCorrelatesAMessageFromIt(t *test
 	})
 
 	topic := "metis-test-" + uuid.NewString()
-	t.Setenv("METIS_RABBITMQ_BRIDGES", fmt.Sprintf(`[{"project":%q,"connection":%q,"topic":%q,"routing_key":%q}]`,
+	t.Setenv("METIS_RABBITMQ_BRIDGES", fmt.Sprintf(`[{"project":%q,"connection":%q,"topic":%q,"routing_key":%q,"lock_seconds":600}]`,
 		seeded.project, seeded.connection, topic, published.Name))
 	t.Setenv("METIS_RABBITMQ_CONSUMERS", fmt.Sprintf(`[{"project":%q,"connection":%q,"queue":%q,"message":"PaymentReceived"}]`,
 		seeded.project, seeded.connection, payments))
@@ -157,9 +157,10 @@ func TestARunningServerBridgesATaskToRabbitMQAndCorrelatesAMessageFromIt(t *test
 	select {
 	case delivery := <-deliveries:
 		var task struct {
-			ID              string `json:"id"`
-			Topic           string `json:"topic"`
-			WorkerID        string `json:"worker_id"`
+			ID              string    `json:"id"`
+			Topic           string    `json:"topic"`
+			WorkerID        string    `json:"worker_id"`
+			LockExpiration  time.Time `json:"lock_expiration"`
 			ProcessInstance struct {
 				ID string `json:"id"`
 			} `json:"process_instance"`
@@ -169,6 +170,11 @@ func TestARunningServerBridgesATaskToRabbitMQAndCorrelatesAMessageFromIt(t *test
 		}
 		if task.Topic != topic || task.ProcessInstance.ID != charge.String() || task.WorkerID != "messaging-bridge" {
 			t.Errorf("the bridge published %s", delivery.Body)
+		}
+		// Locked for the bridge's lock_seconds, ten minutes, where every
+		// bridge used to lock for thirty seconds whatever the queue.
+		if until := time.Until(task.LockExpiration); until < 9*time.Minute || until > 11*time.Minute {
+			t.Errorf("the task is locked until %v, %v from now; want the bridge's ten minutes", task.LockExpiration, until.Round(time.Second))
 		}
 		if delivery.Headers["task_id"] != task.ID {
 			t.Errorf("the task_id header is %v, want %s", delivery.Headers["task_id"], task.ID)

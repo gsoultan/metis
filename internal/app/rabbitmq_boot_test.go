@@ -37,6 +37,7 @@ type startedBridge struct {
 	url        string
 	exchange   string
 	routingKey string
+	lock       time.Duration
 }
 
 type startedConsumer struct {
@@ -47,8 +48,8 @@ type startedConsumer struct {
 	message string
 }
 
-func (m *recordingMessaging) StartBridge(ctx context.Context, project uuid.UUID, topic, url, exchange, routingKey string) error {
-	m.bridges <- startedBridge{ctx: ctx, project: project, topic: topic, url: url, exchange: exchange, routingKey: routingKey}
+func (m *recordingMessaging) StartBridge(ctx context.Context, project uuid.UUID, topic, url, exchange, routingKey string, lock time.Duration) error {
+	m.bridges <- startedBridge{ctx: ctx, project: project, topic: topic, url: url, exchange: exchange, routingKey: routingKey, lock: lock}
 	return nil
 }
 
