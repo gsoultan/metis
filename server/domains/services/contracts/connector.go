@@ -62,10 +62,14 @@ type ConnectorService interface {
 // holding the interface can call, and everything here holds the interface.
 type ConnectorManifestManager interface {
 	// InstallManifest validates and stores a manifest. Installing an existing
-	// key replaces it, because installing again is how an author fixes one.
+	// key replaces it, because installing again is how an author fixes one,
+	// and keeps whether it is switched on. A lower version than the one
+	// installed is refused.
 	InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error)
 
-	// ImportOpenAPI turns a specification into manifests and installs them all.
+	// ImportOpenAPI turns a specification into manifests and installs them all,
+	// in one transaction. An operation it cannot read is skipped; one it
+	// generated and cannot install means none are installed.
 	ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error)
 
 	ListManifests(ctx context.Context) ([]entities.ConnectorManifest, error)

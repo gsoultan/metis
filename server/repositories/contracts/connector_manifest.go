@@ -14,6 +14,10 @@ type ConnectorManifestRepository interface {
 	// case, because most connectors are still built in.
 	GetByKey(ctx context.Context, key string) (models.ConnectorManifestModel, error)
 
+	// GetByKeyForUpdate is GetByKey holding the row until the transaction
+	// ends, for an install that decides what to write from what is there.
+	GetByKeyForUpdate(ctx context.Context, key string) (models.ConnectorManifestModel, error)
+
 	List(ctx context.Context) ([]models.ConnectorManifestModel, error)
 
 	// Upsert installs a manifest, replacing any earlier one with the same key.

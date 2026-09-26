@@ -4,10 +4,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/tests/testutils"
 	"gorm.io/gorm"
 )
@@ -149,6 +152,89 @@ func TestASwitchedOffManifestIsNotUsed(t *testing.T) {
 	}
 }
 
+// Installing again is how an author fixes a document. An administrator who
+// switched a connector off — the partner asked us to stop calling it — and then
+// fixed its document has not asked for it to be switched back on.
+func TestReinstallingASwitchedOffManifestLeavesItOff(t *testing.T) {
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+
+	var called int
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer api.Close()
+
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	installed, err := svc.InstallManifest(ctx, []byte("key: crm.v\nversion: 1\nrequest:\n  url: \""+api.URL+"/old\"\n"))
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !installed.Enabled {
+		t.Fatal("a manifest installed for the first time was switched off")
+	}
+	if err := svc.SetManifestEnabled(ctx, installed.ID, false); err != nil {
+		t.Fatalf("switch off: %v", err)
+	}
+
+	fixed, err := svc.InstallManifest(ctx, []byte("key: crm.v\nversion: 1\nrequest:\n  url: \""+api.URL+"/fixed\"\n"))
+	if err != nil {
+		t.Fatalf("installing the fixed document: %v", err)
+	}
+	if fixed.Enabled {
+		t.Error("installing a fixed document switched the connector back on")
+	}
+	if _, err := svc.ExecuteConnector(ctx, "crm.v", nil, nil); err == nil || called != 0 {
+		t.Errorf("the switched-off connector was called %d times after its document was fixed (err=%v)", called, err)
+	}
+}
+
+// An older document installed over a newer one quietly takes a connector back
+// to behaviour somebody had moved on from — usually a stale copy found in a
+// download folder. The same version again is how a document is fixed, and a
+// later one is an upgrade; only going back is refused.
+func TestAnOlderVersionIsNotInstalledOverANewerOne(t *testing.T) {
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	newer := "key: crm.u\nversion: 3\nrequest:\n  url: https://example.com/v3\n"
+	if _, err := svc.InstallManifest(ctx, []byte(newer)); err != nil {
+		t.Fatalf("install version 3: %v", err)
+	}
+
+	_, err := svc.InstallManifest(ctx, []byte("key: crm.u\nversion: 2\nrequest:\n  url: https://example.com/v2\n"))
+	if err == nil {
+		t.Fatal("version 2 was installed over version 3")
+	}
+	if !errors.Is(err, apierr.ErrInvalidArgument) || common.CodeFrom(err) != http.StatusBadRequest {
+		t.Errorf("the refusal is not a 400 (status %d): %v", common.CodeFrom(err), err)
+	}
+	if !strings.Contains(err.Error(), "version 3") || !strings.Contains(err.Error(), "version 2") {
+		t.Errorf("the refusal does not name both versions: %v", err)
+	}
+	if got, readErr := svc.GetManifestDocument(ctx, "crm.u"); readErr != nil || got != newer {
+		t.Errorf("after the refusal the installed document is %q (err=%v), want version 3 untouched", got, readErr)
+	}
+
+	for _, document := range []string{
+		"key: crm.u\nversion: 3\nrequest:\n  url: https://example.com/v3-fixed\n",
+		"key: crm.u\nversion: 4\nrequest:\n  url: https://example.com/v4\n",
+	} {
+		if _, err := svc.InstallManifest(ctx, []byte(document)); err != nil {
+			t.Fatalf("installing %q was refused: %v", document, err)
+		}
+	}
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Version != 4 {
+		t.Errorf("catalogue = %+v, want one entry at version 4", manifests)
+	}
+}
+
 // A manifest replaces a built-in under the same key. That is what "without a
 // redeploy" means: the Go connector stays in the binary and stops being used.
 func TestAManifestReplacesABuiltIn(t *testing.T) {
@@ -206,6 +292,47 @@ paths:
 	}
 }
 
+// Importing a specification is one action, so it lands whole or not at all.
+// Operations the importer cannot read are still skipped, but an install that
+// fails among what it generated used to leave the ones before it installed and
+// the ones after it not — with an error that did not say which had failed.
+func TestAnImportThatCannotInstallEveryOperationInstallsNone(t *testing.T) {
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.SetupTestConn(t)))
+	ctx := t.Context()
+
+	// Somebody took the imported createPet further and marked it version 2, so
+	// the import's version 1 of it is refused.
+	custom := "key: petstore.createpet\nversion: 2\nrequest:\n  url: https://api.petstore.example/pets\n"
+	if _, err := svc.InstallManifest(ctx, []byte(custom)); err != nil {
+		t.Fatalf("install the customised operation: %v", err)
+	}
+
+	spec := []byte(`
+openapi: 3.0.3
+info: {title: Petstore, version: "1"}
+servers: [{url: "https://api.petstore.example"}]
+paths:
+  /pets:
+    get: {operationId: listPets, responses: {"200": {description: ok}}}
+    post: {operationId: createPet, responses: {"201": {description: ok}}}
+`)
+	_, err := svc.ImportOpenAPI(ctx, spec)
+	if err == nil {
+		t.Fatal("the import reported success although one of its operations could not be installed")
+	}
+	if !strings.Contains(err.Error(), "petstore.createpet") || !strings.Contains(err.Error(), "nothing") {
+		t.Errorf("the error does not say which operation failed and that nothing was installed: %v", err)
+	}
+
+	manifests, err := svc.ListManifests(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(manifests) != 1 || manifests[0].Key != "petstore.createpet" || manifests[0].Version != 2 {
+		t.Errorf("after the failed import the catalogue holds %+v, want only the customised createPet at version 2", manifests)
+	}
+}
+
 // A manifest is stored as its author wrote it, so what an operator reads back is
 // what they installed — comments and all.
 func TestAManifestIsReadBackAsItWasWritten(t *testing.T) {
@@ -237,3 +364,31 @@ func TestABrokenManifestIsRefusedAtInstall(t *testing.T) {
 
 var _ = errors.Is
 var _ = gorm.ErrRecordNotFound
+
+// A document that is not a connector is the sender's mistake, and a 400 says
+// so. It was a 500: that pages somebody over a typo, and spends the error
+// budget the engine's own failures are measured against.
+func TestADocumentThatIsNotAConnectorIsTheSendersMistake(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	ctx := t.Context()
+
+	for name, install := range map[string]func() error{
+		"a manifest with no key or address": func() error {
+			_, err := svc.InstallManifest(ctx, []byte("version: 1\nname: Nothing to call\n"))
+			return err
+		},
+		"a manifest that is not YAML": func() error {
+			_, err := svc.InstallManifest(ctx, []byte("key: [unclosed"))
+			return err
+		},
+		"a specification that is not OpenAPI": func() error {
+			_, err := svc.ImportOpenAPI(ctx, []byte("{not json or yaml"))
+			return err
+		},
+	} {
+		if err := install(); !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Errorf("%s: %v, want it refused as invalid input", name, err)
+		}
+	}
+}

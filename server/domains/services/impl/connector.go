@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/gsoultan/metis/internal/pkg/lru"
 	"github.com/gsoultan/metis/internal/pkg/tracing"
@@ -20,7 +21,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl/connectors"
 	"github.com/gsoultan/metis/server/domains/services/impl/sqlconnector"
 	"github.com/gsoultan/metis/server/repositories"
-	"github.com/gsoultan/metis/server/repositories/models"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/codes"
@@ -45,39 +45,26 @@ var _ servicecontracts.JobConnectorService = (*connectorService)(nil)
 // somebody installs it, not when an instance reaches it at 3am.
 //
 // Installing an existing key replaces it, because installing again is how an
-// author fixes a manifest.
+// author fixes a manifest — and keeps whether it is switched on, which is the
+// administrator's decision rather than the document's.
 func (s *connectorService) InstallManifest(ctx context.Context, document []byte) (entities.ConnectorManifest, error) {
 	manifest, err := connectors.ParseManifest(document)
 	if err != nil {
-		return entities.ConnectorManifest{}, err
+		// A document nobody could install is the sender's mistake: a 400,
+		// not a 500 that pages somebody and spends the error budget.
+		return entities.ConnectorManifest{}, apierr.Invalidf("%v", err)
 	}
 
-	m := models.ConnectorManifestModel{
-		Key:      manifest.Key,
-		Name:     manifest.Name,
-		Version:  manifest.Version,
-		Document: string(document),
-		Enabled:  true,
-	}
-	if err := s.repo.ConnectorManifest().Upsert(ctx, m); err != nil {
-		return entities.ConnectorManifest{}, err
-	}
-
-	// Read back rather than returning what was sent. Installing an existing key
-	// keeps that row's id, so the id the caller needs — to switch this
-	// connector off, or delete it — is the stored one and not the one this
-	// function might have generated.
-	stored, err := s.repo.ConnectorManifest().GetByKey(ctx, manifest.Key)
+	var installed entities.ConnectorManifest
+	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		var installErr error
+		installed, installErr = s.install(ctx, manifest, document)
+		return installErr
+	})
 	if err != nil {
 		return entities.ConnectorManifest{}, err
 	}
-	return entities.ConnectorManifest{
-		ID:      uuid.UUID(stored.ID),
-		Key:     stored.Key,
-		Name:    stored.Name,
-		Version: stored.Version,
-		Enabled: stored.Enabled,
-	}, nil
+	return installed, nil
 }
 
 // ListManifests returns the installed manifests, without their documents.
@@ -88,9 +75,7 @@ func (s *connectorService) ListManifests(ctx context.Context) ([]entities.Connec
 	}
 	out := make([]entities.ConnectorManifest, len(list))
 	for i, m := range list {
-		out[i] = entities.ConnectorManifest{
-			ID: uuid.UUID(m.ID), Key: m.Key, Name: m.Name, Version: m.Version, Enabled: m.Enabled,
-		}
+		out[i] = manifestEntity(m)
 	}
 	return out, nil
 }
@@ -114,28 +99,46 @@ func (s *connectorService) DeleteManifest(ctx context.Context, id uuid.UUID) err
 
 // ImportOpenAPI turns a specification into manifests and installs every one.
 //
-// All or nothing would be the wrong shape here: a document of forty operations
-// with one this importer cannot read should yield thirty-nine connectors, not a
-// refusal. The count of what was installed is the answer.
+// Reading the document is not all or nothing: one of forty operations this
+// importer cannot read yields thirty-nine connectors rather than a refusal, and
+// the count of what was installed is the answer. Installing what it generated
+// is. That is one action somebody took, so it lands in one transaction — an
+// install that fails part way used to leave the operations before it installed
+// and the ones after it not, with an error that did not say which had failed.
 func (s *connectorService) ImportOpenAPI(ctx context.Context, document []byte) ([]entities.ConnectorManifest, error) {
 	manifests, err := connectors.ImportOpenAPI(document)
 	if err != nil {
-		return nil, err
+		// As for a manifest: a specification that cannot be read is the
+		// sender's mistake.
+		return nil, apierr.Invalidf("%v", err)
 	}
 
 	installed := make([]entities.ConnectorManifest, 0, len(manifests))
-	for _, manifest := range manifests {
-		encoded, marshalErr := yaml.Marshal(manifest)
-		if marshalErr != nil {
-			return nil, fmt.Errorf("could not write the generated manifest for %q: %w", manifest.Key, marshalErr)
+	err = s.repo.UnitOfWork().Do(ctx, func(ctx context.Context) error {
+		for _, manifest := range manifests {
+			one, installErr := s.installGenerated(ctx, manifest)
+			if installErr != nil {
+				return fmt.Errorf("could not install %q, so nothing from the specification was installed: %w",
+					manifest.Key, installErr)
+			}
+			installed = append(installed, one)
 		}
-		one, installErr := s.InstallManifest(ctx, encoded)
-		if installErr != nil {
-			return nil, installErr
-		}
-		installed = append(installed, one)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return installed, nil
+}
+
+// installGenerated installs a manifest the importer wrote, as the document an
+// author would have: what is stored and read back is YAML, like any other.
+func (s *connectorService) installGenerated(ctx context.Context, manifest connectors.Manifest) (entities.ConnectorManifest, error) {
+	encoded, err := yaml.Marshal(manifest)
+	if err != nil {
+		return entities.ConnectorManifest{}, fmt.Errorf("could not write the generated manifest: %w", err)
+	}
+	return s.InstallManifest(ctx, encoded)
 }
 
 // NewConnectorService returns the concrete type, not the interface, so the
