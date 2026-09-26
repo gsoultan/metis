@@ -9,6 +9,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/transports/grpcs"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 )
 
 // gRPC applies none of the HTTP chain — no authentication, rate or body
@@ -67,5 +68,23 @@ func TestTheGRPCListenerServesWhereAsked(t *testing.T) {
 	cancel()
 	if err := g.Wait(); err != nil {
 		t.Fatalf("the listener did not stop cleanly: %v", err)
+	}
+}
+
+// A shutdown that arrives after the listener is bound but before the server
+// starts serving is still a shutdown. Serve answers it with ErrServerStopped,
+// which the server reported as a failure of the gRPC listener: the race step
+// of the gate caught it once in a few hundred runs of the test above.
+func TestAGRPCServerStoppedBeforeItServesStopsCleanly(t *testing.T) {
+	var listenConfig net.ListenConfig
+	lis, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := grpc.NewServer()
+	server.GracefulStop()
+
+	if err := serveGRPCUntilStopped(server, lis); err != nil {
+		t.Fatalf("a server stopped before it served reported %v", err)
 	}
 }

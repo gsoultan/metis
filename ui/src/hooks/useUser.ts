@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
-import type { UserUpdate } from '../services/domains/identityService';
+import type { OwnProfileUpdate, UserUpdate } from '../services/domains/identityService';
 import { useAppStore } from '../store/useAppStore';
 
 export const useUsers = () => {
@@ -32,6 +32,30 @@ export const useUpdateUser = () => {
     mutationFn: ({ id, organization: _organization, ...user }: { id: string; organization?: string } & UserUpdate) =>
       processService.updateUser(id, user),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+};
+
+// Keyed by the signed-in account as well: signing out does not clear the
+// cache, and a form started from somebody else's profile would save their
+// email into the next person's account.
+export const useOwnProfile = () => {
+  const userId = useAppStore((state) => state.user?.id ?? '');
+  return useQuery({
+    queryKey: ['own-profile', userId],
+    queryFn: ({ signal }) => processService.getOwnProfile(signal),
+    enabled: !!userId,
+  });
+};
+
+export const useUpdateOwnProfile = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (profile: OwnProfileUpdate) => processService.updateOwnProfile(profile),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['own-profile'] });
+      // The name is in the account list too.
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });

@@ -43,7 +43,7 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   },
 ];
 
-/** The role whose badge should stand out. */
+/** The administrator's role: the badge that stands out, and what administrative pages ask for. */
 export const PRIVILEGED_ROLE = 'ADMIN';
 
 /**
@@ -67,6 +67,14 @@ export function isPrivilegedRole(role: string): boolean {
 
 const ROLE_SEPARATOR = ',';
 
+/** The roles in a comma-joined list, trimmed, with the empty ones dropped. */
+export function splitRoles(roles: string): string[] {
+  return roles
+    .split(ROLE_SEPARATOR)
+    .map((role) => role.trim())
+    .filter((role) => role !== '');
+}
+
 /**
  * The labels for a comma-joined list of roles, or "" when there are none.
  *
@@ -75,9 +83,7 @@ const ROLE_SEPARATOR = ',';
  * they expected to be told what they are.
  */
 export function roleLabels(roles: string): string {
-  return roles
-    .split(ROLE_SEPARATOR)
-    .map((role) => roleLabel(role.trim()))
-    .filter((label) => label !== '')
+  return splitRoles(roles)
+    .map((role) => roleLabel(role))
     .join(', ');
 }

@@ -35,6 +35,17 @@ export interface UserUpdate {
   roles?: string[];
 }
 
+/**
+ * What a person may change about themselves: how they are named and where mail
+ * reaches them. The server's /users/me has no field for anything else — not
+ * roles, not organizations, not the username.
+ */
+export interface OwnProfileUpdate {
+  full_name: string;
+  display_name: string;
+  email: string;
+}
+
 /** A group's roles are what its members inherit, so they travel with it. */
 export interface GroupWrite {
   name: string;
@@ -85,6 +96,29 @@ export const identityService = {
     const data = await requestJSON<{ err?: string }>("/users/me/password", {
       method: "POST",
       body: { current_password: currentPassword, new_password: newPassword },
+      signal,
+    });
+
+    return { err: raiseIfRefused(data).err };
+  },
+
+  // The caller's own profile, named by the session like the password above.
+  // The Profile page saved through updateUser, whose PUT /users/{id} only an
+  // administrator may call, so for everybody else it failed.
+  async getOwnProfile(signal?: AbortSignal) {
+    const data = await requestJSON<{ user?: ApiOrganizationUser; err?: string }>("/users/me", { signal });
+    return { user: raiseIfRefused(data).user };
+  },
+
+  async updateOwnProfile(profile: OwnProfileUpdate, signal?: AbortSignal) {
+    // Field by field rather than spread, so nothing else the object carries
+    // is sent along.
+    const body = {
+      user: { full_name: profile.full_name, display_name: profile.display_name, email: profile.email },
+    };
+    const data = await requestJSON<{ err?: string }>("/users/me", {
+      method: "PUT",
+      body,
       signal,
     });
 

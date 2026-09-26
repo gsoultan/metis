@@ -84,3 +84,26 @@ type DeleteUserResponse struct {
 }
 
 func (r DeleteUserResponse) Failed() error { return r.Err }
+
+// GetOwnProfileRequest names nobody: the session says whose profile it is.
+type GetOwnProfileRequest struct{}
+
+type GetOwnProfileResponse struct {
+	User entities.User `json:"user"`
+	Err  error         `json:"err,omitempty"`
+}
+
+func (r GetOwnProfileResponse) Failed() error { return r.Err }
+
+// UpdateOwnProfileRequest carries what an account's owner may change, nested
+// under "user" as UpdateUserRequest is. Roles, organizations and the username
+// have no field in a Profile, so a body carrying them is decoded without them.
+type UpdateOwnProfileRequest struct {
+	User entities.Profile `json:"user"`
+}
+
+type UpdateOwnProfileResponse struct {
+	Err error `json:"err,omitempty"`
+}
+
+func (r UpdateOwnProfileResponse) Failed() error { return r.Err }

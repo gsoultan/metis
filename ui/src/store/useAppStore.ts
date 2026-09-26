@@ -34,6 +34,8 @@ interface AppState {
     organization: string;
     username: string;
     role: string;
+    // Optional: a session saved before the store kept the list has only `role`.
+    roles?: string[];
     organizations?: Array<{ id: string; name: string }>;
     projects?: Array<{ id: string; name: string }>;
   } | null;
@@ -45,6 +47,8 @@ interface AppState {
     organization: string;
     username: string;
     role: string;
+    // Optional: a session saved before the store kept the list has only `role`.
+    roles?: string[];
     organizations?: Array<{ id: string; name: string }>;
     projects?: Array<{ id: string; name: string }>;
   }, token: string) => void;

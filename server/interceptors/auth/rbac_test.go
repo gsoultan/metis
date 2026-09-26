@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
@@ -31,6 +32,9 @@ func TestRBACInterceptor(t *testing.T) {
 		requiredRoles []string
 		policy        AccessPolicy
 		wantErr       bool
+		// want is the kind of refusal: ErrUnauthorized when nobody is known,
+		// ErrForbidden when somebody is and lacks the right.
+		want error
 	}{
 		{
 			name:          "no user in context",
@@ -38,6 +42,7 @@ func TestRBACInterceptor(t *testing.T) {
 			requiredRoles: []string{"admin"},
 			policy:        NewAllowAllPolicy(),
 			wantErr:       true,
+			want:          pkgauth.ErrUnauthorized,
 		},
 		{
 			name:          "user has required role (entities.User)",
@@ -59,6 +64,7 @@ func TestRBACInterceptor(t *testing.T) {
 			requiredRoles: []string{"admin"},
 			policy:        NewAllowAllPolicy(),
 			wantErr:       true,
+			want:          apierr.ErrForbidden,
 		},
 		{
 			name:          "one of multiple required roles matches",
@@ -80,6 +86,7 @@ func TestRBACInterceptor(t *testing.T) {
 			requiredRoles: []string{"admin"},
 			policy:        &denyAllPolicy{},
 			wantErr:       true,
+			want:          apierr.ErrForbidden,
 		},
 		{
 			name:          "unrecognised context value type",
@@ -87,6 +94,7 @@ func TestRBACInterceptor(t *testing.T) {
 			requiredRoles: []string{"admin"},
 			policy:        NewAllowAllPolicy(),
 			wantErr:       true,
+			want:          pkgauth.ErrUnauthorized,
 		},
 	}
 
@@ -102,8 +110,8 @@ func TestRBACInterceptor(t *testing.T) {
 			if !tc.wantErr && err != nil {
 				t.Errorf("expected no error but got: %v", err)
 			}
-			if tc.wantErr && err != nil && !errors.Is(err, pkgauth.ErrUnauthorized) {
-				t.Errorf("expected ErrUnauthorized, got: %v", err)
+			if tc.wantErr && err != nil && !errors.Is(err, tc.want) {
+				t.Errorf("expected %v, got: %v", tc.want, err)
 			}
 		})
 	}

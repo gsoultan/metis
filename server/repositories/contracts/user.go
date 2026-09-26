@@ -32,6 +32,12 @@ type UserRepository interface {
 	// else. Update writes the whole row, so it cannot be used for this without
 	// blanking whatever the caller did not supply.
 	SetPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error
+
+	// SetProfile writes an account's full name, display name and email — read
+	// from u, with u.ID naming the account — and touches nothing else. For the
+	// account's owner: Update writes every column from what its caller read,
+	// roles included.
+	SetProfile(ctx context.Context, u models.UserModel) error
 	Update(ctx context.Context, u models.UserModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
 

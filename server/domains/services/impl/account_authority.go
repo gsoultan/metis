@@ -40,6 +40,16 @@ func requireAccountVisible(ctx context.Context, account models.UserModel) error 
 	return errNoSuchAccount
 }
 
+// belongsTo reports whether an account is a member of the organization.
+func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
+	for _, org := range account.Organizations {
+		if uuid.UUID(org.ID) == organizationID {
+			return true
+		}
+	}
+	return false
+}
+
 // requireAccountAuthority refuses a change to an account that belongs to an
 // organization the caller does not.
 //

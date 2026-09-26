@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"strings"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
@@ -53,6 +55,12 @@ func NewRequireRoles(roles ...string) contracts.EndpointInterceptor {
 	return NewRBACInterceptor(roles, NewAllowAllPolicy(), "", "")
 }
 
+// Intercept refuses a caller nobody knows with ErrUnauthorized (401) and a
+// known caller without the right with ErrForbidden (403).
+//
+// Both used to be 401. That tells a signed-in person their session is the
+// problem, so they sign in again and are refused again, when what they need is
+// somebody to grant them a role — which the 403 names.
 func (i *rbacInterceptor) Intercept(next endpoint.Endpoint) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		roles, err := rolesFromContext(ctx)
@@ -61,15 +69,26 @@ func (i *rbacInterceptor) Intercept(next endpoint.Endpoint) endpoint.Endpoint {
 		}
 
 		if !i.hasRequiredRole(roles) {
-			return nil, pkgauth.ErrUnauthorized
+			return nil, apierr.Forbiddenf("this needs the %s role, which your account does not have; an administrator can grant it",
+				roleChoice(i.requiredRoles))
 		}
 
 		if !i.policy.Allow(ctx, roles, i.action, i.resource) {
-			return nil, pkgauth.ErrUnauthorized
+			return nil, apierr.Forbiddenf("your roles do not allow this")
 		}
 
 		return next(ctx, request)
 	}
+}
+
+// roleChoice names the roles any one of which would do: "ADMIN", "ADMIN or
+// DESIGNER", "ADMIN, DESIGNER or OPERATOR".
+func roleChoice(roles []string) string {
+	if len(roles) < 2 {
+		return strings.Join(roles, "")
+	}
+	last := len(roles) - 1
+	return strings.Join(roles[:last], ", ") + " or " + roles[last]
 }
 
 // hasRequiredRole returns true when at least one of the caller's roles matches
