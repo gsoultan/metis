@@ -9,7 +9,7 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 
 | Where | What it proves | When it runs |
 | :--- | :--- | :--- |
-| `tests/slo` | The HTTP handler meets the targets in-process, with one to two orders of magnitude of headroom. It catches a regression that costs an order of magnitude, such as an N+1 or a per-request compile. | Every `make test` |
+| `tests/slo` | The HTTP handler meets the targets in-process, with one to two orders of magnitude of headroom. It catches a regression that costs an order of magnitude, such as an N+1 or a per-request compile — and, counted rather than timed, a request that reads its organization's project list more than once. | Every `make test` |
 | `tests/loadtest` | The same targets hold with production-shaped volume across tenants. It catches a plan that flips at scale, which ten rows cannot show. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -v -timeout 30m`, sized with `METIS_LOADTEST_INSTANCES` and `METIS_LOADTEST_TENANTS` |
 | `tests/loadtest`, concurrent writes | Many people completing work at once, on a process that splits into two approvals, joins, and calls a partner. Every instance finishes once, every task is completed once, nothing is left at the join, and the partner is called once per instance under its own key. A second submission of a completion is refused with a 400, and nothing else may fail. The action target is asserted; throughput is reported. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run ConcurrentApprovals -v`, sized with `METIS_LOADTEST_WRITE_INSTANCES` (200) and `METIS_LOADTEST_WRITE_WORKERS` (16). `METIS_LOADTEST_SEED` replays an order of submissions |
 | `tests/loadtest`, tenant scope | One organization with 10,000 projects against one with 4, the same instances and tasks in each: the p95 of the reads a person opens the product with, how often each request reads its organization's project list, and what each request allocates. See *Tenant scope at ten thousand projects* below. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run TenantScope -v`, sized with `METIS_LOADTEST_SCOPE_PROJECTS` (10,000) and `METIS_LOADTEST_SCOPE_INSTANCES` (5,000 per busy project) |
@@ -90,6 +90,30 @@ Two costs, both paid on every scoped call:
   count took 23.6ms on its generic plan against 4.8ms planned with its values.
   That is why tasks by assignee pays more than its one read.
 
+**Read once per request** (`tenantscope.Request`). The tenant resolver gives
+each request somewhere to keep its organization's project ids, and every scoped
+call in the request reuses the first read. It is kept for that request only:
+ended when the endpoint returns, forgotten when the request creates or deletes a
+project, and never used for a context that names another organization — so
+nothing is cached across requests. Three runs after it, at a load average of
+9–12:
+
+| Read | Reads per request | Large p95 before | Large p95 after | Allocated per request, large, before → after |
+| :--- | ---: | ---: | ---: | ---: |
+| Dashboard statistics | 6 → 1 | 26.3–201.3ms | 6.3–9.8ms | 55 MB → 9.6 MB |
+| Instances, paged | 5 → 1 | 35.6–142.0ms | 6.2–6.6ms | 46 MB → 9.8 MB |
+| Task inbox | 1 | 12.9–114.1ms | 17.2–20.6ms | 10 MB → 10 MB |
+| Tasks by assignee | 1 | 31.4–85.8ms | 8.4–29.7ms | 10 MB → 10 MB |
+| Task by id | 1 | 5.2–9.0ms | 4.0–5.3ms | 9.9 MB → 9.9 MB |
+| Instance by id | 1 | 5.9–46.5ms | 4.5–5.2ms | 9.9 MB → 9.9 MB |
+| Definitions | 1 | 6.1–43.3ms | 4.2–4.8ms | 9.1 MB → 9.1 MB |
+| Waiting by step | 1 | 14.0–121.4ms | 10.9–15.1ms | 9.1 MB → 9.1 MB |
+
+The small organization's reads are where they were, and its statistics
+allocate 0.55 MB rather than 0.85 MB. The scope a request keeps costs two
+allocations and 128 bytes per authenticated request, about 25ns; a scoped call
+that reuses it costs 6ns and allocates nothing (Go benchmark).
+
 ## Decisions that were measured
 
 The shape of these came from a measurement, and the measurement is the reason
@@ -101,6 +125,7 @@ not to change them back:
 | Retention sweeps (`db.DeleteInBatches`) | Picking rows by key planned a hash join over the whole table on every batch | Batches picked by ctid; 1,000,000 rows in about a second |
 | The storm connection pool (`db.NewPool`) | Built through storm's constructor, whose parameter encoders the generated code assumes: `tests/bpmn` in 18.4s against 25.3s on the same machine | storm's constructor |
 | Script conditions (`logic.RunSandboxed`) | `new Array(1e9).join('x')` ran 37.6s against a 200ms budget; goja cannot interrupt one native call | Abandoned after the budget and a grace period; 0.70s |
+| The tenant scope (`pg/tenant.go`, `tenantscope.Request`) | Read once per scoped call: six reads a statistics request at 10,000 projects, 26–201ms p95 and 55 MB. A subquery on `projects.organization_id` instead of the list cannot be written — storm has no subquery predicate, its semi-joins go from parent to children, and its joins return projections rather than rows — and would be wrong where it could: an environment's instances and tasks are in the environment's database, and its projects only in the main one | Read once per request and kept for that request only; 6–10ms and 9.6 MB |
 
 ## Profiling
 

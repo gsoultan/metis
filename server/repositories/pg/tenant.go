@@ -20,12 +20,16 @@ import (
 // organization_id. storm has no subquery predicate and its semi-join probes go
 // the other way — parent-has-children, not child-belongs-to-parent — so the
 // equivalent here resolves which projects the caller may see and filters on
-// project_id.
+// project_id. It could not be a subquery here even if storm had one: an
+// environment's instances and tasks live in that environment's database, and
+// projects only in the main one, where the environment's copy of the table is
+// empty.
 //
-// That is one extra read, and it buys two things beyond parity. A join fans out
-// and needs DISTINCT once anything else joins; a predicate does not. And the
-// project list is a value, so a caller can be shown *which* projects a refusal
-// covered, where a join can only return no rows.
+// That is one extra read per request — tenantscope.Request keeps it for every
+// scoped call the request makes — and it buys two things beyond parity. A join
+// fans out and needs DISTINCT once anything else joins; a predicate does not.
+// And the project list is a value, so a caller can be shown *which* projects a
+// refusal covered, where a join can only return no rows.
 //
 // The failure mode is the one that matters: a context carrying neither a tenant
 // nor the system marker resolves to no projects at all, so every scoped read
@@ -38,7 +42,8 @@ type tenantScope struct {
 	// organization is the tenant, or uuid.Nil for system work.
 	organization uuid.UUID
 	// projects are the ids in that organization. Empty and system is
-	// everything; empty and not system is nothing.
+	// everything; empty and not system is nothing. Shared by every scoped
+	// call in the request: read it, never write it.
 	projects []uuid.UUID
 	// system marks work that legitimately spans every tenant — the job worker,
 	// the timer sweep, the migration runner.
@@ -49,7 +54,8 @@ type tenantScope struct {
 func (s tenantScope) unrestricted() bool { return s.system }
 
 // scopeOf resolves the caller's scope, reading the project list when there is a
-// tenant to read it for.
+// tenant to read it for — once per request, however many scoped calls the
+// request makes.
 //
 // System work skips the read entirely: it spans every tenant, so there is no
 // list to fetch and fetching one would be a query per background tick.
@@ -68,7 +74,11 @@ func (r *conn) scopeOf(ctx context.Context) (tenantScope, error) {
 		return tenantScope{}, apierr.Invalidf("tenant %q is not a valid identifier", tc.TenantID)
 	}
 
-	projects, err := r.projectsOf(ctx, organization)
+	// Keyed by the tenant exactly as the resolver placed it. A context naming
+	// another organization than the request's is read fresh, every time.
+	projects, err := tenantscope.RequestFrom(ctx).Projects(tc.TenantID, func() ([]uuid.UUID, error) {
+		return r.projectsOf(ctx, organization)
+	})
 	if err != nil {
 		return tenantScope{}, err
 	}
@@ -77,11 +87,11 @@ func (r *conn) scopeOf(ctx context.Context) (tenantScope, error) {
 
 // projectsOf lists an organization's projects.
 //
-// Read every time rather than cached. A cache here would have to be invalidated
-// by the project repository, and the window where it is not is the window where
-// somebody creates a project, deploys into it and finds it empty — which is
-// indistinguishable from the feature being broken. The read is one indexed
-// lookup returning a handful of ids.
+// Read once per request (tenantscope.Request) and never cached across
+// requests. A cache across them would have to be invalidated by the project
+// repository, and the window where it is not is the window where somebody
+// creates a project, deploys into it and finds it empty — which is
+// indistinguishable from the feature being broken.
 //
 // Every project, not the store's first thousand. This list is the scope: a
 // project missing from it is one whose rows the organization cannot read and

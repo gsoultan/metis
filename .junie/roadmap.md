@@ -1222,6 +1222,18 @@
     Tasks by assignee paid 31.7ms against 2.1ms with one read, because a generic plan walks
     the 10,000-element array for every row. `metis_tenant_scope_reads_total` counts the
     reads. Numbers in `docs/performance.md`.
+  - **Read once per request (P1).** `tenantscope.Request`: the tenant resolver gives each
+    request a place to keep its organization's project ids, and every scoped call in it
+    reuses the first read. Ended with the endpoint, forgotten when the request creates or
+    deletes a project, never used for a context naming another organization, so nothing is
+    cached across requests. Test first: `tests/slo` `TestEachRequestReadsItsTenantScopeOnce`
+    failed with 5 reads to start a process, 5 for the instance list, 6 for the statistics and
+    9 to complete a task; each is 1 now. Isolation through the kept scope, under the default
+    and the strict scope, in `tests/tenant/request_scope_test.go`. Large-organization p95
+    after: statistics 6.3–9.8ms (was 26.3–201.3), instance list 6.2–6.6ms (was 35.6–142.0).
+    A subquery on `projects.organization_id` instead of the list was not an option: storm has
+    no subquery predicate, and an environment's instances and tasks are in a different
+    database from its projects.
 - 2026-09-25 (completed): The strict tenant scope's rollout became observable (§11 item 1).
   The scope's failure mode is silence, and the rollout doc's own advice was to watch for a
   log line that appears once per call site. `internal/pkg/metrics.NewTenantScopeCollector`

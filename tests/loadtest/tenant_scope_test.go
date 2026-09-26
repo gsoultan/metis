@@ -16,13 +16,14 @@ import (
 
 // What tenant scoping costs an organization with ten thousand projects.
 //
-// Every scoped repository call works out what the caller may see by reading
-// the ids of every project in the caller's organization, and scopes its query
-// with project_id = ANY(those ids). A request makes several such calls — the
-// dashboard's statistics make six — so an organization pays for the size of its
-// project list once per call: in the read, and again in every query that
-// carries the list. Nothing measured that; every other organization in this
-// package owns one project.
+// Every scoped repository call works out what the caller may see from the ids
+// of every project in the caller's organization, and scopes its query with
+// project_id = ANY(those ids). A request makes several such calls — the
+// dashboard's statistics make six — and each used to read the list again, so
+// an organization paid for the size of its project list once per call. A
+// request reads it once now (tenantscope.Request); this holds it to that, and
+// to the read target, at ten thousand projects. Every other organization in
+// this package owns one project.
 //
 // Everything but the project count is held equal. Both organizations have the
 // same instances and tasks over the same number of busy projects; the large
@@ -63,6 +64,8 @@ func TestTenantScopeAtScale(t *testing.T) {
 			t.Logf("%-22s large p50=%-9v p95=%-9v reads/request=%-3d %6d KB/request  [%d bytes]  (p95 %+v)",
 				endpoint.name, large.p(0.50), large.p(0.95), large.readsPerRequest(), large.kilobytesPerRequest(), large.bytes,
 				large.p(0.95)-small.p(0.95))
+			assertScopeCost(t, endpoint.name, h.small, small)
+			assertScopeCost(t, endpoint.name, h.large, large)
 		})
 	}
 
@@ -72,6 +75,26 @@ func TestTenantScopeAtScale(t *testing.T) {
 		t.Logf("| %s | %v | %v | %d | %d | %d | %d |", r.endpoint,
 			r.small.p(0.95), r.large.p(0.95), r.small.readsPerRequest(), r.large.readsPerRequest(),
 			r.small.kilobytesPerRequest(), r.large.kilobytesPerRequest())
+	}
+}
+
+// assertScopeCost holds what one organization paid for one read to what
+// scoping may cost: its project list read once per request, however many scoped
+// calls the request makes, and the read target met whatever the organization's
+// size.
+//
+// The difference between the two organizations is logged, not asserted. What
+// is left of it is the project list inside the query, whose cost depends on the
+// plan PostgreSQL picks for it — docs/performance.md has the measurement.
+func assertScopeCost(t *testing.T, endpoint string, o scopeOrganization, s scopeSamples) {
+	t.Helper()
+	if slices.ContainsFunc(s.reads, func(reads int64) bool { return reads != 1 }) {
+		t.Errorf("%s as the %s organization read its project list between %d and %d times a request, want once: "+
+			"every scoped call in a request reuses one read", endpoint, o.label, slices.Min(s.reads), slices.Max(s.reads))
+	}
+	if p95 := s.p(0.95); p95 > readP95Target {
+		t.Errorf("%s as the %s organization, with %d projects: p95 %v against the %v read target",
+			endpoint, o.label, o.projects, p95, readP95Target)
 	}
 }
 
