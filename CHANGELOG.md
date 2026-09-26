@@ -10,6 +10,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **The administrator of any one organization could change the connectors
+  every organization runs.** A connector manifest is installation-wide — a step
+  in any organization that names its key runs it, with that organization's
+  credentials attached — and roles are global, so an administrator of one
+  organization could install, switch off or remove a connector for all of them,
+  or put an address of their own under a key the others' steps call. On an
+  installation with more than one organization, installing, importing,
+  switching and removing a manifest now takes a platform administrator: an
+  administrator whose account id the operator lists in `METIS_PLATFORM_ADMINS`.
+  Anybody else is refused with a 403 that names the setting and their account
+  id. An installation with one organization needs nothing configured; its
+  administrators may, as before.
+
+  Upgrading an installation of several organizations: until
+  `METIS_PLATFORM_ADMINS` is set, nobody can change its connector manifests.
+  The ones installed keep running.
 - **Any signed-in account could make the server connect wherever it liked.**
   `POST /api/v1/connectors/execute` runs a connector with a configuration its
   caller writes, and it needed only a login. The SMTP and AMQP connectors dial

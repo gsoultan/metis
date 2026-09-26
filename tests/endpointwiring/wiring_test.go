@@ -144,7 +144,7 @@ func wrappedEndpoints(t *testing.T, path string) map[string]struct{} {
 
 	chains := map[string]bool{
 		"protected": true, "adminOnly": true, "designer": true,
-		"operator": true, "public": true,
+		"operator": true, "platformAdmin": true, "public": true,
 	}
 
 	wrapped := map[string]struct{}{}

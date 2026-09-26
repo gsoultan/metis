@@ -14,4 +14,7 @@ type OrganizationRepository interface {
 	Create(ctx context.Context, o models.OrganizationModel) error
 	Update(ctx context.Context, o models.OrganizationModel) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Count is how many organizations the installation holds, whoever asks.
+	Count(ctx context.Context) (int64, error)
 }

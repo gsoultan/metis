@@ -554,6 +554,16 @@ stream, anything stateful — keep the Go interface.
 installs one; `"format": "openapi"` installs one per operation in a
 specification. Both are in the UI, on the Connectors page.
 
+**Who may.** A manifest is installation-wide: a step in any organization that
+names its key runs it, with that organization's connection attached. So
+installing, importing, switching and removing one changes what every
+organization runs, and on an installation with more than one organization it
+takes a **platform administrator** — an administrator whose account id whoever
+operates the installation has listed in `METIS_PLATFORM_ADMINS`. Anybody else
+is refused with a 403 that names the setting and gives them their account id to
+pass on. An installation with one organization needs nothing configured: its
+administrators may, as they always could.
+
 A manifest is stored as its author wrote it and read back the same way, comments
 and all. Installing an existing key **replaces** it, because installing again is
 how a manifest is fixed. It keeps the switch it had: a connector somebody
