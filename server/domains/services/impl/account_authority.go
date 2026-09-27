@@ -51,7 +51,7 @@ func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
 }
 
 // requireAccountAuthority refuses a change to an account that belongs to an
-// organization the caller does not.
+// organization the caller does not administer.
 //
 // The account itself — its names, its global roles, whether it exists — is
 // the same in every organization it belongs to, so changing it acts in all of
@@ -60,22 +60,30 @@ func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
 // organization alone are that organization's to change, and do not come
 // through here.
 //
-// The refusal does not name the other organization. Its name is not the
-// caller's to read — they are not a member — and the account's memberships
-// carry ids only, which is why this printed a blank where the name was meant
-// to be. The person the account belongs to can say where else they are.
+// Administering, not belonging. While every role was global, a member of an
+// organization who was an administrator anywhere was one there too, and asking
+// for membership was enough. With a role held in one organization it is not:
+// an administrator of one organization, and an ordinary member of another,
+// could rename or delete the other's administrator.
+//
+// The refusal does not name the other organization. The caller may not be a
+// member — its name is not theirs to read — and the account's memberships
+// carry ids only. The person the account belongs to can say where else they
+// are.
 func requireAccountAuthority(ctx context.Context, account models.UserModel) error {
 	if err := requireAccountVisible(ctx, account); err != nil {
 		return err
 	}
-	memberships, hasCaller := callerOrganizations(ctx)
-	if !hasCaller {
+	caller := signedIn(ctx)
+	if caller == nil {
 		return nil
 	}
+	memberships, _ := callerOrganizations(ctx)
 	for _, org := range account.Organizations {
-		if !memberships[uuid.UUID(org.ID)] {
+		organization := uuid.UUID(org.ID)
+		if !memberships[organization] || !caller.HoldsRoleIn(organization, entities.RoleAdmin) {
 			return apierr.Forbiddenf(
-				"%s also belongs to another organization, which you are not a member of; "+
+				"%s also belongs to an organization you do not administer; "+
 					"an administrator there has to make this change",
 				account.Username)
 		}

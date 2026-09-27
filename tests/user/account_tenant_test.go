@@ -239,7 +239,7 @@ func TestARefusedAccountChangeSaysWhichOrganizationItIsAbout(t *testing.T) {
 			return w.svc.UpdateUser(asAdminA, entities.User{
 				ID: shared.ID, Username: "shared", Roles: []string{entities.RoleOperator},
 			})
-		}, "forbidden: shared also belongs to another organization, which you are not a member of; " +
+		}, "forbidden: shared also belongs to an organization you do not administer; " +
 			"an administrator there has to make this change"},
 	}
 	for _, tc := range cases {
