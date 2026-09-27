@@ -70,7 +70,16 @@ function LegendBody({ legend }: { legend: LegendState }) {
             </Text>
             <List size="sm" spacing={2}>
               {actions.map((action) => (
-                <List.Item key={action.method}>{action.label}</List.Item>
+                <List.Item key={action.method}>
+                  {action.label}
+                  {/* The role has to be held in every organization: one held here alone does not admit to it. */}
+                  {action.global === true && (
+                    <Text span size="xs" c="dimmed">
+                      {' '}
+                      ({t('access.legendEverywhere')})
+                    </Text>
+                  )}
+                </List.Item>
               ))}
             </List>
           </div>

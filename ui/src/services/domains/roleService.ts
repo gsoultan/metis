@@ -17,6 +17,12 @@ export interface ApiRoleAction {
   area: string;
   /** The method in words: "Create definition". */
   label: string;
+  /**
+   * Set when the role has to be held in every organization: the action
+   * changes what every organization shares, and a role held in one of them
+   * does not admit to it.
+   */
+  global?: boolean;
 }
 
 /** One role and everything it is required for. Mirrors entities.RoleAccess. */

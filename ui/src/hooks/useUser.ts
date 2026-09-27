@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import type { OwnProfileUpdate, UserUpdate } from '../services/domains/identityService';
+import type { CreateUserPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
 
 export const useUsers = () => {
@@ -16,8 +17,7 @@ export const useUsers = () => {
 export const useCreateUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { organization_id: string; username: string; password: string; full_name: string; display_name: string; organization: string; email: string; roles: string[] }) =>
-      processService.createUser(params),
+    mutationFn: (params: CreateUserPayload) => processService.createUser(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
@@ -39,13 +39,31 @@ export const useUpdateUser = () => {
 
 // Keyed by the signed-in account as well: signing out does not clear the
 // cache, and a form started from somebody else's profile would save their
-// email into the next person's account.
+// email into the next person's account. And by the organization being worked
+// in, because the roles it says the account holds are the ones held there.
 export const useOwnProfile = () => {
   const userId = useAppStore((state) => state.user?.id ?? '');
+  const organizationId = useAppStore((state) => state.currentOrganizationId ?? '');
   return useQuery({
-    queryKey: ['own-profile', userId],
+    queryKey: ['own-profile', userId, organizationId],
     queryFn: ({ signal }) => processService.getOwnProfile(signal),
     enabled: !!userId,
+  });
+};
+
+/**
+ * Replaces the roles an account holds in the organization being worked in.
+ * The account lists and the signed-in account's own profile both say what is
+ * held here, so both are read again.
+ */
+export const useSetOrganizationRoles = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, roles }: { id: string; roles: string[] }) => processService.setOrganizationRoles(id, roles),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['own-profile'] });
+    },
   });
 };
 

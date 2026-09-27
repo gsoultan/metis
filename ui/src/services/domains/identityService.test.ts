@@ -96,6 +96,50 @@ describe("identityService writes", () => {
     expect(user?.email).toBe("dana@example.com");
   });
 
+  test("getOwnProfile says whether the caller may change roles held in every organization", async () => {
+    const stub = stubFetch({
+      user: { id: "u-1", username: "root", roles: ["ADMIN"], organization_roles: ["DESIGNER"] },
+      may_change_global_roles: true,
+    });
+    restore = stub.restore;
+    const own = await identityService.getOwnProfile();
+
+    expect(own.mayChangeGlobalRoles).toBe(true);
+    expect(own.user?.organization_roles).toEqual(["DESIGNER"]);
+  });
+
+  test("getOwnProfile reads a server that does not say as a caller who may not", async () => {
+    // Absent is not permission: an older server, or a refusal to say, offers no control.
+    const stub = stubFetch({ user: { id: "u-1", username: "dana" } });
+    restore = stub.restore;
+    expect((await identityService.getOwnProfile()).mayChangeGlobalRoles).toBe(false);
+  });
+
+  test("setOrganizationRoles sends the roles for the organization being worked in, and nothing about the account", async () => {
+    const stub = stubFetch({});
+    restore = stub.restore;
+    await identityService.setOrganizationRoles("u-1", ["DESIGNER", "OPERATOR"]);
+
+    expect(stub.sent[0].method).toBe("PUT");
+    expect(stub.sent[0].url.endsWith("/users/u-1/organization-roles")).toBe(true);
+    expect(stub.sent[0].body).toEqual({ roles: ["DESIGNER", "OPERATOR"] });
+  });
+
+  test("setOrganizationRoles raises the refusal instead of returning it", async () => {
+    ({ restore } = stubFetch({ error: "forbidden: dana is the last administrator of Acme" }, 403));
+    await expect(identityService.setOrganizationRoles("u-1", [])).rejects.toThrow("last administrator of Acme");
+  });
+
+  test("createUser sends the roles for this organization beside the ones for every organization", async () => {
+    const stub = stubFetch({ user: { id: "u-1" } });
+    restore = stub.restore;
+    await identityService.createUser({ ...newUser, roles: [], organization_roles: ["DESIGNER"] });
+
+    const body = stub.sent[0].body as { user: Record<string, unknown> };
+    expect(body.user.organization_roles).toEqual(["DESIGNER"]);
+    expect(body.user.roles).toEqual([]);
+  });
+
   test("createGroup and updateGroup send the group's roles", async () => {
     const stub = stubFetch({ group: { id: "g-1" } });
     restore = stub.restore;

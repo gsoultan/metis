@@ -10,6 +10,7 @@ import { PRIVILEGED_ROLE, ROLE_OPTIONS, type RoleOption } from '../../domain/rol
 import { matchesQuery } from '../../domain/textSearch';
 import { useRoleChange, useRoleLegend } from '../../hooks/useRoles';
 import { useUsers } from '../../hooks/useUser';
+import { useViewerAccess } from '../../hooks/useViewerAccess';
 import { useTranslation } from '../../i18n/context';
 import type { ApiRoleAccess } from '../../services/domains/roleService';
 import type { ApiOrganizationUser } from '../../services/types';
@@ -29,21 +30,26 @@ const MATRIX_MAX_HEIGHT = '70vh';
 /**
  * Who in this organization holds which role, at a glance: one row per account,
  * one column per role, and what each role is required for beside its heading.
- * An administrator grants or revokes a role by ticking its box.
+ * An administrator of this organization grants or revokes a role here by
+ * ticking its box. A role held in every organization is shown as such, with no
+ * box: only a platform administrator changes those, from the account's own
+ * dialog on the Accounts tab.
  *
  * The accounts are the Accounts view's own list — the same query, the same
  * organization, every account, not a first page — and the legend is what the
  * server reads from its gates, so neither half can disagree with the rest of
- * the page or with what the server enforces. A change goes through the
- * Accounts view's own update and is shown as the server answers it: made, or
- * refused in the server's words with the box left as it was.
+ * the page or with what the server enforces. A change is shown as the server
+ * answers it: made, or refused in the server's words with the box left as it
+ * was.
  */
 export function RoleMatrix() {
   const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useUsers();
   const legend = useRoleLegend();
   const { saving, change } = useRoleChange();
-  const canEdit = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
+  const viewer = useViewerAccess();
+  // An administrator here: of every organization, or of this one alone.
+  const canEdit = hasRole(viewer, PRIVILEGED_ROLE);
   const currentUserId = useAppStore((state) => state.user?.id ?? '');
   const [query, setQuery] = useState('');
   const [, startTransition] = useTransition();
@@ -51,6 +57,9 @@ export function RoleMatrix() {
 
   const accounts = data?.users ?? [];
   const shown = accounts.filter((account) => matchesQuery(query, account.username, account.full_name, account.email));
+  const anyHeldEverywhere = accounts.some((account) =>
+    ROLE_OPTIONS.some((option) => hasRole({ roles: account.roles ?? [] }, option.value)),
+  );
 
   const handleToggle = async (account: ApiOrganizationUser, option: RoleOption, granted: boolean) => {
     if (
@@ -94,6 +103,7 @@ export function RoleMatrix() {
       <Box p="md">
         <Text size="sm" c="dimmed" mb="sm">
           {canEdit ? t('access.editHint') : t('access.readOnlyHint')}
+          {anyHeldEverywhere && ` ${t('access.everywhereHint')}`}
         </Text>
         <TextInput
           aria-label={t('access.search')}

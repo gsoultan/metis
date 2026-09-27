@@ -1,13 +1,9 @@
 import {
   ActionIcon,
-  Badge,
   Box,
   Button,
   Card,
   Group,
-  Modal,
-  MultiSelect,
-  PasswordInput,
   Stack,
   Table,
   Tabs,
@@ -21,14 +17,14 @@ import { useNavigate } from '@tanstack/react-router';
 import { Edit2, Plus, Search, ShieldCheck, Trash2, User, UserCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
 
+import { AccountDialog } from '../components/access/AccountDialog';
+import { AccountRoleBadges } from '../components/access/AccountRoleBadges';
 import { RoleMatrix } from '../components/access/RoleMatrix';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
-import { MIN_PASSWORD_LENGTH } from '../domain/password';
-import { isPrivilegedRole, ROLE_OPTIONS, roleLabel } from '../domain/roles';
 import { matchesQuery } from '../domain/textSearch';
 import { useOrganizations } from '../hooks/useOrganization';
-import { useCreateUser, useDeleteUser, useUpdateUser, useUsers } from '../hooks/useUser';
+import { useDeleteUser, useUsers } from '../hooks/useUser';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiOrganizationUser } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
@@ -37,25 +33,25 @@ import { Route } from '../routes/_authenticated.users';
 
 const COLUMNS = 4;
 
+/**
+ * The dialog while it is open: the account it is for, or null for a new one.
+ * It is mounted only while open, so each opening starts from the account it
+ * was opened for.
+ */
+interface OpenDialog {
+  account: ApiOrganizationUser | null;
+}
+
 export function UserList() {
   const { t } = useTranslation();
   const navigate = useNavigate({ from: Route.fullPath });
   const { tab } = Route.useSearch();
   const { data, isLoading, error, refetch } = useUsers();
   const { data: orgData } = useOrganizations();
-  const createUser = useCreateUser();
-  const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
   const { currentOrganizationId } = useAppStore();
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<ApiOrganizationUser | null>(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
-  const [roles, setRoles] = useState<string[]>([]);
+  const [dialog, setDialog] = useState<OpenDialog | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [, startTransition] = useTransition();
 
@@ -65,57 +61,9 @@ export function UserList() {
   // New people join the organization being worked in. The form used to offer a
   // free-text "Organization" box, which named nothing the server could join.
   const currentOrganization = (orgData?.organizations ?? []).find((org) => org.id === currentOrganizationId);
-  const organizationName = editingUser
-    ? editingUser.organization?.name ?? currentOrganization?.name ?? ''
-    : currentOrganization?.name ?? '';
+  const organization = { id: currentOrganizationId ?? '', name: currentOrganization?.name ?? '' };
 
-  const passwordTooShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
-  const canSubmit = editingUser
-    ? fullName.trim().length > 0
-    : username.trim().length > 0 && fullName.trim().length > 0 && password.length >= MIN_PASSWORD_LENGTH;
-
-  const handleOpenModal = (user?: ApiOrganizationUser) => {
-    setEditingUser(user ?? null);
-    setUsername(user?.username ?? '');
-    setFullName(user?.full_name ?? '');
-    setDisplayName(user?.display_name ?? '');
-    setEmail(user?.email ?? '');
-    setRoles(user?.roles ?? []);
-    setPassword('');
-    setIsModalOpen(true);
-  };
-
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
-    try {
-      if (editingUser) {
-        await updateUser.mutateAsync({
-          id: editingUser.id,
-          full_name: fullName,
-          display_name: displayName,
-          organization: organizationName,
-          email,
-          roles,
-        });
-        notifications.show({ title: 'Saved', message: `${fullName} was updated.`, color: 'green' });
-      } else {
-        await createUser.mutateAsync({
-          organization_id: currentOrganizationId ?? '',
-          username,
-          password,
-          full_name: fullName,
-          display_name: displayName,
-          organization: organizationName,
-          email,
-          roles,
-        });
-        notifications.show({ title: 'Added', message: `${fullName} can sign in now.`, color: 'green' });
-      }
-      setIsModalOpen(false);
-    } catch (error: unknown) {
-      notifications.show({ title: 'Could not save it', message: errorMessage(error, 'Failed to save the account'), color: 'red' });
-    }
-  };
+  const openDialog = (account: ApiOrganizationUser | null) => setDialog({ account });
 
   const handleDelete = async (user: ApiOrganizationUser) => {
     const who = user.full_name || user.username;
@@ -141,7 +89,7 @@ export function UserList() {
         title={t('page.platformAccess.title')}
         description={t('page.platformAccess.subtitle')}
         actions={
-          <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => handleOpenModal()}>
+          <Button variant="filled" color="indigo" leftSection={<Plus size={16} />} onClick={() => openDialog(null)}>
             New account
           </Button>
         }
@@ -224,18 +172,12 @@ export function UserList() {
                           <Text size="sm">{u.email || '—'}</Text>
                         </Table.Td>
                         <Table.Td>
-                          <Group gap={4}>
-                            {(u.roles || []).map((role) => (
-                              <Badge key={role} variant="light" size="sm" color={isPrivilegedRole(role) ? 'red' : 'blue'}>
-                                {roleLabel(role)}
-                              </Badge>
-                            ))}
-                          </Group>
+                          <AccountRoleBadges account={u} />
                         </Table.Td>
                         <Table.Td>
                           <Group gap="xs" justify="flex-end">
                             <Tooltip label="Edit account">
-                              <ActionIcon aria-label={`Edit ${u.full_name || u.username}`} variant="light" color="indigo" onClick={() => handleOpenModal(u)}>
+                              <ActionIcon aria-label={`Edit ${u.full_name || u.username}`} variant="light" color="indigo" onClick={() => openDialog(u)}>
                                 <Edit2 size={16} />
                               </ActionIcon>
                             </Tooltip>
@@ -267,75 +209,14 @@ export function UserList() {
         </Tabs.Panel>
       </Tabs>
 
-      <Modal
-        opened={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={<Text fw={700}>{editingUser ? 'Edit account' : 'New account'}</Text>}
-        radius="lg"
-      >
-        <Stack gap="md">
-          <TextInput
-            label="Username"
-            placeholder="Enter username"
-            required
-            value={username}
-            onChange={(e) => setUsername(e.currentTarget.value)}
-            disabled={!!editingUser}
-          />
-          {!editingUser && (
-            <PasswordInput
-              label="Password"
-              description={`At least ${MIN_PASSWORD_LENGTH} characters`}
-              placeholder="Enter password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.currentTarget.value)}
-              error={passwordTooShort ? `Needs at least ${MIN_PASSWORD_LENGTH} characters` : undefined}
-            />
-          )}
-          <TextInput
-            label="Full Name"
-            placeholder="Enter full name"
-            required
-            value={fullName}
-            onChange={(e) => setFullName(e.currentTarget.value)}
-          />
-          <TextInput
-            label="Display Name"
-            placeholder="Enter display name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.currentTarget.value)}
-          />
-          <TextInput
-            label="Organization"
-            description={editingUser ? undefined : 'New people join the organization you are working in'}
-            value={organizationName}
-            disabled
-          />
-          <TextInput
-            label="Email"
-            placeholder="Enter email address"
-            value={email}
-            onChange={(e) => setEmail(e.currentTarget.value)}
-          />
-          <MultiSelect
-            label="Roles"
-            placeholder="Select roles"
-            data={ROLE_OPTIONS.map(({ value, label, description }) => ({
-              value,
-              label: `${label} — ${description}`,
-            }))}
-            value={roles}
-            onChange={setRoles}
-          />
-          <Group justify="flex-end" mt="md">
-            <Button variant="light" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit} loading={createUser.isPending || updateUser.isPending} disabled={!canSubmit}>
-              {editingUser ? 'Update' : 'Create'}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {dialog && (
+        <AccountDialog
+          opened
+          onClose={() => setDialog(null)}
+          account={dialog.account}
+          organization={organization}
+        />
+      )}
     </Stack>
   );
 }

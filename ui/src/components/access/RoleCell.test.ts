@@ -10,12 +10,20 @@ import { RoleCell } from './RoleCell';
 
 const admin = ROLE_OPTIONS.find((option) => option.value === 'ADMIN')!;
 const designer = ROLE_OPTIONS.find((option) => option.value === 'DESIGNER')!;
+const operator = ROLE_OPTIONS.find((option) => option.value === 'OPERATOR')!;
 
-const dana: ApiOrganizationUser = { id: 'u-dana', username: 'dana', full_name: 'Dana Scully', roles: ['ADMIN'] };
+/** Dana is an administrator of this organization, and a designer in every one she belongs to. */
+const dana: ApiOrganizationUser = {
+  id: 'u-dana',
+  username: 'dana',
+  full_name: 'Dana Scully',
+  organization_roles: ['ADMIN'],
+  roles: ['DESIGNER'],
+};
 
 /** One cell, inside the table row it belongs in. */
-function cell(option: typeof admin, saving?: string): string {
-  const td = createElement(RoleCell, { account: dana, option, canEdit: true, saving, onToggle: () => {} });
+function cell(option: typeof admin, saving?: string, canEdit = true): string {
+  const td = createElement(RoleCell, { account: dana, option, canEdit, saving, onToggle: () => {} });
   return renderMarkup(createElement(Table, null, createElement(Table.Tbody, null, createElement(Table.Tr, null, td))));
 }
 
@@ -35,11 +43,12 @@ describe('a box while a change is being saved', () => {
   });
 
   it('holds the person’s other boxes still too, without taking them out of reach of the keyboard', () => {
-    const html = cell(designer, 'ADMIN');
-    const box = namedControl(html, 'Designer for Dana Scully');
+    const html = cell(operator, 'ADMIN');
+    const box = namedControl(html, 'Operator for Dana Scully');
 
     expect(box?.['aria-disabled']).toBe('true');
     expect(box).not.toHaveProperty('disabled');
+    expect(box).not.toHaveProperty('checked');
     expect(visibleText(html)).not.toContain('Saving');
   });
 
@@ -47,5 +56,24 @@ describe('a box while a change is being saved', () => {
     const box = namedControl(cell(admin), 'Administrator for Dana Scully');
     expect(box).toHaveProperty('checked');
     expect(box).not.toHaveProperty('aria-disabled');
+  });
+});
+
+/*
+ * A role on the account is held in every organization it belongs to. This
+ * organization's administrators cannot take it away, so it is shown as what it
+ * is, with no box to clear — for them as for everybody else.
+ */
+describe('a role held in every organization', () => {
+  it('is shown as such, with no box, even to an administrator here', () => {
+    const html = cell(designer);
+
+    expect(namedControl(html, 'Designer for Dana Scully')).toBeUndefined();
+    expect(html).not.toContain('type="checkbox"');
+    expect(visibleText(html)).toContain('Dana Scully holds Designer in every organization');
+  });
+
+  it('is shown the same to somebody who may change nothing', () => {
+    expect(visibleText(cell(designer, undefined, false))).toContain('Dana Scully holds Designer in every organization');
   });
 });
