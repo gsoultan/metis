@@ -324,7 +324,7 @@ func TestUnaryTests(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := EvaluateUnaryTests(tc.cell, tc.input, nil)
+			got, err := EvaluateUnaryTests(tc.cell, tc.input, nil, nil)
 			if err != nil {
 				t.Fatalf("EvaluateUnaryTests(%q, %v): %v", tc.cell, tc.input, err)
 			}
@@ -338,7 +338,7 @@ func TestUnaryTests(t *testing.T) {
 // TestUnaryTestsSeeOtherVariables covers a cell comparing the input against
 // another input of the same row.
 func TestUnaryTestsSeeOtherVariables(t *testing.T) {
-	got, err := EvaluateUnaryTests("> threshold", 100, map[string]any{"threshold": 50})
+	got, err := EvaluateUnaryTests("> threshold", 100, map[string]any{"threshold": 50}, nil)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestSubsetIsDocumented(t *testing.T) {
 	for category, expr := range supported {
 		t.Run("supports "+category, func(t *testing.T) {
 			if category == "unary tests" {
-				if _, err := EvaluateUnaryTests(expr, 1, nil); err != nil {
+				if _, err := EvaluateUnaryTests(expr, 1, nil, nil); err != nil {
 					t.Errorf("%s: %v", category, err)
 				}
 				return
@@ -490,17 +490,30 @@ func TestSubsetIsDocumented(t *testing.T) {
 		})
 	}
 
+	t.Run("supports unary tests that name the rest of the case", func(t *testing.T) {
+		matched, err := EvaluateUnaryTests("< maximum", 1, map[string]any{"maximum": 2}, nil)
+		if err != nil || !matched {
+			t.Errorf("`< maximum` with 1 against a maximum of 2 = %v, %v", matched, err)
+		}
+	})
+
 	// Documented as out of scope for v1. They must fail rather than silently
-	// half-work, which is the failure mode the plan warns against.
+	// half-work, which is the failure mode the plan warns against — in both
+	// grammars, since a cell is where `?` and `credit limit` get written.
 	excluded := map[string]string{
-		"for/return":          `for x in [1,2] return x`,
-		"some/every":          `some x in [1,2] satisfies x > 1`,
-		"function definition": `function(x) x + 1`,
+		"for/return":           `for x in [1,2] return x`,
+		"some/every":           `some x in [1,2] satisfies x > 1`,
+		"function definition":  `function(x) x + 1`,
+		"? for a cell's value": `? > 1`,
+		"names with spaces":    `credit limit > 1`,
 	}
 	for category, expr := range excluded {
 		t.Run("excludes "+category, func(t *testing.T) {
 			if _, err := Evaluate(expr, nil); err == nil {
-				t.Errorf("%s parsed, but the plan documents it as unsupported", category)
+				t.Errorf("%s parsed as an expression, but the plan documents it as unsupported", category)
+			}
+			if _, err := EvaluateUnaryTests(expr, 1, nil, nil); err == nil {
+				t.Errorf("%s parsed as a cell, but the plan documents it as unsupported", category)
 			}
 		})
 	}
@@ -515,15 +528,18 @@ func TestSubsetIsDocumented(t *testing.T) {
 // those cells into null and stop them matching: not an error anyone would
 // notice, just a table quietly returning the wrong answer.
 //
-// A variable of the same name still wins, so the FEEL meaning is available
-// whenever there is something to resolve to.
+// A column of the same name wins, so a cell can compare two inputs of its row.
+// A variable that is no column's does not: a cell sees every variable of the
+// decision, and a table's words must not change meaning with the process that
+// consults it.
 func TestBareWordsInCellsAreText(t *testing.T) {
 	tests := []struct {
-		name  string
-		cell  string
-		input any
-		vars  map[string]any
-		want  bool
+		name    string
+		cell    string
+		input   any
+		vars    map[string]any
+		columns []string
+		want    bool
 	}{
 		{
 			name: "a bare word matches the text",
@@ -542,16 +558,31 @@ func TestBareWordsInCellsAreText(t *testing.T) {
 			cell: `"CLOSED"`, input: "CLOSED", want: true,
 		},
 		{
-			// The ambiguity resolves toward the variable when one exists, so a
-			// cell can still compare two inputs of the same row.
-			name: "a variable in scope wins over the text reading",
+			// The ambiguity resolves toward the column when the word names one,
+			// so a cell can still compare two inputs of the same row.
+			name: "a column wins over the text reading",
 			cell: "threshold", input: 50.0,
+			vars:    map[string]any{"threshold": 50.0},
+			columns: []string{"threshold"},
+			want:    true,
+		},
+		{
+			name: "and the column reading is a real comparison, not a name match",
+			cell: "threshold", input: "threshold",
+			vars:    map[string]any{"threshold": 50.0},
+			columns: []string{"threshold"},
+			want:    false,
+		},
+		{
+			// In scope, but no column's: the word stays the word.
+			name: "a variable that is no column's does not win",
+			cell: "threshold", input: "threshold",
 			vars: map[string]any{"threshold": 50.0},
 			want: true,
 		},
 		{
-			name: "and the variable reading is a real comparison, not a name match",
-			cell: "threshold", input: "threshold",
+			name: "and the word is not compared with that variable's value",
+			cell: "threshold", input: 50.0,
 			vars: map[string]any{"threshold": 50.0},
 			want: false,
 		},
@@ -562,11 +593,17 @@ func TestBareWordsInCellsAreText(t *testing.T) {
 			vars: map[string]any{"threshold": 50.0},
 			want: true,
 		},
+		{
+			name: "so does = , which is how a cell asks for a variable no column reads",
+			cell: "= threshold", input: 50.0,
+			vars: map[string]any{"threshold": 50.0},
+			want: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := EvaluateUnaryTests(tc.cell, tc.input, tc.vars)
+			got, err := EvaluateUnaryTests(tc.cell, tc.input, tc.vars, tc.columns)
 			if err != nil {
 				t.Fatalf("cell %q: %v", tc.cell, err)
 			}
@@ -594,7 +631,7 @@ func TestBareWordsStayStrictInExpressions(t *testing.T) {
 // defines only double-quoted strings, but tables deployed against the previous
 // JavaScript-flavoured evaluator wrote 'VIP', and those decisions are live.
 func TestSingleQuotedStrings(t *testing.T) {
-	got, err := EvaluateUnaryTests(`'VIP'`, "VIP", nil)
+	got, err := EvaluateUnaryTests(`'VIP'`, "VIP", nil, nil)
 	if err != nil {
 		t.Fatalf("single-quoted cell: %v", err)
 	}
