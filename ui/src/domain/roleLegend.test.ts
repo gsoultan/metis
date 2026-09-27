@@ -89,4 +89,12 @@ describe('an action in the legend', () => {
   it('is never blank, even when the server gave no words', () => {
     expect(actionLabel({ ...unknown, label: '' }, inCatalogue(id))).toBe('ArchiveDefinition');
   });
+
+  // The gate on granting roles in one organization, which the legend lists
+  // under the administrator.
+  it('words granting roles in an organization in both languages', () => {
+    const grant: ApiRoleAction = { method: 'SetOrganizationRoles', area: 'accounts', label: 'Set organization roles' };
+    expect(actionLabel(grant, inCatalogue(en))).toBe('Set organization roles');
+    expect(actionLabel(grant, inCatalogue(id))).toBe('Tetapkan peran organisasi');
+  });
 });

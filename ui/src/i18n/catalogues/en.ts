@@ -241,6 +241,7 @@ const en: Catalogue = {
   'access.action.CreateUser': 'Create user',
   'access.action.DeleteUser': 'Delete user',
   'access.action.UpdateUser': 'Update user',
+  'access.action.SetOrganizationRoles': 'Set organization roles',
   'access.action.DeletePlatformUser': 'Delete platform user',
   'access.action.ListPlatformUsers': 'List platform users',
   'access.action.SavePlatformUser': 'Save platform user',

@@ -226,6 +226,7 @@ const id: Catalogue = {
   'access.action.CreateUser': 'Buat pengguna',
   'access.action.DeleteUser': 'Hapus pengguna',
   'access.action.UpdateUser': 'Perbarui pengguna',
+  'access.action.SetOrganizationRoles': 'Tetapkan peran organisasi',
   'access.action.DeletePlatformUser': 'Hapus pengguna platform',
   'access.action.ListPlatformUsers': 'Tampilkan daftar pengguna platform',
   'access.action.SavePlatformUser': 'Simpan pengguna platform',
