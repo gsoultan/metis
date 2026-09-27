@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,72 @@ func TestMigration30GivesEveryMembershipRolesOfItsOwn(t *testing.T) {
 	if got := membershipRoles(t, db, later, organization); got != "[]" {
 		t.Fatalf("a membership added without roles holds %s, want none", got)
 	}
+}
+
+// Adding the column needs user_organizations to itself for as long as the
+// catalogue takes, and while the ALTER TABLE waits for a reader, PostgreSQL
+// queues every later reader of the table behind it. Signing in reads an
+// account's memberships, so while a canary runs the release's migrations beside
+// the stable pods, one long transaction that had read the table would stop
+// every sign-in for as long as it stayed open. The migration gives up after a
+// bounded wait instead, says why, and runs when it is started again.
+func TestMigration30GivesUpRatherThanHoldEverySignInBehindALongRead(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	ctx := t.Context()
+	schema := migrations.Schema(models.MigrationModels())
+	if _, err := migrations.Run(ctx, db, schema); err != nil {
+		t.Fatalf("run the migrations: %v", err)
+	}
+	if err := db.WithContext(ctx).Exec(`ALTER TABLE user_organizations DROP COLUMN IF EXISTS roles`).Error; err != nil {
+		t.Fatalf("restore the old schema: %v", err)
+	}
+	if err := db.WithContext(ctx).Exec(`DELETE FROM schema_migrations WHERE version = ?`,
+		migrations.OrganizationRolesMigration).Error; err != nil {
+		t.Fatalf("rewind the migration record: %v", err)
+	}
+
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatalf("open the pool: %v", err)
+	}
+	reader, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin the long read: %v", err)
+	}
+	defer func() { _ = reader.Rollback() }()
+	// Holds ACCESS SHARE on user_organizations until the transaction ends.
+	if _, err := reader.ExecContext(ctx, `SELECT count(*) FROM user_organizations`); err != nil {
+		t.Fatalf("read the memberships: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := migrations.Run(context.Background(), db, schema)
+		finished <- err
+	}()
+	const patience = 20 * time.Second
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("the migration altered user_organizations while a reader held it")
+		}
+		if !strings.Contains(err.Error(), "user_organizations") {
+			t.Errorf("the migration failed without saying what it waited for: %v", err)
+		}
+	case <-time.After(patience):
+		_ = reader.Rollback()
+		<-finished
+		t.Fatalf("the migration was still waiting for user_organizations after %s, and every sign-in queues behind it", patience)
+	}
+
+	// Once the reader is done, starting again finishes the job.
+	if err := reader.Rollback(); err != nil {
+		t.Fatalf("end the long read: %v", err)
+	}
+	if _, err := migrations.Run(ctx, db, schema); err != nil {
+		t.Fatalf("run the migrations again once the read ended: %v", err)
+	}
+	assertMembershipRolesColumn(t, db)
 }
 
 // assertMembershipRolesColumn checks the column is a JSON list that is never
