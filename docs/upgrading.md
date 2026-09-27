@@ -295,6 +295,7 @@ nothing.
 A decision with no live version refuses to be evaluated without a version rather
 than guess, so `decision_releases` matters as much as `decision_definitions`:
 restore both, or neither.
+
 ## Migration 25: webhooks have ninety days to move to v2 signatures
 
 A webhook signature used to cover the request body alone. A delivery captured

@@ -8,6 +8,69 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Upgrading
+
+Read [`docs/upgrading.md`](docs/upgrading.md) first, and rehearse on a copy of
+your own data with `scripts/upgrade-rehearsal.sh`. What needs a decision or an
+action, in the order it bites:
+
+- **Local accounts sign in again while OIDC is on.** Before upgrading, delete
+  the ones nobody should use and keep one administrator offline ([With OIDC on,
+  local accounts sign in again](docs/upgrading.md#with-oidc-on-local-accounts-sign-in-again)).
+- **A user task that names nobody is an administrator's or an operator's.**
+  Find those steps first; `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` keeps the
+  old rule for a migration window ([Tasks nobody was named
+  for](docs/upgrading.md#tasks-nobody-was-named-for-are-the-administrators-and-operators)).
+- **A decision cell can name another input**, so a table whose cells already
+  do can answer differently. Find them first ([Decision cells see the rest of
+  the case](docs/upgrading.md#decision-cells-see-the-rest-of-the-case)).
+- **An installation of several organizations** needs `METIS_PLATFORM_ADMINS`
+  before anybody can change its connector manifests or templates again, or
+  grant, take away or delete with a role held in every organization; the
+  installed connectors keep running, and nobody's access changes.
+- **Roles can be held in one organization.** The Roles tab and the account
+  dialog now grant in the organization being worked in. Keep at least one
+  administrator of every organization: only such an account can add an
+  organization or manage the platform accounts ([Roles in one
+  organization](docs/upgrading.md#roles-can-be-granted-in-one-organization)).
+- **A manifest installed under a built-in connector's key** keeps answering;
+  installing it again or switching it back on needs
+  `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
+- **A definition with a service task set to run a script** is refused at
+  deploy; versions already deployed still skip the step.
+- **Webhooks set up before v2 signatures** accept the legacy ones for ninety
+  days after the upgrade, then refuse them ([Migration
+  25](docs/upgrading.md#migration-25-webhooks-have-ninety-days-to-move-to-v2-signatures)).
+- **The stable Deployment's selector gained `track: stable`**, so replace the
+  Deployment once (`deploy/kubernetes/README.md`, "Upgrading").
+- **A refusal before the service runs reaches a Connect client with the code
+  its REST twin answers** — `permission_denied` for a role the caller does not
+  hold, `unauthenticated` for a token or an organization that does not admit
+  them — where it was `unknown` and an HTTP 500. A client that retried on those
+  should stop.
+
+Migrations 21 to 30 run at the first boot. Take a backup first: a rollback
+does not undo a migration.
+
+- **21** gives every task a priority. **22** declares seventy-two columns non-null
+  and **stops the upgrade, changing nothing, if a timestamp among them is
+  NULL** ([Migration 22](docs/upgrading.md#migration-22-can-stop-the-upgrade-on-purpose)).
+- **23** makes a service call one visit to a step; its indexes are built
+  concurrently.
+- **24 deletes every group membership that crosses organizations.**
+- **25** opens the webhooks' ninety-day window. **26** records each decision's
+  live version as the one that evaluated before the upgrade ([Migration
+  26](docs/upgrading.md#migration-26-decisions-have-a-live-version)).
+- **27** adds the identity-provider link to accounts; every existing account
+  stays local.
+- **28** numbers audit entries as they are written, and **stops the upgrade if
+  `audit_logs` is held for more than two seconds**; it finishes on the next
+  start ([Migration 28](docs/upgrading.md#migration-28-can-stop-the-upgrade-when-the-audit-table-is-busy)).
+- **29** indexes notifications for the bell's count and paging.
+- **30** gives every membership an empty list of roles of its own, and **stops
+  the upgrade if `user_organizations` is held for more than two seconds** —
+  signing in reads it; it finishes on the next start.
+
 ### Security
 
 - **An organization's administrator granted roles in every organization.**
@@ -176,6 +239,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   like a secret (`?api_key=`, `?token=`), is now masked whatever its key.
   Anyone with a RabbitMQ connection configured should rotate that broker
   password; saving the form unchanged keeps the stored URL.
+
+- **A participant directory's database password was sent to the browser.** The
+  participant sources page masked a source's settings by the names of their
+  keys, and a PostgreSQL directory keeps its connection string — password
+  included — under `dsn`, which no rule recognised. Connection strings are now
+  masked however their key is spelled, and so are webhook URLs, which for
+  Slack, Discord and Teams are the whole credential. Anyone who has configured
+  a PostgreSQL participant directory should rotate that password: it has been
+  readable by anybody who could open the page.
 
 ### Added
 
@@ -373,17 +445,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   upgrade. It runs in one transaction, and running it again changes nothing.
   The table is part of the database backup; a restore that left it out would
   leave steps with no version binding with nothing to evaluate.
-
-### Security
-
-- **A participant directory's database password was sent to the browser.** The
-  participant sources page masked a source's settings by the names of their
-  keys, and a PostgreSQL directory keeps its connection string — password
-  included — under `dsn`, which no rule recognised. Connection strings are now
-  masked however their key is spelled, and so are webhook URLs, which for
-  Slack, Discord and Teams are the whole credential. Anyone who has configured
-  a PostgreSQL participant directory should rotate that password: it has been
-  readable by anybody who could open the page.
 
 ### Fixed
 

@@ -1063,6 +1063,32 @@
     resolves first, as before; pages other than Platform access still decide what to show
     from the sign-in's global roles — never more than the server allows.
 
+- 2026-09-27 (completed): the plan's Phases 2–4 merged as one chain, and 0.4.0 prepared.
+  #121, #123, #124, #125, #126 and #127 each contained the PR before it, so CI ran on all of
+  them at once and they merged in order without a conflict; main's tree is #127's head.
+  - **A refusal over Connect carries its code (#127, P0).** The Connect handlers handed on
+    the endpoint chain's refusals as they were, and Connect encodes an error it did not
+    make as `unknown`, an HTTP 500: a member calling an administrator's method was answered
+    as a server fault. An interceptor on every Connect service gives such an error the code
+    REST answers it with (`common.CodeFrom`), redacted as REST redacts it. Test first:
+    `tests/connectcodes` failed with `code unknown (…), want permission_denied`.
+  - **Migration 28 waits at most two seconds for `audit_logs` (#126, P0).** A canary runs the
+    release's migrations beside the stable pods, and an `ALTER TABLE` waiting behind a long
+    read queues every audit write behind it. `SET LOCAL lock_timeout`; the upgrade stops with
+    the reason and finishes on the next start. Test first: the migration was still waiting
+    after 20s with a reader holding the table.
+  - **0.4.0 prepared (branch `release-0.4.0-prep`).** `CHANGELOG.md` `[Unreleased]` reads as
+    one release: an Upgrading section first — the decisions an operator makes and migrations
+    21–29, the two that can stop an upgrade and the one that deletes rows — then one section
+    per kind (the two Security sections merged, no entry changed). `docs/releasing.md` is the
+    order from `main` to a tag and the 0.4.0 staging checklist; `docs/security-review.md` is
+    the scope for an external review, with what is known and open. Tagging `v0.4.0` is the
+    product owner's call.
+  - **Found, not changed** (listed in `docs/security-review.md`): completing a task accepts
+    any variables; manual tasks are anybody's; a service's own refusal over Connect is an HTTP
+    200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
+    lock cannot be extended; redaction misses `client_secret`, `id_token`, `db_password`;
+    organization-wide queries carry every project id.
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
   - #92: a migration request that omits `dry_run` is a dry run, as documented.

@@ -115,7 +115,7 @@ and keys, so the wizard asks only for the organization and first administrator
 and writes no `config.yaml`. Either way it closes once the database holds an
 account.
 
-Release notes are in [`CHANGELOG.md`](CHANGELOG.md); upgrading from GoBPM is [`docs/upgrading.md`](docs/upgrading.md).
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md).
 
 ### Configuration
 
@@ -354,6 +354,8 @@ make vet     # go vet, module-wide
 Reporting a vulnerability, what counts as untrusted input, and which
 alarming-looking decisions are deliberate: [`SECURITY.md`](SECURITY.md). It also
 lists what has already been audited, so a reviewer does not re-tread it.
+[`docs/security-review.md`](docs/security-review.md) is the scope for the next
+external review, with what is known and still open.
 
 ## 📜 License
 
