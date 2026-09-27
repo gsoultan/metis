@@ -73,11 +73,12 @@ the release's evidence, and the next release's baseline.
   `Migration applied` line per version with its duration; `schema_migrations`
   keeps `duration_ms`. Anything over a few seconds on staging is a maintenance
   window in production, at production's size.
-- [ ] **Migration 28 under load.** Start a long read of `audit_logs` (an OCEL
-  export of the busiest project), then start the upgrade. It should stop within
-  two seconds with the message in [Migration 28 can stop the
-  upgrade](upgrading.md#migration-28-can-stop-the-upgrade-when-the-audit-table-is-busy),
-  and apply on the next start once the read ends.
+- [ ] **Migration 28 under load.** Hold a read of `audit_logs` open — in psql,
+  `BEGIN; SELECT count(*) FROM audit_logs;` and leave the transaction open — then
+  start the upgrade. It should stop within two seconds with the message in
+  [Migration 28 can stop the
+  upgrade](upgrading.md#migration-28-can-stop-the-upgrade-when-the-audit-table-is-busy).
+  End the transaction and start it again: it applies.
 - [ ] **Nothing was lost.** Counts of running instances, open tasks, due jobs and
   incidents are the same before and after.
 - [ ] **The boot is quiet.** `metis_schema_drift_items` is 0: a model change
@@ -117,9 +118,9 @@ the release's evidence, and the next release's baseline.
   should stop retrying.
 - [ ] **Screen reader and dark mode.** Every dialog's close button is announced
   with a name; the webhooks card and message badges are readable in dark mode.
-- [ ] **Alerts.** `make alerts-test` passes, and the 5xx rate after the upgrade
-  is lower than before it, not higher: refusals over Connect no longer count as
-  server errors.
+- [ ] **Alerts.** `make alerts-test` passes, and the 5xx rate does not rise after
+  the upgrade. Refusals over Connect no longer count as server errors, so where
+  Connect clients are refused it falls.
 
 ### Strict tenant scope
 
