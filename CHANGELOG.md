@@ -345,6 +345,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An instance's history could show a step before the step that led to it.**
+  Everything one step of a process records carries the same time — the moment
+  the step began — and nothing recorded the order among those entries, so the
+  timeline, the path drawn on the diagram and the OCEL export listed them in
+  whatever order the database returned them: the order the rows were stored in,
+  which is the order they were written only until something moves a row.
+  Rewriting an entry in place (as the reseal after a key rotation does),
+  CLUSTER or pg_repack was enough to start a path at the first task instead of
+  the start event. Each audit entry is now numbered as it is written, and all
+  three read in that order. The business timeline, which re-sorted entries by
+  their shared time and so showed a step's last entry below its first, now
+  shows the newest first exactly.
+
+  Upgrading: migration 28 adds `audit_logs.seq` and the sequence that numbers
+  it. It changes the table's definition only — no row is rewritten, and the
+  table is locked for milliseconds. It waits at most two seconds for the table:
+  if a long query, transaction or vacuum holds `audit_logs` longer, the upgrade
+  stops with that reason rather than hold every audit write behind it, and
+  finishes when Metis is started again once that ends. Entries written before
+  the upgrade are not numbered, because nothing recorded the order they were
+  written in; they keep the order they had.
+- **Every case in the OCEL export said it ran version 0 of a process with no
+  name.** An instance records only which definition it runs, and the export
+  used that as it came: each case carried an empty `definition_key` and a
+  `definition_version` of `0`, and was related to no definition. A case of
+  version 3 and one of version 4 looked the same to a mining tool, which then
+  discovered one model from two different processes. Each case now carries its
+  process's key and the version it runs, and is related to that version's
+  definition object (`claim:3`), as the export always declared it would be. A
+  case whose version has since been deleted carries neither, rather than an
+  invented one. A migrated case carries the version it runs now; its
+  `instance_migrated` event says which version it came from.
 - **The close button of a dialog had no name.** Mantine draws the close button
   of a dialog, a drawer, a notification and an alert as an icon alone, so a
   screen reader announced it as "button" and nothing more — axe's

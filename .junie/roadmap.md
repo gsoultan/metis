@@ -1013,12 +1013,14 @@
     take the person from the session and scope in the query. Migration 29 indexes both
     (unread count 1,797 buffers to 4 at a million rows). The older
     `GET /api/v1/notifications?user_id=` is unchanged for other clients.
-  - **Still open**: The OCEL export never names a case's process version
-    (the instance it reads carries only the definition id), at any size. The audit
+  - **Still open**: ~~The OCEL export never names a case's process version
+    (the instance it reads carries only the definition id), at any size.~~ *Done
+    2026-09-26: see that date's "audit order" entry.* ~~The audit
     trail is read in one statement rather than keyset-walked: the entries one
     transaction writes share its created_at and their ids are random, so their order
     rests on PostgreSQL returning ties as written; writing audit ids as UUIDv7 would
-    make it explicit. Unreached reads that still stop at 1,000:
+    make it explicit.~~ *Done 2026-09-26, with a sequence rather than UUIDv7: see that
+    date's "audit order" entry.* Unreached reads that still stop at 1,000:
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
@@ -1223,6 +1225,38 @@
     the scheme with Go, Node.js and Python examples checked against a live server.
   - Not done: a way to close a webhook's window early from the API or screen (SQL for now,
     in `docs/upgrading.md`).
+- 2026-09-26 (completed): audit order — the two audit items the thousand-row entry left
+  open. Branch `audit-order`, one commit per change, each with a test that fails against
+  the code before it:
+  - **An instance's trail reads in the order it was written.** The entries one transaction
+    writes share its created_at and their ids are random, so the timeline, the execution
+    path and the OCEL export got them in storage order, which is the write order only until
+    a row moves. Measured on a 200,000-entry table: rewriting one entry per transaction in
+    place, as the reseal after a key rotation does, reversed 748 of the 1,600
+    same-transaction neighbours in one instance's trail. Migration 28 adds `audit_logs.seq`,
+    numbered by an owned sequence as each entry is written, and the trail is read by
+    (created_at, seq). A sequence rather than UUIDv7: the database assigns it whoever
+    writes (the audit observer leaves the id to the column's default, and an old release
+    keeps writing during a rolling upgrade), replicas need not agree about the time, and
+    trails already recorded keep their order where sorting by random ids would shuffle
+    them. Entries written before the migration are not numbered and keep the order they
+    had. The business timeline shows the trail reversed instead of re-sorting it by a
+    timestamp one step's entries share. Tests: `tests/bpmn/audit_write_order_test.go` (the
+    table clustered on its primary key; before, the path began at the task),
+    `tests/migrations/audit_write_order_test.go`, `BusinessTimeline.test.tsx`.
+  - **Each case in the OCEL export names the process version it ran.** The instance row
+    carries only its definition's id, and the export used it as it came: every case said
+    `definition_key` "" and `definition_version` "0" and was related to no definition, so a
+    case of v3 and one of v4 were the same to a miner. The export now reads each version
+    once, through the engine's tenant-keyed definition cache, and fills in the key, the
+    version and the relation to the `key:version` definition object it always declared. A
+    case whose definition was deleted carries none of them rather than version 0. Tests:
+    `tests/bpmn/ocel_version_test.go` (an instance of v2 and one of v3; before, both said
+    version "0") and `TestOCELNamesNoVersionItCouldNotRead`.
+  - **Found, not changed:** a migrated case carries the version it runs now, stamped at
+    its first event. OCEL can carry the change as a second time-stamped value at the
+    migration; the `instance_migrated` entry already records the source and target
+    versions it would take.
 - 2026-09-26 (completed): `DMN-17` — a decision cell sees the rest of the case. Branch
   `decision-cells-see-inputs`, one commit per change, each with a test that fails without it.
   - **The gap.** A condition cell was tested against its own column's value and nothing

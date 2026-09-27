@@ -31,6 +31,7 @@ type Row struct {
 	Message    string
 	Narrative  runtime.Null[string]
 	Data       runtime.JSON
+	Seq        runtime.Null[int64]
 	DeletedAt  runtime.Null[time.Time]
 }
 
@@ -69,7 +70,7 @@ const (
 	opNotExists runtime.Op = 26
 )
 
-const nCols = 12
+const nCols = 13
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -79,15 +80,17 @@ type Query struct {
 	nt   uint8
 	top  uint8 // top-level conjuncts, ANDed at compile time
 
-	strs             [6]string
-	raws             [4][16]byte
-	tims             [4]time.Time
-	jsns             [2]runtime.JSON
-	ns, nr, ntm, njs uint8
+	strs                 [6]string
+	nums                 [6]int64
+	raws                 [4][16]byte
+	tims                 [4]time.Time
+	jsns                 [2]runtime.JSON
+	ns, nn, nr, ntm, njs uint8
 
-	anyRaw   [3][][16]byte
-	anyStr   [3][]string
-	nar, nas uint8
+	anyRaw          [3][][16]byte
+	anyStr          [3][]string
+	anyI64          [3][]int64
+	nar, nas, nai64 uint8
 
 	// Order terms live in their own buffer and are appended to the stream
 	// after the predicate tree. Sharing one buffer would let a Where after
@@ -253,6 +256,13 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.strs[q.ns] = r.Narrative.V
 		q.ns++
 	case 11:
+		if int(q.nn) >= len(q.nums) {
+			q.over = true
+			return
+		}
+		q.nums[q.nn] = int64(r.Seq.V)
+		q.nn++
+	case 12:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -406,12 +416,14 @@ func (q Query) stream(buf *[21]runtime.Tok) []runtime.Tok {
 type Pred struct {
 	col    uint8
 	op     runtime.Op
+	num    int64
 	str    string
 	raw    [16]byte
 	tim    time.Time
 	jsn    runtime.JSON
 	anyRaw [][16]byte
 	anyStr []string
+	anyI64 []int64
 }
 
 // Typed column handles. The type of the handle is what makes
@@ -428,7 +440,8 @@ var (
 	Message    = TextCol{8}
 	Narrative  = NullTextCol{9}
 	Data       = JSONCol{10}
-	DeletedAt  = NullTimeCol{11}
+	Seq        = NullInt64Col{11}
+	DeletedAt  = NullTimeCol{12}
 )
 
 // UUIDCol addresses a uuid column.
@@ -545,6 +558,33 @@ func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
 }
 func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
 func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
+
+// NullInt64Col addresses a int8 column.
+type NullInt64Col struct{ c uint8 }
+
+func (h NullInt64Col) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h NullInt64Col) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h NullInt64Col) AscNullsFirst() Sort {
+	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
+}
+func (h NullInt64Col) DescNullsLast() Sort {
+	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
+}
+
+func (h NullInt64Col) Eq(v int64) Pred    { return Pred{col: h.c, op: opEq, num: int64(v)} }
+func (h NullInt64Col) NotEq(v int64) Pred { return Pred{col: h.c, op: opNotEq, num: int64(v)} }
+func (h NullInt64Col) Gt(v int64) Pred    { return Pred{col: h.c, op: opGt, num: int64(v)} }
+func (h NullInt64Col) Gte(v int64) Pred   { return Pred{col: h.c, op: opGte, num: int64(v)} }
+func (h NullInt64Col) Lt(v int64) Pred    { return Pred{col: h.c, op: opLt, num: int64(v)} }
+func (h NullInt64Col) Lte(v int64) Pred   { return Pred{col: h.c, op: opLte, num: int64(v)} }
+func (h NullInt64Col) In(v ...int64) Pred { return Pred{col: h.c, op: opIn, anyI64: v} }
+
+// NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
+// comparison NULL for every row and the result empty —
+// PostgreSQL's rule for NOT IN, not storm's.
+func (h NullInt64Col) NotIn(v ...int64) Pred { return Pred{col: h.c, op: opNotIn, anyI64: v} }
+func (h NullInt64Col) IsNull() Pred          { return Pred{col: h.c, op: opIsNull} }
+func (h NullInt64Col) IsNotNull() Pred       { return Pred{col: h.c, op: opIsNotNull} }
 
 // NullTimeCol addresses a timestamptz column.
 type NullTimeCol struct{ c uint8 }
@@ -771,6 +811,13 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
+		case 11:
+			if int(q.nai64) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyI64[q.nai64] = p.anyI64
+			q.nai64++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -858,6 +905,13 @@ func (q *Query) leaf(p Pred) {
 		q.jsns[q.njs] = p.jsn
 		q.njs++
 	case 11:
+		if int(q.nn) >= 6 {
+			q.over = true
+			return
+		}
+		q.nums[q.nn] = p.num
+		q.nn++
+	case 12:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -953,6 +1007,16 @@ func (q Query) DataContains(v runtime.JSON) Query    { return q.Where(Data.Conta
 func (q Query) DataContainedBy(v runtime.JSON) Query { return q.Where(Data.ContainedBy(v)) }
 func (q Query) DataHasAnyKey(v ...string) Query      { return q.Where(Data.HasAnyKey(v...)) }
 func (q Query) DataHasAllKeys(v ...string) Query     { return q.Where(Data.HasAllKeys(v...)) }
+func (q Query) SeqEq(v int64) Query                  { return q.Where(Seq.Eq(v)) }
+func (q Query) SeqNotEq(v int64) Query               { return q.Where(Seq.NotEq(v)) }
+func (q Query) SeqGt(v int64) Query                  { return q.Where(Seq.Gt(v)) }
+func (q Query) SeqGte(v int64) Query                 { return q.Where(Seq.Gte(v)) }
+func (q Query) SeqLt(v int64) Query                  { return q.Where(Seq.Lt(v)) }
+func (q Query) SeqLte(v int64) Query                 { return q.Where(Seq.Lte(v)) }
+func (q Query) SeqIn(v ...int64) Query               { return q.Where(Seq.In(v...)) }
+func (q Query) SeqNotIn(v ...int64) Query            { return q.Where(Seq.NotIn(v...)) }
+func (q Query) SeqIsNull() Query                     { return q.Where(Seq.IsNull()) }
+func (q Query) SeqIsNotNull() Query                  { return q.Where(Seq.IsNotNull()) }
 func (q Query) DeletedAtEq(v time.Time) Query        { return q.Where(DeletedAt.Eq(v)) }
 func (q Query) DeletedAtNotEq(v time.Time) Query     { return q.Where(DeletedAt.NotEq(v)) }
 func (q Query) DeletedAtGt(v time.Time) Query        { return q.Where(DeletedAt.Gt(v)) }
@@ -967,7 +1031,7 @@ func (q Query) DeletedAtIsNotNull() Query            { return q.Where(DeletedAt.
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "deleted_at" FROM "audit_logs"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at" FROM "audit_logs"`
 const countPrefix = `SELECT count(*) FROM "audit_logs"`
 const existsPrefix = `SELECT 1 FROM "audit_logs"`
 const existsSuffix = ` LIMIT 1`
@@ -1070,6 +1134,12 @@ var orderTable = [nCols][4]string{
 		"\"data\" ASC NULLS FIRST",
 		"\"data\" DESC NULLS LAST",
 	},
+	{ // seq
+		"\"seq\"",
+		"\"seq\" DESC",
+		"\"seq\" ASC NULLS FIRST",
+		"\"seq\" DESC NULLS LAST",
+	},
 	{ // deleted_at
 		"\"deleted_at\"",
 		"\"deleted_at\" DESC",
@@ -1092,6 +1162,7 @@ var identTable = [nCols]string{
 	"\"message\"",
 	"\"narrative\"",
 	"\"data\"",
+	"\"seq\"",
 	"\"deleted_at\"",
 }
 
@@ -1125,7 +1196,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [12][27]runtime.Frag{
+var fragTable = [13][27]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1445,6 +1516,35 @@ var fragTable = [12][27]runtime.Frag{
 		{},
 		{},
 	},
+	{ // seq
+		{}, // opNone
+		{A: "\"seq\" = $", B: ""},
+		{A: "\"seq\" <> $", B: ""},
+		{A: "\"seq\" > $", B: ""},
+		{A: "\"seq\" >= $", B: ""},
+		{A: "\"seq\" < $", B: ""},
+		{A: "\"seq\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"seq\" = ANY($", B: ")"},
+		{A: "\"seq\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"seq\" IS NULL", B: ""},
+		{A: "\"seq\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 	{ // deleted_at
 		{}, // opNone
 		{A: "\"deleted_at\" = $", B: ""},
@@ -1640,18 +1740,21 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Message = sl.Str(rv[8])
 	r.Narrative = runtime.NullText(rv[9], sl)
 	r.Data = runtime.JSON(runtime.JSONB(rv[10], sl))
-	r.DeletedAt = runtime.Nullable(rv[11], runtime.Timestamptz)
+	r.Seq = runtime.Nullable(rv[11], runtime.Int8)
+	r.DeletedAt = runtime.Nullable(rv[12], runtime.Timestamptz)
 	return nil
 }
 
 type binder struct {
 	vals   []any
 	strs   [6]string
+	nums   [6]int64
 	raws   [4][16]byte
 	tims   [4]time.Time
 	jsns   [2]runtime.JSON
 	anyRaw [3][][16]byte
 	anyStr [3][]string
+	anyI64 [3][]int64
 	limit  int64
 	offset int64
 }
@@ -1682,6 +1785,9 @@ func putBinder(b *binder) {
 	for i := range b.anyStr {
 		b.anyStr[i] = nil
 	}
+	for i := range b.anyI64 {
+		b.anyI64[i] = nil
+	}
 	binders.Put(b)
 }
 
@@ -1690,7 +1796,7 @@ func putBinder(b *binder) {
 // Count and Exists stop here: their statements carry no LIMIT or OFFSET.
 func (q Query) bindPreds(b *binder) []any {
 	v := b.vals[:0]
-	var ns, nr, ntm, njs, nar, nas uint8
+	var ns, nn, nr, ntm, njs, nar, nas, nai64 uint8
 	for i := uint8(0); i < q.nt; i++ {
 		t := q.toks[i]
 		// KLeaf binds a predicate's value; KCol binds a keyset cursor's.
@@ -1742,6 +1848,10 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
+			case 11:
+				b.anyI64[nai64] = q.anyI64[nai64]
+				v = append(v, &b.anyI64[nai64])
+				nai64++
 			}
 			continue
 		}
@@ -1791,6 +1901,10 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.jsns[njs])
 			njs++
 		case 11:
+			b.nums[nn] = q.nums[nn]
+			v = append(v, &b.nums[nn])
+			nn++
+		case 12:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -1931,7 +2045,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "audit_logs" ("id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "deleted_at"`
+const insertSQL = `INSERT INTO "audit_logs" ("id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at"`
 
 const updatePrefix = `UPDATE "audit_logs" SET `
 const deletePrefix = `DELETE FROM "audit_logs"`
@@ -1948,10 +2062,11 @@ const (
 	dMessage    uint64 = 1 << 6
 	dNarrative  uint64 = 1 << 7
 	dData       uint64 = 1 << 8
-	dDeletedAt  uint64 = 1 << 9
+	dSeq        uint64 = 1 << 9
+	dDeletedAt  uint64 = 1 << 10
 )
 
-const nUpdatable = 10
+const nUpdatable = 11
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1964,6 +2079,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"message\" = $", B: ""},     // message
 	{A: "\"narrative\" = $", B: ""},   // narrative
 	{A: "\"data\" = $", B: ""},        // data
+	{A: "\"seq\" = $", B: ""},         // seq
 	{A: "\"deleted_at\" = $", B: ""},  // deleted_at
 }
 
@@ -1987,10 +2103,11 @@ const (
 	iMessage    uint64 = 1 << 8
 	iNarrative  uint64 = 1 << 9
 	iData       uint64 = 1 << 10
-	iDeletedAt  uint64 = 1 << 11
+	iSeq        uint64 = 1 << 11
+	iDeletedAt  uint64 = 1 << 12
 )
 
-const nInsertable = 12
+const nInsertable = 13
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2005,6 +2122,7 @@ var insCols = [nInsertable]string{
 	"\"message\"",
 	"\"narrative\"",
 	"\"data\"",
+	"\"seq\"",
 	"\"deleted_at\"",
 }
 
@@ -2014,7 +2132,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"audit_logs\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"seq\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2111,6 +2229,18 @@ func (m *Mut) SetNarrativeNull() {
 func (m *Mut) SetData(v runtime.JSON) {
 	m.row.Data = v
 	m.dirty |= dData
+}
+
+func (m *Mut) SetSeq(v int64) {
+	m.row.Seq = runtime.Null[int64]{V: v, Valid: true}
+	m.dirty |= dSeq
+}
+
+// SetSeqNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetSeqNull() {
+	m.row.Seq = runtime.Null[int64]{}
+	m.dirty |= dSeq
 }
 
 func (m *Mut) SetDeletedAt(v time.Time) {
@@ -2226,6 +2356,18 @@ func (n *Ins) SetData(v runtime.JSON) {
 	n.set |= iData
 }
 
+func (n *Ins) SetSeq(v int64) {
+	n.row.Seq = runtime.Null[int64]{V: v, Valid: true}
+	n.set |= iSeq
+}
+
+// SetSeqNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetSeqNull() {
+	n.row.Seq = runtime.Null[int64]{}
+	n.set |= iSeq
+}
+
 func (n *Ins) SetDeletedAt(v time.Time) {
 	n.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iDeletedAt
@@ -2283,7 +2425,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 10)
+	set := make([]string, 0, 11)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2314,6 +2456,9 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "data")
 		}
 		if mask&(1<<11) != 0 {
+			set = append(set, "seq")
+		}
+		if mask&(1<<12) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2373,6 +2518,7 @@ var assignFor = map[string]string{
 	"message":     "\"message\" = EXCLUDED.\"message\"",
 	"narrative":   "\"narrative\" = EXCLUDED.\"narrative\"",
 	"data":        "\"data\" = EXCLUDED.\"data\"",
+	"seq":         "\"seq\" = EXCLUDED.\"seq\"",
 	"deleted_at":  "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
 }
 
@@ -2440,6 +2586,8 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 10:
 			args = append(args, n.row.Data)
 		case 11:
+			args = append(args, n.row.Seq.Arg())
+		case 12:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2478,7 +2626,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 13)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2490,6 +2638,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Message)
 	args = append(args, r.Narrative.Arg())
 	args = append(args, r.Data)
+	args = append(args, r.Seq.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2528,6 +2677,7 @@ var copyCols = []string{
 	"message",
 	"narrative",
 	"data",
+	"seq",
 	"deleted_at",
 }
 
@@ -2535,7 +2685,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [12]any
+	buf  [13]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2564,7 +2714,8 @@ func (s *rowSource) Values() []any {
 	s.buf[8] = &r.Message
 	s.buf[9] = r.Narrative.Ptr()
 	s.buf[10] = &r.Data
-	s.buf[11] = r.DeletedAt.Ptr()
+	s.buf[11] = r.Seq.Ptr()
+	s.buf[12] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2607,8 +2758,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 9
 	mask |= 1 << 10
 	mask |= 1 << 11
+	mask |= 1 << 12
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 12)
+	args := make([]any, 0, 13)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2620,6 +2772,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Message)
 	args = append(args, r.Narrative.Arg())
 	args = append(args, r.Data)
+	args = append(args, r.Seq.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2677,6 +2830,8 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 10:
 			args = append(args, n.row.Data)
 		case 11:
+			args = append(args, n.row.Seq.Arg())
+		case 12:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2739,6 +2894,8 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 8:
 			args = append(args, m.row.Data)
 		case 9:
+			args = append(args, m.row.Seq.Arg())
+		case 10:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -2828,6 +2985,8 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 8:
 			args = append(args, m.row.Data)
 		case 9:
+			args = append(args, m.row.Seq.Arg())
+		case 10:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

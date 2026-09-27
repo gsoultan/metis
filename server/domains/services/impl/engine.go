@@ -240,10 +240,10 @@ func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (en
 	frequencies := make(map[string]int)
 	seen := make(map[string]bool)
 
-	// The trail comes oldest first (ListByInstance orders by created_at), so a
-	// walk from the front is the order the steps were reached in. This walked it
-	// from the back, on the belief that it came newest first, and reported every
-	// path end to start.
+	// The trail comes oldest first (ListByInstance orders by created_at, then by
+	// the order each transaction wrote its entries in), so a walk from the front
+	// is the order the steps were reached in. This walked it from the back, on
+	// the belief that it came newest first, and reported every path end to start.
 	for _, entry := range entries {
 		if entry.Type == entities.EventNodeReached && entry.NodeID != "" {
 			frequencies[entry.NodeID]++

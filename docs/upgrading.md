@@ -134,6 +134,34 @@ on it; this adds a `NOT VALID` check first and validates that under
 `SHARE UPDATE EXCLUSIVE`, which readers and writers do not contend with, so the
 exclusive lock is held for a catalog update rather than a scan.
 
+## Migration 28 can stop the upgrade when the audit table is busy
+
+Migration 28 numbers audit entries as they are written, so an instance's history
+reads in the order it happened. It adds a nullable column and gives it a
+default, which rewrites no rows, so it needs `audit_logs` to itself only for a
+catalog update. But while it *waits* for the table, PostgreSQL queues every
+later audit write behind it, and every step of every running process writes
+audit entries. A canary runs the release's migrations as it starts, beside the
+stable pods ([Rolling out through a canary](runbooks.md#rolling-out-through-a-canary)),
+so one long read — an export, a report, an anti-wraparound vacuum — would stop
+the stable pods' engine for as long as it ran; with nothing else serving, the
+upgrade would hang without saying why.
+
+So it waits **at most two seconds**. If `audit_logs` is held longer, the upgrade
+stops with:
+
+```
+audit_logs was held for more than 2s by a long query, transaction or vacuum;
+the upgrade stopped rather than hold every audit write behind it, and will
+finish when started again once that ends
+```
+
+Nothing has changed at that point: the migration's transaction rolled back.
+Find what holds the table (`SELECT pid, state, query_start, query FROM
+pg_stat_activity WHERE pid IN (SELECT pid FROM pg_locks WHERE relation =
+'audit_logs'::regclass)`), let it finish or end it, and start Metis again. An
+orchestrator restarting a failed pod does the retry for you.
+
 ## Decision cells see the rest of the case
 
 No migration, but decisions can answer differently after the upgrade, and the
