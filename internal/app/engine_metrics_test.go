@@ -33,7 +33,14 @@ func TestTheMetricsEndpointReportsEachEnvironmentsBacklog(t *testing.T) {
 	h.environment("broken", unusedDatabaseName())
 	metrics := h.runServers()
 
-	within(t, startLimit, "the staging environment was never served", func() bool { return !refuses(t, staging.Port) })
+	// Asked of the app, not of the port. freePort only picks a number, and
+	// runServers picks two more the same way: another listener can hold
+	// staging's port and answer for it while staging is still migrating its
+	// database, and the job below then meets a database with no jobs table.
+	within(t, startLimit, "the staging environment was never served", func() bool {
+		_, serving := h.app.environments.serving(uuid.UUID(staging.ID))
+		return serving
+	})
 	stalled(t, behindTheServer(t, stagingDB))
 
 	var scrape map[string][]series
