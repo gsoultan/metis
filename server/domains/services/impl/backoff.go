@@ -37,20 +37,41 @@ const (
 	jitterFraction = 0.25
 )
 
-// retryDelay returns how long to wait before attempt number `retries`.
+// jobRetries is the engine's schedule for retrying a failed job.
+var jobRetries = backoff{first: baseRetryDelay, most: maxRetryDelay}
+
+// backoff is a schedule of waits between attempts: first, doubling with each
+// attempt up to most, each one varied by jitterFraction either way.
+//
+// The engine's job retries were its first use. A RabbitMQ bridge or consumer
+// reconnecting to its broker is the second, on a schedule of its own.
+type backoff struct {
+	first time.Duration
+	most  time.Duration
+}
+
+// retryDelay returns how long to wait before a failed job's attempt number
+// `retries`.
 //
 // retries is the count already spent, so the first retry passes 1.
 func retryDelay(retries int) time.Duration {
-	if retries < 1 {
-		retries = 1
+	return jobRetries.delay(retries)
+}
+
+// delay returns how long to wait before attempt number `attempt`, counting
+// from 1 for the first retry. Never less than a second: a delay near zero is a
+// hot loop.
+func (b backoff) delay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
 	}
 
 	// Shifting rather than math.Pow, and capped before the shift: at 63 the
 	// shift overflows, and a definition can set its own MaxRetries.
-	delay := maxRetryDelay
-	if retries <= 32 {
-		grown := float64(baseRetryDelay) * math.Pow(2, float64(retries-1))
-		if grown < float64(maxRetryDelay) {
+	delay := b.most
+	if attempt <= 32 {
+		grown := float64(b.first) * math.Pow(2, float64(attempt-1))
+		if grown < float64(b.most) {
 			delay = time.Duration(grown)
 		}
 	}

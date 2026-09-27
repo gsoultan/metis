@@ -337,7 +337,8 @@ live broker by `internal/app/rabbitmq_broker_test.go`.
 ```bash
 METIS_RABBITMQ_BRIDGES='[
   {"project": "0192f0e4-5c1a-7d2e-8f3a-1b2c3d4e5f60", "connection": "0192f0e5-7a2b-7c3d-9e4f-5a6b7c8d9e0f",
-   "topic": "reverse-charge", "exchange": "billing", "routing_key": "charges.reverse"}
+   "topic": "reverse-charge", "exchange": "billing", "routing_key": "charges.reverse",
+   "lock_seconds": 900}
 ]'
 METIS_RABBITMQ_CONSUMERS='[
   {"project": "0192f0e4-5c1a-7d2e-8f3a-1b2c3d4e5f60", "connection": "0192f0e5-7a2b-7c3d-9e4f-5a6b7c8d9e0f",
@@ -351,45 +352,92 @@ METIS_RABBITMQ_CONSUMERS='[
 | `connection` | A RabbitMQ connection of that project. Another project's connection, or a connection to anything but RabbitMQ, is refused. |
 | `topic` (bridge) | The external-task topic to publish, as set on the service task. |
 | `exchange`, `routing_key` (bridge) | Where each task is published. Either may be empty, not both: with no exchange, the default exchange delivers to the queue the routing key names. Metis does not declare the exchange; it must exist. |
+| `lock_seconds` (bridge) | How long each task the bridge publishes stays locked to it: whole seconds from 30 to 86400, and 300 (five minutes) when it is not set. It is the downstream worker's whole budget, queue time included — see [the worker's budget](#the-workers-budget-is-the-bridges-lock). A value out of range, or not a whole number, refuses the entry. Optional. |
 | `queue` (consumer) | The queue to consume. Metis declares it — durable, no arguments — and a dead-letter queue beside it named `<queue>.dlq`. A queue that already exists with other arguments is refused by the broker. |
 | `message` (consumer) | The BPMN message name each message is correlated as. |
+
+One setting covers every bridge and consumer, and the *RabbitMQ Publisher*
+connector as well: `METIS_RABBITMQ_CONFIRM_TIMEOUT`, how long a publish waits
+for the broker to confirm it — a Go duration, `10s` when it is not set. A
+publish not confirmed in time is treated as refused.
 
 One bridge per project and topic, and one consumer per project and queue: a
 repeat is refused. At start, each entry says so in the log — `Started a
 RabbitMQ bridge` or `Started a RabbitMQ consumer`, with its project,
-organization, topic or queue, and the broker's host and virtual host, never its
-password — and then `A RabbitMQ bridge connected to its broker` or `A RabbitMQ
-consumer is consuming from its queue`, which it says again after every
-reconnection.
+organization, topic or queue, the broker's host and virtual host (never its
+password), and a bridge's lock — and then `A RabbitMQ bridge connected to its
+broker` or `A RabbitMQ consumer is consuming from its queue`, which it says
+again after every reconnection.
 
 When something is wrong:
 
 - **An entry that cannot be read** — not JSON, a setting misspelt or missing,
-  an id that is not one — is named by its position, as in
-  `METIS_RABBITMQ_BRIDGES, bridge 2: "topic" is required`, and skipped. The
-  others run, and the server starts either way.
+  an id that is not one, a `lock_seconds` out of range — is named by its
+  position, as in `METIS_RABBITMQ_BRIDGES, bridge 2: "topic" is required`, and
+  skipped. The others run, and the server starts either way.
 - **A project or connection that does not exist, or a connection that cannot be
   used**, is logged with the reason and tried again after 5 seconds, then 10,
   20 and so on, up to every 5 minutes. Fix it and the bridge starts, with no
   restart. The connection is read once, when the bridge starts: a URL changed
   later takes effect at the next restart.
-- **A broker that is down**, at start or later, is tried again every 5 seconds,
-  and each attempt is logged. Nothing is lost meanwhile: tasks wait in Metis,
-  and messages wait on the broker.
+- **A broker that is down**, at start or later, is tried again after 5 seconds,
+  then 10, 20 and so on, up to every 5 minutes, each wait varied by up to a
+  quarter so that replicas do not come back in step. The log line gives the
+  wait as `retryIn`. Once it connects the log says so, and once the connection
+  has lasted — to a bridge's next round, or a task forwarded; through a
+  consumer's first 5 seconds of consuming — the next outage starts again from
+  5 seconds. A broker that takes each connection and drops it before then is
+  waited for as if it were down. Nothing is lost meanwhile: tasks wait in
+  Metis, and messages wait on the broker.
+- **A connection the broker drops** — the broker restarting, the network
+  cut — is noticed at once. A bridge connects again at its next round, a
+  consumer after about 5 seconds.
 - **An exchange that does not exist**, or that the broker's user may not
   publish to, makes the broker close the bridge's channel on the first publish.
-  The bridge does not open another until its connection drops, so every task is
-  handed back at every poll, and fixing the exchange is not enough: restart
-  after fixing it.
+  The task is handed back without spending a retry, the rest of that round's
+  tasks go back unpublished, and the bridge opens a new channel on the same
+  connection at its next round. Until the exchange is there each round hands
+  the tasks back again; once it is, the next round forwards them. No restart.
+- **A broker that takes a publish and does not confirm it** within
+  `METIS_RABBITMQ_CONFIRM_TIMEOUT` — one out of memory or disk, say — is
+  treated as having refused it: the task is handed back, the rest of the round
+  goes back unpublished, and the next round publishes on a new channel, since
+  the broker's late answer about the lost message could be read as its answer
+  about the next. The broker may have delivered it all the same, so the worker
+  can see it twice.
+- **A consumer whose queue is deleted**, which makes the broker cancel it, or
+  whose channel the broker closes, says why and consumes again on a new
+  channel of the same connection about 5 seconds later, declaring the queue and
+  its dead-letter queue again. A dead-letter publish the broker does not
+  confirm in time puts the message back on the queue and replaces the channel.
+
+Each problem is logged at `error` the first time, naming the bridge or
+consumer and giving the broker's reason. The same problem again is logged at
+`debug` until the bridge or consumer is working again — connected anew, a task
+forwarded, consuming again — and the next problem after that is at `error`
+afresh. What an operator sees:
+
+| Line | Level | When |
+| :-- | :-- | :-- |
+| `A RabbitMQ bridge connected to its broker` | info | Every connection, the first and each after a loss. |
+| `A RabbitMQ bridge could not connect to its broker` | error, then debug | The broker cannot be reached, or dropped the connection the bridge made before its next round; with the reason and `retryIn`. |
+| `The broker closed a RabbitMQ bridge's channel or connection; the bridge opens a new one at its next round` | error, then debug | With the broker's reason, such as `the broker closed the channel: Exception (404) Reason: "NOT_FOUND - no exchange 'billing' in vhost '/'"`. |
+| `A task was not accepted by the broker and was handed back` | error, then debug | With `taskID` and why: refused, returned as unroutable, or not confirmed in time. |
+| `Tasks the bridge fetched and did not publish were handed back` | warn | The rest of a round after a closed channel or a missed confirm, or what was fetched when the bridge stopped. |
+| `A RabbitMQ consumer is consuming from its queue` | info | Every time it starts consuming. |
+| `A RabbitMQ consumer could not consume from its queue; retrying` | error, then debug | It could not connect, or declare the queue, or start consuming; with the reason and `retryIn`. |
+| `A RabbitMQ consumer stopped receiving messages from its queue; it will consume again` | error, then debug | With the broker's reason, or that the broker cancelled the consumer, and `retryIn`. |
 
 ### What the bridge publishes, and what a worker does with it
 
 Every 5 seconds each bridge takes up to ten tasks of its topic and publishes
 each one as JSON — the task as the external-task API returns it, with its `id`,
 `variables`, `worker_id` and `lock_expiration` — with a `task_id` header.
-Publishes are confirmed and `mandatory`: a task the broker does not accept, or
-cannot route to a queue, is handed back at once without spending one of its
-retries, and is offered again at the next poll.
+Publishes are confirmed and `mandatory`: a task the broker does not accept,
+cannot route to a queue, or does not confirm within
+`METIS_RABBITMQ_CONFIRM_TIMEOUT`, is handed back at once without spending one
+of its retries, and is offered again at the next poll. So is a task the bridge
+had fetched and not yet published when the server stops.
 
 The worker completes the task, or reports its failure, through the
 external-task API like any other worker, with the `worker_id` the message
@@ -401,13 +449,6 @@ curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/complete \
   -d '{"worker_id":"messaging-bridge","variables":{"reversed":true}}'
 ```
 
-- **The worker has 30 seconds.** The bridge locks each task for 30 seconds, and
-  that is the worker's whole budget, time spent waiting on the queue included.
-  A task still open when its lock runs out is published again at the next
-  poll, and only one completion is accepted. So a slow worker, or a long
-  queue, means the same task delivered twice and done twice — harmless only if
-  the handler is idempotent, which any external-task worker's must be. Keep
-  the queue short.
 - **A topic is shared by an organization's projects.** A bridge publishes every
   task of its topic in the project's organization: the same tasks a worker of
   that organization fetching the topic through the API would get. Run one
@@ -416,6 +457,28 @@ curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/complete \
   environment of their own are not bridged.
 - The message carries the task's variables. Use `amqps://` for a broker outside
   your network.
+
+#### The worker's budget is the bridge's lock
+
+The bridge locks each task when it fetches it, for its `lock_seconds` — five
+minutes unless the entry says otherwise — and the lock covers the task's whole
+trip: the time its message waits on the queue, and the time the worker takes.
+A worker cannot extend it. The external-task API has fetch-and-lock, complete
+and failure, and nothing that extends a lock; the message's `lock_expiration`
+says when it runs out.
+
+A task still open when its lock runs out is published again at the bridge's
+next round, and only one completion is accepted. So a worker that takes longer,
+or a queue that backs up for longer, means the same task delivered twice and
+done twice — harmless only if the handler is idempotent, which any
+external-task worker's must be. It was a fixed 30 seconds, which a queue that
+backed up at all ran through, so the backlog multiplied itself.
+
+Set `lock_seconds` above the longest the queue is expected to back up plus the
+longest the work takes. A longer lock has one cost: a task whose message is
+lost — the queue purged, or, since the bridge publishes its messages as
+transient, a broker that restarted with them still queued — is published
+again only once its lock runs out, and so is the task of a worker that died.
 
 ### What the consumer expects
 
