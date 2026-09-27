@@ -30,6 +30,7 @@ import type { DecisionInputColumn, DecisionOutputColumn } from '../domain/decisi
 import type { DecisionTestRow } from '../domain/decisionTests';
 import { useRunDecisionTests } from '../hooks/useDecisions';
 import type { ApiDecisionTestResult } from '../services/domains/decisionService';
+import { errorMessage } from '../services/shared/errors';
 
 export function DecisionTests({
   decisionId,
@@ -155,7 +156,7 @@ export function DecisionTests({
                   <Table.Td>
                     {result && (
                       <Tooltip
-                        label={result.err || result.mismatches?.join('; ') || 'Passed'}
+                        label={result.err ? errorMessage(result.err) : result.mismatches?.join('; ') || 'Passed'}
                         multiline
                         w={260}
                         withArrow
@@ -235,7 +236,7 @@ export function DecisionTests({
             .filter((result) => !result.passed)
             .map((result) => (
               <Text key={result.id} size="xs" c="red.7">
-                {result.name}: {result.err || result.mismatches?.join('; ')}
+                {result.name}: {result.err ? errorMessage(result.err) : result.mismatches?.join('; ')}
               </Text>
             ))}
         </Stack>

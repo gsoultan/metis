@@ -3,7 +3,7 @@ import {
   parseThemeColor,
   type CSSVariablesResolver,
   type VariantColorsResolver,
-  createTheme, rem, Card, Button, Table, Paper, ActionIcon, Badge, TextInput } from '@mantine/core';
+  createTheme, rem, Card, Button, Table, Paper, ActionIcon, Badge, TextInput, ThemeIcon } from '@mantine/core';
 import { DIMMED_DARK, DIMMED_LIGHT } from './palette';
 
 /**
@@ -63,11 +63,17 @@ const headings = {
  * reach them — the accessibility scan kept reporting the same blue after the
  * variables were fixed. This is the seam that does reach them.
  *
- * Shade 6 is Mantine's default for both a light variant's text and a filled
- * variant's background, and both fail AA at ordinary text sizes: blue-6 on
- * blue-0 measures 3.78:1 and white on blue-6 measures 3.55:1, against 4.5:1.
- * Shade 9 for text on a tint and 8 for a filled surface clear it: blue-7, the
- * obvious first guess, still measures 4.19:1 under white.
+ * Shade 6 is Mantine's default for a filled variant's background, and fails AA
+ * at ordinary text sizes: white on blue-6 measures 3.55:1, against 4.5:1.
+ * Shade 8 clears it, in both colour schemes — blue-7, the obvious first guess,
+ * still measures 4.19:1 under white.
+ *
+ * What this writes is written for both schemes at once: an inline property has
+ * no colour scheme. A fixed shade is right only where it reads on both, which
+ * is why a light variant's text is left to Mantine's own variable. That one
+ * follows the scheme — shade 9 on the light tint (see readableColourVariables),
+ * shade 0 on the dark one — where a fixed shade 9 left the webhooks card's
+ * message badges at 2.14:1 in dark mode.
  */
 export const variantColorResolver: VariantColorsResolver = (input) => {
   const resolved = defaultVariantColorsResolver(input);
@@ -82,9 +88,6 @@ export const variantColorResolver: VariantColorsResolver = (input) => {
     return resolved;
   }
 
-  if (input.variant === 'light') {
-    return { ...resolved, color: `var(--mantine-color-${parsed.color}-9)` };
-  }
   if (input.variant === 'filled') {
     return {
       ...resolved,
@@ -131,6 +134,23 @@ function readableColourVariables(): Record<string, string> {
   return variables;
 }
 
+/**
+ * The variant a filled-by-default component is given by name.
+ *
+ * "filled" is already Mantine's default for a Button, a Badge and a ThemeIcon,
+ * but Mantine writes their colours from the variant colour resolver only when
+ * a colour or a variant is passed. Given neither, the stylesheet falls back to
+ * the scheme's primary filled colour — blue-5 in dark mode — under the white
+ * label chosen against the light scheme's shade: the webhooks card's "Add a
+ * webhook" measured 2.99:1. Naming the variant sends every one through the
+ * resolver, which fills with shade 8 in both schemes: 5.02:1.
+ *
+ * The dark scheme's primary shade itself stays at 5. It is also the focus ring
+ * and the fill of a switch, a checkbox and a progress bar, which carry no text
+ * and must stand out from a dark card: 4.54:1 at shade 5, 2.70:1 at shade 8.
+ */
+const FILLED_THROUGH_THE_RESOLVER = { variant: 'filled' } as const;
+
 export const theme = createTheme({
   primaryColor: 'blue',
   primaryShade: { light: 8, dark: 5 },
@@ -165,7 +185,7 @@ export const theme = createTheme({
     }),
 
     Button: Button.extend({
-      defaultProps: { radius: 'md', fw: 500 },
+      defaultProps: { radius: 'md', fw: 500, ...FILLED_THROUGH_THE_RESOLVER },
     }),
 
     Table: Table.extend({
@@ -191,7 +211,11 @@ export const theme = createTheme({
     }),
 
     Badge: Badge.extend({
-      defaultProps: { radius: 'sm', fw: 600 },
+      defaultProps: { radius: 'sm', fw: 600, ...FILLED_THROUGH_THE_RESOLVER },
+    }),
+
+    ThemeIcon: ThemeIcon.extend({
+      defaultProps: FILLED_THROUGH_THE_RESOLVER,
     }),
 
     TextInput: TextInput.extend({

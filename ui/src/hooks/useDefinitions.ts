@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ApiNodeAction, CreateDefinitionPayload } from '../services/types';
+import { errorMessage } from '../services/shared/errors';
 
 // The queryFn ternary returned the service's real result on one branch and a
 // hand-written literal on the other. TypeScript widened that union to `{}`,
@@ -258,7 +259,7 @@ export const useImportDefinition = () => {
     onError: (error: unknown) => {
       notifications.show({
         title: 'Import Error',
-        message: (error instanceof Error ? error.message : 'Failed to import BPMN model.'),
+        message: errorMessage(error, 'Failed to import BPMN model.'),
         color: 'red',
       });
     }
