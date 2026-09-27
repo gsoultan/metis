@@ -19,14 +19,16 @@ already covered.
 Findings go through [private vulnerability
 reporting](https://github.com/gsoultan/metis/security/advisories/new), each with
 what an attacker gets, who has to be able to do what, and something that runs —
-a request, a definition, a test. Every finding in this project's history was
-found by running something against hostile input, while tests over it passed.
+a request, a definition, a test. The ten findings `SECURITY.md` lists were each
+found that way — by running something against hostile input — while tests over
+them passed.
 
 ## In scope, in order
 
 ### 1. Reaching another organization's data
 
-The worst outcome for a multi-tenant engine, and where 0.4.0 changed most.
+The worst outcome for a multi-tenant engine. 0.4.0 changed how an account's
+memberships are read and how a request is scoped.
 
 - **Choosing the tenant.** `X-Organization-ID` is checked against the caller's
   memberships (`server/interceptors/tenant/resolver.go`). For an account from
@@ -54,10 +56,11 @@ The worst outcome for a multi-tenant engine, and where 0.4.0 changed most.
 - **Recovering an account.** `--reset-password` refuses an account linked to
   the identity provider; a password change ends the account's sessions; sign-in
   attempts are throttled (`internal/pkg/loginthrottle`).
-- **Role checks.** `server/interceptors/auth/rbac.go` and `platform.go`; each
-  REST route and its Connect twin must require the same roles, and the role
-  legend test holds the pairs. A Connect refusal now carries its code rather
-  than `unknown`.
+- **Role checks.** `server/interceptors/auth/rbac.go` and `platform.go`. REST
+  and Connect serve the same endpoints (`server/endpoints`), so a Connect method
+  passes its REST twin's checks; `tests/endpointwiring` holds every declared
+  endpoint to having a chain. A Connect refusal now carries its code rather than
+  `unknown`. Wanted: a route or method that reaches a service around its chain.
 - **Work that belongs to somebody.** Claiming, completing and handing over
   tasks: a task that names nobody is an administrator's or an operator's (new
   in 0.4.0). Editing a task somebody else holds, and reading and clearing
