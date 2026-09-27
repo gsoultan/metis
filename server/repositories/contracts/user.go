@@ -31,6 +31,13 @@ type UserRepository interface {
 	// organization of any size gets the same answer.
 	HasAnotherAdministrator(ctx context.Context, organizationID, except uuid.UUID) (bool, error)
 
+	// HasAnotherGlobalAdministrator reports whether a live account other than
+	// except holds the administrator role on the account itself — in every
+	// organization it belongs to. Installation-wide, like HasAccounts: whether
+	// the installation keeps somebody who can administer what every
+	// organization shares has one answer whoever asks.
+	HasAnotherGlobalAdministrator(ctx context.Context, except uuid.UUID) (bool, error)
+
 	// SetOrganizationRoles replaces the roles an account holds in one
 	// organization alone, and touches nothing else. An account that is not a
 	// member of the organization is an apierr.ErrNotFound error: a role is

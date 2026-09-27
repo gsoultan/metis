@@ -127,3 +127,25 @@ func (s *userService) lastAdministratorRefusal(orgCtx context.Context, account m
 	return apierr.Forbiddenf("%s is the last administrator of %s; make somebody else an administrator first",
 		account.Username, org.Name)
 }
+
+// requireAnotherGlobalAdministrator refuses to take away the last account that
+// holds the administrator role in every organization.
+//
+// Only such an account can add an organization, manage the platform accounts,
+// and — where the platform gate admits it — change what every organization
+// shares, a role held in every organization included. A role granted in one
+// organization never makes somebody one, so an installation left without any
+// could not get one back through Metis, however well each organization is
+// administered.
+func (s *userService) requireAnotherGlobalAdministrator(ctx context.Context, account models.UserModel) error {
+	another, err := s.repo.User().HasAnotherGlobalAdministrator(ctx, uuid.UUID(account.ID))
+	if err != nil {
+		return fmt.Errorf("could not count the administrators of every organization: %w", err)
+	}
+	if another {
+		return nil
+	}
+	return apierr.Forbiddenf("%s is the last administrator of every organization; make somebody else one first: only an "+
+		"administrator of every organization can add an organization, manage the platform accounts and change what "+
+		"every organization shares", account.Username)
+}

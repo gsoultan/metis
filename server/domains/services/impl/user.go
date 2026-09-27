@@ -271,6 +271,9 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 		if err := s.requireAnotherAdministrator(ctx, stored, administeredOnlyThroughGlobalRole(stored)); err != nil {
 			return err
 		}
+		if err := s.requireAnotherGlobalAdministrator(ctx, stored); err != nil {
+			return err
+		}
 	}
 
 	stored.FullName = u.FullName
@@ -423,6 +426,11 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	}
 	if err := s.requireAnotherAdministrator(ctx, stored, administeredOrganizations(stored)); err != nil {
 		return err
+	}
+	if entities.HasRole(stored.Roles, entities.RoleAdmin) {
+		if err := s.requireAnotherGlobalAdministrator(ctx, stored); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.User().Delete(ctx, id); err != nil {
 		return err

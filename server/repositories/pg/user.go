@@ -272,6 +272,47 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 	return false, nil
 }
 
+// otherGlobalAdministratorCandidates reads the roles of the live accounts,
+// other than one, whose own roles could name the administrator role. Narrowed
+// as otherAdministratorCandidates is, and decided the same way.
+const otherGlobalAdministratorCandidates = `SELECT u.roles::text
+	  FROM users u
+	 WHERE u.id <> $1
+	   AND u.deleted_at IS NULL
+	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
+
+// HasAnotherGlobalAdministrator reports whether an account besides one holds
+// the administrator role in every organization.
+//
+// Unscoped, like Count and HasAccounts: the answer is one bit about the
+// installation, and it has to count accounts in organizations the caller is
+// not in — the other administrator of every organization may well work in
+// another one.
+func (r *userRepository) HasAnotherGlobalAdministrator(ctx context.Context, except uuid.UUID) (bool, error) {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return false, err
+	}
+	rows, err := ex.Query(ctx, otherGlobalAdministratorCandidates, []any{except})
+	if err != nil {
+		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		administers, err := administersFrom(rows.RawValues())
+		if err != nil {
+			return false, err
+		}
+		if administers {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
+	}
+	return false, nil
+}
+
 // administersFrom decides one candidate: the administrator role held in every
 // organization, or in the one asked about.
 func administersFrom(values [][]byte) (bool, error) {

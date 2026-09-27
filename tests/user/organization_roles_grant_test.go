@@ -251,15 +251,46 @@ func TestTheLastAdministratorOfAnOrganizationCannotBeDemotedWhileAnotherHasAdmin
 
 // Whoever administers an organization counts as its administrator, whether the
 // role is held there or everywhere — so removing a global administrator is not
-// refused while an administrator of the organization alone remains.
+// refused while an administrator of the organization alone remains. Sue, an
+// administrator of every organization working in Globex, is there so that
+// root is not the last of those, which is kept for its own reason (below).
 func TestAnAdministratorOfTheOrganizationAloneCountsAsAnother(t *testing.T) {
 	w := newOrgRolesWorld(t, "root")
 	w.account("root", []string{entities.RoleAdmin}, w.acme)
+	w.account("sue", []string{entities.RoleAdmin}, w.globex)
 	w.account("kim", nil, w.acme)
 	w.holdsIn("kim", w.acme, entities.RoleAdmin)
 
 	if status, body := w.grantEverywhere("root", "root", w.acme); status != http.StatusOK {
 		t.Fatalf("the global administrator stepping down while Kim administers Acme: got %d (%s), want 200", status, body)
+	}
+}
+
+// Only an administrator of every organization can add an organization, manage
+// the platform accounts and change what every organization shares, and no role
+// held in one organization makes somebody one. So the last of them is kept, as
+// the last administrator of an organization is — even while every
+// organization has an administrator of its own, who could not put one back.
+func TestTheLastAdministratorOfEveryOrganizationIsKept(t *testing.T) {
+	w := newOrgRolesWorld(t, "root")
+	w.account("root", []string{entities.RoleAdmin}, w.acme)
+	w.account("kim", nil, w.acme)
+	w.holdsIn("kim", w.acme, entities.RoleAdmin)
+	const last = "root is the last administrator of every organization"
+
+	status, body := w.grantEverywhere("root", "root", w.acme)
+	refusedNaming(t, status, body, last)
+	status, body = w.call("root", http.MethodDelete, "/api/v1/users/"+w.ids["root"].String(), w.acme, nil)
+	refusedNaming(t, status, body, last)
+	if status, body := w.call("root", http.MethodPost, "/api/v1/organizations", w.acme,
+		map[string]string{"name": "Initech"}); status != http.StatusOK {
+		t.Fatalf("root is still an administrator of every organization after the refusals: got %d (%s)", status, body)
+	}
+
+	// With another, root may step down.
+	w.account("sue", []string{entities.RoleAdmin}, w.globex)
+	if status, body := w.grantEverywhere("root", "root", w.acme); status != http.StatusOK {
+		t.Fatalf("root stepping down with Sue in place: got %d (%s), want 200", status, body)
 	}
 }
 
