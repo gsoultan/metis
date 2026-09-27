@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-kit/kit/endpoint"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/tenantscope"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
@@ -89,7 +90,13 @@ func (r *endpointTenantResolver) Intercept(next endpoint.Endpoint) endpoint.Endp
 			return nil, err
 		}
 
-		return next(entities.WithTenantContext(ctx, entities.TenantContext{TenantID: active}), request)
+		// The tenant's scope is read once for the request and ended with it:
+		// every scoped repository call the endpoint makes reuses one read of
+		// the organization's projects, and nothing outlives the call. See
+		// tenantscope.Request.
+		ctx, scope := tenantscope.WithRequest(entities.WithTenantContext(ctx, entities.TenantContext{TenantID: active}), active)
+		defer scope.End()
+		return next(ctx, request)
 	}
 }
 

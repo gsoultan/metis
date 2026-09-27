@@ -180,3 +180,32 @@ func TestOCELDropsEventsWithNoCase(t *testing.T) {
 		t.Errorf("objects: got %d, want 0", len(log.Objects))
 	}
 }
+
+// TestOCELNamesNoVersionItCouldNotRead covers a case whose definition is known
+// only by its id — deleted since, or out of the reader's scope. Version 0 is
+// not a version and an empty key is not a process: saying either would file the
+// case under a definition that never existed. It says nothing about them.
+func TestOCELNamesNoVersionItCouldNotRead(t *testing.T) {
+	instance := uuid.New()
+	known := map[uuid.UUID]entities.ProcessInstance{
+		instance: {
+			ID:         instance,
+			Status:     entities.ProcessCompleted,
+			Definition: &entities.ProcessDefinition{ID: uuid.New()},
+		},
+	}
+	log := buildOCELLog([]entities.AuditEntry{
+		auditEntry(instance, "node_reached", "a", "A", time.Now(), nil),
+	}, known, entities.OCELOptions{})
+
+	for _, o := range log.Objects {
+		if o.Type == entities.OCELObjectDefinition {
+			t.Errorf("a definition object %q was invented for a definition nobody could read", o.ID)
+		}
+		for _, attr := range o.Attributes {
+			if attr.Name == "definition_key" || attr.Name == "definition_version" {
+				t.Errorf("the case says %s %q about a definition nobody could read", attr.Name, attr.Value)
+			}
+		}
+	}
+}

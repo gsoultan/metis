@@ -45,6 +45,7 @@ import { useAppStore } from '../store/useAppStore';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
 import { firstSetupStep, SETUP_STEPS, setupRequestFor } from '../domain/setupWizard';
 import { setupService } from '../services/domains/setupService';
+import { errorMessage } from '../services/shared/errors';
 import { SetupComplete } from '../components/setup/SetupComplete';
 import { useEffect } from 'react';
 
@@ -224,7 +225,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
       });
       setConnectionResult(result);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Connection test failed';
+      const message = errorMessage(err, 'Connection test failed');
       setConnectionResult({ success: false, message });
     } finally {
       setTestingConnection(false);
@@ -246,12 +247,12 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
     try {
       const { err } = await processService.setup(setupRequestFor(form.values, fromEnvironment));
       if (err) {
-        setError(err);
+        setError(errorMessage(err, 'Setup failed'));
       } else {
         setActive(SETUP_STEPS.done);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Setup failed';
+      const message = errorMessage(err, 'Setup failed');
       setError(message);
     } finally {
       setLoading(false);

@@ -1,6 +1,6 @@
 import { List, ScrollArea, Stack, Text } from '@mantine/core';
 
-import { areaHeadingKey, type LegendArea } from '../../domain/roleLegend';
+import { actionLabel, areaHeadingKey, type LegendArea } from '../../domain/roleLegend';
 import type { RoleOption } from '../../domain/roles';
 import { useTranslation } from '../../i18n/context';
 
@@ -71,7 +71,7 @@ function LegendBody({ legend }: { legend: LegendState }) {
             <List size="sm" spacing={2}>
               {actions.map((action) => (
                 <List.Item key={action.method}>
-                  {action.label}
+                  {actionLabel(action, t)}
                   {/* The role has to be held in every organization: one held here alone does not admit to it. */}
                   {action.global === true && (
                     <Text span size="xs" c="dimmed">

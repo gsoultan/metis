@@ -81,11 +81,11 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   if (isLoading) return <Text>Loading timeline...</Text>;
   if (!data?.entries || data.entries.length === 0) return <Text c="dimmed">No activity recorded yet.</Text>;
 
-  // Filter out repetitive technical events for the business view if needed, 
-  // but for now we use the narratives we generated.
-  const entries = [...data.entries].sort((a, b) => 
-    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
+  // Newest first: the trail arrives oldest first, in the order it was written,
+  // so this is that order reversed. Not a sort by timestamp — the entries one
+  // step writes share its timestamp, and a stable sort left them oldest first
+  // under the newest-first ones, the step's last entry below its first.
+  const entries = [...data.entries].reverse();
 
   /*
    * Height follows the content up to a cap, rather than always being 500px.

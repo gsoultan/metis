@@ -33,6 +33,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // The targets, from .junie/roadmap.md §1 — the same ones tests/slo asserts.
@@ -228,7 +229,7 @@ func (h *loadHarness) seedVolume(t *testing.T, instances int) {
 	perTenant := instances / len(tenantProjects)
 	total, totalTasks := 0, 0
 	for _, projectID := range tenantProjects {
-		created, tasks := h.seedInstances(t, projectID, perTenant)
+		created, tasks := h.seedInstances(t, projectID, h.definitionID, perTenant)
 		total += created
 		totalTasks += tasks
 	}
@@ -237,7 +238,7 @@ func (h *loadHarness) seedVolume(t *testing.T, instances int) {
 	t.Logf("seeding took %v", time.Since(start).Round(time.Second))
 }
 
-func (h *loadHarness) seedInstances(t *testing.T, projectID uuid.UUID, n int) (instances, tasks int) {
+func (h *loadHarness) seedInstances(t *testing.T, projectID, definitionID uuid.UUID, n int) (instances, tasks int) {
 	t.Helper()
 
 	for offset := 0; offset < n; offset += seedBatchSize {
@@ -251,9 +252,14 @@ func (h *loadHarness) seedInstances(t *testing.T, projectID uuid.UUID, n int) (i
 			// a realistic distribution rather than one instant.
 			created := time.Now().Add(-time.Duration(offset+i) * time.Minute)
 
+			// Active, with its token on the approval: what an instance waiting
+			// on a person looks like, and what the dashboard's counts and its
+			// step heat map read. "running" is not a status any read asks for.
 			instanceRows = append(instanceRows, instanceRow{
-				ID: id, ProjectID: projectID, DefinitionID: h.definitionID,
-				Status: "running", CreatedAt: created, UpdatedAt: created,
+				ID: id, ProjectID: projectID, DefinitionID: definitionID,
+				Status: string(models.ProcessActive), CreatedAt: created, UpdatedAt: created,
+				Tokens: fmt.Sprintf(`[{"id":%q,"instance_id":%q,"node_id":"approve","status":%q}]`,
+					uuid.New(), id, models.TokenActive),
 			})
 			// Most instances of a one-human-step process are sitting on that
 			// step, which is what makes the inbox the table that grows.
@@ -288,6 +294,7 @@ type instanceRow struct {
 	ProjectID    uuid.UUID `gorm:"column:project_id"`
 	DefinitionID uuid.UUID `gorm:"column:definition_id"`
 	Status       string    `gorm:"column:status"`
+	Tokens       string    `gorm:"column:tokens"`
 	CreatedAt    time.Time `gorm:"column:created_at"`
 	UpdatedAt    time.Time `gorm:"column:updated_at"`
 }

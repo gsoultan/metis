@@ -53,7 +53,6 @@ export function LegacySigningNotice({ hook }: { hook: ApiWebhook }) {
         onClose={help.close}
         title={`Moving ${who} to v2 signatures`}
         size="lg"
-        closeButtonProps={{ 'aria-label': 'Close' }}
       >
         <Stack gap="md">
           <Text size="sm">

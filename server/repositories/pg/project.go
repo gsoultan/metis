@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/tenantscope"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -129,6 +130,10 @@ func (r *projectRepository) Create(ctx context.Context, p models.ProjectModel) e
 	if err != nil {
 		return err
 	}
+	// The request's scope was read without this project, so the next scoped
+	// call reads it again — whatever the insert did — and a definition deployed
+	// into the project straight after finds it.
+	defer tenantscope.RequestFrom(ctx).Forget()
 	ins := project.Create()
 	if id := uuid.UUID(p.ID); id != uuid.Nil {
 		ins.SetID(id)
@@ -180,6 +185,9 @@ func (r *projectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	// Out of the request's scope from here, as it was when every call read the
+	// list itself.
+	defer tenantscope.RequestFrom(ctx).Forget()
 	if err := project.Delete(ctx, ex, id); err != nil {
 		if errors.Is(err, runtime.ErrNoRow) {
 			return fmt.Errorf("%w: no such project", apierr.ErrNotFound)

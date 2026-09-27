@@ -39,9 +39,10 @@ type matchedRule struct {
 
 // collectMatchingRules returns all rules whose input conditions match the variables.
 func (e *DecisionTableEvaluatorImpl) collectMatchingRules(ctx context.Context, def entities.DecisionDefinition, variables map[string]any) ([]matchedRule, error) {
+	columns := columnVariables(def)
 	var matched []matchedRule
 	for i, rule := range def.Rules {
-		ok, err := e.ruleMatches(ctx, def, rule, variables)
+		ok, err := e.ruleMatches(ctx, def, rule, variables, columns)
 		if err != nil {
 			return nil, err
 		}
@@ -53,20 +54,44 @@ func (e *DecisionTableEvaluatorImpl) collectMatchingRules(ctx context.Context, d
 }
 
 // ruleMatches returns true if all input conditions of the rule match the variables.
-func (e *DecisionTableEvaluatorImpl) ruleMatches(ctx context.Context, def entities.DecisionDefinition, rule entities.DecisionRule, variables map[string]any) (bool, error) {
-	for i, inputExpr := range rule.Inputs {
+//
+// Each cell is tested against its own column's value with every variable of
+// the decision in scope, as DMN tests a cell: `> minimum` compares with the
+// column beside it, and `> credit_limit` with a variable no column reads. A
+// cell used to be given its own column's value and nothing else, so each of
+// those compared with null — never matching, or, under `!=`, always.
+func (e *DecisionTableEvaluatorImpl) ruleMatches(
+	ctx context.Context,
+	def entities.DecisionDefinition,
+	rule entities.DecisionRule,
+	variables map[string]any,
+	columns []string,
+) (bool, error) {
+	for i, cell := range rule.Inputs {
 		if i >= len(def.Inputs) {
 			break
 		}
-		inputDef := def.Inputs[i]
-		inputVal := variables[inputDef.Expression]
-		vars := map[string]any{"_input": inputVal}
-		ok, err := e.expr.EvaluateBool(ctx, inputExpr, vars)
+		scope := entities.DecisionCellScope{
+			Input:     variables[def.Inputs[i].Expression],
+			Variables: variables,
+			Columns:   columns,
+		}
+		ok, err := e.expr.MatchesCell(ctx, cell, scope)
 		if err != nil || !ok {
 			return false, err
 		}
 	}
 	return true, nil
+}
+
+// columnVariables are the variables the table's condition columns read, which
+// are the names a lone word in a cell can mean.
+func columnVariables(def entities.DecisionDefinition) []string {
+	names := make([]string, len(def.Inputs))
+	for i, input := range def.Inputs {
+		names[i] = input.Expression
+	}
+	return names
 }
 
 // applyHitPolicy applies the table's hit policy to the matched lines.

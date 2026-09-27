@@ -8,11 +8,27 @@
  * table that does not exist, so each rule here names the engine behaviour it
  * follows. A cell outside it makes a column "not checked", never guessed at.
  */
-import { ANY_VALUE } from './decisionTable';
+import { ANY_VALUE, type DecisionInputColumn } from './decisionTable';
 
 const NUMBER_LITERAL = /^-?\d+(\.\d+)?$/;
 const COMPARISON = /^(>=|<=|>|<|!=|=)\s*-?\d+(\.\d+)?$/;
 const RANGE = /^[[\]]\s*-?[\d.]+\s*\.\.\s*-?[\d.]+\s*[[\]]$/;
+
+/**
+ * The variables a table's condition columns read.
+ *
+ * The engine tests a cell with the rest of the case in scope, so a lone word
+ * naming one of them — `minimum`, beside a minimum column — is that column's
+ * value, not the word. A check reading it as the word describes a table that
+ * does not exist.
+ */
+export type ColumnNames = ReadonlySet<string>;
+
+const NO_COLUMNS: ColumnNames = new Set();
+
+export function columnNamesOf(inputs: DecisionInputColumn[]): ColumnNames {
+  return new Set(inputs.map((input) => input.expression.trim()).filter((name) => name !== ''));
+}
 
 /**
  * Whether this analysis understands a cell well enough to trust its verdict.
@@ -23,8 +39,11 @@ const RANGE = /^[[\]]\s*-?[\d.]+\s*\.\.\s*-?[\d.]+\s*[[\]]$/;
  * the text "> 5". The engine compares it with whatever number the process
  * supplies, so the checks built on that reading described a table that does
  * not exist.
+ *
+ * A cell that compares with another column is not understood either: which
+ * cases it decides depends on a value the check cannot know.
  */
-export function understandsCell(cell: string, type: string): boolean {
+export function understandsCell(cell: string, type: string, columns: ColumnNames = NO_COLUMNS): boolean {
   const text = cell.trim();
   if (text === '' || text === ANY_VALUE) return true;
   if (COMPARISON.test(text) || RANGE.test(text)) return type === 'number';
@@ -34,12 +53,15 @@ export function understandsCell(cell: string, type: string): boolean {
   // text": a condition that matches nearly everything, and an overlap error
   // that blocked Save over a table the check could not read.
   const negated = text.match(/^not\((.+)\)$/);
-  if (negated) return understandsCell(negated[1], type) && !isWildcardText(negated[1]);
+  if (negated) return understandsCell(negated[1], type, columns) && !isWildcardText(negated[1]);
   // A list, or a single literal.
-  return text.split(',').every(readablePart);
+  return text.split(',').every((part) => readablePart(part, columns));
 }
 
-/** One name: what the engine reads as text when it is written without quotes. */
+/**
+ * One name: what the engine reads as text when it is written without quotes,
+ * unless it names one of the table's columns.
+ */
 const SINGLE_NAME = /^[A-Za-z_]\w*$/;
 
 /**
@@ -54,25 +76,62 @@ const NOT_TEXT = new Set(['and', 'or', 'not', 'null', 'in', 'between', 'if', 'th
  * reads `Gold Member`, `SKU-1`, `3M`, `1 000`, `v1.2` and `.5` as something
  * else or not at all — so a table it cannot run showed a green tick.
  */
-function readablePart(part: string): boolean {
+function readablePart(part: string, columns: ColumnNames): boolean {
   const text = part.trim();
   if (/^("[^"]*"|'[^']*')$/.test(text) || NUMBER_LITERAL.test(text)) return true;
-  return SINGLE_NAME.test(text) && !NOT_TEXT.has(text);
+  return SINGLE_NAME.test(text) && !NOT_TEXT.has(text) && !columns.has(text);
 }
 
 /**
  * Whether a cell holds unquoted text the engine cannot read as text — more
  * than one plain word, a dash or a dot, a digit first, or a keyword such as
  * `in` — which quotes would make readable. `null` is left out: unquoted, it
- * means no value at all, which may be what was meant.
+ * means no value at all, which may be what was meant. So is the dash that means
+ * any value, which sits in every new line: it was taken for unquoted text
+ * beside any cell the check could not read, and such a table was told to quote
+ * its cells. So is a column's name, which the engine reads as that column.
  */
-export function needsQuotes(cell: string): boolean {
+export function needsQuotes(cell: string, columns: ColumnNames = NO_COLUMNS): boolean {
   const text = cell.trim().replace(/^not\((.+)\)$/, '$1');
+  if (isWildcardText(text)) return false;
   return text.split(',').some((part) => {
     const word = part.trim();
-    if (word === 'null' || word === '_input' || /^-\s*\d/.test(word)) return false;
-    return /^[\w .-]+$/.test(word) && !readablePart(word);
+    if (word === 'null' || word === '_input' || columns.has(word) || /^-\s*\d/.test(word)) return false;
+    return /^[\w .-]+$/.test(word) && !readablePart(word, columns);
   });
+}
+
+/** Words that look like names and are not: keywords, literals, and the cell's own `_input`. */
+const NOT_A_NAME = new Set(['and', 'or', 'not', 'null', 'true', 'false', 'in', 'between', 'if', 'then', 'else', '_input']);
+
+/** A variable, or a path into one: `minimum`, `limits.ceiling`. */
+const NAME_PATH = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/;
+const COMPARED = /^(?:>=|<=|>|<|!=|=)\s*(.+)$/;
+const RANGE_ENDS = /^[[\]]\s*(.+?)\s*\.\.\s*(.+?)\s*[[\]]$/;
+
+/**
+ * The names a cell compares with, as the engine reads them: another column —
+ * `> minimum`, `[minimum..maximum]`, or `minimum` on its own — or a variable of
+ * the decision, `> credit_limit`. Only plain references: a name inside a
+ * function call is part of a condition this check does not read at all.
+ */
+export function comparedNames(cell: string, columns: ColumnNames): string[] {
+  const text = cell.trim().replace(/^not\((.+)\)$/, '$1');
+  return [...new Set(text.split(',').flatMap((part) => namesIn(part.trim(), columns)))];
+}
+
+function namesIn(part: string, columns: ColumnNames): string[] {
+  // Alone, a word is text to the engine unless it names a column.
+  if (SINGLE_NAME.test(part)) return columns.has(part) ? [part] : [];
+  const operand = part.match(COMPARED)?.[1];
+  if (operand !== undefined) return asName(operand);
+  const ends = part.match(RANGE_ENDS);
+  return ends ? [...asName(ends[1]), ...asName(ends[2])] : [];
+}
+
+function asName(operand: string): string[] {
+  const text = operand.trim();
+  return NAME_PATH.test(text) && !NOT_A_NAME.has(text) ? [text] : [];
 }
 
 /** Whether a cell compares numbers — `> 5`, `[1..10]`, either under not( ) — rather than naming values. */

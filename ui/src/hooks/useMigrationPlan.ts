@@ -42,7 +42,7 @@ export function useMigrationPlan(request: MigrationRequest | null) {
     };
     preview
       .mutateAsync(request)
-      .then((result) => answered(result.plan ?? null, result.err ?? null))
+      .then((result) => answered(result.plan ?? null, result.err ? errorMessage(result.err) : null))
       .catch((error: unknown) => answered(null, errorMessage(error, 'The plan could not be worked out.')));
     return () => {
       cancelled = true;

@@ -130,11 +130,13 @@ describe('what the person is told', () => {
   let restore = () => {};
   afterEach(() => restore());
 
-  // The server's words, as tests/user/role_matrix_test.go holds them.
-  const lastAdministrator = 'forbidden: dana is the last administrator of Acme; make somebody else an administrator first';
+  // The server's words, as tests/user/role_matrix_test.go holds them. The
+  // "forbidden: " in front is the class a transport answers 403 by, not
+  // something to tell the person.
+  const lastAdministrator = 'dana is the last administrator of Acme; make somebody else an administrator first';
 
   it('is the server’s refusal in its own words, not swallowed', async () => {
-    ({ restore } = stubFetch({ error: lastAdministrator }, 403));
+    ({ restore } = stubFetch({ error: `forbidden: ${lastAdministrator}` }, 403));
 
     const outcome = await sendRoleChange(roleUpdate(dana, 'ADMIN', false), save);
 
@@ -146,10 +148,13 @@ describe('what the person is told', () => {
     });
   });
 
+  // A tick for an account another organization shares is this organization's
+  // business now, and is not refused for it. Somebody who administers another
+  // organization, and not this one, still is.
   it('is the server’s refusal to somebody who administers another organization and not this one, too', async () => {
     const notHere =
-      'forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it';
-    ({ restore } = stubFetch({ error: notHere }, 403));
+      'this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it';
+    ({ restore } = stubFetch({ error: `forbidden: ${notHere}` }, 403));
 
     const outcome = await sendRoleChange(roleUpdate(dana, 'OPERATOR', true), save);
 
