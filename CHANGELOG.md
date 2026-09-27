@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-28
+
+A minor release that closes twelve security holes, so anyone running 0.3.0
+should take it — and one that asks something of whoever upgrades, so read
+**Upgrading** first. With OIDC on, local accounts sign in again. A user task
+that names nobody becomes an administrator's or an operator's. Roles can be
+held in one organization. Migrations 21 to 30 run at the first boot: three stop
+the upgrade on purpose rather than guess a timestamp or hold writes behind a
+long read, and one deletes group memberships that cross organizations.
+
+The holes worth knowing by name: any member could read and clear a colleague's
+notifications; the administrator of one organization could change the
+connectors every organization runs, and grant roles in all of them; any
+signed-in account could make the server connect wherever it liked; and a
+captured webhook delivery could be replayed as often as anyone liked.
+
 ### Upgrading
 
 Read [`docs/upgrading.md`](docs/upgrading.md) first, and rehearse on a copy of
