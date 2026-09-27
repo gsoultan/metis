@@ -17,6 +17,10 @@ type UserService interface {
 	// vouching for somebody, who then acts as the account linked to them.
 	IdentityProviderSignIn
 
+	// OrganizationRoleGrants is an organization's administrators granting
+	// roles in their own organization.
+	OrganizationRoleGrants
+
 	GetUser(ctx context.Context, id uuid.UUID) (entities.User, error)
 	GetUserByUsername(ctx context.Context, username string) (entities.User, error)
 	ListUsers(ctx context.Context, organizationID uuid.UUID) ([]entities.User, error)

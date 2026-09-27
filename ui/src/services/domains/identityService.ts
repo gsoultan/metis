@@ -20,6 +20,7 @@ interface UserWriteBody {
   display_name: string;
   email: string;
   roles?: string[];
+  organization_roles?: string[];
   organizations?: Array<{ id: string }>;
 }
 
@@ -27,12 +28,23 @@ interface UserWriteBody {
  * A self-update omits `roles`: the server keeps the stored ones when the
  * field is absent, and a person editing their own name must not be able to
  * hand themselves a different role on the way past.
+ *
+ * `roles` are the ones held in every organization, which only a platform
+ * administrator may change; anybody else leaves the field out. The roles held
+ * in one organization are not part of the account, and are changed with
+ * setOrganizationRoles.
  */
 export interface UserUpdate {
   full_name: string;
   display_name: string;
   email: string;
   roles?: string[];
+}
+
+/** The signed-in account, and whether it may change roles held in every organization. */
+export interface OwnProfile {
+  user?: ApiOrganizationUser;
+  mayChangeGlobalRoles: boolean;
 }
 
 /**
@@ -76,6 +88,7 @@ export const identityService = {
         display_name: user.display_name,
         email: user.email,
         roles: user.roles,
+        organization_roles: user.organization_roles,
         organizations: [{ id: user.organization_id }],
       },
       password: user.password,
@@ -105,9 +118,13 @@ export const identityService = {
   // The caller's own profile, named by the session like the password above.
   // The Profile page saved through updateUser, whose PUT /users/{id} only an
   // administrator may call, so for everybody else it failed.
-  async getOwnProfile(signal?: AbortSignal) {
-    const data = await requestJSON<{ user?: ApiOrganizationUser; err?: string }>("/users/me", { signal });
-    return { user: raiseIfRefused(data).user };
+  async getOwnProfile(signal?: AbortSignal): Promise<OwnProfile> {
+    const data = await requestJSON<{ user?: ApiOrganizationUser; may_change_global_roles?: boolean; err?: string }>(
+      "/users/me",
+      { signal },
+    );
+    const answered = raiseIfRefused(data);
+    return { user: answered.user, mayChangeGlobalRoles: answered.may_change_global_roles === true };
   },
 
   async updateOwnProfile(profile: OwnProfileUpdate, signal?: AbortSignal) {
@@ -138,6 +155,20 @@ export const identityService = {
     const data = await requestJSON<{ err?: string }>(`/users/${id}`, {
       method: "PUT",
       body,
+      signal,
+    });
+
+    return { err: raiseIfRefused(data).err };
+  },
+
+  /**
+   * Replaces the roles an account holds in the organization being worked in —
+   * the one the server resolves the request to — and nothing else about it.
+   */
+  async setOrganizationRoles(id: string, roles: string[], signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/users/${id}/organization-roles`, {
+      method: "PUT",
+      body: { roles },
       signal,
     });
 

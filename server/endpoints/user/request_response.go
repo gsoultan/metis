@@ -90,7 +90,12 @@ type GetOwnProfileRequest struct{}
 
 type GetOwnProfileResponse struct {
 	User entities.User `json:"user"`
-	Err  error         `json:"err,omitempty"`
+
+	// MayChangeGlobalRoles is whether the caller may grant and take away the
+	// roles an account holds in every organization. The server checks again
+	// on every change; this only says what to offer.
+	MayChangeGlobalRoles bool  `json:"may_change_global_roles"`
+	Err                  error `json:"err,omitempty"`
 }
 
 func (r GetOwnProfileResponse) Failed() error { return r.Err }
@@ -107,3 +112,17 @@ type UpdateOwnProfileResponse struct {
 }
 
 func (r UpdateOwnProfileResponse) Failed() error { return r.Err }
+
+// SetOrganizationRolesRequest names the account and the roles it is to hold in
+// the organization the request is for. The organization is not a field: it is
+// the one the tenant resolver chose, among the caller's own.
+type SetOrganizationRolesRequest struct {
+	ID    uuid.UUID `json:"id"`
+	Roles []string  `json:"roles"`
+}
+
+type SetOrganizationRolesResponse struct {
+	Err error `json:"err,omitempty"`
+}
+
+func (r SetOrganizationRolesResponse) Failed() error { return r.Err }

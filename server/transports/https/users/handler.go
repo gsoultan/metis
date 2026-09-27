@@ -74,6 +74,17 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// The roles an account holds in the organization the request is for —
+	// X-Organization-ID, as on every request, checked against the caller's
+	// own memberships. Beside the account rather than inside it: PUT
+	// /users/{id} changes the account, which every organization it is in
+	// shares.
+	m.Handle("PUT /api/v1/users/{id}/organization-roles", httptransport.NewServer(
+		eps.SetOrganizationRoles,
+		decodeSetOrganizationRolesRequest,
+		common.EncodeResponse,
+		options...,
+	))
 }
 
 func decodeLoginRequest(_ context.Context, r *http.Request) (any, error) {
@@ -118,6 +129,19 @@ func decodeUpdateUserRequest(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	req.User.ID = id
+	return req, nil
+}
+
+func decodeSetOrganizationRolesRequest(_ context.Context, r *http.Request) (any, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return nil, apierr.Invalidf("the account id %q is not an id", r.PathValue("id"))
+	}
+	var req user.SetOrganizationRolesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("could not read the request body: %v", err)
+	}
+	req.ID = id
 	return req, nil
 }
 

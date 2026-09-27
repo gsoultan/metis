@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/internal/pkg/loginthrottle"
+	"github.com/gsoultan/metis/internal/pkg/platformadmins"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
@@ -34,6 +35,10 @@ type userService struct {
 	// limiter bounds requests per address, which credential stuffing spreads
 	// across; this bounds them per account, which it cannot.
 	throttle *loginthrottle.Throttle
+	// platform decides who may change a role held in every organization: the
+	// same decision, over the same operator's list, as the gate on what every
+	// organization runs.
+	platform *platformadmins.Gate
 }
 
 func NewUserService(repo repositories.Repository, jwtSecret string) contracts.UserService {
@@ -43,6 +48,7 @@ func NewUserService(repo repositories.Repository, jwtSecret string) contracts.Us
 		principals: newPrincipalCache(),
 		placements: newPlacementCache(),
 		throttle:   loginthrottle.New(),
+		platform:   platformadmins.New(organizationCount{repo: repo}),
 	}
 }
 
@@ -54,7 +60,7 @@ func (s *userService) GetUser(ctx context.Context, id uuid.UUID) (entities.User,
 	if err := requireAccountVisible(ctx, m); err != nil {
 		return entities.User{}, err
 	}
-	return adapters.UserEntityAdapter{Model: m}.ToEntity(), nil
+	return withRolesHere(adapters.UserEntityAdapter{Model: m}.ToEntity(), entities.ActingOrganization(ctx)), nil
 }
 
 func (s *userService) GetUserByUsername(ctx context.Context, username string) (entities.User, error) {
@@ -65,14 +71,23 @@ func (s *userService) GetUserByUsername(ctx context.Context, username string) (e
 	return adapters.UserEntityAdapter{Model: m}.ToEntity(), nil
 }
 
+// ListUsers lists an organization's accounts, each with the roles it holds in
+// every organization and the ones it holds in this one — never what it holds
+// in another organization it also belongs to.
 func (s *userService) ListUsers(ctx context.Context, organizationID uuid.UUID) ([]entities.User, error) {
 	ms, err := s.repo.User().ListByOrganization(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}
+	// The repository lists the organization the request is for, whatever was
+	// asked; system work lists the one asked for.
+	listed := entities.ActingOrganization(ctx)
+	if listed == uuid.Nil {
+		listed = organizationID
+	}
 	res := make([]entities.User, len(ms))
 	for i, m := range ms {
-		res[i] = adapters.UserEntityAdapter{Model: m}.ToEntity()
+		res[i] = withRolesHere(adapters.UserEntityAdapter{Model: m}.ToEntity(), listed)
 	}
 	return res, nil
 }
@@ -84,6 +99,19 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 	if err := requireOwnOrganizations(ctx, u.Organizations); err != nil {
 		return err
 	}
+	// A role on the account acts in every organization it will belong to, so
+	// it is the platform's to give. A role in the organization the request is
+	// for is that organization's administrators'.
+	if len(u.Roles) > 0 {
+		if err := s.requireGlobalRoleAuthority(ctx); err != nil {
+			return err
+		}
+	}
+	rolesHere, err := rolesForNewMember(ctx, u)
+	if err != nil {
+		return err
+	}
+	u.RolesByOrganization = rolesHere
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -234,8 +262,16 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 	if err := requireAccountAuthority(ctx, stored); err != nil {
 		return err
 	}
+	if u.Roles != nil && !sameRoles(stored.Roles, u.Roles) {
+		if err := s.requireGlobalRoleAuthority(ctx); err != nil {
+			return err
+		}
+	}
 	if losesAdministrator(stored.Roles, u.Roles) {
-		if err := s.requireAnotherAdministrator(ctx, stored); err != nil {
+		if err := s.requireAnotherAdministrator(ctx, stored, administeredOnlyThroughGlobalRole(stored)); err != nil {
+			return err
+		}
+		if err := s.requireAnotherGlobalAdministrator(ctx, stored); err != nil {
 			return err
 		}
 	}
@@ -366,6 +402,10 @@ func losesAdministrator(current, requested []string) bool {
 
 // DeleteUser removes an account the caller has authority over.
 //
+// An account holding a role in every organization takes that role with it
+// from every organization, so deleting one is a platform administrator's, as
+// taking the role away would be.
+//
 // The last-administrator check reads, then the delete writes, without a lock
 // between them: two administrators deleting each other at the same instant
 // could both see the other one still there. That needs both to be each
@@ -379,8 +419,16 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	if err := requireAccountAuthority(ctx, stored); err != nil {
 		return err
 	}
+	if holdsBuiltInRole(stored.Roles) {
+		if err := s.requireGlobalRoleAuthority(ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.requireAnotherAdministrator(ctx, stored, administeredOrganizations(stored)); err != nil {
+		return err
+	}
 	if entities.HasRole(stored.Roles, entities.RoleAdmin) {
-		if err := s.requireAnotherAdministrator(ctx, stored); err != nil {
+		if err := s.requireAnotherGlobalAdministrator(ctx, stored); err != nil {
 			return err
 		}
 	}

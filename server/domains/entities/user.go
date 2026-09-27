@@ -16,8 +16,28 @@ type User struct {
 	DisplayName   string          `json:"display_name"`
 	Organization  *Organization   `json:"organization,omitzero"`
 	Email         string          `json:"email"`
-	Roles         []string        `json:"roles"`
-	CreatedAt     time.Time       `json:"created_at,omitzero"`
+
+	// Roles are the account's global roles: it holds them in every
+	// organization it belongs to.
+	Roles     []string  `json:"roles"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+
+	// RolesByOrganization are the roles the account holds in one organization
+	// alone, by organization: granted there, and acting only in a request for
+	// it. RolesIn says what the account acts with in an organization.
+	//
+	// Never written out. The account is listed to every organization it
+	// belongs to, and what it holds in one of them is not the others' to read.
+	RolesByOrganization map[uuid.UUID][]string `json:"-"`
+
+	// OrganizationRoles are the roles the account holds in the organization it
+	// was read for — the one the request is in — and nowhere else: the part of
+	// RolesByOrganization that organization's own directory shows. Filled by
+	// the reads that answer a request. Creating an account reads it as the
+	// roles to hold in the organization the account is created in; every other
+	// write ignores it, since roles in an organization are granted by
+	// OrganizationRoleGrants.SetOrganizationRoles.
+	OrganizationRoles []string `json:"organization_roles,omitzero"`
 
 	// IdentityProvider is the issuer this account signs in through. Empty for
 	// a local account, which signs in with a password held here; set, the

@@ -3,12 +3,14 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/interceptors/contracts"
 )
 
 func okEndpoint(_ context.Context, _ any) (any, error) { return "ok", nil }
@@ -128,6 +130,68 @@ func TestRBACInterceptor(t *testing.T) {
 				t.Errorf("expected %v, got: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// The roles a request acts with are the account's global roles and the ones it
+// holds in the organization the request is for — the tenant resolver's answer,
+// which is on the context by the time the check runs. With no organization on
+// it the global roles are all there is.
+func TestTheRoleCheckCountsTheOrganizationTheRequestIsFor(t *testing.T) {
+	t.Parallel()
+	acme, globex := uuid.New(), uuid.New()
+	designerInAcme := entities.User{ID: uuid.New(), RolesByOrganization: map[uuid.UUID][]string{acme: {"DESIGNER"}}}
+	in := func(organization uuid.UUID, user any) context.Context {
+		ctx := context.WithValue(context.Background(), pkgauth.UserContextKey, user)
+		if organization == uuid.Nil {
+			return ctx
+		}
+		return entities.WithTenantContext(ctx, entities.TenantContext{TenantID: organization.String()})
+	}
+
+	cases := []struct {
+		name  string
+		ctx   context.Context
+		check func(...string) contracts.EndpointInterceptor
+		want  error
+	}{
+		{"held in the organization the request is for", in(acme, designerInAcme), NewRequireRoles, nil},
+		{"held by pointer", in(acme, &designerInAcme), NewRequireRoles, nil},
+		{"held only in another organization", in(globex, designerInAcme), NewRequireRoles, apierr.ErrForbidden},
+		{"a request for no organization", in(uuid.Nil, designerInAcme), NewRequireRoles, apierr.ErrForbidden},
+		{"a gate for what every organization shares", in(acme, designerInAcme), NewRequireGlobalRoles, apierr.ErrForbidden},
+		{"a global role at that gate", in(acme, entities.User{ID: uuid.New(), Roles: []string{"DESIGNER"}}), NewRequireGlobalRoles, nil},
+		{"a nil account", in(acme, (*entities.User)(nil)), NewRequireRoles, pkgauth.ErrUnauthorized},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := tc.check("DESIGNER").Intercept(okEndpoint)(tc.ctx, nil)
+			if tc.want == nil && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// A refusal says where the role would have to be held, so the person refused
+// knows whom to ask: an administrator of this organization, or nobody in any
+// one organization at all.
+func TestARoleRefusalSaysWhereTheRoleIsMissing(t *testing.T) {
+	t.Parallel()
+	acme := uuid.New()
+	ctx := entities.WithTenantContext(ctxWithEntityUser(nil), entities.TenantContext{TenantID: acme.String()})
+
+	_, here := NewRequireRoles("ADMIN").Intercept(okEndpoint)(ctx, nil)
+	if here == nil || !strings.Contains(here.Error(), "does not hold in this organization") {
+		t.Errorf("a refusal in an organization reads %v", here)
+	}
+	_, everywhere := NewRequireGlobalRoles("ADMIN").Intercept(okEndpoint)(ctx, nil)
+	if everywhere == nil || !strings.Contains(everywhere.Error(), "in every organization") {
+		t.Errorf("a refusal at a gate for what every organization shares reads %v", everywhere)
 	}
 }
 

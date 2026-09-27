@@ -78,7 +78,8 @@ the release's evidence, and the next release's baseline.
   start the upgrade. It should stop within two seconds with the message in
   [Migration 28 can stop the
   upgrade](upgrading.md#migration-28-can-stop-the-upgrade-when-the-audit-table-is-busy).
-  End the transaction and start it again: it applies.
+  End the transaction and start it again: it applies. Migration 30 does the
+  same with `user_organizations`.
 - [ ] **Nothing was lost.** Counts of running instances, open tasks, due jobs and
   incidents are the same before and after.
 - [ ] **The boot is quiet.** `metis_schema_drift_items` is 0: a model change
@@ -94,6 +95,12 @@ the release's evidence, and the next release's baseline.
   person the claim places nowhere gets the 403 that names the claim.
   `metis --reset-password <username>` refuses an account linked to the identity
   provider.
+- [ ] **Roles held in one organization act only there.** Grant a member a role
+  in one organization, from the Roles tab while working in it, and confirm it
+  does nothing in another organization they belong to. An administrator of one
+  organization cannot rename or delete an account that another organization
+  shares with it. On an installation of several organizations, changing a role
+  held in every organization is refused until `METIS_PLATFORM_ADMINS` names you.
 - [ ] **A task that names nobody.** A member cannot claim it (403 with the
   sentence from the upgrade notes); an operator can, and can assign it. The
   designer warns about the step.

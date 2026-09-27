@@ -37,13 +37,14 @@ func AllowUnassignedTaskClaims() bool {
 // mayTakeUnnamedTask reports whether userID may take a task nobody was named
 // for: an administrator or an operator, or anybody while the old rule is back.
 //
-// The roles are the signed-in caller's — the ones every role gate reads — and
-// they count only when the caller is the person acting. Every endpoint passes
-// the caller as the actor; a call naming somebody else is refused rather than
-// lent the caller's roles.
+// The roles are the signed-in caller's in the organization the request is for
+// — the ones every role gate reads — and they count only when the caller is the
+// person acting. Every endpoint passes the caller as the actor; a call naming
+// somebody else is refused rather than lent the caller's roles.
 func mayTakeUnnamedTask(ctx context.Context, userID string) bool {
 	caller := signedIn(ctx)
-	if caller != nil && userID != "" && caller.Username == userID && entities.TakesUnnamedWork(caller.Roles) {
+	if caller != nil && userID != "" && caller.Username == userID &&
+		entities.TakesUnnamedWork(caller.RolesIn(entities.ActingOrganization(ctx))) {
 		return true
 	}
 	return AllowUnassignedTaskClaims()

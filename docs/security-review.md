@@ -41,6 +41,12 @@ memberships are read and how a request is scoped.
   project ids. Wanted: any request path that reaches rows of an organization the
   caller did not select, and any background path that runs as the system with
   a request's input.
+- **Roles held in one organization**, new in 0.4.0: the role check counts the
+  caller's global roles and the ones held in the organization the tenant
+  resolver chose, and nothing else. Wanted: a role granted in one organization
+  that acts in another — through a route whose organization comes from the
+  path or the body rather than the resolver, a global object such as an
+  account, or a cached principal after a role is revoked.
 - **Things that belong to an organization.** Connectors and groups each had a
   cross-organization flaw fixed this cycle (`CHANGELOG.md`, Security); their
   siblings — webhooks, environments, forms, decisions — are the likeliest next

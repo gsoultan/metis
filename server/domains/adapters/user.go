@@ -40,6 +40,8 @@ func (a UserModelAdapter) ToModel() models.UserModel {
 		Roles:         a.User.Roles,
 		Organizations: orgs,
 		Projects:      projects,
+
+		RolesByOrganization: rolesByOrganizationModel(a.User.RolesByOrganization),
 	}
 }
 
@@ -92,5 +94,32 @@ func (a UserEntityAdapter) ToEntity() entities.User {
 		Roles:            a.Model.Roles,
 		CreatedAt:        a.Model.CreatedAt,
 		IdentityProvider: identityProvider,
+
+		RolesByOrganization: rolesByOrganizationEntity(a.Model.RolesByOrganization),
 	}
+}
+
+// rolesByOrganizationModel and rolesByOrganizationEntity carry an account's
+// roles in each organization across the two id types. Nil for none, so an
+// account that holds no role in any one organization costs no map.
+func rolesByOrganizationModel(held map[uuid.UUID][]string) map[models.UUID][]string {
+	if len(held) == 0 {
+		return nil
+	}
+	out := make(map[models.UUID][]string, len(held))
+	for organization, roles := range held {
+		out[models.UUID(organization)] = roles
+	}
+	return out
+}
+
+func rolesByOrganizationEntity(held map[models.UUID][]string) map[uuid.UUID][]string {
+	if len(held) == 0 {
+		return nil
+	}
+	out := make(map[uuid.UUID][]string, len(held))
+	for organization, roles := range held {
+		out[uuid.UUID(organization)] = roles
+	}
+	return out
 }

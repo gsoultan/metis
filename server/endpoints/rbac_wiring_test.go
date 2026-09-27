@@ -96,8 +96,8 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	adminGated := []string{
 		"CreateGroup", "UpdateGroup", "DeleteGroup",
 		"AddMembership", "RemoveMembership",
-		"CreateUser", "UpdateUser", "DeleteUser",
-		"CreateOrganization", "UpdateOrganization", "DeleteOrganization",
+		"CreateUser", "UpdateUser", "DeleteUser", "SetOrganizationRoles",
+		"UpdateOrganization", "DeleteOrganization",
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",
 	}
@@ -106,6 +106,16 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 			t.Errorf("%s is not admin-gated; a compromised ordinary account could call it", name)
 		}
 	}
+
+	// What no one organization owns takes the administrator role held in
+	// every organization: one granted in a single organization must not reach
+	// it. The same accounts pass as before roles could be held in one.
+	for _, name := range globalAdminGated {
+		if !strings.Contains(source, `globalAdmin("`+name+`")`) {
+			t.Errorf("%s is not gated on the administrator role held in every organization", name)
+		}
+	}
+	adminGated = append(adminGated, globalAdminGated...)
 
 	// Authoring endpoints let a caller make the engine execute code.
 	for _, name := range []string{"CreateDefinition", "DeleteDefinition", "ImportDefinition", "ExecuteScript"} {
@@ -153,6 +163,13 @@ func TestMakeEndpoints_InstallationWideEndpointsNeedAPlatformAdministrator(t *te
 			t.Errorf("%s is not behind the platform administrator gate; any organization's administrator could call it", name)
 		}
 	}
+}
+
+// globalAdminGated are the administrative endpoints for what no one
+// organization owns: the platform accounts, and making a new organization.
+var globalAdminGated = []string{
+	"CreateOrganization",
+	"ListPlatformUsers", "SavePlatformUser", "DeletePlatformUser", "SetPlatformRoles",
 }
 
 // publicEndpoints are the only ones reachable before a caller can hold a token.

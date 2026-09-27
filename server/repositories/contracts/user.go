@@ -26,9 +26,23 @@ type UserRepository interface {
 	ListByOrganization(ctx context.Context, organizationID uuid.UUID) ([]models.UserModel, error)
 
 	// HasAnotherAdministrator reports whether an organization has a member,
-	// other than except, who holds the administrator role. It asks about every
-	// member, so an organization of any size gets the same answer.
+	// other than except, who holds the administrator role there — in every
+	// organization, or in that one. It asks about every member, so an
+	// organization of any size gets the same answer.
 	HasAnotherAdministrator(ctx context.Context, organizationID, except uuid.UUID) (bool, error)
+
+	// HasAnotherGlobalAdministrator reports whether a live account other than
+	// except holds the administrator role on the account itself — in every
+	// organization it belongs to. Installation-wide, like HasAccounts: whether
+	// the installation keeps somebody who can administer what every
+	// organization shares has one answer whoever asks.
+	HasAnotherGlobalAdministrator(ctx context.Context, except uuid.UUID) (bool, error)
+
+	// SetOrganizationRoles replaces the roles an account holds in one
+	// organization alone, and touches nothing else. An account that is not a
+	// member of the organization is an apierr.ErrNotFound error: a role is
+	// held in an organization by being in it.
+	SetOrganizationRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error
 
 	// HasAccounts reports whether any account exists at all.
 	//

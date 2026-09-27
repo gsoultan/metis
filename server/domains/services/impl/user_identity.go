@@ -30,12 +30,14 @@ func LocalUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
 	return caller.ID, nil
 }
 
-// callerRoles returns the roles of whoever a request is from, and false when it
-// carries nobody. Both ways of signing in put an account there, so these are
-// always the roles an administrator granted.
+// callerRoles returns the roles whoever a request is from acts with in the
+// organization the request is for — its global roles and the ones it holds
+// there, the same the endpoint's gate counted — and false when it carries
+// nobody. Both ways of signing in put an account there, so these are always
+// the roles an administrator granted.
 func callerRoles(ctx context.Context) ([]string, bool) {
 	if caller := signedIn(ctx); caller != nil {
-		return caller.Roles, true
+		return caller.RolesIn(entities.ActingOrganization(ctx)), true
 	}
 	return nil, false
 }

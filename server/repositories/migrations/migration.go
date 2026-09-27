@@ -835,6 +835,7 @@ func Schema(models []any) []Migration {
 		liveDecisionVersions(models),
 		auditWriteOrder(),
 		notificationIndexes(),
+		organizationRoles(),
 	}
 }
 

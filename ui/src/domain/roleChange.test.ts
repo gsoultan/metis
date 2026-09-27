@@ -16,6 +16,7 @@ import {
   type RoleUpdate,
 } from './roleChange';
 
+/** Dana designs in this organization, and holds USER — no column in the matrix — in every one. */
 const dana: ApiOrganizationUser = {
   id: 'u-dana',
   username: 'dana',
@@ -23,10 +24,14 @@ const dana: ApiOrganizationUser = {
   display_name: 'Scully',
   email: 'dana@example.com',
   organization: { id: 'org-1', name: 'Acme' },
-  roles: ['designer', 'USER'],
+  roles: ['USER'],
+  organization_roles: ['DESIGNER'],
 };
 
 const t = (key: string, values?: Record<string, string | number>) => format(en, key, values);
+
+/** What the matrix sends a change through: the roles held in the organization being worked in. */
+const save = ({ id, roles }: RoleUpdate) => identityService.setOrganizationRoles(id, roles);
 
 describe('one role granted or revoked', () => {
   it('adds the role as the server spells it, and keeps every other role', () => {
@@ -49,37 +54,30 @@ describe('one role granted or revoked', () => {
 });
 
 /*
- * The user update writes the name, display name and email it is sent, an
- * empty one included. A change that sent only the roles would have blanked
- * all three.
+ * A tick changed the account's own roles, through the account update, and
+ * those every organization the account belongs to shares: granting a role in
+ * one organization's matrix granted it in all of them. A tick now changes the
+ * roles held in the organization being worked in, and nothing else.
  */
 describe('the update a checkbox sends', () => {
-  it('carries the account’s names and email as they are, beside the new roles', () => {
-    expect(roleUpdate(dana, 'OPERATOR', true)).toEqual({
-      id: 'u-dana',
-      full_name: 'Dana Scully',
-      display_name: 'Scully',
-      email: 'dana@example.com',
-      roles: ['designer', 'USER', 'OPERATOR'],
-    });
+  it('is the roles held in this organization with one changed, and not the ones held everywhere', () => {
+    expect(roleUpdate(dana, 'OPERATOR', true)).toEqual({ id: 'u-dana', roles: ['DESIGNER', 'OPERATOR'] });
+    expect(roleUpdate(dana, 'DESIGNER', false)).toEqual({ id: 'u-dana', roles: [] });
   });
 
-  it('reaches the server with nothing blanked and nothing else claimed', async () => {
+  it('starts from none for somebody who holds nothing here', () => {
+    expect(roleUpdate({ id: 'u-new', username: 'new' }, 'ADMIN', true)).toEqual({ id: 'u-new', roles: ['ADMIN'] });
+  });
+
+  it('reaches the server as the roles for this organization, and names nothing else about the account', async () => {
     const stub = stubFetch({});
     try {
-      const update = roleUpdate(dana, 'DESIGNER', false);
-      await sendRoleChange(update, ({ id, ...user }) => identityService.updateUser(id, user));
+      await sendRoleChange(roleUpdate(dana, 'OPERATOR', true), save);
 
       expect(stub.sent[0].method).toBe('PUT');
-      expect(stub.sent[0].url.endsWith('/users/u-dana')).toBe(true);
-      // No username, no organization: the server keeps those as they are.
-      expect((stub.sent[0].body as { user: unknown }).user).toEqual({
-        id: 'u-dana',
-        full_name: 'Dana Scully',
-        display_name: 'Scully',
-        email: 'dana@example.com',
-        roles: ['USER'],
-      });
+      expect(stub.sent[0].url.endsWith('/users/u-dana/organization-roles')).toBe(true);
+      // No names, no email, no roles held everywhere: the account is not what changes.
+      expect(stub.sent[0].body).toEqual({ roles: ['DESIGNER', 'OPERATOR'] });
     } finally {
       stub.restore();
     }
@@ -87,15 +85,17 @@ describe('the update a checkbox sends', () => {
 });
 
 describe('after the server accepts a change', () => {
-  const ana: ApiOrganizationUser = { id: 'u-ana', username: 'ana', full_name: 'Ana', roles: ['ADMIN'] };
+  const ana: ApiOrganizationUser = { id: 'u-ana', username: 'ana', full_name: 'Ana', organization_roles: ['ADMIN'] };
   const list: AccountList = { users: [ana, dana] };
 
-  it('holds the account’s roles as the server now does, and leaves everybody else as they were', () => {
-    const after = withAccountRoles(list, 'u-dana', ['USER', 'OPERATOR']);
+  it('holds the account’s roles here as the server now does, and leaves everybody else as they were', () => {
+    const after = withAccountRoles(list, 'u-dana', ['DESIGNER', 'OPERATOR']);
 
-    expect(after?.users).toEqual([ana, { ...dana, roles: ['USER', 'OPERATOR'] }]);
+    expect(after?.users).toEqual([ana, { ...dana, organization_roles: ['DESIGNER', 'OPERATOR'] }]);
+    // The roles held everywhere are the account's, and a tick does not touch them.
+    expect(after?.users[1].roles).toEqual(['USER']);
     // A new list, not the old one changed underneath whoever else holds it.
-    expect(list.users[1].roles).toEqual(['designer', 'USER']);
+    expect(list.users[1].organization_roles).toEqual(['DESIGNER']);
   });
 
   it('starts the next change to the same person from the one before', () => {
@@ -104,8 +104,8 @@ describe('after the server accepts a change', () => {
     const second = roleUpdate(after!.users[1], 'ADMIN', true);
 
     // Worked out from the list as it was, the second change would have sent
-    // designer, USER and ADMIN — and taken Operator away again.
-    expect(second.roles).toEqual(['designer', 'USER', 'OPERATOR', 'ADMIN']);
+    // DESIGNER and ADMIN — and taken Operator away again.
+    expect(second.roles).toEqual(['DESIGNER', 'OPERATOR', 'ADMIN']);
   });
 
   it('leaves a list nobody has read yet as it is', () => {
@@ -137,9 +137,8 @@ describe('what the person is told', () => {
 
   it('is the server’s refusal in its own words, not swallowed', async () => {
     ({ restore } = stubFetch({ error: `forbidden: ${lastAdministrator}` }, 403));
-    const update = roleUpdate(dana, 'ADMIN', false);
 
-    const outcome = await sendRoleChange(update, ({ id, ...user }) => identityService.updateUser(id, user));
+    const outcome = await sendRoleChange(roleUpdate(dana, 'ADMIN', false), save);
 
     expect(outcome).toEqual({ changed: false, reason: lastAdministrator });
     expect(roleChangeNotice(outcome, { name: 'Dana Scully', role: 'Administrator', granted: false }, t)).toEqual({
@@ -149,16 +148,17 @@ describe('what the person is told', () => {
     });
   });
 
-  it('is the server’s refusal for an account another organization shares, too', async () => {
-    const shared =
-      'dana also belongs to another organization, which you are not a member of; an administrator there has to make this change';
-    ({ restore } = stubFetch({ error: `forbidden: ${shared}` }, 403));
+  // A tick for an account another organization shares is this organization's
+  // business now, and is not refused for it. Somebody who administers another
+  // organization, and not this one, still is.
+  it('is the server’s refusal to somebody who administers another organization and not this one, too', async () => {
+    const notHere =
+      'this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it';
+    ({ restore } = stubFetch({ error: `forbidden: ${notHere}` }, 403));
 
-    const outcome = await sendRoleChange(roleUpdate(dana, 'OPERATOR', true), ({ id, ...user }) =>
-      identityService.updateUser(id, user),
-    );
+    const outcome = await sendRoleChange(roleUpdate(dana, 'OPERATOR', true), save);
 
-    expect(outcome).toEqual({ changed: false, reason: shared });
+    expect(outcome).toEqual({ changed: false, reason: notHere });
   });
 
   it('leaves the account as the list holds it when the change is refused', async () => {

@@ -40,8 +40,25 @@ type accountWorld struct {
 	userB  entities.User
 }
 
-func newAccountWorld(t *testing.T) accountWorld {
+// newAccountWorld builds two organizations, each with an administrator and a
+// member.
+//
+// Both administrators hold the role in every organization, and the operator
+// names both in METIS_PLATFORM_ADMINS: changing a role held in every
+// organization is a platform administrator's, and these tests ask about the
+// rules every change to an account meets besides — which organization it is
+// in, and whether it is the last administrator. The platform rule has tests of
+// its own. more are the ids of accounts a test creates later that the
+// operator names too.
+func newAccountWorld(t *testing.T, more ...uuid.UUID) accountWorld {
 	t.Helper()
+	adminA, adminB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	named := []string{adminA.String(), adminB.String()}
+	for _, id := range more {
+		named = append(named, id.String())
+	}
+	t.Setenv("METIS_PLATFORM_ADMINS", strings.Join(named, ","))
+
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	w := accountWorld{
@@ -51,9 +68,9 @@ func newAccountWorld(t *testing.T) accountWorld {
 		orgA: seedOrganization(t, repo, "Organization A"),
 		orgB: seedOrganization(t, repo, "Organization B"),
 	}
-	w.adminA = w.seedAccount(t, "admin-a", []string{entities.RoleAdmin}, w.orgA)
+	w.adminA = w.seedAccountAs(t, adminA, "admin-a", []string{entities.RoleAdmin}, w.orgA)
 	w.userA = w.seedAccount(t, "user-a", nil, w.orgA)
-	w.adminB = w.seedAccount(t, "admin-b", []string{entities.RoleAdmin}, w.orgB)
+	w.adminB = w.seedAccountAs(t, adminB, "admin-b", []string{entities.RoleAdmin}, w.orgB)
 	w.userB = w.seedAccount(t, "user-b", nil, w.orgB)
 	return w
 }
@@ -72,7 +89,14 @@ func seedOrganization(t *testing.T, repo repositories.Repository, name string) u
 
 func (w accountWorld) seedAccount(t *testing.T, username string, roles []string, orgs ...uuid.UUID) entities.User {
 	t.Helper()
-	account := entities.User{ID: uuid.Must(uuid.NewV7()), Username: username, FullName: username, Roles: roles}
+	return w.seedAccountAs(t, uuid.Must(uuid.NewV7()), username, roles, orgs...)
+}
+
+// seedAccountAs seeds an account under an id chosen beforehand — one the
+// operator can have named already.
+func (w accountWorld) seedAccountAs(t *testing.T, id uuid.UUID, username string, roles []string, orgs ...uuid.UUID) entities.User {
+	t.Helper()
+	account := entities.User{ID: id, Username: username, FullName: username, Roles: roles}
 	for _, org := range orgs {
 		account.Organizations = append(account.Organizations, &entities.Organization{ID: org})
 	}
@@ -215,7 +239,7 @@ func TestARefusedAccountChangeSaysWhichOrganizationItIsAbout(t *testing.T) {
 			return w.svc.UpdateUser(asAdminA, entities.User{
 				ID: shared.ID, Username: "shared", Roles: []string{entities.RoleOperator},
 			})
-		}, "forbidden: shared also belongs to another organization, which you are not a member of; " +
+		}, "forbidden: shared also belongs to an organization you do not administer; " +
 			"an administrator there has to make this change"},
 	}
 	for _, tc := range cases {

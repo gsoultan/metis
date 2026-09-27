@@ -39,14 +39,17 @@ func TestTheRoleLegendIsWhatTheChainsEnforce(t *testing.T) {
 	}
 	served := servedLegend(t)
 
-	for method, roles := range wired {
-		if got := served[method]; !slices.Equal(got, roles) {
-			t.Errorf("%s is gated on %v and the legend lists it under %v", method, roles, got)
+	for method, gate := range wired {
+		if got := served[method]; !slices.Equal(got.roles, gate.roles) {
+			t.Errorf("%s is gated on %v and the legend lists it under %v", method, gate.roles, got.roles)
+		}
+		if got := served[method]; got.global != gate.global {
+			t.Errorf("%s needs its role held in every organization: %v; the legend says %v", method, gate.global, got.global)
 		}
 	}
-	for method, roles := range served {
+	for method, gate := range served {
 		if _, ok := wired[method]; !ok {
-			t.Errorf("the legend lists %s under %v, which endpoints.go does not gate on a role", method, roles)
+			t.Errorf("the legend lists %s under %v, which endpoints.go does not gate on a role", method, gate.roles)
 		}
 	}
 }
@@ -56,10 +59,10 @@ func TestTheRoleLegendIsWhatTheChainsEnforce(t *testing.T) {
 func TestEveryAdminOnlyMethodIsListedUnderTheAdministratorAlone(t *testing.T) {
 	file := parseEndpointsFile(t)
 	served := servedLegend(t)
-	for method, roles := range gatedMethods(t, file, gatedChains(t, file)) {
-		if slices.Equal(roles, []string{entities.RoleAdmin}) &&
-			!slices.Equal(served[method], []string{entities.RoleAdmin}) {
-			t.Errorf("adminOnly(%q) is listed under %v", method, served[method])
+	for method, gate := range gatedMethods(t, file, gatedChains(t, file)) {
+		if slices.Equal(gate.roles, []string{entities.RoleAdmin}) &&
+			!slices.Equal(served[method].roles, []string{entities.RoleAdmin}) {
+			t.Errorf("adminOnly(%q) is listed under %v", method, served[method].roles)
 		}
 	}
 }
@@ -104,15 +107,25 @@ func parseEndpointsFile(t *testing.T) *ast.File {
 	return file
 }
 
+// chainGate is what a chain helper requires: one of roles, held in the
+// organization the request is for — or, when global, in every organization.
+type chainGate struct {
+	roles  []string
+	global bool
+}
+
 // gatedChains maps each chain helper that requires a role to the roles it
 // requires, read from its definition:
 //
 //	designer := func(method string) ... {
 //		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleDesigner)
 //	}
-func gatedChains(t *testing.T, file *ast.File) map[string][]string {
+//
+// A helper built on ProtectedChainWithGlobalRoles requires its roles held in
+// every organization.
+func gatedChains(t *testing.T, file *ast.File) map[string]chainGate {
 	t.Helper()
-	chains := map[string][]string{}
+	chains := map[string]chainGate{}
 	ast.Inspect(file, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
 		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
@@ -126,15 +139,15 @@ func gatedChains(t *testing.T, file *ast.File) map[string][]string {
 		// administrator role, then the operator's list of platform
 		// administrators, which no role grants.
 		if chain, isSelector := assign.Rhs[0].(*ast.SelectorExpr); isSelector && chain.Sel.Name == "PlatformChain" {
-			chains[name.Name] = []string{entities.RoleAdmin}
+			chains[name.Name] = chainGate{roles: []string{entities.RoleAdmin}, global: true}
 			return true
 		}
 		helper, isFunc := assign.Rhs[0].(*ast.FuncLit)
 		if !isFunc {
 			return true
 		}
-		if roles := rolesRequiredBy(t, helper); roles != nil {
-			chains[name.Name] = roles
+		if gate, gated := gateOf(t, helper); gated {
+			chains[name.Name] = gate
 		}
 		return true
 	})
@@ -144,20 +157,33 @@ func gatedChains(t *testing.T, file *ast.File) map[string][]string {
 	return chains
 }
 
-// rolesRequiredBy is the roles a helper passes to ProtectedChainWithRoles, in
-// sorted order, or nil when it does not call it.
-func rolesRequiredBy(t *testing.T, helper *ast.FuncLit) []string {
+// roleChains are the factory's chains that take roles, and whether each counts
+// only the roles held in every organization.
+var roleChains = map[string]bool{
+	"ProtectedChainWithRoles":       false,
+	"ProtectedChainWithGlobalRoles": true,
+}
+
+// gateOf is what a helper passes to one of the role chains — its roles, in
+// sorted order — and whether it calls one at all.
+func gateOf(t *testing.T, helper *ast.FuncLit) (chainGate, bool) {
 	t.Helper()
-	var roles []string
+	var gate chainGate
+	gated := false
 	ast.Inspect(helper.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 		fun, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || fun.Sel.Name != "ProtectedChainWithRoles" {
+		if !ok {
 			return true
 		}
+		global, isRoleChain := roleChains[fun.Sel.Name]
+		if !isRoleChain {
+			return true
+		}
+		gated, gate.global = true, global
 		for _, arg := range call.Args[1:] {
 			selector, ok := arg.(*ast.SelectorExpr)
 			if !ok {
@@ -167,19 +193,19 @@ func rolesRequiredBy(t *testing.T, helper *ast.FuncLit) []string {
 			if !known {
 				t.Fatalf("a chain helper requires %s, which this test does not know", selector.Sel.Name)
 			}
-			roles = append(roles, value)
+			gate.roles = append(gate.roles, value)
 		}
 		return false
 	})
-	slices.Sort(roles)
-	return roles
+	slices.Sort(gate.roles)
+	return gate, gated && len(gate.roles) > 0
 }
 
 // gatedMethods maps every method wired through a role-gated helper —
-// `adminOnly("CreateUser")(...)` — to the roles that helper requires.
-func gatedMethods(t *testing.T, file *ast.File, chains map[string][]string) map[string][]string {
+// `adminOnly("CreateUser")(...)` — to what that helper requires.
+func gatedMethods(t *testing.T, file *ast.File, chains map[string]chainGate) map[string]chainGate {
 	t.Helper()
-	methods := map[string][]string{}
+	methods := map[string]chainGate{}
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) != 1 {
@@ -189,7 +215,7 @@ func gatedMethods(t *testing.T, file *ast.File, chains map[string][]string) map[
 		if !ok {
 			return true
 		}
-		roles, gated := chains[helper.Name]
+		gate, gated := chains[helper.Name]
 		literal, isString := call.Args[0].(*ast.BasicLit)
 		if !gated || !isString || literal.Kind != token.STRING {
 			return true
@@ -198,26 +224,31 @@ func gatedMethods(t *testing.T, file *ast.File, chains map[string][]string) map[
 		if err != nil {
 			t.Fatalf("unquote %s: %v", literal.Value, err)
 		}
-		if earlier, twice := methods[method]; twice && !slices.Equal(earlier, roles) {
-			t.Errorf("%s is wired twice, on %v and on %v; the legend can list it only once", method, earlier, roles)
+		if earlier, twice := methods[method]; twice && (!slices.Equal(earlier.roles, gate.roles) || earlier.global != gate.global) {
+			t.Errorf("%s is wired twice, on %v and on %v; the legend can list it only once", method, earlier, gate)
 		}
-		methods[method] = roles
+		methods[method] = gate
 		return true
 	})
 	return methods
 }
 
-// servedLegend is what GET /api/v1/roles answers, as method → roles, sorted.
-func servedLegend(t *testing.T) map[string][]string {
+// servedLegend is what GET /api/v1/roles answers, as method → roles, sorted,
+// and whether the roles have to be held in every organization.
+func servedLegend(t *testing.T) map[string]chainGate {
 	t.Helper()
-	served := map[string][]string{}
+	served := map[string]chainGate{}
 	for _, access := range listRoles(t).Roles {
 		for _, action := range access.Actions {
-			served[action.Method] = append(served[action.Method], access.Role)
+			gate := served[action.Method]
+			gate.roles = append(gate.roles, access.Role)
+			gate.global = action.Global
+			served[action.Method] = gate
 		}
 	}
-	for method := range served {
-		slices.Sort(served[method])
+	for method, gate := range served {
+		slices.Sort(gate.roles)
+		served[method] = gate
 	}
 	return served
 }

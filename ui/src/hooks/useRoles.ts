@@ -11,7 +11,7 @@ import {
 import { roleService } from '../services/domains/roleService';
 import { DIRECTORY_STALE_TIME } from '../services/queryDefaults';
 import type { ApiOrganizationUser } from '../services/types';
-import { useUpdateUser } from './useUser';
+import { useSetOrganizationRoles } from './useUser';
 
 /**
  * What each role is required for, as the server reads it from its gates.
@@ -27,25 +27,25 @@ export const useRoleLegend = () =>
   });
 
 /**
- * Grants or revokes one role at a time, through the Accounts view's own user
- * update, and says which role is being saved for whom.
+ * Grants or revokes one role at a time in the organization being worked in,
+ * and says which role is being saved for whom.
  *
- * Once the server accepts a change, the roles it now holds are written into
- * the account lists already read, and the update's own invalidation reads them
- * again behind that. A refused change writes nothing. While one of a person's
- * roles is being saved, the rest of their row waits, so every change to them
- * starts from the one before — see withAccountRoles.
+ * Once the server accepts a change, the roles it now holds here are written
+ * into the account lists already read, and the update's own invalidation reads
+ * them again behind that. A refused change writes nothing. While one of a
+ * person's roles is being saved, the rest of their row waits, so every change
+ * to them starts from the one before — see withAccountRoles.
  */
 export function useRoleChange() {
   const queryClient = useQueryClient();
-  const updateUser = useUpdateUser();
+  const setOrganizationRoles = useSetOrganizationRoles();
   const [saving, setSaving] = useState<ReadonlyMap<string, string>>(() => new Map());
 
   const change = async (account: ApiOrganizationUser, role: string, granted: boolean): Promise<RoleChangeOutcome> => {
     const update = roleUpdate(account, role, granted);
     setSaving((current) => new Map(current).set(account.id, role));
     try {
-      const outcome = await sendRoleChange(update, (sent) => updateUser.mutateAsync(sent));
+      const outcome = await sendRoleChange(update, (sent) => setOrganizationRoles.mutateAsync(sent));
       if (outcome.changed) {
         queryClient.setQueriesData<AccountList>({ queryKey: ['users'] }, (list) =>
           withAccountRoles(list, update.id, update.roles),

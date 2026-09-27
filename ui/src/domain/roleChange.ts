@@ -1,23 +1,26 @@
 /**
  * Granting or revoking one role, from the matrix on the Platform access page.
  *
- * A change goes through the same user update the Accounts view's edit dialog
- * uses, PUT /users/{id}. That update writes the name, display name and email it
- * is sent — an empty one included, because clearing a field is an edit — so a
- * change that sent only the roles would blank all three. Every change here
- * carries the account's other fields as the list holds them.
+ * A tick grants or revokes a role in the organization being worked in, through
+ * PUT /users/{id}/organization-roles, which replaces the roles the account holds
+ * there and touches nothing else about it. It used to go through the account
+ * update, PUT /users/{id}, whose roles every organization the account belongs to
+ * shares — so a tick in one organization granted the role in all of them. A
+ * role held in every organization is shown as such and not ticked from here.
  *
  * A cell reads the account from the list, never from what was clicked. A
  * refused change writes nothing, so its checkbox stays as it was; an accepted
- * one writes the roles the server now holds into the list.
+ * one writes the roles the server now holds here into the list.
  */
 import { errorMessage } from '../services/shared/errors';
-import type { UserUpdate } from '../services/domains/identityService';
 import type { ApiOrganizationUser } from '../services/types';
 import { isPrivilegedRole } from './roles';
 
-/** One role change, as the user update takes it. */
-export type RoleUpdate = { id: string; roles: string[] } & UserUpdate;
+/** One role change: the roles the account is to hold in this organization. */
+export interface RoleUpdate {
+  id: string;
+  roles: string[];
+}
 
 /** An account list as the Accounts view and the matrix hold it. */
 export interface AccountList {
@@ -29,40 +32,37 @@ const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLow
 /**
  * The roles with one granted or revoked, and the rest kept.
  *
- * Revoking takes it away in whatever case it was written — an older account
- * can hold "admin" — and granting adds it as the server spells it. A role the
- * matrix has no column for stays: taking away something nobody clicked is not
- * a side effect a checkbox may have.
+ * Revoking takes it away in whatever case it was written, and granting adds it
+ * as the server spells it. A role the matrix has no column for stays: taking
+ * away something nobody clicked is not a side effect a checkbox may have.
  */
 export function rolesWith(roles: readonly string[] | undefined, role: string, granted: boolean): string[] {
   const kept = (roles ?? []).filter((held) => !same(held, role));
   return granted ? [...kept, role] : kept;
 }
 
-/** The update that grants or revokes one role and leaves the rest of the account as it is. */
+/** The update that grants or revokes one role in this organization, and keeps the rest held here. */
 export function roleUpdate(account: ApiOrganizationUser, role: string, granted: boolean): RoleUpdate {
-  return {
-    id: account.id,
-    full_name: account.full_name ?? '',
-    display_name: account.display_name ?? '',
-    email: account.email ?? '',
-    roles: rolesWith(account.roles, role, granted),
-  };
+  return { id: account.id, roles: rolesWith(account.organization_roles, role, granted) };
 }
 
 /**
- * An account list with one account's roles as the server now holds them.
+ * An account list with one account's roles in this organization as the server
+ * now holds them.
  *
  * The update stores the roles it is sent, so once it is accepted they are the
- * account's roles, and the next change to the same person has to start from
- * them. Waiting for the list to be read again is not enough: a second change
- * elsewhere cancels that read and starts another, and a click in between would
- * be worked out from the list as it was — sending the roles without the first
- * change, and taking it away again.
+ * account's roles here, and the next change to the same person has to start
+ * from them. Waiting for the list to be read again is not enough: a second
+ * change elsewhere cancels that read and starts another, and a click in
+ * between would be worked out from the list as it was — sending the roles
+ * without the first change, and taking it away again.
  */
 export function withAccountRoles<T extends AccountList>(list: T | undefined, accountId: string, roles: string[]): T | undefined {
   if (!list) return list;
-  return { ...list, users: list.users.map((account) => (account.id === accountId ? { ...account, roles } : account)) };
+  return {
+    ...list,
+    users: list.users.map((account) => (account.id === accountId ? { ...account, organization_roles: roles } : account)),
+  };
 }
 
 /**

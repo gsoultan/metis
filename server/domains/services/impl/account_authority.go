@@ -51,28 +51,39 @@ func belongsTo(account models.UserModel, organizationID uuid.UUID) bool {
 }
 
 // requireAccountAuthority refuses a change to an account that belongs to an
-// organization the caller does not.
+// organization the caller does not administer.
 //
-// Roles are global, so changing an account's roles — or deleting it — acts in
-// every organization it belongs to. Being an administrator grants authority
-// over your own organizations, not over the others an account happens to share.
+// The account itself — its names, its global roles, whether it exists — is
+// the same in every organization it belongs to, so changing it acts in all of
+// them. Being an administrator grants authority over your own organizations,
+// not over the others an account happens to share. The roles it holds in one
+// organization alone are that organization's to change, and do not come
+// through here.
 //
-// The refusal does not name the other organization. Its name is not the
-// caller's to read — they are not a member — and the account's memberships
-// carry ids only, which is why this printed a blank where the name was meant
-// to be. The person the account belongs to can say where else they are.
+// Administering, not belonging. While every role was global, a member of an
+// organization who was an administrator anywhere was one there too, and asking
+// for membership was enough. With a role held in one organization it is not:
+// an administrator of one organization, and an ordinary member of another,
+// could rename or delete the other's administrator.
+//
+// The refusal does not name the other organization. The caller may not be a
+// member — its name is not theirs to read — and the account's memberships
+// carry ids only. The person the account belongs to can say where else they
+// are.
 func requireAccountAuthority(ctx context.Context, account models.UserModel) error {
 	if err := requireAccountVisible(ctx, account); err != nil {
 		return err
 	}
-	memberships, hasCaller := callerOrganizations(ctx)
-	if !hasCaller {
+	caller := signedIn(ctx)
+	if caller == nil {
 		return nil
 	}
+	memberships, _ := callerOrganizations(ctx)
 	for _, org := range account.Organizations {
-		if !memberships[uuid.UUID(org.ID)] {
+		organization := uuid.UUID(org.ID)
+		if !memberships[organization] || !caller.HoldsRoleIn(organization, entities.RoleAdmin) {
 			return apierr.Forbiddenf(
-				"%s also belongs to another organization, which you are not a member of; "+
+				"%s also belongs to an organization you do not administer; "+
 					"an administrator there has to make this change",
 				account.Username)
 		}
@@ -81,20 +92,23 @@ func requireAccountAuthority(ctx context.Context, account models.UserModel) erro
 }
 
 // requireAnotherAdministrator refuses to take the last administrator away from
-// any organization the account belongs to.
+// any of the organizations given — the ones the change stops the account
+// administering.
 //
 // There is no default account by design, so an organization left with nobody
-// who can administer it cannot be administered through Metis again. Each
-// organization is asked scoped to itself: requireAccountAuthority has already
-// established that the caller belongs to every one of them, so this is the
-// scope the tenant resolver would have given them there.
+// who can administer it cannot be administered through Metis again. Somebody
+// administers an organization with the administrator role held in every
+// organization or held in that one, and either counts. Each organization is
+// asked scoped to itself: the caller belongs to every one of them —
+// requireAccountAuthority established it for a change to the account, and a
+// change to the roles in one organization names only the one the request is
+// for — so this is the scope the tenant resolver would have given them there.
 //
 // The repository is asked the question rather than handed the member list to
 // search: that list stops at a thousand rows, and an administrator past the end
 // of it did not count.
-func (s *userService) requireAnotherAdministrator(ctx context.Context, account models.UserModel) error {
-	for _, org := range account.Organizations {
-		orgID := uuid.UUID(org.ID)
+func (s *userService) requireAnotherAdministrator(ctx context.Context, account models.UserModel, organizations []uuid.UUID) error {
+	for _, orgID := range organizations {
 		orgCtx := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: orgID.String()})
 		another, err := s.repo.User().HasAnotherAdministrator(orgCtx, orgID, uuid.UUID(account.ID))
 		if err != nil {
@@ -120,4 +134,26 @@ func (s *userService) lastAdministratorRefusal(orgCtx context.Context, account m
 	}
 	return apierr.Forbiddenf("%s is the last administrator of %s; make somebody else an administrator first",
 		account.Username, org.Name)
+}
+
+// requireAnotherGlobalAdministrator refuses to take away the last account that
+// holds the administrator role in every organization.
+//
+// Only such an account can add an organization, manage the platform accounts,
+// and — where the platform gate admits it — change what every organization
+// shares, a role held in every organization included. A role granted in one
+// organization never makes somebody one, so an installation left without any
+// could not get one back through Metis, however well each organization is
+// administered.
+func (s *userService) requireAnotherGlobalAdministrator(ctx context.Context, account models.UserModel) error {
+	another, err := s.repo.User().HasAnotherGlobalAdministrator(ctx, uuid.UUID(account.ID))
+	if err != nil {
+		return fmt.Errorf("could not count the administrators of every organization: %w", err)
+	}
+	if another {
+		return nil
+	}
+	return apierr.Forbiddenf("%s is the last administrator of every organization; make somebody else one first: only an "+
+		"administrator of every organization can add an organization, manage the platform accounts and change what "+
+		"every organization shares", account.Username)
 }

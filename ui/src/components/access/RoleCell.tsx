@@ -1,7 +1,7 @@
-import { Box, Checkbox, Group, Loader, Table, Text, ThemeIcon, VisuallyHidden } from '@mantine/core';
+import { Badge, Box, Checkbox, Group, Loader, Table, Text, ThemeIcon, VisuallyHidden } from '@mantine/core';
 import { Check } from 'lucide-react';
 
-import { hasRole } from '../../domain/access';
+import { whereHeld } from '../../domain/organizationRoles';
 import type { RoleOption } from '../../domain/roles';
 import { useTranslation } from '../../i18n/context';
 import type { ApiOrganizationUser } from '../../services/types';
@@ -23,8 +23,13 @@ interface RoleCellProps {
 const LOADER_SIZE = 12;
 
 /**
- * Whether one person holds one role, read from the account as the server holds
- * it — so a change the server refuses leaves the box as it was.
+ * Whether one person holds one role here, read from the account as the server
+ * holds it — so a change the server refuses leaves the box as it was.
+ *
+ * A role held in every organization the account belongs to is shown as that,
+ * with no box: this organization's administrators cannot take it away, and a
+ * box they could clear would only ever be refused. The box is for the roles
+ * held in this organization alone.
  *
  * While a change to the person's roles is being saved, the row's boxes stay
  * focusable and ignore clicks, rather than being disabled: disabling the box
@@ -33,12 +38,23 @@ const LOADER_SIZE = 12;
 export function RoleCell({ account, option, canEdit, saving, onToggle }: RoleCellProps) {
   const { t } = useTranslation();
   const name = account.full_name || account.username;
-  const held = hasRole(account, option.value);
+  const held = whereHeld(account, option.value);
+
+  if (held === 'everywhere') {
+    return (
+      <Table.Td ta="center">
+        <Badge variant="outline" color="indigo" size="sm" radius="sm" aria-hidden>
+          {t('access.everywhere')}
+        </Badge>
+        <VisuallyHidden>{t('access.holdsEverywhere', { name, role: option.label })}</VisuallyHidden>
+      </Table.Td>
+    );
+  }
 
   if (!canEdit) {
     return (
       <Table.Td ta="center">
-        {held ? (
+        {held === 'here' ? (
           <ThemeIcon variant="light" color="indigo" size="sm" radius="xl" aria-hidden>
             <Check size={14} />
           </ThemeIcon>
@@ -47,7 +63,7 @@ export function RoleCell({ account, option, canEdit, saving, onToggle }: RoleCel
             —
           </Text>
         )}
-        <VisuallyHidden>{t(held ? 'access.holds' : 'access.lacks', { name, role: option.label })}</VisuallyHidden>
+        <VisuallyHidden>{t(held === 'here' ? 'access.holds' : 'access.lacks', { name, role: option.label })}</VisuallyHidden>
       </Table.Td>
     );
   }
@@ -59,7 +75,7 @@ export function RoleCell({ account, option, canEdit, saving, onToggle }: RoleCel
       <Group gap={6} justify="center" wrap="nowrap">
         <Box w={LOADER_SIZE} aria-hidden />
         <Checkbox
-          checked={held}
+          checked={held === 'here'}
           aria-label={t('access.cell', { role: option.label, name })}
           aria-disabled={busy || undefined}
           style={busy ? { opacity: 0.5 } : undefined}

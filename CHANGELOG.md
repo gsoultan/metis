@@ -25,8 +25,14 @@ action, in the order it bites:
   do can answer differently. Find them first ([Decision cells see the rest of
   the case](docs/upgrading.md#decision-cells-see-the-rest-of-the-case)).
 - **An installation of several organizations** needs `METIS_PLATFORM_ADMINS`
-  before anybody can change its connector manifests or templates again; the
-  installed ones keep running.
+  before anybody can change its connector manifests or templates again, or
+  grant, take away or delete with a role held in every organization; the
+  installed connectors keep running, and nobody's access changes.
+- **Roles can be held in one organization.** The Roles tab and the account
+  dialog now grant in the organization being worked in. Keep at least one
+  administrator of every organization: only such an account can add an
+  organization or manage the platform accounts ([Roles in one
+  organization](docs/upgrading.md#roles-can-be-granted-in-one-organization)).
 - **A manifest installed under a built-in connector's key** keeps answering;
   installing it again or switching it back on needs
   `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`.
@@ -43,7 +49,7 @@ action, in the order it bites:
   them — where it was `unknown` and an HTTP 500. A client that retried on those
   should stop.
 
-Migrations 21 to 29 run at the first boot. Take a backup first: a rollback
+Migrations 21 to 30 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **21** gives every task a priority. **22** declares seventy-two columns non-null
@@ -61,9 +67,51 @@ does not undo a migration.
   `audit_logs` is held for more than two seconds**; it finishes on the next
   start ([Migration 28](docs/upgrading.md#migration-28-can-stop-the-upgrade-when-the-audit-table-is-busy)).
 - **29** indexes notifications for the bell's count and paging.
+- **30** gives every membership an empty list of roles of its own, and **stops
+  the upgrade if `user_organizations` is held for more than two seconds** —
+  signing in reads it; it finishes on the next start.
 
 ### Security
 
+- **An organization's administrator granted roles in every organization.**
+  Roles were held on the account, so each one acted in every organization the
+  account belonged to: an administrator of one organization granting a role
+  from the Users page, the role matrix or `PUT /api/v1/users/{id}` granted it
+  on the whole installation, and an administrator of one organization who was
+  also a member of another was an administrator there too. A role can now be
+  granted in one organization — on the account's membership of it, with
+  `PUT /api/v1/users/{id}/organization-roles` or the Roles tab — by that
+  organization's administrators, and it acts only in requests for that
+  organization: the one `X-Organization-ID` chooses among the caller's own,
+  and the one the request is then scoped to. A role held on the account still
+  acts in every organization, as every role did; granting one, taking one away,
+  creating an account that holds one or deleting one takes a platform
+  administrator — an administrator of every organization named in
+  `METIS_PLATFORM_ADMINS` where there is more than one organization, any
+  administrator of every organization where there is one. Anybody else gets a
+  403 that names the setting. Adding an organization, the platform accounts,
+  and connector templates and manifests count only a role held in every
+  organization. The last administrator of an organization — in it alone or
+  everywhere — still cannot be demoted or deleted, and neither can the last
+  administrator of every organization. Roles are read from the account on each
+  request, never from the token, so a revoked role stops acting at the next
+  one: at once on the replica that made the change, within
+  `METIS_AUTH_CACHE_TTL` (five seconds unless set) on any other.
+
+  **Upgrading:** migration 30 gives every membership an empty list of roles of
+  its own. Nothing is moved, and nobody's access changes until a role is
+  granted in an organization. On an installation of more than one
+  organization, set `METIS_PLATFORM_ADMINS` before anybody needs to grant or
+  take away a role held everywhere — until then nobody can — and keep at least
+  one administrator of every organization: only they add organizations and
+  manage the platform accounts. To move a role into organizations, grant it in
+  each organization it belongs in, then have a platform administrator take the
+  one held everywhere away; *Roles can be granted in one organization* in
+  `docs/upgrading.md` has the steps and a query that lists who holds what. The
+  migration changes the table's definition only and waits at most two seconds
+  for `user_organizations`: if a long query or transaction holds it longer, the
+  upgrade stops with that reason rather than hold every sign-in behind it, and
+  finishes when Metis is started again once that ends.
 - **Any member could read and clear a colleague's notifications.** Two of the
   older notification routes, the list and "mark all read", took their
   recipient from a `user_id` on the query string. The routes that act on one
@@ -208,11 +256,14 @@ does not undo a migration.
   organization against the four roles, and beside each role a button listing
   the actions it is required for — read from the checks the server enforces,
   so it cannot say a role allows something the server refuses
-  (`GET /api/v1/roles`, which anybody signed in may read). An administrator
-  grants or revokes a role by ticking its box, and each change is saved as it
-  is made. A refusal — the organization's last administrator, or an account
-  another organization shares — is shown in the server's words and the box
-  stays as it was. Anybody else sees who holds what, with no boxes to tick.
+  (`GET /api/v1/roles`, which anybody signed in may read), and marking the
+  ones that need the role held in every organization. An administrator of the
+  organization grants or revokes a role there by ticking its box, and each
+  change is saved as it is made. A role held in every organization is shown as
+  such, with no box: only a platform administrator changes those, from the
+  account's dialog, which shows both kinds. A refusal — the organization's last
+  administrator — is shown in the server's words and the box stays as it was.
+  Anybody else sees who holds what, with no boxes to tick.
 - **The RabbitMQ bridge and inbound consumer can be switched on.** Both were
   built and advertised, and nothing started either, so a running server held
   no broker connection at all. `METIS_RABBITMQ_BRIDGES` publishes a topic's

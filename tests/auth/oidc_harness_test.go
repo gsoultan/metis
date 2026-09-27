@@ -26,6 +26,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
+	"gorm.io/gorm"
 )
 
 const (
@@ -103,6 +104,7 @@ type apiHarness struct {
 	provider *identityProvider
 	svc      services.ServiceFacade
 	server   *httptest.Server
+	db       *gorm.DB
 }
 
 // newOIDCHarness serves the API with OIDC sign-in configured against a fake
@@ -143,7 +145,7 @@ func newAPIHarness(t *testing.T, validator *pkgauth.TokenValidator) *apiHarness 
 		map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return &apiHarness{t: t, svc: svc, server: server}
+	return &apiHarness{t: t, svc: svc, server: server, db: db}
 }
 
 // organization creates an organization with one project, named after it.
@@ -293,6 +295,22 @@ func (h *apiHarness) members(org uuid.UUID) []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// holdsIn gives an account roles in one organization, straight onto its
+// membership: what it may do there, whoever granted it.
+func (h *apiHarness) holdsIn(account, org uuid.UUID, roles ...string) {
+	h.t.Helper()
+	encoded, err := json.Marshal(roles)
+	if err != nil {
+		h.t.Fatalf("encode %v: %v", roles, err)
+	}
+	result := h.db.WithContext(h.t.Context()).Exec(
+		`UPDATE user_organizations SET roles = ?::jsonb WHERE user_id = ? AND organization_id = ?`,
+		string(encoded), account, org)
+	if result.Error != nil || result.RowsAffected != 1 {
+		h.t.Fatalf("give %s %v in %s: %v (%d rows)", account, roles, org, result.Error, result.RowsAffected)
+	}
 }
 
 func inOrganization(ctx context.Context, org uuid.UUID) context.Context {

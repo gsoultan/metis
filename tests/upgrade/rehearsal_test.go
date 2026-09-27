@@ -145,6 +145,12 @@ func ageTheDatabase(t *testing.T, db *gorm.DB) seededIDs {
 		}
 	}
 
+	// Nor did a membership's own roles, which migration 30 adds. The account's
+	// membership below is read back through the repository, which reads them.
+	if err := db.Exec(`ALTER TABLE user_organizations DROP COLUMN IF EXISTS roles`).Error; err != nil {
+		t.Fatalf("drop user_organizations.roles: %v", err)
+	}
+
 	return seedRows(t, db)
 }
 

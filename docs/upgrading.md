@@ -18,6 +18,87 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Roles can be granted in one organization
+
+Migration 30 gives every account's membership of an organization a list of
+roles of its own (`user_organizations.roles`, empty to start). Nothing is moved
+into it: every role an account held is still held on the account, and acts in
+every organization the account belongs to, exactly as before. **Nothing changes
+for anybody's access until somebody grants a role in an organization.**
+
+What does change at once is who may change what:
+
+- **A role held in every organization is the platform's to change.** Granting
+  one or taking one away — in an account's dialog on Platform access, or
+  `roles` on `PUT /api/v1/users/{id}` — creating an account that holds one, and
+  deleting an account that holds one take a platform administrator: an
+  administrator of every organization whose account id is listed in
+  `METIS_PLATFORM_ADMINS`, on an installation of more than one organization,
+  and any administrator of every organization on an installation of one. On an
+  installation of several organizations, **set `METIS_PLATFORM_ADMINS` before
+  anybody needs to do any of that**: until it is set nobody can, and an
+  administrator who tries is told their account id to pass on.
+- **The Roles tab grants in the organization being worked in.** A tick there
+  used to change the account's own roles, and so its roles in every
+  organization. It now changes what the account holds in this organization;
+  a role held everywhere is shown as *Every organization*, with no box.
+- **Adding an organization and managing the platform accounts** take the
+  Administrator role held in every organization — which, before this, every
+  administrator held. One granted in a single organization never reaches them,
+  nor connector templates and manifests.
+- **The last administrator of every organization is kept**, as the last
+  administrator of an organization is. Only such an account can do the above,
+  and no role held in one organization makes somebody one again, so keep at
+  least one — and name them in `METIS_PLATFORM_ADMINS`.
+
+Migration 30 waits **at most two seconds** for `user_organizations`: signing in
+reads it, and PostgreSQL queues every reader behind an `ALTER TABLE` that is
+waiting. Held longer, the upgrade stops with:
+
+```
+user_organizations was held for more than 2s by a long query or transaction;
+the upgrade stopped rather than hold every sign-in behind it, and will finish
+when started again once that ends
+```
+
+Nothing has changed at that point. End what holds the table — the query under
+*Migration 28 can stop the upgrade* finds it, with `'user_organizations'` in
+place of `'audit_logs'` — and start Metis again.
+
+**Moving a role into organizations.** For an account that should hold a role in
+some of its organizations rather than all of them:
+
+1. Grant it in each organization it should hold it in: tick it on the Roles tab
+   while working in that organization, or send
+   `PUT /api/v1/users/{id}/organization-roles` with `X-Organization-ID` naming
+   the organization.
+2. Then a platform administrator takes the role held everywhere away: clear it
+   under *Roles in every organization* in the account's dialog, or send
+   `PUT /api/v1/users/{id}` with the roles the account keeps.
+
+In that order the account never goes without the role where it needs it, and
+the last-administrator checks refuse a step that would leave an organization,
+or the installation, with nobody to administer it. Who holds what, everywhere
+and in each organization:
+
+```sql
+SELECT u.username, u.roles AS everywhere, o.name AS organization, m.roles AS here
+  FROM users u
+  JOIN user_organizations m ON m.user_id = u.id
+  JOIN organizations o ON o.id = m.organization_id
+ WHERE u.deleted_at IS NULL AND o.deleted_at IS NULL
+ ORDER BY u.username, o.name;
+```
+
+A change takes effect at the next request: the account a token names is read
+again as soon as its roles change on the replica that changed them, and within
+`METIS_AUTH_CACHE_TTL` (five seconds unless set) on any other. Tokens carry
+nothing that outlives it.
+
+**Rolling back** to the release before leaves the column in place, where that
+release does not read it: a role granted in one organization stops acting
+anywhere, and the roles held on accounts act as they always did.
+
 ## With OIDC on, local accounts sign in again
 
 With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API used to take the identity

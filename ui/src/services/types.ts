@@ -510,7 +510,13 @@ export interface ApiOrganizationUser {
   /** The API sends the organization as an object, not a name. */
   organization?: { id: string; name?: string };
   email?: string;
+  /** The roles the account holds in every organization it belongs to. */
   roles?: string[];
+  /**
+   * The roles it holds in the organization the list was read for, and in no
+   * other. Absent when it holds none there.
+   */
+  organization_roles?: string[];
   organizations?: Array<{ id: string; name?: string }>;
 }
 
@@ -537,7 +543,10 @@ export interface CreateUserPayload {
   display_name: string;
   organization: string;
   email: string;
+  /** Roles held in every organization — a platform administrator's to give. */
   roles: string[];
+  /** Roles held in the organization the account is created in, and nowhere else. */
+  organization_roles?: string[];
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────

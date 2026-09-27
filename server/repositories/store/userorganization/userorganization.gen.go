@@ -22,6 +22,7 @@ var (
 type Row struct {
 	UserID         [16]byte
 	OrganizationID [16]byte
+	Roles          runtime.JSON
 }
 
 // Operator ids. Argument-taking operators are numbered first, so the
@@ -59,7 +60,7 @@ const (
 	opNotExists runtime.Op = 26
 )
 
-const nCols = 2
+const nCols = 3
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -69,11 +70,13 @@ type Query struct {
 	nt   uint8
 	top  uint8 // top-level conjuncts, ANDed at compile time
 
-	raws [4][16]byte
-	nr   uint8
+	raws    [4][16]byte
+	jsns    [2]runtime.JSON
+	nr, njs uint8
 
-	anyRaw [3][][16]byte
-	nar    uint8
+	anyRaw   [3][][16]byte
+	anyStr   [3][]string
+	nar, nas uint8
 
 	// Order terms live in their own buffer and are appended to the stream
 	// after the predicate tree. Sharing one buffer would let a Where after
@@ -330,7 +333,9 @@ type Pred struct {
 	col    uint8
 	op     runtime.Op
 	raw    [16]byte
+	jsn    runtime.JSON
 	anyRaw [][16]byte
+	anyStr []string
 }
 
 // Typed column handles. The type of the handle is what makes
@@ -338,6 +343,7 @@ type Pred struct {
 var (
 	UserID         = UUIDCol{0}
 	OrganizationID = UUIDCol{1}
+	Roles          = JSONCol{2}
 )
 
 // UUIDCol addresses a uuid column.
@@ -360,6 +366,25 @@ func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
 func (h UUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+
+// JSONCol addresses a jsonb column.
+type JSONCol struct{ c uint8 }
+
+func (h JSONCol) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h JSONCol) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h JSONCol) AscNullsFirst() Sort {
+	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
+}
+func (h JSONCol) DescNullsLast() Sort {
+	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
+}
+
+func (h JSONCol) Contains(v runtime.JSON) Pred { return Pred{col: h.c, op: opJSONContains, jsn: v} }
+func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
+	return Pred{col: h.c, op: opJSONContainedBy, jsn: v}
+}
+func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
+func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
 
 // Where applies predicates, ANDed together.
 func (q Query) Where(ps ...Pred) Query {
@@ -516,6 +541,13 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyRaw[q.nar] = p.anyRaw
 			q.nar++
+		case 2:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -539,6 +571,13 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.raws[q.nr] = p.raw
 		q.nr++
+	case 2:
+		if int(q.njs) >= 2 {
+			q.over = true
+			return
+		}
+		q.jsns[q.njs] = p.jsn
+		q.njs++
 	}
 	q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 }
@@ -552,8 +591,12 @@ func (q Query) OrganizationIDEq(v [16]byte) Query       { return q.Where(Organiz
 func (q Query) OrganizationIDNotEq(v [16]byte) Query    { return q.Where(OrganizationID.NotEq(v)) }
 func (q Query) OrganizationIDIn(v ...[16]byte) Query    { return q.Where(OrganizationID.In(v...)) }
 func (q Query) OrganizationIDNotIn(v ...[16]byte) Query { return q.Where(OrganizationID.NotIn(v...)) }
+func (q Query) RolesContains(v runtime.JSON) Query      { return q.Where(Roles.Contains(v)) }
+func (q Query) RolesContainedBy(v runtime.JSON) Query   { return q.Where(Roles.ContainedBy(v)) }
+func (q Query) RolesHasAnyKey(v ...string) Query        { return q.Where(Roles.HasAnyKey(v...)) }
+func (q Query) RolesHasAllKeys(v ...string) Query       { return q.Where(Roles.HasAllKeys(v...)) }
 
-const selectPrefix = `SELECT "user_id", "organization_id" FROM "user_organizations"`
+const selectPrefix = `SELECT "user_id", "organization_id", "roles" FROM "user_organizations"`
 const countPrefix = `SELECT count(*) FROM "user_organizations"`
 const existsPrefix = `SELECT 1 FROM "user_organizations"`
 const existsSuffix = ` LIMIT 1`
@@ -602,6 +645,12 @@ var orderTable = [nCols][4]string{
 		"\"organization_id\" ASC NULLS FIRST",
 		"\"organization_id\" DESC NULLS LAST",
 	},
+	{ // roles
+		"\"roles\"",
+		"\"roles\" DESC",
+		"\"roles\" ASC NULLS FIRST",
+		"\"roles\" DESC NULLS LAST",
+	},
 }
 
 // identTable is each column's bare quoted name, for the left side of a
@@ -609,6 +658,7 @@ var orderTable = [nCols][4]string{
 var identTable = [nCols]string{
 	"\"user_id\"",
 	"\"organization_id\"",
+	"\"roles\"",
 }
 
 var lowering = runtime.Lowering{
@@ -641,7 +691,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [2][27]runtime.Frag{
+var fragTable = [3][27]runtime.Frag{
 	{ // user_id
 		{}, // opNone
 		{A: "\"user_id\" = $", B: ""},
@@ -695,6 +745,35 @@ var fragTable = [2][27]runtime.Frag{
 		{},
 		{},
 		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // roles
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"roles\" @> $", B: ""},
+		{A: "\"roles\" <@ $", B: ""},
+		{A: "\"roles\" ?| $", B: ""},
+		{A: "\"roles\" ?& $", B: ""},
 		{},
 		{},
 		{},
@@ -858,13 +937,16 @@ func Scan(rv [][]byte, r *Row, sl *runtime.Slab) error { return scan(rv, r, sl) 
 func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	copy(r.UserID[:], rv[0])
 	copy(r.OrganizationID[:], rv[1])
+	r.Roles = runtime.JSON(runtime.JSONB(rv[2], sl))
 	return nil
 }
 
 type binder struct {
 	vals   []any
 	raws   [4][16]byte
+	jsns   [2]runtime.JSON
 	anyRaw [3][][16]byte
+	anyStr [3][]string
 	limit  int64
 	offset int64
 }
@@ -889,6 +971,9 @@ func putBinder(b *binder) {
 	for i := range b.anyRaw {
 		b.anyRaw[i] = nil
 	}
+	for i := range b.anyStr {
+		b.anyStr[i] = nil
+	}
 	binders.Put(b)
 }
 
@@ -897,7 +982,7 @@ func putBinder(b *binder) {
 // Count and Exists stop here: their statements carry no LIMIT or OFFSET.
 func (q Query) bindPreds(b *binder) []any {
 	v := b.vals[:0]
-	var nr, nar uint8
+	var nr, njs, nar, nas uint8
 	for i := uint8(0); i < q.nt; i++ {
 		t := q.toks[i]
 		// KLeaf binds a predicate's value; KCol binds a keyset cursor's.
@@ -921,6 +1006,10 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyRaw[nar] = q.anyRaw[nar]
 				v = append(v, &b.anyRaw[nar])
 				nar++
+			case 2:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			}
 			continue
 		}
@@ -933,6 +1022,10 @@ func (q Query) bindPreds(b *binder) []any {
 			b.raws[nr] = q.raws[nr]
 			v = append(v, &b.raws[nr])
 			nr++
+		case 2:
+			b.jsns[njs] = q.jsns[njs]
+			v = append(v, &b.jsns[njs])
+			njs++
 		}
 	}
 	b.vals = v
@@ -1070,19 +1163,23 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "user_organizations" ("user_id", "organization_id") VALUES ($1, $2) RETURNING "user_id", "organization_id"`
+const insertSQL = `INSERT INTO "user_organizations" ("user_id", "organization_id", "roles") VALUES ($1, $2, $3) RETURNING "user_id", "organization_id", "roles"`
 
 const updatePrefix = `UPDATE "user_organizations" SET `
 const deletePrefix = `DELETE FROM "user_organizations"`
 
 // Dirty bits. One per updatable column; the set of them is an UPDATE's
 // identity, exactly as a token stream is a SELECT's.
-const ()
+const (
+	dRoles uint64 = 1 << 0
+)
 
-const nUpdatable = 0
+const nUpdatable = 1
 
 // setFrags is every assignment this table can make, lowered at build time.
-var setFrags = [nUpdatable]runtime.Frag{}
+var setFrags = [nUpdatable]runtime.Frag{
+	{A: "\"roles\" = $", B: ""}, // roles
+}
 
 // pkFrags addresses one row.
 var pkFrags = [2]runtime.Frag{
@@ -1096,14 +1193,16 @@ var pkFrags = [2]runtime.Frag{
 const (
 	iUserID         uint64 = 1 << 0
 	iOrganizationID uint64 = 1 << 1
+	iRoles          uint64 = 1 << 2
 )
 
-const nInsertable = 2
+const nInsertable = 3
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
 	"\"user_id\"",
 	"\"organization_id\"",
+	"\"roles\"",
 }
 
 // insParts and insPlaceholder come from the back end at build time; the
@@ -1112,7 +1211,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"user_organizations\""
-const insReturning = " RETURNING \"user_id\", \"organization_id\""
+const insReturning = " RETURNING \"user_id\", \"organization_id\", \"roles\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1145,6 +1244,11 @@ func (m Mut) Dirty() uint64 { return m.dirty }
 // Setters. There is deliberately no setter for the primary key, for an
 // Immutable column, or for the version column: the absence of a method is
 // the enforcement, so misuse does not compile rather than failing later.
+func (m *Mut) SetRoles(v runtime.JSON) {
+	m.row.Roles = v
+	m.dirty |= dRoles
+}
+
 // Ins stages a new row. Unlike Mut it has a setter for every insertable
 // column including the primary key and Immutable ones — supplying your
 // own id is legitimate, changing it later is not.
@@ -1178,6 +1282,11 @@ func (n *Ins) SetUserID(v [16]byte) {
 func (n *Ins) SetOrganizationID(v [16]byte) {
 	n.row.OrganizationID = v
 	n.set |= iOrganizationID
+}
+
+func (n *Ins) SetRoles(v runtime.JSON) {
+	n.row.Roles = v
+	n.set |= iRoles
 }
 
 // The conflict encoding. One byte holds both which unique index an
@@ -1225,10 +1334,12 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 0)
+	set := make([]string, 0, 1)
 	switch i {
 	case 0:
-		// Every updatable column is part of this key.
+		if mask&(1<<2) != 0 {
+			set = append(set, "roles")
+		}
 	}
 	return set
 }
@@ -1276,7 +1387,9 @@ func joinAssign(set []string) string {
 	return out
 }
 
-var assignFor = map[string]string{}
+var assignFor = map[string]string{
+	"roles": "\"roles\" = EXCLUDED.\"roles\"",
+}
 
 func assignExcluded(c string) string { return assignFor[c] }
 
@@ -1323,6 +1436,8 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 			args = append(args, n.row.UserID)
 		case 1:
 			args = append(args, n.row.OrganizationID)
+		case 2:
+			args = append(args, n.row.Roles)
 		}
 	}
 	var out Row
@@ -1360,9 +1475,10 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
 	args = append(args, r.UserID)
 	args = append(args, r.OrganizationID)
+	args = append(args, r.Roles)
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -1391,13 +1507,14 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 var copyCols = []string{
 	"user_id",
 	"organization_id",
+	"roles",
 }
 
 // rowSource walks a []Row for CopyFrom without copying any of it.
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [2]any
+	buf  [3]any
 }
 
 func (s *rowSource) Next() bool {
@@ -1417,6 +1534,7 @@ func (s *rowSource) Values() []any {
 	r := &s.rows[s.i-1]
 	s.buf[0] = &r.UserID
 	s.buf[1] = &r.OrganizationID
+	s.buf[2] = &r.Roles
 	return s.buf[:]
 }
 
@@ -1449,10 +1567,12 @@ func InsertOp(r Row) runtime.BatchOp {
 	var mask uint64
 	mask |= 1 << 0
 	mask |= 1 << 1
+	mask |= 1 << 2
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
 	args = append(args, r.UserID)
 	args = append(args, r.OrganizationID)
+	args = append(args, r.Roles)
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -1490,6 +1610,8 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 			args = append(args, n.row.UserID)
 		case 1:
 			args = append(args, n.row.OrganizationID)
+		case 2:
+			args = append(args, n.row.Roles)
 		}
 	}
 	return runtime.BatchOp{SQL: st.SQL, Args: args}, nil
@@ -1532,6 +1654,8 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 			continue
 		}
 		switch i {
+		case 0:
+			args = append(args, m.row.Roles)
 		}
 	}
 	args = append(args, m.row.UserID)
@@ -1588,6 +1712,8 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 			continue
 		}
 		switch i {
+		case 0:
+			args = append(args, m.row.Roles)
 		}
 	}
 	args = append(args, m.row.UserID)

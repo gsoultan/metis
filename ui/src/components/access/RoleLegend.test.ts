@@ -103,3 +103,37 @@ describe('what a role allows', () => {
     expect(visibleText(html)).toContain('Diperlukan untuk Proses Archive definition');
   });
 });
+
+/*
+ * What every organization shares takes a role held in every organization: one
+ * granted in a single organization does not admit to it. The legend says which
+ * actions those are, or an administrator of one organization would read that
+ * they may do them.
+ */
+describe('an action that needs the role in every organization', () => {
+  const administrator = ROLE_OPTIONS.find((option) => option.value === 'ADMIN')!;
+  const legend: LegendState = {
+    status: 'known',
+    areas: [
+      {
+        area: 'organizations',
+        actions: [
+          { method: 'CreateOrganization', area: 'organizations', label: 'Create organization', global: true },
+          { method: 'UpdateOrganization', area: 'organizations', label: 'Update organization' },
+        ],
+      },
+    ],
+  };
+
+  it('is marked as such, and an action this organization’s role admits to is not', () => {
+    const shown = text(administrator, legend);
+    expect(shown).toContain('Create organization (needs the role in every organization)');
+    expect(shown).toContain('Update organization');
+    expect(shown).not.toContain('Update organization (needs');
+  });
+
+  it('is marked in the interface’s language', () => {
+    const html = renderMarkup(inLanguage(createElement(RoleLegend, { option: administrator, legend }), 'id', id));
+    expect(visibleText(html)).toContain('(memerlukan peran ini di setiap organisasi)');
+  });
+});

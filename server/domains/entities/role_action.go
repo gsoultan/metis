@@ -24,6 +24,11 @@ type RoleAction struct {
 
 	// Label is the method in words: "CreateDefinition" reads "Create definition".
 	Label string `json:"label"`
+
+	// Global is set when the role has to be held in every organization: the
+	// action changes what every organization shares, and a role granted in one
+	// of them does not admit to it.
+	Global bool `json:"global,omitzero"`
 }
 
 // NewRoleAction describes the action a gated method performs.
