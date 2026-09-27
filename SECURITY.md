@@ -104,6 +104,10 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
 
 ## What has already been looked at
 
+[`docs/security-review.md`](docs/security-review.md) is the scope for the next
+external review: what changed since this list, in the order it matters, and
+what is known and not yet fixed.
+
 Ten issues were found and fixed by audit between 2026-08-30 and 2026-09-04, so a
 reviewer can skip re-treading them. Each is in the changelog with what it was
 measured to do.
