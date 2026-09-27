@@ -30,6 +30,78 @@ Accounts that belong to several organizations choose one per request with the
 `X-Organization-ID` header. The server validates the choice against the
 caller's actual memberships — it is a selection, never an assertion.
 
+### Roles: in one organization, or in every one
+
+A role — Administrator, Designer, Operator, Query author — is held in one of
+two places:
+
+- **On the account's membership of one organization**, where it acts in that
+  organization alone. That organization's administrators grant and revoke it.
+- **On the account**, where it acts in every organization the account belongs
+  to — which is how every role was held before roles could be granted in one
+  organization. Only a platform administrator grants or takes one away.
+
+**What a request acts with.** The account's roles in every organization, and the
+ones it holds in the organization the request is for: the one
+`X-Organization-ID` chose, or its first membership without it — the
+organization the request is then scoped to. A role held in another
+organization counts for nothing, and so does a `roles` claim in a token: roles
+are read from the account when the request is authenticated, never from the
+token. What no organization owns — adding an organization, the platform
+accounts, connector templates and manifests — counts only the roles held in
+every organization.
+
+**Granting one in an organization.** An administrator of the organization the
+request is for replaces the roles an account holds there:
+
+```bash
+curl -X PUT $GOBPM/api/v1/users/$USER_ID/organization-roles \
+  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"roles": ["DESIGNER", "OPERATOR"]}'
+```
+
+The organization is always the request's, never the body's. The account has to
+be a member of it (404 otherwise), and the roles have to be the four above (400
+otherwise); they are stored as the server spells them, each once. Nothing else
+about the account changes, so an account another organization shares needs no
+say from there. `POST /api/v1/users` takes the same list as
+`organization_roles`, for an account created in the organization the request is
+for. The Roles tab on Platform access and the account dialog do the same.
+
+**Granting one in every organization.** `roles` on `PUT /api/v1/users/{id}` or
+`POST /api/v1/users` — and deleting an account that holds one — takes a
+**platform administrator**: an administrator of every organization whose
+account id the operator lists in `METIS_PLATFORM_ADMINS` where there is more
+than one organization, and any administrator of every organization where there
+is one. Anybody else is refused with a 403 that names the setting.
+
+**Reading them.** An organization's list of accounts, `GET /api/v1/users/{id}`
+and `GET /api/v1/users/me` give `roles`, held in every organization, and
+`organization_roles`, held in the organization the request is for; what an
+account holds in another organization is never written out. `/users/me` also
+says `may_change_global_roles`, which the interface uses to decide what to
+offer; the server checks again on every change.
+
+**The last administrators are kept.** An organization's administrators are its
+members holding Administrator there, in it alone or in every organization.
+Taking the role from the last one, or deleting them, is refused with a 403 that
+names the organization. The last account holding Administrator in every
+organization is kept the same way: only such an account adds organizations and
+manages the platform accounts, and no role granted in one organization can make
+somebody one again.
+
+**When a change takes effect.** At the next request. The server keeps the
+account a token names for `METIS_AUTH_CACHE_TTL` (five seconds unless set) and
+forgets it the moment its roles change, so the replica that made the change
+uses the new roles at once, and any other within that time. A token issued
+before the change carries nothing that outlives it.
+
+**Signed in through an identity provider.** The account linked to the identity
+holds roles in its organizations the same way. They live on its memberships, so
+an organization the provider stops naming is left with the roles held there,
+and joining it again starts with none.
+
 ### Signing in with OIDC
 
 With `OIDC_ISSUER` and `OIDC_CLIENT_ID` set, the API accepts ID tokens from
@@ -98,9 +170,11 @@ providers — so a local account with the same address stays a separate account.
 The new account is named after `preferred_username`, else the email, else the
 subject, with a short suffix when somebody already has that username, and takes
 its name and email from the token. It holds **no role**: the task inbox —
-listing, claiming and completing tasks — needs none. An administrator grants
-Designer, Operator or Administrator on the account in Metis afterwards; a
-`roles` claim in the token grants nothing. Changing the password in Metis is
+listing, claiming and completing tasks — needs none. An administrator of one of
+its organizations grants Designer, Operator or Administrator there afterwards,
+and a platform administrator can grant one in every organization (see *Roles:
+in one organization, or in every one*); a `roles` claim in the token grants
+nothing. Changing the password in Metis is
 refused with "change it at your identity provider", and so is setting one with
 `--reset-password`, which names the provider to reset it at: a password here
 would be a way in that the provider does not control.
@@ -1027,11 +1101,14 @@ specification. Both are in the UI, on the Connectors page.
 names its key runs it, with that organization's connection attached. So
 installing, importing, switching and removing one changes what every
 organization runs, and on an installation with more than one organization it
-takes a **platform administrator** — an administrator whose account id whoever
-operates the installation has listed in `METIS_PLATFORM_ADMINS`. Anybody else
-is refused with a 403 that names the setting and gives them their account id to
-pass on. An installation with one organization needs nothing configured: its
-administrators may, as they always could.
+takes a **platform administrator** — an administrator of every organization
+whose account id whoever operates the installation has listed in
+`METIS_PLATFORM_ADMINS`. Anybody else is refused with a 403 that names the
+setting and gives them their account id to pass on. An installation with one
+organization needs nothing configured: its administrators of every
+organization may, as they always could. The Administrator role granted in one
+organization does not admit to this on any installation (see *Roles: in one
+organization, or in every one*).
 
 The same goes for **connector templates** (`/api/v1/connectors`), for the same
 reason. A template has no organization: its key is unique across the

@@ -33,8 +33,9 @@ type User struct {
 	// OrganizationRoles are the roles the account holds in the organization it
 	// was read for — the one the request is in — and nowhere else: the part of
 	// RolesByOrganization that organization's own directory shows. Filled by
-	// the reads that answer a request; ignored when an account is written,
-	// since roles in an organization are granted by
+	// the reads that answer a request. Creating an account reads it as the
+	// roles to hold in the organization the account is created in; every other
+	// write ignores it, since roles in an organization are granted by
 	// OrganizationRoleGrants.SetOrganizationRoles.
 	OrganizationRoles []string `json:"organization_roles,omitzero"`
 

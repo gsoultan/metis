@@ -111,8 +111,11 @@
      client, so it is subject to the same egress policy as every other outbound
      call rather than being a way around it.
 7. RBAC UI:
-   - Visual role editor.
-   - Group/org-scoped access.
+   - Visual role editor — the Roles tab on Platform access (#118).
+   - Group/org-scoped access — organization-scoped: **done** (2026-09-27). A role is
+     granted in one organization and acts only in requests for it; a role held in
+     every organization is the platform administrators'. Group-scoped is not: a
+     group's `roles` are stored and grant nothing.
 8. Process Versioning & Migration UI:
    - Version history with visual diff.
    - Rollback + migration wizard.
@@ -344,8 +347,13 @@
         by a test; #118). That legend reads in the interface's language: its headings and
         its actions, which the catalogues word by method name, with the server's English
         for a method they do not know yet (2026-09-27); the role names and their sentences
-        are still English. Roles are still the four fixed in code, and group- or
-        organization-scoped access is not built.
+        are still English. Organization-scoped access is built (2026-09-27, branch
+        `organization-roles`): a role is granted in one organization, on the account's
+        membership (migration 30), by that organization's administrators, and acts only in
+        requests for it; a role held in every organization is changed only by a platform
+        administrator (`METIS_PLATFORM_ADMINS`). Roles are still the four fixed in code,
+        and group-scoped access is not built: a group's `roles` are stored and grant
+        nothing.
   - [ ] Lower-priority UX items (9-12) delivered. Delivered: 10, the decision-table editor
         (#101); 11, progressive disclosure (#100); 12, onboarding and help (#102).
         Item 9 in part: manifests are hardened (#99). Listing installed manifests in the
@@ -1023,6 +1031,37 @@
     date's "audit order" entry.* Unreached reads that still stop at 1,000:
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
+
+- 2026-09-27 (completed): §9.7 item 7, organization-scoped access — roles are granted per
+  organization. Branch `organization-roles`, one commit per change, each with a test that
+  fails without it. Driver: sec · Challengers: arch, fe, test.
+  - **The gap.** Roles lived on the account, so every role acted in every organization the
+    account belonged to, and an organization's administrator granting one (the Users page,
+    the matrix, `PUT /api/v1/users/{id}`) granted it installation-wide.
+  - **Schema.** Migration 30: `user_organizations.roles`, jsonb, never NULL, default `[]`;
+    nothing moved. It waits at most 2s for the table, as 28 does for `audit_logs`, because
+    sign-ins read it.
+  - **Resolution.** `ProtectedChainWithRoles` resolves the tenant before the role check, and
+    the check counts the account's global roles plus the ones it holds in the resolved
+    organization (`entities.User.RolesIn`). What no organization owns counts global roles
+    only: `PlatformChain` and a new `globalAdmin` chain (`CreateOrganization`, the platform
+    accounts). The in-endpoint checks (task hand-over, unnamed work, lookups) read the same
+    roles. Roles come from the account on each request, never the token; a change forgets
+    the cached account, so a revocation acts at the next request (other replicas within
+    `METIS_AUTH_CACHE_TTL`, 5s).
+  - **Granting.** `PUT /api/v1/users/{id}/organization-roles` (adminOnly): the tenant's
+    organization only, members only (404), built-in roles only (400). Global roles — on
+    update, create and delete — take a platform administrator (`internal/pkg/platformadmins`,
+    shared with the connector gate). Last-administrator guards: per organization, counting
+    ADMIN held there either way; and the last administrator of every organization, which
+    no per-organization role could restore.
+  - **UI.** The matrix and the account dialog edit the current organization's roles; a
+    global role reads *Every organization*, fixed for anybody the platform gate refuses;
+    the legend marks global-only actions. English and Indonesian.
+  - **Not done:** group-scoped roles (stored, grant nothing). The UI names no organization
+    per request (`X-Organization-ID`), so a member of several works in the one the server
+    resolves first, as before; pages other than Platform access still decide what to show
+    from the sign-in's global roles — never more than the server allows.
 
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
