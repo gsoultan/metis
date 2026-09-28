@@ -1089,6 +1089,36 @@
     200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
     lock cannot be extended; redaction misses `client_secret`, `id_token`, `db_password`;
     organization-wide queries carry every project id.
+
+- 2026-09-28 (completed): manual tasks are held to HUM-04's rule, as the product owner
+  decided the question 0.4.0 left open. Branch `manual-tasks-named`, one commit per change,
+  each with a test that fails against the code before it. Driver: bpm (task service, file
+  format) and ux (designer, inbox) · Challengers: sec, fe, test.
+  - **The file format.** A BPMN file lost a step's candidate users, on every kind of task:
+    the parser had attributes for the assignee and the candidate groups only.
+    `camunda:candidateUsers` is read and written now, on a manual task as on a user task
+    (BPMN 2.0.2 §10.3 gives every activity its performers). Test first:
+    `TestWhoDoesAStepSurvivesTheRoundTrip`, and `tests/bpmn`
+    `TestAManualTaskFromAFileIsOfferedToThePeopleItNames` ("offered to [] and [warehouse]").
+  - **The designer.** A manual step's panel had a line of free text the engine never read,
+    and said an empty one was anybody's. It has the user step's *Who does this* now — one
+    shared `AssignmentSettings` — and keeps the free text as a note. The warning for a step
+    that names nobody covers manual steps; an assignment table does not satisfy it there,
+    because the engine asks a table only for a user step.
+  - **The rule.** `entities.Task.FallsToOperators` exempted `ManualTask` and
+    `authorizeCandidate` let a candidate-less manual task through. Claiming, completing,
+    delegating and assigning a manual task that names nobody take an administrator or an
+    operator, with the user task's 403 for anybody else; `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS`
+    covers both kinds. The board's mirror (`fallsToOperators`) follows. Test first:
+    `tests/task` over both kinds ("claiming a manualTask nobody was named for: got 200").
+  - **Upgrading.** Every manual step designed before names nobody, so its tasks go to the
+    administrators and operators. `docs/upgrading.md`'s query no longer filters manual tasks
+    out; the CHANGELOG says what to do. `docs/security-review.md` finding 2 is closed.
+  - **Found, not changed:** *All Tasks* (`TaskList.tsx`) offers Complete on every open task
+    to whoever reads it, of either kind, and the server refuses the ones it must. *Assign to*
+    shows nothing for an assignee who is not one of the organization's users — a name from
+    a BPMN file, say — though the engine carries it, as it did for user steps. An assignment
+    table cannot route a manual step.
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
   - #92: a migration request that omits `dry_run` is a dry run, as documented.
@@ -1425,9 +1455,10 @@
   - **`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`** brings the old rule back for a migration
     window, off by default and announced at boot when on; `docs/upgrading.md` has the
     query for the tasks affected.
-  - **Open, for the product owner:** manual tasks. The designer has no field to name
+  - **Open, for the product owner:** ~~manual tasks. The designer has no field to name
     anybody for one and tells its author an empty one is anybody's, so they were left
-    open; closing them needs that field first. And a completion can still carry variables
+    open; closing them needs that field first.~~ *Done 2026-09-28: see that date's
+    "manual tasks" entry.* And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
     asks nobody for any.
 - 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand

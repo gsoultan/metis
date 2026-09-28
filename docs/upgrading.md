@@ -120,15 +120,21 @@ SELECT username, roles FROM users
 
 ## Tasks nobody was named for are the administrators' and operators'
 
-A user task with no assignee and no candidates used to be anybody's: anybody
+A task with no assignee and no candidates used to be anybody's: anybody
 signed in to its organization could claim it and complete it, with variables
 of their own. It is now an administrator's or an operator's to take — to
-claim, to complete, or to give to somebody — and nobody else's. No
-migration runs; what changes is who may act on these tasks.
+claim, to complete, or to give to somebody — and nobody else's, whichever
+kind of task it is. User tasks changed in 0.4.0. Manual tasks change in the
+release after it: 0.4.0 left them open because the designer had no field to
+name anybody for one, and a manual step now has the user step's *Who does
+this* fields. No migration runs; what changes is who may act on these tasks.
 
-**Who is affected:** installations with processes whose user tasks name
-nobody, and the members who took those tasks from the inbox's board. After
-the upgrade:
+**Who is affected:** installations with processes whose user or manual tasks
+name nobody, and the members who took those tasks from the inbox's board.
+Every manual step designed before this release names nobody, because there
+was no way to name anybody: coming from 0.4.0, the manual tasks your members
+confirm today are the administrators' and operators' after the upgrade,
+unless the setting below is on. After the upgrade:
 
 - A member claiming or completing such a task is refused with a 403: *this
   task has no assignee and no candidates, so only an administrator or an
@@ -138,19 +144,16 @@ the upgrade:
 - Administrators and operators find these tasks under *Available to Claim*,
   and may claim them, complete them, or assign or delegate them to the
   person they should have gone to.
-- Tasks with an assignee or candidates are unchanged, and so are manual
-  tasks: the designer has no field to name anybody for one, and they stay
-  anybody's.
+- Tasks with an assignee or candidates are unchanged, of either kind.
 
-**Find them.** The designer warns about each user task that names nobody.
-The tasks already waiting on such a step:
+**Find them.** The designer warns about each user or manual step that names
+nobody. The tasks already waiting on such a step, with their kind:
 
 ```sql
-SELECT id, name, node_id, instance_id, created_at
+SELECT id, name, type, node_id, instance_id, created_at
 FROM tasks
 WHERE deleted_at IS NULL
   AND status = 'unclaimed'
-  AND COALESCE(type, '') <> 'manualTask'
   AND COALESCE(assignee, '') = ''
   AND COALESCE(candidate_users::text, '') IN ('', '[]', 'null')
   AND COALESCE(candidate_groups::text, '') IN ('', '[]', 'null')
@@ -164,9 +167,10 @@ administrator or an operator takes each one, or assigns it to the person it
 should go to.
 
 **Need time?** `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the old rule
-back: anybody signed in may claim and complete such a task, and *Available to
-Claim* offers it to everybody. It is for a migration window, not a steady
-state, and the server says so at every boot while it is on:
+back, for user and manual tasks alike: anybody signed in may claim and
+complete such a task, and *Available to Claim* offers it to everybody. It is
+for a migration window, not a steady state, and the server says so at every
+boot while it is on:
 
 ```
 {"level":"warn","setting":"METIS_ALLOW_UNASSIGNED_TASK_CLAIMS","message":"Anybody signed in to an organization can claim and complete its tasks that have no assignee and no candidates, because this setting is on. Give those steps an assignee or candidates, then turn it off."}
@@ -176,8 +180,11 @@ Turn it off once the query above finds nothing that still needs a member to
 take it. The board does not know the setting, so while it is on a member
 claims such a task from *Available to Claim* rather than from the board.
 
-**Rolling back** to the previous release brings the old rule back with no
-setting; nothing in the database changed.
+**Rolling back** to 0.4.0 makes a manual task that names nobody anybody's
+again, with no setting, and user tasks stay the administrators' and
+operators'; nothing in the database changed. A manual step given people after
+the upgrade keeps them: 0.4.0 holds a manual task to its assignee and
+candidates as well, though its designer does not show them.
 
 ## Migration 22 can stop the upgrade, on purpose
 

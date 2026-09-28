@@ -8,6 +8,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **A manual task nobody was named for could be taken by anybody in its
+  organization.** 0.4.0 made a user task with no assignee and no candidates
+  the administrators' and operators' to take, and left manual tasks open,
+  because the designer had no field to name anybody for one: any member
+  could claim and confirm any manual step, and the inbox's board offered it
+  to all of them. A manual step now names who does it the way a user step
+  does — one person, or people and teams one of whom takes it, under *Who
+  does this* — and one that names nobody is an administrator's or an
+  operator's to claim, complete, delegate or assign. Anybody else gets the
+  403 a user task gives, the board offers them neither Claim nor Done and
+  says who can take it, and the designer warns about the step. A BPMN file
+  carries a step's candidate users now (`camunda:candidateUsers`), on a
+  manual task or a user task; import dropped them and export never wrote
+  them.
+
+  **Upgrading:** every manual step designed before this release names
+  nobody — there was no way to name anybody — so after the upgrade its
+  tasks stop being workable by the members who confirmed them: they are
+  refused them and not offered them, and the work waits for an
+  administrator or an operator, whose *Available to Claim* lists it. Give
+  each manual step an assignee, candidate users or candidate groups in the
+  designer, and deploy; *Tasks nobody was named for* in `docs/upgrading.md`
+  has the query for the tasks already waiting. Until then
+  `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the old rule back for a
+  migration window, for manual tasks as for user tasks: anybody signed in
+  may claim and complete such a task. It is off by default, and the server
+  warns at boot while it is on.
+
 ## [0.4.0] - 2026-09-28
 
 A minor release that closes twelve security holes, so anyone running 0.3.0

@@ -306,8 +306,10 @@ completed by those people and the members of those groups. One that names
 nobody — no assignee, no candidates — is an administrator's or an operator's:
 anybody else claiming, completing or handing it on gets a 403 that says the
 task has no assignee and no candidates and who can take it, and
-`ListTasksByCandidates` lists it only for them. A manual task is the
-exception, open to anybody in its organization. `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`
+`ListTasksByCandidates` lists it only for them. That holds for a manual task
+as for a user task: a manual step names its assignee and candidates the same
+way, in the designer and in a BPMN file (`camunda:assignee`,
+`camunda:candidateUsers`, `camunda:candidateGroups`). `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`
 brings back the old rule, where anybody signed in could take such a task, for
 a migration window.
 
