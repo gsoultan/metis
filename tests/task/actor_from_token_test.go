@@ -119,7 +119,8 @@ func (h *taskHarness) assignTaskTo(t *testing.T, assignee string) string {
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Outgoing: []string{"f1"}},
 			{ID: "approve", Name: "Approve", Type: entities.UserTask, Assignee: assignee,
-				Incoming: []string{"f1"}, Outgoing: []string{"f2"}},
+				Properties: testutils.FormDeclaring("approved"),
+				Incoming:   []string{"f1"}, Outgoing: []string{"f2"}},
 			{ID: "end", Type: entities.EndEvent, Incoming: []string{"f2"}},
 		},
 		Flows: []*entities.SequenceFlow{

@@ -35,7 +35,8 @@ func TestAHintIsSentOnlyForWorkThatCommitted(t *testing.T) {
 		Key:     "claim",
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
-			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita"},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita",
+				Properties: testutils.FormDeclaring("approved")},
 			{ID: "decide", Type: entities.ExclusiveGateway},
 			{ID: "accepted", Type: entities.EndEvent},
 			{ID: "rejected", Type: entities.EndEvent},

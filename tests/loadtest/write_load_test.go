@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Concurrent writes, and what an orchestrator has to hold while they happen.
@@ -197,8 +198,11 @@ func parallelApprovalDefinition(projectID uuid.UUID, partnerURL string) *entitie
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "split", Type: entities.ParallelGateway},
-			{ID: financeNode, Name: "Finance approves", Type: entities.UserTask, Assignee: "load"},
-			{ID: legalNode, Name: "Legal approves", Type: entities.UserTask, Assignee: "load"},
+			// Each approval's form declares the variable its completion sets.
+			{ID: financeNode, Name: "Finance approves", Type: entities.UserTask, Assignee: "load",
+				Properties: testutils.FormDeclaring(financeNode + "_approved")},
+			{ID: legalNode, Name: "Legal approves", Type: entities.UserTask, Assignee: "load",
+				Properties: testutils.FormDeclaring(legalNode + "_approved")},
 			{ID: joinNode, Type: entities.ParallelGateway},
 			{ID: "notify", Name: "Tell the partner", Type: entities.ServiceTask, Properties: map[string]any{
 				"http_url": partnerURL, "http_method": "POST", "output_receipt": "receipt",

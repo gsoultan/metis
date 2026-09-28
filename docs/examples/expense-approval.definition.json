@@ -39,7 +39,10 @@
           "name": "line-managers"
         }
       ],
-      "documentation": "Completing this writes `approved` and `approverNote`."
+      "documentation": "Completing this writes `approved` and `approverNote`: the two fields of its form, and nothing else.",
+      "properties": {
+        "form_definition": "[{\"id\":\"approved\",\"label\":\"Approved\",\"type\":\"boolean\"},{\"id\":\"approverNote\",\"label\":\"Note\",\"type\":\"textarea\"}]"
+      }
     },
     {
       "id": "ask-director",
@@ -52,7 +55,10 @@
           "name": "finance"
         }
       ],
-      "documentation": "Completing this writes `approved` and `approverNote`."
+      "documentation": "Completing this writes `approved` and `approverNote`: the two fields of its form, and nothing else.",
+      "properties": {
+        "form_definition": "[{\"id\":\"approved\",\"label\":\"Approved\",\"type\":\"boolean\"},{\"id\":\"approverNote\",\"label\":\"Note\",\"type\":\"textarea\"}]"
+      }
     },
     {
       "id": "auto-approve",

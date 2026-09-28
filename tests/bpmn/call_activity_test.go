@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // One process calling another.
@@ -22,7 +23,8 @@ func createChildProcess(t *testing.T, h *serviceTaskHarness, key string) {
 		Name:    "Check the supplier",
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent, Name: "Start"},
-			{ID: "review", Type: entities.UserTask, Name: "Compliance review", Assignee: "carol"},
+			{ID: "review", Type: entities.UserTask, Name: "Compliance review", Assignee: "carol",
+				Properties: testutils.FormDeclaring("approved")},
 			{ID: "end", Type: entities.EndEvent, Name: "Done"},
 		},
 		Flows: []*entities.SequenceFlow{

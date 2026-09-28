@@ -9,10 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A task nobody was named for — no assignee, no candidate users, no candidate
@@ -21,9 +23,10 @@ import (
 // complete an approval nobody had ever meant them to have. Absent constraint
 // means deny: such a task is the administrators' and the operators'.
 
-// nobodyNamed is a step with no assignee and no candidates.
+// nobodyNamed is a step with no assignee and no candidates. Its form asks
+// whether the refund is approved, which is what completing it answers.
 func nobodyNamed() entities.Node {
-	return entities.Node{Name: "Approve the refund", Type: entities.UserTask}
+	return entities.Node{Name: "Approve the refund", Type: entities.UserTask, Properties: testutils.FormDeclaring("approved")}
 }
 
 // legacyUnassignedClaims is the setting that brings the old rule back.
@@ -314,6 +317,14 @@ func (h *taskHarness) signInWithRoles(t *testing.T, name string, roles ...string
 // returns the id of the task that step opened.
 func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	t.Helper()
+	taskID, _ := h.openTaskWith(t, step, nil)
+	return taskID
+}
+
+// openTaskWith is openTask for a process started with variables, and returns
+// the instance as well.
+func (h *taskHarness) openTaskWith(t *testing.T, step entities.Node, variables map[string]any) (string, uuid.UUID) {
+	t.Helper()
 	ctx := entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: h.orgID.String()})
 	step.ID, step.Incoming, step.Outgoing = "step", []string{"f1"}, []string{"f2"}
 	def := &entities.ProcessDefinition{
@@ -333,7 +344,7 @@ func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	if _, err := h.svc.CreateDefinition(ctx, def); err != nil {
 		t.Fatalf("create definition: %v", err)
 	}
-	instanceID, err := h.svc.StartProcess(ctx, h.projID, "one-step", nil)
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "one-step", variables)
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
@@ -344,5 +355,5 @@ func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	if len(page.Items) != 1 {
 		t.Fatalf("the instance opened %d tasks, want 1", len(page.Items))
 	}
-	return page.Items[0].ID.String()
+	return page.Items[0].ID.String(), instanceID
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // parkedOn reports whether the instance holds a token on nodeID.
@@ -66,8 +67,8 @@ func conditionalDefinition(key, condition string) entities.ProcessDefinition {
 			// the condition can be false after the first and true after the
 			// second. One step would not distinguish "waits correctly" from
 			// "advances on any change at all".
-			{ID: "fund", Type: entities.UserTask, Name: "Approve the funds"},
-			{ID: "topup", Type: entities.UserTask, Name: "Approve the rest"},
+			{ID: "fund", Type: entities.UserTask, Name: "Approve the funds", Properties: testutils.FormDeclaring("funded")},
+			{ID: "topup", Type: entities.UserTask, Name: "Approve the rest", Properties: testutils.FormDeclaring("funded")},
 
 			{ID: "end", Type: entities.EndEvent},
 		},

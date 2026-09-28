@@ -5,6 +5,7 @@ import (
 
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A skip that cannot advance leaves the step as it was.
@@ -34,7 +35,8 @@ func routed(f *fixture, withReview bool) *entities.ProcessDefinition {
 	}
 	if withReview {
 		nodes = append(nodes, &entities.Node{ID: "review", Name: "Review the claim", Type: entities.UserTask, Assignee: "rita",
-			Incoming: []string{"in"}, Outgoing: []string{"out"}})
+			Properties: testutils.FormDeclaring("approved"),
+			Incoming:   []string{"in"}, Outgoing: []string{"out"}})
 		flows = append(flows,
 			&entities.SequenceFlow{ID: "in", SourceRef: "start", TargetRef: "review"},
 			&entities.SequenceFlow{ID: "out", SourceRef: "review", TargetRef: "decide"})
