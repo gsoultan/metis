@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package process;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gsoultan/metis/api/proto/endpoints;endpoints";
+
+message ExtendExternalTaskLockRequest {
+  string task_id = 1;
+  // The worker holding the lock: the worker_id it fetched the task with.
+  string worker_id = 2;
+  // How long from now the lock is to run, in milliseconds: from 1 to
+  // 86400000, a day. From now, not from when the lock would have run out.
+  int64 lock_duration_ms = 3;
+}
+
+message ExtendExternalTaskLockResponse {
+  // Why the lock was not extended, or empty. A refusal carries no
+  // lock_expiration: the worker does not hold the task any more, or never did.
+  string error = 1;
+  // When the lock now runs out.
+  google.protobuf.Timestamp lock_expiration = 2;
+}

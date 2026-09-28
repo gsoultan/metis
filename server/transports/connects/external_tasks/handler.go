@@ -3,11 +3,13 @@ package external_tasks
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	pbendpoints "github.com/gsoultan/metis/api/proto/endpoints"
 	pbentities "github.com/gsoultan/metis/api/proto/entities"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/external_task"
 	"github.com/gsoultan/metis/server/transports/adapters"
 )
@@ -95,4 +97,30 @@ func (h *ExternalTaskHandler) HandleExternalTaskFailure(ctx context.Context, req
 	return connect.NewResponse(&pbendpoints.HandleExternalTaskFailureResponse{
 		Error: resp.Error,
 	}), nil
+}
+
+// ExtendExternalTaskLock gives the worker holding a task's lock more time.
+//
+// A refusal travels in the reply's error field, as a service's refusal does
+// over Connect, and with no lock_expiration beside it.
+func (h *ExternalTaskHandler) ExtendExternalTaskLock(ctx context.Context, req *connect.Request[pbendpoints.ExtendExternalTaskLockRequest]) (*connect.Response[pbendpoints.ExtendExternalTaskLockResponse], error) {
+	id, err := uuid.Parse(req.Msg.TaskId)
+	if err != nil {
+		//nolint:nilerr // the error is reported in-band, in this API's Error field, not swallowed
+		return connect.NewResponse(adapters.ExtendLockReplyToProto(time.Time{},
+			apierr.Invalidf("the external task id %q is not an id", req.Msg.TaskId))), nil
+	}
+	response, err := h.eps.ExtendExternalLock(ctx, external_task.ExtendExternalLockRequest{
+		TaskID:       id,
+		WorkerID:     req.Msg.WorkerId,
+		LockDuration: req.Msg.LockDurationMs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp, ok := response.(external_task.ExtendExternalLockResponse)
+	if !ok {
+		return nil, fmt.Errorf("external_tasks: expected an external_task.ExtendExternalLockResponse, got %T", response)
+	}
+	return connect.NewResponse(adapters.ExtendLockReplyToProto(resp.LockExpiration, resp.Err)), nil
 }

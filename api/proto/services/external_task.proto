@@ -5,7 +5,8 @@ package process;
 import "endpoints/fetch_and_lock_external_tasks.proto";
 import "endpoints/complete_external_task.proto";
 import "endpoints/handle_external_task_failure.proto";
+import "endpoints/extend_external_task_lock.proto";
 
 option go_package = "github.com/gsoultan/metis/api/proto/services;services";
 
-service ExternalTaskService { rpc FetchAndLockExternalTasks(FetchAndLockExternalTasksRequest) returns (FetchAndLockExternalTasksResponse) {} rpc CompleteExternalTask(CompleteExternalTaskRequest) returns (CompleteExternalTaskResponse) {} rpc HandleExternalTaskFailure(HandleExternalTaskFailureRequest) returns (HandleExternalTaskFailureResponse) {} }
+service ExternalTaskService { rpc FetchAndLockExternalTasks(FetchAndLockExternalTasksRequest) returns (FetchAndLockExternalTasksResponse) {} rpc CompleteExternalTask(CompleteExternalTaskRequest) returns (CompleteExternalTaskResponse) {} rpc HandleExternalTaskFailure(HandleExternalTaskFailureRequest) returns (HandleExternalTaskFailureResponse) {} rpc ExtendExternalTaskLock(ExtendExternalTaskLockRequest) returns (ExtendExternalTaskLockResponse) {} }

@@ -10,12 +10,14 @@ import type { CompleteExternalTaskRequestSchema, CompleteExternalTaskResponseSch
 import { file_endpoints_complete_external_task } from "../endpoints/complete_external_task_pb";
 import type { HandleExternalTaskFailureRequestSchema, HandleExternalTaskFailureResponseSchema } from "../endpoints/handle_external_task_failure_pb";
 import { file_endpoints_handle_external_task_failure } from "../endpoints/handle_external_task_failure_pb";
+import type { ExtendExternalTaskLockRequestSchema, ExtendExternalTaskLockResponseSchema } from "../endpoints/extend_external_task_lock_pb";
+import { file_endpoints_extend_external_task_lock } from "../endpoints/extend_external_task_lock_pb";
 
 /**
  * Describes the file services/external_task.proto.
  */
 export const file_services_external_task: GenFile = /*@__PURE__*/
-  fileDesc("ChxzZXJ2aWNlcy9leHRlcm5hbF90YXNrLnByb3RvEgdwcm9jZXNzMugCChNFeHRlcm5hbFRhc2tTZXJ2aWNlEnQKGUZldGNoQW5kTG9ja0V4dGVybmFsVGFza3MSKS5wcm9jZXNzLkZldGNoQW5kTG9ja0V4dGVybmFsVGFza3NSZXF1ZXN0GioucHJvY2Vzcy5GZXRjaEFuZExvY2tFeHRlcm5hbFRhc2tzUmVzcG9uc2UiABJlChRDb21wbGV0ZUV4dGVybmFsVGFzaxIkLnByb2Nlc3MuQ29tcGxldGVFeHRlcm5hbFRhc2tSZXF1ZXN0GiUucHJvY2Vzcy5Db21wbGV0ZUV4dGVybmFsVGFza1Jlc3BvbnNlIgASdAoZSGFuZGxlRXh0ZXJuYWxUYXNrRmFpbHVyZRIpLnByb2Nlc3MuSGFuZGxlRXh0ZXJuYWxUYXNrRmFpbHVyZVJlcXVlc3QaKi5wcm9jZXNzLkhhbmRsZUV4dGVybmFsVGFza0ZhaWx1cmVSZXNwb25zZSIAQpMBCgtjb20ucHJvY2Vzc0IRRXh0ZXJuYWxUYXNrUHJvdG9QAVo1Z2l0aHViLmNvbS9nc291bHRhbi9tZXRpcy9hcGkvcHJvdG8vc2VydmljZXM7c2VydmljZXOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_endpoints_fetch_and_lock_external_tasks, file_endpoints_complete_external_task, file_endpoints_handle_external_task_failure]);
+  fileDesc("ChxzZXJ2aWNlcy9leHRlcm5hbF90YXNrLnByb3RvEgdwcm9jZXNzMtUDChNFeHRlcm5hbFRhc2tTZXJ2aWNlEnQKGUZldGNoQW5kTG9ja0V4dGVybmFsVGFza3MSKS5wcm9jZXNzLkZldGNoQW5kTG9ja0V4dGVybmFsVGFza3NSZXF1ZXN0GioucHJvY2Vzcy5GZXRjaEFuZExvY2tFeHRlcm5hbFRhc2tzUmVzcG9uc2UiABJlChRDb21wbGV0ZUV4dGVybmFsVGFzaxIkLnByb2Nlc3MuQ29tcGxldGVFeHRlcm5hbFRhc2tSZXF1ZXN0GiUucHJvY2Vzcy5Db21wbGV0ZUV4dGVybmFsVGFza1Jlc3BvbnNlIgASdAoZSGFuZGxlRXh0ZXJuYWxUYXNrRmFpbHVyZRIpLnByb2Nlc3MuSGFuZGxlRXh0ZXJuYWxUYXNrRmFpbHVyZVJlcXVlc3QaKi5wcm9jZXNzLkhhbmRsZUV4dGVybmFsVGFza0ZhaWx1cmVSZXNwb25zZSIAEmsKFkV4dGVuZEV4dGVybmFsVGFza0xvY2sSJi5wcm9jZXNzLkV4dGVuZEV4dGVybmFsVGFza0xvY2tSZXF1ZXN0GicucHJvY2Vzcy5FeHRlbmRFeHRlcm5hbFRhc2tMb2NrUmVzcG9uc2UiAEKTAQoLY29tLnByb2Nlc3NCEUV4dGVybmFsVGFza1Byb3RvUAFaNWdpdGh1Yi5jb20vZ3NvdWx0YW4vbWV0aXMvYXBpL3Byb3RvL3NlcnZpY2VzO3NlcnZpY2VzogIDUFhYqgIHUHJvY2Vzc8oCB1Byb2Nlc3PiAhNQcm9jZXNzXEdQQk1ldGFkYXRh6gIHUHJvY2Vzc2IGcHJvdG8z", [file_endpoints_fetch_and_lock_external_tasks, file_endpoints_complete_external_task, file_endpoints_handle_external_task_failure, file_endpoints_extend_external_task_lock]);
 
 /**
  * @generated from service process.ExternalTaskService
@@ -44,6 +46,14 @@ export const ExternalTaskService: GenService<{
     methodKind: "unary";
     input: typeof HandleExternalTaskFailureRequestSchema;
     output: typeof HandleExternalTaskFailureResponseSchema;
+  },
+  /**
+   * @generated from rpc process.ExternalTaskService.ExtendExternalTaskLock
+   */
+  extendExternalTaskLock: {
+    methodKind: "unary";
+    input: typeof ExtendExternalTaskLockRequestSchema;
+    output: typeof ExtendExternalTaskLockResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_services_external_task, 0);

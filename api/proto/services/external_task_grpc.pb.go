@@ -23,6 +23,7 @@ const (
 	ExternalTaskService_FetchAndLockExternalTasks_FullMethodName = "/process.ExternalTaskService/FetchAndLockExternalTasks"
 	ExternalTaskService_CompleteExternalTask_FullMethodName      = "/process.ExternalTaskService/CompleteExternalTask"
 	ExternalTaskService_HandleExternalTaskFailure_FullMethodName = "/process.ExternalTaskService/HandleExternalTaskFailure"
+	ExternalTaskService_ExtendExternalTaskLock_FullMethodName    = "/process.ExternalTaskService/ExtendExternalTaskLock"
 )
 
 // ExternalTaskServiceClient is the client API for ExternalTaskService service.
@@ -32,6 +33,7 @@ type ExternalTaskServiceClient interface {
 	FetchAndLockExternalTasks(ctx context.Context, in *endpoints.FetchAndLockExternalTasksRequest, opts ...grpc.CallOption) (*endpoints.FetchAndLockExternalTasksResponse, error)
 	CompleteExternalTask(ctx context.Context, in *endpoints.CompleteExternalTaskRequest, opts ...grpc.CallOption) (*endpoints.CompleteExternalTaskResponse, error)
 	HandleExternalTaskFailure(ctx context.Context, in *endpoints.HandleExternalTaskFailureRequest, opts ...grpc.CallOption) (*endpoints.HandleExternalTaskFailureResponse, error)
+	ExtendExternalTaskLock(ctx context.Context, in *endpoints.ExtendExternalTaskLockRequest, opts ...grpc.CallOption) (*endpoints.ExtendExternalTaskLockResponse, error)
 }
 
 type externalTaskServiceClient struct {
@@ -72,6 +74,16 @@ func (c *externalTaskServiceClient) HandleExternalTaskFailure(ctx context.Contex
 	return out, nil
 }
 
+func (c *externalTaskServiceClient) ExtendExternalTaskLock(ctx context.Context, in *endpoints.ExtendExternalTaskLockRequest, opts ...grpc.CallOption) (*endpoints.ExtendExternalTaskLockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(endpoints.ExtendExternalTaskLockResponse)
+	err := c.cc.Invoke(ctx, ExternalTaskService_ExtendExternalTaskLock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ExternalTaskServiceServer is the server API for ExternalTaskService service.
 // All implementations must embed UnimplementedExternalTaskServiceServer
 // for forward compatibility.
@@ -79,6 +91,7 @@ type ExternalTaskServiceServer interface {
 	FetchAndLockExternalTasks(context.Context, *endpoints.FetchAndLockExternalTasksRequest) (*endpoints.FetchAndLockExternalTasksResponse, error)
 	CompleteExternalTask(context.Context, *endpoints.CompleteExternalTaskRequest) (*endpoints.CompleteExternalTaskResponse, error)
 	HandleExternalTaskFailure(context.Context, *endpoints.HandleExternalTaskFailureRequest) (*endpoints.HandleExternalTaskFailureResponse, error)
+	ExtendExternalTaskLock(context.Context, *endpoints.ExtendExternalTaskLockRequest) (*endpoints.ExtendExternalTaskLockResponse, error)
 	mustEmbedUnimplementedExternalTaskServiceServer()
 }
 
@@ -97,6 +110,9 @@ func (UnimplementedExternalTaskServiceServer) CompleteExternalTask(context.Conte
 }
 func (UnimplementedExternalTaskServiceServer) HandleExternalTaskFailure(context.Context, *endpoints.HandleExternalTaskFailureRequest) (*endpoints.HandleExternalTaskFailureResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HandleExternalTaskFailure not implemented")
+}
+func (UnimplementedExternalTaskServiceServer) ExtendExternalTaskLock(context.Context, *endpoints.ExtendExternalTaskLockRequest) (*endpoints.ExtendExternalTaskLockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExtendExternalTaskLock not implemented")
 }
 func (UnimplementedExternalTaskServiceServer) mustEmbedUnimplementedExternalTaskServiceServer() {}
 func (UnimplementedExternalTaskServiceServer) testEmbeddedByValue()                             {}
@@ -173,6 +189,24 @@ func _ExternalTaskService_HandleExternalTaskFailure_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ExternalTaskService_ExtendExternalTaskLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(endpoints.ExtendExternalTaskLockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ExternalTaskServiceServer).ExtendExternalTaskLock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ExternalTaskService_ExtendExternalTaskLock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ExternalTaskServiceServer).ExtendExternalTaskLock(ctx, req.(*endpoints.ExtendExternalTaskLockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ExternalTaskService_ServiceDesc is the grpc.ServiceDesc for ExternalTaskService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -191,6 +225,10 @@ var ExternalTaskService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "HandleExternalTaskFailure",
 			Handler:    _ExternalTaskService_HandleExternalTaskFailure_Handler,
+		},
+		{
+			MethodName: "ExtendExternalTaskLock",
+			Handler:    _ExternalTaskService_ExtendExternalTaskLock_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
