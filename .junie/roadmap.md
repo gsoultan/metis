@@ -1032,6 +1032,14 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): a confirmed RabbitMQ message survives a broker restart (P0).
+  Branch `rabbitmq-persistent-messages`. All three publishes — the bridge's tasks, the
+  consumer's dead letters, the RabbitMQ Publisher step — go through `confirmingPublisher`, and
+  none set a delivery mode, which RabbitMQ reads as transient. The publisher now sets
+  `amqp.Persistent` unless the caller chose a mode. Tests first:
+  `TestAMessageIsPublishedToSurviveTheBrokerRestarting` (modes `[0 1]`, want `[2 1]`) and
+  `TestABridgesTasksSurviveTheBrokerRestarting` (mode 0, want 2). `docs/integration.md` says
+  the bridge's queue has to be durable for it to matter.
 - 2026-09-27 (completed): §9.7 item 7, organization-scoped access — roles are granted per
   organization. Branch `organization-roles`, one commit per change, each with a test that
   fails without it. Driver: sec · Challengers: arch, fe, test.
