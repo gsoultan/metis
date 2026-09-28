@@ -40,14 +40,20 @@ const (
 // form declares nothing, so it sets nothing: absent constraint means deny.
 //
 // Called before anything is written, so a refused completion leaves the task
-// open and the instance as it was.
-func (s *taskService) admitVariables(ctx context.Context, task models.TaskModel, vars map[string]any) error {
+// open and the instance as it was. With EnvAllowUndeclaredTaskVariables on, the
+// completion is let through as before and the step named in the log instead;
+// definitionKey is how that line names it.
+func (s *taskService) admitVariables(ctx context.Context, task models.TaskModel, definitionKey string, vars map[string]any) error {
 	if len(vars) == 0 {
 		return nil
 	}
 	undeclared, err := s.undeclaredVariables(ctx, task, vars)
 	if err != nil || len(undeclared) == 0 {
 		return err
+	}
+	if AllowUndeclaredTaskVariables() {
+		s.reportUndeclared(task, definitionKey, undeclared)
+		return nil
 	}
 	return refuseUndeclared(task, undeclared)
 }

@@ -127,7 +127,7 @@ func BenchmarkAdmittingVariablesAnInlineFormDeclares(b *testing.B) {
 	s := &taskService{}
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := s.admitVariables(b.Context(), task, vars); err != nil {
+		if err := s.admitVariables(b.Context(), task, "refund", vars); err != nil {
 			b.Fatal(err)
 		}
 	}

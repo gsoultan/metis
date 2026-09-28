@@ -168,6 +168,48 @@ func TestAStoredFormDeclaresTheVariablesOfATaskThatNamesIt(t *testing.T) {
 	}
 }
 
+// legacyUndeclaredVariables is the setting that brings the old rule back.
+const legacyUndeclaredVariables = "METIS_ALLOW_UNDECLARED_TASK_VARIABLES"
+
+// An installation whose integrations complete tasks with variables no form
+// declares can have the old rule back for a migration window. While it is on,
+// each step completed that way is named in the log once, with the variables it
+// was sent, so its form can be given those fields before the setting goes.
+func TestTheLegacySettingSetsUndeclaredVariablesAndNamesEachStepOnce(t *testing.T) {
+	t.Setenv(legacyUndeclaredVariables, "true")
+	logs := captureLogs(t)
+	h := newTaskHarness(t)
+
+	// The same step twice: named once.
+	for range 2 {
+		taskID, instanceID := h.openTaskWith(t, approval(), map[string]any{"amount": 120})
+		status, body := h.complete(t, "alice", taskID, map[string]any{"approved": true, "amount": 5, "approved_by": "mallory"})
+		if status != http.StatusOK {
+			t.Fatalf("with %s on, alice completing with variables the form does not declare: got %d (%s), want 200",
+				legacyUndeclaredVariables, status, strings.TrimSpace(body))
+		}
+		if vars := h.instanceVariables(t, instanceID); fmt.Sprint(vars["amount"]) != "5" || vars["approved_by"] != "mallory" {
+			t.Fatalf("with %s on, the instance holds %v; want every variable the completion carried", legacyUndeclaredVariables, vars)
+		}
+	}
+	// Another step: named in a line of its own.
+	other := h.assignTaskTo(t, "alice")
+	if status, body := h.complete(t, "alice", other, map[string]any{"approved": true, "amount": 7}); status != http.StatusOK {
+		t.Fatalf("with %s on, alice completing another step with an undeclared variable: got %d (%s), want 200",
+			legacyUndeclaredVariables, status, strings.TrimSpace(body))
+	}
+
+	var said []string
+	for _, line := range logs.linesNaming(legacyUndeclaredVariables) {
+		said = append(said, fmt.Sprintf("%v %v/%v %v", line["level"], line["definition"], line["node"], line["variables"]))
+	}
+	want := []string{"warn one-step/step [amount approved_by]", "warn actor-approval/approve [amount]"}
+	if strings.Join(said, "; ") != strings.Join(want, "; ") {
+		t.Fatalf("with %s on, the log named %q; want each step once, with what it was sent: %q",
+			legacyUndeclaredVariables, said, want)
+	}
+}
+
 // complete posts a completion as the person named, with the variables given.
 func (h *taskHarness) complete(t *testing.T, who, taskID string, variables map[string]any) (int, string) {
 	t.Helper()
