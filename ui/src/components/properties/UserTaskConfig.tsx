@@ -1,24 +1,20 @@
 import {
   Code,
   Group,
-  MultiSelect,
   NumberInput,
-  SegmentedControl,
-  Select,
   Stack,
   Text,
   TextInput,
 } from '@mantine/core';
-import { useState } from 'react';
 import { advancedVisibility, CHANGE_IN_EXPERT_MODE } from '../../domain/disclosure';
-import { useGroups, useUsers } from '../../hooks/useProcess';
 import { useAppStore } from '../../store/useAppStore';
 import type { FormField } from '../FormBuilder';
 import { FormBuilder } from '../FormBuilder';
 import type { NodeConfigProps } from '../PropertyPanel';
+import { AssignmentSettings } from './AssignmentSettings';
 import { LoopSettings } from './LoopSettings';
 import { PropertySection } from './PropertySection';
-import { asText, asNumber, asTextList } from '../../types/bpmn';
+import { asText, asNumber } from '../../types/bpmn';
 
 /**
  * The saved form, which is stored as free-form JSON and may be a string when it
@@ -47,80 +43,14 @@ function safeParse(value: string): unknown {
  * "Assignment Strategy" and "Execution Details".
  */
 export function UserTaskConfig({ data, onUpdate }: NodeConfigProps) {
-  const currentOrganizationId = useAppStore((state) => state.currentOrganizationId);
   const expertMode = useAppStore((state) => state.expertMode);
-  const { data: usersData } = useUsers(currentOrganizationId);
-  const { data: groupsData } = useGroups(currentOrganizationId);
-
-  const availableUsers = (usersData?.users || []).map((u) => ({ value: u.username, label: u.full_name || u.username }));
-  const availableGroups = (groupsData?.groups || []).map((g) => ({ value: g.name, label: g.name }));
-
-  const hasDirectAssignment = !!data.assignee;
-  const hasCandidates = asTextList(data.candidateUsers).length > 0 || asTextList(data.candidateGroups).length > 0;
-  const initialMode = hasDirectAssignment ? 'direct' : hasCandidates ? 'pool' : asText(data.assignmentMode, 'direct');
-  const [assignmentMode, setAssignmentMode] = useState(initialMode);
 
   const fields = asFormFields(data.formDefinition);
   const formKey = advancedVisibility(expertMode, data.formKey);
 
   return (
     <Stack gap="xl">
-      <PropertySection
-        title="Who does this"
-        hint="Give it to one person, or offer it to several and let one take it."
-      >
-        <SegmentedControl
-          fullWidth
-          value={assignmentMode}
-          onChange={(val) => {
-            setAssignmentMode(val);
-            if (val === 'direct') {
-              onUpdate({ assignmentMode: 'direct', candidateUsers: [], candidateGroups: [] });
-            } else {
-              onUpdate({ assignmentMode: 'pool', assignee: '' });
-            }
-          }}
-          data={[
-            { label: 'One person', value: 'direct' },
-            { label: 'Anyone from a group', value: 'pool' },
-          ]}
-        />
-
-        {assignmentMode === 'direct' ? (
-          <Select
-            label="Assign to"
-            placeholder="Choose a person"
-            description="It appears in their list and nobody else's."
-            data={availableUsers}
-            value={asText(data.assignee)}
-            onChange={(val) => onUpdate({ assignee: val || '' })}
-            searchable
-            clearable
-          />
-        ) : (
-          <Stack gap="sm">
-            <MultiSelect
-              label="These people"
-              placeholder="Anyone in particular"
-              data={availableUsers}
-              value={asTextList(data.candidateUsers)}
-              onChange={(val) => onUpdate({ candidateUsers: val })}
-              searchable
-              clearable
-            />
-            <MultiSelect
-              label="Or anyone in these teams"
-              placeholder="e.g. finance"
-              description="It waits in a shared list until one of them takes it."
-              data={availableGroups}
-              value={asTextList(data.candidateGroups)}
-              onChange={(val) => onUpdate({ candidateGroups: val })}
-              searchable
-              clearable
-            />
-          </Stack>
-        )}
-      </PropertySection>
+      <AssignmentSettings data={data} onUpdate={onUpdate} />
 
       <PropertySection
         title="What they fill in"

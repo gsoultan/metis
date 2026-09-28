@@ -18,6 +18,98 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Completing a task sets only what its form declares
+
+Completing a task used to write every variable the completion carried into the
+process, so whoever completed a step could also set business data beyond it:
+the approver of a refund could change the amount being refunded, or name
+somebody else as the approver. A completion now sets only the variables its
+task's form declares, and is refused otherwise. No migration runs; what changes
+is what a completion may set.
+
+**What a form declares** is the `id` of each of its fields:
+
+- the fields of the form built in the designer — the step's `form_definition`
+  — hidden ones included, because the inbox sends a hidden field's value too;
+- the fields of the stored form the step's form key names, when a form with
+  that key is stored in its project. A form key that names a form kept outside
+  Metis, such as an imported process's embedded form, declares nothing: Metis
+  cannot read its fields.
+
+A task with no form declares nothing, so it completes only with no variables.
+
+**Who is affected:** integrations that complete tasks through the API — the Go
+SDK's `CompleteTask`, REST, Connect or gRPC — with variables the task's form
+does not have, including any variable at all on a task with no form. The inbox
+is not: it sends exactly the fields of the form it shows, and completes a task
+with no form with none. Such a completion is refused with a 400 that names what
+was refused:
+
+```
+this task's form has no fields named amount, approved_by; a task can set only the variables its form declares
+```
+
+or, for a task with no form, *this task has no form to declare amount; a task
+can set only the variables its form declares*. Nothing changes when one is
+refused: the task stays open and no variable is set, not even the declared
+ones sent with it. Over Connect, as with every refusal a service gives, the
+reason is in the reply's `error` field. External tasks are not affected: a
+worker completing one sets what it returns, as before.
+
+**Find them.** Upgrade with `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` (below)
+and let the log name them: the first completion of each step that sets a
+variable its form does not declare is named once, with the variables it set —
+names, never values; at most ten, and a count of the rest:
+
+```
+{"level":"warn","setting":"METIS_ALLOW_UNDECLARED_TASK_VARIABLES","project":"0199…","definition":"refund","node":"approve","variables":["amount","approved_by"],"message":"A completion of this step set variables its form does not declare, which only this setting allows. Give the step's form those fields, then turn the setting off."}
+```
+
+Each server remembers the steps it has named, so a restart, or another
+replica, names a step again. This lists the open tasks by process, version and
+step, and whether each has a form at all; one without a form can be completed
+only with no variables:
+
+```sql
+SELECT d.key AS process, d.version, t.node_id AS step,
+       (COALESCE(t.form_definition, '') NOT IN ('', '[]') OR COALESCE(t.form_key, '') <> '') AS has_form,
+       count(*) AS open_tasks
+  FROM tasks t
+  JOIN process_instances i ON i.id = t.instance_id
+  JOIN process_definitions d ON d.id = i.definition_id
+ WHERE t.deleted_at IS NULL
+   AND t.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')
+ GROUP BY 1, 2, 3, 4
+ ORDER BY 1, 2, 3;
+```
+
+**Fix them** by giving each named step's form a field for each variable its
+completions set — in the designer, or in the stored form its form key names —
+and deploying. If a variable should not be the person's to set, leave the
+field out and change the integration instead: that is the hole this closes. A
+task keeps the form it was created with, so the tasks already waiting keep the
+old one: running instances stay on the version they started on, and moving them
+to the new version rebuilds a task only when its step's id changes.
+
+**Need time?** `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` brings the old rule
+back: a completion may set any variable, as before. It is for a migration
+window, not a steady state, and the server says so at every boot while it is
+on:
+
+```
+{"level":"warn","setting":"METIS_ALLOW_UNDECLARED_TASK_VARIABLES","message":"Completing a task can set any process variable, including ones its form does not declare, because this setting is on. The log names each step that does it, once; give those steps' forms the fields, then turn it off."}
+```
+
+Turn it off when three things hold: every step the log has named is fixed;
+after restarting the servers once the last fix is deployed, the log names no
+step for a full business cycle — the month-end run, the quarterly review; and
+the query above shows no open task on a version from before its step was
+fixed. A server names each step once, so a log gone quiet without a restart
+may only mean it has named everything already.
+
+**Rolling back** to the previous release brings the old rule back with no
+setting; nothing in the database changed.
+
 ## Roles can be granted in one organization
 
 Migration 30 gives every account's membership of an organization a list of
@@ -120,15 +212,21 @@ SELECT username, roles FROM users
 
 ## Tasks nobody was named for are the administrators' and operators'
 
-A user task with no assignee and no candidates used to be anybody's: anybody
+A task with no assignee and no candidates used to be anybody's: anybody
 signed in to its organization could claim it and complete it, with variables
 of their own. It is now an administrator's or an operator's to take — to
-claim, to complete, or to give to somebody — and nobody else's. No
-migration runs; what changes is who may act on these tasks.
+claim, to complete, or to give to somebody — and nobody else's, whichever
+kind of task it is. User tasks changed in 0.4.0. Manual tasks change in the
+release after it: 0.4.0 left them open because the designer had no field to
+name anybody for one, and a manual step now has the user step's *Who does
+this* fields. No migration runs; what changes is who may act on these tasks.
 
-**Who is affected:** installations with processes whose user tasks name
-nobody, and the members who took those tasks from the inbox's board. After
-the upgrade:
+**Who is affected:** installations with processes whose user or manual tasks
+name nobody, and the members who took those tasks from the inbox's board.
+Every manual step designed before this release names nobody, because there
+was no way to name anybody: coming from 0.4.0, the manual tasks your members
+confirm today are the administrators' and operators' after the upgrade,
+unless the setting below is on. After the upgrade:
 
 - A member claiming or completing such a task is refused with a 403: *this
   task has no assignee and no candidates, so only an administrator or an
@@ -138,19 +236,16 @@ the upgrade:
 - Administrators and operators find these tasks under *Available to Claim*,
   and may claim them, complete them, or assign or delegate them to the
   person they should have gone to.
-- Tasks with an assignee or candidates are unchanged, and so are manual
-  tasks: the designer has no field to name anybody for one, and they stay
-  anybody's.
+- Tasks with an assignee or candidates are unchanged, of either kind.
 
-**Find them.** The designer warns about each user task that names nobody.
-The tasks already waiting on such a step:
+**Find them.** The designer warns about each user or manual step that names
+nobody. The tasks already waiting on such a step, with their kind:
 
 ```sql
-SELECT id, name, node_id, instance_id, created_at
+SELECT id, name, type, node_id, instance_id, created_at
 FROM tasks
 WHERE deleted_at IS NULL
   AND status = 'unclaimed'
-  AND COALESCE(type, '') <> 'manualTask'
   AND COALESCE(assignee, '') = ''
   AND COALESCE(candidate_users::text, '') IN ('', '[]', 'null')
   AND COALESCE(candidate_groups::text, '') IN ('', '[]', 'null')
@@ -164,9 +259,10 @@ administrator or an operator takes each one, or assigns it to the person it
 should go to.
 
 **Need time?** `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the old rule
-back: anybody signed in may claim and complete such a task, and *Available to
-Claim* offers it to everybody. It is for a migration window, not a steady
-state, and the server says so at every boot while it is on:
+back, for user and manual tasks alike: anybody signed in may claim and
+complete such a task, and *Available to Claim* offers it to everybody. It is
+for a migration window, not a steady state, and the server says so at every
+boot while it is on:
 
 ```
 {"level":"warn","setting":"METIS_ALLOW_UNASSIGNED_TASK_CLAIMS","message":"Anybody signed in to an organization can claim and complete its tasks that have no assignee and no candidates, because this setting is on. Give those steps an assignee or candidates, then turn it off."}
@@ -176,8 +272,11 @@ Turn it off once the query above finds nothing that still needs a member to
 take it. The board does not know the setting, so while it is on a member
 claims such a task from *Available to Claim* rather than from the board.
 
-**Rolling back** to the previous release brings the old rule back with no
-setting; nothing in the database changed.
+**Rolling back** to 0.4.0 makes a manual task that names nobody anybody's
+again, with no setting, and user tasks stay the administrators' and
+operators'; nothing in the database changed. A manual step given people after
+the upgrade keeps them: 0.4.0 holds a manual task to its assignee and
+candidates as well, though its designer does not show them.
 
 ## Migration 22 can stop the upgrade, on purpose
 

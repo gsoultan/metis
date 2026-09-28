@@ -16,8 +16,8 @@ import { visibleText } from '../test/renderStatic';
 import type { BPMNNodeData } from '../types/bpmn';
 import { SmartTroubleshooter } from './SmartTroubleshooter';
 
-function suggestionsFor(data: Record<string, unknown>): string {
-  const node = { id: 'a', type: 'userTask', position: { x: 0, y: 0 }, data: { label: 'Approve the refund', ...data } } as Node<BPMNNodeData>;
+function suggestionsFor(data: Record<string, unknown>, type = 'userTask'): string {
+  const node = { id: 'a', type, position: { x: 0, y: 0 }, data: { label: 'Approve the refund', ...data } } as Node<BPMNNodeData>;
   const html = renderToStaticMarkup(
     <MantineProvider>
       <SmartTroubleshooter node={node} />
@@ -29,6 +29,12 @@ function suggestionsFor(data: Record<string, unknown>): string {
 describe('the suggestions for a step that asks a person', () => {
   it('say who will be able to take it when it names nobody', () => {
     expect(suggestionsFor({})).toContain(
+      '"Approve the refund" does not say who does it, so only administrators and operators will be able to take it.',
+    );
+  });
+
+  it('say the same of a manual step that names nobody', () => {
+    expect(suggestionsFor({}, 'manualTask')).toContain(
       '"Approve the refund" does not say who does it, so only administrators and operators will be able to take it.',
     );
   });

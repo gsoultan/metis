@@ -89,7 +89,16 @@ func newConfirmingPublisher(ch confirmChannel, confirmTimeout time.Duration) (*c
 //
 // Returns nil only when the broker acknowledged the message *and* did not hand
 // it back as unroutable.
+//
+// Persistent unless the caller asked otherwise. A message with no delivery
+// mode is transient to RabbitMQ: kept in memory, and lost if the broker
+// restarts before a consumer takes it — from a durable queue too, and after
+// the confirm below said it had been taken. Everything Metis publishes is work
+// or a record somebody waits for, so the confirm has to mean what it says.
 func (p *confirmingPublisher) publish(ctx context.Context, exchange, routingKey string, msg amqp.Publishing) error {
+	if msg.DeliveryMode == 0 {
+		msg.DeliveryMode = amqp.Persistent
+	}
 	// A return left over from an earlier publish would otherwise be read as
 	// this one's. Nothing should be here — the previous publish drains its own
 	// — but a publish that failed before its confirm could leave one behind.

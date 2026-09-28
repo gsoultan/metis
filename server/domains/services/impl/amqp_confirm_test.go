@@ -87,6 +87,30 @@ func TestAPublishIsAnsweredWithinItsConfirmDeadline(t *testing.T) {
 
 // A confirm deadline that is not above zero would fail every publish before
 // the broker could answer; it is the default instead.
+// Every message Metis publishes — a RabbitMQ Publisher step's, a bridge's
+// task, a dead letter — went out with no delivery mode, which RabbitMQ reads as
+// transient: held in memory, and gone if the broker restarts before a consumer
+// takes it, even from a durable queue and even after the broker confirmed it.
+// A confirm said "taken", and a restart made it "never sent".
+func TestAMessageIsPublishedToSurviveTheBrokerRestarting(t *testing.T) {
+	t.Parallel()
+	broker := newFakeBroker()
+	publisher := confirmingPublisherOn(t, broker, time.Second)
+
+	if err := publisher.publish(t.Context(), "billing", "charges.reverse", amqp.Publishing{Body: []byte(`{}`)}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	// A caller that asks for a transient message on purpose gets one.
+	if err := publisher.publish(t.Context(), "billing", "charges.reverse",
+		amqp.Publishing{Body: []byte(`{}`), DeliveryMode: amqp.Transient}); err != nil {
+		t.Fatalf("publish transient: %v", err)
+	}
+
+	if modes := broker.deliveryModes(); len(modes) != 2 || modes[0] != amqp.Persistent || modes[1] != amqp.Transient {
+		t.Fatalf("delivery modes %v, want [%d %d]: persistent unless asked otherwise", modes, amqp.Persistent, amqp.Transient)
+	}
+}
+
 func TestAConfirmDeadlineOfZeroIsTheDefault(t *testing.T) {
 	t.Parallel()
 	publisher := confirmingPublisherOn(t, newFakeBroker(), 0)

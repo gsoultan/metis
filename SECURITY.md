@@ -44,7 +44,9 @@ reaches:
   it points.
 - **User task form definitions**, which reach the browser of whoever opens the
   task. Form logic is evaluated by a bounded expression evaluator, not by
-  JavaScript — that was a real vulnerability, fixed in 0.1.4.
+  JavaScript — that was a real vulnerability, fixed in 0.1.4. A form also
+  decides what completing its task may set: only the variables it has fields
+  for, unless `METIS_ALLOW_UNDECLARED_TASK_VARIABLES` is on.
 - **Script tasks**, which do run JavaScript, under a wall-clock budget that
   cannot pre-empt a native call. This is a known limitation, not an oversight;
   see `AGENTS.md` §2.3.

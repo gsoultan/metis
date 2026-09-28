@@ -9,10 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A task nobody was named for — no assignee, no candidate users, no candidate
@@ -20,10 +22,26 @@ import (
 // constraint as "anyone", so somebody in accounts payable could pick up and
 // complete an approval nobody had ever meant them to have. Absent constraint
 // means deny: such a task is the administrators' and the operators'.
+//
+// A manual task follows the same rule. It was left open to anybody in its
+// organization while the designer had no field to name anybody for one; it has
+// those fields now, and a manual step names people the way a user step does.
 
-// nobodyNamed is a step with no assignee and no candidates.
-func nobodyNamed() entities.Node {
-	return entities.Node{Name: "Approve the refund", Type: entities.UserTask}
+// nobodyNamed is a step of each kind that asks a person, with no assignee and
+// no candidates. The user step's form asks whether the refund is approved,
+// which is what completing it answers.
+var nobodyNamed = []entities.Node{
+	{Name: "Approve the refund", Type: entities.UserTask, Properties: testutils.FormDeclaring("approved")},
+	{Name: "Ship the parcel", Type: entities.ManualTask},
+}
+
+// completion is what the inbox sends to finish a step: a user step's form, and
+// for a manual step, which asks for nothing, an empty confirmation.
+func completion(step entities.Node) map[string]any {
+	if step.Type == entities.ManualTask {
+		return map[string]any{}
+	}
+	return map[string]any{"variables": map[string]any{"approved": true}}
 }
 
 // legacyUnassignedClaims is the setting that brings the old rule back.
@@ -34,25 +52,29 @@ func TestATaskNobodyWasNamedForIsClaimedOnlyByAnAdministratorOrAnOperator(t *tes
 	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
 	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
 
-	taskID := h.openTask(t, nobodyNamed())
-	status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{})
-	if status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
-		t.Fatalf("mallory, a member with no role, claiming a task nobody was named for: got %d (%s); "+
-			"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
-			status, strings.TrimSpace(body))
-	}
-	if got := h.taskStatus(t, taskID); got != string(entities.TaskUnclaimed) {
-		t.Fatalf("after mallory was refused the task is %q, want it still unclaimed", got)
-	}
+	for _, step := range nobodyNamed {
+		t.Run(string(step.Type), func(t *testing.T) {
+			taskID := h.openTask(t, step)
+			status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{})
+			if status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
+				t.Fatalf("mallory, a member with no role, claiming a %s nobody was named for: got %d (%s); "+
+					"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
+					step.Type, status, strings.TrimSpace(body))
+			}
+			if got := h.taskStatus(t, taskID); got != string(entities.TaskUnclaimed) {
+				t.Fatalf("after mallory was refused the task is %q, want it still unclaimed", got)
+			}
 
-	for _, who := range []string{"olga", "ada"} {
-		taskID := h.openTask(t, nobodyNamed())
-		if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
-			t.Fatalf("%s claiming a task nobody was named for: got %d (%s), want 200", who, status, body)
-		}
-		if got := h.taskStatus(t, taskID); got != string(entities.TaskClaimed) {
-			t.Fatalf("after %s claimed it the task is %q, want claimed", who, got)
-		}
+			for _, who := range []string{"olga", "ada"} {
+				taskID := h.openTask(t, step)
+				if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
+					t.Fatalf("%s claiming a %s nobody was named for: got %d (%s), want 200", who, step.Type, status, body)
+				}
+				if got := h.taskStatus(t, taskID); got != string(entities.TaskClaimed) {
+					t.Fatalf("after %s claimed it the task is %q, want claimed", who, got)
+				}
+			}
+		})
 	}
 }
 
@@ -60,69 +82,108 @@ func TestATaskNobodyWasNamedForIsCompletedOnlyByAnAdministratorOrAnOperator(t *t
 	h := newTaskHarness(t)
 	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
 	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
-	complete := func(who, taskID string) (int, string) {
-		return h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/complete",
-			map[string]any{"variables": map[string]any{"approved": true}})
-	}
 
-	taskID := h.openTask(t, nobodyNamed())
-	if status, body := complete("mallory", taskID); status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
-		t.Fatalf("mallory, a member with no role, completing a task nobody was named for: got %d (%s); "+
-			"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
-			status, strings.TrimSpace(body))
-	}
-	if got := h.taskStatus(t, taskID); got != string(entities.TaskUnclaimed) {
-		t.Fatalf("after mallory was refused the task is %q, want it still open", got)
-	}
+	for _, step := range nobodyNamed {
+		t.Run(string(step.Type), func(t *testing.T) {
+			complete := func(who, taskID string) (int, string) {
+				return h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/complete", completion(step))
+			}
 
-	for _, who := range []string{"olga", "ada"} {
-		taskID := h.openTask(t, nobodyNamed())
-		if status, body := complete(who, taskID); status != http.StatusOK {
-			t.Fatalf("%s completing a task nobody was named for: got %d (%s), want 200", who, status, body)
-		}
-		if got := h.taskStatus(t, taskID); got != string(entities.TaskCompleted) {
-			t.Fatalf("after %s completed it the task is %q, want completed", who, got)
-		}
+			taskID := h.openTask(t, step)
+			if status, body := complete("mallory", taskID); status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
+				t.Fatalf("mallory, a member with no role, completing a %s nobody was named for: got %d (%s); "+
+					"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
+					step.Type, status, strings.TrimSpace(body))
+			}
+			if got := h.taskStatus(t, taskID); got != string(entities.TaskUnclaimed) {
+				t.Fatalf("after mallory was refused the task is %q, want it still open", got)
+			}
+
+			for _, who := range []string{"olga", "ada"} {
+				taskID := h.openTask(t, step)
+				if status, body := complete(who, taskID); status != http.StatusOK {
+					t.Fatalf("%s completing a %s nobody was named for: got %d (%s), want 200", who, step.Type, status, body)
+				}
+				if got := h.taskStatus(t, taskID); got != string(entities.TaskCompleted) {
+					t.Fatalf("after %s completed it the task is %q, want completed", who, got)
+				}
+			}
+		})
 	}
 }
 
 // An installation whose processes rely on the old rule can have it back for a
 // migration window. With the setting on, anybody signed in to the organization
-// may claim and complete such a task, as before.
+// may claim and complete such a task, as before — a manual one as well.
 func TestTheLegacySettingLetsAnybodyTakeATaskNobodyWasNamedFor(t *testing.T) {
 	t.Setenv(legacyUnassignedClaims, "true")
 	h := newTaskHarness(t)
 
-	claimed := h.openTask(t, nobodyNamed())
-	if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+claimed+"/claim", map[string]any{}); status != http.StatusOK {
-		t.Fatalf("with %s on, mallory claiming a task nobody was named for: got %d (%s), want 200",
-			legacyUnassignedClaims, status, body)
-	}
+	for _, step := range nobodyNamed {
+		t.Run(string(step.Type), func(t *testing.T) {
+			claimed := h.openTask(t, step)
+			if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+claimed+"/claim", map[string]any{}); status != http.StatusOK {
+				t.Fatalf("with %s on, mallory claiming a %s nobody was named for: got %d (%s), want 200",
+					legacyUnassignedClaims, step.Type, status, body)
+			}
 
-	completed := h.openTask(t, nobodyNamed())
-	if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+completed+"/complete",
-		map[string]any{"variables": map[string]any{"approved": true}}); status != http.StatusOK {
-		t.Fatalf("with %s on, mallory completing a task nobody was named for: got %d (%s), want 200",
-			legacyUnassignedClaims, status, body)
-	}
-	if got := h.taskStatus(t, completed); got != string(entities.TaskCompleted) {
-		t.Fatalf("with %s on, the task mallory completed is %q, want completed", legacyUnassignedClaims, got)
+			completed := h.openTask(t, step)
+			if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+completed+"/complete", completion(step)); status != http.StatusOK {
+				t.Fatalf("with %s on, mallory completing a %s nobody was named for: got %d (%s), want 200",
+					legacyUnassignedClaims, step.Type, status, body)
+			}
+			if got := h.taskStatus(t, completed); got != string(entities.TaskCompleted) {
+				t.Fatalf("with %s on, the task mallory completed is %q, want completed", legacyUnassignedClaims, got)
+			}
+		})
 	}
 }
 
-// A manual task is the one kind left open to anybody in its organization. The
-// designer has no field to name anybody for one, and tells its author that an
-// empty one is for anybody to pick up; what it asks is that a person confirm
-// they did something away from the system.
-func TestAManualTaskNobodyWasNamedForIsStillAnybodys(t *testing.T) {
+// A manual task that names somebody is theirs, as a user task is: the person
+// it is given to confirms it, and the people and teams it is offered to claim
+// it. Anybody else is refused.
+func TestAManualTaskIsTakenByThePeopleItNames(t *testing.T) {
 	h := newTaskHarness(t)
-
-	taskID := h.openTask(t, entities.Node{Name: "Ship the parcel", Type: entities.ManualTask})
-	if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
-		t.Fatalf("mallory claiming a manual task nobody was named for: got %d (%s), want 200", status, body)
+	tctx := entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: h.orgID.String()})
+	mallory, err := h.svc.GetUserByUsername(tctx, "mallory")
+	if err != nil {
+		t.Fatalf("read mallory: %v", err)
 	}
-	if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/complete", map[string]any{}); status != http.StatusOK {
-		t.Fatalf("mallory confirming a manual task she claimed: got %d (%s), want 200", status, body)
+	warehouse := entities.Group{ID: uuid.Must(uuid.NewV7()), Name: "warehouse", Organization: &entities.Organization{ID: h.orgID}}
+	if err := h.svc.CreateGroup(tctx, warehouse); err != nil {
+		t.Fatalf("create the warehouse team: %v", err)
+	}
+	if err := h.svc.AddMembership(tctx, mallory.ID, warehouse.ID); err != nil {
+		t.Fatalf("put mallory in the warehouse team: %v", err)
+	}
+	ship := func(named entities.Node) entities.Node {
+		named.Name, named.Type = "Ship the parcel", entities.ManualTask
+		return named
+	}
+
+	given := h.openTask(t, ship(entities.Node{Assignee: "alice"}))
+	if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+given+"/complete", map[string]any{}); status != http.StatusForbidden {
+		t.Fatalf("mallory confirming the manual task given to alice: got %d (%s), want 403", status, strings.TrimSpace(body))
+	}
+	if status, body := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+given+"/complete", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("alice confirming the manual task given to her: got %d (%s), want 200", status, strings.TrimSpace(body))
+	}
+
+	for offeredTo, step := range map[string]entities.Node{
+		"mallory":            ship(entities.Node{CandidateUsers: []*entities.User{{Username: "mallory"}}}),
+		"the warehouse team": ship(entities.Node{CandidateGroups: []*entities.Group{{Name: "warehouse"}}}),
+	} {
+		taskID := h.openTask(t, step)
+		if status, body := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusForbidden {
+			t.Fatalf("alice claiming a manual task offered to %s: got %d (%s), want 403", offeredTo, status, strings.TrimSpace(body))
+		}
+		if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
+			t.Fatalf("mallory claiming a manual task offered to %s: got %d (%s), want 200", offeredTo, status, strings.TrimSpace(body))
+		}
+		if status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/complete", map[string]any{}); status != http.StatusOK {
+			t.Fatalf("mallory confirming the manual task offered to %s that she claimed: got %d (%s), want 200",
+				offeredTo, status, strings.TrimSpace(body))
+		}
 	}
 }
 
@@ -159,31 +220,34 @@ func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *te
 	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
 	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
 
-	for _, action := range []string{"delegate", "assign"} {
-		taskID := h.openTask(t, nobodyNamed())
-		status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "mallory"})
-		if status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
-			t.Fatalf("mallory, a member with no role, trying to %s a task nobody was named for: got %d (%s); "+
-				"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
-				action, status, strings.TrimSpace(body))
-		}
-		if got := h.taskAssignee(t, taskID); got != "" {
-			t.Fatalf("after mallory was refused the task is held by %q, want nobody", got)
-		}
+	for _, step := range nobodyNamed {
+		for _, action := range []string{"delegate", "assign"} {
+			t.Run(string(step.Type)+"/"+action, func(t *testing.T) {
+				taskID := h.openTask(t, step)
+				status, body := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "mallory"})
+				if status != http.StatusForbidden || !saysWhoMayTakeIt(body) {
+					t.Fatalf("mallory, a member with no role, trying to %s a %s nobody was named for: got %d (%s); "+
+						"want 403 saying it has no assignee and no candidates and that an administrator or an operator can take it",
+						action, step.Type, status, strings.TrimSpace(body))
+				}
+				if got := h.taskAssignee(t, taskID); got != "" {
+					t.Fatalf("after mallory was refused the task is held by %q, want nobody", got)
+				}
 
-		for _, who := range []string{"olga", "ada"} {
-			taskID := h.openTask(t, nobodyNamed())
-			if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "alice"}); status != http.StatusOK {
-				t.Fatalf("%s trying to %s a task nobody was named for to alice: got %d (%s), want 200",
-					who, action, status, strings.TrimSpace(body))
-			}
-			if got := h.taskAssignee(t, taskID); got != "alice" {
-				t.Fatalf("after %s gave it to alice (%s) the task is held by %q", who, action, got)
-			}
-			if status, body := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/complete",
-				map[string]any{"variables": map[string]any{"approved": true}}); status != http.StatusOK {
-				t.Fatalf("alice completing the task %s gave her (%s): got %d (%s)", who, action, status, strings.TrimSpace(body))
-			}
+				for _, who := range []string{"olga", "ada"} {
+					taskID := h.openTask(t, step)
+					if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "alice"}); status != http.StatusOK {
+						t.Fatalf("%s trying to %s a %s nobody was named for to alice: got %d (%s), want 200",
+							who, action, step.Type, status, strings.TrimSpace(body))
+					}
+					if got := h.taskAssignee(t, taskID); got != "alice" {
+						t.Fatalf("after %s gave it to alice (%s) the task is held by %q", who, action, got)
+					}
+					if status, body := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/complete", completion(step)); status != http.StatusOK {
+						t.Fatalf("alice completing the task %s gave her (%s): got %d (%s)", who, action, status, strings.TrimSpace(body))
+					}
+				}
+			})
 		}
 	}
 
@@ -202,12 +266,15 @@ func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *te
 // nobody was named for was listed for nobody — not even for the
 // administrators and operators who are now the only people who may take it —
 // so the work that fell to them would wait where none of them looked. It is
-// listed for them, and still for nobody else.
+// listed for them, and still for nobody else, whichever kind of step it is.
 func TestTheInboxOffersATaskNobodyWasNamedForOnlyToThoseWhoMayTakeIt(t *testing.T) {
 	h := newTaskHarness(t)
 	h.tokens["olga"] = h.signInWithRoles(t, "olga", entities.RoleOperator)
 	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleAdmin)
-	unnamed := h.openTask(t, nobodyNamed())
+	var unnamed []string
+	for _, step := range nobodyNamed {
+		unnamed = append(unnamed, h.openTask(t, step))
+	}
 	offered := h.openTask(t, entities.Node{
 		Name: "Check the invoice", Type: entities.UserTask,
 		CandidateUsers: []*entities.User{{Username: "mallory"}},
@@ -215,20 +282,24 @@ func TestTheInboxOffersATaskNobodyWasNamedForOnlyToThoseWhoMayTakeIt(t *testing.
 	// A row written some other way than by this server can hold its empty
 	// lists as NULL or as the JSON null rather than []. It names nobody all
 	// the same.
-	stored := h.openTask(t, nobodyNamed())
+	stored := h.openTask(t, nobodyNamed[0])
 	if err := h.db.Exec(`UPDATE tasks SET candidate_users = NULL, candidate_groups = 'null' WHERE id = ?`, stored).Error; err != nil {
 		t.Fatalf("store the candidate lists as NULL: %v", err)
 	}
+	unnamed = append(unnamed, stored)
 
 	mallorys := h.availableToClaim(t, "mallory")
-	if !slices.Contains(mallorys, offered) || slices.Contains(mallorys, unnamed) || slices.Contains(mallorys, stored) {
-		t.Fatalf("mallory, a member with no role, is offered %v; want the task offered to her (%s) and neither task "+
-			"nobody was named for (%s, %s)", mallorys, offered, unnamed, stored)
+	if !slices.Contains(mallorys, offered) || slices.ContainsFunc(unnamed, func(id string) bool { return slices.Contains(mallorys, id) }) {
+		t.Fatalf("mallory, a member with no role, is offered %v; want the task offered to her (%s) and none of the tasks "+
+			"nobody was named for (%v)", mallorys, offered, unnamed)
 	}
 	for _, who := range []string{"olga", "ada"} {
-		if theirs := h.availableToClaim(t, who); !slices.Contains(theirs, unnamed) || !slices.Contains(theirs, stored) {
-			t.Fatalf("%s may take a task nobody was named for and is offered %v; want %s and %s among them",
-				who, theirs, unnamed, stored)
+		theirs := h.availableToClaim(t, who)
+		for _, id := range unnamed {
+			if !slices.Contains(theirs, id) {
+				t.Fatalf("%s may take a task nobody was named for and is offered %v; want every one of %v among them",
+					who, theirs, unnamed)
+			}
 		}
 	}
 }
@@ -238,11 +309,13 @@ func TestTheInboxOffersATaskNobodyWasNamedForOnlyToThoseWhoMayTakeIt(t *testing.
 func TestWithTheLegacySettingTheInboxOffersATaskNobodyWasNamedForToAnybody(t *testing.T) {
 	t.Setenv(legacyUnassignedClaims, "true")
 	h := newTaskHarness(t)
-	unnamed := h.openTask(t, nobodyNamed())
 
-	if mallorys := h.availableToClaim(t, "mallory"); !slices.Contains(mallorys, unnamed) {
-		t.Fatalf("with %s on, mallory is offered %v; want the task nobody was named for (%s) among them",
-			legacyUnassignedClaims, mallorys, unnamed)
+	for _, step := range nobodyNamed {
+		unnamed := h.openTask(t, step)
+		if mallorys := h.availableToClaim(t, "mallory"); !slices.Contains(mallorys, unnamed) {
+			t.Fatalf("with %s on, mallory is offered %v; want the %s nobody was named for (%s) among them",
+				legacyUnassignedClaims, mallorys, step.Type, unnamed)
+		}
 	}
 }
 
@@ -314,6 +387,14 @@ func (h *taskHarness) signInWithRoles(t *testing.T, name string, roles ...string
 // returns the id of the task that step opened.
 func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	t.Helper()
+	taskID, _ := h.openTaskWith(t, step, nil)
+	return taskID
+}
+
+// openTaskWith is openTask for a process started with variables, and returns
+// the instance as well.
+func (h *taskHarness) openTaskWith(t *testing.T, step entities.Node, variables map[string]any) (string, uuid.UUID) {
+	t.Helper()
 	ctx := entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: h.orgID.String()})
 	step.ID, step.Incoming, step.Outgoing = "step", []string{"f1"}, []string{"f2"}
 	def := &entities.ProcessDefinition{
@@ -333,7 +414,7 @@ func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	if _, err := h.svc.CreateDefinition(ctx, def); err != nil {
 		t.Fatalf("create definition: %v", err)
 	}
-	instanceID, err := h.svc.StartProcess(ctx, h.projID, "one-step", nil)
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "one-step", variables)
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
@@ -344,5 +425,5 @@ func (h *taskHarness) openTask(t *testing.T, step entities.Node) string {
 	if len(page.Items) != 1 {
 		t.Fatalf("the instance opened %d tasks, want 1", len(page.Items))
 	}
-	return page.Items[0].ID.String()
+	return page.Items[0].ID.String(), instanceID
 }

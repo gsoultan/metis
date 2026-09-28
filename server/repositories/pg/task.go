@@ -135,7 +135,7 @@ func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, c contracts.
 const newestFirst = "created_at DESC, id DESC"
 
 // namesNobody matches a task given to nobody: no assignee, and no candidate
-// users or groups (entities.Task.NamesNobody).
+// users or groups (entities.Task.FallsToOperators), whatever kind of task.
 //
 // This repository writes an empty list as []. NULL, the JSON null and an empty
 // value are what a row written some other way can hold, and they name nobody

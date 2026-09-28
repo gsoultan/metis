@@ -55,7 +55,8 @@ func adHocDefinition(key, completionCondition string) entities.ProcessDefinition
 				IsAdHoc:             true,
 				CompletionCondition: completionCondition,
 				Nodes: []*entities.Node{
-					{ID: "call-customer", Type: entities.UserTask, Name: "Call the customer", ParentID: "research"},
+					{ID: "call-customer", Type: entities.UserTask, Name: "Call the customer", ParentID: "research",
+						Properties: testutils.FormDeclaring("reviewsDone")},
 					{ID: "check-records", Type: entities.UserTask, Name: "Check the records", ParentID: "research"},
 				},
 			},

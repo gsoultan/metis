@@ -8,6 +8,71 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **Completing a task could set any process variable.** A completion wrote
+  every variable it carried into the process, so whoever completed a step
+  could set business data beyond it: the approver of a refund could change the
+  amount being refunded, or name somebody else as the approver. A completion
+  now sets only the variables its task's form declares — the id of each of the
+  form's fields, hidden ones included, and of the stored form a step's form key
+  names. A task with no form completes only with no variables. Anything else is
+  refused with a 400 that names it — *this task's form has no field named
+  amount; a task can set only the variables its form declares* — and nothing
+  changes: the task stays open and no variable is set. The inbox sends exactly
+  the fields of the form it shows, so it is not affected, and neither are
+  external tasks.
+
+  **Upgrading:** an integration that completes tasks through the API with
+  variables their forms do not have — any variable at all, on a task with no
+  form — is refused them from the upgrade on. Give each such step's form the
+  fields its completions set, and deploy; [Completing a task sets only what its
+  form declares](docs/upgrading.md#completing-a-task-sets-only-what-its-form-declares)
+  has how to find those steps, and a query for the tasks already waiting, which
+  keep the form they were created with. Until then
+  `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` brings the old rule back for a
+  migration window: a completion may set any variable, and the log names each
+  step that sets one its form does not declare, once, with the variables. It
+  is off by default, and the server warns at boot while it is on.
+- **A manual task nobody was named for could be taken by anybody in its
+  organization.** 0.4.0 made a user task with no assignee and no candidates
+  the administrators' and operators' to take, and left manual tasks open,
+  because the designer had no field to name anybody for one: any member
+  could claim and confirm any manual step, and the inbox's board offered it
+  to all of them. A manual step now names who does it the way a user step
+  does — one person, or people and teams one of whom takes it, under *Who
+  does this* — and one that names nobody is an administrator's or an
+  operator's to claim, complete, delegate or assign. Anybody else gets the
+  403 a user task gives, the board offers them neither Claim nor Done and
+  says who can take it, and the designer warns about the step. A BPMN file
+  carries a step's candidate users now (`camunda:candidateUsers`), on a
+  manual task or a user task; import dropped them and export never wrote
+  them.
+
+  **Upgrading:** every manual step designed before this release names
+  nobody — there was no way to name anybody — so after the upgrade its
+  tasks stop being workable by the members who confirmed them: they are
+  refused them and not offered them, and the work waits for an
+  administrator or an operator, whose *Available to Claim* lists it. Give
+  each manual step an assignee, candidate users or candidate groups in the
+  designer, and deploy; *Tasks nobody was named for* in `docs/upgrading.md`
+  has the query for the tasks already waiting. Until then
+  `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` brings the old rule back for a
+  migration window, for manual tasks as for user tasks: anybody signed in
+  may claim and complete such a task. It is off by default, and the server
+  warns at boot while it is on.
+- **A secret named with a prefix was printed in logs and errors.** Errors and
+  logs pass through a redactor that hides a credential by the name in front of
+  it — `password=`, `"token":` — and it looked for the bare word between word
+  boundaries. An underscore is part of a word, so `client_secret`, `id_token`,
+  `db_password`, `aws_secret_access_key` and `clientSecret` were not names to
+  it, and their values were printed in clear: in the log, and in the error text
+  an incident or a response carries. A secret's name is now matched with
+  whatever comes before it in the name, and `secret_key`, `access_key`,
+  `private_key`, `signing_key` and `passphrase` are names too. A word that only
+  begins like one — `token_type`, `tokenizer`, `password_policy` — is still
+  left alone.
+
 ### Added
 
 - **A worker can extend its lock on an external task.** Work that outlasted
@@ -26,6 +91,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   task's `id` and the `worker_id` its message carries, `messaging-bridge`,
   and must do so before the message's `lock_expiration`. See *Extending a
   lock* in `docs/integration.md`. The Go SDK does not call it yet.
+
+### Fixed
+
+- **A message the broker had confirmed could be lost when it restarted.** Every
+  message Metis publishes to RabbitMQ — a bridge's task, a dead letter, a
+  *RabbitMQ Publisher* step's message — went out with no delivery mode, which
+  RabbitMQ keeps in memory only: a broker restart before a consumer took it
+  lost it, from a durable queue too, after the confirm had said it was taken.
+  They are published persistent now. Bind a bridge's exchange to a durable
+  queue; the queues Metis declares already are.
 
 ## [0.4.0] - 2026-09-28
 
