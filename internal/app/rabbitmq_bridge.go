@@ -7,25 +7,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/rs/zerolog"
 )
 
 // How long a bridge locks each task it publishes: "lock_seconds".
 //
-// The lock is the downstream worker's whole budget — the time the message
-// waits on the queue as well as the time the work takes — because the
-// external-task API has no way for a worker to extend it. A task still open
-// when it runs out is published again. It was a fixed 30 seconds, so a queue
-// that backed up for longer than that had its tasks published a second time,
-// and a third.
+// The lock covers the task's whole trip — the time the message waits on the
+// queue as well as the time the work takes — unless the worker extends it,
+// through the external-task API, with the task id and the worker id the
+// message carries. A task still open when it runs out is published again. It
+// was a fixed 30 seconds, so a queue that backed up for longer than that had
+// its tasks published a second time, and a third.
 //
 // The default is long enough for a queue; the bounds refuse a lock that has
 // run out before the bridge's next round, or one that hides a task whose
-// message was lost for longer than a day.
+// message was lost for longer than a day — the most any worker may extend a
+// lock by, too.
 const (
 	defaultRabbitMQBridgeLock    = 5 * time.Minute
 	minRabbitMQBridgeLockSeconds = 30
-	maxRabbitMQBridgeLockSeconds = 24 * 60 * 60
+	maxRabbitMQBridgeLockSeconds = int64(entities.MaxExternalTaskLock / time.Second)
 )
 
 // rabbitMQBridge is one external-task bridge an operator asked for: the tasks

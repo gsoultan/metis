@@ -92,6 +92,26 @@ func awaitTaskAt(t *testing.T, ctx context.Context, a *App, project, instance uu
 	t.Fatalf("30s after the message was queued, instance %s is still not waiting at %q", instance, node)
 }
 
+// extendBridgedLock extends the lock on a task the bridge published by an
+// hour, as a worker consuming from the queue would: with the id and the worker
+// id the message carries.
+func extendBridgedLock(t *testing.T, ctx context.Context, a *App, taskID, workerID string) {
+	t.Helper()
+	id, err := uuid.Parse(taskID)
+	if err != nil {
+		t.Errorf("the message's id %q is not an id: %v", taskID, err)
+		return
+	}
+	until, err := a.svc.ExtendLock(ctx, id, workerID, int64(time.Hour/time.Millisecond))
+	if err != nil {
+		t.Errorf("extending the bridge's lock with what the message carries: %v", err)
+		return
+	}
+	if left := time.Until(until); left < 59*time.Minute || left > 61*time.Minute {
+		t.Errorf("extended by an hour, and the lock runs out in %v", left.Round(time.Second))
+	}
+}
+
 func TestARunningServerBridgesATaskToRabbitMQAndCorrelatesAMessageFromIt(t *testing.T) {
 	url := liveBrokerURL(t)
 	a := realRabbitMQApp(t)
@@ -179,6 +199,9 @@ func TestARunningServerBridgesATaskToRabbitMQAndCorrelatesAMessageFromIt(t *test
 		if delivery.Headers["task_id"] != task.ID {
 			t.Errorf("the task_id header is %v, want %s", delivery.Headers["task_id"], task.ID)
 		}
+		// A worker off the queue whose work outlasts that lock extends it,
+		// with the id and the worker id the message carries and nothing else.
+		extendBridgedLock(t, ctx, a, task.ID, task.WorkerID)
 	case <-time.After(30 * time.Second):
 		t.Fatal("30s into a running server, the bridge has published nothing")
 	}
