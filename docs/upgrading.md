@@ -18,6 +18,98 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Completing a task sets only what its form declares
+
+Completing a task used to write every variable the completion carried into the
+process, so whoever completed a step could also set business data beyond it:
+the approver of a refund could change the amount being refunded, or name
+somebody else as the approver. A completion now sets only the variables its
+task's form declares, and is refused otherwise. No migration runs; what changes
+is what a completion may set.
+
+**What a form declares** is the `id` of each of its fields:
+
+- the fields of the form built in the designer — the step's `form_definition`
+  — hidden ones included, because the inbox sends a hidden field's value too;
+- the fields of the stored form the step's form key names, when a form with
+  that key is stored in its project. A form key that names a form kept outside
+  Metis, such as an imported process's embedded form, declares nothing: Metis
+  cannot read its fields.
+
+A task with no form declares nothing, so it completes only with no variables.
+
+**Who is affected:** integrations that complete tasks through the API — the Go
+SDK's `CompleteTask`, REST, Connect or gRPC — with variables the task's form
+does not have, including any variable at all on a task with no form. The inbox
+is not: it sends exactly the fields of the form it shows, and completes a task
+with no form with none. Such a completion is refused with a 400 that names what
+was refused:
+
+```
+this task's form has no fields named amount, approved_by; a task can set only the variables its form declares
+```
+
+or, for a task with no form, *this task has no form to declare amount; a task
+can set only the variables its form declares*. Nothing changes when one is
+refused: the task stays open and no variable is set, not even the declared
+ones sent with it. Over Connect, as with every refusal a service gives, the
+reason is in the reply's `error` field. External tasks are not affected: a
+worker completing one sets what it returns, as before.
+
+**Find them.** Upgrade with `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` (below)
+and let the log name them: the first completion of each step that sets a
+variable its form does not declare is named once, with the variables it set —
+names, never values; at most ten, and a count of the rest:
+
+```
+{"level":"warn","setting":"METIS_ALLOW_UNDECLARED_TASK_VARIABLES","project":"0199…","definition":"refund","node":"approve","variables":["amount","approved_by"],"message":"A completion of this step set variables its form does not declare, which only this setting allows. Give the step's form those fields, then turn the setting off."}
+```
+
+Each server remembers the steps it has named, so a restart, or another
+replica, names a step again. This lists the open tasks by process, version and
+step, and whether each has a form at all; one without a form can be completed
+only with no variables:
+
+```sql
+SELECT d.key AS process, d.version, t.node_id AS step,
+       (COALESCE(t.form_definition, '') NOT IN ('', '[]') OR COALESCE(t.form_key, '') <> '') AS has_form,
+       count(*) AS open_tasks
+  FROM tasks t
+  JOIN process_instances i ON i.id = t.instance_id
+  JOIN process_definitions d ON d.id = i.definition_id
+ WHERE t.deleted_at IS NULL
+   AND t.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')
+ GROUP BY 1, 2, 3, 4
+ ORDER BY 1, 2, 3;
+```
+
+**Fix them** by giving each named step's form a field for each variable its
+completions set — in the designer, or in the stored form its form key names —
+and deploying. If a variable should not be the person's to set, leave the
+field out and change the integration instead: that is the hole this closes. A
+task keeps the form it was created with, so the tasks already waiting keep the
+old one: running instances stay on the version they started on, and moving them
+to the new version rebuilds a task only when its step's id changes.
+
+**Need time?** `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` brings the old rule
+back: a completion may set any variable, as before. It is for a migration
+window, not a steady state, and the server says so at every boot while it is
+on:
+
+```
+{"level":"warn","setting":"METIS_ALLOW_UNDECLARED_TASK_VARIABLES","message":"Completing a task can set any process variable, including ones its form does not declare, because this setting is on. The log names each step that does it, once; give those steps' forms the fields, then turn it off."}
+```
+
+Turn it off when three things hold: every step the log has named is fixed;
+after restarting the servers once the last fix is deployed, the log names no
+step for a full business cycle — the month-end run, the quarterly review; and
+the query above shows no open task on a version from before its step was
+fixed. A server names each step once, so a log gone quiet without a restart
+may only mean it has named everything already.
+
+**Rolling back** to the previous release brings the old rule back with no
+setting; nothing in the database changed.
+
 ## Roles can be granted in one organization
 
 Migration 30 gives every account's membership of an organization a list of

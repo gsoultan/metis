@@ -159,6 +159,23 @@ names somebody. A manual task is the exception: anybody in the organization
 may take one. `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` lets anybody take these
 tasks again for a migration window; see [`upgrading.md`](upgrading.md).
 
+If whoever completes it — usually an integration — is refused with *this
+task's form has no field named …* or *this task has no form to declare …*, the
+completion carried a variable the task's form does not declare, and nothing
+was changed. The form the task was created with, which is the one it answers
+to:
+
+```sql
+SELECT node_id, form_key, form_definition FROM tasks WHERE id = '<task-id>';
+```
+
+If the step should set that variable, give its form the field in the designer
+and deploy; the task already waiting keeps its form, so complete it with that
+form's fields. If it should not, the integration has to stop sending it.
+`METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` lets such completions through for
+a migration window; see [Completing a task sets only what its form
+declares](upgrading.md#completing-a-task-sets-only-what-its-form-declares).
+
 ### It is waiting on a job that keeps failing
 
 See [A poison job](#a-poison-job).

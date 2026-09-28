@@ -311,8 +311,20 @@ exception, open to anybody in its organization. `METIS_ALLOW_UNASSIGNED_TASK_CLA
 brings back the old rule, where anybody signed in could take such a task, for
 a migration window.
 
-Completing writes the variables back into the process and the instance moves
-on. The instance's story is readable as plain language:
+**What a completion may set.** Completing writes the variables back into the
+process and the instance moves on — the variables the task's form declares,
+and no others. A form declares the `id` of each of its fields, hidden ones
+included; a task that names a stored form by its form key declares that form's
+fields as well. A completion carrying any other variable is refused with a 400
+that names it — *this task's form has no field named amount; a task can set
+only the variables its form declares* — and nothing changes: the task stays
+open and no variable is set. A task with no form sets no variables, and
+completes with none. So the approver of a refund can answer the approval and
+cannot rewrite the amount on the way past. To set something new from a step,
+give its form the field. `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` brings
+back the old rule for a migration window.
+
+The instance's story is readable as plain language:
 
 ```go
 entries, _ := client.GetTimeline(ctx, instanceID)

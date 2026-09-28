@@ -150,6 +150,11 @@ POST /api/v1/process.TaskService/CompleteTask
 }
 ```
 
+Those are the two fields of the task's form, and a completion sets only what
+its task's form declares: had the director also sent `"amount": 24`, the whole
+completion would have been refused with a 400 naming `amount`, and the task
+left open with nothing changed.
+
 **The bag now:**
 
 ```json
@@ -290,8 +295,9 @@ They complete the task with `{ "decision": "approved", "reviewedBy": "carol" }`.
 ## The three questions this answers
 
 **"Where did this value come from?"**
-Something wrote it: the start call, a person completing a task, a decision's
-output, or a service task's `output_` mapping. Those are the only four sources.
+Something wrote it: the start call, a person completing a task (a field of
+that task's form), a decision's output, or a service task's `output_` mapping.
+Those are the only four sources.
 
 **"Why did it take that path?"**
 A gateway read a variable and compared it. The variable was already in the bag

@@ -134,21 +134,18 @@ Go (`govulncheck` runs in CI) and the UI's (`ui/bun.lock`).
 Found in this cycle and not yet changed. Confirming, rating or disproving these
 is part of the review.
 
-1. **Completing a task accepts any variables.** A person completing a task can
-   set process variables the task's form does not have, and change business
-   data beyond their step.
-2. **Manual tasks are anybody's** in their organization: the designer has no
+1. **Manual tasks are anybody's** in their organization: the designer has no
    field to name anybody for one. A product decision is pending.
-3. **A service's own refusal over Connect is an HTTP 200** with the reason in
+2. **A service's own refusal over Connect is an HTTP 200** with the reason in
    the reply's `error` field, so monitoring does not see it and a client that
    ignores the field takes it for success.
-4. **Messages published to RabbitMQ are transient**, and are lost if the broker
+3. **Messages published to RabbitMQ are transient**, and are lost if the broker
    restarts before delivering them.
-5. **An external task's lock cannot be extended.** Work that outlasts
+4. **An external task's lock cannot be extended.** Work that outlasts
    `lock_seconds` is handed to another worker and can run twice.
-6. **Redaction misses some secret names** — `client_secret`, `id_token`,
+5. **Redaction misses some secret names** — `client_secret`, `id_token`,
    `db_password` — whose key has a prefix before the word it matches.
-7. **Organization-wide queries carry every project id** of the organization:
+6. **Organization-wide queries carry every project id** of the organization:
    ten thousand at the largest measured, a cost that grows with the tenant.
 
 ## Out of scope
