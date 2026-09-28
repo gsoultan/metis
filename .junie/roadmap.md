@@ -1032,6 +1032,13 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): storm 0.15.0 → 1.1.0 (Dependabot #134), store regenerated (P0).
+  storm v0.16.0 fixed a `MaskCache` that published a column mask and its compiled UPDATE as
+  two atomics: two goroutines warming different masks could pair one's mask with the other's
+  statement, so an update wrote the wrong columns or failed to bind — invisible to `-race`.
+  The generated caches take the new `runtime.MaskKey`, so #134's go.mod bump alone did not
+  compile; `make generate` regenerated all 42 files (41 tables) with no hand-written change.
+  v1.0.0 made v0.16.0's surface the promised one; v1.1.0 changes nothing Metis calls.
 - 2026-09-28 (completed): a confirmed RabbitMQ message survives a broker restart (P0).
   Branch `rabbitmq-persistent-messages`. All three publishes — the bridge's tasks, the
   consumer's dead letters, the RabbitMQ Publisher step — go through `confirmingPublisher`, and

@@ -94,6 +94,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Two updates of the same table could write each other's columns.** The
+  data layer (storm 0.15) kept each table's compiled UPDATE statements in a
+  cache keyed by which columns change, and published the key and the statement
+  as two separate steps. Two requests warming the cache for different column
+  sets at the same moment — a burst after a start, typically — could leave one's
+  key beside the other's statement, and the next update with that key wrote the
+  wrong columns or failed to bind. No data race a detector sees: each step was
+  atomic, only the pairing was not. storm 1.1.0 publishes the two together, and
+  the store is regenerated against it.
 - **A message the broker had confirmed could be lost when it restarted.** Every
   message Metis publishes to RabbitMQ — a bridge's task, a dead letter, a
   *RabbitMQ Publisher* step's message — went out with no delivery mode, which
