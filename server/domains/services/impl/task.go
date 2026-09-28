@@ -123,8 +123,7 @@ var ErrTaskForbidden = fmt.Errorf("%w: task: caller is not permitted to act on t
 //     task, which does not make it everybody's. Only an administrator or an
 //     operator may take it (entities.Task.FallsToOperators), unless the
 //     installation has brought the old rule back for a migration window
-//     (EnvAllowUnassignedTaskClaims). A manual task is the exception the
-//     designer promises: anybody's.
+//     (EnvAllowUnassignedTaskClaims). A manual task is held to the same rule.
 //   - Otherwise the caller must appear in CandidateUsers, or belong to one of
 //     CandidateGroups.
 //
@@ -146,12 +145,6 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 			return nil
 		}
 		return servicecontracts.ErrNobodyNamed
-	}
-	if len(task.CandidateUsers) == 0 && len(task.CandidateGroups) == 0 {
-		// A manual task nobody was named for, which is anybody's. Neither
-		// caller brings an assigned task here: completion decides one by its
-		// assignee, and only an unclaimed task can be claimed.
-		return nil
 	}
 
 	for _, u := range task.CandidateUsers {
