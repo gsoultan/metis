@@ -515,6 +515,13 @@ cannot route to a queue, or does not confirm within
 of its retries, and is offered again at the next poll. So is a task the bridge
 had fetched and not yet published when the server stops.
 
+Every message Metis publishes — a bridge's task, a dead letter, a *RabbitMQ
+Publisher* step's message — is persistent, so one the broker has confirmed
+survives the broker restarting, **if the queue it sits in is durable**. The
+queues Metis declares are. Bind a bridge's exchange to a durable queue: a
+message in a queue that is not durable goes with the queue, whatever its
+delivery mode.
+
 The worker completes the task, or reports its failure, through the
 external-task API like any other worker, with the `worker_id` the message
 carries, which is `messaging-bridge`:

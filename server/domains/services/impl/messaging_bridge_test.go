@@ -183,6 +183,28 @@ func errorLines(t *testing.T, logs *lockedBuffer, words string) []map[string]any
 // nothing, and the operator was told to restart. Now the next round opens a
 // new channel on the same connection, and the reason is said once however
 // often it recurs.
+// A task a bridge hands to a queue is work somebody is waiting for; a broker
+// restart must not lose it after the broker said it had it.
+func TestABridgesTasksSurviveTheBrokerRestarting(t *testing.T) {
+	t.Parallel()
+	var logs lockedBuffer
+	broker := newFakeBroker()
+	board, _ := newTaskBoard(2)
+	bridge := bridgeOn(t, broker, board, &logs, time.Second)
+
+	pollWithin(t, bridge, 5*time.Second)
+
+	modes := broker.deliveryModes()
+	if len(modes) != 2 {
+		t.Fatalf("the broker took %d tasks, want 2", len(modes))
+	}
+	for i, mode := range modes {
+		if mode != amqp.Persistent {
+			t.Errorf("task %d went out with delivery mode %d, want persistent (%d)", i, mode, amqp.Persistent)
+		}
+	}
+}
+
 func TestABridgeOpensANewChannelWhenItsBrokerClosesOneAndSaysWhyOnce(t *testing.T) {
 	t.Parallel()
 	var logs lockedBuffer

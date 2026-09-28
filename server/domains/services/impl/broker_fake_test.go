@@ -108,6 +108,17 @@ func (b *fakeBroker) deliveredTaskIDs() []string {
 	return ids
 }
 
+// deliveryModes returns the delivery mode of every message taken, in order.
+func (b *fakeBroker) deliveryModes() []uint8 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	modes := make([]uint8, 0, len(b.delivered))
+	for _, message := range b.delivered {
+		modes = append(modes, message.DeliveryMode)
+	}
+	return modes
+}
+
 // declaredQueues returns every queue declared, in order.
 func (b *fakeBroker) declaredQueues() []string {
 	b.mu.Lock()

@@ -1032,6 +1032,25 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): a confirmed RabbitMQ message survives a broker restart (P0).
+  Branch `rabbitmq-persistent-messages`. All three publishes — the bridge's tasks, the
+  consumer's dead letters, the RabbitMQ Publisher step — go through `confirmingPublisher`, and
+  none set a delivery mode, which RabbitMQ reads as transient. The publisher now sets
+  `amqp.Persistent` unless the caller chose a mode. Tests first:
+  `TestAMessageIsPublishedToSurviveTheBrokerRestarting` (modes `[0 1]`, want `[2 1]`) and
+  `TestABridgesTasksSurviveTheBrokerRestarting` (mode 0, want 2). `docs/integration.md` says
+  the bridge's queue has to be durable for it to matter.
+- 2026-09-28 (completed): a secret named with a prefix is redacted (P0). Branch
+  `redaction-prefixed-secret-names`. The redactor matched a credential's name as the bare word
+  between word boundaries, and an underscore is a word character, so `client_secret`,
+  `id_token`, `db_password` and `clientSecret` printed their values in logs and error text.
+  The name now takes whatever precedes the word in it (`client_`, `spring.datasource.`,
+  `X-Auth-`, camelCase), and the compound names (`secret_key`, `access_key`, `private_key`,
+  `signing_key`) and `passphrase` are words of their own; nothing may follow the word, so
+  `token_type`, `tokenizer` and `password_policy` are left alone. Test first:
+  `TestASecretsNameWithMoreToItIsStillASecretsName` (seven of nine cases failed before).
+  `configsecret`, which masks connection settings for the browser, already matched by
+  substring and needed nothing.
 - 2026-09-27 (completed): §9.7 item 7, organization-scoped access — roles are granted per
   organization. Branch `organization-roles`, one commit per change, each with a test that
   fails without it. Driver: sec · Challengers: arch, fe, test.
