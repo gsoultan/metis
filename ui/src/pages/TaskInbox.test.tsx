@@ -5,7 +5,8 @@
  * take, so it is where the inbox could offer somebody work the server will
  * refuse them. A task nobody was named for — no assignee, no candidates — is
  * one only an administrator or an operator may take, and the board offered
- * everybody a Claim button on it.
+ * everybody a Claim button on it. A manual step is held to the same rule as a
+ * user step, and the board offered everybody Claim on one that named nobody.
  */
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { create } from '@bufbuild/protobuf';
@@ -99,25 +100,36 @@ function cardsFor(roles: string[], tasks: Task[]): Map<string, string> {
 const nobodyNamed = unclaimed('Approve the refund');
 const offeredToFinance = unclaimed('Check the invoice', { candidateGroups: [create(GroupSchema, { name: 'finance' })] });
 const shipping = unclaimed('Ship the parcel', { type: 'manualTask' });
+const shippingByTheWarehouse = unclaimed('Pack the parcel', {
+  type: 'manualTask',
+  candidateGroups: [create(GroupSchema, { name: 'warehouse' })],
+});
+
+const NOBODY_NAMED_NOTE = 'Nobody was named for this. An administrator or an operator can take it.';
 
 afterEach(() => resetAppStore());
 
 describe('the board', () => {
   it('does not offer a member a task nobody was named for, and says who can take it', () => {
-    const cards = cardsFor(['USER'], [nobodyNamed, offeredToFinance, shipping]);
+    const cards = cardsFor(['USER'], [nobodyNamed, offeredToFinance, shipping, shippingByTheWarehouse]);
     expect(cards.get('Approve the refund')).not.toContain('Claim');
-    expect(cards.get('Approve the refund')).toContain('Nobody was named for this. An administrator or an operator can take it.');
+    expect(cards.get('Approve the refund')).toContain(NOBODY_NAMED_NOTE);
     // Work offered to people is still offered; the server checks who.
     expect(cards.get('Check the invoice')).toContain('Claim');
-    // A manual step nobody was named for is anybody's.
-    expect(cards.get('Ship the parcel')).toContain('Claim');
+    // A manual step nobody was named for is no more anybody's than a user step.
+    expect(cards.get('Ship the parcel')).not.toContain('Claim');
+    expect(cards.get('Ship the parcel')).not.toContain('Done');
+    expect(cards.get('Ship the parcel')).toContain(NOBODY_NAMED_NOTE);
+    expect(cards.get('Pack the parcel')).toContain('Claim');
   });
 
   it('offers it to an operator and to an administrator', () => {
     for (const roles of [['OPERATOR'], ['ADMIN']]) {
-      const cards = cardsFor(roles, [nobodyNamed]);
-      expect(cards.get('Approve the refund')).toContain('Claim');
-      expect(cards.get('Approve the refund')).not.toContain('Nobody was named for this');
+      const cards = cardsFor(roles, [nobodyNamed, shipping]);
+      for (const name of ['Approve the refund', 'Ship the parcel']) {
+        expect(cards.get(name)).toContain('Claim');
+        expect(cards.get(name)).not.toContain('Nobody was named for this');
+      }
     }
   });
 });
