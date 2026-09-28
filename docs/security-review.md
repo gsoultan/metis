@@ -144,11 +144,9 @@ is part of the review.
    ignores the field takes it for success.
 4. **Messages published to RabbitMQ are transient**, and are lost if the broker
    restarts before delivering them.
-5. **An external task's lock cannot be extended.** Work that outlasts
-   `lock_seconds` is handed to another worker and can run twice.
-6. **Redaction misses some secret names** — `client_secret`, `id_token`,
+5. **Redaction misses some secret names** — `client_secret`, `id_token`,
    `db_password` — whose key has a prefix before the word it matches.
-7. **Organization-wide queries carry every project id** of the organization:
+6. **Organization-wide queries carry every project id** of the organization:
    ten thousand at the largest measured, a cost that grows with the tenant.
 
 ## Out of scope
