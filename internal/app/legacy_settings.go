@@ -21,4 +21,11 @@ func logLegacySettings() {
 				"and no candidates, because this setting is on. Give those steps an assignee or candidates, " +
 				"then turn it off.")
 	}
+	if serviceimpl.AllowUndeclaredTaskVariables() {
+		log.Warn().
+			Str("setting", serviceimpl.EnvAllowUndeclaredTaskVariables).
+			Msg("Completing a task can set any process variable, including ones its form does not declare, " +
+				"because this setting is on. The log names each step that does it, once; give those steps' forms " +
+				"the fields, then turn it off.")
+	}
 }

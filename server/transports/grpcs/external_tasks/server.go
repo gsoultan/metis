@@ -18,6 +18,7 @@ type Server struct {
 	fetchAndLockExternal  grpctransport.Handler
 	completeExternal      grpctransport.Handler
 	handleExternalFailure grpctransport.Handler
+	extendExternalLock    grpctransport.Handler
 }
 
 func NewServer(eps external_task.Endpoints) *Server {
@@ -36,6 +37,11 @@ func NewServer(eps external_task.Endpoints) *Server {
 			eps.HandleExternalFailure,
 			decodeGRPCHandleExternalFailureRequest,
 			encodeGRPCHandleExternalFailureResponse,
+		),
+		extendExternalLock: grpctransport.NewServer(
+			eps.ExtendExternalLock,
+			decodeGRPCExtendExternalLockRequest,
+			encodeGRPCExtendExternalLockResponse,
 		),
 	}
 }

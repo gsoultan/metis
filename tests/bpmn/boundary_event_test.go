@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // What happens when a step goes wrong.
@@ -155,7 +156,8 @@ func TestErrorBoundary_TheRecoveryPathCanBeCompleted(t *testing.T) {
 				"http_method": "POST",
 			}},
 			{ID: "failed", Type: entities.BoundaryEvent, AttachedToRef: "charge", CancelActivity: true},
-			{ID: "review", Type: entities.UserTask, Name: "Take payment another way", Assignee: "carol"},
+			{ID: "review", Type: entities.UserTask, Name: "Take payment another way", Assignee: "carol",
+				Properties: testutils.FormDeclaring("paidBy")},
 			{ID: "end", Type: entities.EndEvent, Name: "Done"},
 		},
 		Flows: []*entities.SequenceFlow{

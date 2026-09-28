@@ -253,6 +253,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	externalTaskEndpoints.FetchAndLockExternal = protected("FetchAndLockExternal")(externalTaskEndpoints.FetchAndLockExternal)
 	externalTaskEndpoints.CompleteExternal = protected("CompleteExternal")(externalTaskEndpoints.CompleteExternal)
 	externalTaskEndpoints.HandleExternalFailure = protected("HandleExternalFailure")(externalTaskEndpoints.HandleExternalFailure)
+	// Keeping a task is part of working it, so it takes what completing it
+	// takes: a signed-in account of the task's organization, and the worker id
+	// that holds the lock.
+	externalTaskEndpoints.ExtendExternalLock = protected("ExtendExternalLock")(externalTaskEndpoints.ExtendExternalLock)
 
 	incidentEndpoints := incident.MakeEndpoints(s)
 	incidentEndpoints.ListIncidents = protected("ListIncidents")(incidentEndpoints.ListIncidents)

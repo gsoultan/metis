@@ -157,6 +157,49 @@ func TestRedactText(t *testing.T) {
 	}
 }
 
+// A secret's name is often more than the bare word: client_secret, id_token,
+// db_password, spring.datasource.password, clientSecret, aws_secret_access_key.
+// The patterns looked for the word on its own, between word boundaries, and an
+// underscore is a word character — so none of these was redacted, and neither
+// was a JSON key spelled that way.
+func TestASecretsNameWithMoreToItIsStillASecretsName(t *testing.T) {
+	t.Parallel()
+	value := "letmein" + "2" // low entropy on purpose: the name is under test, not the value
+
+	redacted := []struct{ name, input, want string }{
+		{"client_secret=", "client_secret=" + value, "client_secret=***REDACTED***"},
+		{"id_token:", "id_token: " + value, "id_token: ***REDACTED***"},
+		{"db_password in JSON", `{"db_password":"` + value + `"}`, `{"db_password":"***REDACTED***"}`},
+		{"clientSecret in JSON", `{"clientSecret": "` + value + `"}`, `{"clientSecret": "***REDACTED***"}`},
+		{"a dotted property", "spring.datasource.password=" + value, "spring.datasource.password=***REDACTED***"},
+		{"a name that goes on after the word", "aws_secret_access_key=" + value, "aws_secret_access_key=***REDACTED***"},
+		{"a camelCase name that goes on", "secretKey=" + value, "secretKey=***REDACTED***"},
+		{"a hyphenated header", "X-Auth-Token: " + value, "X-Auth-Token: ***REDACTED***"},
+		{"in a sentence", "could not sign in: client_secret=" + value + " was refused",
+			"could not sign in: client_secret=***REDACTED*** was refused"},
+	}
+	for _, tc := range redacted {
+		if got := RedactText(tc.input); got != tc.want {
+			t.Errorf("%s: RedactText(%q) = %q, want %q", tc.name, tc.input, got, tc.want)
+		}
+	}
+
+	// A word that merely begins or ends like a secret's name is not one.
+	untouched := []string{
+		"tokenizer=bpe",
+		"passwordless=true",
+		"the password policy needs 12 characters",
+		"retokenize: done",
+		`{"token_type":"Bearer"}`,
+		"password_policy=strict",
+	}
+	for _, input := range untouched {
+		if got := RedactText(input); got != input {
+			t.Errorf("RedactText(%q) = %q; it is not a secret's name and must be left alone", input, got)
+		}
+	}
+}
+
 func TestRedactError(t *testing.T) {
 	t.Parallel()
 

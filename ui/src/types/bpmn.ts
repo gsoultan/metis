@@ -46,6 +46,10 @@ export interface UserTaskData extends BaseBPMNNodeData, MultiInstanceConfig {
 export interface ManualTaskData extends BaseBPMNNodeData, MultiInstanceConfig {
   nodeType: 'manualTask';
   assignee?: string;
+  candidateUsers?: string[];
+  candidateGroups?: string[];
+  /** A note saying who does it, in words. It decides nothing. */
+  actor?: string;
 }
 
 export interface ServiceTaskData extends BaseBPMNNodeData, MultiInstanceConfig {

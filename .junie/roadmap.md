@@ -1032,6 +1032,25 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): a confirmed RabbitMQ message survives a broker restart (P0).
+  Branch `rabbitmq-persistent-messages`. All three publishes — the bridge's tasks, the
+  consumer's dead letters, the RabbitMQ Publisher step — go through `confirmingPublisher`, and
+  none set a delivery mode, which RabbitMQ reads as transient. The publisher now sets
+  `amqp.Persistent` unless the caller chose a mode. Tests first:
+  `TestAMessageIsPublishedToSurviveTheBrokerRestarting` (modes `[0 1]`, want `[2 1]`) and
+  `TestABridgesTasksSurviveTheBrokerRestarting` (mode 0, want 2). `docs/integration.md` says
+  the bridge's queue has to be durable for it to matter.
+- 2026-09-28 (completed): a secret named with a prefix is redacted (P0). Branch
+  `redaction-prefixed-secret-names`. The redactor matched a credential's name as the bare word
+  between word boundaries, and an underscore is a word character, so `client_secret`,
+  `id_token`, `db_password` and `clientSecret` printed their values in logs and error text.
+  The name now takes whatever precedes the word in it (`client_`, `spring.datasource.`,
+  `X-Auth-`, camelCase), and the compound names (`secret_key`, `access_key`, `private_key`,
+  `signing_key`) and `passphrase` are words of their own; nothing may follow the word, so
+  `token_type`, `tokenizer` and `password_policy` are left alone. Test first:
+  `TestASecretsNameWithMoreToItIsStillASecretsName` (seven of nine cases failed before).
+  `configsecret`, which masks connection settings for the browser, already matched by
+  substring and needed nothing.
 - 2026-09-27 (completed): §9.7 item 7, organization-scoped access — roles are granted per
   organization. Branch `organization-roles`, one commit per change, each with a test that
   fails without it. Driver: sec · Challengers: arch, fe, test.
@@ -1084,11 +1103,112 @@
     order from `main` to a tag and the 0.4.0 staging checklist; `docs/security-review.md` is
     the scope for an external review, with what is known and open. Tagging `v0.4.0` is the
     product owner's call.
+  - **Found, not changed** (listed in `docs/security-review.md`): ~~completing a task accepts
+    any variables~~ *(done 2026-09-28: see that date's entry)*; manual tasks are anybody's; a
+    service's own refusal over Connect is an HTTP 200 with the reason in the reply; RabbitMQ
+    publishes are transient; an external task's lock cannot be extended; redaction misses
+    `client_secret`, `id_token`, `db_password`; organization-wide queries carry every project
+    id.
+
+- 2026-09-28 (completed): completing a task sets only the variables its form declares — the
+  first of `docs/security-review.md`'s known and open findings, P0. Branch
+  `task-variables-declared`, one commit per change, each with a test that fails without it.
+  Driver: bpm · Challengers: sec, ux, test.
+  - **The gap.** `CompleteTask` copied every variable a completion carried into the instance,
+    so whoever completed an approval could rewrite its amount, or its approver: business data
+    beyond their step. Nothing said which variables a task may set, and no rule read as "any"
+    — the `sec` veto on a gap that opens on an absent constraint (AGENTS §2.3).
+  - **The rule.** A completion sets only what its task's form declares: the id of each field
+    of the task's `form_definition`, hidden ones included because the inbox submits every
+    field, and of the stored form its form key names (`forms.fields`, `{"fields": […]}`). No
+    form, no variables; a completion with none still completes. Anything else is a 400 that
+    names what was refused — sorted, at most ten names of at most 64 characters — decided
+    after the task is re-read and re-authorised under the instance's lock and before its
+    status is written, so nothing changes. REST, Connect and gRPC share the endpoint and meet
+    the same check. External tasks are a different surface, and unchanged.
+  - **`METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true`** brings the old rule back for a migration
+    window, read and announced at every boot as `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS` is. While
+    it is on, the log names each step — project, definition key, node — that sets a variable
+    its form does not declare, once, with the variables' names; what has been named is a
+    bounded LRU of 1,000 steps. `docs/upgrading.md` has how to find the steps, a query for the
+    tasks already waiting, and when to turn it off.
+  - **Around it.** The tests whose steps set variables they never declared give those steps a
+    form (`testutils.FormDeclaring`), and so does `docs/examples/expense-approval`, which
+    `docs/data-flow.md` calls runnable. The inbox needed nothing: it sends exactly the fields
+    of the form it shows. The SDK sandbox completes external tasks only.
+  - **Found, not changed:** an in-flight migration rebuilds a task from its new node only when
+    the node's id changes, so an open task keeps its old form — and what it may set — when a
+    step's form changes under the same id. The Go SDK's `examples/quickstart` lives in its own
+    repository and was not checked for a completion its step's form does not declare.
   - **Found, not changed** (listed in `docs/security-review.md`): completing a task accepts
     any variables; manual tasks are anybody's; a service's own refusal over Connect is an HTTP
     200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
     lock cannot be extended; redaction misses `client_secret`, `id_token`, `db_password`;
     organization-wide queries carry every project id.
+- 2026-09-28 (completed): extend a lock — an external task's lock can be extended, closing
+  `docs/security-review.md`'s known-and-open finding and the RabbitMQ entry's backlog item.
+  Branch `external-task-extend-lock`, one commit per change, each with its test: the API's
+  fail without the change, the bridge's pins a message that already carried enough.
+  Driver: arch · Challengers: sec, perf, po.
+  - **The gap.** A worker could fetch, complete and fail. Work that outlasted its lock was
+    offered to the next worker while the first was still doing it, and ran twice; a bridged
+    worker's whole budget was the bridge's `lock_seconds`.
+  - **API.** `POST /api/v1/external-tasks/{id}/extend-lock` takes `worker_id` and
+    `lock_duration_ms` and answers `lock_expiration`; `ExtendExternalTaskLock` on
+    `ExternalTaskService` does the same over Connect and gRPC, a refusal in the reply's
+    `error` with no expiry beside it. Wired like `CompleteExternal`: `protected`, scoped to
+    the tenant. It gates on no role, so the role legend and its catalogues have nothing to
+    list, as for `CompleteExternal`.
+  - **Semantics.** Now plus the duration, from 1 ms to a day (`entities.MaxExternalTaskLock`,
+    now also the ceiling of a bridge's `lock_seconds`). One conditional UPDATE — id,
+    worker_id, lock_expiration > now and the caller's projects — so a fetch for another
+    worker, earlier or racing, is never overwritten; only a refusal reads again, to tell 404
+    from 400. Another worker's lock, or one that ran out, is a 400 saying to fetch again, as
+    a claim on a claimed task is: the engine does not answer 409.
+  - **AMQP.** The bridge's message already carried `id`, `worker_id` (`messaging-bridge`)
+    and `lock_expiration`, which is what a worker extends with. Every bridge lock has that
+    one worker id, so an extension after `lock_expiration` can land on a new delivery's
+    lock; the docs say to extend before it. The live-broker test extends in CI.
+  - **Found, not changed:** fetch-and-lock over the API bounds `lock_duration_ms` by
+    nothing, so a large one overflows the expiry; completing reads the lock, then deletes
+    the task, with nothing held between, so a fetch in that gap is undone; `HandleFailure`
+    does not check that the lock is live; fetch-and-lock accepts an empty `worker_id`; the
+    Go SDK (its own repository) and the SDK sandbox do not extend yet.
+  - Verification evidence: `make gate GO_TEST_P="-p 1"` green with `METIS_TEST_POSTGRES_DSN`
+    and `STORM_DSN` set against PostgreSQL 17 — 89 packages pass under test, race and the
+    strict tenant scope each; UI typecheck, lint (0 errors) and 1592 tests pass.
+    `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
+    no broker, and run in CI; `buf generate` leaves no diff.
+
+- 2026-09-28 (completed): manual tasks are held to HUM-04's rule, as the product owner
+  decided the question 0.4.0 left open. Branch `manual-tasks-named`, one commit per change,
+  each with a test that fails against the code before it. Driver: bpm (task service, file
+  format) and ux (designer, inbox) · Challengers: sec, fe, test.
+  - **The file format.** A BPMN file lost a step's candidate users, on every kind of task:
+    the parser had attributes for the assignee and the candidate groups only.
+    `camunda:candidateUsers` is read and written now, on a manual task as on a user task
+    (BPMN 2.0.2 §10.3 gives every activity its performers). Test first:
+    `TestWhoDoesAStepSurvivesTheRoundTrip`, and `tests/bpmn`
+    `TestAManualTaskFromAFileIsOfferedToThePeopleItNames` ("offered to [] and [warehouse]").
+  - **The designer.** A manual step's panel had a line of free text the engine never read,
+    and said an empty one was anybody's. It has the user step's *Who does this* now — one
+    shared `AssignmentSettings` — and keeps the free text as a note. The warning for a step
+    that names nobody covers manual steps; an assignment table does not satisfy it there,
+    because the engine asks a table only for a user step.
+  - **The rule.** `entities.Task.FallsToOperators` exempted `ManualTask` and
+    `authorizeCandidate` let a candidate-less manual task through. Claiming, completing,
+    delegating and assigning a manual task that names nobody take an administrator or an
+    operator, with the user task's 403 for anybody else; `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS`
+    covers both kinds. The board's mirror (`fallsToOperators`) follows. Test first:
+    `tests/task` over both kinds ("claiming a manualTask nobody was named for: got 200").
+  - **Upgrading.** Every manual step designed before names nobody, so its tasks go to the
+    administrators and operators. `docs/upgrading.md`'s query no longer filters manual tasks
+    out; the CHANGELOG says what to do. `docs/security-review.md` finding 2 is closed.
+  - **Found, not changed:** *All Tasks* (`TaskList.tsx`) offers Complete on every open task
+    to whoever reads it, of either kind, and the server refuses the ones it must. *Assign to*
+    shows nothing for an assignee who is not one of the organization's users — a name from
+    a BPMN file, say — though the engine carries it, as it did for user steps. An assignment
+    table cannot route a manual step.
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
   - #92: a migration request that omits `dry_run` is a dry run, as documented.
@@ -1244,7 +1364,9 @@
     `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
     no broker, and run in CI.
   - **Found and not fixed — for the backlog:**
-    - A worker cannot extend an external task's lock: the API has fetch-and-lock,
+    - *Done 2026-09-28 over HTTP, gRPC and Connect, not yet in the SDK: see that date's
+      "extend a lock" entry.* A worker cannot extend an external task's lock: the API
+      has fetch-and-lock,
       complete and failure, on every transport. A bridged worker's whole budget is
       therefore the bridge's lock, so a long job needs a long lock, and a lost message
       waits that long to be published again. An extend-lock operation would let locks
@@ -1425,11 +1547,14 @@
   - **`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`** brings the old rule back for a migration
     window, off by default and announced at boot when on; `docs/upgrading.md` has the
     query for the tasks affected.
-  - **Open, for the product owner:** manual tasks. The designer has no field to name
+  - **Open, for the product owner:** ~~manual tasks. The designer has no field to name
     anybody for one and tells its author an empty one is anybody's, so they were left
-    open; closing them needs that field first. And a completion can still carry variables
+    open; closing them needs that field first. ~~And a completion can still carry variables
+    open; closing them needs that field first.~~ *Done 2026-09-28: see that date's
+    "manual tasks" entry.* And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
-    asks nobody for any.
+    asks nobody for any.~~ *Done 2026-09-28: a completion sets only what its task's form
+    declares; see that date's entry.*
 - 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand
   projects, measured. Branch `tenant-scope-at-scale`. Every scoped repository call reads the
   organization's project ids and filters on `project_id = ANY(ids)`; since the scope reads

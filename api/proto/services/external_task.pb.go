@@ -25,30 +25,35 @@ var File_services_external_task_proto protoreflect.FileDescriptor
 
 const file_services_external_task_proto_rawDesc = "" +
 	"\n" +
-	"\x1cservices/external_task.proto\x12\aprocess\x1a-endpoints/fetch_and_lock_external_tasks.proto\x1a&endpoints/complete_external_task.proto\x1a,endpoints/handle_external_task_failure.proto2\xe8\x02\n" +
+	"\x1cservices/external_task.proto\x12\aprocess\x1a-endpoints/fetch_and_lock_external_tasks.proto\x1a&endpoints/complete_external_task.proto\x1a,endpoints/handle_external_task_failure.proto\x1a)endpoints/extend_external_task_lock.proto2\xd5\x03\n" +
 	"\x13ExternalTaskService\x12t\n" +
 	"\x19FetchAndLockExternalTasks\x12).process.FetchAndLockExternalTasksRequest\x1a*.process.FetchAndLockExternalTasksResponse\"\x00\x12e\n" +
 	"\x14CompleteExternalTask\x12$.process.CompleteExternalTaskRequest\x1a%.process.CompleteExternalTaskResponse\"\x00\x12t\n" +
-	"\x19HandleExternalTaskFailure\x12).process.HandleExternalTaskFailureRequest\x1a*.process.HandleExternalTaskFailureResponse\"\x00B\x93\x01\n" +
+	"\x19HandleExternalTaskFailure\x12).process.HandleExternalTaskFailureRequest\x1a*.process.HandleExternalTaskFailureResponse\"\x00\x12k\n" +
+	"\x16ExtendExternalTaskLock\x12&.process.ExtendExternalTaskLockRequest\x1a'.process.ExtendExternalTaskLockResponse\"\x00B\x93\x01\n" +
 	"\vcom.processB\x11ExternalTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/services;services\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var file_services_external_task_proto_goTypes = []any{
 	(*endpoints.FetchAndLockExternalTasksRequest)(nil),  // 0: process.FetchAndLockExternalTasksRequest
 	(*endpoints.CompleteExternalTaskRequest)(nil),       // 1: process.CompleteExternalTaskRequest
 	(*endpoints.HandleExternalTaskFailureRequest)(nil),  // 2: process.HandleExternalTaskFailureRequest
-	(*endpoints.FetchAndLockExternalTasksResponse)(nil), // 3: process.FetchAndLockExternalTasksResponse
-	(*endpoints.CompleteExternalTaskResponse)(nil),      // 4: process.CompleteExternalTaskResponse
-	(*endpoints.HandleExternalTaskFailureResponse)(nil), // 5: process.HandleExternalTaskFailureResponse
+	(*endpoints.ExtendExternalTaskLockRequest)(nil),     // 3: process.ExtendExternalTaskLockRequest
+	(*endpoints.FetchAndLockExternalTasksResponse)(nil), // 4: process.FetchAndLockExternalTasksResponse
+	(*endpoints.CompleteExternalTaskResponse)(nil),      // 5: process.CompleteExternalTaskResponse
+	(*endpoints.HandleExternalTaskFailureResponse)(nil), // 6: process.HandleExternalTaskFailureResponse
+	(*endpoints.ExtendExternalTaskLockResponse)(nil),    // 7: process.ExtendExternalTaskLockResponse
 }
 var file_services_external_task_proto_depIdxs = []int32{
 	0, // 0: process.ExternalTaskService.FetchAndLockExternalTasks:input_type -> process.FetchAndLockExternalTasksRequest
 	1, // 1: process.ExternalTaskService.CompleteExternalTask:input_type -> process.CompleteExternalTaskRequest
 	2, // 2: process.ExternalTaskService.HandleExternalTaskFailure:input_type -> process.HandleExternalTaskFailureRequest
-	3, // 3: process.ExternalTaskService.FetchAndLockExternalTasks:output_type -> process.FetchAndLockExternalTasksResponse
-	4, // 4: process.ExternalTaskService.CompleteExternalTask:output_type -> process.CompleteExternalTaskResponse
-	5, // 5: process.ExternalTaskService.HandleExternalTaskFailure:output_type -> process.HandleExternalTaskFailureResponse
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	3, // 3: process.ExternalTaskService.ExtendExternalTaskLock:input_type -> process.ExtendExternalTaskLockRequest
+	4, // 4: process.ExternalTaskService.FetchAndLockExternalTasks:output_type -> process.FetchAndLockExternalTasksResponse
+	5, // 5: process.ExternalTaskService.CompleteExternalTask:output_type -> process.CompleteExternalTaskResponse
+	6, // 6: process.ExternalTaskService.HandleExternalTaskFailure:output_type -> process.HandleExternalTaskFailureResponse
+	7, // 7: process.ExternalTaskService.ExtendExternalTaskLock:output_type -> process.ExtendExternalTaskLockResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

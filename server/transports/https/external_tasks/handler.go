@@ -3,8 +3,8 @@
 // This is the integration surface for work that cannot or should not run inside
 // the engine: heavy compute, private-network access, another language's SDK. A
 // worker long-polls fetch-and-lock for its topic, does the work in its own
-// runtime, and reports back — the pull model, so the engine never needs to
-// reach into the worker's network.
+// runtime, extending its lock while the work outlasts it, and reports back —
+// the pull model, so the engine never needs to reach into the worker's network.
 //
 // Until now this protocol existed only over gRPC and the AMQP bridge, which
 // made "write a worker in anything that speaks HTTP" impossible — the one
@@ -18,6 +18,7 @@ import (
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/external_task"
 	"github.com/gsoultan/metis/server/transports/https/common"
 )
@@ -46,6 +47,13 @@ func RegisterHandlers(m *http.ServeMux, eps external_task.Endpoints, options []h
 	m.Handle("POST /api/v1/external-tasks/{id}/failure", httptransport.NewServer(
 		eps.HandleExternalFailure,
 		decodeFailureRequest,
+		common.EncodeResponse,
+		options...,
+	))
+
+	m.Handle("POST /api/v1/external-tasks/{id}/extend-lock", httptransport.NewServer(
+		eps.ExtendExternalLock,
+		decodeExtendLockRequest,
 		common.EncodeResponse,
 		options...,
 	))
@@ -133,5 +141,33 @@ func decodeFailureRequest(_ context.Context, r *http.Request) (any, error) {
 		ErrorDetails: body.ErrorDetails,
 		Retries:      body.Retries,
 		RetryTimeout: body.RetryTimeoutMS,
+	}, nil
+}
+
+// extendLockBody is the worker holding the lock, and how long from now the
+// lock is to run, in milliseconds — both named as fetch-and-lock names them.
+//
+// No default duration, unlike fetch: a worker that sent none has a bug, and
+// quietly giving it a minute would hide the bug until a lock ran out mid-work.
+type extendLockBody struct {
+	WorkerID       string `json:"worker_id"`
+	LockDurationMS int64  `json:"lock_duration_ms"`
+}
+
+// decodeExtendLockRequest reads an extension. A malformed id or body is the
+// caller's mistake, answered 400 rather than as a server fault.
+func decodeExtendLockRequest(_ context.Context, r *http.Request) (any, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return nil, apierr.Invalidf("the external task id %q is not an id", r.PathValue("id"))
+	}
+	var body extendLockBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, apierr.Invalidf("could not read the request body: %v", err)
+	}
+	return external_task.ExtendExternalLockRequest{
+		TaskID:       id,
+		WorkerID:     body.WorkerID,
+		LockDuration: body.LockDurationMS,
 	}, nil
 }
