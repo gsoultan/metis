@@ -73,6 +73,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   begins like one — `token_type`, `tokenizer`, `password_policy` — is still
   left alone.
 
+### Added
+
+- **A worker can extend its lock on an external task.** Work that outlasted
+  the lock it was fetched with was offered to the next worker to ask while the
+  first was still doing it, and the step ran twice; the only way round it was
+  a lock as long as the slowest run, which kept a dead worker's task out of
+  reach for as long. `POST /api/v1/external-tasks/{id}/extend-lock` with the
+  `worker_id` and a `lock_duration_ms` — named as fetch-and-lock names them —
+  moves the lock to that long from now and answers when it now runs out;
+  `ExtendExternalTaskLock` does the same over Connect and gRPC. Only the worker
+  holding the lock, and only before it runs out: anything else is refused with
+  400 and told to fetch the task again, and the check is part of the write, so
+  an extension arriving after another worker has fetched the task can never
+  take it back. At most a day, the same ceiling as a RabbitMQ bridge's
+  `lock_seconds`. A worker consuming from a bridge's queue extends with the
+  task's `id` and the `worker_id` its message carries, `messaging-bridge`,
+  and must do so before the message's `lock_expiration`. See *Extending a
+  lock* in `docs/integration.md`. The Go SDK does not call it yet.
+
 ### Fixed
 
 - **A message the broker had confirmed could be lost when it restarted.** Every

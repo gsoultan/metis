@@ -137,11 +137,9 @@ is part of the review.
 1. **A service's own refusal over Connect is an HTTP 200** with the reason in
    the reply's `error` field, so monitoring does not see it and a client that
    ignores the field takes it for success.
-2. **An external task's lock cannot be extended.** Work that outlasts
-   `lock_seconds` is handed to another worker and can run twice.
-3. **Organization-wide queries carry every project id** of the organization:
+2. **Organization-wide queries carry every project id** of the organization:
    ten thousand at the largest measured, a cost that grows with the tenant.
-4. **A message sets any variable it carries.** `SendMessage` is open to any
+3. **A message sets any variable it carries.** `SendMessage` is open to any
    signed-in member and writes whatever variables the message carries into the
    instances waiting for it (`engine.triggerSubscription`); `BroadcastSignal`,
    an operator's, does the same. It is the shape a task completion had before

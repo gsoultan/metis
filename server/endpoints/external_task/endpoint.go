@@ -12,6 +12,7 @@ type Endpoints struct {
 	FetchAndLockExternal  endpoint.Endpoint
 	CompleteExternal      endpoint.Endpoint
 	HandleExternalFailure endpoint.Endpoint
+	ExtendExternalLock    endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -19,6 +20,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		FetchAndLockExternal:  MakeFetchAndLockExternalEndpoint(s),
 		CompleteExternal:      MakeCompleteExternalEndpoint(s),
 		HandleExternalFailure: MakeHandleExternalFailureEndpoint(s),
+		ExtendExternalLock:    MakeExtendExternalLockEndpoint(s),
 	}
 }
 
@@ -61,5 +63,19 @@ func MakeHandleExternalFailureEndpoint(s services.ServiceFacade) endpoint.Endpoi
 			return HandleExternalFailureResponse{Error: err.Error()}, nil
 		}
 		return HandleExternalFailureResponse{}, nil
+	}
+}
+
+func MakeExtendExternalLockEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ExtendExternalLockRequest)
+		if !ok {
+			return nil, fmt.Errorf("external_task: expected an ExtendExternalLockRequest, got %T", request)
+		}
+		until, err := s.ExtendLock(ctx, req.TaskID, req.WorkerID, req.LockDuration)
+		if err != nil {
+			return ExtendExternalLockResponse{Err: err}, nil
+		}
+		return ExtendExternalLockResponse{LockExpiration: until}, nil
 	}
 }

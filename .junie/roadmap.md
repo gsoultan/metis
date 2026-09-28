@@ -1145,6 +1145,40 @@
     200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
     lock cannot be extended; redaction misses `client_secret`, `id_token`, `db_password`;
     organization-wide queries carry every project id.
+- 2026-09-28 (completed): extend a lock — an external task's lock can be extended, closing
+  `docs/security-review.md`'s known-and-open finding and the RabbitMQ entry's backlog item.
+  Branch `external-task-extend-lock`, one commit per change, each with its test: the API's
+  fail without the change, the bridge's pins a message that already carried enough.
+  Driver: arch · Challengers: sec, perf, po.
+  - **The gap.** A worker could fetch, complete and fail. Work that outlasted its lock was
+    offered to the next worker while the first was still doing it, and ran twice; a bridged
+    worker's whole budget was the bridge's `lock_seconds`.
+  - **API.** `POST /api/v1/external-tasks/{id}/extend-lock` takes `worker_id` and
+    `lock_duration_ms` and answers `lock_expiration`; `ExtendExternalTaskLock` on
+    `ExternalTaskService` does the same over Connect and gRPC, a refusal in the reply's
+    `error` with no expiry beside it. Wired like `CompleteExternal`: `protected`, scoped to
+    the tenant. It gates on no role, so the role legend and its catalogues have nothing to
+    list, as for `CompleteExternal`.
+  - **Semantics.** Now plus the duration, from 1 ms to a day (`entities.MaxExternalTaskLock`,
+    now also the ceiling of a bridge's `lock_seconds`). One conditional UPDATE — id,
+    worker_id, lock_expiration > now and the caller's projects — so a fetch for another
+    worker, earlier or racing, is never overwritten; only a refusal reads again, to tell 404
+    from 400. Another worker's lock, or one that ran out, is a 400 saying to fetch again, as
+    a claim on a claimed task is: the engine does not answer 409.
+  - **AMQP.** The bridge's message already carried `id`, `worker_id` (`messaging-bridge`)
+    and `lock_expiration`, which is what a worker extends with. Every bridge lock has that
+    one worker id, so an extension after `lock_expiration` can land on a new delivery's
+    lock; the docs say to extend before it. The live-broker test extends in CI.
+  - **Found, not changed:** fetch-and-lock over the API bounds `lock_duration_ms` by
+    nothing, so a large one overflows the expiry; completing reads the lock, then deletes
+    the task, with nothing held between, so a fetch in that gap is undone; `HandleFailure`
+    does not check that the lock is live; fetch-and-lock accepts an empty `worker_id`; the
+    Go SDK (its own repository) and the SDK sandbox do not extend yet.
+  - Verification evidence: `make gate GO_TEST_P="-p 1"` green with `METIS_TEST_POSTGRES_DSN`
+    and `STORM_DSN` set against PostgreSQL 17 — 89 packages pass under test, race and the
+    strict tenant scope each; UI typecheck, lint (0 errors) and 1592 tests pass.
+    `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
+    no broker, and run in CI; `buf generate` leaves no diff.
 
 - 2026-09-28 (completed): manual tasks are held to HUM-04's rule, as the product owner
   decided the question 0.4.0 left open. Branch `manual-tasks-named`, one commit per change,
@@ -1330,7 +1364,9 @@
     `golangci-lint run ./...`: 0 issues. The broker-backed tests skip here, where there is
     no broker, and run in CI.
   - **Found and not fixed — for the backlog:**
-    - A worker cannot extend an external task's lock: the API has fetch-and-lock,
+    - *Done 2026-09-28 over HTTP, gRPC and Connect, not yet in the SDK: see that date's
+      "extend a lock" entry.* A worker cannot extend an external task's lock: the API
+      has fetch-and-lock,
       complete and failure, on every transport. A bridged worker's whole budget is
       therefore the bridge's lock, so a long job needs a long lock, and a lost message
       waits that long to be published again. An extend-lock operation would let locks

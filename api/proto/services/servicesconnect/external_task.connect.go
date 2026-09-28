@@ -43,6 +43,9 @@ const (
 	// ExternalTaskServiceHandleExternalTaskFailureProcedure is the fully-qualified name of the
 	// ExternalTaskService's HandleExternalTaskFailure RPC.
 	ExternalTaskServiceHandleExternalTaskFailureProcedure = "/process.ExternalTaskService/HandleExternalTaskFailure"
+	// ExternalTaskServiceExtendExternalTaskLockProcedure is the fully-qualified name of the
+	// ExternalTaskService's ExtendExternalTaskLock RPC.
+	ExternalTaskServiceExtendExternalTaskLockProcedure = "/process.ExternalTaskService/ExtendExternalTaskLock"
 )
 
 // ExternalTaskServiceClient is a client for the process.ExternalTaskService service.
@@ -50,6 +53,7 @@ type ExternalTaskServiceClient interface {
 	FetchAndLockExternalTasks(context.Context, *connect.Request[endpoints.FetchAndLockExternalTasksRequest]) (*connect.Response[endpoints.FetchAndLockExternalTasksResponse], error)
 	CompleteExternalTask(context.Context, *connect.Request[endpoints.CompleteExternalTaskRequest]) (*connect.Response[endpoints.CompleteExternalTaskResponse], error)
 	HandleExternalTaskFailure(context.Context, *connect.Request[endpoints.HandleExternalTaskFailureRequest]) (*connect.Response[endpoints.HandleExternalTaskFailureResponse], error)
+	ExtendExternalTaskLock(context.Context, *connect.Request[endpoints.ExtendExternalTaskLockRequest]) (*connect.Response[endpoints.ExtendExternalTaskLockResponse], error)
 }
 
 // NewExternalTaskServiceClient constructs a client for the process.ExternalTaskService service. By
@@ -81,6 +85,12 @@ func NewExternalTaskServiceClient(httpClient connect.HTTPClient, baseURL string,
 			connect.WithSchema(externalTaskServiceMethods.ByName("HandleExternalTaskFailure")),
 			connect.WithClientOptions(opts...),
 		),
+		extendExternalTaskLock: connect.NewClient[endpoints.ExtendExternalTaskLockRequest, endpoints.ExtendExternalTaskLockResponse](
+			httpClient,
+			baseURL+ExternalTaskServiceExtendExternalTaskLockProcedure,
+			connect.WithSchema(externalTaskServiceMethods.ByName("ExtendExternalTaskLock")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -89,6 +99,7 @@ type externalTaskServiceClient struct {
 	fetchAndLockExternalTasks *connect.Client[endpoints.FetchAndLockExternalTasksRequest, endpoints.FetchAndLockExternalTasksResponse]
 	completeExternalTask      *connect.Client[endpoints.CompleteExternalTaskRequest, endpoints.CompleteExternalTaskResponse]
 	handleExternalTaskFailure *connect.Client[endpoints.HandleExternalTaskFailureRequest, endpoints.HandleExternalTaskFailureResponse]
+	extendExternalTaskLock    *connect.Client[endpoints.ExtendExternalTaskLockRequest, endpoints.ExtendExternalTaskLockResponse]
 }
 
 // FetchAndLockExternalTasks calls process.ExternalTaskService.FetchAndLockExternalTasks.
@@ -106,11 +117,17 @@ func (c *externalTaskServiceClient) HandleExternalTaskFailure(ctx context.Contex
 	return c.handleExternalTaskFailure.CallUnary(ctx, req)
 }
 
+// ExtendExternalTaskLock calls process.ExternalTaskService.ExtendExternalTaskLock.
+func (c *externalTaskServiceClient) ExtendExternalTaskLock(ctx context.Context, req *connect.Request[endpoints.ExtendExternalTaskLockRequest]) (*connect.Response[endpoints.ExtendExternalTaskLockResponse], error) {
+	return c.extendExternalTaskLock.CallUnary(ctx, req)
+}
+
 // ExternalTaskServiceHandler is an implementation of the process.ExternalTaskService service.
 type ExternalTaskServiceHandler interface {
 	FetchAndLockExternalTasks(context.Context, *connect.Request[endpoints.FetchAndLockExternalTasksRequest]) (*connect.Response[endpoints.FetchAndLockExternalTasksResponse], error)
 	CompleteExternalTask(context.Context, *connect.Request[endpoints.CompleteExternalTaskRequest]) (*connect.Response[endpoints.CompleteExternalTaskResponse], error)
 	HandleExternalTaskFailure(context.Context, *connect.Request[endpoints.HandleExternalTaskFailureRequest]) (*connect.Response[endpoints.HandleExternalTaskFailureResponse], error)
+	ExtendExternalTaskLock(context.Context, *connect.Request[endpoints.ExtendExternalTaskLockRequest]) (*connect.Response[endpoints.ExtendExternalTaskLockResponse], error)
 }
 
 // NewExternalTaskServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -138,6 +155,12 @@ func NewExternalTaskServiceHandler(svc ExternalTaskServiceHandler, opts ...conne
 		connect.WithSchema(externalTaskServiceMethods.ByName("HandleExternalTaskFailure")),
 		connect.WithHandlerOptions(opts...),
 	)
+	externalTaskServiceExtendExternalTaskLockHandler := connect.NewUnaryHandler(
+		ExternalTaskServiceExtendExternalTaskLockProcedure,
+		svc.ExtendExternalTaskLock,
+		connect.WithSchema(externalTaskServiceMethods.ByName("ExtendExternalTaskLock")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/process.ExternalTaskService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ExternalTaskServiceFetchAndLockExternalTasksProcedure:
@@ -146,6 +169,8 @@ func NewExternalTaskServiceHandler(svc ExternalTaskServiceHandler, opts ...conne
 			externalTaskServiceCompleteExternalTaskHandler.ServeHTTP(w, r)
 		case ExternalTaskServiceHandleExternalTaskFailureProcedure:
 			externalTaskServiceHandleExternalTaskFailureHandler.ServeHTTP(w, r)
+		case ExternalTaskServiceExtendExternalTaskLockProcedure:
+			externalTaskServiceExtendExternalTaskLockHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -165,4 +190,8 @@ func (UnimplementedExternalTaskServiceHandler) CompleteExternalTask(context.Cont
 
 func (UnimplementedExternalTaskServiceHandler) HandleExternalTaskFailure(context.Context, *connect.Request[endpoints.HandleExternalTaskFailureRequest]) (*connect.Response[endpoints.HandleExternalTaskFailureResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("process.ExternalTaskService.HandleExternalTaskFailure is not implemented"))
+}
+
+func (UnimplementedExternalTaskServiceHandler) ExtendExternalTaskLock(context.Context, *connect.Request[endpoints.ExtendExternalTaskLockRequest]) (*connect.Response[endpoints.ExtendExternalTaskLockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("process.ExternalTaskService.ExtendExternalTaskLock is not implemented"))
 }

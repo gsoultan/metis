@@ -6,6 +6,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// MaxExternalTaskLock is the longest a worker may extend its lock on an
+// external task by, and the most a RabbitMQ bridge's "lock_seconds" may be.
+// Longer, and a task whose worker died, or whose message was lost, stays out
+// of everybody else's reach for more than a day.
+const MaxExternalTaskLock = 24 * time.Hour
+
 // ExternalTask represents a task that is completed by an external worker.
 type ExternalTask struct {
 	ID                uuid.UUID          `json:"id"`

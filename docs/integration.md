@@ -394,6 +394,42 @@ Durations on this API are always suffixed `_ms` — the unit is part of the
 field name because an unsuffixed `lock_duration` has already been misread
 once inside this codebase.
 
+### Extending a lock
+
+Work that can outlast its lock keeps it by extending it, before it runs out:
+
+```bash
+curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/extend-lock \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"worker_id":"billing-1","lock_duration_ms":60000}'
+```
+
+The lock then runs out `lock_duration_ms` from now — not from when it would
+have — and the reply says when: `{"lock_expiration":"2026-09-28T10:15:00.123456Z"}`.
+So a lock can stay short, and a task whose worker died is offered again soon,
+while a worker that is still at it extends for as long as it is working;
+extending when half the lock has gone leaves room for a slow request.
+
+- **Only the worker holding the lock, and only before it runs out.** Another
+  `worker_id`, or a lock that has run out — even with nobody else holding the
+  task yet — is refused with `400` and "… fetch it again". Stop the work: the
+  task may already be with another worker, whose completion is the one that
+  will be accepted. A lock knows its worker only by `worker_id`, so give each
+  worker process its own.
+- `lock_duration_ms` is from 1 to 86400000, a day. There is no default: `0`,
+  or none, is refused rather than given fetch-and-lock's minute.
+- Another organization's task, or one already completed, is `404`.
+- Over Connect and gRPC it is `ExtendExternalTaskLock` on `ExternalTaskService`,
+  with the same fields. As with that service's other methods, a refusal comes
+  back in the reply's `error` field rather than as an error of the call, and
+  with no `lock_expiration` beside it: check `error`.
+- The Go SDK's worker does not extend locks yet; its handler's budget is still
+  the lock it fetched with.
+
+A worker taking tasks off a RabbitMQ bridge's queue extends the same way, with
+the `worker_id` its message carries; see [What the bridge publishes, and what a
+worker does with it](#what-the-bridge-publishes-and-what-a-worker-does-with-it).
+
 ## RabbitMQ: tasks out to a queue, messages in from one
 
 A server can run two things against a RabbitMQ broker, and both are **off
@@ -544,6 +580,17 @@ curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/complete \
   -d '{"worker_id":"messaging-bridge","variables":{"reversed":true}}'
 ```
 
+Work that may outlast the bridge's lock extends it the same way, before the
+message's `lock_expiration`, with the message's `id` — the `task_id` header
+holds it too — and the same `worker_id`
+([Extending a lock](#extending-a-lock)):
+
+```bash
+curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/extend-lock \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"worker_id":"messaging-bridge","lock_duration_ms":600000}'
+```
+
 - **A topic is shared by an organization's projects.** A bridge publishes every
   task of its topic in the project's organization: the same tasks a worker of
   that organization fetching the topic through the API would get. Run one
@@ -557,17 +604,24 @@ curl -X POST $GOBPM/api/v1/external-tasks/$TASK_ID/complete \
 
 The bridge locks each task when it fetches it, for its `lock_seconds` — five
 minutes unless the entry says otherwise — and the lock covers the task's whole
-trip: the time its message waits on the queue, and the time the worker takes.
-A worker cannot extend it. The external-task API has fetch-and-lock, complete
-and failure, and nothing that extends a lock; the message's `lock_expiration`
-says when it runs out.
+trip: the time its message waits on the queue, and the time the worker takes,
+unless the worker extends it. The message's `lock_expiration` says when it runs
+out.
+
+Extend before then, not after. Every bridge holds its locks under the one
+worker id, `messaging-bridge`, so a lock cannot tell one delivery of a task
+from the next. Once `lock_expiration` has passed, the bridge may have fetched
+the task again and published it to another worker, and an extension that
+arrives after that extends the new delivery's lock: its answer does not say the
+task is still yours. A worker past its message's `lock_expiration` — or past
+the time its last extension answered — should treat the task as lost.
 
 A task still open when its lock runs out is published again at the bridge's
-next round, and only one completion is accepted. So a worker that takes longer,
-or a queue that backs up for longer, means the same task delivered twice and
-done twice — harmless only if the handler is idempotent, which any
-external-task worker's must be. It was a fixed 30 seconds, which a queue that
-backed up at all ran through, so the backlog multiplied itself.
+next round, and only one completion is accepted. So a worker that takes longer
+without extending, or a queue that backs up for longer, means the same task
+delivered twice and done twice — harmless only if the handler is idempotent,
+which any external-task worker's must be. It was a fixed 30 seconds, which a
+queue that backed up at all ran through, so the backlog multiplied itself.
 
 Set `lock_seconds` above the longest the queue is expected to back up plus the
 longest the work takes. A longer lock has one cost: a task whose message is

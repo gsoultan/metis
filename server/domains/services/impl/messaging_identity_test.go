@@ -237,3 +237,7 @@ func (externalTaskStub) HandleFailure(context.Context, uuid.UUID, string, string
 }
 
 func (externalTaskStub) Create(context.Context, *entities.ExternalTask) error { return nil }
+
+func (externalTaskStub) ExtendLock(context.Context, uuid.UUID, string, int64) (time.Time, error) {
+	return time.Time{}, nil
+}
