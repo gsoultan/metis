@@ -8,6 +8,23 @@ import (
 
 const redactedValue = "***REDACTED***"
 
+// secretWord is a word that names a credential, in any case. The compound ones
+// — secret_key, access_key — are words of their own rather than a secret word
+// with more after it: token_type and password_policy name something else.
+const secretWord = `(?i:password|passwd|passphrase|pwd|secret|token|` +
+	`(?:api|secret|private|access|signing|encryption)[_-]?key|access[_-]?token|refresh[_-]?token|jwt)`
+
+// secretName is a credential's name as configuration, headers and payloads
+// spell it: the word, with whatever comes before it in the same name — client_,
+// spring.datasource., X-Auth-, or client in clientSecret.
+//
+// The patterns used to look for the word alone between word boundaries, and an
+// underscore is a word character, so client_secret, id_token and db_password
+// were not names at all and their values were printed. Nothing may follow the
+// word inside the name, so a word that merely begins like one — tokenizer,
+// passwordless, token_type — is still not a name.
+const secretName = `(?:[A-Za-z0-9]+[_.-])*[A-Za-z0-9]*` + secretWord
+
 type patterns struct {
 	urlCredential *regexp.Regexp
 	// mysqlDSN is the MySQL driver's connection string, user:password@tcp(host)/db,
@@ -35,9 +52,9 @@ func getPatterns() *patterns {
 			urlCredential: regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^:@/\s]+:)([^@/\s]+)(@)`),
 			mysqlDSN:      regexp.MustCompile(`([A-Za-z0-9_.\-]+:)(\S+?)(@(?:(?:tcp|tcp4|tcp6|unix)\(|/))`),
 			bearerToken:   regexp.MustCompile(`(?i)(bearer\s+)([^\s,;]+)`),
-			jsonSecret:    regexp.MustCompile(`(?i)("(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|jwt|encryption[_-]?key)"\s*:\s*")([^"]*)(")`),
-			kvEquals:      regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|jwt|encryption[_-]?key)\b(\s*=\s*)([^\s,;]+)`),
-			kvColon:       regexp.MustCompile(`(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|refresh[_-]?token|jwt|encryption[_-]?key)\b(\s*:\s*)([^\s,;]+)`),
+			jsonSecret:    regexp.MustCompile(`("` + secretName + `"\s*:\s*")([^"]*)(")`),
+			kvEquals:      regexp.MustCompile(`\b(` + secretName + `)\b(\s*=\s*)([^\s,;]+)`),
+			kvColon:       regexp.MustCompile(`\b(` + secretName + `)\b(\s*:\s*)([^\s,;]+)`),
 			// Lower-case words, joined by a hyphen, slash or apostrophe (go-jose/go-jose,
 			// doesn't); a capitalised word; a word in capitals (ID, ERROR). Each may end
 			// in the colon that opens the next link of an error chain (oidc:).
