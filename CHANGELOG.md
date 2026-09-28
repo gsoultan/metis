@@ -21,6 +21,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `private_key`, `signing_key` and `passphrase` are names too. A word that only
   begins like one — `token_type`, `tokenizer`, `password_policy` — is still
   left alone.
+### Fixed
+
+- **A message the broker had confirmed could be lost when it restarted.** Every
+  message Metis publishes to RabbitMQ — a bridge's task, a dead letter, a
+  *RabbitMQ Publisher* step's message — went out with no delivery mode, which
+  RabbitMQ keeps in memory only: a broker restart before a consumer took it
+  lost it, from a durable queue too, after the confirm had said it was taken.
+  They are published persistent now. Bind a bridge's exchange to a durable
+  queue; the queues Metis declares already are.
 
 ## [0.4.0] - 2026-09-28
 
