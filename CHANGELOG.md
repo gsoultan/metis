@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **A secret named with a prefix was printed in logs and errors.** Errors and
+  logs pass through a redactor that hides a credential by the name in front of
+  it — `password=`, `"token":` — and it looked for the bare word between word
+  boundaries. An underscore is part of a word, so `client_secret`, `id_token`,
+  `db_password`, `aws_secret_access_key` and `clientSecret` were not names to
+  it, and their values were printed in clear: in the log, and in the error text
+  an incident or a response carries. A secret's name is now matched with
+  whatever comes before it in the name, and `secret_key`, `access_key`,
+  `private_key`, `signing_key` and `passphrase` are names too. A word that only
+  begins like one — `token_type`, `tokenizer`, `password_policy` — is still
+  left alone.
 ### Fixed
 
 - **A message the broker had confirmed could be lost when it restarted.** Every

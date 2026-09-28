@@ -144,9 +144,7 @@ is part of the review.
    ignores the field takes it for success.
 4. **An external task's lock cannot be extended.** Work that outlasts
    `lock_seconds` is handed to another worker and can run twice.
-5. **Redaction misses some secret names** — `client_secret`, `id_token`,
-   `db_password` — whose key has a prefix before the word it matches.
-6. **Organization-wide queries carry every project id** of the organization:
+5. **Organization-wide queries carry every project id** of the organization:
    ten thousand at the largest measured, a cost that grows with the tenant.
 
 ## Out of scope
