@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/gsoultan/metis/server/domains/entities"
 
@@ -14,4 +15,9 @@ type ExternalTaskService interface {
 	Complete(ctx context.Context, taskID uuid.UUID, workerID string, variables map[string]any) error
 	HandleFailure(ctx context.Context, taskID uuid.UUID, workerID string, errorMessage string, errorDetails string, retries int, retryTimeout int64) error
 	Create(ctx context.Context, task *entities.ExternalTask) error
+
+	// ExtendLock gives the worker holding a task's lock until lockDuration
+	// milliseconds from now, and returns when the lock now runs out. Anybody
+	// else, and that worker once its lock has run out, is refused.
+	ExtendLock(ctx context.Context, taskID uuid.UUID, workerID string, lockDuration int64) (time.Time, error)
 }

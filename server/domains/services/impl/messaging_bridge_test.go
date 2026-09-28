@@ -81,6 +81,11 @@ func (b *taskBoard) Complete(context.Context, uuid.UUID, string, map[string]any)
 
 func (b *taskBoard) Create(context.Context, *entities.ExternalTask) error { return nil }
 
+// ExtendLock is a downstream worker's call, never the bridge's.
+func (b *taskBoard) ExtendLock(context.Context, uuid.UUID, string, int64) (time.Time, error) {
+	return time.Time{}, nil
+}
+
 // returned says which tasks have been handed back, in order, and why.
 func (b *taskBoard) returned() ([]uuid.UUID, []string) {
 	b.mu.Lock()
