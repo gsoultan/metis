@@ -155,9 +155,9 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 ```
 
 Then fix the step in the designer, which warns about it, so the next instance
-names somebody. A manual task is the exception: anybody in the organization
-may take one. `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` lets anybody take these
-tasks again for a migration window; see [`upgrading.md`](upgrading.md).
+names somebody — a user step or a manual one, under *Who does this*.
+`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` lets anybody take these tasks again
+for a migration window; see [`upgrading.md`](upgrading.md).
 
 If whoever completes it — usually an integration — is refused with *this
 task's form has no field named …* or *this task has no form to declare …*, the

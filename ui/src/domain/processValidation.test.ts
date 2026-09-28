@@ -283,7 +283,8 @@ describe('a step that calls another system but has nothing to call', () => {
 
   it('leaves every other kind of step alone', () => {
     const { nodes, edges } = straightThrough();
-    nodes.push(node('m', 'manualTask', { label: 'File the paperwork' }));
+    // Named for somebody, so that nothing but this check could speak of it.
+    nodes.push(node('m', 'manualTask', { label: 'File the paperwork', candidateGroups: ['office'] }));
     edges.push(edge('f3', 'a', 'm'), edge('f4', 'm', 'e'));
     expect(validateProcess(nodes, edges)).toEqual([]);
   });
@@ -342,9 +343,22 @@ describe('a step that asks a person but names nobody', () => {
     expect(issuesFor(data)).toEqual([]);
   });
 
-  /* The designer offers a manual step no way to name anybody, and tells its author an empty one is anybody's. */
-  it('leaves a manual step alone', () => {
-    expect(issuesFor({}, 'manualTask')).toEqual([]);
+  /* A manual step names people the way a user step does, and the server holds it to the same rule. */
+  it('warns about a manual step too', () => {
+    expect(issuesFor({}, 'manualTask')).toEqual([NOBODY_NAMED]);
+  });
+
+  it.each([
+    ['one person', { assignee: 'dana' }],
+    ['people who may pick it up', { candidateUsers: ['dana', 'eli'] }],
+    ['a team who may pick it up', { candidateGroups: ['warehouse'] }],
+  ])('is satisfied on a manual step by %s', (_, data) => {
+    expect(issuesFor(data, 'manualTask')).toEqual([]);
+  });
+
+  /* Only a user step asks a decision table who does it; on a manual step the engine never reads one. */
+  it('is not satisfied on a manual step by a decision table', () => {
+    expect(issuesFor({ assignment_decision_key: 'shippers' }, 'manualTask')).toEqual([NOBODY_NAMED]);
   });
 });
 

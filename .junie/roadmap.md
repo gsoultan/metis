@@ -1032,6 +1032,25 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): a confirmed RabbitMQ message survives a broker restart (P0).
+  Branch `rabbitmq-persistent-messages`. All three publishes — the bridge's tasks, the
+  consumer's dead letters, the RabbitMQ Publisher step — go through `confirmingPublisher`, and
+  none set a delivery mode, which RabbitMQ reads as transient. The publisher now sets
+  `amqp.Persistent` unless the caller chose a mode. Tests first:
+  `TestAMessageIsPublishedToSurviveTheBrokerRestarting` (modes `[0 1]`, want `[2 1]`) and
+  `TestABridgesTasksSurviveTheBrokerRestarting` (mode 0, want 2). `docs/integration.md` says
+  the bridge's queue has to be durable for it to matter.
+- 2026-09-28 (completed): a secret named with a prefix is redacted (P0). Branch
+  `redaction-prefixed-secret-names`. The redactor matched a credential's name as the bare word
+  between word boundaries, and an underscore is a word character, so `client_secret`,
+  `id_token`, `db_password` and `clientSecret` printed their values in logs and error text.
+  The name now takes whatever precedes the word in it (`client_`, `spring.datasource.`,
+  `X-Auth-`, camelCase), and the compound names (`secret_key`, `access_key`, `private_key`,
+  `signing_key`) and `passphrase` are words of their own; nothing may follow the word, so
+  `token_type`, `tokenizer` and `password_policy` are left alone. Test first:
+  `TestASecretsNameWithMoreToItIsStillASecretsName` (seven of nine cases failed before).
+  `configsecret`, which masks connection settings for the browser, already matched by
+  substring and needed nothing.
 - 2026-09-27 (completed): §9.7 item 7, organization-scoped access — roles are granted per
   organization. Branch `organization-roles`, one commit per change, each with a test that
   fails without it. Driver: sec · Challengers: arch, fe, test.
@@ -1121,6 +1140,41 @@
     the node's id changes, so an open task keeps its old form — and what it may set — when a
     step's form changes under the same id. The Go SDK's `examples/quickstart` lives in its own
     repository and was not checked for a completion its step's form does not declare.
+  - **Found, not changed** (listed in `docs/security-review.md`): completing a task accepts
+    any variables; manual tasks are anybody's; a service's own refusal over Connect is an HTTP
+    200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
+    lock cannot be extended; redaction misses `client_secret`, `id_token`, `db_password`;
+    organization-wide queries carry every project id.
+
+- 2026-09-28 (completed): manual tasks are held to HUM-04's rule, as the product owner
+  decided the question 0.4.0 left open. Branch `manual-tasks-named`, one commit per change,
+  each with a test that fails against the code before it. Driver: bpm (task service, file
+  format) and ux (designer, inbox) · Challengers: sec, fe, test.
+  - **The file format.** A BPMN file lost a step's candidate users, on every kind of task:
+    the parser had attributes for the assignee and the candidate groups only.
+    `camunda:candidateUsers` is read and written now, on a manual task as on a user task
+    (BPMN 2.0.2 §10.3 gives every activity its performers). Test first:
+    `TestWhoDoesAStepSurvivesTheRoundTrip`, and `tests/bpmn`
+    `TestAManualTaskFromAFileIsOfferedToThePeopleItNames` ("offered to [] and [warehouse]").
+  - **The designer.** A manual step's panel had a line of free text the engine never read,
+    and said an empty one was anybody's. It has the user step's *Who does this* now — one
+    shared `AssignmentSettings` — and keeps the free text as a note. The warning for a step
+    that names nobody covers manual steps; an assignment table does not satisfy it there,
+    because the engine asks a table only for a user step.
+  - **The rule.** `entities.Task.FallsToOperators` exempted `ManualTask` and
+    `authorizeCandidate` let a candidate-less manual task through. Claiming, completing,
+    delegating and assigning a manual task that names nobody take an administrator or an
+    operator, with the user task's 403 for anybody else; `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS`
+    covers both kinds. The board's mirror (`fallsToOperators`) follows. Test first:
+    `tests/task` over both kinds ("claiming a manualTask nobody was named for: got 200").
+  - **Upgrading.** Every manual step designed before names nobody, so its tasks go to the
+    administrators and operators. `docs/upgrading.md`'s query no longer filters manual tasks
+    out; the CHANGELOG says what to do. `docs/security-review.md` finding 2 is closed.
+  - **Found, not changed:** *All Tasks* (`TaskList.tsx`) offers Complete on every open task
+    to whoever reads it, of either kind, and the server refuses the ones it must. *Assign to*
+    shows nothing for an assignee who is not one of the organization's users — a name from
+    a BPMN file, say — though the engine carries it, as it did for user steps. An assignment
+    table cannot route a manual step.
 - 2026-09-26 (completed): the rest of the roadmap's open items, as a stack of PRs merged
   in order (#92 up to the architecture audit's PR), each fix with a test that fails without it:
   - #92: a migration request that omits `dry_run` is a dry run, as documented.
@@ -1457,9 +1511,11 @@
   - **`METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true`** brings the old rule back for a migration
     window, off by default and announced at boot when on; `docs/upgrading.md` has the
     query for the tasks affected.
-  - **Open, for the product owner:** manual tasks. The designer has no field to name
+  - **Open, for the product owner:** ~~manual tasks. The designer has no field to name
     anybody for one and tells its author an empty one is anybody's, so they were left
     open; closing them needs that field first. ~~And a completion can still carry variables
+    open; closing them needs that field first.~~ *Done 2026-09-28: see that date's
+    "manual tasks" entry.* And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
     asks nobody for any.~~ *Done 2026-09-28: a completion sets only what its task's form
     declares; see that date's entry.*
