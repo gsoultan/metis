@@ -99,16 +99,19 @@ func TestOCELExportDoesNotLeakVariablesByDefault(t *testing.T) {
 	instance := uuid.New()
 	secret := map[string]any{"applicant": "Ada Lovelace", "amount": 25000}
 	entries := []entities.AuditEntry{
-		auditEntry(instance, "node_reached", "review", "Review claim", time.Now(), secret),
+		// A timestamp whose nanoseconds hold the amount's digits, as one did in CI:
+		// the export carries times and ids, so the check below looks for the
+		// variables as JSON has them rather than for bare digits.
+		auditEntry(instance, "node_reached", "review", "Review claim", time.Date(2026, 9, 28, 4, 30, 18, 825000792, time.UTC), secret),
 	}
 
 	quiet, err := json.Marshal(buildOCELLog(entries, nil, entities.OCELOptions{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, leaked := range []string{"Ada Lovelace", "25000", "applicant"} {
+	for _, leaked := range []string{`"Ada Lovelace"`, `"applicant"`, `"amount"`, `:25000`} {
 		if strings.Contains(string(quiet), leaked) {
-			t.Errorf("the default export contains %q from the process variables\n%s", leaked, quiet)
+			t.Errorf("the default export contains %s from the process variables\n%s", leaked, quiet)
 		}
 	}
 
