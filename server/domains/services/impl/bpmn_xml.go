@@ -223,14 +223,20 @@ type bpmnNode struct {
 	// matches on the way in. So each of these is read through the plain field
 	// and written through the prefixed one, and the two are never set at the
 	// same time — mapNode only reads the first, toNode only sets the second.
+	//
+	// Who does a step — its assignee and candidates — is read and written on
+	// whichever kind of task carries it: a manual task names people the way a
+	// user task does.
 	Topic            string `xml:"topic,attr,omitempty"`
 	Assignee         string `xml:"assignee,attr,omitempty"`
 	FormKey          string `xml:"formKey,attr,omitempty"`
+	CandidateUsers   string `xml:"candidateUsers,attr,omitempty"`
 	CandidateGroups  string `xml:"candidateGroups,attr,omitempty"`
 	CamundaType      string `xml:"camunda:type,attr,omitempty"`
 	CamundaTopic     string `xml:"camunda:topic,attr,omitempty"`
 	CamundaAssignee  string `xml:"camunda:assignee,attr,omitempty"`
 	CamundaFormKey   string `xml:"camunda:formKey,attr,omitempty"`
+	CamundaCandUsers string `xml:"camunda:candidateUsers,attr,omitempty"`
 	CamundaCandGroup string `xml:"camunda:candidateGroups,attr,omitempty"`
 
 	Documentation string   `xml:"documentation,omitempty"`
@@ -516,6 +522,18 @@ func splitList(v string) []string {
 	return out
 }
 
+// usernames renders candidate users back into the comma-separated attribute
+// they came from, skipping a nil user for the reason groupNames skips a group.
+func usernames(users []*entities.User) string {
+	names := make([]string, 0, len(users))
+	for _, u := range users {
+		if u != nil && u.Username != "" {
+			names = append(names, u.Username)
+		}
+	}
+	return strings.Join(names, ",")
+}
+
 // groupNames renders candidate groups back into the comma-separated attribute
 // they came from. A nil group in the slice is skipped rather than dereferenced:
 // the list is decoded from a JSON column and nothing guarantees its shape.
@@ -643,9 +661,12 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		Properties:    make(map[string]any),
 	}
 
-	// A bare group name is what the assignment path itself constructs when it
-	// resolves a candidate group from a definition, so an imported diagram
-	// arrives in the same shape a designed one does.
+	// A bare username or group name is what the assignment path itself
+	// constructs when it resolves a candidate from a definition, so an
+	// imported diagram arrives in the same shape a designed one does.
+	for _, name := range splitList(bn.CandidateUsers) {
+		node.CandidateUsers = append(node.CandidateUsers, &entities.User{Username: name})
+	}
 	for _, name := range splitList(bn.CandidateGroups) {
 		node.CandidateGroups = append(node.CandidateGroups, &entities.Group{Name: name})
 	}
@@ -1107,6 +1128,9 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 	}
 	bn.CamundaAssignee = n.Assignee
 	bn.CamundaFormKey = n.FormKey
+	if names := usernames(n.CandidateUsers); names != "" {
+		bn.CamundaCandUsers = names
+	}
 	if names := groupNames(n.CandidateGroups); names != "" {
 		bn.CamundaCandGroup = names
 	}

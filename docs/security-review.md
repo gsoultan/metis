@@ -137,14 +137,12 @@ is part of the review.
 1. **Completing a task accepts any variables.** A person completing a task can
    set process variables the task's form does not have, and change business
    data beyond their step.
-2. **Manual tasks are anybody's** in their organization: the designer has no
-   field to name anybody for one. A product decision is pending.
-3. **A service's own refusal over Connect is an HTTP 200** with the reason in
+2. **A service's own refusal over Connect is an HTTP 200** with the reason in
    the reply's `error` field, so monitoring does not see it and a client that
    ignores the field takes it for success.
-4. **An external task's lock cannot be extended.** Work that outlasts
+3. **An external task's lock cannot be extended.** Work that outlasts
    `lock_seconds` is handed to another worker and can run twice.
-5. **Organization-wide queries carry every project id** of the organization:
+4. **Organization-wide queries carry every project id** of the organization:
    ten thousand at the largest measured, a cost that grows with the tenant.
 
 ## Out of scope

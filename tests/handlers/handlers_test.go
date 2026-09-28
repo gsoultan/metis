@@ -297,8 +297,11 @@ func TestAdvancedTasks(t *testing.T) {
 			t.Errorf("Expected task type %s, got %s", entities.ManualTask, manualTask.Type)
 		}
 
-		// Complete it
-		_ = svc.CompleteTask(ctx, manualTask.ID, "manager", nil)
+		// Complete it. The step names nobody, so it is an operator's to
+		// take — the same rule as a user step's.
+		if err := svc.CompleteTask(testutils.AsOperator(ctx, "manager"), manualTask.ID, "manager", nil); err != nil {
+			t.Fatalf("an operator completing the manual task: %v", err)
+		}
 		instance, _ := svc.GetInstance(ctx, instanceID)
 		if instance.Status != "completed" {
 			t.Errorf("Expected instance to be completed after manual task, got %s", instance.Status)

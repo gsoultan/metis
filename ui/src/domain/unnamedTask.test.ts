@@ -2,7 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import { fallsToOperators, offersClaim, takesUnnamedWork, type TaskAssignment } from './unnamedTask';
 
-const task = (overrides: Partial<TaskAssignment> = {}): TaskAssignment => ({
+/** A task as the board has it, kind and all: the kind says nothing about who it is for. */
+type BoardTask = TaskAssignment & { type: string };
+
+const task = (overrides: Partial<BoardTask> = {}): BoardTask => ({
   type: 'userTask',
   status: 'unclaimed',
   assignee: undefined,
@@ -30,12 +33,16 @@ describe('a task nobody was named for', () => {
     ['people are offered it', { candidateUsers: [{ username: 'dana' }] }],
     ['a team is offered it', { candidateGroups: [{ name: 'finance' }] }],
   ])('is not one when %s', (_, overrides) => {
-    expect(fallsToOperators(task(overrides as Partial<TaskAssignment>))).toBe(false);
+    expect(fallsToOperators(task(overrides as Partial<BoardTask>))).toBe(false);
   });
 
-  /* The designer has no field to name anybody for a manual step, and says an empty one is anybody's. */
-  it('is not one when it is a manual step', () => {
-    expect(fallsToOperators(task({ type: 'manualTask' }))).toBe(false);
+  /* A manual step names people the way a user step does, and is held to the same rule. */
+  it('is one when it is a manual step too', () => {
+    expect(fallsToOperators(task({ type: 'manualTask' }))).toBe(true);
+  });
+
+  it('is not one when a manual step names somebody', () => {
+    expect(fallsToOperators(task({ type: 'manualTask', candidateGroups: [{ name: 'warehouse' }] }))).toBe(false);
   });
 });
 
@@ -59,6 +66,13 @@ describe('what the board offers to claim', () => {
   it('offers it to an administrator or an operator', () => {
     expect(offersClaim(task(), operator)).toBe(true);
     expect(offersClaim(task(), administrator)).toBe(true);
+  });
+
+  it('does the same with a manual step nobody was named for', () => {
+    const manual = task({ type: 'manualTask' });
+    expect(offersClaim(manual, member)).toBe(false);
+    expect(offersClaim(manual, operator)).toBe(true);
+    expect(offersClaim(manual, administrator)).toBe(true);
   });
 
   it('offers anybody an unclaimed task offered to people, which the server then checks', () => {

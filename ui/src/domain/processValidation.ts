@@ -214,15 +214,17 @@ function serviceTaskWarning(node: CheckableNode, problem: ServiceTaskProblem): V
  * meant — a step nobody owns yet — so it is a warning, and it is said here,
  * before the first instance gets there, rather than to the person refused.
  *
- * A step whose assignment table names who does it is named when the task
- * arrives, so it is left alone. So is a manual step: the designer offers no
- * way to name anybody for one, and it stays anybody's.
+ * A user step and a manual step alike: the server holds both to the rule, and
+ * the designer names people for both with the same fields. A user step whose
+ * assignment table names who does it is named when the task arrives, so it is
+ * left alone. A manual step's is not: the engine asks a table only for a user
+ * step.
  *
  * Exported for the property panel's suggestions, which make the same check on
  * the step selected and must not say something different about it.
  */
 export function nobodyNamedIssue(node: CheckableNode): ValidationIssue | undefined {
-  if (node.type !== 'userTask' || namesSomebody(node)) {
+  if (!ASKS_A_PERSON.has(node.type ?? '') || namesSomebody(node)) {
     return undefined;
   }
   return {
@@ -233,6 +235,12 @@ export function nobodyNamedIssue(node: CheckableNode): ValidationIssue | undefin
   };
 }
 
+/** The kinds of step that open a task for a person to take. */
+const ASKS_A_PERSON = new Set(['userTask', 'manualTask']);
+
+/** The kind of step the engine asks an assignment table about. */
+const ASSIGNED_BY_A_TABLE = 'userTask';
+
 /** Whether a step names who does it, now or through a decision table when it runs. A blank name is nobody. */
 function namesSomebody(node: CheckableNode): boolean {
   const data = (node.data ?? {}) as Record<string, unknown>;
@@ -241,7 +249,7 @@ function namesSomebody(node: CheckableNode): boolean {
     named([asText(data.assignee)]) ||
     named(asTextList(data.candidateUsers)) ||
     named(asTextList(data.candidateGroups)) ||
-    named([asText(data.assignment_decision_key)])
+    (node.type === ASSIGNED_BY_A_TABLE && named([asText(data.assignment_decision_key)]))
   );
 }
 

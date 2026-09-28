@@ -3,10 +3,11 @@
  *
  * A task with no assignee, no candidate users and no candidate groups is not
  * everybody's. Absent constraint means deny, so the server lets only an
- * administrator or an operator claim it, complete it or give it to somebody.
- * A manual step is the exception: the designer has no field to name anybody
- * for one, and tells its author that an empty one is anybody's. This mirrors
- * entities.Task.FallsToOperators and entities.TakesUnnamedWork on the server.
+ * administrator or an operator claim it, complete it or give it to somebody —
+ * whatever kind of step it is. A manual step was the exception while the
+ * designer had no field to name anybody for one; it has the user step's fields
+ * now. This mirrors entities.Task.FallsToOperators and
+ * entities.TakesUnnamedWork on the server.
  *
  * It decides only what is offered; the server decides what is allowed. An
  * installation that has brought the old rule back
@@ -20,20 +21,17 @@ import { OPERATOR_ROLE, PRIVILEGED_ROLE } from './roles';
 
 /** The parts of a task that say who it is for. */
 export interface TaskAssignment {
-  type: string;
   status: string;
   assignee?: { username: string };
   candidateUsers: readonly { username: string }[];
   candidateGroups: readonly { name: string }[];
 }
 
-const MANUAL_STEP = 'manualTask';
 const WAITING_TO_BE_CLAIMED = 'unclaimed';
 
 /** Whether nobody was named for the task, so that only an administrator or an operator may take it. */
 export function fallsToOperators(task: TaskAssignment): boolean {
-  const namesNobody = !task.assignee?.username && task.candidateUsers.length === 0 && task.candidateGroups.length === 0;
-  return task.type !== MANUAL_STEP && namesNobody;
+  return !task.assignee?.username && task.candidateUsers.length === 0 && task.candidateGroups.length === 0;
 }
 
 /** Whether somebody may take a task nobody was named for: an administrator or an operator. */
