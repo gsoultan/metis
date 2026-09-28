@@ -10,6 +10,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **Completing a task could set any process variable.** A completion wrote
+  every variable it carried into the process, so whoever completed a step
+  could set business data beyond it: the approver of a refund could change the
+  amount being refunded, or name somebody else as the approver. A completion
+  now sets only the variables its task's form declares — the id of each of the
+  form's fields, hidden ones included, and of the stored form a step's form key
+  names. A task with no form completes only with no variables. Anything else is
+  refused with a 400 that names it — *this task's form has no field named
+  amount; a task can set only the variables its form declares* — and nothing
+  changes: the task stays open and no variable is set. The inbox sends exactly
+  the fields of the form it shows, so it is not affected, and neither are
+  external tasks.
+
+  **Upgrading:** an integration that completes tasks through the API with
+  variables their forms do not have — any variable at all, on a task with no
+  form — is refused them from the upgrade on. Give each such step's form the
+  fields its completions set, and deploy; [Completing a task sets only what its
+  form declares](docs/upgrading.md#completing-a-task-sets-only-what-its-form-declares)
+  has how to find those steps, and a query for the tasks already waiting, which
+  keep the form they were created with. Until then
+  `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` brings the old rule back for a
+  migration window: a completion may set any variable, and the log names each
+  step that sets one its form does not declare, once, with the variables. It
+  is off by default, and the server warns at boot while it is on.
 - **A manual task nobody was named for could be taken by anybody in its
   organization.** 0.4.0 made a user task with no assignee and no candidates
   the administrators' and operators' to take, and left manual tasks open,

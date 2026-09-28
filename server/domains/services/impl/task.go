@@ -24,6 +24,9 @@ type taskService struct {
 	repo        repositories.Repository
 	engine      servicecontracts.ExecutionEngine
 	auditWriter servicecontracts.AuditWriter
+	// undeclaredReports is which steps have been named for setting variables
+	// their form does not declare, while EnvAllowUndeclaredTaskVariables is on.
+	undeclaredReports undeclaredVariableReports
 }
 
 func NewTaskService(
@@ -311,6 +314,24 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			return err
 		}
 
+		instance := locked
+		fullDef, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
+		if err != nil {
+			return fmt.Errorf("failed to load definition %s: %w", instance.Definition.ID, err)
+		}
+		definitionKey := ""
+		if fullDef != nil {
+			definitionKey = fullDef.Key
+		}
+
+		// Only what the task's form declares, decided before anything is
+		// written, so a refused completion leaves the task open and the
+		// instance as it was. Asked of the row read under the lock: a migration
+		// that moved the task onto another step gave it that step's form.
+		if err := s.admitVariables(txCtx, m, definitionKey, vars); err != nil {
+			return err
+		}
+
 		// Who did it, recorded on the task itself.
 		//
 		// A task routed by candidate group is completed with a nil assignee, so
@@ -324,8 +345,6 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		if err := s.repo.Task().Update(txCtx, m); err != nil {
 			return fmt.Errorf("failed to update task status: %w", err)
 		}
-
-		instance := locked
 
 		if _, err := s.repo.Definition().Get(txCtx, instance.Definition.ID); err != nil {
 			return err
@@ -343,11 +362,6 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			Timestamp: time.Now().Unix(),
 			Variables: vars,
 		}, task, EventTaskCompleted, userID)
-
-		fullDef, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
-		if err != nil {
-			return fmt.Errorf("failed to load definition %s: %w", instance.Definition.ID, err)
-		}
 
 		return s.engine.Proceed(txCtx, &instance, fullDef, task.NodeID())
 	})

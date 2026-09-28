@@ -1103,6 +1103,43 @@
     order from `main` to a tag and the 0.4.0 staging checklist; `docs/security-review.md` is
     the scope for an external review, with what is known and open. Tagging `v0.4.0` is the
     product owner's call.
+  - **Found, not changed** (listed in `docs/security-review.md`): ~~completing a task accepts
+    any variables~~ *(done 2026-09-28: see that date's entry)*; manual tasks are anybody's; a
+    service's own refusal over Connect is an HTTP 200 with the reason in the reply; RabbitMQ
+    publishes are transient; an external task's lock cannot be extended; redaction misses
+    `client_secret`, `id_token`, `db_password`; organization-wide queries carry every project
+    id.
+
+- 2026-09-28 (completed): completing a task sets only the variables its form declares — the
+  first of `docs/security-review.md`'s known and open findings, P0. Branch
+  `task-variables-declared`, one commit per change, each with a test that fails without it.
+  Driver: bpm · Challengers: sec, ux, test.
+  - **The gap.** `CompleteTask` copied every variable a completion carried into the instance,
+    so whoever completed an approval could rewrite its amount, or its approver: business data
+    beyond their step. Nothing said which variables a task may set, and no rule read as "any"
+    — the `sec` veto on a gap that opens on an absent constraint (AGENTS §2.3).
+  - **The rule.** A completion sets only what its task's form declares: the id of each field
+    of the task's `form_definition`, hidden ones included because the inbox submits every
+    field, and of the stored form its form key names (`forms.fields`, `{"fields": […]}`). No
+    form, no variables; a completion with none still completes. Anything else is a 400 that
+    names what was refused — sorted, at most ten names of at most 64 characters — decided
+    after the task is re-read and re-authorised under the instance's lock and before its
+    status is written, so nothing changes. REST, Connect and gRPC share the endpoint and meet
+    the same check. External tasks are a different surface, and unchanged.
+  - **`METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true`** brings the old rule back for a migration
+    window, read and announced at every boot as `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS` is. While
+    it is on, the log names each step — project, definition key, node — that sets a variable
+    its form does not declare, once, with the variables' names; what has been named is a
+    bounded LRU of 1,000 steps. `docs/upgrading.md` has how to find the steps, a query for the
+    tasks already waiting, and when to turn it off.
+  - **Around it.** The tests whose steps set variables they never declared give those steps a
+    form (`testutils.FormDeclaring`), and so does `docs/examples/expense-approval`, which
+    `docs/data-flow.md` calls runnable. The inbox needed nothing: it sends exactly the fields
+    of the form it shows. The SDK sandbox completes external tasks only.
+  - **Found, not changed:** an in-flight migration rebuilds a task from its new node only when
+    the node's id changes, so an open task keeps its old form — and what it may set — when a
+    step's form changes under the same id. The Go SDK's `examples/quickstart` lives in its own
+    repository and was not checked for a completion its step's form does not declare.
   - **Found, not changed** (listed in `docs/security-review.md`): completing a task accepts
     any variables; manual tasks are anybody's; a service's own refusal over Connect is an HTTP
     200 with the reason in the reply; RabbitMQ publishes are transient; an external task's
@@ -1476,10 +1513,12 @@
     query for the tasks affected.
   - **Open, for the product owner:** ~~manual tasks. The designer has no field to name
     anybody for one and tells its author an empty one is anybody's, so they were left
+    open; closing them needs that field first. ~~And a completion can still carry variables
     open; closing them needs that field first.~~ *Done 2026-09-28: see that date's
     "manual tasks" entry.* And a completion can still carry variables
     of the completer's choosing on a task they may take — a manual task's included, which
-    asks nobody for any.
+    asks nobody for any.~~ *Done 2026-09-28: a completion sets only what its task's form
+    declares; see that date's entry.*
 - 2026-09-26 (completed): what tenant scoping costs an organization with ten thousand
   projects, measured. Branch `tenant-scope-at-scale`. Every scoped repository call reads the
   organization's project ids and filters on `project_id = ANY(ids)`; since the scope reads
