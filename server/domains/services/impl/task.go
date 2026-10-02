@@ -229,12 +229,31 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// step the instance is no longer on. Taking the lock makes the two
 		// serialise; re-reading and re-checking is what makes the second one
 		// see what the first did.
+		//
+		// The re-read holds the task's row as well. A hand-over needs only that
+		// row, not the instance, so one committed between an unheld re-read and
+		// the write below, and the write put back the row as it had been read:
+		// a task an administrator had just taken from somebody was completed
+		// by them and theirs again, and a task that had just been delegated was
+		// completed while it was with its delegate. Held, the hand-over waits
+		// and is told the task is completed; or it got there first, and
+		// everything asked of the row below — closed, with a delegate, whose
+		// it is — is asked of the row it left.
+		//
+		// The instance, then the task: the order the engine and a migration
+		// take them in. A claim, a hand-over and an edit hold one task row and
+		// then only read and insert — they never wait for an instance or for a
+		// second task row — so nothing waits in the other direction. That
+		// rests on the tables a hand-over inserts into (audit_logs,
+		// notifications) having no foreign key to process_instances, as the
+		// migrations build them: with one, the insert would wait for the
+		// instance this holds.
 		locked, err := s.engine.GetInstanceForUpdate(txCtx, uuid.UUID(m.InstanceID))
 		if err != nil {
 			return err
 		}
-		if m, err = s.repo.Task().Get(txCtx, id); err != nil {
-			return fmt.Errorf("failed to re-read task %s: %w", id, err)
+		if m, err = s.lockedTask(txCtx, id); err != nil {
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		if err := authorize(task); err != nil {
