@@ -51,12 +51,25 @@ func TestObserversStillSeeTheEventsHandOversAlwaysRaised(t *testing.T) {
 	if err := svc.UpdateTask(ctx, taskID, servicecontracts.TaskEdit{Actor: "bob", Name: &renamed}); err != nil {
 		t.Fatalf("edit: %v", err)
 	}
+	if err := svc.DelegateTask(ctx, taskID, servicecontracts.HandOver{Actor: "bob", Target: "alice"}); err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+	if err := svc.ResolveTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice"}); err != nil {
+		t.Fatalf("hand back: %v", err)
+	}
 	if err := svc.UnclaimTask(ctx, taskID, servicecontracts.HandOver{Actor: "bob"}); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 
-	want := []string{entities.EventTaskClaimed + " bob", entities.EventTaskUpdated + " ", entities.EventTaskUpdated + " "}
+	want := []string{
+		entities.EventTaskClaimed + " bob",
+		entities.EventTaskUpdated + " ",
+		entities.EventTaskDelegated + " alice",
+		entities.EventTaskResolved + " bob",
+		entities.EventTaskUpdated + " ",
+	}
 	if !slices.Equal(seen.told, want) {
-		t.Fatalf("an assignment, an edit and a release raised %q; they have always raised %q", seen.told, want)
+		t.Fatalf("an assignment, an edit, a delegation, a hand-back and a release raised %q; want %q — "+
+			"only the delegation and the hand-back are new", seen.told, want)
 	}
 }

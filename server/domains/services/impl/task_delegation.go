@@ -48,12 +48,13 @@ func (s *taskService) ResolveTask(ctx context.Context, id uuid.UUID, change serv
 		}
 
 		return s.announceHandOver(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
+			Type:      entities.EventTaskResolved,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
+			Assignee:  owner,
 		}, task, EventTaskResolved, handOverRecord{
 			actor:          caller.username,
 			previousHolder: delegate,

@@ -39,6 +39,13 @@ const (
 	EventTaskClaimed    = "TaskClaimed"
 	// EventTaskCanceled is raised when an activity is interrupted and the task it
 	// created is withdrawn, so the audit trail says why it left the inbox.
-	EventTaskCanceled     = "TaskCanceled"
+	EventTaskCanceled = "TaskCanceled"
+	// EventTaskDelegated is raised when a task is delegated. Its Assignee is
+	// the delegate: the person the work has just arrived for. It was raised as
+	// TaskUpdated, which told nobody.
+	EventTaskDelegated = "TaskDelegated"
+	// EventTaskResolved is raised when a delegate hands a task back. Its
+	// Assignee is the owner, who has it again and completes it.
+	EventTaskResolved     = "TaskResolved"
 	EventProcessCompleted = "ProcessCompleted"
 )

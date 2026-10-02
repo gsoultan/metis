@@ -236,3 +236,76 @@ func TestTheExplicitAssigneeWinsOverTheOldVariablesRoute(t *testing.T) {
 		t.Fatalf("told %v; the event's own assignee field should win", got)
 	}
 }
+
+// handedTo is the event a hand-over raises: about the person it names, whatever
+// the diagram nominated.
+func handedTo(eventType, who string) entities.ProcessEvent {
+	event := taskCreated(&entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"})
+	event.Type = eventType
+	event.Assignee = who
+	return event
+}
+
+// A delegation was raised as TaskUpdated, which nothing here listens for: the
+// work arrived in the delegate's inbox and nobody told them.
+func TestADelegateIsToldTheTaskIsWithThem(t *testing.T) {
+	notifier := &recordingNotifier{}
+	NewNotificationObserver(notifier).OnEvent(context.Background(), handedTo(entities.EventTaskDelegated, "dita"))
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "dita" {
+		t.Fatalf("a task delegated to dita told %v", got)
+	}
+	if title := notifier.sent[0].Title; title != "A task was delegated to you" {
+		t.Errorf("the notification is titled %q", title)
+	}
+	if msg := notifier.sent[0].Message; !strings.Contains(msg, `"Operations approve"`) || !strings.Contains(msg, "Quotation approval") || !strings.Contains(msg, "Hand it back") {
+		t.Errorf("the message does not name the work, the process and what to do with it: %q", msg)
+	}
+}
+
+func TestAnOwnerIsToldTheirTaskIsBack(t *testing.T) {
+	notifier := &recordingNotifier{}
+	NewNotificationObserver(notifier).OnEvent(context.Background(), handedTo(entities.EventTaskResolved, "ollie"))
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "ollie" {
+		t.Fatalf("a task handed back to ollie told %v", got)
+	}
+	if title := notifier.sent[0].Title; title != "A task was handed back to you" {
+		t.Errorf("the notification is titled %q", title)
+	}
+	if msg := notifier.sent[0].Message; !strings.Contains(msg, `"Operations approve"`) || !strings.Contains(msg, "yours to complete") {
+		t.Errorf("the message does not say the work is theirs to finish: %q", msg)
+	}
+}
+
+// The pin for the wording function this change rewrites: the two sentences it
+// already wrote, with a process to name and without one, word for word.
+func TestTheWaitingAndWithdrawnSentencesAreWhatTheyWere(t *testing.T) {
+	named := &entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"}
+	for _, c := range []struct {
+		name  string
+		event entities.ProcessEvent
+		want  string
+	}{
+		{"waiting", taskCreated(named), `"Operations approve" is waiting for you in Quotation approval.`},
+		{"waiting, no process", withoutProcess(taskCreated(named)), `"Operations approve" is waiting for you.`},
+		{"waiting, no step name", taskCreated(&entities.Node{ID: "opsApprove", Assignee: "ollie"}), `A task is waiting for you in Quotation approval.`},
+		{"claimed", handedTo(entities.EventTaskClaimed, "dita"), `"Operations approve" is waiting for you in Quotation approval.`},
+		{"withdrawn", taskCancelled(named, "dita"), `"Operations approve" in Quotation approval is no longer needed and has been taken off your list.`},
+		{"withdrawn, no process", withoutProcess(taskCancelled(named, "dita")), `"Operations approve" is no longer needed and has been taken off your list.`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			notifier := &recordingNotifier{}
+			NewNotificationObserver(notifier).OnEvent(context.Background(), c.event)
+			if len(notifier.sent) != 1 || notifier.sent[0].Message != c.want {
+				t.Fatalf("sent %+v; want one notification reading %q", notifier.sent, c.want)
+			}
+		})
+	}
+}
+
+// withoutProcess is the event with nothing to call its process by.
+func withoutProcess(event entities.ProcessEvent) entities.ProcessEvent {
+	event.Instance = &entities.ProcessInstance{ID: event.Instance.ID}
+	return event
+}

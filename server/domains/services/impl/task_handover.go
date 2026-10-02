@@ -66,12 +66,13 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change ser
 		}
 
 		return s.announceHandOver(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
+			Type:      entities.EventTaskDelegated,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
+			Assignee:  step.target,
 		}, task, EventTaskDelegated, handOverRecord{
 			actor:             step.caller.username,
 			previousHolder:    owner,
