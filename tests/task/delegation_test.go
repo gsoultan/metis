@@ -185,6 +185,32 @@ func TestOnlyTheDelegateOrAnAdministratorWhoSaysWhyHandsATaskBack(t *testing.T) 
 	}
 }
 
+// An operator takes work nobody was named for. That is not a say over work
+// somebody was: handing a delegation back for its delegate is an
+// administrator's, and an operator's reason does not make it theirs.
+func TestAnOperatorDoesNotHandBackSomebodyElsesDelegation(t *testing.T) {
+	h := newTaskHarness(t)
+	operator := h.signInWithRoles(t, "olga", entities.RoleOperator)
+	taskID := h.delegatedToMallory(t)
+	path := "/api/v1/tasks/" + taskID + "/resolve"
+
+	for name, body := range map[string]map[string]any{
+		"with a reason": {"reason": "mallory is away"},
+		"with none":     {},
+	} {
+		status, reply := h.post(t, operator, path, body)
+		if status != http.StatusForbidden || !strings.Contains(reply, "or an administrator") {
+			t.Fatalf("an operator handing back mallory's delegation %s: got %d (%s); want 403 saying whose it is to hand back", name, status, strings.TrimSpace(reply))
+		}
+	}
+	if assignee, owner, state := h.delegation(t, taskID); assignee != "mallory" || owner != "alice" || state != "pending" {
+		t.Fatalf("after the refusals the task is with %q, owned by %q, %q; want mallory, alice, pending", assignee, owner, state)
+	}
+	if got := h.notificationTitles(t, "alice"); slices.Contains(got, "A task was handed back to you") {
+		t.Fatalf("nothing was handed back and alice was sent %v", got)
+	}
+}
+
 func TestAPendingDelegationIsHandedBackNotReleasedOrHandedOn(t *testing.T) {
 	h := newTaskHarness(t)
 	boss := h.signInAdministrator(t, "boss")

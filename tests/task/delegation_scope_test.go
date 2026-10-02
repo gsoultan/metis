@@ -51,10 +51,12 @@ func TestAStalePendingMarkIsTakenOffByTheNextHandOverOrEdit(t *testing.T) {
 			if got := h.delegatedBy(t, "mallory"); slices.Contains(got, taskID) {
 				t.Fatalf("a task alice holds is listed as with mallory's delegate: %v", got)
 			}
-			// There is nothing to hand back, whoever asks.
-			for _, who := range []string{"alice", "mallory"} {
-				if status, reply := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/resolve", map[string]any{"reason": "it is mine"}); status == http.StatusOK {
-					t.Fatalf("%s handed back a task that is not delegated: %d (%s)", who, status, strings.TrimSpace(reply))
+			// There is nothing to hand back, whoever asks: alice, who holds
+			// it, is told so, and mallory — the owner the leftover mark names,
+			// who holds nothing — is told it is not hers to hand back.
+			for who, want := range map[string]int{"alice": http.StatusBadRequest, "mallory": http.StatusForbidden} {
+				if status, reply := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/resolve", map[string]any{"reason": "it is mine"}); status != want {
+					t.Fatalf("%s handing back a task that is not delegated: got %d (%s), want %d", who, status, strings.TrimSpace(reply), want)
 				}
 			}
 			if status, reply := h.do(t, change.method, h.tokens["alice"], "/api/v1/tasks/"+taskID+change.action, change.body); status != http.StatusOK {
