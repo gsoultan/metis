@@ -10,6 +10,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A task could be handed to anybody, by an override nobody had to explain,
+  and the trail named the wrong person.** Assigning or delegating a task took
+  any name: one nobody has, one from another organization, somebody separation
+  of duties bars from the step, somebody the step was never offered to. The
+  audit entry named the person the task went to as the one who acted, a
+  release named nobody, and an edit was recorded as *Event: TaskUpdated*.
+  Now:
+  - **The person it goes to is checked.** They must have an account in the
+    task's organization — an unknown name and another organization's member
+    are told the same thing, *there is nobody called "…" in this organization
+    to hand the task to* — and must not have done a step the task's
+    `separation_of_duties` names, which is refused for an administrator too.
+    A task offered to people or teams goes only to one of them; an
+    administrator may send it elsewhere with a reason, and the entry records
+    that it went to somebody it was not offered to. If the step the task
+    belongs to is no longer part of its process, so that the rule cannot be
+    checked, the task cannot be handed to anyone until it is migrated.
+  - **Anyone but the task's holder says why.** `reason` is a new field on
+    `POST /api/v1/tasks/{id}/assign`, `/delegate`, `/unclaim` and `/resolve`
+    and on `PUT /api/v1/tasks/{id}`. It is optional for the person holding the
+    task. From anyone else — an administrator, or an operator handing on a
+    task nobody was named for — it is required (400, *say why you are …*),
+    at most 1000 characters, and kept with the entry.
+  - **The trail names who did it.** Each entry records the caller as `actor`,
+    with `previous_holder`, `target` and `reason` beside it, and reads
+    *boss reassigned task "Approve the refund" from alice to bob: alice is on
+    leave*. An edit is a `task_edited` entry with each changed field's value
+    before and after. The entry is written in the same transaction as the
+    change: if it cannot be written, the task does not move.
+  - **An edit changes only what it carries.** `PUT /api/v1/tasks/{id}` wrote
+    name, priority and due date together, so a request carrying only
+    `due_date` blanked the name and zeroed the priority. A field left out is
+    now left as it is; `"due_date": null` (or `""`) removes the due date; a
+    name is trimmed and a blank one is refused with a 400.
+  - **The rule is decided on the task's locked row.** The service decides who
+    may hand a task over after taking the row's lock, rather than the endpoint
+    on an earlier read, so two hand-overs of one task at the same moment can
+    no longer both be judged its holder's.
+  - **A body the server cannot read is the caller's mistake.** A request body
+    that is not JSON is a 400 on assign, delegate, release, hand back and
+    edit. On assign, delegate and edit it used to come back as a server
+    error, and a release never read its body.
+
+  **Upgrading:** an integration that assigns, delegates, releases or edits
+  tasks it does not hold — with an administrator's token, typically — is
+  refused with a 400 until it sends a `reason`. One that assigns to names that
+  are not accounts in the organization is refused those. One that relied on
+  `PUT` clearing a due date by leaving it out must send `"due_date": null`.
+  An administrator who names nobody to hand a task to, on a task that does not
+  exist or belongs to another organization, now gets a 404 rather than a 400.
+  Releasing over Connect or gRPC carries no reason, so there only the holder
+  can release; an administrator who does not hold the task uses the REST route.
+  See [Handing a task
+  over](docs/upgrading.md#handing-a-task-over-is-checked-and-recorded).
 - **Completing a task could set any process variable.** A completion wrote
   every variable it carried into the process, so whoever completed a step
   could set business data beyond it: the approver of a refund could change the
@@ -75,6 +129,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **A delegated task goes back to whoever delegated it.** Delegating was a
+  reassignment under another name: the delegate could complete an approval
+  that was never theirs to give, and the person it had been given to could not
+  get it back. `POST /api/v1/tasks/{id}/delegate` now keeps the holder as the
+  task's `owner` and marks it `delegation_state: "pending"`. While it is
+  pending nobody completes it — the delegate is told *hand it back to … first*
+  (403) — and it is not released, assigned or delegated on (400).
+  `POST /api/v1/tasks/{id}/resolve` hands it back (the delegate, or an
+  administrator with a reason), after which it is the owner's claim again and
+  they complete it. A task nobody holds cannot be delegated: claim or assign
+  it first. `GET /api/v1/tasks/delegated` lists what the caller delegated that
+  has not come back. The delegate is told when the task arrives and the owner
+  when it returns or is withdrawn; the events are `TaskDelegated` and
+  `TaskResolved` on the event stream and to webhooks, where both used to be a
+  `TaskUpdated`. In the inbox a task delegated to you says who delegated it
+  and offers **Hand back** in place of Complete, *Delegated by you* shows what
+  is with a delegate, and Reassign, Edit, Release and Hand back are offered
+  only to those the server lets use them, with a reason asked for when the
+  signed-in user does not hold the task. The timeline tells each hand-over in
+  the reader's language, with the reason shown in full. There is no Delegate
+  button yet — delegation is made through the API — and hand-over is REST
+  only: Connect and gRPC carry the task's `owner` and `delegation_state` and
+  nothing else.
+
+  **Upgrading:** migration 32 adds `tasks.owner` and `tasks.delegation_state`,
+  builds an index on `owner`, and turns every task already `delegated` — which
+  has no owner to go back to — into a claim by its assignee, so nothing waits
+  for a hand-back nobody can make. It waits at most two seconds for `tasks`,
+  or for a delegated row another transaction holds, and then stops, to be
+  started again, rather than hold every inbox behind a long query. A webhook
+  consumer that keyed on `TaskUpdated` to see delegations must subscribe to
+  `TaskDelegated` and `TaskResolved`. See [Handing a task
+  over](docs/upgrading.md#handing-a-task-over-is-checked-and-recorded).
 - **A worker can extend its lock on an external task.** Work that outlasted
   the lock it was fetched with was offered to the next worker to ask while the
   first was still doing it, and the step ran twice; the only way round it was

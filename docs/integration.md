@@ -296,9 +296,20 @@ err = client.UnclaimTask(ctx, task.ID)                // or give it back
 server reads the acting user from the `Authorization` header and ignores any
 override, so an application acting for many people needs a client per person
 rather than one client passing user IDs around. To hand a task to somebody
-specific there is `AssignTask`, allowed for an administrator or for whoever
-currently holds the task — and, for a task nobody was named for, for an
-operator.
+specific there is `AssignTask` (`POST /api/v1/tasks/{id}/assign`), allowed for
+an administrator or for whoever currently holds the task — and, for a task
+nobody was named for, for an operator. The person it goes to must be an account
+in the task's organization, must not be barred from the step by separation of
+duties, and — when the step is offered to people or teams — must be one of
+them, unless an administrator says why not. Whoever does not hold the task
+sends a `reason` with an assign, a delegate, a release, a hand back or an edit;
+it is kept in the audit trail beside who did it.
+
+**Delegating** (`POST /api/v1/tasks/{id}/delegate`) is different from
+assigning: the holder stays the task's `owner`, the delegate works on it and
+hands it back with `POST /api/v1/tasks/{id}/resolve`, and only the owner
+completes it. `GET /api/v1/tasks/delegated` lists what the caller delegated
+that has not come back. These three are REST only.
 
 **Who may take a task.** A task with an assignee is its assignee's to
 complete. One offered to candidate users or groups may be claimed and

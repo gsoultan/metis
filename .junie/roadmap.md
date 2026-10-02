@@ -1032,6 +1032,95 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-10-03 (completed): hand-overs are checked and recorded (P0 security & audit) — slice 2
+  of the approval-adjustments work. Branch `task-handover-accountability`, stacked on
+  `mi-approvals-finish` at `c8250a3`; one commit per change, each with a test that fails without it.
+  Migration 32. Driver: sec · Challengers: arch, test; ux and fe for the inbox.
+  - **Problem.** Assigning or delegating a task took any name and asked for no reason, the
+    trail named the person it went to as the one who acted, an edit overwrote three fields at
+    once and was recorded as nothing useful, and a delegation had no owner and no way back.
+  - **Acceptance criteria**, each with the test that holds it (`tests/task` unless named):
+    1. *Target checks, deny by default.* An unknown name, another organization's member and
+       somebody separation of duties bars are refused, and so is every hand-over whose step
+       cannot be read; a task offered to people goes only to one of them, or elsewhere by an
+       administrator with a reason, recorded as an override —
+       `TestATaskCannotBeHandedToSomebodyWhoIsNotThere`,
+       `TestATaskCannotBeHandedToSomebodySeparationOfDutiesForbids`,
+       `TestATaskOfferedToPeopleIsHandedOnlyToOneOfThem`.
+    2. *Reason.* Optional for the holder, required from anyone else, on assign, delegate,
+       resolve, release and update — `TestHandingOnATaskThatIsNotYoursNeedsAReason`,
+       `TestReleasingSomebodyElsesTaskNeedsAReason`, `TestTheHolderHandsTheirOwnTaskOnWithoutAReason`,
+       `TestAnEditIsRefusedToAStrangerAndToAnAdministratorWhoDoesNotSayWhy`,
+       `TestOnlyTheDelegateOrAnAdministratorWhoSaysWhyHandsATaskBack`.
+    3. *Attribution.* The caller is the actor; target, previous holder, reason and an edit's
+       before and after are beside it; the sentence reads correctly, and an entry that cannot
+       be written stops the change —
+       `TestTheTrailNamesWhoMadeAHandOverFromWhomToWhomAndWhy`, `TestTheTrailNamesWhoReleasedATask`,
+       `TestAHandOverThatCannotBeRecordedIsNotMade`, `TestHandOverNarrative` (impl), and in the UI
+       `handOverNarrative.test.ts`.
+    4. *Partial update.* `PUT` changes only the fields present — `TestAnEditChangesOnlyTheFieldsItCarries`,
+       `TestResendingAnUnchangedDueDateChangesNothing`, `TestAnEditSaysWhichFieldsItCarries` (endpoint).
+    5. *Delegate is owner plus hand back.* — `TestADelegatedTaskGoesBackToItsOwnerWhoCompletesIt`,
+       `TestDelegatingATaskNobodyHoldsIsRefused`, `TestAPendingDelegationIsHandedBackNotReleasedOrHandedOn`,
+       `TestMigration32ReturnsADelegationWithNoOwnerToItsAssignee` (`tests/migrations`).
+    6. *Notifications.* — `TestWhoeverATaskIsHandedToIsTold`, `TestADelegateIsToldTheTaskIsWithThem`,
+       `TestAnOwnerIsToldTheirTaskIsBack` (observers),
+       `TestTheOwnerOfAWithdrawnDelegationIsToldAsTheDelegateIs`.
+    7. *Inbox.* — `TaskInbox.test.tsx` ("the table, for a delegated task"), `components/inbox/inbox.test.tsx`,
+       `taskDelegation.test.ts`, and `locales.test.ts` for both languages.
+    8. *Denials.* A caller who is neither holder nor administrator, and an administrator with
+       no reason, on every changed endpoint — `TestAReasonDoesNotLetAStrangerHandATaskOn`, the
+       tests under 2, and `TestAnOwnerSeesWhatTheyDelegatedAndNobodyElseDoes` for the new listing.
+  - **Where the rule lives.** In the task service, on the row read `FOR UPDATE`
+    (`task_handover_step.go`), which is what `docs/architecture-audit.md` 1.1 asked for; the
+    endpoints pass who is asking and what they said. `TestOnlyOneOfSeveralSimultaneousHandOversByTheHolderWins`.
+  - **What it must not have changed**, each with the test that pins it: a holder's release over
+    Connect, which carries no reason (`TestTheHolderStillReleasesOverConnectWhichCarriesNoReason`);
+    every other audit sentence (`TestRecordEventLeavesEveryOtherEntryAsItWas`); the events an
+    assignment, an edit and a release raise (`TestObserversStillSeeTheEventsHandOversAlwaysRaised`);
+    a claim separation of duties forbids, still a 403 (`TestAClaimSeparationOfDutiesForbidsIsStillForbidden`);
+    a task's iteration through the adapters and the regenerated store, and a withdrawn task told
+    it was withdrawn before anything about its delegation (slice 1's behaviour, asserted in
+    `TestWhoATaskGoesBackToSurvivesTheStore` and `TestAWithdrawnDelegationLeavesItsOwnersList`).
+  - **What it costs.** A hand-over makes 13 to 15 table reads under the task's row lock
+    (it made 8): the target checks read the account, its organization, the step and the steps
+    done before it. A hand-over is a person's click, not a hot path, but the lock is held
+    across those reads.
+  - **Upgrade.** Migration 32 adds `tasks.owner` and `tasks.delegation_state`, returns every
+    task already `delegated` to a claim by its assignee in batches of 5,000, and builds
+    `ix_tasks_owner` concurrently; it waits two seconds for the table or a delegated row and
+    stops, to be started again. During a rolling upgrade a pod still on the old release lets a
+    delegate complete or hand on a pending delegation and makes delegations with no owner, so
+    finish the rollout before relying on delegation; a rollback after delegations exist returns
+    them to the old one-way behaviour. A delegation whose owner's account has gone is handed
+    back to that name, and an administrator then assigns or releases it, with a reason.
+    `docs/upgrading.md`, *Handing a task over is checked and recorded*.
+  - **Not in this slice.** Hand-over over gRPC and Connect — REST only, as before; they carry a
+    task's `owner` and `delegation_state` and no reason, so there only the holder releases.
+    Notifying a candidate group. Editing a task's candidates. A Delegate button in the inbox.
+    Telling the owner when a migration retargets a delegated task (a migration that skips or
+    cancels one does tell them).
+  - **Found, not changed:**
+    - The reply to a hand-over takes a different time for "no such account" than for "an
+      account in another organization" (one read against four). One repository method that
+      finds a member by username and organization closes it and removes a wasted read.
+    - `CompleteTask` decides from a read that does not hold the row, so a completion racing a
+      hand-over can be authorized against a holder the task has just lost.
+    - Notifications and the stored audit sentence are written by the server in English; only
+      the inbox's own words and the timeline's hand-over sentences go through the catalogues,
+      and the timeline's other labels ("Step:", "Assignee:") are still English only.
+    - A failed notification insert has no savepoint, so it fails the surrounding change rather
+      than being skipped, as the log line says it is.
+    - `GET /api/v1/tasks/assignee/{assignee}` lists any member's tasks to any member of the
+      organization.
+    - The inbox's board card offers Complete to an administrator who does not hold the task,
+      and the server's refusal there shows a task id; closed tasks on the board still offer
+      Edit and Reassign; the inbox reads the signed-in roles from sign-in while the server uses
+      the roles in the acting organization; `TaskInbox.tsx` is far past the component-size
+      guideline.
+    - The migration runner treats its lock as stale after 15 minutes, which a longer concurrent
+      index build could outlast (migrations 20, 29 and 32 build one).
+
 - 2026-09-28 (completed, narrowed 2026-10-02): a multi-instance approval finishes cleanly (P0
   reliability, slice 1 of the approval-adjustments work). Branch `mi-approvals-finish`. Driver
   `bpm` · Challengers `go`, `perf`, `test`.
