@@ -1054,3 +1054,160 @@ func TestARepeatingStepForAWorkerEndedByWhatWasReportedIsUnchanged(t *testing.T)
 		r.pin(fmt.Sprintf("rejection %d", i+1), outcome)
 	}
 }
+
+// Imported files.
+//
+// A definition somebody designed here is one way a repeating step arrives; a
+// BPMN file is the other, and the importer decides what the step's
+// <completionCondition> becomes. On an approval it is the condition the engine
+// evaluates. On every other step it is kept where the release before the rule
+// kept it — beside the step, where nothing evaluates it — so the step runs for
+// every item, whatever the file's condition says, as it did.
+
+// importShape imports a file that is start → the given step → record → end,
+// starts one instance over three items, and says what the import made of the
+// step's completion condition.
+func importShape(t *testing.T, h engineHarness, key, step string) (*shapeRun, string) {
+	t.Helper()
+	ctx := h.Ctx()
+	defID, err := h.svc.ImportDefinition(ctx, h.projID, []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
+  <process id="`+key+`" name="Imported" isExecutable="true">
+    <startEvent id="start"><outgoing>f1</outgoing></startEvent>
+    `+step+`
+    <userTask id="record" name="Record the outcome">
+      <incoming>f2</incoming><outgoing>f3</outgoing>
+    </userTask>
+    <endEvent id="end"><incoming>f3</incoming></endEvent>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="step"/>
+    <sequenceFlow id="f2" sourceRef="step" targetRef="record"/>
+    <sequenceFlow id="f3" sourceRef="record" targetRef="end"/>
+  </process>
+</definitions>`))
+	if err != nil {
+		t.Fatalf("import %s: %v", key, err)
+	}
+	def, err := h.engine.GetProcessDefinition(ctx, defID)
+	if err != nil {
+		t.Fatalf("load the imported definition: %v", err)
+	}
+	node := def.FindNode("step")
+	if node == nil {
+		t.Fatalf("the imported definition has no step")
+	}
+	imported := fmt.Sprintf("repeats=%q evaluated=%q kept=%q", node.MultiInstanceType, node.CompletionCondition,
+		node.GetStringProperty("multi_instance_completion_condition"))
+
+	id, err := h.svc.StartProcess(ctx, h.projID, key, map[string]any{"items": []any{"a", "b", "c"}, "ran": 0})
+	if err != nil {
+		t.Fatalf("start %s: %v", key, err)
+	}
+	return &shapeRun{t: t, h: h, id: id}, imported
+}
+
+// loopOver is the loop characteristics of an imported step: once per item,
+// until condition.
+func loopOver(condition string) string {
+	return `<incoming>f1</incoming><outgoing>f2</outgoing>
+      <multiInstanceLoopCharacteristics camunda:collection="items" camunda:elementVariable="item">
+        <completionCondition>` + condition + `</completionCondition>
+      </multiInstanceLoopCharacteristics>`
+}
+
+// importedConditions are the completion conditions a file can carry: the
+// engine's own form, the wrappers other modelers write, counter names this
+// engine does not provide, a threshold the list cannot reach, a condition on
+// what was reported, and one this engine cannot read at all.
+var importedConditions = []struct{ name, written string }{
+	{"plain", "nrOfCompletedInstances &gt;= 2"},
+	{"wrapped", "${nrOfCompletedInstances &gt;= 2}"},
+	{"other counter names", "${numberOfCompletedInstances &gt;= 2}"},
+	{"unreachable", "${nrOfCompletedInstances &gt;= 5}"},
+	{"on what was reported", `${verdict = "reject"}`},
+	{"unreadable", "${nrOfCompletedInstances == 2 &amp;&amp; approved}"},
+}
+
+// BPMN 2.0.2 §10.3.8, §13.3.7: an imported step done by an outside worker,
+// once per item, whose file carries a completion condition.
+func TestAnImportedRepeatingStepForAWorkerIsUnchanged(t *testing.T) {
+	for _, condition := range importedConditions {
+		t.Run(condition.name, func(t *testing.T) {
+			h := newEngineHarness(t, "Unchanged import external "+condition.name)
+			topic := shapeKey("unchanged-import-external", condition.name)
+			r, imported := importShape(t, h, topic,
+				`<serviceTask id="step" name="Check the supplier" camunda:type="external" camunda:topic="`+topic+`">
+      `+loopOver(condition.written)+`
+    </serviceTask>`)
+			r.pin("imported", imported)
+			for i, task := range r.fetch(topic) {
+				outcome := plain(h.svc.Complete(h.Ctx(), task.ID, "worker-1", map[string]any{"verdict": "reject"}))
+				r.pin(fmt.Sprintf("report %d", i+1), outcome)
+			}
+			r.pin("recorded", r.complete("record"))
+		})
+	}
+}
+
+// The same for an imported call activity.
+func TestAnImportedRepeatingCallActivityIsUnchanged(t *testing.T) {
+	for _, condition := range importedConditions {
+		t.Run(condition.name, func(t *testing.T) {
+			h := newEngineHarness(t, "Unchanged import call "+condition.name)
+			child := shapeKey("unchanged-import-call-child", condition.name)
+			deployReviewChild(t, h, child, true)
+			r, imported := importShape(t, h, shapeKey("unchanged-import-call", condition.name),
+				`<callActivity id="step" name="Have it checked" calledElement="`+child+`">
+      `+loopOver(condition.written)+`
+    </callActivity>`)
+			r.pin("imported", imported)
+			for i, childID := range r.called() {
+				r.pin(fmt.Sprintf("called process %d ends", i+1), r.completeOn(childID, "review"))
+			}
+			r.pin("recorded", r.complete("record"))
+		})
+	}
+}
+
+// The same for an imported script, which finishes as it starts.
+func TestAnImportedRepeatingScriptIsUnchanged(t *testing.T) {
+	for _, condition := range importedConditions {
+		t.Run(condition.name, func(t *testing.T) {
+			h := newEngineHarness(t, "Unchanged import script "+condition.name)
+			r, imported := importShape(t, h, shapeKey("unchanged-import-script", condition.name),
+				`<scriptTask id="step" name="Add up" scriptFormat="javascript">
+      `+loopOver(condition.written)+`
+      <script>setVar("ran", ran + 1);</script>
+    </scriptTask>`)
+			instance, err := h.engine.GetInstance(h.Ctx(), r.id)
+			if err != nil {
+				t.Fatalf("reload instance: %v", err)
+			}
+			r.pin("imported", imported, fmt.Sprintf("ran=%v", instance.Variables["ran"]))
+			r.pin("recorded", r.complete("record"))
+		})
+	}
+}
+
+// The same for an imported sub-process with a task for a person inside it.
+func TestAnImportedRepeatingSubProcessIsUnchanged(t *testing.T) {
+	for _, condition := range importedConditions {
+		t.Run(condition.name, func(t *testing.T) {
+			h := newEngineHarness(t, "Unchanged import sub "+condition.name)
+			r, imported := importShape(t, h, shapeKey("unchanged-import-sub", condition.name),
+				`<subProcess id="step" name="Handle each item">
+      `+loopOver(condition.written)+`
+      <startEvent id="s_start"><outgoing>i1</outgoing></startEvent>
+      <userTask id="review" name="Review"><incoming>i1</incoming><outgoing>i2</outgoing></userTask>
+      <endEvent id="s_end"><incoming>i2</incoming></endEvent>
+      <sequenceFlow id="i1" sourceRef="s_start" targetRef="review"/>
+      <sequenceFlow id="i2" sourceRef="review" targetRef="s_end"/>
+    </subProcess>`)
+			r.pin("imported", imported)
+			for i := range 3 {
+				r.pin(fmt.Sprintf("review %d", i+1), r.complete("review"))
+			}
+			r.pin("recorded", r.complete("record"))
+		})
+	}
+}

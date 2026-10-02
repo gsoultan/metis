@@ -144,3 +144,81 @@ func TestADeadlineOnAnApprovalThatEndedBeforeTheUpgradeDoesNotFire(t *testing.T)
 		t.Fatalf("the process moved past the approval %d times, want once", seen)
 	}
 }
+
+// BPMN 2.0.2 §13.4.3 (Intermediate Boundary Events): a boundary event is live
+// while its activity is.
+//
+// The other state the earlier release left an approval in: a deadline
+// interrupted it, which took its tokens and its tasks and left it counting.
+// When the deadline's path leads back to the approval, the step is entered
+// "already running" and asks nobody — and the deadline is then the only thing
+// that can move the instance. It has to fire. Asked whether a counted run was
+// still waiting, it found none, was skipped, and the instance sat on the
+// approval with no task and nothing queued, listed nowhere.
+//
+// Fired, it ends the approval properly this time — the count goes with it —
+// so the next time round everybody is asked.
+func TestADeadlineOnAnApprovalADeadlineInterruptedBeforeTheUpgradeStillFires(t *testing.T) {
+	h := newEngineHarness(t, "Deadline Interrupted Before Upgrade Project")
+	ctx := h.Ctx()
+	def := approvalDefinition(h.projID, "chase-then-ask-again", "parallel", "")
+	def.Nodes = append(def.Nodes,
+		&entities.Node{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "approve",
+			Properties: map[string]any{"timer_duration": "PT2H"}},
+		&entities.Node{ID: "chase", Type: entities.UserTask, Name: "Chase the approvers"})
+	def.Flows = append(def.Flows,
+		&entities.SequenceFlow{ID: "d1", SourceRef: "deadline", TargetRef: "chase"},
+		&entities.SequenceFlow{ID: "d2", SourceRef: "chase", TargetRef: "approve"})
+	instanceID := startApproval(t, h, def, "ana", "budi", "citra")
+
+	deadlinePasses := func() {
+		t.Helper()
+		if moved := h.dueNow(ctx, t, instanceID); moved == 0 {
+			t.Fatal("no deadline was waiting to come due")
+		}
+		if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+			t.Fatalf("process pending jobs: %v", err)
+		}
+	}
+
+	// The first deadline, as the earlier release took it: tokens and tasks
+	// gone, the count left behind.
+	deadlinePasses()
+	if !h.waitingAt(ctx, t, instanceID, "chase") {
+		t.Fatal("the deadline did not take the process to the chase")
+	}
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	instance.StartMultiInstance("approve", 3)
+	if err := h.engine.UpdateInstance(ctx, instance); err != nil {
+		t.Fatalf("leave the count behind, as the earlier release did: %v", err)
+	}
+
+	// Chased, the process goes back to the approval, which is still counting
+	// and so asks nobody.
+	completeTaskAt(ctx, t, h, instanceID, "chase", nil)
+	if asked := openIterationTasks(ctx, t, h, instanceID, "approve"); len(asked) != 0 {
+		t.Fatalf("staging failed: the step that was still counting asked %d approver(s)", len(asked))
+	}
+
+	deadlinePasses()
+	if seen := tasksEverOn(t, h, instanceID, "chase"); seen != 2 {
+		t.Fatalf("the process has been sent to the chase %d time(s), want 2: the deadline on the approval "+
+			"nobody was asked for did not fire, and nothing else can move the instance", seen)
+	}
+
+	// This time the approval ended whole, so going back to it asks everybody.
+	completeTaskAt(ctx, t, h, instanceID, "chase", nil)
+	asked := openIterationTasks(ctx, t, h, instanceID, "approve")
+	if len(asked) != 3 {
+		t.Fatalf("back at the approval %d approver(s) were asked, want 3", len(asked))
+	}
+	for _, task := range asked {
+		if err := completeAs(ctx, h, task, "carol", nil); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	}
+	finishRecording(ctx, t, h, instanceID)
+}

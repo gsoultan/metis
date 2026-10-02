@@ -267,13 +267,22 @@ type bpmnNode struct {
 	Script string `xml:"script,omitempty"`
 }
 
-// legacyMultiInstanceConditionProperty is where an import before migration 31's
-// release parked a multi-instance completion condition, on the belief that the
-// engine evaluated none. Nothing evaluates it there, and nothing moves it: a
-// version already deployed goes on doing what it has been doing, and changing
-// that under running instances is a decision for whoever deploys the next one.
-// Export still reads it, so the file says what its author wrote.
-const legacyMultiInstanceConditionProperty = "multi_instance_completion_condition"
+// parkedMultiInstanceConditionProperty is where import keeps a multi-instance
+// completion condition it does not hand to the engine: beside the step, as
+// written, where nothing evaluates it.
+//
+// Releases up to 0.4.0 kept every such condition here, on the belief that the
+// engine evaluated none. An imported approval's condition is now the one the
+// engine evaluates (see mapNode). Every other step's stays here: the engine
+// counts those steps as it always did, and a condition that became live on
+// one would end it early without withdrawing what its other runs had under
+// way, or hold it for ever where the file's condition cannot be met.
+//
+// Nothing moves a condition out of here either: a version already deployed
+// goes on doing what it has been doing, and changing that under running
+// instances is a decision for whoever deploys the next one. Export reads it,
+// so the file says what its author wrote.
+const parkedMultiInstanceConditionProperty = "multi_instance_completion_condition"
 
 // bpmnMultiInstance is the loop characteristics element. The engine reads
 // MultiInstanceType, LoopCardinality, Collection and ElementVariable and had no
@@ -719,11 +728,18 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		}
 		node.Collection = mi.Collection
 		node.ElementVariable = mi.ElementVariable
-		// The field the engine evaluates when an iteration finishes: met, it
-		// ends the step — and, on a repeating approval, withdraws the
-		// approvals still open. In the engine's own syntax — see
-		// importedCompletionCondition.
-		node.CompletionCondition = importedCompletionCondition(mi.CompletionCondition.text())
+		// On an approval — a user task or a manual task — the condition goes
+		// into the field the engine evaluates when a run finishes: met, it
+		// ends the step and withdraws the approvals still open. In the
+		// engine's own syntax; see importedCompletionCondition.
+		//
+		// On any other step it is kept as written and not evaluated; see
+		// parkedMultiInstanceConditionProperty.
+		if node.IsRepeatingApproval() {
+			node.CompletionCondition = importedCompletionCondition(mi.CompletionCondition.text())
+		} else if c := mi.CompletionCondition.text(); c != "" {
+			node.Properties[parkedMultiInstanceConditionProperty] = c
+		}
 	}
 
 	if bn.ErrorEventDefinition != nil {
@@ -796,8 +812,9 @@ func importedCompletionCondition(written string) string {
 	return condition
 }
 
-// refuseUnreadableCompletionConditions refuses a file in which a step that
-// repeats has a completion condition the engine cannot read.
+// refuseUnreadableCompletionConditions refuses a file in which a repeating
+// approval has a completion condition the engine cannot read. A condition on
+// any other step is not evaluated, so there is nothing to refuse it for.
 //
 // Such a condition answers false whenever it is asked, so the step would wait
 // for every one of its runs — silently, and it is the opposite of what a
@@ -814,7 +831,7 @@ func refuseUnreadableCompletionConditions(nodes []*entities.Node) error {
 		if node == nil {
 			continue
 		}
-		if node.Repeats() && logic.CheckCondition(node.CompletionCondition) != nil {
+		if node.IsRepeatingApproval() && logic.CheckCondition(node.CompletionCondition) != nil {
 			step := "a step with no name"
 			if node.Name != "" {
 				step = fmt.Sprintf("the step '%s'", node.Name)
@@ -1244,7 +1261,7 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 			mi.LoopCardinality = strconv.Itoa(n.LoopCardinality)
 		}
 		mi.CompletionCondition = formal(cmp.Or(
-			n.CompletionCondition, n.GetStringProperty(legacyMultiInstanceConditionProperty)))
+			n.CompletionCondition, n.GetStringProperty(parkedMultiInstanceConditionProperty)))
 		bn.MultiInstance = mi
 	}
 	if n.Type == entities.TerminateEndEvent {

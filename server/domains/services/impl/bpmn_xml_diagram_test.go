@@ -582,7 +582,7 @@ func TestAMultiInstanceCompletionConditionSurvivesTheRoundTrip(t *testing.T) {
 		t.Fatalf("the engine reads Node.CompletionCondition, and import left it %q, want %q",
 			approve.CompletionCondition, want)
 	}
-	if _, parked := approve.Properties[legacyMultiInstanceConditionProperty]; parked {
+	if _, parked := approve.Properties[parkedMultiInstanceConditionProperty]; parked {
 		t.Error("import still parks the condition in a property nothing evaluates")
 	}
 
@@ -607,7 +607,7 @@ func TestAConditionParkedByAnEarlierImportIsStillExported(t *testing.T) {
 		Key: "p",
 		Nodes: []*entities.Node{{
 			ID: "approve", Type: entities.UserTask, MultiInstanceType: "parallel", Collection: "approvers",
-			Properties: map[string]any{legacyMultiInstanceConditionProperty: "nrOfCompletedInstances >= 2"},
+			Properties: map[string]any{parkedMultiInstanceConditionProperty: "nrOfCompletedInstances >= 2"},
 		}},
 	}
 	out, err := (&BPMNXMLParser{}).Export(def)
@@ -616,6 +616,68 @@ func TestAConditionParkedByAnEarlierImportIsStillExported(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "nrOfCompletedInstances &gt;= 2") {
 		t.Errorf("the parked condition was dropped on export\n---\n%s", out)
+	}
+}
+
+// A completion condition takes effect on an approval — a user task or a manual
+// task — and on nothing else. On every other repeating step the engine counts
+// runs loosely: a condition that became live there would end the step without
+// withdrawing what its other runs had under way, or hold it for ever where it
+// cannot be met. So import keeps it beside the step exactly as the file wrote
+// it, readable or not, refuses nothing for it, and export writes it back.
+func TestAnImportedCompletionConditionIsEvaluatedOnlyOnAnApproval(t *testing.T) {
+	for _, tc := range []struct {
+		element   string
+		written   string
+		evaluated string
+		parked    string
+	}{
+		{"userTask", "${nrOfCompletedInstances &gt;= 2}", "nrOfCompletedInstances >= 2", ""},
+		{"manualTask", "= nrOfCompletedInstances &gt;= 2", "nrOfCompletedInstances >= 2", ""},
+		{"serviceTask", "${nrOfCompletedInstances &gt;= 2}", "", "${nrOfCompletedInstances >= 2}"},
+		{"serviceTask", "${nrOfCompletedInstances == 2 &amp;&amp; approved}", "", "${nrOfCompletedInstances == 2 && approved}"},
+		{"callActivity", "nrOfCompletedInstances &gt;= 2", "", "nrOfCompletedInstances >= 2"},
+		{"scriptTask", `${verdict = "reject"}`, "", `${verdict = "reject"}`},
+		{"businessRuleTask", "= nrOfCompletedInstances &gt;= 2", "", "= nrOfCompletedInstances >= 2"},
+	} {
+		t.Run(tc.element+" "+tc.written, func(t *testing.T) {
+			parser := &BPMNXMLParser{}
+			def, err := parser.Parse(strings.NewReader(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
+  <process id="p" isExecutable="true">
+    <%[1]s id="step" name="Each item">
+      <multiInstanceLoopCharacteristics camunda:collection="items" camunda:elementVariable="item">
+        <completionCondition>%[2]s</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </%[1]s>
+  </process>
+</definitions>`, tc.element, tc.written)))
+			if err != nil {
+				t.Fatalf("Parse returned an error: %v", err)
+			}
+			check := func(when string, def *entities.ProcessDefinition) {
+				t.Helper()
+				step := nodeByID(t, def, "step")
+				if step.CompletionCondition != tc.evaluated {
+					t.Errorf("%s the engine would evaluate %q, want %q", when, step.CompletionCondition, tc.evaluated)
+				}
+				if got := step.GetStringProperty(parkedMultiInstanceConditionProperty); got != tc.parked {
+					t.Errorf("%s the condition kept beside the step is %q, want %q", when, got, tc.parked)
+				}
+			}
+			check("on import", def)
+
+			out, err := parser.Export(def)
+			if err != nil {
+				t.Fatalf("Export returned an error: %v", err)
+			}
+			again, err := parser.Parse(strings.NewReader(string(out)))
+			if err != nil {
+				t.Fatalf("re-parsing the exported file failed: %v\n---\n%s", err, out)
+			}
+			check("after the round trip", again)
+		})
 	}
 }
 

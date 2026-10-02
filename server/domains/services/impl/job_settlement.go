@@ -247,7 +247,15 @@ func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities
 	if !withdrawnWithAdHoc(&glimpse, adHoc, node, job.IterationID) {
 		return false, nil
 	}
-	return s.completeIfWithdrawn(ctx, job, node, adHoc)
+	withdrawn, err := s.completeIfWithdrawn(ctx, job, node, adHoc)
+	if withdrawn {
+		log.Info().
+			Str("jobId", job.ID.String()).
+			Str("instance_id", job.Instance.ID.String()).
+			Str("node_id", job.Node.ID).
+			Msg("A call queued for a step that had been withdrawn was not made")
+	}
+	return withdrawn, err
 }
 
 // completeIfWithdrawn locks the instance and, if the step the job was queued
@@ -336,16 +344,23 @@ func (s *jobService) droppedForWithdrawnStep(ctx context.Context, job entities.J
 // scheduled for: active, and a token on node — the one for this iteration, on
 // a node that runs once per item.
 //
-// A repeating approval is asked what the engine asks before it counts a
-// completion (ProcessInstance.AwaitsRun). The two differ for a step that ended
-// before migration 31, which stopped counting and kept a token for every run:
-// a deadline still queued for it found those tokens, fired, and took the
-// process down its deadline path from a step it had already left.
+// One state is answered differently: a repeating approval that is not
+// counting its runs. Run tokens on it are what a release before migration 31
+// left behind when the step ended early — it stopped counting and kept a token
+// for every approver — and a deadline still queued for it found those tokens,
+// fired, and took the process down its deadline path from a step it had
+// already left. So that step is asked what the engine asks before it counts a
+// completion (ProcessInstance.AwaitsRun): it is waiting only on a plain token.
+//
+// Only while it is not counting. A step that is counting is asked about its
+// tokens like any other — including the one a deadline interrupted before
+// migration 31, which kept its count and, entered again, holds a plain token
+// and asks nobody: its deadline is the only thing that can move it on.
 func tokenWaitsAt(instance *entities.ProcessInstance, node *entities.Node, iterationID string) bool {
 	if instance.Status != entities.ProcessActive || node == nil {
 		return false
 	}
-	if node.IsRepeatingApproval() {
+	if node.IsRepeatingApproval() && !instance.IsMultiInstanceActive(node.ID) {
 		return instance.AwaitsRun(node, iterationID)
 	}
 	tokens := instance.GetTokensByNode(node)
