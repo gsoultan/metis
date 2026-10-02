@@ -43,9 +43,32 @@ again.
 records no run, and completing it retires the lowest-numbered run still waiting
 on its step. A step part-way through — one approval given before the upgrade,
 two after — finishes once, and the token the earlier approval left behind goes
-with it. An instance that is inside a sub-process that runs once per item needs
-nothing either: its runs are counted as they finish, and it moves on after the
-last.
+with it.
+
+**Only approvals are counted this way.** The change applies to a user task or a
+manual task that runs once per item. Every other step that runs once per item —
+a sub-process, an external task, a call activity, a service task, a script — is
+counted exactly as it was before the upgrade, and an instance that is inside
+one carries on as it would have. That includes what was already loose about
+them, which this release does not fix:
+
+- an external task or a call activity that runs once per item leaves its
+  tokens on the step when it finishes, so its process moves on and then never
+  completes;
+- when a completion condition ends one of them early, or a deadline interrupts
+  it, the work its other runs have under way is not withdrawn — the external
+  tasks stay on offer, the called processes run on, the queued service calls
+  are made — and that work is accepted when it comes back, which can move the
+  process on from a step it has left;
+- a sub-process run once per item in parallel does not finish when it has a
+  service call inside, or three or more waiting steps inside whose runs
+  overlap: the instance stays `active` with nothing open, and neither query
+  below lists it;
+- a deadline on a sub-process that runs once per item never fires.
+
+Fixing these needs each run of a repeating sub-process to have tokens of its
+own; that is the follow-up, and the strict counting of approvals is extended to
+every step after it.
 
 **Processes this had already stranded are not repaired.** An instance whose
 approvers had all answered before the upgrade is `active`, holds tokens on the
@@ -88,22 +111,27 @@ SELECT l.id, l.created_at
 ```
 
 Every row is an instance holding only iteration tokens with nothing in flight
-for any of them. Look at each before you end it: check the incident list for
-the instance first, and open the instance to see what its step was waiting for.
-Whether the business was in fact finished is a decision, not
+for any of them. The list is not only approvals from before the upgrade: an
+external task or a call activity that runs once per item strands its process
+the same way, before the upgrade and after it, so run the query again from time
+to time if you use those. Look at each before you end it: check the incident
+list for the instance first, and open the instance to see what its step was
+waiting for. Whether the business was in fact finished is a decision, not
 a repair: end the ones that were with a migration's *End the instance* action
 (`cancel`, in `docs/process-change-in-flight.md`), which records who decided
 and why.
 
-**"Two of three" now withdraws the third.** A step whose completion condition
-is met withdraws the approvals still open and tells their holders. Before the
-upgrade those tasks were left open; one left open by an *earlier* early finish
-is refused (400 over REST) when somebody completes it — *this step has already
-finished and the process has moved on* — and stays in their list. They are the
-open tasks of a step the instance no longer counts but still holds run tokens
-for. Run this once every server is on the new release: while the two releases
-run side by side, a server still on the old one can end a step early and leave
-tasks behind that a new one created.
+**"Two of three" now withdraws the third.** An approval whose completion
+condition is met withdraws the approvals still open and tells their holders.
+Before the upgrade those tasks were left open; one left open by an *earlier*
+early finish is refused (400 over REST) when somebody completes it — *this step
+has already finished and the process has moved on* — and stays in their list.
+A deadline still pending on such an approval no longer fires; before the
+upgrade it did, and took the process down its deadline path from a step it had
+left. The tasks are the open tasks of a step the instance no longer counts but
+still holds run tokens for. Run this once every server is on the new release:
+while the two releases run side by side, a server still on the old one can end
+an approval early and leave tasks behind that a new one created.
 
 ```sql
 WITH live AS (
@@ -124,75 +152,16 @@ SELECT k.id, k.name, k.assignee
                 WHERE t->>'node_id' = k.node_id AND coalesce(t->>'iteration_id', '') <> '');
 ```
 
-Set them `canceled` once you have looked at them.
+Set them `canceled` once you have looked at them. The step's tokens stay where
+the old release left them, so once its tasks are closed and the instance has
+nothing else in flight it appears in the first list, to be looked at and ended
+like the others.
 
-**Other work still in flight for a step that ended early before the upgrade**
-needs nothing done, and is let go rather than finished. The same early finish
-left behind whatever else its other runs had started — work parked for a
-worker, a service call still queued, a process the step called — and none of
-it is in the two lists above. After the upgrade:
-
-- an external task is withdrawn the first time a worker reports on it, whether
-  it completed the work or failed at it: the worker is told there is no such
-  external task, nothing is written to the process, no incident is raised, and
-  the instance's history gets a `parked_work_withdrawn` entry. Until a worker
-  reports, it is still offered;
-- a queued service call is not made: its job completes without calling
-  anything;
-- a called process runs on and ends normally; its parent does not move and
-  records `called_process_finished_late`.
-
-This lists them, one row for each piece of work, so you can tell the owners of
-the workers and of the called processes what to expect:
-
-```sql
-WITH ended AS (
-  SELECT DISTINCT i.id AS instance_id, t->>'node_id' AS node_id
-    FROM process_instances i
-   CROSS JOIN LATERAL jsonb_array_elements(
-           CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
-                THEN i.tokens::jsonb ELSE '[]'::jsonb END) t
-   WHERE i.status = 'active' AND i.deleted_at IS NULL
-     AND coalesce(t->>'iteration_id', '') <> ''
-     AND NOT (CASE WHEN jsonb_typeof(i.multi_instance::jsonb) = 'object'
-                   THEN i.multi_instance::jsonb ELSE '{}'::jsonb END) ? (t->>'node_id')
-)
-SELECT e.instance_id, e.node_id, 'external task' AS in_flight, x.id AS work_id
-  FROM ended e JOIN external_tasks x
-    ON x.instance_id = e.instance_id AND x.node_id = e.node_id
- WHERE x.deleted_at IS NULL
-UNION ALL
-SELECT e.instance_id, e.node_id, 'queued call', j.id
-  FROM ended e JOIN jobs j
-    ON j.instance_id = e.instance_id AND j.node_id = e.node_id
- WHERE j.deleted_at IS NULL AND j.status IN ('pending', 'running')
-UNION ALL
-SELECT e.instance_id, e.node_id, 'called process', c.id
-  FROM ended e JOIN process_instances c
-    ON c.parent_instance_id = e.instance_id AND c.parent_node_id = e.node_id
- WHERE c.deleted_at IS NULL AND c.status IN ('active', 'suspended');
-```
-
-The step's tokens stay where the old release left them, so once this work has
-drained and the instance has nothing else in flight it appears in the first
-list, to be looked at and ended like the others.
-
-**A step now also finishes when everybody asked has answered**, whatever its
-condition says. A condition that the list could not satisfy used to hold the
-step for ever; check any condition that was relying on that.
-
-**Work waiting for workers is withdrawn with its step.** When a step ends early,
-or an interrupting boundary event ends it, the external tasks still open for it
-are deleted, with one `parked_work_withdrawn` entry in the instance's history.
-A worker still holding one is told there is no such external task. Reports from
-a worker that does not hold the task's lock, or whose lease has run out, now
-answer 400 instead of 5xx over REST, so a client that retried on 5xx will stop retrying
-them.
-
-**A process called by a step that already ended** no longer moves its parent
-on. The parent's history records `called_process_finished_late`. The called
-process is not ended when its step is, so its tasks stay open until somebody
-completes them.
+**An approval now also finishes when everybody asked has answered**, whatever
+its condition says. A condition that the list could not satisfy used to hold
+the step for ever; check any condition on a repeating user task or manual task
+that was relying on that. On every other repeating step a completion condition
+still replaces "everybody has answered", as before.
 
 **Versions imported from BPMN before this release** keep a multi-instance
 completion condition where nothing evaluates it, and go on running all-of-N —
@@ -209,15 +178,24 @@ taken off — `${…}` and `#{…}` (Camunda 7, Flowable), a leading `=` (Camund
 and never hold. What is inside is not translated: a condition written with
 `==`, `&&` or a method call is refused (400 over REST) with a message naming
 the step, where it used to import and run the step for everybody. Rewrite the
-condition and import again. Conditions on sequence flows are imported as
-written, as before; a gateway that cannot choose a flow raises an error when
-it is reached.
+condition and import again. Two kinds of condition are still imported and then
+never hold, so check for them by eye: one written against Camunda 8's counter
+names (`numberOfInstances`, `numberOfCompletedInstances` and the like — Metis
+provides `nrOfInstances`, `nrOfCompletedInstances`, `nrOfActiveInstances`), and
+one that uses a single `=` to compare with something other than a plain value
+(`nrOfCompletedInstances = nrOfInstances - 1`; write `>=`, or compare with a
+number). Conditions on sequence flows are imported as written, as before; a
+gateway that cannot choose a flow raises an error when it is reached.
 
 **Ad-hoc sub-processes** now withdraw the steps still running inside them when
 their completion condition is met, at any depth, with the tasks, the work
-waiting for workers, and the events those steps were waiting for. One that
-should wait for them instead says `cancelRemainingInstances="false"` in its
-BPMN file.
+waiting for workers, and the events those steps were waiting for. A worker
+still holding work for one of those steps is told there is no such external
+task when it reports, and the instance's history has a `parked_work_withdrawn`
+entry for the step; a service call still queued for one is not made. A process
+one of those steps called is not ended: it runs on, and its tasks stay open
+until somebody completes them. A sub-process that should wait for its steps
+instead says `cancelRemainingInstances="false"` in its BPMN file.
 
 An ad-hoc sub-process with **no** completion condition has always finished when
 the first step inside it does. It now also withdraws every other step that was
@@ -232,12 +210,10 @@ the second: it can move on with the second one's task still open. This is
 not new, and it is on the roadmap.
 
 **Rolling back** to the previous release is safe for the data: the column is
-nullable and the previous release ignores it. The defects come back with it.
-Approvals completed from the inbox while it runs leave their tokens behind
-again, and an instance that is inside a sub-process that runs once per item
-keeps the tokens this release gave that sub-process, so it does not complete
-either. Upgrading again does not re-run migration 31; run the queries above
-again when you do.
+nullable and the previous release ignores it. The defects come back with it:
+approvals completed from the inbox while it runs leave their tokens behind
+again, and an approval ended early leaves its other tasks open. Upgrading again
+does not re-run migration 31; run the queries above again when you do.
 
 ## Completing a task sets only what its form declares
 

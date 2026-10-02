@@ -94,54 +94,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
-- **An approval several people give never finished its process.** A step that
-  runs once per person — in parallel or one after another — keeps a token for
-  each of them, and completing a task from the inbox did not say whose it was.
-  The count went up and no token came off, so after the last approval the
-  process moved on and then never completed: its end event found tokens still
-  on the approval. A deadline on the approval could also fire after everybody
-  had answered. A task now records which run of its step it is for (migration
-  31) and completing it retires that run.
+- **An approval several people give never finished its process.** A user task
+  or manual task that runs once per person — in parallel or one after another —
+  keeps a token for each of them, and completing a task from the inbox did not
+  say whose it was. The count went up and no token came off, so after the last
+  approval the process moved on and then never completed: its end event found
+  tokens still on the approval. A deadline on the approval could also fire
+  after everybody had answered. A task now records which run of its step it is
+  for (migration 31) and completing it retires that run.
 - **"Two of three is enough" left the third approval open, and could run the
-  rest of the process twice.** When a step's completion condition was met the
-  process moved on without withdrawing the approvals still open. They stayed in
-  people's inboxes, and completing one could move the process on a second time
-  when the condition was written on what an approver decided (*any rejection
-  ends it*). The approvals nobody needs are now withdrawn — their holders are
-  told, as when a deadline takes a task — and completing one is refused (400
-  over REST): *this task was withdrawn because its step no longer needs it, so it
-  cannot be completed*. A task that is already completed or otherwise not open
-  is refused the same way (it used to answer 403 over REST when it had been withdrawn).
-  A condition is also no longer the only way such a step ends: it finishes when
-  everybody asked has answered, so "two of them" over a list of one no longer
-  waits for ever.
-- **Work waiting for a worker is withdrawn with its step.** When a step that
-  runs once per item ends early, or an interrupting boundary event ends a step,
-  the external tasks still open for it are withdrawn too, and the process's
-  history gets one `parked_work_withdrawn` entry for the step. A worker that
-  still holds one and reports on it is told there is no such external task
-  (not found). Before, only the user tasks were withdrawn and the workers went
-  on offering and finishing work for a step that was over.
-- **A service task for a step that was withdrawn is not called.** The job for
-  an ad-hoc step that was ended with its sub-process, or for an iteration that
-  a completion condition ended, is completed without calling its connector. If
-  the step is withdrawn while the call is under way and the call then fails,
-  there is no retry and no incident.
-- **A process called by a step that already ended no longer moves its parent.**
-  When a call activity's step has ended — a completion condition or an
-  interrupting boundary event took it — and the process it called finishes
-  later, the parent does not advance and the result is not copied into it. The
-  parent's history says so (`called_process_finished_late`). A call activity
-  that did not repeat, whose child came back after its deadline, used to move
-  the parent on a second time; it no longer does. The called process itself is
-  not ended when its step is: it runs on, and its tasks stay open.
-- **A worker's report waits for the instance before it takes its task.**
-  Completing an external task, and reporting its failure, now lock the
-  instance before the task's row, the order everything else uses. Two reports
-  arriving as the step ended could deadlock, and a failure report could
-  collide with the withdrawal. A report from a worker that does not hold the
-  task's lock, or whose lease has run out, is now refused (400 over REST) and names
-  no task; it used to come back as an unclassified error answered 5xx.
+  rest of the process twice.** When the completion condition of such an
+  approval was met the process moved on without withdrawing the approvals
+  still open. They stayed in people's inboxes, and completing one could move
+  the process on a second time when the condition was written on what an
+  approver decided (*any rejection ends it*). The approvals nobody needs are
+  now withdrawn — their holders are told, as when a deadline takes a task — and
+  completing one is refused (400 over REST): *this task was withdrawn because
+  its step no longer needs it, so it cannot be completed*. A task that is
+  already completed or otherwise not open is refused the same way (it used to
+  answer 403 over REST when it had been withdrawn). A condition is also no
+  longer the only way such an approval ends: it finishes when everybody asked
+  has answered, so "two of them" over a list of one no longer waits for ever.
 - **A completion condition in an imported BPMN file was ignored.** Import kept
   `<completionCondition>` of a multi-instance step where nothing evaluates it,
   so a file that said two-of-three ran as all-of-three. It is now read into the
@@ -155,28 +128,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   refused when the file is imported (400 over REST), naming the step, rather
   than imported and left to read as "not yet" for ever. Rewrite it and import
   again. Conditions on sequence flows are imported as written, as before.
-- **Work in flight for a step that had already ended is let go instead of
-  refused.** A step that ended early under an earlier release kept a token for
-  each of its runs, and whatever those runs had started stayed in flight. A
-  worker reporting on such an external task — done or failed — is now told
-  there is no such external task, the work is withdrawn and the instance's
-  history says so (`parked_work_withdrawn`); it used to be refused and offered
-  again for as long as the instance existed. A queued service call for such a
-  step is not made, where it used to be made, refused and retried to an
-  incident. A process such a step called can end, where its last step used to
-  fail. The same holds for an external task reported on after its step has
-  ended for any other reason: it is withdrawn, and the process does not move
-  on a second time. An error boundary event never catches the engine declining
-  a completion.
 - **An ad-hoc sub-process that finished left its other steps running.** A step
   started inside it and still open when the sub-process finished — its
   completion condition was met, or it has none and its first step finished —
   kept its task in somebody's inbox, and the process could never complete. Those
   steps are now withdrawn, which is BPMN's default: tokens, open user tasks and
   external tasks, and the events they were waiting for, at any depth — a step
-  that is itself a sub-process included. A sub-process that says
-  `cancelRemainingInstances="false"` waits for them instead, and the attribute
-  travels in a BPMN file both ways.
+  that is itself a sub-process included. The process's history gets one
+  `parked_work_withdrawn` entry for each step whose external tasks were
+  withdrawn; a worker that still holds one and reports on it is told there is
+  no such external task. A service call still queued for a withdrawn step is
+  not made, and one that was under way and then fails is not retried and raises
+  no incident. A sub-process that says `cancelRemainingInstances="false"` waits
+  for its steps instead, and the attribute travels in a BPMN file both ways.
+  So that a worker's report cannot deadlock with the withdrawal, completing an
+  external task and reporting its failure now lock the instance before the
+  task's row; what a worker is answered is unchanged.
+
+  **Not changed in this release:** every other step that runs once per item —
+  a sub-process, an external task, a call activity, a service task, a script —
+  is counted exactly as before, and keeps the looseness it had. A repeating
+  external task or call activity still leaves its tokens on the step when it
+  finishes, so its process still never completes; a completion condition met
+  early on any of them, or a deadline that interrupts one, still does not
+  withdraw the work the other runs have under way, and that work is still
+  accepted when it comes back. The strict counting above cannot be applied to
+  them yet: the runs of a sub-process that runs once per item share the tokens
+  of the steps inside it, and counted strictly it stops finishing. The
+  follow-up is to give each run of a repeating sub-process its own tokens, and
+  then make the counting strict for every step.
 
   **Upgrading:** read [Migration 31: a task records which run of its step it is
   for](docs/upgrading.md#migration-31-a-task-records-which-run-of-its-step-it-is-for)

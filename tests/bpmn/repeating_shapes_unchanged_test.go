@@ -1033,3 +1033,24 @@ func TestADeadlineOnAServiceCallInsideAnOpenAdHocSubProcessIsUnchanged(t *testin
 		})
 	}
 }
+
+// A step done by an outside worker once per item, ended by a completion
+// condition written on what a worker reported rather than on how many have.
+// The work of the other runs stays on offer, and a second report that
+// satisfies the condition moves the process on a second time. Pinned as it is.
+func TestARepeatingStepForAWorkerEndedByWhatWasReportedIsUnchanged(t *testing.T) {
+	h := newEngineHarness(t, "Unchanged external verdict")
+	topic := "unchanged-external-verdict"
+	def := repeated(h.projID, topic, &entities.Node{Type: entities.ServiceTask, Name: "Check", ExternalTopic: topic,
+		MultiInstanceType: "parallel", Collection: "items", ElementVariable: "item",
+		CompletionCondition: `verdict = "reject"`})
+	r := startShape(t, h, def, threeItems)
+	fetched := r.fetch(topic)
+	if len(fetched) != 3 {
+		t.Fatalf("three pieces of work were expected and %d were fetched", len(fetched))
+	}
+	for i, task := range fetched {
+		outcome := plain(h.svc.Complete(h.Ctx(), task.ID, "worker-1", map[string]any{"verdict": "reject"}))
+		r.pin(fmt.Sprintf("rejection %d", i+1), outcome)
+	}
+}
