@@ -15,8 +15,10 @@ import (
 // early.
 //
 // Its text reaches whoever completed a task, so it names no step and no id.
-//
-// Whether a run is waiting is ProcessInstance.WaitsFor.
+// The callers that are not a person never get this far: a job checks for its
+// token first (tokenWaitsAt), work parked for a worker is withdrawn when the
+// step ends (endActivity), and a called process returning to a step that holds
+// no token is recorded rather than resumed (EndEventHandler.resumeParent).
 var errIterationNotWaiting = apierr.Invalidf(
 	"the process is no longer waiting for this part of the step, so it cannot be completed again")
 
@@ -29,7 +31,7 @@ var errStepAlreadyFinished = apierr.Invalidf(
 // removeOrCheckMultiInstance handles token removal for both simple and multi-instance
 // nodes.  Returns (true, nil) when execution should continue past the node.
 func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
-	if !node.Repeats() {
+	if node == nil || node.MultiInstanceType == "" || node.MultiInstanceType == "none" {
 		// By node ID, not by node: this branch deliberately accepts a nil node —
 		// the definition no longer describes what the token is sitting on — and
 		// the token still has to come off, or the instance keeps a token nothing
@@ -49,35 +51,22 @@ func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entit
 // the last approval and the instance could never end, because an end event
 // finishes an instance only when no token is left.
 //
-// So a completion for a run the step is not waiting for is refused rather than
-// counted (ProcessInstance.WaitsFor), the run's token is retired with its
-// count, and a finished step gives up everything it still holds: its tokens
-// always, and — when its completion condition ended it early — the tasks of
-// the iterations nobody will finish, and the work parked for workers on their
-// behalf (endActivity).
+// So the iteration is resolved first (ProcessInstance.WaitingIteration), a
+// completion with no token to retire is refused rather than counted, and a
+// finished step gives up everything it still holds: its tokens always, and —
+// when its completion condition ended it early — the tasks of the iterations
+// nobody will finish, and the work parked for workers on their behalf
+// (endActivity).
 func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
-	counting := instance.IsMultiInstanceActive(nodeID)
-	if !instance.WaitsFor(node, iterationID) {
-		if counting {
-			return false, errIterationNotWaiting
-		}
-		return false, errStepAlreadyFinished
-	}
-	if !counting {
-		// The step given nothing to repeat over: it runs once, on a plain
-		// token, and finishes like any other step. Its completion condition is
-		// not asked — the counters it is written against describe iterations,
-		// and there are none.
-		instance.RemoveTokenByIteration(node, "")
-		return true, nil
+	if !instance.IsMultiInstanceActive(nodeID) {
+		return finishUncountedRun(instance, node, iterationID)
 	}
 
-	// A run's token is retired with its count. The one run that has none is a
-	// run of a sub-process entered before sub-processes kept their tokens (see
-	// WaitsFor): it is counted, and there is nothing to retire.
-	if iteration, held := instance.WaitingIteration(node, iterationID); held {
-		instance.RemoveTokenByIteration(node, iteration)
+	iteration, waiting := instance.WaitingIteration(node, iterationID)
+	if !waiting {
+		return false, errIterationNotWaiting
 	}
+	instance.RemoveTokenByIteration(node, iteration)
 	completed, total := instance.CompleteMultiInstanceIteration(nodeID)
 
 	if !multiInstanceDone(instance, node, completed, total) {
@@ -98,6 +87,22 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 	// and did not retire.
 	instance.RemoveTokenByNode(node)
 	instance.FinishMultiInstance(nodeID)
+	return true, nil
+}
+
+// finishUncountedRun finishes a repeating step that is not counting runs.
+//
+// That is the step given nothing to repeat over: it runs once, on a plain
+// token, and finishes like any other step. Its completion condition is not
+// asked — the counters it is written against describe iterations, and there
+// are none.
+//
+// Anything else is a completion for a step that already finished.
+func finishUncountedRun(instance *entities.ProcessInstance, node *entities.Node, iterationID string) (bool, error) {
+	if iterationID != "" || !instance.HasPlainToken(node) {
+		return false, errStepAlreadyFinished
+	}
+	instance.RemoveTokenByIteration(node, "")
 	return true, nil
 }
 
