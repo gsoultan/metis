@@ -31,5 +31,4 @@ type TaskService interface {
 	// CreateTaskForNode opens the task a step is waiting on. iterationID names
 	// the run of a multi-instance step it is for, and is empty otherwise.
 	CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error
-	UpdateTask(ctx context.Context, task entities.Task) error
 }

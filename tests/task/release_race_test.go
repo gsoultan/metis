@@ -45,12 +45,13 @@ func TestAReleaseOrAnEditRacingACompletionDoesNotReopenTheTask(t *testing.T) {
 		t.Fatalf("deploy: %v", err)
 	}
 
+	renamed, second := "Review, renamed", 2
 	racers := map[string]func(ctx context.Context, id uuid.UUID) error{
 		"release": func(ctx context.Context, id uuid.UUID) error {
 			return svc.UnclaimTask(ctx, id, servicecontracts.HandOver{Actor: "ada"})
 		},
 		"edit": func(ctx context.Context, id uuid.UUID) error {
-			return svc.UpdateTask(ctx, entities.Task{ID: id, Name: "Review, renamed", Priority: 2})
+			return svc.UpdateTask(ctx, id, servicecontracts.TaskEdit{Actor: "ada", Name: &renamed, Priority: &second})
 		},
 	}
 	// The window is from the completion's write to its commit, which spans

@@ -47,12 +47,16 @@ func TestObserversStillSeeTheEventsHandOversAlwaysRaised(t *testing.T) {
 	if err := svc.AssignTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice", Target: "bob"}); err != nil {
 		t.Fatalf("assign: %v", err)
 	}
+	renamed := "Approve the refund today"
+	if err := svc.UpdateTask(ctx, taskID, servicecontracts.TaskEdit{Actor: "bob", Name: &renamed}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
 	if err := svc.UnclaimTask(ctx, taskID, servicecontracts.HandOver{Actor: "bob"}); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 
-	want := []string{entities.EventTaskClaimed + " bob", entities.EventTaskUpdated + " "}
+	want := []string{entities.EventTaskClaimed + " bob", entities.EventTaskUpdated + " ", entities.EventTaskUpdated + " "}
 	if !slices.Equal(seen.told, want) {
-		t.Fatalf("an assignment and a release raised %q; they have always raised %q", seen.told, want)
+		t.Fatalf("an assignment, an edit and a release raised %q; they have always raised %q", seen.told, want)
 	}
 }

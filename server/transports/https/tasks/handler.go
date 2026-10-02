@@ -155,7 +155,7 @@ func decodeCompleteTaskRequest(_ context.Context, r *http.Request) (any, error) 
 
 func decodeUpdateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.UpdateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")

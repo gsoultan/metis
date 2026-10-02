@@ -266,20 +266,21 @@ func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return UpdateTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		// A task's name, priority and due date are how its holder orders their
-		// day. Anybody in the organization could change them on somebody else's
-		// task — push the date out, drop the priority — so editing is held to
-		// the rule handing it on is.
-		if err := mayEdit(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return UpdateTaskResponse{Err: err}, nil
 		}
-		task := entities.Task{
-			ID:       id,
-			Name:     req.Name,
-			Priority: req.Priority,
-			DueDate:  req.DueDate,
-		}
-		err = s.UpdateTask(ctx, task)
+		// A task's name, priority and due date are how its holder orders their
+		// day. Who may change them, and whether they must say why, is decided
+		// by the service on the row it holds.
+		err = s.UpdateTask(ctx, id, servicecontracts.TaskEdit{
+			Actor:        actor,
+			Reason:       req.Reason,
+			Name:         req.Name,
+			Priority:     req.Priority,
+			DueDate:      req.DueDate.Value,
+			ClearDueDate: req.DueDate.Present && req.DueDate.Value == nil,
+		})
 		return UpdateTaskResponse{Err: err}, nil
 	}
 }
@@ -328,38 +329,4 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 		}
 	}
 	return out, nil
-}
-
-// mayEdit refuses a change to a task's name, priority or due date on the same
-// terms: its holder or an administrator, and for a task nobody holds, an
-// administrator.
-func mayEdit(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	return requireHolderOrAdministrator(ctx, s, id, "change its name, priority or due date")
-}
-
-// requireHolderOrAdministrator admits the task's current assignee or an
-// administrator to what the refusal names.
-func requireHolderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID, action string) error {
-	_, admitted, err := holderOrAdministrator(ctx, s, id)
-	if err != nil || admitted {
-		return err
-	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", action)
-}
-
-// holderOrAdministrator reports whether the caller is an administrator or holds
-// the task, and returns the task when it had to be read to say.
-func holderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID) (entities.Task, bool, error) {
-	actor, err := principal.Username(ctx)
-	if err != nil {
-		return entities.Task{}, false, err
-	}
-	if principal.HasRole(ctx, entities.RoleAdmin) {
-		return entities.Task{}, true, nil
-	}
-	task, err := s.GetTask(ctx, id)
-	if err != nil {
-		return entities.Task{}, false, err
-	}
-	return task, task.AssigneeUsername() == actor, nil
 }

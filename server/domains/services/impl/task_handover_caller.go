@@ -91,3 +91,13 @@ func (c handOverCaller) reasonFor(reason, doing string) (string, error) {
 	}
 	return reason, nil
 }
+
+// mayEdit refuses a change to a task's name, priority or due date from anyone
+// but its holder or an administrator. They are how its holder orders their
+// day; a task nobody holds is an administrator's to change.
+func (c handOverCaller) mayEdit() error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can change its name, priority or due date")
+}

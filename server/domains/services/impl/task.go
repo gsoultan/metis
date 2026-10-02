@@ -351,38 +351,6 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 	})
 }
 
-func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Held for the reason UnclaimTask holds it: the whole row is written
-		// back, status included, so an unheld read could reopen a task
-		// completed in between.
-		m, err := s.lockedTask(txCtx, task.ID)
-		if err != nil {
-			return err
-		}
-		existing := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-		// UpdateConnectorInstance specific allowed fields
-		existing.Name = task.Name
-		existing.Priority = task.Priority
-		existing.DueDate = task.DueDate
-
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: existing}.ToModel()); err != nil {
-			return err
-		}
-
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  existing.Instance,
-			Project:   existing.Project,
-			Node:      existing.Node,
-			Timestamp: time.Now().Unix(),
-			Variables: existing.Variables,
-		})
-
-		return nil
-	})
-}
-
 // lockedTask reads a task and holds its row, so what is decided from the read
 // cannot be overtaken by another decision made from the same read. Everything
 // that competes for a task — a claim, a hand-over, completion, a migration
