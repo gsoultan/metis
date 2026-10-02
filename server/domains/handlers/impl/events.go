@@ -132,11 +132,6 @@ func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.Proc
 // included, and its trail says a called process finished after the step had
 // ended. Resuming it anyway is what moved a parent on a second time, and
 // refusing is what left a called process unable to end at all.
-//
-// Whether the parent is waiting is ProcessInstance.WaitsFor, the question the
-// engine asks when it is resumed. A token on the step is not the answer: a
-// step that ended early before migration 31 kept a token for every call it
-// made, and a parent resumed on the strength of one was then refused.
 func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.ProcessInstance) error {
 	parentInstance, err := h.engine.GetInstance(ctx, instance.ParentInstance.ID)
 	if err != nil {
@@ -156,15 +151,9 @@ func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.P
 		parentNodeID = instance.ParentNode.ID
 	}
 	callActivityNode := parentDef.FindNode(parentNodeID)
-	// A step the parent's definition no longer describes is asked about by its
-	// id alone: it cannot be known to repeat, and is waiting while it holds a
-	// token.
-	waitedAt := callActivityNode
-	if waitedAt == nil {
-		waitedAt = &entities.Node{ID: parentNodeID}
-	}
-	if !parentInstance.WaitsFor(waitedAt, "") {
-		return h.recordLateReturn(ctx, &parentInstance, callActivityNode, parentNodeID, instance)
+	if len(parentInstance.GetTokensByNode(&entities.Node{ID: parentNodeID})) == 0 {
+		h.recordLateReturn(ctx, &parentInstance, callActivityNode, parentNodeID, instance)
+		return nil
 	}
 	if callActivityNode != nil {
 		applyOutputMapping(callActivityNode, instance, &parentInstance)
@@ -186,19 +175,17 @@ func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.P
 // and nothing came of it. It names the step as the diagram does; the ids are
 // in the entry's data, for whoever needs to find the called process.
 //
-// A line that cannot be written is returned, as the engine returns one for
-// work it withdraws (recordParkedWorkWithdrawn). It is written in the
-// transaction that ends the called process, and in PostgreSQL a statement that
-// fails leaves its transaction unable to commit: carrying on would only move
-// the failure to the commit, with a message that names nothing.
-func (h *EndEventHandler) recordLateReturn(ctx context.Context, parent *entities.ProcessInstance, callActivityNode *entities.Node, parentNodeID string, child *entities.ProcessInstance) error {
+// A trail that cannot be written does not stop the called process ending: it
+// has finished, and failing it would put it back in somebody's inbox to be
+// finished again with the same result.
+func (h *EndEventHandler) recordLateReturn(ctx context.Context, parent *entities.ProcessInstance, callActivityNode *entities.Node, parentNodeID string, child *entities.ProcessInstance) {
 	log.Warn().
 		Str("instance_id", parent.ID.String()).
 		Str("node_id", parentNodeID).
 		Str("called_instance_id", child.ID.String()).
 		Msg("A called process finished after the step that called it had ended; its parent was not resumed")
 	if h.auditWriter == nil {
-		return nil
+		return
 	}
 
 	node := &entities.Node{ID: parentNodeID}
@@ -222,10 +209,12 @@ func (h *EndEventHandler) recordLateReturn(ctx context.Context, parent *entities
 		Timestamp: time.Now(),
 	}
 	if err := h.auditWriter.RecordEvent(ctx, entry); err != nil {
-		return fmt.Errorf("record on instance %s that called process %s finished after its step had ended: %w",
-			parent.ID, child.ID, err)
+		log.Error().Err(err).
+			Str("instance_id", parent.ID.String()).
+			Str("node_id", parentNodeID).
+			Str("called_instance_id", child.ID.String()).
+			Msg("Could not record that a called process finished late; the trail is incomplete from here")
 	}
-	return nil
 }
 
 // applyOutputMapping copies variables from a finished sub-process back into its

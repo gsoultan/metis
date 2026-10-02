@@ -85,7 +85,7 @@ func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, sub
 	// The sub-process has to be the one the process is currently in. Without
 	// this, a step could be started in a sub-process the process has not reached
 	// or has already left.
-	if !instance.WaitsFor(subProcess, "") {
+	if len(instance.GetTokensByNode(subProcess)) == 0 {
 		return fmt.Errorf("activate %q: the process is not currently inside %q", taskNodeID, subProcessNodeID)
 	}
 

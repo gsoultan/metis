@@ -32,7 +32,7 @@ func (e *Engine) checkAdHocCompletion(ctx context.Context, instance *entities.Pr
 	if parent == nil || !parent.IsAdHoc {
 		return false, nil
 	}
-	if !instance.WaitsFor(parent, "") {
+	if len(instance.GetTokensByNode(parent)) == 0 {
 		return false, nil
 	}
 	if parent.CompletionCondition != "" &&

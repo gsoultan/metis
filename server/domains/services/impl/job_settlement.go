@@ -159,15 +159,7 @@ func (s *jobService) writeDetached(ctx context.Context, job entities.Job) {
 // The route and the job's completion are one transaction, taken on the locked
 // instance: the route used to read the instance without a lock and commit on
 // its own, then leave the job to be marked afterwards.
-//
-// The engine declining the job's result is not a failure of the work, and no
-// error boundary event catches it (isEngineRefusal): one with no error code
-// catches everything it is shown, and took the process down its error path
-// from a step, or out of a sub-process, the process had already left.
 func (s *jobService) tryErrorBoundaryRoute(ctx context.Context, job entities.Job, jobErr error) bool {
-	if isEngineRefusal(jobErr) {
-		return false
-	}
 	def, err := s.engine.GetProcessDefinition(ctx, job.Definition.ID)
 	if err != nil {
 		return false
@@ -324,15 +316,21 @@ func (s *jobService) droppedForWithdrawnStep(ctx context.Context, job entities.J
 	return withdrawn
 }
 
-// tokenWaitsAt reports whether the instance is still waiting for what a job
-// was scheduled for: it is active, and node is waiting for that run.
-//
-// "Waiting" is ProcessInstance.WaitsFor, the question the engine asks before
-// it accepts the job's result. This used to ask its own — is there a token on
-// the step — and the two differ for a step that ended before migration 31,
-// which holds a token for every run and is waiting for none: the job made its
-// call, the engine refused the result, and the job failed its way to an
-// incident, calling again on each attempt.
+// tokenWaitsAt reports whether the instance still has the token a job was
+// scheduled for: active, and a token on node — the one for this iteration, on
+// a node that runs once per item.
 func tokenWaitsAt(instance *entities.ProcessInstance, node *entities.Node, iterationID string) bool {
-	return instance.Status == entities.ProcessActive && instance.WaitsFor(node, iterationID)
+	if instance.Status != entities.ProcessActive || node == nil {
+		return false
+	}
+	tokens := instance.GetTokensByNode(node)
+	if iterationID == "" {
+		return len(tokens) > 0
+	}
+	for _, tk := range tokens {
+		if tk.IterationID == iterationID {
+			return true
+		}
+	}
+	return false
 }

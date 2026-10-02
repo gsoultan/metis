@@ -124,17 +124,6 @@ func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entitie
 	return e.withdrawExternalTasksOn(ctx, instance, []*entities.Node{node})
 }
 
-// WithdrawParkedWork is withdrawExternalTasksFor for a caller outside the
-// engine: a worker's report that finds its step is no longer waiting for it
-// (externalTaskService). The step ended without withdrawing the work — a
-// release before migration 31 did not — so it is withdrawn when it is found.
-func (e *Engine) WithdrawParkedWork(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
-	if instance == nil || node == nil {
-		return nil
-	}
-	return e.withdrawExternalTasksFor(ctx, instance, node)
-}
-
 // withdrawExternalTasksOn withdraws the work parked for workers on any of
 // nodes, reading the instance's parked work once however many nodes there are.
 //

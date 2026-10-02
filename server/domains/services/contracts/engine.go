@@ -77,14 +77,6 @@ type ScriptExecutor interface {
 	ExecuteScript(ctx context.Context, script string, scriptFormat string, variables map[string]any) (map[string]any, error)
 }
 
-// ParkedWorkWithdrawer takes back the work a step has parked for outside
-// workers, when the step is found to have ended without it.
-type ParkedWorkWithdrawer interface {
-	// WithdrawParkedWork removes every external task the instance has parked on
-	// node and says so on the instance's trail. The caller holds the instance.
-	WithdrawParkedWork(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error
-}
-
 // ExecutionEngine is the composition root that combines all engine sub-interfaces.
 // Prefer declaring the narrower sub-interface (EngineRunner, EngineReader, etc.)
 // in each dependency to follow the Interface Segregation Principle.
@@ -94,5 +86,4 @@ type ExecutionEngine interface {
 	EngineReader
 	EngineEventBus
 	ScriptExecutor
-	ParkedWorkWithdrawer
 }
