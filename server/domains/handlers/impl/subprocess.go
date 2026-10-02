@@ -40,8 +40,20 @@ func (h *SubProcessHandler) DoExecute(ctx context.Context, instance *entities.Pr
 		return fmt.Errorf("sub-process %s has no start event", node.ID)
 	}
 
-	// Remove current token and add tokens for start events within the sub-process.
-	instance.RemoveTokenByNode(&node)
+	// The token moves from the sub-process to the start events inside it —
+	// unless the sub-process repeats.
+	//
+	// A step that repeats holds a token for each run it is still waiting for,
+	// and a completion with no token to retire is refused. Taking the tokens
+	// here took every run's, the ones not yet started included: only the first
+	// item's run began, and when it reached the end event inside there was
+	// nothing on the sub-process for it to retire. So a repeating sub-process
+	// keeps its token while the run is inside, as a repeating task keeps its
+	// own while the task is open, and the engine retires it when the run
+	// finishes.
+	if !node.Repeats() {
+		instance.RemoveTokenByNode(&node)
+	}
 	for _, sn := range startNodes {
 		instance.AddToken(sn)
 	}

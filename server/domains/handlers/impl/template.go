@@ -29,7 +29,7 @@ func (t *NodeHandlerTemplate) Execute(ctx context.Context, instance *entities.Pr
 		Msg("NodeHandlerTemplate: starting execution")
 
 	// Handle Multi-Instance Activation
-	if iterationID == "" && node.MultiInstanceType != "" && node.MultiInstanceType != "none" {
+	if iterationID == "" && node.Repeats() {
 		return t.handleMultiInstance(ctx, instance, def, node)
 	}
 
@@ -99,7 +99,7 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 			// — a script, a decision — can meet the condition on an earlier
 			// iteration, inside this loop. Starting it anyway ran work the
 			// process had already decided it did not need.
-			if _, waiting := instance.WaitingIteration(&node, iteration); !waiting {
+			if !instance.WaitsFor(&node, iteration) {
 				continue
 			}
 			entities.BindMultiInstanceElement(instance, node, collection, i)

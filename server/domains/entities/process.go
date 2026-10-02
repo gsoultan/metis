@@ -194,6 +194,48 @@ func (pi *ProcessInstance) HasPlainToken(node *Node) bool {
 	})
 }
 
+// WaitsFor reports whether node is still waiting for the run iterationID
+// names — or, when it names none, for any run at all.
+//
+// It is the one answer to that question. The engine asks it before it counts a
+// completion, a job before it makes its call and again before it uses the
+// result, a worker's report before it is accepted, a called process before it
+// resumes its parent. They used to ask three different things — "is there a
+// token on the step", "is the step counting", "is there a token for this run"
+// — and where the answers differed something was called, or resumed, and then
+// refused.
+//
+// A step that does not repeat is waiting while it holds a token.
+//
+// A step that repeats is waiting for a run while it is counting its runs and
+// holds that run's token; given nothing to repeat over it runs once, on a
+// token that belongs to no run, and is waiting while it holds that. Iteration
+// tokens on a step that is not counting are not runs anybody is waiting for:
+// they are what a release before migration 31 left behind when a step ended,
+// and the step has finished.
+//
+// One state has no token to show. A sub-process's runs happen on the steps
+// inside it, and before this rule the sub-process gave up its tokens as it was
+// entered. An instance that was inside one at the upgrade is counting and
+// holds nothing, and a run that finishes is one the step is waiting for. A
+// sub-process entered since keeps a token per run until the run finishes, so
+// counting with no token at all can only be that older state.
+func (pi *ProcessInstance) WaitsFor(node *Node, iterationID string) bool {
+	if node == nil {
+		return false
+	}
+	if !node.Repeats() {
+		return len(pi.GetTokensByNode(node)) > 0
+	}
+	if !pi.IsMultiInstanceActive(node.ID) {
+		return iterationID == "" && pi.HasPlainToken(node)
+	}
+	if _, waiting := pi.WaitingIteration(node, iterationID); waiting {
+		return true
+	}
+	return iterationID == "" && node.RunsInside() && len(pi.GetTokensByNode(node)) == 0
+}
+
 // GetTokensByNode returns every token sitting on node. Nil-safe: a node the
 // definition does not describe holds no tokens as far as callers are concerned,
 // which is the same answer the other accessors here give.

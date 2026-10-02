@@ -69,6 +69,20 @@ func KnownMultiInstanceType(loop string) bool {
 	}
 }
 
+// Repeats reports whether the step runs once per item — in parallel or one
+// after another — rather than once.
+func (n *Node) Repeats() bool {
+	return n != nil && n.MultiInstanceType != "" && n.MultiInstanceType != "none"
+}
+
+// RunsInside reports whether a run of the step happens on the steps inside it
+// rather than on the step itself: an embedded sub-process. An ad-hoc
+// sub-process is not one — it starts nothing on being entered and waits on
+// its own token.
+func (n *Node) RunsInside() bool {
+	return n != nil && n.Type == SubProcess && !n.IsAdHoc
+}
+
 // Implementation is how a service task is carried out: "push" calls a web
 // address, "connector" uses a connection, "external" waits for a worker, and
 // "script" runs a script.

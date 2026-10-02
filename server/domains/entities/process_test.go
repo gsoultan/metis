@@ -123,3 +123,65 @@ func TestACompletionRetiresTheIterationItNames(t *testing.T) {
 		t.Error("no step holds no token")
 	}
 }
+
+// "Is this step still waiting for this run?" has one answer, whoever asks: the
+// engine deciding whether to count a completion, a job deciding whether to
+// make its call, a called process deciding whether to resume its parent.
+//
+// They used to answer it three ways. A token on the step read as "waiting" to
+// two of them and the count decided for the third, so a step that had ended
+// early before migration 31 — count gone, iteration tokens left behind —
+// was called, resumed and reported to, and then refused, for ever.
+func TestAStepWaitsForARunOnlyWhileItIsCountingItOrRunningOnce(t *testing.T) {
+	approval := &entities.Node{ID: "approve", Type: entities.UserTask, MultiInstanceType: "parallel"}
+	once := &entities.Node{ID: "record", Type: entities.UserTask}
+	container := &entities.Node{ID: "sub", Type: entities.SubProcess, MultiInstanceType: "parallel"}
+	adHoc := &entities.Node{ID: "research", Type: entities.SubProcess, MultiInstanceType: "parallel", IsAdHoc: true}
+
+	holding := func(node *entities.Node, counting bool, iterations ...string) *entities.ProcessInstance {
+		instance := &entities.ProcessInstance{}
+		if counting {
+			instance.StartMultiInstance(node.ID, 3)
+		}
+		for _, iteration := range iterations {
+			instance.AddTokenWithIteration(node, iteration)
+		}
+		return instance
+	}
+
+	for _, tc := range []struct {
+		name     string
+		instance *entities.ProcessInstance
+		node     *entities.Node
+		run      string
+		want     bool
+	}{
+		{"counting, and the run named holds its token", holding(approval, true, "0", "1"), approval, "1", true},
+		{"counting, and the run named has been retired", holding(approval, true, "0"), approval, "1", false},
+		{"counting, no run named, one still waiting", holding(approval, true, "2"), approval, "", true},
+		{"counting, no run named, none waiting", holding(approval, true), approval, "", false},
+		{"counting, with only a plain token", holding(approval, true, ""), approval, "", false},
+
+		{"ended before migration 31: tokens left, count gone", holding(approval, false, "0", "1", "2"), approval, "", false},
+		{"ended before migration 31, naming a run", holding(approval, false, "0", "1", "2"), approval, "2", false},
+
+		{"given nothing to repeat over: runs once on a plain token", holding(approval, false, ""), approval, "", true},
+		{"running once, but a run is named", holding(approval, false, ""), approval, "0", false},
+		{"finished: no count and no token", holding(approval, false), approval, "", false},
+
+		{"a step that does not repeat, holding a token", holding(once, false, ""), once, "", true},
+		{"a step that does not repeat, holding none", holding(once, false), once, "", false},
+		{"no step at all", holding(once, false, ""), nil, "", false},
+
+		{"a sub-process counting, entered before it kept its tokens", holding(container, true), container, "", true},
+		{"a sub-process counting and holding its runs' tokens", holding(container, true, "1", "2"), container, "", true},
+		{"a sub-process that finished", holding(container, false), container, "", false},
+		{"an ad-hoc sub-process keeps its token, so none means none", holding(adHoc, true), adHoc, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.instance.WaitsFor(tc.node, tc.run); got != tc.want {
+				t.Fatalf("WaitsFor(%q) = %v, want %v", tc.run, got, tc.want)
+			}
+		})
+	}
+}
