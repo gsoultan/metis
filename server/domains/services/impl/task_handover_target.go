@@ -55,12 +55,10 @@ func (s *taskService) memberCalled(ctx context.Context, row models.TaskModel, us
 	if err != nil {
 		return models.UserModel{}, fmt.Errorf("read the project the task belongs to: %w", err)
 	}
-	for _, organization := range account.Organizations {
-		if organization.ID == project.OrganizationID {
-			return account, nil
-		}
+	if !belongsTo(account, uuid.UUID(project.OrganizationID)) {
+		return models.UserModel{}, nobody
 	}
-	return models.UserModel{}, nobody
+	return account, nil
 }
 
 // admitCandidacy holds a hand-over to the people and teams the task is offered

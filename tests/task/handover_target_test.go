@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -233,5 +234,117 @@ func TestAClaimSeparationOfDutiesForbidsIsStillForbidden(t *testing.T) {
 	status, reply := h.post(t, h.tokens["ada"], "/api/v1/tasks/"+h.openTaskOnNode(t, "approve")+"/claim", map[string]any{})
 	if status != http.StatusForbidden || !strings.Contains(reply, "may not be done by the same person") {
 		t.Fatalf("ada claiming the approval of what she submitted: got %d (%s); want the 403 it has always been", status, strings.TrimSpace(reply))
+	}
+}
+
+// The override is recorded whichever way the task was handed on.
+func TestADelegationPastTheOfferIsRecordedAsOne(t *testing.T) {
+	h := newTaskHarness(t)
+	boss := h.signInAdministrator(t, "boss")
+
+	taskID, instanceID := h.openTaskWith(t, offeredToFinance(), nil)
+	if status, reply := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("alice claiming: %d (%s)", status, reply)
+	}
+	if status, reply := h.post(t, boss, "/api/v1/tasks/"+taskID+"/delegate", map[string]any{"user_id": "mallory", "reason": "nobody in finance is in this week"}); status != http.StatusOK {
+		t.Fatalf("an administrator delegating the task to mallory with a reason: got %d (%s), want 200", status, strings.TrimSpace(reply))
+	}
+	entry := h.lastOf(t, instanceID, "task_delegated")
+	if entry.Data["candidate_override"] != true {
+		t.Errorf("the entry does not record that the task went to somebody it was not offered to: %v", entry.Data)
+	}
+	if !strings.Contains(entry.Narrative, "mallory, who is not one of the people it is offered to: nobody in finance is in this week") {
+		t.Errorf("the entry reads %q; it does not say the task went past the people it is offered to", entry.Narrative)
+	}
+
+	// And only then: a delegation to somebody it is offered to records none.
+	taskID, instanceID = h.openTaskWith(t, offeredToFinance(), nil)
+	if status, reply := h.post(t, boss, "/api/v1/tasks/"+taskID+"/delegate", map[string]any{"user_id": "alice", "reason": "it is hers"}); status != http.StatusOK {
+		t.Fatalf("an administrator delegating the task to alice, who is offered it: got %d (%s), want 200", status, strings.TrimSpace(reply))
+	}
+	if entry := h.lastOf(t, instanceID, "task_delegated"); entry.Data["candidate_override"] != nil {
+		t.Errorf("a delegation to somebody the task is offered to is recorded as an override: %v", entry.Data)
+	}
+}
+
+// Belonging to another organization as well does not put somebody out of this
+// one.
+func TestSomebodyInSeveralOrganizationsIsHandedATaskInOneOfThem(t *testing.T) {
+	h := newTaskHarness(t)
+	h.tokens["dana"] = h.signInWithRoles(t, "dana", entities.RoleUser)
+
+	other, err := h.svc.CreateOrganization(context.Background(), "Other Org", "")
+	if err != nil {
+		t.Fatalf("create the other organization: %v", err)
+	}
+	dana, err := h.svc.GetUserByUsername(h.tenantContext(), "dana")
+	if err != nil {
+		t.Fatalf("read dana: %v", err)
+	}
+	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	if err := repo.User().AddOrganization(context.Background(), dana.ID, other.ID); err != nil {
+		t.Fatalf("put dana in the other organization as well: %v", err)
+	}
+
+	for _, action := range []string{"assign", "delegate"} {
+		taskID := h.openTask(t, heldByAlice())
+		if status, reply := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "dana"}); status != http.StatusOK {
+			t.Fatalf("alice trying to %s her task to dana, who is in this organization and another: got %d (%s), want 200", action, status, strings.TrimSpace(reply))
+		}
+		if got := h.taskAssignee(t, taskID); got != "dana" {
+			t.Fatalf("after alice's %s the task is held by %q, want dana", action, got)
+		}
+	}
+}
+
+// Sending a task past the people it is offered to is an administrator's to do.
+// An operator's share is the work nobody was named for, and no more.
+func TestAnOperatorHoldingATaskCannotSendItPastTheOffer(t *testing.T) {
+	h := newTaskHarness(t)
+	h.tokens["opal"] = h.signInWithRoles(t, "opal", entities.RoleOperator)
+
+	step := offeredToFinance()
+	step.CandidateUsers = append(step.CandidateUsers, &entities.User{Username: "opal"})
+	taskID := h.openTask(t, step)
+	if status, reply := h.post(t, h.tokens["opal"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("opal claiming: %d (%s)", status, reply)
+	}
+	for _, action := range []string{"assign", "delegate"} {
+		status, reply := h.post(t, h.tokens["opal"], "/api/v1/tasks/"+taskID+"/"+action,
+			map[string]any{"user_id": "mallory", "reason": "nobody in finance is in this week"})
+		if status != http.StatusBadRequest || !strings.Contains(reply, "only to one of the people or teams it is offered to") {
+			t.Fatalf("an operator holding the task trying to %s it to mallory, who is not offered it, with a reason: got %d (%s), want 400",
+				action, status, strings.TrimSpace(reply))
+		}
+	}
+	if got := h.taskAssignee(t, taskID); got != "opal" {
+		t.Fatalf("after the refusals the task is held by %q, want opal", got)
+	}
+}
+
+// An account that was deleted is nobody, though its memberships are still
+// there to be read.
+func TestATaskCannotBeHandedToADeletedAccount(t *testing.T) {
+	h := newTaskHarness(t)
+	h.signInWithRoles(t, "dee", entities.RoleUser)
+	tctx := h.tenantContext()
+	dee, err := h.svc.GetUserByUsername(tctx, "dee")
+	if err != nil {
+		t.Fatalf("read dee: %v", err)
+	}
+	if err := h.svc.DeleteUser(tctx, dee.ID); err != nil {
+		t.Fatalf("delete dee: %v", err)
+	}
+
+	taskID := h.openTask(t, heldByAlice())
+	for _, action := range []string{"assign", "delegate"} {
+		status, reply := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "dee"})
+		if status != http.StatusBadRequest || !strings.Contains(reply, "there is nobody called") {
+			t.Fatalf("alice trying to %s her task to dee, whose account was deleted: got %d (%s), want 400 saying nobody here is called that",
+				action, status, strings.TrimSpace(reply))
+		}
+	}
+	if got := h.taskAssignee(t, taskID); got != "alice" {
+		t.Fatalf("after the refusals the task is held by %q, want alice", got)
 	}
 }
