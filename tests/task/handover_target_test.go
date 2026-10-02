@@ -237,6 +237,81 @@ func TestAClaimSeparationOfDutiesForbidsIsStillForbidden(t *testing.T) {
 	}
 }
 
+// Separation of duties is read from the step the task was created from. When
+// that step could not be read — the definition no longer has it, or the case
+// itself could not be loaded — the check answered "nothing forbids this", and
+// the task went to the one person the rule exists to keep it from. A claim or
+// a completion that cannot read the step is stopped later by something else; a
+// hand-over is not, so it has to stop here.
+func TestATaskWhoseStepCannotBeReadIsNotHandedOn(t *testing.T) {
+	h := newTaskHarness(t)
+	h.tokens["ada"] = h.signInWithRoles(t, "ada", entities.RoleUser)
+	h.tokens["bo"] = h.signInWithRoles(t, "bo", entities.RoleUser)
+
+	tctx := h.tenantContext()
+	if _, err := h.svc.CreateDefinition(tctx, fourEyes(h.projID, true)); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	instanceID, err := h.svc.StartProcess(tctx, h.projID, "four-eyes", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if status, reply := h.post(t, h.tokens["ada"], "/api/v1/tasks/"+h.openTaskOnNode(t, "submit")+"/complete", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("ada submitting: %d (%s)", status, reply)
+	}
+	approve := h.openTaskOnNode(t, "approve")
+	if status, reply := h.post(t, h.tokens["bo"], "/api/v1/tasks/"+approve+"/claim", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("bo claiming the approval: %d (%s)", status, reply)
+	}
+
+	write := func(statement string, args ...any) {
+		t.Helper()
+		if err := h.db.Exec(statement, args...).Error; err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	for _, broken := range []struct {
+		name          string
+		breakIt, mend func()
+		status        int
+		says          string
+	}{
+		{
+			name:    "the step is no longer in the definition",
+			breakIt: func() { write(`UPDATE tasks SET node_id = 'a-step-that-was-removed' WHERE id = ?`, approve) },
+			mend:    func() { write(`UPDATE tasks SET node_id = 'approve' WHERE id = ?`, approve) },
+			status:  http.StatusBadRequest,
+			says:    "no longer part of its process",
+		},
+		{
+			name:    "the case cannot be read",
+			breakIt: func() { write(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, instanceID) },
+			mend:    func() { write(`UPDATE process_instances SET deleted_at = NULL WHERE id = ?`, instanceID) },
+			status:  http.StatusNotFound,
+		},
+	} {
+		t.Run(broken.name, func(t *testing.T) {
+			for _, action := range []string{"assign", "delegate"} {
+				broken.breakIt()
+				status, reply := h.post(t, h.tokens["bo"], "/api/v1/tasks/"+approve+"/"+action,
+					map[string]any{"user_id": "ada", "reason": "ada knows this customer"})
+				broken.mend()
+				if status != broken.status || !strings.Contains(reply, broken.says) {
+					t.Fatalf("bo trying to %s the approval to ada, who submitted it, while %s: got %d (%s); want %d and the task left where it is",
+						action, broken.name, status, strings.TrimSpace(reply), broken.status)
+				}
+				// Plain words: the reply does not quote the step's id.
+				if strings.Contains(reply, "a-step-that-was-removed") {
+					t.Fatalf("the refusal quotes a node id: %s", strings.TrimSpace(reply))
+				}
+				if got := h.taskAssignee(t, approve); got != "bo" {
+					t.Fatalf("after the refusal the approval is held by %q, want bo", got)
+				}
+			}
+		})
+	}
+}
+
 // The override is recorded whichever way the task was handed on.
 func TestADelegationPastTheOfferIsRecordedAsOne(t *testing.T) {
 	h := newTaskHarness(t)

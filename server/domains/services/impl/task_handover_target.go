@@ -24,7 +24,19 @@ func (s *taskService) admitTarget(ctx context.Context, step handOverStep) (bool,
 	if err != nil {
 		return false, err
 	}
-	other, conflict, err := s.conflictingStep(ctx, step.row, step.target)
+	// Read here rather than through conflictingStep, which treats a step it
+	// cannot read as one with no rule — what a claim and a completion have
+	// always been told. A hand-over whose rule cannot be read is not made:
+	// otherwise a failed read sends the task to the person the rule bars.
+	node, err := s.nodeBehind(ctx, step.row)
+	if err != nil {
+		return false, fmt.Errorf("read the step the task belongs to: %w", err)
+	}
+	if node == nil {
+		return false, apierr.Invalidf("this task's step is no longer part of its process, so nobody can check who may do it; " +
+			"it cannot be handed to anyone")
+	}
+	other, conflict, err := s.conflictingStepOn(ctx, step.row, node, step.target)
 	if err != nil {
 		return false, err
 	}

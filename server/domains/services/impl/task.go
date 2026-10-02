@@ -567,10 +567,18 @@ func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models
 func (s *taskService) conflictingStep(ctx context.Context, task models.TaskModel, userID string) (models.TaskModel, bool, error) {
 	node, err := s.nodeBehind(ctx, task)
 	if err != nil || node == nil {
-		// A task whose node cannot be read is refused by the caller's own
-		// checks; there is nothing to enforce here.
+		// For a claim and a completion, which are all that come through here,
+		// a task whose node cannot be read has nothing to enforce. A hand-over
+		// does not come through here: it reads the node itself and stops when
+		// it cannot (admitTarget).
 		return models.TaskModel{}, false, nil //nolint:nilerr // absence of a node is not a conflict
 	}
+	return s.conflictingStepOn(ctx, task, node, userID)
+}
+
+// conflictingStepOn is conflictingStep for a caller that has already read the
+// task's node, and has decided for itself what a node it cannot read means.
+func (s *taskService) conflictingStepOn(ctx context.Context, task models.TaskModel, node *entities.Node, userID string) (models.TaskModel, bool, error) {
 	conflicts := splitNodeList(node.GetStringProperty(SeparationOfDutiesKey))
 	if len(conflicts) == 0 {
 		return models.TaskModel{}, false, nil
