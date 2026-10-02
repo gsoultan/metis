@@ -457,7 +457,7 @@ func TestARepeatingSubProcessWithACallInsideIsUnchanged(t *testing.T) {
 			r := startShape(t, h, def, threeItems)
 			r.pin("entered")
 			finished := map[uuid.UUID]bool{}
-			for round := 0; round < 4; round++ {
+			for range 4 {
 				for _, childID := range r.called() {
 					if finished[childID] {
 						continue
@@ -743,7 +743,7 @@ func TestARepeatingCallActivityIsUnchanged(t *testing.T) {
 			r := startShape(t, h, def, threeItems)
 			r.pin("entered")
 			finished := map[uuid.UUID]bool{}
-			for round := 0; round < 4; round++ {
+			for range 4 {
 				for _, childID := range r.called() {
 					if finished[childID] {
 						continue
