@@ -47,7 +47,8 @@ with it.
 
 **Processes this had already stranded are not repaired.** An instance whose
 approvers had all answered before the upgrade is `active`, holds tokens on the
-approval, and has nothing open. This finds them:
+approval, and has nothing open: no task, no job waiting or running, no work
+parked for a worker, no process it called still running. This finds them:
 
 ```sql
 WITH live AS (
@@ -64,19 +65,30 @@ SELECT l.id, l.created_at
                     WHERE coalesce(t->>'iteration_id', '') = '')
    AND NOT EXISTS (SELECT 1 FROM tasks k
                     WHERE k.instance_id = l.id AND k.deleted_at IS NULL
-                      AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated'));
+                      AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated'))
+   AND NOT EXISTS (SELECT 1 FROM jobs j
+                    WHERE j.instance_id = l.id AND j.deleted_at IS NULL
+                      AND j.status IN ('pending', 'running'))
+   AND NOT EXISTS (SELECT 1 FROM external_tasks x
+                    WHERE x.instance_id = l.id AND x.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM process_instances c
+                    WHERE c.parent_instance_id = l.id AND c.deleted_at IS NULL
+                      AND c.status IN ('active', 'suspended'));
 ```
 
-Every row is an instance holding only iteration tokens with no task behind any
-of them. Whether each one's business was in fact finished is a decision, not a
-repair: end the ones that were with a migration's *End the instance* action
+Every row is an instance holding only iteration tokens with nothing in flight
+for any of them. Look at each before you end it: a step that runs once per item
+can also be waiting on something this query cannot see, such as a timer or an
+event the step is waiting for, so open the instance and check what its step
+was waiting for. Whether the business was in fact finished is a decision, not
+a repair: end the ones that were with a migration's *End the instance* action
 (`cancel`, in `docs/process-change-in-flight.md`), which records who decided
 and why.
 
 **"Two of three" now withdraws the third.** A step whose completion condition
 is met withdraws the approvals still open and tells their holders. Before the
 upgrade those tasks were left open; one left open by an *earlier* early finish
-is refused with 400 when somebody completes it — *this step has already
+is refused (400 over REST) when somebody completes it — *this step has already
 finished and the process has moved on* — and stays in their list. They are the
 open tasks, recording no run, of a step the instance no longer counts but still
 holds run tokens for:
@@ -111,7 +123,7 @@ or an interrupting boundary event ends it, the external tasks still open for it
 are deleted, with one `parked_work_withdrawn` entry in the instance's history.
 A worker still holding one is told there is no such external task. Reports from
 a worker that does not hold the task's lock, or whose lease has run out, now
-answer 400 instead of 5xx, so a client that retried on 5xx will stop retrying
+answer 400 instead of 5xx over REST, so a client that retried on 5xx will stop retrying
 them.
 
 **A process called by a step that already ended** no longer moves its parent

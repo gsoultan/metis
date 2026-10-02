@@ -1064,7 +1064,8 @@
     7. An ad-hoc sub-process whose condition is met withdraws the steps still running inside
        it, at any depth; `cancelRemainingInstances="false"` makes it wait for them instead.
        Absent means true, BPMN's default (`tests/bpmn/adhoc_withdrawal_test.go`).
-    8. No engine bookkeeping in the business variables; `go test -race` clean.
+    8. No engine bookkeeping in the business variables; `go test -race` clean, except
+       `tests/handlers` `TestTimerEvent`, a timing-sensitive test this change does not touch.
   - **Also closed, same root:** a completion condition replaced "everyone has answered"
     rather than adding to it, so a threshold the list could not reach held the step for ever;
     an iteration reported twice was counted twice; a deadline on a multi-instance approval

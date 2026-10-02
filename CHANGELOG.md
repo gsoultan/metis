@@ -108,10 +108,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   people's inboxes, and completing one could move the process on a second time
   when the condition was written on what an approver decided (*any rejection
   ends it*). The approvals nobody needs are now withdrawn — their holders are
-  told, as when a deadline takes a task — and completing one is refused with
-  400: *this task was withdrawn because its step no longer needs it, so it
+  told, as when a deadline takes a task — and completing one is refused (400
+  over REST): *this task was withdrawn because its step no longer needs it, so it
   cannot be completed*. A task that is already completed or otherwise not open
-  is refused the same way (it used to answer 403 when it had been withdrawn).
+  is refused the same way (it used to answer 403 over REST when it had been withdrawn).
   A condition is also no longer the only way such a step ends: it finishes when
   everybody asked has answered, so "two of them" over a list of one no longer
   waits for ever.
@@ -140,7 +140,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instance before the task's row, the order everything else uses. Two reports
   arriving as the step ended could deadlock, and a failure report could
   collide with the withdrawal. A report from a worker that does not hold the
-  task's lock, or whose lease has run out, is now refused with 400 and names
+  task's lock, or whose lease has run out, is now refused (400 over REST) and names
   no task; it used to come back as an unclassified error answered 5xx.
 - **A completion condition in an imported BPMN file was ignored.** Import kept
   `<completionCondition>` of a multi-instance step where nothing evaluates it,
