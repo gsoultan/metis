@@ -153,9 +153,8 @@ func TestACalledProcessReturningToAStepThatEndedBeforeTheUpgradeCanStillEnd(t *t
 // workers, has two of them done — which ends the step — and then puts back
 // what the old release left: a token for every run, and the third check still
 // parked. It returns the instance.
-func twoOfThreeChecksEndedBeforeTheUpgrade(t *testing.T, h engineHarness, key string) uuid.UUID {
+func twoOfThreeChecksEndedBeforeTheUpgrade(ctx context.Context, t *testing.T, h engineHarness, key string) uuid.UUID {
 	t.Helper()
-	ctx := h.Ctx()
 	h.deploy(t, &entities.ProcessDefinition{
 		Project: &entities.Project{ID: h.projID},
 		Key:     key,
@@ -256,7 +255,7 @@ func TestWorkParkedForAStepThatEndedBeforeTheUpgradeIsWithdrawnNotRefused(t *tes
 	h := newEngineHarness(t, "Parked Before Upgrade Project")
 	ctx := h.Ctx()
 	const topic = "checks-ended-before-upgrade"
-	instanceID := twoOfThreeChecksEndedBeforeTheUpgrade(t, h, topic)
+	instanceID := twoOfThreeChecksEndedBeforeTheUpgrade(ctx, t, h, topic)
 	before := len(trailLines(ctx, t, h, instanceID, "parked_work_withdrawn"))
 
 	leftover, err := h.svc.FetchAndLock(ctx, topic, "worker", 10, 60_000)
@@ -282,7 +281,7 @@ func TestAWorkerGivingUpOnAStepThatEndedBeforeTheUpgradeRaisesNothing(t *testing
 	h := newEngineHarness(t, "Failed Before Upgrade Project")
 	ctx := h.Ctx()
 	const topic = "checks-failed-after-upgrade"
-	instanceID := twoOfThreeChecksEndedBeforeTheUpgrade(t, h, topic)
+	instanceID := twoOfThreeChecksEndedBeforeTheUpgrade(ctx, t, h, topic)
 	before := len(trailLines(ctx, t, h, instanceID, "parked_work_withdrawn"))
 
 	leftover, err := h.svc.FetchAndLock(ctx, topic, "worker", 10, 60_000)
@@ -334,9 +333,8 @@ func firstQuoteWins(projID uuid.UUID, key, url string, withErrorPath bool) *enti
 // — which ends the step — and puts back what the old release left: a token for
 // every run. The calls for the other two suppliers are still queued, as they
 // were under either release. It returns the instance.
-func firstQuoteEndedBeforeTheUpgrade(t *testing.T, h engineHarness, def *entities.ProcessDefinition) uuid.UUID {
+func firstQuoteEndedBeforeTheUpgrade(ctx context.Context, t *testing.T, h engineHarness, def *entities.ProcessDefinition) uuid.UUID {
 	t.Helper()
-	ctx := h.Ctx()
 	h.deploy(t, def)
 	instanceID, err := h.svc.StartProcess(ctx, h.projID, def.Key, map[string]any{
 		"suppliers": []any{"northwind", "contoso", "fabrikam"},
@@ -378,7 +376,7 @@ func TestACallQueuedForAStepThatEndedBeforeTheUpgradeIsNotMade(t *testing.T) {
 	api, calls := partnerAPI(t, answersOK)
 	h := newEngineHarness(t, "Queued Before Upgrade Project")
 	ctx := h.Ctx()
-	instanceID := firstQuoteEndedBeforeTheUpgrade(t, h,
+	instanceID := firstQuoteEndedBeforeTheUpgrade(ctx, t, h,
 		firstQuoteWins(h.projID, "first-quote-wins-upgraded", api.URL, false))
 
 	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
@@ -413,7 +411,7 @@ func TestAnErrorPathDoesNotCatchAStepThatEndedBeforeTheUpgrade(t *testing.T) {
 	api, calls := partnerAPI(t, answersOK)
 	h := newEngineHarness(t, "Error Path Before Upgrade Project")
 	ctx := h.Ctx()
-	instanceID := firstQuoteEndedBeforeTheUpgrade(t, h,
+	instanceID := firstQuoteEndedBeforeTheUpgrade(ctx, t, h,
 		firstQuoteWins(h.projID, "first-quote-wins-error-path", api.URL, true))
 
 	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
