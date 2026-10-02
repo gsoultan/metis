@@ -13,6 +13,8 @@ import {
   useUnclaimTask,
   useUpdateTask,
   useAssignTask,
+  useResolveTask,
+  useTasksDelegatedByMe,
   useUsers,
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
@@ -20,6 +22,7 @@ import type { Task } from '../services/types';
 import type { ProcessVariables } from '../services/types';
 import { TASK_LIST_EVENTS } from '../domain/taskEvents';
 import { useInvalidateOnEvents } from './useEventStream';
+import type { ReasonRequest } from '../domain/taskDelegation';
 
 /**
  * The value a column sorts on.
@@ -84,6 +87,9 @@ export function useTaskInbox() {
   const [reassignModalOpened, setReassignModalOpened] = useState(false);
   const [taskToReassign, setTaskToReassign] = useState<Task | null>(null);
   const [newAssignee, setNewAssignee] = useState<string | null>(null);
+  // A release or a hand-back of a task somebody else holds, waiting for its
+  // reason. The holder's own never comes here: it goes at one press.
+  const [reasonRequest, setReasonRequest] = useState<ReasonRequest<Task> | null>(null);
 
   // Through the authenticated stream. This opened an EventSource, which cannot
   // send the Authorization header, so the events endpoint answered 401 and the
@@ -117,6 +123,12 @@ export function useTaskInbox() {
   const unclaimTaskMutation = useUnclaimTask();
   const updateTaskMutation = useUpdateTask();
   const assignTaskMutation = useAssignTask();
+  const resolveTaskMutation = useResolveTask();
+  const { data: delegatedData } = useTasksDelegatedByMe();
+  // What the reader delegated and is waiting for: theirs to complete, and not
+  // in their list while the delegate holds it.
+  const delegatedByMe = useMemo(() => delegatedData?.tasks ?? [], [delegatedData]);
+  const delegatedTotal = delegatedData?.total ?? delegatedByMe.length;
 
   // Memoised so the lists below do not see a new array identity every render.
   const assignedTasks = useMemo(() => assignedData?.tasks ?? [], [assignedData]);
@@ -135,8 +147,10 @@ export function useTaskInbox() {
     claimTaskMutation.mutate({ id, taskName });
   }, [claimTaskMutation]);
 
-  const handleUnclaim = useCallback((id: string) => {
-    unclaimTaskMutation.mutate(id);
+  const handleUnclaim = useCallback((id: string, reason?: string) => {
+    unclaimTaskMutation.mutate({ id, reason }, {
+      onSuccess: () => setReasonRequest(null),
+    });
   }, [unclaimTaskMutation]);
 
   const handleComplete = useCallback((id: string, variables: ProcessVariables, taskName?: string) => {
@@ -147,8 +161,8 @@ export function useTaskInbox() {
     });
   }, [completeTaskMutation]);
 
-  const handleAssign = useCallback((id: string, userId: string) => {
-    assignTaskMutation.mutate({ id, userId }, {
+  const handleAssign = useCallback((id: string, userId: string, reason?: string) => {
+    assignTaskMutation.mutate({ id, userId, reason }, {
       onSuccess: () => {
         setReassignModalOpened(false);
         setTaskToReassign(null);
@@ -156,6 +170,13 @@ export function useTaskInbox() {
       }
     });
   }, [assignTaskMutation]);
+
+  const handleResolve = useCallback((id: string, owner: string, reason?: string) => {
+    // The owner travels with it so the notice can say who it went back to.
+    resolveTaskMutation.mutate({ id, owner, reason }, {
+      onSuccess: () => setReasonRequest(null),
+    });
+  }, [resolveTaskMutation]);
 
   const handleSort = useCallback((field: string) => {
     if (sortBy === field) {
@@ -301,6 +322,16 @@ export function useTaskInbox() {
     handleUnclaim,
     handleComplete,
     handleAssign,
+    assigning: assignTaskMutation.isPending,
+    handleResolve,
+    // The task being handed back right now, so its button cannot be pressed twice.
+    resolvingTaskId: resolveTaskMutation.isPending ? resolveTaskMutation.variables?.id ?? null : null,
+    delegatedByMe,
+    delegatedTotal,
+    reasonRequest,
+    setReasonRequest,
+    // A release or a hand-back with a reason has been sent and not yet answered.
+    reasonInFlight: unclaimTaskMutation.isPending || resolveTaskMutation.isPending,
     updateTaskMutation,
   };
 }

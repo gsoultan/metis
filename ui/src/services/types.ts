@@ -698,3 +698,19 @@ export interface TryConnectorStepRequest {
   properties: Record<string, unknown>;
   variables: Record<string, unknown>;
 }
+
+/**
+ * A task the signed-in person delegated that is still with their delegate, as
+ * GET /tasks/delegated returns one. This list is read over REST, so the names
+ * are the server's JSON names rather than the Connect message's.
+ */
+export interface DelegatedTask {
+  id: string;
+  name: string;
+  /** The delegate: who has the task now. */
+  assignee?: { username: string };
+  /** Who delegated it — the reader. */
+  owner?: { username: string };
+  due_date?: string;
+  instance?: { id: string };
+}

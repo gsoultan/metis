@@ -63,6 +63,42 @@ const en: Catalogue = {
   'inbox.nothingWaiting':
     '{count, plural, =0 {Nothing needs your attention} one {# task waiting} other {# tasks waiting}}',
 
+  // Delegated tasks in the inbox: work that goes back to whoever delegated it
+  'handover.delegatedToYouBy': 'Delegated to you by {owner}',
+  'handover.handBack': 'Hand back',
+  'handover.handBackLabel': 'Hand {task} back to {owner}',
+  'handover.handBackFirst': 'Only {owner} completes this. Hand it back when your part is done.',
+  'handover.handedBackTitle': 'Task handed back',
+  'handover.handedBackBody': 'It is back with {owner}, who completes it.',
+  'handover.handBackFailedTitle': 'The task was not handed back',
+  'handover.handBackFailedBody': 'It is still with you. Try again, or ask an administrator.',
+  'handover.delegatedByYou': 'Delegated by you',
+  'handover.delegatedByYouHelp': 'These are with somebody else until they hand them back. You complete them.',
+  'handover.withDelegate': 'With {delegate}',
+  'handover.delegatedByYouMore': '{count, plural, one {and # more} other {and # more}}',
+
+  // Changing a task somebody else holds: the reason is kept with the task
+  'handover.reason': 'Reason',
+  'handover.reasonHint': 'Needed because this task is not with you. People looking at this task later will see this.',
+  'handover.handBackForTitle': 'Hand back: {task}',
+  'handover.handBackForBody':
+    '{delegate} is working on this for {owner}. Handing it back returns it to {owner}, who completes it.',
+  'handover.handBackForFirst': '{delegate} is working on this for {owner}. You can hand it back for them, with a reason.',
+  'handover.releaseLabel': 'Release {task} back to its group',
+  'handover.releaseTitle': 'Release task: {task}',
+  'handover.releaseBody': 'This takes the task from {holder} and puts it back for its group to claim.',
+  'handover.releaseConfirm': 'Release task',
+  'handover.reassignTitle': 'Reassign Task: {task}',
+  'handover.newAssignee': 'New Assignee',
+  'handover.selectUser': 'Select user',
+  'handover.newAssigneeHelp': 'Select a user to take responsibility for this task',
+  'handover.confirmReassign': 'Confirm Reassignment',
+  'handover.editTitle': 'Edit Task: {task}',
+  'handover.taskName': 'Task Name',
+  'handover.priority': 'Priority',
+  'handover.dueDate': 'Due Date',
+  'handover.saveChanges': 'Save Changes',
+
   // Offline and updates
   'offline.title': 'You are offline',
   'offline.body':

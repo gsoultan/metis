@@ -122,3 +122,22 @@ describe('the Platform access role view', () => {
     }
   });
 });
+
+/*
+ * Handing a task back, and the sentences the timeline tells a hand-over in,
+ * were written with their words in the catalogues from the start.
+ */
+describe('handing a task over', () => {
+  const AREAS = ['handover.', 'timeline.'];
+
+  it('is translated into Indonesian, every word of it, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const keys = Object.keys(english).filter((key) => AREAS.some((area) => key.startsWith(area)));
+    expect(keys.length).toBeGreaterThan(10);
+    for (const key of keys) {
+      expect(indonesian[key], `id has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+});

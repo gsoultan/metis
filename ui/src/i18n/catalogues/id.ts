@@ -62,6 +62,42 @@ const id: Catalogue = {
   'inbox.nothingWaiting':
     '{count, plural, =0 {Tidak ada yang memerlukan perhatian Anda} other {# tugas menunggu}}',
 
+  'handover.delegatedToYouBy': 'Didelegasikan kepada Anda oleh {owner}',
+  'handover.handBack': 'Kembalikan',
+  'handover.handBackLabel': 'Kembalikan {task} kepada {owner}',
+  'handover.handBackFirst': 'Hanya {owner} yang menyelesaikan tugas ini. Kembalikan setelah bagian Anda selesai.',
+  'handover.handedBackTitle': 'Tugas dikembalikan',
+  'handover.handedBackBody': 'Tugas kembali ke {owner}, yang akan menyelesaikannya.',
+  'handover.handBackFailedTitle': 'Tugas tidak berhasil dikembalikan',
+  'handover.handBackFailedBody': 'Tugas masih ada pada Anda. Coba lagi, atau hubungi administrator.',
+  'handover.delegatedByYou': 'Anda delegasikan',
+  'handover.delegatedByYouHelp': 'Tugas ini ada pada orang lain sampai dikembalikan. Anda yang menyelesaikannya.',
+  'handover.withDelegate': 'Pada {delegate}',
+  'handover.delegatedByYouMore': '{count, plural, other {dan # lainnya}}',
+
+  'handover.reason': 'Alasan',
+  'handover.reasonHint':
+    'Diperlukan karena tugas ini tidak ada pada Anda. Orang yang melihat tugas ini nanti akan membacanya.',
+  'handover.handBackForTitle': 'Kembalikan: {task}',
+  'handover.handBackForBody':
+    '{delegate} sedang mengerjakan tugas ini untuk {owner}. Jika dikembalikan, tugas kembali ke {owner}, yang akan menyelesaikannya.',
+  'handover.handBackForFirst':
+    '{delegate} sedang mengerjakan tugas ini untuk {owner}. Anda dapat mengembalikannya atas nama mereka, dengan alasan.',
+  'handover.releaseLabel': 'Lepaskan {task} kembali ke grupnya',
+  'handover.releaseTitle': 'Lepaskan tugas: {task}',
+  'handover.releaseBody': 'Tugas ini diambil dari {holder} dan dikembalikan agar dapat diambil oleh grupnya.',
+  'handover.releaseConfirm': 'Lepaskan tugas',
+  'handover.reassignTitle': 'Alihkan Tugas: {task}',
+  'handover.newAssignee': 'Penanggung Jawab Baru',
+  'handover.selectUser': 'Pilih pengguna',
+  'handover.newAssigneeHelp': 'Pilih pengguna yang akan bertanggung jawab atas tugas ini',
+  'handover.confirmReassign': 'Konfirmasi Pengalihan',
+  'handover.editTitle': 'Ubah Tugas: {task}',
+  'handover.taskName': 'Nama Tugas',
+  'handover.priority': 'Prioritas',
+  'handover.dueDate': 'Tenggat',
+  'handover.saveChanges': 'Simpan Perubahan',
+
   'offline.title': 'Anda sedang luring',
   'offline.body':
     'Anda masih dapat membaca yang sudah dimuat, dan menyelesaikan tugas di kotak masuk. Semuanya akan dikirim saat Anda kembali daring.',
