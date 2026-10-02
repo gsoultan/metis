@@ -49,6 +49,33 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 		if err != nil {
 			return err
 		}
+
+		// Then hold the instance, and ask for the task again.
+		//
+		// The instance first and the task's row second, which is the order the
+		// engine takes them in when a step ends and it withdraws the work still
+		// parked for it (Engine.endActivity). This used to delete the row and
+		// then wait for the instance; a completion that ended the step held the
+		// instance and waited to withdraw that row. Each held what the other
+		// wanted, the database ended one of them as a deadlock, and a worker was
+		// told its report had failed.
+		//
+		// Read again because the wait is where the task goes: withdrawn by the
+		// completion that ended its step, or completed by an earlier report of
+		// the same work. Either way it is no longer there to report on, and the
+		// worker is told so rather than counted.
+		//
+		// It is written back whole below, too: two branches whose workers
+		// finished at the same moment each wrote a token list without the
+		// other's progress in it, and the join then waited for a branch that
+		// had finished.
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, uuid.UUID(m.ProcessInstanceID))
+		if err != nil {
+			return err
+		}
+		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
+			return err
+		}
 		task := adapters.ExternalTaskEntityAdapter{Model: *m}.ToEntity()
 
 		if task.WorkerID != workerID {
@@ -64,15 +91,7 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 			return err
 		}
 
-		// 2. Fetch instance and definition, holding the instance. It is written
-		// back whole below, and two branches whose workers finished at the same
-		// moment each wrote a token list without the other's progress in it:
-		// the join then waited for a branch that had finished.
-		instance, err := s.engine.GetInstanceForUpdate(txCtx, task.ProcessInstance.ID)
-		if err != nil {
-			return err
-		}
-
+		// 2. The definition the instance is running.
 		def, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
 		if err != nil {
 			return err

@@ -46,6 +46,13 @@ const (
 	// EventInstanceHeld marks an instance a migration deliberately left behind
 	// for a person to decide.
 	EventInstanceHeld = "instance_held"
+	// EventParkedWorkWithdrawn marks work a step had parked for outside
+	// workers and took back when it ended without it.
+	//
+	// Withdrawing that work removes its row, which is also what completing it
+	// does. Without this entry nothing on the instance tells the two apart, and
+	// a worker told there is no such task has nowhere to find out why.
+	EventParkedWorkWithdrawn = "parked_work_withdrawn"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each

@@ -163,6 +163,33 @@ func TestAnEarlyEndWithdrawsTheWorkParkedForWorkers(t *testing.T) {
 	if left := tokenIterationsOn(ctx, t, h, instanceID, "check"); len(left) != 0 {
 		t.Fatalf("the finished step still holds tokens %v", left)
 	}
+
+	// Withdrawing the work removes its row, as completing it does. The trail
+	// is what says which happened: one line for the step, in words, with the
+	// task it was in the data.
+	trail, err := h.engine.GetAuditLogs(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	var lines []entities.AuditEntry
+	for _, entry := range trail {
+		if entry.Type == "parked_work_withdrawn" {
+			lines = append(lines, entry)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("the trail has %d line(s) saying the step's parked work was withdrawn, want 1", len(lines))
+	}
+	line := lines[0]
+	if !strings.Contains(line.Narrative, "Check the supplier") || !strings.Contains(line.Narrative, "withdrawn") {
+		t.Fatalf("the trail's line does not say what was withdrawn from which step: %q", line.Narrative)
+	}
+	if strings.Contains(line.Narrative, instanceID.String()) || strings.Contains(line.Narrative, fetched[0].ID.String()) {
+		t.Fatalf("the trail's line names an id a person cannot read: %q", line.Narrative)
+	}
+	if ids, _ := line.Data["external_task_ids"].([]any); len(ids) != 1 {
+		t.Fatalf("the trail's line does not say which task was withdrawn: %v", line.Data)
+	}
 	finishRecording(ctx, t, h, instanceID)
 }
 

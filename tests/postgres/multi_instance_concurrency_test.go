@@ -291,3 +291,102 @@ func TestTheLastApprovalsArrivingTogetherAdvanceTheProcessOnce(t *testing.T) {
 		t.Errorf("the next step was opened %d times, want once", summaries)
 	}
 }
+
+// BPMN 2.0.2 §10.3.8: a completionCondition that holds cancels the remaining
+// instances and produces a token — one token, however the last completions
+// were timed.
+//
+// The same step done by workers rather than approvers: three checks of a
+// two-of-three step reported at the same moment. Completing one deleted its
+// row and then waited for the instance; the completion that met the condition
+// held the instance and waited to withdraw that row. Each held what the other
+// wanted, the database ended one of them as a deadlock, and a worker was told
+// its report had failed rather than that the work was no longer wanted.
+func TestTheLastChecksReportedTogetherAdvanceTheProcessOnce(t *testing.T) {
+	db := testutils.SetupPostgresDB(t, 8)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
+	workers := serviceimpl.NewExternalTaskService(repo, engine)
+
+	def := multiInstanceDefinition(projID, "check-two-of-three")
+	def.Nodes[1].Type = entities.ServiceTask
+	def.Nodes[1].ExternalTopic = "item-check"
+	def.Nodes[1].CompletionCondition = "nrOfCompletedInstances >= 2"
+	if _, err := serviceimpl.NewDefinitionService(repo).CreateDefinition(ctx, def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	// Several instances, so the interleaving that deadlocks is met rather than
+	// hoped for.
+	const instances = 6
+	ids := make([]uuid.UUID, 0, instances)
+	for range instances {
+		id, err := engine.StartProcess(ctx, projID, "check-two-of-three", map[string]any{
+			"items": []any{"a", "b", "c"},
+		})
+		if err != nil {
+			t.Fatalf("start process: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	checks, err := workers.FetchAndLock(ctx, "item-check", "worker", 3*instances, 60_000)
+	if err != nil || len(checks) != 3*instances {
+		t.Fatalf("expected %d checks: %d, err=%v", 3*instances, len(checks), err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, len(checks))
+	var wg sync.WaitGroup
+	for _, check := range checks {
+		wg.Go(func() {
+			<-start
+			results <- workers.Complete(ctx, check.ID, "worker", nil)
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	refused := 0
+	for err := range results {
+		if err == nil {
+			continue
+		}
+		// The work is gone from the list: the answer a worker gets for a task
+		// that is not there to report on.
+		if !errors.Is(err, apierr.ErrNotFound) {
+			t.Fatalf("a report failed rather than being refused: %v", err)
+		}
+		refused++
+	}
+	if refused != instances {
+		t.Fatalf("%d of %d reports were refused, want exactly the third of each instance: %d",
+			refused, len(checks), instances)
+	}
+
+	for _, id := range ids {
+		final, err := engine.GetInstance(ctx, id)
+		if err != nil {
+			t.Fatalf("reload instance: %v", err)
+		}
+		if left := len(final.GetTokensByNode(&entities.Node{ID: "review"})); left != 0 {
+			t.Errorf("the finished step still holds %d token(s)", left)
+		}
+		if on := len(final.GetTokensByNode(&entities.Node{ID: "summarise"})); on != 1 {
+			t.Errorf("the process holds %d token(s) on the next step, want 1", on)
+		}
+		after, err := repo.Task().ListByInstance(ctx, id)
+		if err != nil {
+			t.Fatalf("list tasks: %v", err)
+		}
+		if len(after) != 1 || after[0].NodeID != "summarise" {
+			t.Errorf("the next step was opened %d times, want once", len(after))
+		}
+		parked, err := repo.ExternalTask().ListByProcessInstance(ctx, id)
+		if err != nil {
+			t.Fatalf("list external tasks: %v", err)
+		}
+		if len(parked) != 0 {
+			t.Errorf("%d check(s) are still parked for a step that ended", len(parked))
+		}
+	}
+}

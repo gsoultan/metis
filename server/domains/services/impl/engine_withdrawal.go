@@ -113,7 +113,12 @@ func (e *Engine) cancelOpenTasksOn(ctx context.Context, instance *entities.Proce
 //
 // The row is deleted, which is what completing one does: the list holds only
 // work that is still wanted. A worker that had already fetched one finds it
-// gone when it reports back, and is told there is no such task.
+// gone when it reports back, and is told there is no such task. What tells the
+// two apart afterwards is the instance's trail: see recordParkedWorkWithdrawn.
+//
+// Called with the instance held, so everything else that takes a task's row
+// and the instance has to take the instance first — see
+// externalTaskService.Complete.
 //
 // A failure is returned, for the reason cancelOpenTasksForNode returns one.
 func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
@@ -121,7 +126,7 @@ func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entitie
 	if err != nil {
 		return fmt.Errorf("list external tasks for instance %s: %w", instance.ID, err)
 	}
-	withdrawn := 0
+	var withdrawn []string
 	for _, task := range parked {
 		if task.NodeID != node.ID {
 			continue
@@ -129,14 +134,57 @@ func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entitie
 		if err := e.repo.ExternalTask().Delete(ctx, uuid.UUID(task.ID)); err != nil {
 			return fmt.Errorf("withdraw external task %s on node %s: %w", uuid.UUID(task.ID), node.ID, err)
 		}
-		withdrawn++
+		withdrawn = append(withdrawn, uuid.UUID(task.ID).String())
 	}
-	if withdrawn > 0 {
-		log.Info().
-			Str("instance_id", instance.ID.String()).
-			Str("node_id", node.ID).
-			Int("withdrawn", withdrawn).
-			Msg("An activity ended with work still parked for workers; that work was withdrawn")
+	if len(withdrawn) > 0 {
+		e.recordParkedWorkWithdrawn(ctx, instance, node, withdrawn)
 	}
 	return nil
+}
+
+// recordParkedWorkWithdrawn writes, on the instance's trail, that a step ended
+// with work still parked for workers and that the work was taken back.
+//
+// One line for the step, however much work it had parked: the question asked
+// later is why the step's work disappeared, not what became of each piece. The
+// line names the step as the diagram does; which tasks they were is in the
+// entry's data, for whoever is asked by a worker why its task is gone.
+//
+// It is written by the engine rather than raised as an event, because a
+// task-withdrawn event is addressed to the person who held the task and
+// nobody holds this one.
+//
+// A line that cannot be written is reported and does not stop the step
+// ending, as everywhere else the trail is written: the trail describes what
+// the process did and is not a reason for it to do something else.
+func (e *Engine) recordParkedWorkWithdrawn(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node, taskIDs []string) {
+	stepName := "A step"
+	if node.Name != "" {
+		stepName = fmt.Sprintf("'%s'", node.Name)
+	}
+	work := "piece of work it had waiting for a worker was"
+	if len(taskIDs) != 1 {
+		work = "pieces of work it had waiting for a worker were"
+	}
+	entry := entities.AuditEntry{
+		Project:  instance.Project,
+		Instance: &entities.ProcessInstance{ID: instance.ID},
+		Node:     node,
+		Type:     EventParkedWorkWithdrawn,
+		Message:  "Work parked for workers was withdrawn when its step ended",
+		Narrative: fmt.Sprintf("%s ended before all of its work was done, so the %d %s withdrawn.",
+			stepName, len(taskIDs), work),
+		Data: map[string]any{
+			"node_id":           node.ID,
+			"external_task_ids": taskIDs,
+		},
+		Timestamp: time.Now(),
+	}
+	if err := NewAuditWriter(e.repo.Audit()).RecordEvent(ctx, entry); err != nil {
+		log.Error().Err(err).
+			Str("instance_id", instance.ID.String()).
+			Str("node_id", node.ID).
+			Strs("external_task_ids", taskIDs).
+			Msg("Could not record that parked work was withdrawn; the trail is incomplete from here")
+	}
 }
