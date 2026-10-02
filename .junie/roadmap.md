@@ -1081,15 +1081,17 @@
     8. No engine bookkeeping in the business variables; `go test -race` clean, except
        `tests/handlers` `TestTimerEvent`, a timing-sensitive test this change does not touch.
     9. Every repeating step that is not an approval, and every step that runs once, does what
-       it did at `90e1413` (`tests/bpmn/repeating_shapes_unchanged_test.go`, 268 pinned
-       steps over 24 tests).
+       it did at `90e1413` (`tests/bpmn/repeating_shapes_unchanged_test.go`, 370 pinned
+       steps over 28 tests, designed and imported definitions).
   - **Also closed for approvals, same root:** a completion condition replaced "everyone has
     answered" rather than adding to it, so a threshold the list could not reach held the step
     for ever; an iteration reported twice was counted twice; a deadline on a repeating
     approval fired after everybody had answered, and when it did end the approval it left the
     count of iterations behind. An approval that ended early *before* the upgrade — count
     dropped, a token left for every approver, the other approvals still open — refuses those
-    approvals when somebody completes one, and a deadline still queued for it does not fire
+    approvals when somebody completes one, and a deadline still queued for it does not fire;
+    an approval a deadline interrupted before the upgrade — count left, tokens gone — is
+    still moved on by its deadline when the process comes back to it
     (`tests/bpmn/multi_instance_approval_upgrade_test.go`). An approval inside a sub-process
     that runs one item at a time finishes
     (`TestARepeatingApprovalInsideASubProcessRunOneItemAtATimeFinishes`).
@@ -1110,16 +1112,24 @@
       fails, no retry and no incident. Only there: a job whose step is not inside an ad-hoc
       sub-process, or whose ad-hoc sub-process is still open, does what it always did.
     - Completing a withdrawn task is `400` (it was `403`), as is completing one already done.
-  - **Closed on import:** an imported completion condition has the marking other modelers
+  - **Closed on import, for approvals only:** an imported completion condition on a user
+    task or a manual task is the one the engine evaluates, has the marking other modelers
     put around an expression taken off — `${…}`, `#{…}`, a leading `=` — and one the
     evaluator still cannot read is refused on import, naming the step, instead of running
     the step for everybody (`TestAnImportedConditionInAnotherModelersFormStillEndsTheStepAtTwo`,
-    `TestAnImportedConditionTheEngineCannotReadIsRefusedAndNothingIsDeployed`). Sequence-flow
-    conditions are imported as written, as before.
+    `TestAnImportedConditionTheEngineCannotReadIsRefusedAndNothingIsDeployed`). On every
+    other repeating step import does what it did before the slice: the condition is kept as
+    written in the `multi_instance_completion_condition` property, is not evaluated, is not
+    a reason to refuse the file, and is written back on export
+    (`TestAnImportedCompletionConditionIsEvaluatedOnlyOnAnApproval`, and the four
+    `TestAnImportedRepeating…IsUnchanged` tests of the suite). Made live there it met the
+    loose counting those steps keep: one advance per report, or a step that never ends.
+    Sequence-flow conditions are imported as written, as before.
   - **Deliberately not done:** instances this defect had already stranded are not repaired —
     `docs/upgrading.md` has the query that finds them. A version imported before this release
     keeps its completion condition where nothing evaluates it and goes on running all-of-N
-    until it is imported again.
+    until it is imported again — and, for a step that is not an approval, after that too:
+    an imported completion condition takes effect on approvals only in this release.
   - **Found and not fixed — for the backlog:**
     - `P0-REL` — **the looseness of every repeating step that is not an approval**, pinned as
       it is by `tests/bpmn/repeating_shapes_unchanged_test.go` and waiting on the follow-up
@@ -1150,12 +1160,27 @@
       the first item only, and the sub-process then waits for ever (it waited for ever before
       the slice too, with the approval's tokens left on it). Seen in a probe; needs a test
       with the follow-up.
-    - `P0-REL` — an imported completion condition written against Camunda 8's counter names
-      (`numberOfInstances`, `numberOfCompletedInstances`, …) is accepted and never holds, and
-      so is one that uses a single `=` to compare with something that is not a plain value
-      (`nrOfCompletedInstances = nrOfInstances - 1`): `logic.CheckCondition` accepts the
-      one-`=` shape without parsing its right-hand side. Either alias or refuse the counter
-      names, and parse the plain shape with FEEL too.
+    - `P0-REL` — an imported completion condition on an approval written against Camunda 8's
+      counter names (`numberOfInstances`, `numberOfCompletedInstances`, …) is accepted and
+      never holds, and so is one that uses a single `=` to compare with something that is not
+      a plain value (`nrOfCompletedInstances = nrOfInstances - 1`): the approval then runs
+      all-of-N. `logic.CheckCondition` accepts the one-`=` shape without parsing its
+      right-hand side. Either alias or refuse the counter names, and parse the plain shape
+      with FEEL too.
+    - `P0-REL` — an approval a boundary event interrupted before migration 31 keeps its
+      count; when the process comes back to it the step asks nobody until that boundary
+      event fires again (as before the slice). With a deadline it mends itself after one
+      more deadline; with a message or signal that never comes it stays there.
+      `docs/upgrading.md` has the query. Re-entering a step whose count has no run behind
+      it should start it afresh.
+    - A completion the engine refuses is announced first: `CompleteTask` writes the task and
+      dispatches its completed event before the engine can decline (a task an approval that
+      ended before the upgrade left open). The transaction rolls back; observers have been
+      called in it. Ask before announcing.
+    - A repeating approval over an empty list that holds two plain tokens: the first
+      completion takes both, the second person is refused and their task stays open.
+    - A service call queued for a step of an ad-hoc sub-process that finished and was then
+      entered again is made: the sub-process holds a token again.
     - `P0-REL` — BPMN import does not read `zeebe:loopCharacteristics`, so a Camunda 8 file's
       multi-instance step runs once whatever its condition says; the leading-`=` support only
       helps a file that also carries `camunda:collection`.

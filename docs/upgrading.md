@@ -62,8 +62,9 @@ them, which this release does not fix:
   process on from a step it has left;
 - a sub-process run once per item in parallel does not finish when it has a
   service call inside, or three or more waiting steps inside whose runs
-  overlap: the instance stays `active` with nothing open, and neither query
-  below lists it;
+  overlap, or an approval inside that itself runs once per person (only the
+  first item's approvers are asked): the instance stays `active` with nothing
+  open, and no query below lists it;
 - a deadline on a sub-process that runs once per item never fires.
 
 Fixing these needs each run of a repeating sub-process to have tokens of its
@@ -157,6 +158,45 @@ the old release left them, so once its tasks are closed and the instance has
 nothing else in flight it appears in the first list, to be looked at and ended
 like the others.
 
+**An approval a deadline interrupted before the upgrade is still counting.**
+Before the upgrade an interrupting deadline (or any other interrupting boundary
+event) on an approval took its tokens and its tasks and left its count; from
+this release it takes the count too. An instance interrupted before the upgrade
+keeps the count it was left with. That matters only if the process comes back
+to the approval — "chase, then ask again": the step is entered as if it were
+already running and asks nobody, exactly as before the upgrade, and sits there
+until its boundary event fires again. When it does, the approval ends whole,
+and the next time the process reaches it everybody is asked. If the boundary
+event is a deadline that is a wait of one more deadline; if it is a message or
+a signal that may never come, the instance stays on the approval with nothing
+open, and neither query above lists it. This lists the instances that still
+carry such a count, on the approval or elsewhere:
+
+```sql
+WITH live AS (
+  SELECT i.id,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens,
+         CASE WHEN jsonb_typeof(i.multi_instance::jsonb) = 'object'
+              THEN i.multi_instance::jsonb ELSE '{}'::jsonb END AS counting
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, c.node_id,
+       EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                WHERE t->>'node_id' = c.node_id) AS on_the_step
+  FROM live l CROSS JOIN LATERAL jsonb_object_keys(l.counting) AS c(node_id)
+ WHERE EXISTS (SELECT 1 FROM tasks k
+                WHERE k.instance_id = l.id AND k.node_id = c.node_id AND k.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                    WHERE t->>'node_id' = c.node_id AND coalesce(t->>'iteration_id', '') <> '');
+```
+
+A row with `on_the_step` false is elsewhere in its process and needs nothing
+unless it comes back. A row with it true is on the approval asking nobody: let
+its deadline pass, or, if nothing will fire, end the instance or move it with a
+migration as you would have before the upgrade.
+
 **An approval now also finishes when everybody asked has answered**, whatever
 its condition says. A condition that the list could not satisfy used to hold
 the step for ever; check any condition on a repeating user task or manual task
@@ -166,26 +206,34 @@ still replaces "everybody has answered", as before.
 **Versions imported from BPMN before this release** keep a multi-instance
 completion condition where nothing evaluates it, and go on running all-of-N —
 changing a deployed version under its running instances is not something an
-upgrade should do. Import the file again (or export and re-import the version)
-to deploy one that honours it.
+upgrade should do. For an approval — a user task or a manual task — import the
+file again (or export and re-import the version) to deploy one that honours
+the condition. For every other repeating step importing again changes nothing:
+in this release an imported completion condition takes effect on approvals
+only, and on a service task, an external task, a call activity or a script it
+stays where it was, not evaluated, and the step runs for every item.
 
-**A file whose completion condition cannot be read is now refused on import.**
-A completion condition is read in Metis's own expression language (FEEL): for
-example `nrOfCompletedInstances >= 2`, or `nrOfCompletedInstances /
-nrOfInstances >= 0.6`. The marking another modeler puts around an expression is
-taken off — `${…}` and `#{…}` (Camunda 7, Flowable), a leading `=` (Camunda 8)
-— so `${nrOfCompletedInstances >= 2}` now works where it used to be imported
-and never hold. What is inside is not translated: a condition written with
-`==`, `&&` or a method call is refused (400 over REST) with a message naming
-the step, where it used to import and run the step for everybody. Rewrite the
-condition and import again. Two kinds of condition are still imported and then
-never hold, so check for them by eye: one written against Camunda 8's counter
-names (`numberOfInstances`, `numberOfCompletedInstances` and the like — Metis
-provides `nrOfInstances`, `nrOfCompletedInstances`, `nrOfActiveInstances`), and
-one that uses a single `=` to compare with something other than a plain value
+**A file whose completion condition on an approval cannot be read is now
+refused on import.** A completion condition is read in Metis's own expression
+language (FEEL): for example `nrOfCompletedInstances >= 2`, or
+`nrOfCompletedInstances / nrOfInstances >= 0.6`. The marking another modeler
+puts around an expression is taken off — `${…}` and `#{…}` (Camunda 7,
+Flowable), a leading `=` (Camunda 8) — so `${nrOfCompletedInstances >= 2}` now
+works where it used to be imported and never hold. What is inside is not
+translated: a condition written with `==`, `&&` or a method call is refused
+(400 over REST) with a message naming the step, where it used to import and run
+the step for everybody. Rewrite the condition and import again. Two kinds of
+condition are still imported and then never hold — the approval then finishes
+only when everybody has answered — so check for them by eye: one written
+against Camunda 8's counter names (`numberOfInstances`,
+`numberOfCompletedInstances` and the like — Metis provides `nrOfInstances`,
+`nrOfCompletedInstances`, `nrOfActiveInstances`), and one that uses a single
+`=` to compare with something other than a plain value
 (`nrOfCompletedInstances = nrOfInstances - 1`; write `>=`, or compare with a
-number). Conditions on sequence flows are imported as written, as before; a
-gateway that cannot choose a flow raises an error when it is reached.
+number). A file is not refused for a condition on a step that is not an
+approval, readable or not. Conditions on sequence flows are imported as
+written, as before; a gateway that cannot choose a flow raises an error when
+it is reached.
 
 **Ad-hoc sub-processes** now withdraw the steps still running inside them when
 their completion condition is met, at any depth, with the tasks, the work
