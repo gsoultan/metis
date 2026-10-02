@@ -477,9 +477,12 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 			return err
 		}
 		// A reclaimed job whose earlier attempt committed this advance and died
-		// before the job said so. Advancing again would not fail — removing a
-		// token that is not there is a no-op, and the outgoing flows would be
-		// followed a second time — so the token is checked instead.
+		// before the job said so, or one whose step ended without it. On a step
+		// that runs once, advancing again would not fail — removing a token that
+		// is not there is a no-op, and the outgoing flows would be followed a
+		// second time. On a step that runs once per item the engine refuses a
+		// run with no token, and the refusal would fail a job that has nothing
+		// left to do. So the token is checked instead.
 		if !tokenWaitsAt(&instance, node, job.IterationID) {
 			return s.completeJob(txCtx, job)
 		}

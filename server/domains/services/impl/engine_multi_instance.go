@@ -15,6 +15,10 @@ import (
 // early.
 //
 // Its text reaches whoever completed a task, so it names no step and no id.
+// The callers that are not a person never get this far: a job checks for its
+// token first (tokenWaitsAt), work parked for a worker is withdrawn when the
+// step ends (endActivity), and a called process returning to a step that holds
+// no token is recorded rather than resumed (EndEventHandler.resumeParent).
 var errIterationNotWaiting = apierr.Invalidf(
 	"the process is no longer waiting for this part of the step, so it cannot be completed again")
 
@@ -49,8 +53,10 @@ func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entit
 //
 // So the iteration is resolved first (ProcessInstance.WaitingIteration), a
 // completion with no token to retire is refused rather than counted, and a
-// finished step gives up every token it still holds — which also clears one a
-// completion made before migration 31 left behind.
+// finished step gives up everything it still holds: its tokens always, and —
+// when its completion condition ended it early — the tasks of the iterations
+// nobody will finish, and the work parked for workers on their behalf
+// (endActivity).
 func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
 	if !instance.IsMultiInstanceActive(nodeID) {
 		return finishUncountedRun(instance, node, iterationID)
@@ -67,6 +73,18 @@ func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *ent
 		return false, e.continueMultiInstance(ctx, instance, def, node, completed, total)
 	}
 
+	if completed < total {
+		// Ended by its completion condition with iterations still open. BPMN
+		// 2.0.2 §10.3.8: the condition "cancels the remaining Activity
+		// instances" — their tokens, and the tasks behind them. Leaving the
+		// tasks open is what let a later completion advance the process a
+		// second time.
+		return true, e.endActivity(ctx, instance, node)
+	}
+
+	// Every iteration finished, so no task is open and nothing is read. A token
+	// may still be here: one that a completion made before migration 31 counted
+	// and did not retire.
 	instance.RemoveTokenByNode(node)
 	instance.FinishMultiInstance(nodeID)
 	return true, nil
@@ -89,10 +107,18 @@ func finishUncountedRun(instance *entities.ProcessInstance, node *entities.Node,
 }
 
 // multiInstanceDone reports whether a step that has finished `completed` of
-// `total` iterations is done.
+// `total` iterations is done: every iteration has finished, or its completion
+// condition holds — whichever comes first (BPMN 2.0.2 §13.2.7).
+//
+// The condition used to replace "every iteration has finished" rather than add
+// to it. "Two of them" over a list of one never read true, and the step waited
+// for an approval nobody had been asked for.
 func multiInstanceDone(instance *entities.ProcessInstance, node *entities.Node, completed, total int) bool {
+	if completed >= total {
+		return true
+	}
 	if node.CompletionCondition == "" {
-		return completed >= total
+		return false
 	}
 	// The condition sees the business variables plus BPMN's own progress
 	// counters, without either being written back to the instance.

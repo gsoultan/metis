@@ -11,6 +11,7 @@ import (
 	contracts2 "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/rs/zerolog/log"
 )
 
 // --- Minimal engine surfaces used by event handlers ---
@@ -51,9 +52,18 @@ func (h *StartEventHandler) DoExecute(ctx context.Context, instance *entities.Pr
 	return h.engine.ProceedIteration(ctx, instance, def, node.ID, iterationID)
 }
 
+// EventCalledProcessFinishedLate is the timeline entry, on the calling
+// instance, for a called process that finished after the step that called it
+// had already ended.
+const EventCalledProcessFinishedLate = "called_process_finished_late"
+
 // EndEventHandler handles the end of a process path.
 type EndEventHandler struct {
 	engine endEventEngine
+
+	// auditWriter records, on the calling instance, a called process that
+	// finished with nothing left waiting for it. See resumeParent.
+	auditWriter contracts2.AuditWriter
 }
 
 func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
@@ -113,6 +123,15 @@ func (h *EndEventHandler) DoExecute(ctx context.Context, instance *entities.Proc
 // activity forever, and the sub-process it was waiting on has already been
 // marked completed — so an error swallowed here is a process that can never
 // finish and never reports why.
+//
+// A parent that is no longer waiting is not a failure. The step that called
+// this process can end without it — a deadline on the step, or a completion
+// condition that enough of the other calls satisfied — and nothing in the
+// engine ends a called process from outside, so it runs on and arrives here
+// late. It ends as it would have; the parent is left exactly as it is, results
+// included, and its trail says a called process finished after the step had
+// ended. Resuming it anyway is what moved a parent on a second time, and
+// refusing is what left a called process unable to end at all.
 func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.ProcessInstance) error {
 	parentInstance, err := h.engine.GetInstance(ctx, instance.ParentInstance.ID)
 	if err != nil {
@@ -131,7 +150,12 @@ func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.P
 	if instance.ParentNode != nil {
 		parentNodeID = instance.ParentNode.ID
 	}
-	if callActivityNode := parentDef.FindNode(parentNodeID); callActivityNode != nil {
+	callActivityNode := parentDef.FindNode(parentNodeID)
+	if len(parentInstance.GetTokensByNode(&entities.Node{ID: parentNodeID})) == 0 {
+		h.recordLateReturn(ctx, &parentInstance, callActivityNode, parentNodeID, instance)
+		return nil
+	}
+	if callActivityNode != nil {
 		applyOutputMapping(callActivityNode, instance, &parentInstance)
 	}
 
@@ -142,6 +166,55 @@ func (h *EndEventHandler) resumeParent(ctx context.Context, instance *entities.P
 		return fmt.Errorf("resume parent instance %s at call activity %q: %w", parentInstance.ID, parentNodeID, err)
 	}
 	return nil
+}
+
+// recordLateReturn writes, on the parent's trail, that a process it called
+// finished after the step that called it had ended.
+//
+// The line is for whoever later asks why a called process shows as completed
+// and nothing came of it. It names the step as the diagram does; the ids are
+// in the entry's data, for whoever needs to find the called process.
+//
+// A trail that cannot be written does not stop the called process ending: it
+// has finished, and failing it would put it back in somebody's inbox to be
+// finished again with the same result.
+func (h *EndEventHandler) recordLateReturn(ctx context.Context, parent *entities.ProcessInstance, callActivityNode *entities.Node, parentNodeID string, child *entities.ProcessInstance) {
+	log.Warn().
+		Str("instance_id", parent.ID.String()).
+		Str("node_id", parentNodeID).
+		Str("called_instance_id", child.ID.String()).
+		Msg("A called process finished after the step that called it had ended; its parent was not resumed")
+	if h.auditWriter == nil {
+		return
+	}
+
+	node := &entities.Node{ID: parentNodeID}
+	stepName := "the step that called it"
+	if callActivityNode != nil {
+		node = callActivityNode
+		if callActivityNode.Name != "" {
+			stepName = fmt.Sprintf("'%s'", callActivityNode.Name)
+		}
+	}
+	entry := entities.AuditEntry{
+		Project:  parent.Project,
+		Instance: &entities.ProcessInstance{ID: parent.ID},
+		Node:     node,
+		Type:     EventCalledProcessFinishedLate,
+		Message:  "A called process finished after its step had ended",
+		Narrative: fmt.Sprintf(
+			"A process called by %s finished after the step had already ended, so its result was not used.",
+			stepName),
+		Data:      map[string]any{"called_instance_id": child.ID.String()},
+		Timestamp: time.Now(),
+	}
+	if err := h.auditWriter.RecordEvent(ctx, entry); err != nil {
+		log.Error().Err(err).
+			Str("instance_id", parent.ID.String()).
+			Str("node_id", parentNodeID).
+			Str("called_instance_id", child.ID.String()).
+			Msg("Could not record that a called process finished late; the trail is incomplete from here")
+	}
 }
 
 // applyOutputMapping copies variables from a finished sub-process back into its

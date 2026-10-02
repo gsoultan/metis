@@ -100,7 +100,11 @@ func (s *stubEngine) GetInstance(ctx context.Context, id uuid.UUID) (entities.Pr
 	if s.getInstance != nil {
 		return s.getInstance(ctx, id)
 	}
-	return entities.ProcessInstance{ID: id, Definition: &entities.ProcessDefinition{ID: uuid.New()}}, nil
+	// A parent waiting on the process it called holds a token at the call
+	// activity, which the tests here name "check".
+	parent := entities.ProcessInstance{ID: id, Definition: &entities.ProcessDefinition{ID: uuid.New()}}
+	parent.AddToken(&entities.Node{ID: "check"})
+	return parent, nil
 }
 
 func (s *stubEngine) GetProcessDefinition(ctx context.Context, id uuid.UUID) (*entities.ProcessDefinition, error) {

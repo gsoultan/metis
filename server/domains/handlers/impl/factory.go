@@ -57,7 +57,7 @@ func (f *nodeHandlerFactory) GetHandler(nodeType entities.NodeType) (handlercont
 	case entities.UserTask:
 		internal = &UserTaskHandler{f.taskService, f.decisionService, f.auditWriter}
 	case entities.EndEvent:
-		internal = &EndEventHandler{f.engine}
+		internal = &EndEventHandler{engine: f.engine, auditWriter: f.auditWriter}
 	case entities.TerminateEndEvent:
 		internal = &TerminateEndEventHandler{f.engine}
 	case entities.ExclusiveGateway:

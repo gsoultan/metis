@@ -69,6 +69,19 @@ func TestADeadlineWithdrawsEveryOpenTaskOfTheActivityItInterrupts(t *testing.T) 
 		t.Fatalf("the deadline ended the activity and %d of its %d tasks are still open in somebody's inbox",
 			open, attestors)
 	}
+
+	// BPMN 2.0.2 §13.4.3 (Intermediate Boundary Events): an interrupting event
+	// ends the activity it is attached to — all of it. The count of who had
+	// answered went on describing an activity that no longer existed, so an
+	// instance sent back to the step found it "already running" and asked
+	// nobody.
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	if _, _, counting := instance.MultiInstanceProgress("attest"); counting {
+		t.Error("the deadline ended the activity and the engine is still counting its iterations")
+	}
 }
 
 // openTasksOn counts an instance's open tasks on one node in the database, so

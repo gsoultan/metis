@@ -2,11 +2,13 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -207,4 +209,85 @@ func asInt(v any) int {
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+// BPMN 2.0.2 §10.3.8: a completionCondition that holds cancels the remaining
+// instances and produces a token — one token, however the last completions
+// were timed.
+//
+// Three approvals of a two-of-three step completed at the same moment, through
+// the task service as the inbox does. Whichever is third finds its task
+// withdrawn; the process moves on once.
+func TestTheLastApprovalsArrivingTogetherAdvanceTheProcessOnce(t *testing.T) {
+	db := testutils.SetupPostgresDB(t, 8)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
+	taskSvc := serviceimpl.NewTaskService(repo, engine, serviceimpl.NewAuditWriter(repo.Audit()))
+
+	def := multiInstanceDefinition(projID, "review-two-of-three")
+	def.Nodes[1].CompletionCondition = "nrOfCompletedInstances >= 2"
+	if _, err := serviceimpl.NewDefinitionService(repo).CreateDefinition(ctx, def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	instanceID, err := engine.StartProcess(ctx, projID, "review-two-of-three", map[string]any{
+		"items": []any{"a", "b", "c"},
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	reviews, err := repo.Task().ListByInstance(ctx, instanceID)
+	if err != nil || len(reviews) != 3 {
+		t.Fatalf("expected three reviews: %d, err=%v", len(reviews), err)
+	}
+
+	operator := testutils.AsOperator(ctx, "carol")
+	start := make(chan struct{})
+	results := make(chan error, len(reviews))
+	var wg sync.WaitGroup
+	for _, review := range reviews {
+		wg.Go(func() {
+			<-start
+			results <- taskSvc.CompleteTask(operator, uuid.UUID(review.ID), "carol", nil)
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	refused := 0
+	for err := range results {
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Fatalf("a completion failed rather than being refused: %v", err)
+		}
+		refused++
+	}
+	if refused != 1 {
+		t.Fatalf("%d of 3 completions were refused, want exactly the one that came third", refused)
+	}
+
+	final, err := engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	if left := len(final.GetTokensByNode(&entities.Node{ID: "review"})); left != 0 {
+		t.Errorf("the finished step still holds %d token(s)", left)
+	}
+	if on := len(final.GetTokensByNode(&entities.Node{ID: "summarise"})); on != 1 {
+		t.Errorf("the process holds %d token(s) on the next step, want 1", on)
+	}
+	after, err := repo.Task().ListByInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	summaries := 0
+	for _, task := range after {
+		if task.NodeID == "summarise" {
+			summaries++
+		}
+	}
+	if summaries != 1 {
+		t.Errorf("the next step was opened %d times, want once", summaries)
+	}
 }

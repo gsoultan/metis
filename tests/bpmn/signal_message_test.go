@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
+	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -33,6 +34,9 @@ type engineHarness struct {
 	// rather than t.Context(), because a bare context carries no identity and
 	// every request in production carries one.
 	ctx context.Context
+	// dispatcher is where the engine raises its events, so a test can watch
+	// what the audit and notification observers would be told.
+	dispatcher observercontracts.EventDispatcher
 }
 
 // Ctx is the context a caller inside this harness's organization would have.
@@ -101,7 +105,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 		t.Fatalf("create project: %v", err)
 	}
 
-	return engineHarness{svc: svc, engine: engine, repo: repo, jobSvc: jobSvc, projID: proj.ID, db: db, ctx: ctx}
+	return engineHarness{svc: svc, engine: engine, repo: repo, jobSvc: jobSvc, projID: proj.ID, db: db, ctx: ctx, dispatcher: dispatcher}
 }
 
 // taskIsOpen reports whether a task is still work someone could pick up.
