@@ -319,6 +319,9 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 	// Str rather than Err: the same URL-with-credentials reaches the log, and a
 	// log is as durable as the table.
 	log.Error().Str("error", redaction.RedactError(err)).Str("jobId", job.ID.String()).Msg("Job execution failed")
+	if s.droppedForWithdrawnStep(ctx, job) {
+		return
+	}
 	if s.tryErrorBoundaryRoute(ctx, job, err) {
 		return
 	}
@@ -455,6 +458,21 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 	node := def.FindNode(job.Node.ID)
 	if node == nil {
 		return fmt.Errorf("node %s not found", job.Node.ID)
+	}
+
+	// Asked before the call, because the call is the part that cannot be taken
+	// back: a job is not taken off the queue when its step is withdrawn — by a
+	// completion condition that ended the step early, a deadline, the
+	// sub-process around it finishing — so it used to charge the card or notify
+	// the supplier for a step the process had abandoned, and only then find
+	// nobody waiting.
+	//
+	// This read takes no lock and sits in no transaction, since the call that
+	// follows may not run inside one. It narrows the window; it does not close
+	// it. A step withdrawn while the call is in flight is still called, and the
+	// locked check after the call is what decides whether the result is used.
+	if withdrawn, err := s.completedBecauseWithdrawn(ctx, job, node); err != nil || withdrawn {
+		return err
 	}
 
 	responseData, err := s.callOnce(ctx, job, def, *node)

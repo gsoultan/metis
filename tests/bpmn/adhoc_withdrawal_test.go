@@ -243,32 +243,48 @@ func TestAnAdHocSubProcessThatFinishesStopsWaitingForItsStepsEvents(t *testing.T
 	requireInstanceStatus(ctx, t, h, instanceID, entities.ProcessCompleted)
 }
 
+// evidenceGathering is a step that is itself a sub-process — one interview —
+// with a message boundary event on it that leads to closing the file.
+func withEvidenceGathering(def *entities.ProcessDefinition) {
+	research := def.Nodes[1]
+	research.Nodes = append(research.Nodes,
+		&entities.Node{
+			ID: "gather-evidence", Type: entities.SubProcess, Name: "Gather the evidence", ParentID: "research",
+			Nodes: []*entities.Node{
+				{ID: "evidence-start", Type: entities.StartEvent, ParentID: "gather-evidence"},
+				{ID: "interview-witness", Type: entities.UserTask, Name: "Interview the witness", ParentID: "gather-evidence"},
+				{ID: "evidence-end", Type: entities.EndEvent, ParentID: "gather-evidence"},
+			},
+			Flows: []*entities.SequenceFlow{
+				{ID: "e1", SourceRef: "evidence-start", TargetRef: "interview-witness"},
+				{ID: "e2", SourceRef: "interview-witness", TargetRef: "evidence-end"},
+			},
+		},
+		&entities.Node{ID: "claim-withdrawn", Type: entities.BoundaryEvent, AttachedToRef: "gather-evidence",
+			ParentID: "research", Properties: map[string]any{"message_name": "claim-withdrawn"}},
+		&entities.Node{ID: "close-file", Type: entities.UserTask, Name: "Close the file", ParentID: "research"},
+	)
+	research.Flows = append(research.Flows,
+		&entities.SequenceFlow{ID: "w1", SourceRef: "claim-withdrawn", TargetRef: "close-file"})
+}
+
 // BPMN 2.0.2 §10.3.5, §13.2.5: everything still running inside is cancelled —
-// at whatever depth. A step that is itself a sub-process holds no token while
-// it runs; the steps inside it do.
+// at whatever depth, with the events attached to it (§13.4.3). A step that is
+// itself a sub-process holds no token while it runs; the steps inside it do,
+// and its boundary events were armed when it was entered.
 //
 // Looking only at the steps directly inside found nothing to end: the
 // interview stayed in somebody's inbox, its token stayed on the instance, and
-// the instance could never end.
+// the instance could never end. Looking only at the steps holding a token left
+// the boundary event armed: its message, arriving later, opened a task inside
+// a sub-process the instance had left.
 func TestAnAdHocSubProcessWithdrawsWhatIsRunningInsideAStepThatIsASubProcess(t *testing.T) {
 	h := newEngineHarness(t, "AdHoc Nested Project")
 	ctx := h.Ctx()
 
 	def := adHocDefinition("claim-research-nested", "reviewsDone >= 1")
 	def.Project = &entities.Project{ID: h.projID}
-	research := def.Nodes[1]
-	research.Nodes = append(research.Nodes, &entities.Node{
-		ID: "gather-evidence", Type: entities.SubProcess, Name: "Gather the evidence", ParentID: "research",
-		Nodes: []*entities.Node{
-			{ID: "evidence-start", Type: entities.StartEvent, ParentID: "gather-evidence"},
-			{ID: "interview-witness", Type: entities.UserTask, Name: "Interview the witness", ParentID: "gather-evidence"},
-			{ID: "evidence-end", Type: entities.EndEvent, ParentID: "gather-evidence"},
-		},
-		Flows: []*entities.SequenceFlow{
-			{ID: "e1", SourceRef: "evidence-start", TargetRef: "interview-witness"},
-			{ID: "e2", SourceRef: "interview-witness", TargetRef: "evidence-end"},
-		},
-	})
+	withEvidenceGathering(&def)
 	h.deploy(t, &def)
 	instanceID, err := h.svc.StartProcess(ctx, h.projID, "claim-research-nested", map[string]any{"reviewsDone": 0})
 	if err != nil {
@@ -282,6 +298,9 @@ func TestAnAdHocSubProcessWithdrawsWhatIsRunningInsideAStepThatIsASubProcess(t *
 	if open := h.openTasksOn(t, instanceID, "interview-witness"); open != 1 {
 		t.Fatalf("gathering the evidence opened %d interview(s), want 1", open)
 	}
+	if waiting := waitingEventsOf(t, h, instanceID); len(waiting) != 1 || waiting[0] != "claim-withdrawn" {
+		t.Fatalf("gathering the evidence is waiting for %v, want its one boundary event", waiting)
+	}
 
 	completeTaskAt(ctx, t, h, instanceID, "call-customer", map[string]any{"reviewsDone": 1})
 
@@ -294,10 +313,71 @@ func TestAnAdHocSubProcessWithdrawsWhatIsRunningInsideAStepThatIsASubProcess(t *
 	if left := tokenIterationsOn(ctx, t, h, instanceID, "interview-witness"); len(left) != 0 {
 		t.Fatalf("the finished sub-process left %d token(s) on a step inside it", len(left))
 	}
+	if waiting := waitingEventsOf(t, h, instanceID); len(waiting) != 0 {
+		t.Fatalf("the finished sub-process is still waiting for events on %v", waiting)
+	}
+
+	// The message the boundary event was waiting for arrives afterwards.
+	if err := h.svc.SendMessage(ctx, h.projID, "claim-withdrawn", "", nil); err != nil {
+		t.Fatalf("send the message: %v", err)
+	}
+	if seen := tasksEverOn(t, h, instanceID, "close-file"); seen != 0 {
+		t.Fatalf("a message for a sub-process that had ended opened %d task(s) inside it", seen)
+	}
+	if left := tokenIterationsOn(ctx, t, h, instanceID, "close-file"); len(left) != 0 {
+		t.Fatalf("a message for a sub-process that had ended put %d token(s) inside it", len(left))
+	}
 
 	completeTaskAt(ctx, t, h, instanceID, "decide", nil)
 	instance := requireInstanceStatus(ctx, t, h, instanceID, entities.ProcessCompleted)
 	if len(instance.Tokens) != 0 {
 		t.Fatalf("the finished instance still holds %d token(s)", len(instance.Tokens))
+	}
+}
+
+// BPMN 2.0.2 §10.3.5: cancelRemainingInstances set to false — what is still
+// running is left to finish, at whatever depth it is running.
+//
+// A step that is itself a sub-process holds no token while it runs, so a
+// sub-process that asked only its own steps saw nothing running and finished
+// over the interview.
+func TestAnAdHocSubProcessToldToKeepItsStepsWaitsForOneThatIsASubProcess(t *testing.T) {
+	h := newEngineHarness(t, "AdHoc Keep Nested Project")
+	ctx := h.Ctx()
+
+	def := adHocDefinition("claim-research-keeps-nested", "reviewsDone >= 1")
+	def.Project = &entities.Project{ID: h.projID}
+	def.Nodes[1].Properties = map[string]any{entities.CancelRemainingInstancesProperty: false}
+	withEvidenceGathering(&def)
+	h.deploy(t, &def)
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "claim-research-keeps-nested", map[string]any{"reviewsDone": 0})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	for _, step := range []string{"call-customer", "gather-evidence"} {
+		if err := h.svc.ActivateTask(ctx, instanceID, "research", step); err != nil {
+			t.Fatalf("activate %s: %v", step, err)
+		}
+	}
+
+	completeTaskAt(ctx, t, h, instanceID, "call-customer", map[string]any{"reviewsDone": 1})
+
+	if h.waitingAt(ctx, t, instanceID, "decide") {
+		t.Fatal("the sub-process finished over a step it was told to wait for")
+	}
+	if open := h.openTasksOn(t, instanceID, "interview-witness"); open != 1 {
+		t.Fatalf("the interview still running has %d open task(s), want it left alone", open)
+	}
+
+	completeTaskAt(ctx, t, h, instanceID, "interview-witness", nil)
+
+	if !h.waitingAt(ctx, t, instanceID, "decide") {
+		t.Fatal("the last running step finished and the sub-process still did not")
+	}
+	if seen := tasksEverOn(t, h, instanceID, "decide"); seen != 1 {
+		t.Fatalf("the process moved past the sub-process %d times, want once", seen)
+	}
+	if waiting := waitingEventsOf(t, h, instanceID); len(waiting) != 0 {
+		t.Fatalf("the finished sub-process is still waiting for events on %v", waiting)
 	}
 }

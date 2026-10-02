@@ -2,8 +2,10 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic"
 )
@@ -40,21 +42,22 @@ func (e *Engine) checkAdHocCompletion(ctx context.Context, instance *entities.Pr
 	}
 
 	inside := nodesInside(def, parent)
-	if !parent.CancelsRemainingInstances() {
-		if holdsAnyToken(instance, inside) {
-			// Told to let them finish. The condition is met; what is missing is
-			// the steps still running, and the last of them comes back here.
-			return false, e.UpdateInstance(ctx, *instance)
+	if parent.CancelsRemainingInstances() {
+		if err := e.endAdHocSteps(ctx, instance, def, inside); err != nil {
+			return false, err
 		}
-	} else if err := e.endAdHocSteps(ctx, instance, def, inside); err != nil {
-		return false, err
+		return true, e.Proceed(ctx, instance, def, parent.ID)
 	}
 
+	if holdsAnyToken(instance, inside) {
+		// Told to let them finish. The condition is met; what is missing is
+		// the steps still running, and the last of them comes back here.
+		return false, e.UpdateInstance(ctx, *instance)
+	}
 	// The caller stops at "true", before the place it stops waiting for the
 	// finished step's own events — its boundary events, armed when it started.
-	// Nothing running holds a token by now, so this step is the only one inside
-	// that can still have any; left armed, a message arriving later moved a
-	// process that had left the sub-process back into it.
+	// Every other step inside finished the ordinary way and gave its events up
+	// there, so this one's are the only ones left.
 	if err := e.cleanupSubscriptions(ctx, instance, node.ID, def); err != nil {
 		return false, err
 	}
@@ -110,30 +113,69 @@ func holdsAnyToken(instance *entities.ProcessInstance, nodes []*entities.Node) b
 }
 
 // endAdHocSteps ends what is still running inside a sub-process that has
-// finished: each step's tokens, its count if it repeats, and the events it and
-// its boundary events were waiting for; then every task any of them has open,
-// and all the work any of them has parked for a worker, in one read each.
+// finished: every token and repeat count on a step inside it, every event any
+// step or its boundary events were waiting for, every task any of them has
+// open, and all the work any of them has parked for a worker — one read each
+// of the instance's events, tasks and parked work, however many steps there
+// are.
 //
-// It is endActivity for many steps at once, and ends the same four things —
-// see there for why the parked work goes too, and for the process a step
-// called, which runs on and whose return finds no token waiting for it.
+// It is endActivity for many steps at once, and ends the same things — see
+// there for why the parked work goes too, and for the process a step called,
+// which runs on and whose return finds no token waiting for it.
 //
-// The tasks and the parked work are withdrawn for every step, not only the
-// ones holding a token: a step started twice loses both tokens when the first
-// of the two finishes, and its second task would otherwise be left behind.
+// None of it is limited to the steps holding a token. A step started twice
+// loses both tokens when the first of the two finishes, and its second task
+// would otherwise be left behind. A step that is itself a sub-process holds no
+// token while it runs, and its boundary events were armed when it was entered.
+// And the step whose finishing ended the sub-process gave its token up before
+// this was asked, with its boundary events still armed.
 func (e *Engine) endAdHocSteps(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, steps []*entities.Node) error {
 	for _, step := range steps {
-		if len(instance.GetTokensByNode(step)) == 0 {
-			continue
-		}
 		instance.RemoveTokenByNode(step)
 		instance.FinishMultiInstance(step.ID)
-		if err := e.cleanupSubscriptions(ctx, instance, step.ID, def); err != nil {
-			return err
-		}
+	}
+	if err := e.stopWaitingOn(ctx, instance, def, steps); err != nil {
+		return err
 	}
 	if err := e.cancelOpenTasksOn(ctx, instance, steps); err != nil {
 		return err
 	}
 	return e.withdrawExternalTasksOn(ctx, instance, steps)
+}
+
+// stopWaitingOn deletes the event subscriptions the instance holds for any of
+// nodes or for a boundary event attached to one — what cleanupSubscriptions
+// does for one node, for many, reading the instance's subscriptions once.
+//
+// A subscription that outlives its step is a message or signal that can still
+// be delivered to it: delivery asks for no token, so it followed the event's
+// outgoing flows inside a sub-process the instance had left.
+func (e *Engine) stopWaitingOn(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodes []*entities.Node) error {
+	ours := make(map[string]bool, len(nodes))
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		ours[node.ID] = true
+		for _, boundary := range def.GetBoundaryEvents(node.ID) {
+			ours[boundary.ID] = true
+		}
+	}
+	if len(ours) == 0 {
+		return nil
+	}
+
+	waiting, err := e.repo.Subscription().ListByInstance(ctx, instance.ID)
+	if err != nil {
+		return fmt.Errorf("list event subscriptions for instance %s: %w", instance.ID, err)
+	}
+	for _, sub := range waiting {
+		if !ours[sub.NodeID] {
+			continue
+		}
+		if err := e.repo.Subscription().Delete(ctx, uuid.UUID(sub.ID)); err != nil {
+			return fmt.Errorf("delete subscription for node %s: %w", sub.NodeID, err)
+		}
+	}
+	return nil
 }

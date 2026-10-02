@@ -230,6 +230,92 @@ func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobE
 	return err
 }
 
+// completedBecauseWithdrawn completes a service-task job whose step is no
+// longer waiting for it, and reports whether it did.
+//
+// Two reads. The first takes no lock, and is all a job whose step is waiting
+// pays — which is nearly every job. Only when it says nobody is waiting is the
+// instance locked and asked again, and the job completed in that transaction:
+// what completes a job without doing its work is decided on the locked row,
+// like everything else that settles one.
+func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities.Job, node *entities.Node) (bool, error) {
+	glimpse, err := s.engine.GetInstance(ctx, job.Instance.ID)
+	if err != nil {
+		return false, err
+	}
+	if tokenWaitsAt(&glimpse, node, job.IterationID) {
+		return false, nil
+	}
+	return s.completeIfWithdrawn(ctx, job, node)
+}
+
+// completeIfWithdrawn locks the instance and, if the token the job was queued
+// for is no longer there, completes the job in the same transaction. The
+// instance first and the job's row second, as every path that settles a job
+// takes them.
+func (s *jobService) completeIfWithdrawn(ctx context.Context, job entities.Job, node *entities.Node) (bool, error) {
+	withdrawn := false
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
+		if err != nil {
+			return err
+		}
+		if tokenWaitsAt(&instance, node, job.IterationID) {
+			return nil
+		}
+		withdrawn = true
+		return s.completeJob(txCtx, job)
+	})
+	if err != nil {
+		return false, err
+	}
+	return withdrawn, nil
+}
+
+// droppedForWithdrawnStep completes a failed service-task job whose step is no
+// longer waiting for it, and reports whether it did.
+//
+// A step can be withdrawn while its call is in flight, and the call can then
+// fail. That failure is nobody's: counting it retried a call nothing wanted,
+// and with the attempts used up raised an incident on an instance that had
+// moved on — whose resolution ran the call again. So the job is completed
+// instead, with no retry and no incident, and a line in the log.
+//
+// Only a service task. A timer's job sits on a different node from the token
+// it answers to, and its own execution decides whether it still applies.
+//
+// When the question cannot be answered — the definition will not load, it no
+// longer describes the step, the instance cannot be locked — the failure is
+// recorded as it always was. A failure wrongly kept is an incident somebody
+// closes; one wrongly dropped is a step that never runs.
+func (s *jobService) droppedForWithdrawnStep(ctx context.Context, job entities.Job) bool {
+	if job.Type != entities.JobServiceTask || ctx.Err() != nil {
+		return false
+	}
+	def, err := s.engine.GetProcessDefinition(ctx, job.Definition.ID)
+	if err != nil {
+		return false
+	}
+	node := def.FindNode(job.Node.ID)
+	if node == nil {
+		return false
+	}
+	withdrawn, err := s.completeIfWithdrawn(ctx, job, node)
+	if err != nil {
+		log.Warn().Err(err).Str("jobId", job.ID.String()).
+			Msg("Could not tell whether the failed job's step is still waiting; recording the failure")
+		return false
+	}
+	if withdrawn {
+		log.Info().
+			Str("jobId", job.ID.String()).
+			Str("instance_id", job.Instance.ID.String()).
+			Str("node_id", job.Node.ID).
+			Msg("A call for a step that had been withdrawn failed and was dropped: no retry, no incident")
+	}
+	return withdrawn
+}
+
 // tokenWaitsAt reports whether the instance still has the token a job was
 // scheduled for: active, and a token on node — the one for this iteration, on
 // a node that runs once per item.
