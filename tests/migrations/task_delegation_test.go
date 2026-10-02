@@ -118,9 +118,18 @@ func TestMigration32ReturnsADelegationWithNoOwnerToItsAssignee(t *testing.T) {
 	delegatedToNobody := insertOldTask(t, db, "delegated", nil)
 	claimed := insertOldTask(t, db, "claimed", "budi")
 	finished := insertOldTask(t, db, "completed", "dita")
+	// A soft-deleted legacy delegation is converted too: the backfill does not
+	// filter on deleted_at, so a restored row is not left in a state nothing reads.
+	deleted := insertOldTask(t, db, "delegated", "citra")
+	if err := db.WithContext(ctx).Exec(`UPDATE tasks SET deleted_at = now() WHERE id = ?`, deleted).Error; err != nil {
+		t.Fatalf("soft-delete the task: %v", err)
+	}
 
 	migrate()
-	migrate() // and a second run finds nothing left to do
+	// A genuine second run: forget that 32 ran so the runner runs it again, and
+	// it must find nothing left to do.
+	forgetTaskDelegation(t, db)
+	migrate()
 
 	assertTaskDelegationSchema(t, db)
 	for name, want := range map[string]struct {
@@ -207,4 +216,61 @@ func TestMigration32GivesUpRatherThanHoldEveryInboxBehindALongRead(t *testing.T)
 		t.Fatalf("run the migrations again once the read ended: %v", err)
 	}
 	assertTaskDelegationSchema(t, db)
+}
+
+// raceWithTheBackfill holds a transaction that changes a legacy delegated task
+// (and so holds its row lock), starts the migration, lets the backfill pick the
+// row and queue behind that lock, then commits. Root cause of the bug it pins:
+// the predicates were only in the subquery, so PostgreSQL re-checked just the
+// id against the old snapshot and the UPDATE overwrote the committed change.
+func raceWithTheBackfill(t *testing.T, change string) (db *gorm.DB, id uuid.UUID) {
+	t.Helper()
+	db = testutils.SetupTestDB(t)
+	ctx := t.Context()
+	if _, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels())); err != nil {
+		t.Fatalf("run the migrations: %v", err)
+	}
+	// The columns are in place (the baseline made them); only the backfill runs.
+	id = insertOldTask(t, db, "delegated", "citra")
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatalf("open the pool: %v", err)
+	}
+	other, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin the concurrent change: %v", err)
+	}
+	defer func() { _ = other.Rollback() }()
+	if _, err := other.ExecContext(ctx, change, id); err != nil {
+		t.Fatalf("change the task: %v", err)
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- migrations.ReturnOwnerlessDelegations(context.Background(), db) }()
+	time.Sleep(500 * time.Millisecond) // the backfill has picked the row and waits on its lock
+	if err := other.Commit(); err != nil {
+		t.Fatalf("commit the change: %v", err)
+	}
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("the migration failed: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the migration did not finish after the change committed")
+	}
+	return db, id
+}
+
+func TestMigration32DoesNotReopenATaskCompletedWhileItRan(t *testing.T) {
+	db, id := raceWithTheBackfill(t, `UPDATE tasks SET status = 'completed' WHERE id = $1`)
+	if status, _ := taskStatusAndAssignee(t, db, id); status != "completed" {
+		t.Fatalf("a task completed while the backfill ran is %s afterwards; want completed", status)
+	}
+}
+
+func TestMigration32LeavesADelegationGivenAnOwnerWhileItRan(t *testing.T) {
+	db, id := raceWithTheBackfill(t, `UPDATE tasks SET owner = 'budi', delegation_state = 'pending' WHERE id = $1`)
+	if status, assignee := taskStatusAndAssignee(t, db, id); status != "delegated" || assignee != "citra" {
+		t.Fatalf("a delegation given an owner while the backfill ran is %s, held by %q; want delegated, citra", status, assignee)
+	}
 }

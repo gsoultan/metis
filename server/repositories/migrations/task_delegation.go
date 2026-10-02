@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -28,7 +29,7 @@ const taskDelegationLockWait = "2s"
 // taskDelegationBatch is how many rows one statement of the backfill touches.
 // One statement over a large inbox holds its row locks until it ends; this many
 // at a time keeps each short enough to interleave with work.
-const taskDelegationBatch = 100000
+const taskDelegationBatch = 5000
 
 // taskDelegation is migration 32.
 //
@@ -71,7 +72,7 @@ func giveDelegatedTasksAnOwner(ctx context.Context, db *gorm.DB) error {
 	if err := addTaskDelegationColumns(ctx, db); err != nil {
 		return err
 	}
-	if err := returnOwnerlessDelegations(ctx, db); err != nil {
+	if err := ReturnOwnerlessDelegations(ctx, db); err != nil {
 		return err
 	}
 	return createIndexConcurrently(ctx, db, "tasks", "ix_tasks_owner", "owner")
@@ -102,23 +103,69 @@ func addTaskDelegationColumns(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-// returnOwnerlessDelegations turns every "delegated" row that has no owner
+// ReturnOwnerlessDelegations (exported so the test that races it against a
+// concurrent change can run it without the ALTER TABLE that precedes it in the
+// migration, which would wait for that change instead of racing it) turns every "delegated" row that has no owner
 // into a claim by its assignee, or an unclaimed task when it has none. Only
 // rows with no owner are touched, so a delegation made since is left alone.
-func returnOwnerlessDelegations(ctx context.Context, db *gorm.DB) error {
+//
+// Each batch is a short transaction of its own: it picks up to
+// taskDelegationBatch ids, then updates them with the predicates repeated in
+// the outer WHERE. Repeated, because PostgreSQL re-checks only the outer
+// condition against a row another transaction changed while this one waited
+// for it; with the predicates only in a subquery, a task a delegate completed
+// meanwhile would be overwritten back to "claimed".
+//
+// The loop ends when a batch SELECTS no ids, never when it updates none: a
+// batch whose rows were all changed by others updates zero rows while matching
+// rows may remain. Every id picked either is updated or has been changed so
+// that it no longer matches (or still matches and is picked again), so the
+// loop converges.
+//
+// The batch is 5000 rows: large enough that a hundred thousand legacy rows is
+// twenty short transactions, small enough that each holds its row locks for
+// milliseconds. lock_timeout bounds the wait on any row another transaction
+// holds, so a long transaction cannot make a batch sit on the locks it already
+// took; the migration is restartable and says so.
+func ReturnOwnerlessDelegations(ctx context.Context, db *gorm.DB) error {
+	converted := 0
 	for {
-		res := db.WithContext(ctx).Exec(`
-			UPDATE tasks
-			   SET status = CASE WHEN COALESCE(assignee, '') = '' THEN 'unclaimed' ELSE 'claimed' END
-			 WHERE id IN (
-			       SELECT id FROM tasks
-			        WHERE status = 'delegated' AND COALESCE(owner, '') = ''
-			        LIMIT ?)`, taskDelegationBatch)
-		if res.Error != nil {
-			return fmt.Errorf("return delegations with no owner to their assignee: %w", res.Error)
+		var ids []string
+		var n int64
+		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec(fmt.Sprintf("SET LOCAL lock_timeout = '%s'", taskDelegationLockWait)).Error; err != nil {
+				return fmt.Errorf("bound the wait for a task: %w", err)
+			}
+			if err := tx.Raw(`SELECT id::text FROM tasks
+				WHERE status = 'delegated' AND COALESCE(owner, '') = ''
+				LIMIT ?`, taskDelegationBatch).Scan(&ids).Error; err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			res := tx.Exec(`
+				UPDATE tasks
+				   SET status = CASE WHEN COALESCE(assignee, '') = '' THEN 'unclaimed' ELSE 'claimed' END
+				 WHERE id IN ?
+				   AND status = 'delegated' AND COALESCE(owner, '') = ''`, ids)
+			n = res.RowsAffected
+			return res.Error
+		})
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == postgresLockNotAvailable {
+			return fmt.Errorf("a delegated task was held for more than %s by a long transaction; "+
+				"the upgrade stopped rather than wait on it with row locks held, and will finish when started again once that ends: %w",
+				taskDelegationLockWait, err)
 		}
-		if res.RowsAffected == 0 {
+		if err != nil {
+			return fmt.Errorf("return delegations with no owner to their assignee: %w", err)
+		}
+		if len(ids) == 0 {
+			log.Info().Int("converted", converted).
+				Msg("Delegated tasks that had no owner to go back to were returned to their assignee")
 			return nil
 		}
+		converted += int(n)
 	}
 }
