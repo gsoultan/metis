@@ -367,7 +367,7 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 	})
 }
 
-func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error {
+func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		idObj, err := uuid.NewV7()
 		if err != nil {
@@ -386,10 +386,13 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 		dueDate := entities.ResolveDueDate(node.DueDate, time.Now())
 
 		task := entities.Task{
-			ID:              idObj,
-			Project:         instance.Project,
-			Instance:        &instance,
-			Node:            &node,
+			ID:       idObj,
+			Project:  instance.Project,
+			Instance: &instance,
+			Node:     &node,
+			// Which run of the step this is. Completing the task hands it back
+			// to the engine, which is how the engine knows whose token to retire.
+			IterationID:     iterationID,
 			Name:            node.Name,
 			Description:     node.Documentation,
 			Type:            node.Type,

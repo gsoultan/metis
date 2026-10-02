@@ -17,7 +17,10 @@ type Task struct {
 	Project  Project
 	Instance ProcessInstance
 
-	NodeID      string
+	NodeID string
+	// IterationID is nullable: a step that runs once has no iteration, and no
+	// task created before migration 31 recorded one.
+	IterationID *string
 	Name        string
 	Description *string
 	Type        NodeType

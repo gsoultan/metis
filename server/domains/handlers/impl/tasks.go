@@ -65,7 +65,7 @@ type UserTaskHandler struct {
 func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	node = h.resolveAssignment(ctx, instance, def, node)
 	// The taskService manages the lifecycle of human tasks.
-	return h.taskService.CreateTaskForNode(ctx, *instance, node)
+	return h.taskService.CreateTaskForNode(ctx, *instance, node, iterationID)
 }
 
 // resolveAssignment asks the node's assignment table who should do the work.
@@ -141,5 +141,5 @@ type ManualTaskHandler struct {
 
 func (h *ManualTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	// Like UserTask, ManualTask creates a task entry that must be completed.
-	return h.taskService.CreateTaskForNode(ctx, *instance, node)
+	return h.taskService.CreateTaskForNode(ctx, *instance, node, iterationID)
 }

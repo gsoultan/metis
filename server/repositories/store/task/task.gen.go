@@ -26,6 +26,7 @@ type Row struct {
 	ProjectID       [16]byte
 	InstanceID      [16]byte
 	NodeID          string
+	IterationID     runtime.Null[string]
 	Name            string
 	Description     runtime.Null[string]
 	Type            string
@@ -77,7 +78,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 19
+const nCols = 20
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -239,72 +240,79 @@ func (q *Query) cursor(col uint32, r Row) {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = r.Name
+		q.strs[q.ns] = r.IterationID.V
 		q.ns++
 	case 7:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = r.Description.V
+		q.strs[q.ns] = r.Name
 		q.ns++
 	case 8:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = r.Type
+		q.strs[q.ns] = r.Description.V
 		q.ns++
 	case 9:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = r.Status
+		q.strs[q.ns] = r.Type
 		q.ns++
 	case 10:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
+		q.strs[q.ns] = r.Status
+		q.ns++
+	case 11:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
 		q.strs[q.ns] = r.Assignee.V
 		q.ns++
-	case 13:
+	case 14:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.Priority)
 		q.nn++
-	case 14:
+	case 15:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.DueDate.V
 		q.ntm++
-	case 15:
+	case 16:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.FormKey.V
 		q.ns++
-	case 16:
+	case 17:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.FormDefinition.V
 		q.ns++
-	case 17:
+	case 18:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.Variables
 		q.ns++
-	case 18:
+	case 19:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -477,19 +485,20 @@ var (
 	ProjectID       = UUIDCol{3}
 	InstanceID      = UUIDCol{4}
 	NodeID          = TextCol{5}
-	Name            = TextCol{6}
-	Description     = NullTextCol{7}
-	Type            = TextCol{8}
-	Status          = TextCol{9}
-	Assignee        = NullTextCol{10}
-	CandidateUsers  = JSONCol{11}
-	CandidateGroups = JSONCol{12}
-	Priority        = Int64Col{13}
-	DueDate         = NullTimeCol{14}
-	FormKey         = NullTextCol{15}
-	FormDefinition  = NullTextCol{16}
-	Variables       = TextCol{17}
-	DeletedAt       = NullTimeCol{18}
+	IterationID     = NullTextCol{6}
+	Name            = TextCol{7}
+	Description     = NullTextCol{8}
+	Type            = TextCol{9}
+	Status          = TextCol{10}
+	Assignee        = NullTextCol{11}
+	CandidateUsers  = JSONCol{12}
+	CandidateGroups = JSONCol{13}
+	Priority        = Int64Col{14}
+	DueDate         = NullTimeCol{15}
+	FormKey         = NullTextCol{16}
+	FormDefinition  = NullTextCol{17}
+	Variables       = TextCol{18}
+	DeletedAt       = NullTimeCol{19}
 )
 
 // UUIDCol addresses a uuid column.
@@ -874,19 +883,19 @@ func (q *Query) leaf(p Pred) {
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
 		case 13:
-			if int(q.nai64) >= 3 {
-				q.over = true
-				return
-			}
-			q.anyI64[q.nai64] = p.anyI64
-			q.nai64++
-		case 15:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
 			}
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
+		case 14:
+			if int(q.nai64) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyI64[q.nai64] = p.anyI64
+			q.nai64++
 		case 16:
 			if int(q.nas) >= 3 {
 				q.over = true
@@ -895,6 +904,13 @@ func (q *Query) leaf(p Pred) {
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
 		case 17:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 18:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -988,12 +1004,12 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 11:
-		if int(q.njs) >= 2 {
+		if int(q.ns) >= 6 {
 			q.over = true
 			return
 		}
-		q.jsns[q.njs] = p.jsn
-		q.njs++
+		q.strs[q.ns] = p.str
+		q.ns++
 	case 12:
 		if int(q.njs) >= 2 {
 			q.over = true
@@ -1002,26 +1018,26 @@ func (q *Query) leaf(p Pred) {
 		q.jsns[q.njs] = p.jsn
 		q.njs++
 	case 13:
+		if int(q.njs) >= 2 {
+			q.over = true
+			return
+		}
+		q.jsns[q.njs] = p.jsn
+		q.njs++
+	case 14:
 		if int(q.nn) >= 6 {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = p.num
 		q.nn++
-	case 14:
+	case 15:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 15:
-		if int(q.ns) >= 6 {
-			q.over = true
-			return
-		}
-		q.strs[q.ns] = p.str
-		q.ns++
 	case 16:
 		if int(q.ns) >= 6 {
 			q.over = true
@@ -1037,6 +1053,13 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 18:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 19:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -1083,6 +1106,19 @@ func (q Query) NodeIDLike(v string) Query           { return q.Where(NodeID.Like
 func (q Query) NodeIDILike(v string) Query          { return q.Where(NodeID.ILike(v)) }
 func (q Query) NodeIDIn(v ...string) Query          { return q.Where(NodeID.In(v...)) }
 func (q Query) NodeIDNotIn(v ...string) Query       { return q.Where(NodeID.NotIn(v...)) }
+func (q Query) IterationIDEq(v string) Query        { return q.Where(IterationID.Eq(v)) }
+func (q Query) IterationIDNotEq(v string) Query     { return q.Where(IterationID.NotEq(v)) }
+func (q Query) IterationIDGt(v string) Query        { return q.Where(IterationID.Gt(v)) }
+func (q Query) IterationIDGte(v string) Query       { return q.Where(IterationID.Gte(v)) }
+func (q Query) IterationIDLt(v string) Query        { return q.Where(IterationID.Lt(v)) }
+func (q Query) IterationIDLte(v string) Query       { return q.Where(IterationID.Lte(v)) }
+func (q Query) IterationIDEqLower(v string) Query   { return q.Where(IterationID.EqLower(v)) }
+func (q Query) IterationIDLike(v string) Query      { return q.Where(IterationID.Like(v)) }
+func (q Query) IterationIDILike(v string) Query     { return q.Where(IterationID.ILike(v)) }
+func (q Query) IterationIDIn(v ...string) Query     { return q.Where(IterationID.In(v...)) }
+func (q Query) IterationIDNotIn(v ...string) Query  { return q.Where(IterationID.NotIn(v...)) }
+func (q Query) IterationIDIsNull() Query            { return q.Where(IterationID.IsNull()) }
+func (q Query) IterationIDIsNotNull() Query         { return q.Where(IterationID.IsNotNull()) }
 func (q Query) NameEq(v string) Query               { return q.Where(Name.Eq(v)) }
 func (q Query) NameNotEq(v string) Query            { return q.Where(Name.NotEq(v)) }
 func (q Query) NameGt(v string) Query               { return q.Where(Name.Gt(v)) }
@@ -1233,7 +1269,7 @@ func (q Query) DeletedAtIsNotNull() Query             { return q.Where(DeletedAt
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at" FROM "tasks"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at" FROM "tasks"`
 const countPrefix = `SELECT count(*) FROM "tasks"`
 const existsPrefix = `SELECT 1 FROM "tasks"`
 const existsSuffix = ` LIMIT 1`
@@ -1305,6 +1341,12 @@ var orderTable = [nCols][4]string{
 		"\"node_id\" DESC",
 		"\"node_id\" ASC NULLS FIRST",
 		"\"node_id\" DESC NULLS LAST",
+	},
+	{ // iteration_id
+		"\"iteration_id\"",
+		"\"iteration_id\" DESC",
+		"\"iteration_id\" ASC NULLS FIRST",
+		"\"iteration_id\" DESC NULLS LAST",
 	},
 	{ // name
 		"\"name\"",
@@ -1395,6 +1437,7 @@ var identTable = [nCols]string{
 	"\"project_id\"",
 	"\"instance_id\"",
 	"\"node_id\"",
+	"\"iteration_id\"",
 	"\"name\"",
 	"\"description\"",
 	"\"type\"",
@@ -1440,7 +1483,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [19][28]runtime.Frag{
+var fragTable = [20][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1618,6 +1661,36 @@ var fragTable = [19][28]runtime.Frag{
 		{},
 		{},
 		{},
+		{},
+		{},
+	},
+	{ // iteration_id
+		{}, // opNone
+		{A: "\"iteration_id\" = $", B: ""},
+		{A: "\"iteration_id\" <> $", B: ""},
+		{A: "\"iteration_id\" > $", B: ""},
+		{A: "\"iteration_id\" >= $", B: ""},
+		{A: "\"iteration_id\" < $", B: ""},
+		{A: "\"iteration_id\" <= $", B: ""},
+		{A: "lower(\"iteration_id\") = lower($", B: ")"},
+		{A: "\"iteration_id\" LIKE $", B: ""},
+		{A: "\"iteration_id\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"iteration_id\" = ANY($", B: ")"},
+		{A: "\"iteration_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"iteration_id\" IS NULL", B: ""},
+		{A: "\"iteration_id\" IS NOT NULL", B: ""},
 		{},
 		{},
 	},
@@ -2172,19 +2245,20 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	copy(r.ProjectID[:], rv[3])
 	copy(r.InstanceID[:], rv[4])
 	r.NodeID = sl.Str(rv[5])
-	r.Name = sl.Str(rv[6])
-	r.Description = runtime.NullText(rv[7], sl)
-	r.Type = sl.Str(rv[8])
-	r.Status = sl.Str(rv[9])
-	r.Assignee = runtime.NullText(rv[10], sl)
-	r.CandidateUsers = runtime.JSON(runtime.JSONB(rv[11], sl))
-	r.CandidateGroups = runtime.JSON(runtime.JSONB(rv[12], sl))
-	r.Priority = runtime.Int8(rv[13])
-	r.DueDate = runtime.Nullable(rv[14], runtime.Timestamptz)
-	r.FormKey = runtime.NullText(rv[15], sl)
-	r.FormDefinition = runtime.NullText(rv[16], sl)
-	r.Variables = sl.Str(rv[17])
-	r.DeletedAt = runtime.Nullable(rv[18], runtime.Timestamptz)
+	r.IterationID = runtime.NullText(rv[6], sl)
+	r.Name = sl.Str(rv[7])
+	r.Description = runtime.NullText(rv[8], sl)
+	r.Type = sl.Str(rv[9])
+	r.Status = sl.Str(rv[10])
+	r.Assignee = runtime.NullText(rv[11], sl)
+	r.CandidateUsers = runtime.JSON(runtime.JSONB(rv[12], sl))
+	r.CandidateGroups = runtime.JSON(runtime.JSONB(rv[13], sl))
+	r.Priority = runtime.Int8(rv[14])
+	r.DueDate = runtime.Nullable(rv[15], runtime.Timestamptz)
+	r.FormKey = runtime.NullText(rv[16], sl)
+	r.FormDefinition = runtime.NullText(rv[17], sl)
+	r.Variables = sl.Str(rv[18])
+	r.DeletedAt = runtime.Nullable(rv[19], runtime.Timestamptz)
 	return nil
 }
 
@@ -2300,18 +2374,22 @@ func (q Query) bindPreds(b *binder) []any {
 				v = append(v, &b.anyStr[nas])
 				nas++
 			case 13:
-				b.anyI64[nai64] = q.anyI64[nai64]
-				v = append(v, &b.anyI64[nai64])
-				nai64++
-			case 15:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
+			case 14:
+				b.anyI64[nai64] = q.anyI64[nai64]
+				v = append(v, &b.anyI64[nai64])
+				nai64++
 			case 16:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
 			case 17:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 18:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
@@ -2364,25 +2442,25 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.strs[ns])
 			ns++
 		case 11:
-			b.jsns[njs] = q.jsns[njs]
-			v = append(v, &b.jsns[njs])
-			njs++
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
 		case 12:
 			b.jsns[njs] = q.jsns[njs]
 			v = append(v, &b.jsns[njs])
 			njs++
 		case 13:
+			b.jsns[njs] = q.jsns[njs]
+			v = append(v, &b.jsns[njs])
+			njs++
+		case 14:
 			b.nums[nn] = q.nums[nn]
 			v = append(v, &b.nums[nn])
 			nn++
-		case 14:
+		case 15:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 15:
-			b.strs[ns] = q.strs[ns]
-			v = append(v, &b.strs[ns])
-			ns++
 		case 16:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
@@ -2392,6 +2470,10 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.strs[ns])
 			ns++
 		case 18:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 19:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -2532,7 +2614,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at"`
+const insertSQL = `INSERT INTO "tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at"`
 
 const updatePrefix = `UPDATE "tasks" SET `
 const deletePrefix = `DELETE FROM "tasks"`
@@ -2544,22 +2626,23 @@ const (
 	dProjectID       uint64 = 1 << 1
 	dInstanceID      uint64 = 1 << 2
 	dNodeID          uint64 = 1 << 3
-	dName            uint64 = 1 << 4
-	dDescription     uint64 = 1 << 5
-	dType            uint64 = 1 << 6
-	dStatus          uint64 = 1 << 7
-	dAssignee        uint64 = 1 << 8
-	dCandidateUsers  uint64 = 1 << 9
-	dCandidateGroups uint64 = 1 << 10
-	dPriority        uint64 = 1 << 11
-	dDueDate         uint64 = 1 << 12
-	dFormKey         uint64 = 1 << 13
-	dFormDefinition  uint64 = 1 << 14
-	dVariables       uint64 = 1 << 15
-	dDeletedAt       uint64 = 1 << 16
+	dIterationID     uint64 = 1 << 4
+	dName            uint64 = 1 << 5
+	dDescription     uint64 = 1 << 6
+	dType            uint64 = 1 << 7
+	dStatus          uint64 = 1 << 8
+	dAssignee        uint64 = 1 << 9
+	dCandidateUsers  uint64 = 1 << 10
+	dCandidateGroups uint64 = 1 << 11
+	dPriority        uint64 = 1 << 12
+	dDueDate         uint64 = 1 << 13
+	dFormKey         uint64 = 1 << 14
+	dFormDefinition  uint64 = 1 << 15
+	dVariables       uint64 = 1 << 16
+	dDeletedAt       uint64 = 1 << 17
 )
 
-const nUpdatable = 17
+const nUpdatable = 18
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -2567,6 +2650,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"project_id\" = $", B: ""},       // project_id
 	{A: "\"instance_id\" = $", B: ""},      // instance_id
 	{A: "\"node_id\" = $", B: ""},          // node_id
+	{A: "\"iteration_id\" = $", B: ""},     // iteration_id
 	{A: "\"name\" = $", B: ""},             // name
 	{A: "\"description\" = $", B: ""},      // description
 	{A: "\"type\" = $", B: ""},             // type
@@ -2590,6 +2674,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // project_id has no server-side form
 	{},                                   // instance_id has no server-side form
 	{},                                   // node_id has no server-side form
+	{},                                   // iteration_id has no server-side form
 	{},                                   // name has no server-side form
 	{},                                   // description has no server-side form
 	{},                                   // type has no server-side form
@@ -2620,22 +2705,23 @@ const (
 	iProjectID       uint64 = 1 << 3
 	iInstanceID      uint64 = 1 << 4
 	iNodeID          uint64 = 1 << 5
-	iName            uint64 = 1 << 6
-	iDescription     uint64 = 1 << 7
-	iType            uint64 = 1 << 8
-	iStatus          uint64 = 1 << 9
-	iAssignee        uint64 = 1 << 10
-	iCandidateUsers  uint64 = 1 << 11
-	iCandidateGroups uint64 = 1 << 12
-	iPriority        uint64 = 1 << 13
-	iDueDate         uint64 = 1 << 14
-	iFormKey         uint64 = 1 << 15
-	iFormDefinition  uint64 = 1 << 16
-	iVariables       uint64 = 1 << 17
-	iDeletedAt       uint64 = 1 << 18
+	iIterationID     uint64 = 1 << 6
+	iName            uint64 = 1 << 7
+	iDescription     uint64 = 1 << 8
+	iType            uint64 = 1 << 9
+	iStatus          uint64 = 1 << 10
+	iAssignee        uint64 = 1 << 11
+	iCandidateUsers  uint64 = 1 << 12
+	iCandidateGroups uint64 = 1 << 13
+	iPriority        uint64 = 1 << 14
+	iDueDate         uint64 = 1 << 15
+	iFormKey         uint64 = 1 << 16
+	iFormDefinition  uint64 = 1 << 17
+	iVariables       uint64 = 1 << 18
+	iDeletedAt       uint64 = 1 << 19
 )
 
-const nInsertable = 19
+const nInsertable = 20
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2645,6 +2731,7 @@ var insCols = [nInsertable]string{
 	"\"project_id\"",
 	"\"instance_id\"",
 	"\"node_id\"",
+	"\"iteration_id\"",
 	"\"name\"",
 	"\"description\"",
 	"\"type\"",
@@ -2666,7 +2753,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"tasks\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2685,7 +2772,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -2766,6 +2853,20 @@ func (m *Mut) SetNodeID(v string) {
 	m.row.NodeID = v
 	m.dirty |= dNodeID
 	m.expr &^= dNodeID
+}
+
+func (m *Mut) SetIterationID(v string) {
+	m.row.IterationID = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dIterationID
+	m.expr &^= dIterationID
+}
+
+// SetIterationIDNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetIterationIDNull() {
+	m.row.IterationID = runtime.Null[string]{}
+	m.dirty |= dIterationID
+	m.expr &^= dIterationID
 }
 
 func (m *Mut) SetName(v string) {
@@ -2981,6 +3082,18 @@ func (n *Ins) SetNodeID(v string) {
 	n.set |= iNodeID
 }
 
+func (n *Ins) SetIterationID(v string) {
+	n.row.IterationID = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iIterationID
+}
+
+// SetIterationIDNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetIterationIDNull() {
+	n.row.IterationID = runtime.Null[string]{}
+	n.set |= iIterationID
+}
+
 func (n *Ins) SetName(v string) {
 	n.row.Name = v
 	n.set |= iName
@@ -3133,7 +3246,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 17)
+	set := make([]string, 0, 18)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -3149,42 +3262,45 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "node_id")
 		}
 		if mask&(1<<6) != 0 {
-			set = append(set, "name")
+			set = append(set, "iteration_id")
 		}
 		if mask&(1<<7) != 0 {
-			set = append(set, "description")
+			set = append(set, "name")
 		}
 		if mask&(1<<8) != 0 {
-			set = append(set, "type")
+			set = append(set, "description")
 		}
 		if mask&(1<<9) != 0 {
-			set = append(set, "status")
+			set = append(set, "type")
 		}
 		if mask&(1<<10) != 0 {
-			set = append(set, "assignee")
+			set = append(set, "status")
 		}
 		if mask&(1<<11) != 0 {
-			set = append(set, "candidate_users")
+			set = append(set, "assignee")
 		}
 		if mask&(1<<12) != 0 {
-			set = append(set, "candidate_groups")
+			set = append(set, "candidate_users")
 		}
 		if mask&(1<<13) != 0 {
-			set = append(set, "priority")
+			set = append(set, "candidate_groups")
 		}
 		if mask&(1<<14) != 0 {
-			set = append(set, "due_date")
+			set = append(set, "priority")
 		}
 		if mask&(1<<15) != 0 {
-			set = append(set, "form_key")
+			set = append(set, "due_date")
 		}
 		if mask&(1<<16) != 0 {
-			set = append(set, "form_definition")
+			set = append(set, "form_key")
 		}
 		if mask&(1<<17) != 0 {
-			set = append(set, "variables")
+			set = append(set, "form_definition")
 		}
 		if mask&(1<<18) != 0 {
+			set = append(set, "variables")
+		}
+		if mask&(1<<19) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -3239,6 +3355,7 @@ var assignFor = map[string]string{
 	"project_id":       "\"project_id\" = EXCLUDED.\"project_id\"",
 	"instance_id":      "\"instance_id\" = EXCLUDED.\"instance_id\"",
 	"node_id":          "\"node_id\" = EXCLUDED.\"node_id\"",
+	"iteration_id":     "\"iteration_id\" = EXCLUDED.\"iteration_id\"",
 	"name":             "\"name\" = EXCLUDED.\"name\"",
 	"description":      "\"description\" = EXCLUDED.\"description\"",
 	"type":             "\"type\" = EXCLUDED.\"type\"",
@@ -3308,30 +3425,32 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.NodeID)
 		case 6:
-			args = append(args, n.row.Name)
+			args = append(args, n.row.IterationID.Arg())
 		case 7:
-			args = append(args, n.row.Description.Arg())
+			args = append(args, n.row.Name)
 		case 8:
-			args = append(args, n.row.Type)
+			args = append(args, n.row.Description.Arg())
 		case 9:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.Type)
 		case 10:
-			args = append(args, n.row.Assignee.Arg())
+			args = append(args, n.row.Status)
 		case 11:
-			args = append(args, n.row.CandidateUsers)
+			args = append(args, n.row.Assignee.Arg())
 		case 12:
-			args = append(args, n.row.CandidateGroups)
+			args = append(args, n.row.CandidateUsers)
 		case 13:
-			args = append(args, n.row.Priority)
+			args = append(args, n.row.CandidateGroups)
 		case 14:
-			args = append(args, n.row.DueDate.Arg())
+			args = append(args, n.row.Priority)
 		case 15:
-			args = append(args, n.row.FormKey.Arg())
+			args = append(args, n.row.DueDate.Arg())
 		case 16:
-			args = append(args, n.row.FormDefinition.Arg())
+			args = append(args, n.row.FormKey.Arg())
 		case 17:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.FormDefinition.Arg())
 		case 18:
+			args = append(args, n.row.Variables)
+		case 19:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3370,13 +3489,14 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 19)
+	args := make([]any, 0, 20)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.ProjectID)
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID)
+	args = append(args, r.IterationID.Arg())
 	args = append(args, r.Name)
 	args = append(args, r.Description.Arg())
 	args = append(args, r.Type)
@@ -3422,6 +3542,7 @@ var copyCols = []string{
 	"project_id",
 	"instance_id",
 	"node_id",
+	"iteration_id",
 	"name",
 	"description",
 	"type",
@@ -3441,7 +3562,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [19]any
+	buf  [20]any
 }
 
 func (s *rowSource) Next() bool {
@@ -3465,19 +3586,20 @@ func (s *rowSource) Values() []any {
 	s.buf[3] = &r.ProjectID
 	s.buf[4] = &r.InstanceID
 	s.buf[5] = &r.NodeID
-	s.buf[6] = &r.Name
-	s.buf[7] = r.Description.Ptr()
-	s.buf[8] = &r.Type
-	s.buf[9] = &r.Status
-	s.buf[10] = r.Assignee.Ptr()
-	s.buf[11] = &r.CandidateUsers
-	s.buf[12] = &r.CandidateGroups
-	s.buf[13] = &r.Priority
-	s.buf[14] = r.DueDate.Ptr()
-	s.buf[15] = r.FormKey.Ptr()
-	s.buf[16] = r.FormDefinition.Ptr()
-	s.buf[17] = &r.Variables
-	s.buf[18] = r.DeletedAt.Ptr()
+	s.buf[6] = r.IterationID.Ptr()
+	s.buf[7] = &r.Name
+	s.buf[8] = r.Description.Ptr()
+	s.buf[9] = &r.Type
+	s.buf[10] = &r.Status
+	s.buf[11] = r.Assignee.Ptr()
+	s.buf[12] = &r.CandidateUsers
+	s.buf[13] = &r.CandidateGroups
+	s.buf[14] = &r.Priority
+	s.buf[15] = r.DueDate.Ptr()
+	s.buf[16] = r.FormKey.Ptr()
+	s.buf[17] = r.FormDefinition.Ptr()
+	s.buf[18] = &r.Variables
+	s.buf[19] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -3527,14 +3649,16 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 16
 	mask |= 1 << 17
 	mask |= 1 << 18
+	mask |= 1 << 19
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 19)
+	args := make([]any, 0, 20)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.ProjectID)
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID)
+	args = append(args, r.IterationID.Arg())
 	args = append(args, r.Name)
 	args = append(args, r.Description.Arg())
 	args = append(args, r.Type)
@@ -3594,30 +3718,32 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.NodeID)
 		case 6:
-			args = append(args, n.row.Name)
+			args = append(args, n.row.IterationID.Arg())
 		case 7:
-			args = append(args, n.row.Description.Arg())
+			args = append(args, n.row.Name)
 		case 8:
-			args = append(args, n.row.Type)
+			args = append(args, n.row.Description.Arg())
 		case 9:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.Type)
 		case 10:
-			args = append(args, n.row.Assignee.Arg())
+			args = append(args, n.row.Status)
 		case 11:
-			args = append(args, n.row.CandidateUsers)
+			args = append(args, n.row.Assignee.Arg())
 		case 12:
-			args = append(args, n.row.CandidateGroups)
+			args = append(args, n.row.CandidateUsers)
 		case 13:
-			args = append(args, n.row.Priority)
+			args = append(args, n.row.CandidateGroups)
 		case 14:
-			args = append(args, n.row.DueDate.Arg())
+			args = append(args, n.row.Priority)
 		case 15:
-			args = append(args, n.row.FormKey.Arg())
+			args = append(args, n.row.DueDate.Arg())
 		case 16:
-			args = append(args, n.row.FormDefinition.Arg())
+			args = append(args, n.row.FormKey.Arg())
 		case 17:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.FormDefinition.Arg())
 		case 18:
+			args = append(args, n.row.Variables)
+		case 19:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3674,30 +3800,32 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.NodeID)
 		case 4:
-			args = append(args, m.row.Name)
+			args = append(args, m.row.IterationID.Arg())
 		case 5:
-			args = append(args, m.row.Description.Arg())
+			args = append(args, m.row.Name)
 		case 6:
-			args = append(args, m.row.Type)
+			args = append(args, m.row.Description.Arg())
 		case 7:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.Type)
 		case 8:
-			args = append(args, m.row.Assignee.Arg())
+			args = append(args, m.row.Status)
 		case 9:
-			args = append(args, m.row.CandidateUsers)
+			args = append(args, m.row.Assignee.Arg())
 		case 10:
-			args = append(args, m.row.CandidateGroups)
+			args = append(args, m.row.CandidateUsers)
 		case 11:
-			args = append(args, m.row.Priority)
+			args = append(args, m.row.CandidateGroups)
 		case 12:
-			args = append(args, m.row.DueDate.Arg())
+			args = append(args, m.row.Priority)
 		case 13:
-			args = append(args, m.row.FormKey.Arg())
+			args = append(args, m.row.DueDate.Arg())
 		case 14:
-			args = append(args, m.row.FormDefinition.Arg())
+			args = append(args, m.row.FormKey.Arg())
 		case 15:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.FormDefinition.Arg())
 		case 16:
+			args = append(args, m.row.Variables)
+		case 17:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -3804,30 +3932,32 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.NodeID)
 		case 4:
-			args = append(args, m.row.Name)
+			args = append(args, m.row.IterationID.Arg())
 		case 5:
-			args = append(args, m.row.Description.Arg())
+			args = append(args, m.row.Name)
 		case 6:
-			args = append(args, m.row.Type)
+			args = append(args, m.row.Description.Arg())
 		case 7:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.Type)
 		case 8:
-			args = append(args, m.row.Assignee.Arg())
+			args = append(args, m.row.Status)
 		case 9:
-			args = append(args, m.row.CandidateUsers)
+			args = append(args, m.row.Assignee.Arg())
 		case 10:
-			args = append(args, m.row.CandidateGroups)
+			args = append(args, m.row.CandidateUsers)
 		case 11:
-			args = append(args, m.row.Priority)
+			args = append(args, m.row.CandidateGroups)
 		case 12:
-			args = append(args, m.row.DueDate.Arg())
+			args = append(args, m.row.Priority)
 		case 13:
-			args = append(args, m.row.FormKey.Arg())
+			args = append(args, m.row.DueDate.Arg())
 		case 14:
-			args = append(args, m.row.FormDefinition.Arg())
+			args = append(args, m.row.FormKey.Arg())
 		case 15:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.FormDefinition.Arg())
 		case 16:
+			args = append(args, m.row.Variables)
+		case 17:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
