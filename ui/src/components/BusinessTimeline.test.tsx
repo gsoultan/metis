@@ -127,7 +127,8 @@ describe('a hand-over on the business timeline', () => {
   it('says who reassigned it, from whom, to whom and why', () => {
     shown = handedOver;
     const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
-    expect(text).toContain('ana reassigned &quot;Approve the refund&quot; from budi to citra: budi is on leave');
+    expect(text).toContain('ana reassigned &quot;Approve the refund&quot; from budi to citra');
+    expect(text).toContain('Reason: budi is on leave');
     expect(text).toContain('Task &quot;Approve the refund&quot; was assigned to budi');
   });
 
@@ -150,7 +151,30 @@ describe('a hand-over on the business timeline', () => {
         </TranslationContext>
       </MantineProvider>,
     ));
-    expect(text).toContain('ana mengalihkan &quot;Approve the refund&quot; dari budi kepada citra: budi is on leave');
+    expect(text).toContain('ana mengalihkan &quot;Approve the refund&quot; dari budi kepada citra');
+    expect(text).toContain('Alasan: budi is on leave');
     expect(text).toContain('Task &quot;Approve the refund&quot; was assigned to budi');
+  });
+
+  it('shows the whole of a 1000-character, multi-line reason, unclamped', () => {
+    const reason = Array.from({ length: 10 }, (_, n) => `line ${n} ${'x'.repeat(90 - String(n).length)}`).join('\n');
+    expect(reason.length).toBeGreaterThanOrEqual(900);
+    expect(reason.length).toBeLessThanOrEqual(1000);
+    shown = [{ ...handedOver[0], data: { ...handedOver[0].data, reason } }];
+    const html = renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>);
+    expect(html).toContain(reason);
+    expect(html).toContain('white-space:pre-wrap');
+    expect(html).not.toContain('line-clamp');
+  });
+
+  it('shows what the server stored, unchanged, for the entries slice 1 added', () => {
+    shown = [
+      { id: 'p1', type: 'parked_work_withdrawn', message: '', narrative: 'Parked work at "Wait" was withdrawn', timestamp: '2026-09-28T10:00:00Z', data: { actor: 'ana', target: 'citra', reason: 'r' } },
+      { id: 'p2', type: 'called_process_finished_late', message: '', narrative: 'The called process finished after the parent moved on', timestamp: '2026-09-28T10:01:00Z', data: { actor: 'ana', target: 'citra' } },
+    ];
+    const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
+    expect(text).toContain('Parked work at &quot;Wait&quot; was withdrawn');
+    expect(text).toContain('The called process finished after the parent moved on');
+    expect(text).not.toContain('Reason:');
   });
 });

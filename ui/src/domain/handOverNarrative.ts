@@ -66,18 +66,35 @@ function moved(type: string, data: Record<string, unknown> | undefined, task: st
   }
 }
 
+/** A hand-over told in two parts: who did what to whom, and the reason typed with it. */
+export interface HandOverParts {
+  sentence: string;
+  /** What somebody typed, in whatever language they typed it; '' when none. */
+  reason: string;
+}
+
+export function handOverParts(
+  type: string,
+  data: Record<string, unknown> | undefined,
+  task: string,
+  t: Translate,
+): HandOverParts | null {
+  let sentence = moved(type, data, task, t);
+  if (sentence === null) return null;
+  if (data?.candidate_override === true) {
+    sentence = t('timeline.notOffered', { sentence });
+  }
+  return { sentence, reason: text(data, 'reason') };
+}
+
+/** The same sentence with the reason after a colon, as the server stores it. */
 export function describeHandOver(
   type: string,
   data: Record<string, unknown> | undefined,
   task: string,
   t: Translate,
 ): string | null {
-  let sentence = moved(type, data, task, t);
-  if (sentence === null) return null;
-  if (data?.candidate_override === true) {
-    sentence = t('timeline.notOffered', { sentence });
-  }
-  // The reason is what somebody typed, in whatever language they typed it.
-  const reason = text(data, 'reason');
-  return reason ? `${sentence}: ${reason}` : sentence;
+  const parts = handOverParts(type, data, task, t);
+  if (parts === null) return null;
+  return parts.reason ? `${parts.sentence}: ${parts.reason}` : parts.sentence;
 }

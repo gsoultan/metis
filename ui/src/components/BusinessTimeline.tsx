@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { asText } from '../types/bpmn';
 import { describeDecision } from '../domain/decisionNarrative';
-import { describeHandOver } from '../domain/handOverNarrative';
+import { handOverParts } from '../domain/handOverNarrative';
 import { useTranslation } from '../i18n/context';
 import { timelineKind } from '../domain/timelineKind';
 
@@ -104,7 +104,9 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
     <ScrollArea.Autosize mah={500} offsetScrollbars>
       <Box p="md">
         <Timeline active={entries.length} bulletSize={24} lineWidth={2}>
-          {entries.map((entry, index) => (
+          {entries.map((entry, index) => {
+            const told = handOverParts(entry.type, entry.data, entry.node?.name ?? '', t);
+            return (
             <Timeline.Item
               key={entry.id || index}
               bullet={
@@ -118,9 +120,8 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
               }
               title={
                 <Group justify="space-between" align="flex-start">
-                  {/* A reason is typed by a person and can be long: clamp it, and let an unbroken string wrap. */}
-                  <Text fw={500} size="sm" lineClamp={3} style={{ overflowWrap: 'anywhere', minWidth: 0, flex: 1 }}>
-                    {describeHandOver(entry.type, entry.data, entry.node?.name ?? '', t) ?? (entry.narrative || entry.message)}
+                  <Text fw={500} size="sm">
+                    {told?.sentence ?? (entry.narrative || entry.message)}
                   </Text>
                   <Text size="xs" c="dimmed">
                     {dayjs(entry.timestamp).fromNow()}
@@ -129,6 +130,12 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
               }
             >
               <Stack gap={4} mt={4}>
+                {/* The whole reason, as typed: line breaks kept, long words wrapped, never clamped. */}
+                {told?.reason && (
+                  <Text size="xs" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {t('handover.reason')}: {told.reason}
+                  </Text>
+                )}
                 {entry.node?.name && (
                   <Text size="xs" c="dimmed">
                     Step: {entry.node.name}
@@ -147,7 +154,8 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
                 )}
               </Stack>
             </Timeline.Item>
-          ))}
+            );
+          })}
         </Timeline>
       </Box>
     </ScrollArea.Autosize>
