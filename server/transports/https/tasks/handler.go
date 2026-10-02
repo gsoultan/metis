@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/transports/https/common"
+	"github.com/rs/zerolog/log"
 )
 
 func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransport.ServerOption) {
@@ -205,10 +206,17 @@ func decodeResolveTaskRequest(_ context.Context, r *http.Request) (any, error) {
 // never took one, and the Connect and older REST clients send none. A body
 // that is there and cannot be read is the caller's mistake and is answered as
 // one — it used to reach the encoder as a plain error, which is a 500.
+//
+// The answer is a sentence and not the decoder's error, which names the
+// server's own types ("Go struct field DelegateTaskRequest.user_id of type
+// string"). What the decoder said is logged, at a level that is off unless
+// somebody is looking: any caller can send a bad body as often as they like.
 func decodeBody(r *http.Request, into any) error {
 	err := json.NewDecoder(r.Body).Decode(into)
 	if err == nil || errors.Is(err, io.EOF) {
 		return nil
 	}
-	return apierr.Invalidf("the request body is not JSON the server can read: %v", err)
+	log.Debug().Err(err).Str("path", r.URL.Path).Msg("A task request body could not be read")
+	return apierr.Invalidf("the request body is not JSON the server can read; " +
+		"check that it is complete and that each field holds the kind of value it takes")
 }

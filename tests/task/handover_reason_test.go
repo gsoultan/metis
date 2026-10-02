@@ -150,3 +150,38 @@ func TestAHandOverBodyTheServerCannotReadIsTheCallersMistake(t *testing.T) {
 		t.Fatalf("after the refusals the task is held by %q, want alice", got)
 	}
 }
+
+// The 400 for a body the server cannot read carried the decoder's own words:
+// `{"user_id": 5}` was answered "json: cannot unmarshal number into Go struct
+// field DelegateTaskRequest.user_id of type string". That is the server's
+// source read out to whoever sent the request. The answer is a sentence.
+func TestAHandOverBodyOfTheWrongKindIsRefusedWithoutNamingTheServersTypes(t *testing.T) {
+	h := newTaskHarness(t)
+	taskID := h.openTask(t, heldByAlice())
+	path := "/api/v1/tasks/" + taskID
+	requests := []struct{ method, path, body string }{
+		{http.MethodPost, path + "/assign", `{"user_id": 5}`},
+		{http.MethodPost, path + "/delegate", `{"user_id": 5}`},
+		{http.MethodPost, path + "/unclaim", `{"reason": 5}`},
+		{http.MethodPost, path + "/resolve", `{"reason": ["because"]}`},
+		{http.MethodPut, path, `{"priority": "high"}`},
+		{http.MethodPost, path + "/assign", `{"user_id": "mallory"`},
+	}
+	for _, request := range requests {
+		status, reply := h.raw(t, request.method, h.tokens["alice"], request.path, request.body)
+		reply = strings.TrimSpace(reply)
+		if status != http.StatusBadRequest || !strings.Contains(reply, "not JSON the server can read") {
+			t.Errorf("%s %s with %s: got %d (%s), want 400 saying the body could not be read",
+				request.method, request.path, request.body, status, reply)
+		}
+		for _, leaked := range []string{"json:", "unmarshal", "Go struct", "Request", "of type", "unexpected EOF"} {
+			if strings.Contains(reply, leaked) {
+				t.Errorf("%s %s with %s was answered %q, which repeats the decoder's %q",
+					request.method, request.path, request.body, reply, leaked)
+			}
+		}
+	}
+	if got := h.taskAssignee(t, taskID); got != "alice" {
+		t.Fatalf("after the refusals the task is held by %q, want alice", got)
+	}
+}
