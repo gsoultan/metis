@@ -145,7 +145,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - **A completion condition in an imported BPMN file was ignored.** Import kept
   `<completionCondition>` of a multi-instance step where nothing evaluates it,
   so a file that said two-of-three ran as all-of-three. It is now read into the
-  step and evaluated, and export writes it back.
+  step and evaluated, and export writes it back. The condition is read in the
+  engine's own expression language (FEEL comparisons such as
+  `nrOfCompletedInstances >= 2`, or `nrOfCompletedInstances / nrOfInstances >=
+  0.6`). The marking other modelers put around an expression is taken off on
+  import — `${…}` and `#{…}` (Camunda 7, Flowable) and a leading `=`
+  (Camunda 8) — but what is inside is not translated: a condition that still
+  cannot be read, such as one written with `==`, `&&` or a method call, is
+  refused when the file is imported (400 over REST), naming the step, rather
+  than imported and left to read as "not yet" for ever. Rewrite it and import
+  again. Conditions on sequence flows are imported as written, as before.
 - **An ad-hoc sub-process that finished left its other steps running.** A step
   started inside it and still open when its completion condition was met kept
   its task in somebody's inbox, and the process could never complete. Those

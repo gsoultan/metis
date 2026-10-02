@@ -1,30 +1,28 @@
 package bpmn_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
-// BPMN 2.0.2 §10.3.8 (MultiInstanceLoopCharacteristics.completionCondition):
-// when it evaluates to true the remaining instances are cancelled and a token
-// is produced — whether the process was drawn here or arrived in a file.
-//
-// Import stored the condition where nothing evaluates it, so the same approval
-// ended at two signatures when designed and waited for three when imported.
-func TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne(t *testing.T) {
-	h := newEngineHarness(t, "Imported Approval Project")
-	ctx := h.Ctx()
-	const file = `<?xml version="1.0" encoding="UTF-8"?>
+// importedApproval is a two-of-three approval as a file: start → approve (once
+// per approver, until condition holds) → record → end. condition is written
+// into the file as given, so it has to be XML-escaped.
+func importedApproval(key, condition string) []byte {
+	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
-  <process id="imported-two-of-three" name="Imported approval" isExecutable="true">
+  <process id="` + key + `" name="Imported approval" isExecutable="true">
     <startEvent id="start"><outgoing>f1</outgoing></startEvent>
     <userTask id="approve" name="Approve the purchase">
       <incoming>f1</incoming><outgoing>f2</outgoing>
       <multiInstanceLoopCharacteristics camunda:collection="approvers" camunda:elementVariable="approver">
-        <completionCondition>nrOfCompletedInstances &gt;= 2</completionCondition>
+        <completionCondition>` + condition + `</completionCondition>
       </multiInstanceLoopCharacteristics>
     </userTask>
     <userTask id="record" name="Record the outcome">
@@ -35,12 +33,16 @@ func TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne(t *testing.T) {
     <sequenceFlow id="f2" sourceRef="approve" targetRef="record"/>
     <sequenceFlow id="f3" sourceRef="record" targetRef="end"/>
   </process>
-</definitions>`
-	definitionID, err := h.svc.ImportDefinition(ctx, h.projID, []byte(file))
-	if err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	instanceID, err := h.svc.StartProcess(ctx, h.projID, "imported-two-of-three",
+</definitions>`)
+}
+
+// requireTwoOfThree starts the imported approval with three approvers and
+// fails unless the second approval ends the step, once, and withdraws the
+// third. It returns the instance, waiting at the step after the approval.
+func requireTwoOfThree(t *testing.T, h engineHarness, key string) uuid.UUID {
+	t.Helper()
+	ctx := h.Ctx()
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, key,
 		map[string]any{"approvers": []any{"ana", "budi", "citra"}})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -71,6 +73,24 @@ func TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne(t *testing.T) {
 		t.Fatalf("the approval nobody needs any more is %q, want it withdrawn", third.Status)
 	}
 	requireRefusedInPlainWords(t, completeAs(ctx, h, third, "carol", nil), third)
+	return instanceID
+}
+
+// BPMN 2.0.2 §10.3.8 (MultiInstanceLoopCharacteristics.completionCondition):
+// when it evaluates to true the remaining instances are cancelled and a token
+// is produced — whether the process was drawn here or arrived in a file.
+//
+// Import stored the condition where nothing evaluates it, so the same approval
+// ended at two signatures when designed and waited for three when imported.
+func TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne(t *testing.T) {
+	h := newEngineHarness(t, "Imported Approval Project")
+	ctx := h.Ctx()
+	definitionID, err := h.svc.ImportDefinition(ctx, h.projID,
+		importedApproval("imported-two-of-three", "nrOfCompletedInstances &gt;= 2"))
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	instanceID := requireTwoOfThree(t, h, "imported-two-of-three")
 	finishRecording(ctx, t, h, instanceID)
 
 	// And the file that comes back out says the same thing.
@@ -80,5 +100,54 @@ func TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne(t *testing.T) {
 	}
 	if !strings.Contains(string(exported), "nrOfCompletedInstances &gt;= 2") {
 		t.Errorf("export dropped the completion condition\n---\n%s", exported)
+	}
+}
+
+// BPMN 2.0.2 §10.3.8: the completionCondition is an Expression, and the
+// standard leaves its language to the tool. The files people import write it
+// the way their modeler does: Camunda 7 and Flowable as ${…}, Camunda 8 as
+// FEEL with a leading "=".
+//
+// Import kept the wrapper. The evaluator could not read the result, answered
+// false, and a two-of-three approval waited for the third signature with
+// nothing anywhere to say its condition had not been understood.
+func TestAnImportedConditionInAnotherModelersFormStillEndsTheStepAtTwo(t *testing.T) {
+	for name, condition := range map[string]string{
+		"camunda-7": "${nrOfCompletedInstances &gt;= 2}",
+		"camunda-8": "= nrOfCompletedInstances &gt;= 2",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t, "Imported Approval Project "+name)
+			key := "imported-two-of-three-" + name
+			if _, err := h.svc.ImportDefinition(h.Ctx(), h.projID, importedApproval(key, condition)); err != nil {
+				t.Fatalf("import: %v", err)
+			}
+			finishRecording(h.Ctx(), t, h, requireTwoOfThree(t, h, key))
+		})
+	}
+}
+
+// BPMN 2.0.2 §10.3.8: a completionCondition decides when the step ends, so one
+// the engine cannot read is a decision it cannot make.
+//
+// It is refused when the file is imported, in words that name the step, and
+// nothing is deployed. Importing it and reading the condition as false would
+// run the step for everybody — the answer nobody chose.
+func TestAnImportedConditionTheEngineCannotReadIsRefusedAndNothingIsDeployed(t *testing.T) {
+	h := newEngineHarness(t, "Unreadable Condition Project")
+	ctx := h.Ctx()
+
+	_, err := h.svc.ImportDefinition(ctx, h.projID,
+		importedApproval("imported-unreadable", "${nrOfCompletedInstances == 2 &amp;&amp; approved}"))
+
+	if !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Fatalf("the import answered %v, want a refusal the caller can act on", err)
+	}
+	if text := err.Error(); !strings.Contains(text, "Approve the purchase") || strings.Contains(text, "'approve'") ||
+		strings.Contains(text, `"approve"`) {
+		t.Fatalf("the refusal should name the step as the diagram does, and not by its id: %q", text)
+	}
+	if _, startErr := h.svc.StartProcess(ctx, h.projID, "imported-unreadable", nil); startErr == nil {
+		t.Fatal("the refused file was deployed all the same: an instance of it started")
 	}
 }

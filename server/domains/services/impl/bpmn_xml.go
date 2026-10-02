@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
 )
 
 // The namespaces a BPMN file has to declare to be loadable by anything else.
@@ -435,6 +437,9 @@ func (p *BPMNXMLParser) Parse(reader io.Reader) (*entities.ProcessDefinition, er
 
 	def.Nodes = p.mapNodes(bp)
 	def.Flows = p.mapFlows(bp.SequenceFlows)
+	if err := refuseUnreadableCompletionConditions(def.Nodes); err != nil {
+		return nil, err
+	}
 
 	// Add Pools/Participants as nodes if they exist
 	for _, coll := range defs.Collaborations {
@@ -715,8 +720,9 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		node.Collection = mi.Collection
 		node.ElementVariable = mi.ElementVariable
 		// The field the engine evaluates when an iteration finishes: met, it
-		// ends the step and withdraws the iterations still open.
-		node.CompletionCondition = mi.CompletionCondition.text()
+		// ends the step and withdraws the iterations still open. In the
+		// engine's own syntax — see importedCompletionCondition.
+		node.CompletionCondition = importedCompletionCondition(mi.CompletionCondition.text())
 	}
 
 	if bn.ErrorEventDefinition != nil {
@@ -757,6 +763,70 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 	}
 
 	return node
+}
+
+// importedCompletionCondition is a multi-instance completion condition as the
+// engine reads one, from the text a file carries.
+//
+// BPMN leaves the expression language to the tool, and each modeler marks its
+// own: Camunda 7 and Flowable wrap an expression as ${…} or #{…}, and Camunda 8
+// writes FEEL with a leading "=". The engine's evaluator reads the expression
+// and not the marking, so the marking is taken off. Kept, the condition could
+// not be read and answered false every time: "two of them is enough" ran as
+// "all of them", and nothing said the condition had not been understood.
+//
+// Taking the marking off does not translate the language inside it. What is
+// left is checked when the file is imported
+// (refuseUnreadableCompletionConditions).
+func importedCompletionCondition(written string) string {
+	condition := strings.TrimSpace(written)
+	for _, opening := range []string{"${", "#{"} {
+		if rest, wrapped := strings.CutPrefix(condition, opening); wrapped {
+			if expression, closed := strings.CutSuffix(rest, "}"); closed {
+				return strings.TrimSpace(expression)
+			}
+			// Opened and never closed: left as written, for the check to refuse.
+			return condition
+		}
+	}
+	if expression, marked := strings.CutPrefix(condition, "="); marked {
+		return strings.TrimSpace(expression)
+	}
+	return condition
+}
+
+// refuseUnreadableCompletionConditions refuses a file in which a step that
+// repeats has a completion condition the engine cannot read.
+//
+// Such a condition answers false whenever it is asked, so the step would wait
+// for every one of its runs — silently, and it is the opposite of what a
+// completion condition is written for. An unreadable condition on a sequence
+// flow is not refused here: it is imported as written, and the gateway that
+// cannot choose a flow says so when it is reached. A completion condition has
+// no such moment; "not yet" is an ordinary answer for it. So it is refused
+// while the person who chose the file is still there to read why.
+//
+// The message is for that person: it names the step as the diagram does, and
+// shows the condition as the engine would have read it.
+func refuseUnreadableCompletionConditions(nodes []*entities.Node) error {
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if node.Repeats() && logic.CheckCondition(node.CompletionCondition) != nil {
+			step := "a step with no name"
+			if node.Name != "" {
+				step = fmt.Sprintf("the step '%s'", node.Name)
+			}
+			return apierr.Invalidf("%s repeats until a completion condition this engine cannot read: %s — "+
+				"rewrite the condition as a comparison such as nrOfCompletedInstances >= 2 and import the file again",
+				step, node.CompletionCondition)
+		}
+		if err := refuseUnreadableCompletionConditions(node.Nodes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *BPMNXMLParser) mapFlows(bpFlows []bpmnSequenceFlow) []*entities.SequenceFlow {

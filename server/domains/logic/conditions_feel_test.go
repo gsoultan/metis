@@ -212,3 +212,39 @@ func TestConditionsCannotBeHeldOpen(t *testing.T) {
 		t.Fatal("a FEEL condition did not return promptly; the language must be total")
 	}
 }
+
+// The chain answers true or false, and answers false for a condition nothing
+// in it can read. A caller that can still refuse the condition — an import —
+// needs to be told which it was, and CheckCondition has to agree with the
+// chain about what each link claims.
+func TestCheckConditionSaysWhichConditionsTheChainCanRead(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		condition string
+		readable  bool
+	}{
+		{"no condition", "", true},
+		{"a comparison", "nrOfCompletedInstances >= 2", true},
+		{"a ratio", "nrOfCompletedInstances / nrOfInstances >= 0.6", true},
+		{"a variable that is true or false", "approved", true},
+		{"the plain key=value shape", "status=approved", true},
+		{"key=value whose value is several words", "status=on hold", true},
+		{"FEEL equality and a conjunction", `status = "GOLD" and amount > 100`, true},
+		{"JavaScript, which has its own switch", "js:votes >= 2", true},
+
+		{"another modeler's wrapper", "${nrOfCompletedInstances >= 2}", false},
+		{"another modeler's marker", "= nrOfCompletedInstances >= 2", false},
+		{"JUEL operators", "nrOfCompletedInstances == 2 && approved", false},
+		{"half a comparison", "nrOfCompletedInstances >=", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckCondition(tc.condition)
+			if tc.readable && err != nil {
+				t.Fatalf("%q is a condition the chain reads, and the check refused it: %v", tc.condition, err)
+			}
+			if !tc.readable && err == nil {
+				t.Fatalf("%q is a condition the chain cannot read, and the check passed it", tc.condition)
+			}
+		})
+	}
+}

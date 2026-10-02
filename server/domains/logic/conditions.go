@@ -67,17 +67,10 @@ type EqualsEvaluator struct {
 }
 
 func (e *EqualsEvaluator) Evaluate(condition string, vars map[string]any) bool {
-	if !strings.Contains(condition, "=") || isRicherExpression(condition) {
+	key, expected, plain := plainEquality(condition)
+	if !plain {
 		return e.EvaluateNext(condition, vars)
 	}
-
-	parts := strings.Split(condition, "=")
-	if len(parts) != 2 {
-		return e.EvaluateNext(condition, vars)
-	}
-
-	key := strings.TrimSpace(parts[0])
-	expected := strings.TrimSpace(parts[1])
 
 	if vars == nil {
 		return false
@@ -88,6 +81,46 @@ func (e *EqualsEvaluator) Evaluate(condition string, vars map[string]any) bool {
 	}
 
 	return e.EvaluateNext(condition, vars)
+}
+
+// plainEquality splits a condition of the plain `key=value` shape into its
+// two sides, and reports whether it has that shape. It is the shape
+// EqualsEvaluator claims; anything richer is FEEL's.
+func plainEquality(condition string) (key, expected string, ok bool) {
+	if !strings.Contains(condition, "=") || isRicherExpression(condition) {
+		return "", "", false
+	}
+	parts := strings.Split(condition, "=")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
+}
+
+// CheckCondition reports why the evaluator chain could not read condition, or
+// nil when it can.
+//
+// The chain itself has no way to say so: Evaluate answers true or false, and a
+// condition nothing can read answers false with a line in the log. That is the
+// right shape for a caller that has to route a token now, and the wrong one
+// for a caller that can still refuse the condition — an import. This walks the
+// chain's own order and asks the last link, FEEL, to parse what the earlier
+// ones decline.
+//
+// "Can read" is about the text, not the data: a condition that names a
+// variable the process never sets parses, and is found out when it runs.
+// A `js:` condition is read by JavaScript when that is switched on; whether it
+// is belongs to the installation, and GET /api/v1/definitions/javascript-conditions
+// lists every one.
+func CheckCondition(condition string) error {
+	if condition == "" || strings.HasPrefix(condition, "js:") {
+		return nil
+	}
+	if _, _, plain := plainEquality(condition); plain {
+		return nil
+	}
+	_, err := feel.Parse(condition)
+	return err
 }
 
 // interfaceToString converts common Go scalar types to their string representation.

@@ -1,10 +1,12 @@
 package impl
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
@@ -661,4 +663,79 @@ func TestAdHocCancelRemainingInstancesRoundTrips(t *testing.T) {
 		t.Fatalf("re-parsing the exported file failed: %v", err)
 	}
 	check(t, again, "after the round trip")
+}
+
+// importRepeatingStep parses a file with one step that repeats until
+// condition holds. The step's id is one no sentence would contain, so a test
+// can tell whether a message names it.
+func importRepeatingStep(condition string) (*entities.ProcessDefinition, error) {
+	return (&BPMNXMLParser{}).Parse(strings.NewReader(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
+  <process id="p" isExecutable="true">
+    <userTask id="Activity_0x7" name="Approve the purchase">
+      <multiInstanceLoopCharacteristics camunda:collection="approvers" camunda:elementVariable="approver">
+        <completionCondition>%s</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+  </process>
+</definitions>`, condition)))
+}
+
+// The files people import were not written in this designer. Camunda 7 and
+// Flowable wrap an expression as ${…} (or #{…}), and Camunda 8 marks a FEEL
+// expression with a leading "=". Import kept the wrapper, the evaluator could
+// not read it and answered false, and "two of them is enough" ran as "all of
+// them" with nothing to say so.
+func TestAnImportedCompletionConditionIsReadInTheFormsOtherModelersWrite(t *testing.T) {
+	const want = "nrOfCompletedInstances >= 2"
+	for _, written := range []string{
+		"nrOfCompletedInstances &gt;= 2",
+		"${nrOfCompletedInstances &gt;= 2}",
+		"${ nrOfCompletedInstances &gt;= 2 }",
+		"#{nrOfCompletedInstances &gt;= 2}",
+		"= nrOfCompletedInstances &gt;= 2",
+		"=nrOfCompletedInstances &gt;= 2",
+		"\n        ${nrOfCompletedInstances &gt;= 2}\n      ",
+	} {
+		t.Run(written, func(t *testing.T) {
+			def, err := importRepeatingStep(written)
+			if err != nil {
+				t.Fatalf("Parse returned an error: %v", err)
+			}
+			if got := nodeByID(t, def, "Activity_0x7").CompletionCondition; got != want {
+				t.Fatalf("the engine would evaluate %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A condition the engine cannot read must not be imported: at run time it
+// reads as false, and a completion condition that is always false is a step
+// that quietly waits for everybody. The refusal is for the person who chose
+// the file, so it names the step as the diagram does.
+func TestAnImportedCompletionConditionTheEngineCannotReadIsRefused(t *testing.T) {
+	for _, written := range []string{
+		"${nrOfCompletedInstances == 2 &amp;&amp; approved}",
+		"${execution.getVariable('votes') &gt;= 2}",
+		"${nrOfCompletedInstances &gt;= 2",
+		"= nrOfCompletedInstances &gt;=",
+	} {
+		t.Run(written, func(t *testing.T) {
+			def, err := importRepeatingStep(written)
+			if err == nil {
+				t.Fatalf("the file was imported, and the step would evaluate %q",
+					nodeByID(t, def, "Activity_0x7").CompletionCondition)
+			}
+			if !errors.Is(err, apierr.ErrInvalidArgument) {
+				t.Fatalf("got %v, want a refusal the caller can act on", err)
+			}
+			if !strings.Contains(err.Error(), "Approve the purchase") {
+				t.Errorf("the refusal does not name the step: %q", err)
+			}
+			if strings.Contains(err.Error(), "Activity_0x7") {
+				t.Errorf("the refusal names an id a person cannot read: %q", err)
+			}
+		})
+	}
 }
