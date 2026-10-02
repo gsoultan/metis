@@ -20,6 +20,15 @@ type ProcessEvent struct {
 	// particular person, which is what every dispatch that does not set it
 	// means. Nothing that consumes Variables changes.
 	Assignee string `json:"assignee,omitzero"`
+	// Owner is who else a withdrawn task was taken from: the person who
+	// delegated it and was waiting to have it back, when it was with a
+	// delegate (Task.AwaitsHandBack). Empty on every other event.
+	//
+	// The Assignee of a withdrawal is whoever held the task, which for a
+	// delegated one is the delegate — so the owner, who is waiting on it just
+	// as much, was told nothing. Not sent to browsers or webhooks: what they
+	// receive for a withdrawal is what it was.
+	Owner string `json:"-"`
 	// Audited says the code that raised this event wrote its audit entry
 	// itself, so the audit observer must not write a second one.
 	//

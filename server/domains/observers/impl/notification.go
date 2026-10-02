@@ -26,6 +26,22 @@ func (o *notificationObserver) OnEvent(ctx context.Context, event entities.Proce
 		entities.EventTaskDelegated, entities.EventTaskResolved:
 		o.handleTaskEvent(ctx, event)
 	}
+	if owner, waiting := ownerOfWithdrawnDelegation(event); waiting {
+		o.handleTaskEvent(ctx, owner)
+	}
+}
+
+// ownerOfWithdrawnDelegation is the withdrawal of a delegated task as its
+// owner is told it: the same notice the delegate gets, addressed to them.
+//
+// The delegate held the task, so the withdrawal is about them. The owner was
+// waiting for it to come back, and with nothing said went on waiting.
+func ownerOfWithdrawnDelegation(event entities.ProcessEvent) (entities.ProcessEvent, bool) {
+	if event.Type != entities.EventTaskCanceled || event.Owner == "" || event.Owner == event.Assignee {
+		return entities.ProcessEvent{}, false
+	}
+	event.Assignee = event.Owner
+	return event, true
 }
 
 // handleTaskEvent tells whoever now has work that they have it.

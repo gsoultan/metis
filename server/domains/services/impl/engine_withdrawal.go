@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
@@ -97,9 +98,22 @@ func (e *Engine) cancelOpenTasksOn(ctx context.Context, instance *entities.Proce
 			// assignee is who the diagram nominated, which is not the same
 			// thing once somebody has claimed it.
 			Assignee: m.Assignee,
+			Owner:    ownerAwaitingHandBack(*m),
 		})
 	}
 	return nil
+}
+
+// ownerAwaitingHandBack is who delegated a task that is still with its
+// delegate, or "" when it is not waiting to be handed back to anybody. Asked
+// of the row as it was before it was withdrawn: such a task is taken from two
+// people, and its Assignee is only one of them.
+func ownerAwaitingHandBack(row models.TaskModel) string {
+	task := adapters.TaskEntityAdapter{Model: row}.ToEntity()
+	if !task.AwaitsHandBack() {
+		return ""
+	}
+	return task.OwnerUsername()
 }
 
 // withdrawExternalTasksOn takes the work any of nodes has parked for an

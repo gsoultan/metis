@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -308,4 +309,55 @@ func TestTheWaitingAndWithdrawnSentencesAreWhatTheyWere(t *testing.T) {
 func withoutProcess(event entities.ProcessEvent) entities.ProcessEvent {
 	event.Instance = &entities.ProcessInstance{ID: event.Instance.ID}
 	return event
+}
+
+// A withdrawn task that was with a delegate had somebody else waiting on it:
+// its owner, who was told nothing and went on waiting for it to come back.
+func TestTheOwnerOfAWithdrawnDelegationIsToldWhatTheDelegateIs(t *testing.T) {
+	notifier := &recordingNotifier{}
+	event := taskCancelled(&entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"}, "dita")
+	event.Owner = "ollie"
+	NewNotificationObserver(notifier).OnEvent(context.Background(), event)
+
+	if got := notifier.recipients(); len(got) != 2 || got[0] != "dita" || got[1] != "ollie" {
+		t.Fatalf("a task withdrawn from dita, who had it from ollie, told %v; want dita, then ollie", got)
+	}
+	delegate, owner := notifier.sent[0], notifier.sent[1]
+	if owner.Title != "A task was withdrawn" || owner.Title != delegate.Title || owner.Message != delegate.Message ||
+		owner.Type != delegate.Type || owner.Link != delegate.Link {
+		t.Errorf("the owner was sent %+v, which is not what the delegate was sent: %+v", owner, delegate)
+	}
+}
+
+func TestAnOwnerIsToldOfAWithdrawalOnceAndOfNothingElse(t *testing.T) {
+	node := &entities.Node{ID: "opsApprove", Name: "Operations approve"}
+	for _, c := range []struct {
+		name  string
+		event func() entities.ProcessEvent
+		want  []string
+	}{
+		{"the owner is the holder", func() entities.ProcessEvent {
+			event := taskCancelled(node, "ollie")
+			event.Owner = "ollie"
+			return event
+		}, []string{"ollie"}},
+		{"an owner on an event that is not a withdrawal", func() entities.ProcessEvent {
+			event := handedTo(entities.EventTaskDelegated, "dita")
+			event.Owner = "ollie"
+			return event
+		}, []string{"dita"}},
+		{"an owner on an event the notifier does not act on", func() entities.ProcessEvent {
+			event := handedTo(entities.EventTaskUpdated, "dita")
+			event.Owner = "ollie"
+			return event
+		}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			notifier := &recordingNotifier{}
+			NewNotificationObserver(notifier).OnEvent(context.Background(), c.event())
+			if got := notifier.recipients(); !slices.Equal(got, c.want) {
+				t.Fatalf("told %v, want %v", got, c.want)
+			}
+		})
+	}
 }

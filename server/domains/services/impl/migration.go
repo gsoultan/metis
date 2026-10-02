@@ -1306,6 +1306,7 @@ func (s *migrationService) announceWithdrawal(ctx context.Context, task models.T
 		Timestamp: time.Now().Unix(),
 		Variables: instance.Variables,
 		Assignee:  task.Assignee,
+		Owner:     ownerAwaitingHandBack(task),
 	})
 }
 
