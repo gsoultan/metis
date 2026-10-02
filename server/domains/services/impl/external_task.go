@@ -2,11 +2,11 @@ package impl
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -78,12 +78,12 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 		}
 		task := adapters.ExternalTaskEntityAdapter{Model: *m}.ToEntity()
 
-		if task.WorkerID != workerID {
-			return fmt.Errorf("task %s is locked by another worker", taskID)
+		if err := refuseWorkerWithoutLock(task.WorkerID, workerID); err != nil {
+			return err
 		}
-
 		if task.LockExpiration != nil && task.LockExpiration.Before(time.Now()) {
-			return fmt.Errorf("lock for task %s has expired", taskID)
+			return apierr.Invalidf("the lock on this task has run out, and the task may already be with another " +
+				"worker — fetch it again")
 		}
 
 		// 1. DeleteConnectorInstance external task
@@ -130,8 +130,29 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		if err != nil {
 			return err
 		}
-		if m.WorkerID != workerID {
-			return fmt.Errorf("task %s is locked by another worker", taskID)
+
+		// The instance first and the task's row second, for every way out of
+		// here — the order Complete takes them in, and the engine when a step
+		// ends and it withdraws the work still parked for it.
+		//
+		// This used to write the row and then, with no tries left, raise an
+		// incident. An incident refers to its instance, so raising one waits
+		// for whoever holds the instance — and the completion that ends the
+		// step holds it while it waits to withdraw this row. Each held what the
+		// other wanted. Short of that, the row read here could be withdrawn
+		// before it was written, and the worker was told its failure had failed.
+		//
+		// Read again under the lock, so a task withdrawn in the meantime is
+		// answered as what it is: no such task.
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, uuid.UUID(m.ProcessInstanceID))
+		if err != nil {
+			return err
+		}
+		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
+			return err
+		}
+		if err := refuseWorkerWithoutLock(m.WorkerID, workerID); err != nil {
+			return err
 		}
 
 		m.ErrorMessage = errorMessage
@@ -164,12 +185,26 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 			Status:    entities.IncidentOpen,
 			CreatedAt: time.Now(),
 		}
-		if instance, err := s.engine.GetInstance(txCtx, uuid.UUID(m.ProcessInstanceID)); err == nil && instance.Definition != nil {
+		if instance.Definition != nil {
 			incident.Definition = &entities.ProcessDefinition{ID: instance.Definition.ID}
 		}
 		_, err = s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
 		return err
 	})
+}
+
+// refuseWorkerWithoutLock refuses a report from a worker the task is not
+// locked by.
+//
+// A refusal, not a failure — the same 400 extending a lock one does not hold
+// gets: sending the report again will not help, and the worker should stop and
+// fetch. It names no task; the worker knows which one it asked about.
+func refuseWorkerWithoutLock(heldBy, workerID string) error {
+	if heldBy != workerID {
+		return apierr.Invalidf("worker %q does not hold the lock on this task: it is another worker's, or "+
+			"nobody's — fetch it again", workerID)
+	}
+	return nil
 }
 
 func (s *externalTaskService) Create(ctx context.Context, task *entities.ExternalTask) error {

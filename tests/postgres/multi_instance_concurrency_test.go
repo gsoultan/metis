@@ -390,3 +390,129 @@ func TestTheLastChecksReportedTogetherAdvanceTheProcessOnce(t *testing.T) {
 		}
 	}
 }
+
+// BPMN 2.0.2 §10.3.8: a completionCondition that holds cancels the remaining
+// instances and produces a token — one token, whatever else was being said
+// about those instances at that moment.
+//
+// A worker giving up on the third check — no tries left — as the second check
+// was reported and ended the step. The failure wrote the task's row and then
+// raised an incident, which waits for the instance; the completion held the
+// instance and waited to withdraw that row. The database ended one of them as
+// a deadlock: a step that had finished did not, or a failure nobody was told
+// about.
+func TestAFinalFailureArrivingAsTheStepEndsDoesNotDeadlock(t *testing.T) {
+	db := testutils.SetupPostgresDB(t, 8)
+	repo, engine, projID, ctx := newPostgresEngine(t, db)
+	workers := serviceimpl.NewExternalTaskService(repo, engine)
+
+	def := multiInstanceDefinition(projID, "check-two-of-three-failing")
+	def.Nodes[1].Type = entities.ServiceTask
+	def.Nodes[1].ExternalTopic = "item-check-failing"
+	def.Nodes[1].CompletionCondition = "nrOfCompletedInstances >= 2"
+	if _, err := serviceimpl.NewDefinitionService(repo).CreateDefinition(ctx, def); err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+
+	// Several instances, so the interleaving that deadlocks is met rather than
+	// hoped for.
+	const instances = 8
+	type run struct {
+		instanceID uuid.UUID
+		ending     uuid.UUID // the check whose completion ends the step
+		failing    uuid.UUID // the check its worker gives up on
+		failed     error
+	}
+	runs := make([]*run, 0, instances)
+	for range instances {
+		id, err := engine.StartProcess(ctx, projID, "check-two-of-three-failing", map[string]any{
+			"items": []any{"a", "b", "c"},
+		})
+		if err != nil {
+			t.Fatalf("start process: %v", err)
+		}
+		runs = append(runs, &run{instanceID: id})
+	}
+	checks, err := workers.FetchAndLock(ctx, "item-check-failing", "worker", 3*instances, 60_000)
+	if err != nil || len(checks) != 3*instances {
+		t.Fatalf("expected %d checks: %d, err=%v", 3*instances, len(checks), err)
+	}
+	byInstance := map[uuid.UUID][]uuid.UUID{}
+	for _, check := range checks {
+		byInstance[check.ProcessInstance.ID] = append(byInstance[check.ProcessInstance.ID], check.ID)
+	}
+	for _, r := range runs {
+		mine := byInstance[r.instanceID]
+		if len(mine) != 3 {
+			t.Fatalf("an instance has %d checks, want 3", len(mine))
+		}
+		// The first check is done, so the next one reported ends the step.
+		if err := workers.Complete(ctx, mine[0], "worker", nil); err != nil {
+			t.Fatalf("complete the first check: %v", err)
+		}
+		r.ending, r.failing = mine[1], mine[2]
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, r := range runs {
+		wg.Go(func() {
+			<-start
+			if err := workers.Complete(ctx, r.ending, "worker", nil); err != nil {
+				t.Errorf("the report that ends the step failed: %v", err)
+			}
+		})
+		wg.Go(func() {
+			<-start
+			r.failed = workers.HandleFailure(ctx, r.failing, "worker", "the supplier's service is down", "", 0, 0)
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	for _, r := range runs {
+		// Either the failure landed first, and an incident says so, or the
+		// step had ended and the work it was about was no longer there.
+		incidents, err := repo.Incident().ListByInstance(ctx, r.instanceID)
+		if err != nil {
+			t.Fatalf("list incidents: %v", err)
+		}
+		switch {
+		case r.failed == nil:
+			if len(incidents) != 1 {
+				t.Errorf("a final failure that was accepted raised %d incident(s), want 1", len(incidents))
+			}
+		case errors.Is(r.failed, apierr.ErrNotFound):
+			if len(incidents) != 0 {
+				t.Errorf("a failure that was refused raised %d incident(s)", len(incidents))
+			}
+		default:
+			t.Errorf("a final failure neither landed nor was refused: %v", r.failed)
+		}
+
+		final, err := engine.GetInstance(ctx, r.instanceID)
+		if err != nil {
+			t.Fatalf("reload instance: %v", err)
+		}
+		if left := len(final.GetTokensByNode(&entities.Node{ID: "review"})); left != 0 {
+			t.Errorf("the finished step still holds %d token(s)", left)
+		}
+		if on := len(final.GetTokensByNode(&entities.Node{ID: "summarise"})); on != 1 {
+			t.Errorf("the process holds %d token(s) on the next step, want 1", on)
+		}
+		after, err := repo.Task().ListByInstance(ctx, r.instanceID)
+		if err != nil {
+			t.Fatalf("list tasks: %v", err)
+		}
+		if len(after) != 1 || after[0].NodeID != "summarise" {
+			t.Errorf("the next step was opened %d times, want once", len(after))
+		}
+		parked, err := repo.ExternalTask().ListByProcessInstance(ctx, r.instanceID)
+		if err != nil {
+			t.Fatalf("list external tasks: %v", err)
+		}
+		if len(parked) != 0 {
+			t.Errorf("%d check(s) are still parked for a step that ended", len(parked))
+		}
+	}
+}

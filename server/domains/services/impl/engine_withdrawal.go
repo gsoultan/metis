@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/rs/zerolog/log"
 )
 
 // endActivity ends every running instance of an activity on this instance.
@@ -136,10 +135,10 @@ func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entitie
 		}
 		withdrawn = append(withdrawn, uuid.UUID(task.ID).String())
 	}
-	if len(withdrawn) > 0 {
-		e.recordParkedWorkWithdrawn(ctx, instance, node, withdrawn)
+	if len(withdrawn) == 0 {
+		return nil
 	}
-	return nil
+	return e.recordParkedWorkWithdrawn(ctx, instance, node, withdrawn)
 }
 
 // recordParkedWorkWithdrawn writes, on the instance's trail, that a step ended
@@ -154,10 +153,11 @@ func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entitie
 // task-withdrawn event is addressed to the person who held the task and
 // nobody holds this one.
 //
-// A line that cannot be written is reported and does not stop the step
-// ending, as everywhere else the trail is written: the trail describes what
-// the process did and is not a reason for it to do something else.
-func (e *Engine) recordParkedWorkWithdrawn(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node, taskIDs []string) {
+// A line that cannot be written is returned, and the step does not end. The
+// line is written in the transaction that withdraws the work, so the two are
+// kept or lost together: the row goes either way a task ends, and work
+// withdrawn with no line saying so reads, for good, as work somebody did.
+func (e *Engine) recordParkedWorkWithdrawn(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node, taskIDs []string) error {
 	stepName := "A step"
 	if node.Name != "" {
 		stepName = fmt.Sprintf("'%s'", node.Name)
@@ -181,10 +181,7 @@ func (e *Engine) recordParkedWorkWithdrawn(ctx context.Context, instance *entiti
 		Timestamp: time.Now(),
 	}
 	if err := NewAuditWriter(e.repo.Audit()).RecordEvent(ctx, entry); err != nil {
-		log.Error().Err(err).
-			Str("instance_id", instance.ID.String()).
-			Str("node_id", node.ID).
-			Strs("external_task_ids", taskIDs).
-			Msg("Could not record that parked work was withdrawn; the trail is incomplete from here")
+		return fmt.Errorf("record the work withdrawn from node %s of instance %s: %w", node.ID, instance.ID, err)
 	}
+	return nil
 }

@@ -1,9 +1,12 @@
 package bpmn_test
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
@@ -91,5 +94,50 @@ func TestAnExternalTaskWaitsOutItsRetryTimeout(t *testing.T) {
 	}
 	if again, err := h.svc.FetchAndLock(ctx, "charge", "worker-2", 1, 60_000); err != nil || len(again) != 0 {
 		t.Fatalf("a task told to wait a minute was offered again at once: %d, %v", len(again), err)
+	}
+}
+
+// A report about a task from a worker that does not hold its lock was a bare
+// error with the task's id in it, which the transport answers as a failure of
+// the server's: a worker's client retried a report that could never be taken.
+// It is a refusal, as extending a lock one does not hold is — whether the
+// report is that the work is done or that it failed.
+func TestAReportFromAWorkerWithoutTheLockIsRefusedNotFailed(t *testing.T) {
+	h := newEngineHarness(t, "External Refusal Project")
+	ctx := h.Ctx()
+	h.deploy(t, chargeProcess(h.projID))
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "charge-card", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	fetched, err := h.svc.FetchAndLock(ctx, "charge", "worker-1", 1, 60_000)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("fetch: %d tasks, %v", len(fetched), err)
+	}
+	taskID := fetched[0].ID
+
+	for name, report := range map[string]func() error{
+		"done":   func() error { return h.svc.Complete(ctx, taskID, "worker-2", nil) },
+		"failed": func() error { return h.svc.HandleFailure(ctx, taskID, "worker-2", "card declined", "", 0, 0) },
+	} {
+		err := report()
+		if !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Fatalf("%s, from a worker without the lock: got %v, want a refusal", name, err)
+		}
+		if strings.Contains(err.Error(), taskID.String()) {
+			t.Fatalf("the refusal names the task's id: %q", err)
+		}
+	}
+
+	// Nothing was taken from the worker that does hold it.
+	incidents, err := h.repo.Incident().ListByInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("read the incidents: %v", err)
+	}
+	if len(incidents) != 0 {
+		t.Fatalf("a refused failure raised %d incident(s)", len(incidents))
+	}
+	if err := h.svc.Complete(ctx, taskID, "worker-1", nil); err != nil {
+		t.Fatalf("the worker holding the lock could not complete: %v", err)
 	}
 }
