@@ -250,3 +250,60 @@ func closeTask(ctx context.Context, t *testing.T, h engineHarness, taskID uuid.U
 		t.Fatalf("set the task %s: %v", status, err)
 	}
 }
+
+// BPMN 2.0.2 §10.3.8: once the completionCondition holds the remaining
+// instances are cancelled, so none of them can complete afterwards.
+//
+// Whatever still reports a run of a finished step straight to the engine —
+// naming the run it was, or naming none — is refused in words a person can
+// read, and nothing moves.
+func TestALateCompletionForAFinishedStepIsRefusedAndChangesNothing(t *testing.T) {
+	h := newEngineHarness(t, "Late Completion Project")
+	ctx := h.Ctx()
+	instanceID := startApproval(t, h,
+		approvalDefinition(h.projID, "late-two-of-three", "parallel", "nrOfCompletedInstances >= 2"),
+		"ana", "budi", "citra")
+	open := openIterationTasks(ctx, t, h, instanceID, "approve")
+	if len(open) != 3 {
+		t.Fatalf("three approvers were asked and %d task(s) are open", len(open))
+	}
+	for _, task := range open[:2] {
+		if err := completeAs(ctx, h, task, "carol", nil); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	}
+	if seen := tasksEverOn(t, h, instanceID, "record"); seen != 1 {
+		t.Fatalf("after the second approval the process moved on %d times, want once", seen)
+	}
+
+	for _, iteration := range []string{"2", ""} {
+		instance, err := h.engine.GetInstance(ctx, instanceID)
+		if err != nil {
+			t.Fatalf("reload instance: %v", err)
+		}
+		def, err := h.engine.GetProcessDefinition(ctx, instance.Definition.ID)
+		if err != nil {
+			t.Fatalf("load definition: %v", err)
+		}
+
+		err = h.engine.ProceedIteration(ctx, &instance, def, "approve", iteration)
+		if !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Fatalf("a completion for run %q of a finished step got %v, want a refusal", iteration, err)
+		}
+		if text := err.Error(); !strings.Contains(text, "already finished") ||
+			strings.Contains(text, "approve") || strings.Contains(text, instanceID.String()) {
+			t.Fatalf("the refusal does not say the step has finished in words a person can read: %q", text)
+		}
+
+		if seen := tasksEverOn(t, h, instanceID, "record"); seen != 1 {
+			t.Fatalf("the refused completion moved the process on again: %d times", seen)
+		}
+		if left := tokenIterationsOn(ctx, t, h, instanceID, "approve"); len(left) != 0 {
+			t.Fatalf("the refused completion put tokens back on the step: %v", left)
+		}
+		if !h.waitingAt(ctx, t, instanceID, "record") {
+			t.Fatal("the refused completion took the process off the step it was waiting on")
+		}
+	}
+	finishRecording(ctx, t, h, instanceID)
+}

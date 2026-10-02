@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -201,80 +200,4 @@ func completeOpenTaskAt(ctx context.Context, h engineHarness, instanceID uuid.UU
 		}
 	}
 	return nil
-}
-
-// BPMN 2.0.2 §10.3.8: a completionCondition that holds cancels the remaining
-// activity instances. The calls they had queued are not made.
-func TestTheCallsOfIterationsEndedEarlyAreNotMade(t *testing.T) {
-	api, calls := partnerAPI(t, answersOK)
-	h := newEngineHarness(t, "Early End Calls Project")
-	ctx := h.Ctx()
-
-	h.deploy(t, &entities.ProcessDefinition{
-		Project: &entities.Project{ID: h.projID},
-		Key:     "first-quote-wins",
-		Nodes: []*entities.Node{
-			{ID: "start", Type: entities.StartEvent},
-			{ID: "quote", Type: entities.ServiceTask, Name: "Ask for a quote",
-				MultiInstanceType: "parallel", Collection: "suppliers", ElementVariable: "supplier",
-				CompletionCondition: "nrOfCompletedInstances >= 1",
-				Properties:          map[string]any{"http_url": api.URL, "http_method": "POST"}},
-			{ID: "record", Type: entities.UserTask, Name: "Record the outcome"},
-			{ID: "end", Type: entities.EndEvent},
-		},
-		Flows: []*entities.SequenceFlow{
-			{ID: "f1", SourceRef: "start", TargetRef: "quote"},
-			{ID: "f2", SourceRef: "quote", TargetRef: "record"},
-			{ID: "f3", SourceRef: "record", TargetRef: "end"},
-		},
-	})
-	instanceID, err := h.svc.StartProcess(ctx, h.projID, "first-quote-wins", map[string]any{
-		"suppliers": []any{"northwind", "contoso", "fabrikam"},
-	})
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	queued := jobsOn(ctx, t, h, instanceID, "quote")
-	if len(queued) != 3 {
-		t.Fatalf("three quotes were asked for and %d call(s) are queued", len(queued))
-	}
-
-	// The worker runs a full set of jobs at once, so two of the three are held
-	// back: the first quote comes in, and ends the step, before they run.
-	for _, later := range queued[1:] {
-		later.NextRunAt = time.Now().Add(time.Hour)
-		if err := h.repo.Job().Update(ctx, later); err != nil {
-			t.Fatalf("hold a call back: %v", err)
-		}
-	}
-	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
-		t.Fatalf("process pending jobs: %v", err)
-	}
-	if made := calls.Load(); made != 1 {
-		t.Fatalf("%d call(s) were made for the first quote, want 1", made)
-	}
-	if seen := tasksEverOn(t, h, instanceID, "record"); seen != 1 {
-		t.Fatalf("after the first quote the process moved on %d times, want once", seen)
-	}
-
-	if moved := h.dueNow(ctx, t, instanceID); moved != 2 {
-		t.Fatalf("%d held-back call(s) came due, want 2", moved)
-	}
-	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
-		t.Fatalf("process pending jobs: %v", err)
-	}
-
-	if made := calls.Load(); made != 1 {
-		t.Fatalf("%d call(s) were made in all; the two iterations ended early should have made none", made)
-	}
-	for _, job := range jobsOn(ctx, t, h, instanceID, "quote") {
-		if job.Status != models.JobCompleted || job.Retries != 0 {
-			t.Fatalf("the job for iteration %q is %s after %d failed attempt(s), want completed and none",
-				job.IterationID, job.Status, job.Retries)
-		}
-	}
-	if seen := tasksEverOn(t, h, instanceID, "record"); seen != 1 {
-		t.Fatalf("a call for an iteration ended early moved the process on again: %d times", seen)
-	}
-	finishRecording(ctx, t, h, instanceID)
 }

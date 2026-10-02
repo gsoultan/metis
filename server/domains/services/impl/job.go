@@ -460,19 +460,24 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		return fmt.Errorf("node %s not found", job.Node.ID)
 	}
 
-	// Asked before the call, because the call is the part that cannot be taken
-	// back: a job is not taken off the queue when its step is withdrawn — by a
-	// completion condition that ended the step early, a deadline, the
-	// sub-process around it finishing — so it used to charge the card or notify
-	// the supplier for a step the process had abandoned, and only then find
-	// nobody waiting.
+	// A step inside an ad-hoc sub-process is withdrawn when the sub-process
+	// finishes without it, and a job is not taken off the queue when its step
+	// is: it used to charge the card or notify the supplier for a step the
+	// process had abandoned, and only then find nobody waiting. So that job
+	// asks before the call, because the call is the part that cannot be taken
+	// back.
 	//
 	// This read takes no lock and sits in no transaction, since the call that
 	// follows may not run inside one. It narrows the window; it does not close
 	// it. A step withdrawn while the call is in flight is still called, and the
 	// locked check after the call is what decides whether the result is used.
-	if withdrawn, err := s.completedBecauseWithdrawn(ctx, job, node); err != nil || withdrawn {
-		return err
+	//
+	// Only there. A step that lost its token any other way — a deadline on it,
+	// say — is called as it always was: nothing else withdraws a step's work.
+	if adHoc := enclosingAdHoc(def, node); adHoc != nil {
+		if withdrawn, err := s.completedBecauseWithdrawn(ctx, job, node, adHoc); err != nil || withdrawn {
+			return err
+		}
 	}
 
 	responseData, err := s.callOnce(ctx, job, def, *node)
@@ -495,12 +500,9 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 			return err
 		}
 		// A reclaimed job whose earlier attempt committed this advance and died
-		// before the job said so, or one whose step ended without it. On a step
-		// that runs once, advancing again would not fail — removing a token that
-		// is not there is a no-op, and the outgoing flows would be followed a
-		// second time. On a step that runs once per item the engine refuses a
-		// run with no token, and the refusal would fail a job that has nothing
-		// left to do. So the token is checked instead.
+		// before the job said so. Advancing again would not fail — removing a
+		// token that is not there is a no-op, and the outgoing flows would be
+		// followed a second time — so the token is checked instead.
 		if !tokenWaitsAt(&instance, node, job.IterationID) {
 			return s.completeJob(txCtx, job)
 		}

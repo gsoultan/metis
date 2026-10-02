@@ -119,9 +119,11 @@ func holdsAnyToken(instance *entities.ProcessInstance, nodes []*entities.Node) b
 // of the instance's events, tasks and parked work, however many steps there
 // are.
 //
-// It is endActivity for many steps at once, and ends the same things — see
-// there for why the parked work goes too, and for the process a step called,
-// which runs on and whose return finds no token waiting for it.
+// This is the one place work parked for a worker is withdrawn (see
+// withdrawExternalTasksOn), and the one place a queued service call is kept
+// from being made (see jobService.completedBecauseWithdrawn). A process a
+// step called is not ended: nothing in the engine ends an instance from
+// outside it. It runs on, and its return resumes its parent as it always did.
 //
 // None of it is limited to the steps holding a token. A step started twice
 // loses both tokens when the first of the two finishes, and its second task
@@ -175,6 +177,61 @@ func (e *Engine) stopWaitingOn(ctx context.Context, instance *entities.ProcessIn
 		}
 		if err := e.repo.Subscription().Delete(ctx, uuid.UUID(sub.ID)); err != nil {
 			return fmt.Errorf("delete subscription for node %s: %w", sub.NodeID, err)
+		}
+	}
+	return nil
+}
+
+// enclosingAdHoc returns the ad-hoc sub-process node is inside — the nearest
+// one, at any depth — or nil when it is inside none.
+//
+// It climbs by the parent each node names, and where a node names none looks
+// for the container that lists it: the two shapes a definition stores a
+// sub-process in. The climb is bounded, so a definition whose parents form a
+// ring is not climbed for ever; a step nested deeper than the bound reads as
+// inside none, and is treated as every step outside an ad-hoc sub-process is.
+func enclosingAdHoc(def *entities.ProcessDefinition, node *entities.Node) *entities.Node {
+	if def == nil {
+		return nil
+	}
+	for range maxNestingDepth {
+		if node == nil {
+			return nil
+		}
+		node = containerOf(def, node)
+		if node != nil && node.IsAdHoc {
+			return node
+		}
+	}
+	return nil
+}
+
+// maxNestingDepth is how many sub-processes deep enclosingAdHoc looks.
+const maxNestingDepth = 64
+
+// containerOf returns the sub-process node sits directly inside, or nil at the
+// top level.
+func containerOf(def *entities.ProcessDefinition, node *entities.Node) *entities.Node {
+	if node.ParentID != "" {
+		return def.FindNode(node.ParentID)
+	}
+	return listedIn(def.Nodes, node.ID)
+}
+
+// listedIn finds, among nodes and everything nested in them, the node that
+// lists childID as one of its own.
+func listedIn(nodes []*entities.Node, childID string) *entities.Node {
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		for _, child := range node.Nodes {
+			if child != nil && child.ID == childID {
+				return node
+			}
+		}
+		if found := listedIn(node.Nodes, childID); found != nil {
+			return found
 		}
 	}
 	return nil

@@ -111,6 +111,19 @@ func TestAnAdHocSubProcessToldToKeepItsStepsWaitsForThem(t *testing.T) {
 	}
 }
 
+// parkedFor counts the external tasks the instance has parked on nodeID, in
+// the database.
+func parkedFor(t *testing.T, h engineHarness, instanceID uuid.UUID, nodeID string) int {
+	t.Helper()
+	var count int64
+	if err := h.db.Raw(`SELECT count(*) FROM external_tasks
+		 WHERE instance_id = ? AND node_id = ? AND deleted_at IS NULL`,
+		instanceID, nodeID).Scan(&count).Error; err != nil {
+		t.Fatalf("count external tasks: %v", err)
+	}
+	return int(count)
+}
+
 // BPMN 2.0.2 §10.3.5, §13.2.5: the instances still running inside are
 // cancelled — the ones waiting on an outside worker as much as the ones in
 // somebody's inbox.
@@ -380,4 +393,74 @@ func TestAnAdHocSubProcessToldToKeepItsStepsWaitsForOneThatIsASubProcess(t *test
 	if waiting := waitingEventsOf(t, h, instanceID); len(waiting) != 0 {
 		t.Fatalf("the finished sub-process is still waiting for events on %v", waiting)
 	}
+}
+
+// BPMN 2.0.2 §10.3.5, §13.2.5: the sub-process completes once, whatever a
+// process one of its steps called does afterwards.
+//
+// A called process is not ended when the sub-process finishes — nothing in the
+// engine ends an instance from outside it — so it runs on, and returns to a
+// step the sub-process has withdrawn. It has to be able to end, and its
+// return must not move its parent past the sub-process a second time.
+func TestAProcessCalledFromInsideAnAdHocSubProcessThatFinishedCanStillEnd(t *testing.T) {
+	h := newEngineHarness(t, "AdHoc Called Process Project")
+	ctx := h.Ctx()
+
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "records-check",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the records"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "c1", SourceRef: "start", TargetRef: "review"},
+			{ID: "c2", SourceRef: "review", TargetRef: "end"},
+		},
+	})
+	def := adHocDefinition("claim-research-calling", "reviewsDone >= 1")
+	def.Project = &entities.Project{ID: h.projID}
+	research := def.Nodes[1]
+	research.Nodes = append(research.Nodes, &entities.Node{
+		ID: "check-elsewhere", Type: entities.CallActivity, Name: "Have the records checked", ParentID: "research",
+		Properties: map[string]any{"called_process_key": "records-check"},
+	})
+	h.deploy(t, &def)
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "claim-research-calling", map[string]any{"reviewsDone": 0})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	for _, step := range []string{"call-customer", "check-elsewhere"} {
+		if err := h.svc.ActivateTask(ctx, instanceID, "research", step); err != nil {
+			t.Fatalf("activate %s: %v", step, err)
+		}
+	}
+	called, err := h.repo.Process().ListByParent(ctx, instanceID)
+	if err != nil || len(called) != 1 {
+		t.Fatalf("one process should have been called: %d, err=%v", len(called), err)
+	}
+	calledID := uuid.UUID(called[0].ID)
+
+	completeTaskAt(ctx, t, h, instanceID, "call-customer", map[string]any{"reviewsDone": 1})
+	if !h.waitingAt(ctx, t, instanceID, "decide") {
+		t.Fatal("the completion condition was met and the process did not carry on")
+	}
+	if left := tokenIterationsOn(ctx, t, h, instanceID, "check-elsewhere"); len(left) != 0 {
+		t.Fatalf("the finished sub-process left %d token(s) on the step that called a process", len(left))
+	}
+
+	// The called process finishes after the sub-process has.
+	completeTaskAt(ctx, t, h, calledID, "review", nil)
+	requireInstanceStatus(ctx, t, h, calledID, entities.ProcessCompleted)
+
+	if seen := tasksEverOn(t, h, instanceID, "decide"); seen != 1 {
+		t.Fatalf("the called process returning moved its parent past the sub-process %d times, want once", seen)
+	}
+	parent := requireInstanceStatus(ctx, t, h, instanceID, entities.ProcessActive)
+	if len(parent.Tokens) != 1 || parent.Tokens[0].Node == nil || parent.Tokens[0].Node.ID != "decide" {
+		t.Fatalf("the called process returning changed where its parent is: %+v", parent.Tokens)
+	}
+	completeTaskAt(ctx, t, h, instanceID, "decide", nil)
+	requireInstanceStatus(ctx, t, h, instanceID, entities.ProcessCompleted)
 }

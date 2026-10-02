@@ -543,8 +543,6 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 		return nil
 	}
 
-	// The whole activity, iterations and their count included: the event is
-	// attached to the activity, not to one run of it.
 	if err := e.endActivity(ctx, instance, def.FindNode(node.AttachedToRef)); err != nil {
 		return err
 	}

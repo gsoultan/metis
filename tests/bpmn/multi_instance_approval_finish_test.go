@@ -252,33 +252,41 @@ func TestAnApprovalNobodyWasListedForRunsOnceAndMovesOn(t *testing.T) {
 	finishRecording(ctx, t, h, instanceID)
 }
 
-// BPMN 2.0.2 §10.3.8 (completionCondition): the instances it cancels do not
-// run.
+// BPMN 2.0.2 §13.2.7: the activity completes when all of its instances have,
+// and a token then leaves it — also when the approval is a step inside a
+// sub-process that is itself run once per item, one item at a time.
 //
-// A step that finishes as it starts — a script — runs its iterations one after
-// another inside the step's own start. The first can satisfy the condition, and
-// the ones after it were started anyway: the script ran for every item.
-func TestAStepThatFinishesAtOnceDoesNotStartTheIterationsItsConditionEnded(t *testing.T) {
-	h := newEngineHarness(t, "Immediate Multi Instance Project")
+// The approval's tokens stayed on it after everybody had answered, the
+// sub-process's end event never found the run empty, and the second item was
+// never reached.
+func TestARepeatingApprovalInsideASubProcessRunOneItemAtATimeFinishes(t *testing.T) {
+	h := newEngineHarness(t, "Approval Inside Sequential Sub Project")
 	ctx := h.Ctx()
-	def := scriptDefinition(h.projID, "first-answer-is-enough", `setVar("runs", runs + 1);`)
-	def.Nodes[1].MultiInstanceType = "parallel"
-	def.Nodes[1].LoopCardinality = 3
-	def.Nodes[1].CompletionCondition = "nrOfCompletedInstances >= 1"
-	h.deploy(t, &def)
-
-	instanceID, err := h.svc.StartProcess(ctx, h.projID, "first-answer-is-enough", map[string]any{"runs": 0})
+	def := eachItem(h.projID, "approve-each-item", "sequential",
+		[]*entities.Node{{ID: "approve", Type: entities.UserTask, Name: "Approve the item",
+			MultiInstanceType: "parallel", Collection: "approvers"}},
+		oneStepInside("approve"))
+	h.deploy(t, def)
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, def.Key, map[string]any{
+		"items": []any{"a", "b"}, "approvers": []any{"ana", "budi"},
+	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	instance := requireInstanceStatus(ctx, t, h, instanceID, entities.ProcessActive)
-	if runs := toFloat(t, instance.Variables["runs"]); runs != 1 {
-		t.Fatalf("the script ran %v times; one run met the condition and ended the rest", runs)
+
+	for _, item := range []string{"a", "b"} {
+		open := openIterationTasks(ctx, t, h, instanceID, "approve")
+		if len(open) != 2 {
+			t.Fatalf("item %s: two approvers were asked and %d task(s) are open", item, len(open))
+		}
+		for _, task := range open {
+			if err := completeAs(ctx, h, task, "carol", nil); err != nil {
+				t.Fatalf("item %s: approve: %v", item, err)
+			}
+		}
 	}
-	if left := tokenIterationsOn(ctx, t, h, instanceID, "compute"); len(left) != 0 {
-		t.Fatalf("the finished step still holds tokens %v", left)
+	if left := tokenIterationsOn(ctx, t, h, instanceID, "approve"); len(left) != 0 {
+		t.Fatalf("the finished approval still holds tokens %v", left)
 	}
-	if seen := tasksEverOn(t, h, instanceID, "review"); seen != 1 {
-		t.Fatalf("the process moved past the step %d times, want once", seen)
-	}
+	finishRecording(ctx, t, h, instanceID)
 }

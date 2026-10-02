@@ -2,16 +2,17 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceContracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
 )
 
@@ -49,21 +50,25 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 		if err != nil {
 			return err
 		}
+		if err := refuseReport(m, workerID); err != nil {
+			return err
+		}
 
 		// Then hold the instance, and ask for the task again.
 		//
 		// The instance first and the task's row second, which is the order the
-		// engine takes them in when a step ends and it withdraws the work still
-		// parked for it (Engine.endActivity). This used to delete the row and
-		// then wait for the instance; a completion that ended the step held the
-		// instance and waited to withdraw that row. Each held what the other
-		// wanted, the database ended one of them as a deadlock, and a worker was
-		// told its report had failed.
+		// engine takes them in when an ad-hoc sub-process finishes and it
+		// withdraws the work still parked inside (Engine.endAdHocSteps). This
+		// used to delete the row and then wait for the instance; the completion
+		// that finished the sub-process held the instance and waited to
+		// withdraw that row. Each held what the other wanted, the database
+		// ended one of them as a deadlock, and a worker was told its report had
+		// failed — or a person that their task could not be completed.
 		//
 		// Read again because the wait is where the task goes: withdrawn by the
-		// completion that ended its step, or completed by an earlier report of
-		// the same work. Either way it is no longer there to report on, and the
-		// worker is told so rather than counted.
+		// completion that finished its sub-process, or completed by an earlier
+		// report of the same work. Either way it is no longer there to report
+		// on, and the worker is told so.
 		//
 		// It is written back whole below, too: two branches whose workers
 		// finished at the same moment each wrote a token list without the
@@ -76,15 +81,10 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
 			return err
 		}
-		task := adapters.ExternalTaskEntityAdapter{Model: *m}.ToEntity()
-
-		if err := refuseWorkerWithoutLock(task.WorkerID, workerID); err != nil {
+		if err := refuseReport(m, workerID); err != nil {
 			return err
 		}
-		if task.LockExpiration != nil && task.LockExpiration.Before(time.Now()) {
-			return apierr.Invalidf("the lock on this task has run out, and the task may already be with another " +
-				"worker — fetch it again")
-		}
+		task := adapters.ExternalTaskEntityAdapter{Model: *m}.ToEntity()
 
 		// 1. DeleteConnectorInstance external task
 		if err := s.repo.ExternalTask().Delete(txCtx, taskID); err != nil {
@@ -131,16 +131,22 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 			return err
 		}
 
+		if m.WorkerID != workerID {
+			return fmt.Errorf("task %s is locked by another worker", taskID)
+		}
+
 		// The instance first and the task's row second, for every way out of
-		// here — the order Complete takes them in, and the engine when a step
-		// ends and it withdraws the work still parked for it.
+		// here — the order Complete takes them in, and the engine when an
+		// ad-hoc sub-process finishes and it withdraws the work still parked
+		// inside.
 		//
 		// This used to write the row and then, with no tries left, raise an
 		// incident. An incident refers to its instance, so raising one waits
-		// for whoever holds the instance — and the completion that ends the
-		// step holds it while it waits to withdraw this row. Each held what the
-		// other wanted. Short of that, the row read here could be withdrawn
-		// before it was written, and the worker was told its failure had failed.
+		// for whoever holds the instance — and the completion that finishes the
+		// sub-process holds it while it waits to withdraw this row. Each held
+		// what the other wanted. Short of that, the row read here could be
+		// withdrawn before it was written, and the worker was told its failure
+		// had failed.
 		//
 		// Read again under the lock, so a task withdrawn in the meantime is
 		// answered as what it is: no such task.
@@ -151,8 +157,8 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
 			return err
 		}
-		if err := refuseWorkerWithoutLock(m.WorkerID, workerID); err != nil {
-			return err
+		if m.WorkerID != workerID {
+			return fmt.Errorf("task %s is locked by another worker", taskID)
 		}
 
 		m.ErrorMessage = errorMessage
@@ -193,16 +199,15 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 	})
 }
 
-// refuseWorkerWithoutLock refuses a report from a worker the task is not
-// locked by.
-//
-// A refusal, not a failure — the same 400 extending a lock one does not hold
-// gets: sending the report again will not help, and the worker should stop and
-// fetch. It names no task; the worker knows which one it asked about.
-func refuseWorkerWithoutLock(heldBy, workerID string) error {
-	if heldBy != workerID {
-		return apierr.Invalidf("worker %q does not hold the lock on this task: it is another worker's, or "+
-			"nobody's — fetch it again", workerID)
+// refuseReport refuses a worker's report on a task it does not hold: the task
+// is locked by another worker, or the lock has run out.
+func refuseReport(m *models.ExternalTaskModel, workerID string) error {
+	taskID := uuid.UUID(m.ID)
+	if m.WorkerID != workerID {
+		return fmt.Errorf("task %s is locked by another worker", taskID)
+	}
+	if m.LockExpiration != nil && m.LockExpiration.Before(time.Now()) {
+		return fmt.Errorf("lock for task %s has expired", taskID)
 	}
 	return nil
 }

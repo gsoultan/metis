@@ -720,8 +720,9 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		node.Collection = mi.Collection
 		node.ElementVariable = mi.ElementVariable
 		// The field the engine evaluates when an iteration finishes: met, it
-		// ends the step and withdraws the iterations still open. In the
-		// engine's own syntax — see importedCompletionCondition.
+		// ends the step — and, on a repeating approval, withdraws the
+		// approvals still open. In the engine's own syntax — see
+		// importedCompletionCondition.
 		node.CompletionCondition = importedCompletionCondition(mi.CompletionCondition.text())
 	}
 

@@ -10,23 +10,25 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// endActivity ends every running instance of an activity on this instance.
+// endActivity ends an activity that is stopping before it has finished: an
+// interrupting boundary event on it has fired, or it is a repeating approval
+// whose completion condition was met while runs were still open.
 //
-// Four things make an activity running, and all four go: its tokens — one per
-// iteration, on a step that repeats — the count of its iterations, the tasks
-// it has open in somebody's inbox, each withdrawn and announced, and the work
-// it has parked for an outside worker.
+// Its tokens go — one per run, on a step that repeats — and the tasks it has
+// open in somebody's inbox are withdrawn and announced.
 //
-// The ways an activity ends without finishing come here, so they cannot
-// disagree about what ending means: an interrupting boundary event, and a
-// completion condition that is met while iterations are still open. A deadline
-// used to take the tokens and the tasks and leave the count, a completion
-// condition took the count and left the rest, and neither took the work parked
-// for a worker — which the worker then finished, for a step that refused it.
+// A repeating approval (Node.IsRepeatingApproval) also stops counting its
+// runs, so the two ways it can end early agree about what ending means. A
+// deadline used to take the tokens and the tasks and leave the count, and a
+// completion condition took the count and left the rest; an instance sent
+// back to the step found it "already running" and asked nobody.
 //
-// A process the activity called is not ended here: nothing in the engine ends
-// an instance from outside it. It runs on, and its return finds no token
-// waiting for it — see EndEventHandler.resumeParent.
+// Every other step is ended as it was before approvals were counted strictly:
+// a repeating one keeps its count, and work parked for an outside worker, a
+// queued service call and a called process are left as they are. That is
+// looser than BPMN asks; it is what those steps did, and it changes when each
+// run of a repeating sub-process has tokens of its own and the strict rule can
+// be applied to every step.
 //
 // The instance is not saved here: the caller is part-way through an advance
 // and saves it as that advance does.
@@ -35,11 +37,10 @@ func (e *Engine) endActivity(ctx context.Context, instance *entities.ProcessInst
 		return nil
 	}
 	instance.RemoveTokenByNode(node)
-	instance.FinishMultiInstance(node.ID)
-	if err := e.cancelOpenTasksForNode(ctx, instance, node); err != nil {
-		return err
+	if node.IsRepeatingApproval() {
+		instance.FinishMultiInstance(node.ID)
 	}
-	return e.withdrawExternalTasksFor(ctx, instance, node)
+	return e.cancelOpenTasksForNode(ctx, instance, node)
 }
 
 // cancelOpenTasksForNode withdraws any task still open for node.
@@ -101,14 +102,17 @@ func (e *Engine) cancelOpenTasksOn(ctx context.Context, instance *entities.Proce
 	return nil
 }
 
-// withdrawExternalTasksFor takes the work node has parked for an outside
-// worker off the list workers fetch from.
+// withdrawExternalTasksOn takes the work any of nodes has parked for an
+// outside worker off the list workers fetch from, reading the instance's
+// parked work once however many nodes there are.
+//
+// It is what an ad-hoc sub-process does to the steps still running inside it
+// when it finishes (endAdHocSteps), and nothing else withdraws parked work.
 //
 // An external task is a row of its own, like a user task, and it outlived the
-// activity it was created for. A worker went on being offered it; completing it
-// was refused, because the step had finished, and rolled back — so its lock ran
-// out and it was offered again, and refused again, for as long as the instance
-// existed.
+// sub-process it was created in. A worker went on being offered it, and its
+// report moved the process on from a step inside a sub-process the instance
+// had left.
 //
 // The row is deleted, which is what completing one does: the list holds only
 // work that is still wanted. A worker that had already fetched one finds it
@@ -120,12 +124,6 @@ func (e *Engine) cancelOpenTasksOn(ctx context.Context, instance *entities.Proce
 // externalTaskService.Complete.
 //
 // A failure is returned, for the reason cancelOpenTasksForNode returns one.
-func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
-	return e.withdrawExternalTasksOn(ctx, instance, []*entities.Node{node})
-}
-
-// withdrawExternalTasksOn withdraws the work parked for workers on any of
-// nodes, reading the instance's parked work once however many nodes there are.
 //
 // Each node that had work parked gets its own line on the trail, in the order
 // the nodes were given: the line is about a step, and several can end at once

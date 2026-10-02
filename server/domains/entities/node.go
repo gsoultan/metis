@@ -69,6 +69,30 @@ func KnownMultiInstanceType(loop string) bool {
 	}
 }
 
+// Repeats reports whether the step runs once per item — in parallel or one
+// after another — rather than once.
+func (n *Node) Repeats() bool {
+	return n != nil && n.MultiInstanceType != "" && n.MultiInstanceType != "none"
+}
+
+// IsRepeatingApproval reports whether the step is work for a person that
+// repeats: a user task or a manual task run once per item.
+//
+// These are the steps whose runs the engine counts strictly — one completion
+// retires one run's token, and a completion with no run to retire is refused
+// (Engine.checkApprovalCompletion). Each of their runs is a task of its own,
+// which records the run it is for, and nothing else shares the step's tokens.
+//
+// No other repeating step is counted that way. The runs of a repeating
+// sub-process happen on the steps inside it and share those steps' tokens;
+// work done by an outside worker, a called process and a service call are
+// counted as they finish, without one of the step's tokens standing for each.
+// Held to the strict rule they are refused advances they are owed, so they
+// keep the counting they had.
+func (n *Node) IsRepeatingApproval() bool {
+	return n.Repeats() && (n.Type == UserTask || n.Type == ManualTask)
+}
+
 // Implementation is how a service task is carried out: "push" calls a web
 // address, "connector" uses a connection, "external" waits for a worker, and
 // "script" runs a script.

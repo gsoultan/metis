@@ -135,10 +135,9 @@ func (pi *ProcessInstance) RemoveTokenByIteration(node *Node, iterationID string
 //
 // A completion that names none gets the lowest-numbered iteration still
 // waiting. That is a task created before migration 31, which recorded no
-// iteration, and every caller that finishes a run without knowing which it was
-// — a call activity's child ending, an external task. Lowest, in numeric
-// order, because it is the same answer every time and needs nothing the old
-// row lacks; for a sequential step it is the only one there is.
+// iteration. Lowest, in numeric order, because it is the same answer every
+// time and needs nothing the old row lacks; for a sequential step it is the
+// only one there is.
 //
 // A token with no iteration is not an iteration: it is a step running once,
 // which HasPlainToken answers.
@@ -192,6 +191,28 @@ func (pi *ProcessInstance) HasPlainToken(node *Node) bool {
 	return slices.ContainsFunc(pi.Tokens, func(t Token) bool {
 		return t.Node != nil && t.Node.ID == node.ID && t.IterationID == ""
 	})
+}
+
+// AwaitsRun reports whether a repeating approval (Node.IsRepeatingApproval) is
+// still waiting for the run iterationID names — or, when it names none, for
+// any run at all.
+//
+// While the step is counting its runs it is waiting for a run that still has
+// its token. Given nothing to repeat over it runs once, on a token that
+// belongs to no run, and is waiting while it holds that.
+//
+// Run tokens on a step that is not counting are not runs anybody is waiting
+// for. They are what a release before migration 31 left behind when the step
+// ended: it stopped counting and kept a token for every run.
+func (pi *ProcessInstance) AwaitsRun(node *Node, iterationID string) bool {
+	if node == nil {
+		return false
+	}
+	if !pi.IsMultiInstanceActive(node.ID) {
+		return iterationID == "" && pi.HasPlainToken(node)
+	}
+	_, waiting := pi.WaitingIteration(node, iterationID)
+	return waiting
 }
 
 // GetTokensByNode returns every token sitting on node. Nil-safe: a node the
