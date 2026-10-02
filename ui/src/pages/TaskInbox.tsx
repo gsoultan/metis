@@ -65,7 +65,7 @@ import { useTranslation } from '../i18n/context';
 import { offersClaim } from '../domain/unnamedTask';
 import { awaitsHandBack, delegatedBy, handBackOffer, offersEdit, offersReassign, releaseOffer, type Offer } from '../domain/taskDelegation';
 import { DelegationNote } from '../components/inbox/DelegationNote';
-import { HandBackButton } from '../components/inbox/HandBackButton';
+import { DelegateAction } from '../components/inbox/DelegateAction';
 import { DelegatedByYou } from '../components/inbox/DelegatedByYou';
 import { ReassignDialog } from '../components/inbox/ReassignDialog';
 import { EditTaskDialog } from '../components/inbox/EditTaskDialog';
@@ -122,20 +122,20 @@ interface TaskRowProps {
    */
   mayEdit: boolean;
   mayReassign: boolean;
+  /**
+   * What the reader may do with a delegated task: the delegate, or an
+   * administrator, is offered Hand back where Complete would be.
+   */
+  handBack: Offer;
+  onHandBack: (task: Task) => void;
+  /** This task's hand-back has been sent and not yet answered. */
+  handingBack: boolean;
 }
 
-/**
- * A row of the table also knows what its reader may do with a delegated task:
- * the delegate, or an administrator, is offered Hand back where Complete would
- * be.
- */
+/** A row of the table also offers Release, which the board's card does not. */
 type TaskTableRowProps = TaskRowProps & {
   /** Release: the holder's at one press, an administrator's through a dialog. */
   release: Offer;
-  handBack: Offer;
-  onHandBack: (task: Task) => void;
-  /** This row's hand-back has been sent and not yet answered. */
-  handingBack: boolean;
 };
 
 /** The subset of TanStack Router's navigate that this page uses. */
@@ -161,6 +161,9 @@ interface KanbanViewProps {
   onComplete: (task: Task) => void;
   onEdit: (task: Task) => void;
   onReassign: (task: Task) => void;
+  onHandBack: (task: Task) => void;
+  /** The task whose hand-back has been sent and not yet answered, if any. */
+  resolvingTaskId: string | null;
   searchQuery: string;
   navigate: NavigateFn;
 }
@@ -312,27 +315,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
               Claim Task
             </Button>
           ) : awaitsHandBack(task) ? (
-            // With a delegate: theirs to work on and hand back, and its
-            // owner's to complete. Release and Complete would both be refused,
-            // so neither is offered — to anybody.
-            handBack === 'none' ? (
-              // Always true of a task with a delegate; asked so that "With"
-              // never stands there with no name after it.
-              task.assignee?.username ? (
-                <Text size="xs" c="dimmed">
-                  {t('handover.withDelegate', { delegate: task.assignee.username })}
-                </Text>
-              ) : null
-            ) : (
-              <HandBackButton
-                taskName={task.name}
-                owner={delegatedBy(task)}
-                // An administrator handing back somebody else's is asked why first.
-                delegate={handBack === 'withReason' ? task.assignee?.username ?? '' : undefined}
-                onHandBack={() => onHandBack(task)}
-                busy={handingBack}
-              />
-            )
+            <DelegateAction task={task} offer={handBack} onHandBack={() => onHandBack(task)} busy={handingBack} />
           ) : (
             <>
               {release !== 'none' && (
@@ -406,7 +389,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
 /** What the board says instead of "Claim" on a task its reader may not take. */
 const NOBODY_NAMED_NOTE = 'Nobody was named for this. An administrator or an operator can take it.';
 
-function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, claimable }: TaskCardProps) {
+function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, claimable, handBack, onHandBack, handingBack }: TaskCardProps) {
   // How urgent this is, decided in one place rather than by three different
   // inline thresholds — which is what was here, and they had already drifted.
   const urgency = urgencyOf(task);
@@ -466,6 +449,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
         {task.formKey && (
           <Badge size="xs" variant="outline" color="gray">Form: {task.formKey}</Badge>
         )}
+        {handBack === 'own' && <DelegationNote owner={delegatedBy(task)} />}
       </Group>
 
       <Stack gap={8}>
@@ -502,6 +486,11 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
             // tells the reader whom to ask.
             <Text size="xs" c="dimmed">{NOBODY_NAMED_NOTE}</Text>
           )
+        ) : awaitsHandBack(task) ? (
+          // As its row in the table: Hand back for the delegate or an
+          // administrator, who has it for everybody else, and Complete for
+          // nobody — the server refuses it until the task is handed back.
+          <DelegateAction task={task} offer={handBack} onHandBack={() => onHandBack(task)} busy={handingBack} />
         ) : (
           <Button size="compact-xs" color={task.type === 'manualTask' ? 'blue' : 'green'} onClick={() => onComplete(task)}>
             {task.type === 'manualTask' ? 'Done' : 'Complete'}
@@ -512,16 +501,20 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
   );
 }
 
-function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: KanbanViewProps) {
+function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, onHandBack, resolvingTaskId, searchQuery, navigate }: KanbanViewProps) {
   // Who is looking decides what the board offers them to claim.
   const viewer = useAppStore((state) => state.user);
   // The column headings are the status names, so they come from the same place
   // the badges do — "Unclaimed" here and "Available" on the card was the board
   // disagreeing with the cards on it.
+  //
+  // A task with a delegate is work somebody has taken up, so it is with the
+  // claimed ones. It had no column: the board left out every delegated task,
+  // and the delegate who reads the board never saw the work or Hand back.
   const columns = [
-    { id: 'unclaimed', title: statusLabel('unclaimed'), status: 'unclaimed', color: 'grape' },
-    { id: 'claimed', title: statusLabel('claimed'), status: 'claimed', color: 'indigo' },
-    { id: 'completed', title: statusLabel('completed'), status: 'completed', color: 'green' },
+    { id: 'unclaimed', title: statusLabel('unclaimed'), statuses: ['unclaimed'], color: 'grape' },
+    { id: 'claimed', title: statusLabel('claimed'), statuses: ['claimed', 'delegated'], color: 'indigo' },
+    { id: 'completed', title: statusLabel('completed'), statuses: ['completed'], color: 'green' },
   ];
 
   const filteredTasks = tasks.filter((t) => {
@@ -529,22 +522,26 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
     const q = searchQuery.toLowerCase();
     return t.name?.toLowerCase().includes(q) || t.id?.toLowerCase().includes(q);
   });
+  const stages = columns.map((col) => ({
+    ...col,
+    cards: filteredTasks.filter((t) => col.statuses.includes(t.status)),
+  }));
 
   return (
     <Grid gap="md">
-      {columns.map(col => (
+      {stages.map(col => (
         <Grid.Col span={{ base: 12, md: 4 }} key={col.id}>
           <Paper p="md" radius="lg" bg="gray.0" withBorder h="100%" style={{ minHeight: 500 }}>
             <Group justify="space-between" mb="md">
               <Group gap="xs">
                 <Badge color={col.color} variant="filled" size="sm">{col.title}</Badge>
                 <Text size="xs" c="dimmed" fw={500}>
-                  {filteredTasks.filter((t) => t.status === col.status).length} Tasks
+                  {col.cards.length} Tasks
                 </Text>
               </Group>
             </Group>
             <Stack gap="md">
-              {filteredTasks.filter((t) => t.status === col.status).map((task) => (
+              {col.cards.map((task) => (
                 <TaskCard 
                   key={task.id} 
                   task={task} 
@@ -559,9 +556,12 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
                   mayEdit={offersEdit(task, viewer)}
                   mayReassign={offersReassign(task, viewer)}
                   claimable={offersClaim(task, viewer)}
+                  handBack={handBackOffer(task, viewer)}
+                  onHandBack={onHandBack}
+                  handingBack={resolvingTaskId === task.id}
                 />
               ))}
-              {filteredTasks.filter((t) => t.status === col.status).length === 0 && (
+              {col.cards.length === 0 && (
                 <Stack align="center" py={40} gap="xs">
                   <ClipboardList size={24} color="var(--mantine-color-gray-4)" />
                   <Text size="xs" c="dimmed">No tasks in this stage</Text>
@@ -998,6 +998,8 @@ export function TaskInbox() {
               onComplete={onCompleteClick}
               onEdit={setEditingTask}
               onReassign={onReassignClick}
+              onHandBack={onHandBackClick}
+              resolvingTaskId={resolvingTaskId}
               searchQuery={searchQuery}
               navigate={navigate}
             />

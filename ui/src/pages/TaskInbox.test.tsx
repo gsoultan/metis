@@ -18,6 +18,9 @@ import { TaskSchema, type Task } from '../gen/entities/task_pb';
 import { UserSchema } from '../gen/entities/user_pb';
 import type { DelegatedTask } from '../services/types';
 import { appStoreDouble, resetAppStore, setAppState } from '../testing/appStoreDouble';
+import indonesian from '../i18n/catalogues/id';
+import { TranslationContext } from '../i18n/context';
+import { format } from '../i18n/translate';
 
 mock.module('../store/useAppStore', () => ({ useAppStore: appStoreDouble }));
 // Everything the router exports stays as it is — other test files import it —
@@ -363,5 +366,104 @@ describe('what a task offers its reader', () => {
       // Offered to a team is not nobody named: that one is not the operator's.
       expect(card('ops', ['OPERATOR'], offeredToFinance)).not.toMatch(/ Reassign /);
     });
+  });
+});
+
+/*
+ * The board had a column for each of unclaimed, claimed and completed, and a
+ * task with a delegate is none of those: it was on no column. The delegate who
+ * reads the board saw no task, was not told whose it was, and had no way to
+ * hand it back. It is work in progress, so it is with the claimed tasks, and
+ * its card says and offers what its row in the table does.
+ */
+describe('the board, for a delegated task', () => {
+  const delegatedToMallory = create(TaskSchema, {
+    id: 't7', name: 'Approve the refund', type: 'userTask', status: 'delegated', delegationState: 'pending',
+    assignee: create(UserSchema, { username: 'mallory' }),
+    owner: create(UserSchema, { username: 'budi' }),
+  });
+
+  const boardFor = (username: string, roles: string[], tasks: Task[], language?: Record<string, string>) => {
+    board.tasks.splice(0, board.tasks.length, ...tasks);
+    setAppState({ user: { id: 'u1', name: username, displayName: username, organization: 'Acme', username, role: roles.join(','), roles } });
+    const page = (
+      <MantineProvider>
+        <TaskInbox />
+      </MantineProvider>
+    );
+    const html = renderToStaticMarkup(
+      language
+        ? <TranslationContext value={{ locale: 'id', t: (key, values) => format(language, key, values), setLocale: () => {} }}>{page}</TranslationContext>
+        : page,
+    );
+    const text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    return { html, text };
+  };
+
+  it('shows the delegate the task among the claimed ones, whose it is, and Hand back in place of Complete', () => {
+    const { html, text } = boardFor('mallory', ['USER'], [delegatedToMallory]);
+    expect(text).toContain(' Approve the refund ');
+    // One card, in the column of work somebody has taken up.
+    expect(text).toContain('Claimed 1 Tasks');
+    expect(text).toContain('Delegated to you by budi');
+    expect(text).toMatch(/ Hand back /);
+    expect(html).toContain('aria-label="Hand back Approve the refund to budi"');
+    // At one press: it is theirs to hand back.
+    expect(html).not.toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*aria-label="Hand back/);
+    // The server refuses the delegate a completion, so it is not offered.
+    expect(text).not.toMatch(/ Complete /);
+  });
+
+  it('says it in the reader’s language', () => {
+    const { html, text } = boardFor('mallory', ['USER'], [delegatedToMallory], indonesian);
+    expect(text).toContain('Didelegasikan kepada Anda oleh budi');
+    expect(text).toMatch(/ Kembalikan /);
+    expect(html).toContain('aria-label="Kembalikan Approve the refund kepada budi"');
+  });
+
+  it('offers an administrator who is not the delegate Hand back through a dialog, and does not call the task theirs', () => {
+    const { html, text } = boardFor('ani', ['ADMIN'], [delegatedToMallory]);
+    expect(text).toMatch(/ Hand back /);
+    expect(html).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*aria-label="Hand back Approve the refund to budi"|<button[^>]*aria-label="Hand back Approve the refund to budi"[^>]*aria-haspopup="dialog"/);
+    expect(text).not.toContain('Delegated to you by');
+    expect(text).not.toMatch(/ Complete /);
+  });
+
+  it('shows anybody else where it is, and offers them neither', () => {
+    for (const username of ['citra', 'budi']) {
+      const { text } = boardFor(username, ['USER'], [delegatedToMallory]);
+      expect(text).toContain(' Approve the refund ');
+      expect(text).toContain('With mallory');
+      expect(text).not.toMatch(/ Hand back /);
+      expect(text).not.toMatch(/ Complete /);
+      expect(text).not.toContain('Delegated to you by');
+    }
+  });
+
+  /*
+   * The server sends a pending mark only for a task waiting to be handed back.
+   * A status of "delegated" with no mark is its holder's to complete, and it
+   * was on no column either.
+   */
+  it('goes by the delegation the server sent, never by the status alone', () => {
+    const { text } = boardFor('mallory', ['USER'], [create(TaskSchema, {
+      id: 't8', name: 'File the claim', type: 'userTask', status: 'delegated',
+      assignee: create(UserSchema, { username: 'mallory' }),
+    })]);
+    expect(text).toContain(' File the claim ');
+    expect(text).toContain('Claimed 1 Tasks');
+    expect(text).toMatch(/ Complete /);
+    expect(text).not.toMatch(/ Hand back /);
+  });
+
+  it('still offers Complete on a task that is simply claimed', () => {
+    const { text } = boardFor('mallory', ['USER'], [create(TaskSchema, {
+      id: 't9', name: 'Check the invoice', type: 'userTask', status: 'claimed',
+      assignee: create(UserSchema, { username: 'mallory' }),
+    })]);
+    expect(text).toContain('Claimed 1 Tasks');
+    expect(text).toMatch(/ Complete /);
+    expect(text).not.toMatch(/ Hand back /);
+    expect(text).not.toContain('Delegated to you by');
   });
 });
