@@ -24,6 +24,11 @@ func (t Task) DelegationForClients() (*User, DelegationState) {
 
 // MarshalJSON is the REST shape of a task: its fields under their tags, with
 // the delegation as a client is sent it (DelegationForClients).
+//
+// It is the client view and nothing else. A type must not embed Task: it
+// would inherit this method, and its own fields would be left out of what it
+// encodes. And nothing may persist a task through it: a mark this blanks for
+// a client is still on the row, and writing the blank back would lose it.
 func (t Task) MarshalJSON() ([]byte, error) {
 	// A type with Task's fields and none of its methods, so encoding it does
 	// not come back here.
