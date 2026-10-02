@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -263,6 +264,14 @@ type bpmnNode struct {
 	// and an empty one was previously written into every element in the file.
 	Script string `xml:"script,omitempty"`
 }
+
+// legacyMultiInstanceConditionProperty is where an import before migration 31's
+// release parked a multi-instance completion condition, on the belief that the
+// engine evaluated none. Nothing evaluates it there, and nothing moves it: a
+// version already deployed goes on doing what it has been doing, and changing
+// that under running instances is a decision for whoever deploys the next one.
+// Export still reads it, so the file says what its author wrote.
+const legacyMultiInstanceConditionProperty = "multi_instance_completion_condition"
 
 // bpmnMultiInstance is the loop characteristics element. The engine reads
 // MultiInstanceType, LoopCardinality, Collection and ElementVariable and had no
@@ -697,14 +706,9 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		}
 		node.Collection = mi.Collection
 		node.ElementVariable = mi.ElementVariable
-		// The engine does not evaluate a multi-instance completion condition —
-		// Node.CompletionCondition is read only by the ad-hoc sub-process — so
-		// this is kept as a property rather than assigned to that field. It
-		// survives the round trip instead of being silently dropped, without
-		// claiming a behaviour this engine does not have.
-		if c := mi.CompletionCondition.text(); c != "" {
-			node.Properties["multi_instance_completion_condition"] = c
-		}
+		// The field the engine evaluates when an iteration finishes: met, it
+		// ends the step and withdraws the iterations still open.
+		node.CompletionCondition = mi.CompletionCondition.text()
 	}
 
 	if bn.ErrorEventDefinition != nil {
@@ -1156,7 +1160,8 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 		if n.LoopCardinality > 0 {
 			mi.LoopCardinality = strconv.Itoa(n.LoopCardinality)
 		}
-		mi.CompletionCondition = formal(n.GetStringProperty("multi_instance_completion_condition"))
+		mi.CompletionCondition = formal(cmp.Or(
+			n.CompletionCondition, n.GetStringProperty(legacyMultiInstanceConditionProperty)))
 		bn.MultiInstance = mi
 	}
 	if n.Type == entities.TerminateEndEvent {

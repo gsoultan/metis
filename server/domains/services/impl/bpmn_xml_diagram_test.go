@@ -552,3 +552,67 @@ func TestConditionalEventRoundTrips(t *testing.T) {
 		t.Errorf("after the round trip the condition is %q — the process would wait here for ever", got)
 	}
 }
+
+// A multi-instance completion condition — "two of them is enough" — is the
+// difference between an approval that ends at the second signature and one
+// that waits for the third. Import parked it in a property nothing evaluates,
+// so the file said two-of-three and the process ran all-of-three.
+func TestAMultiInstanceCompletionConditionSurvivesTheRoundTrip(t *testing.T) {
+	parser := &BPMNXMLParser{}
+	def, err := parser.Parse(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
+  <process id="p" isExecutable="true">
+    <userTask id="approve" name="Approve">
+      <multiInstanceLoopCharacteristics camunda:collection="approvers" camunda:elementVariable="approver">
+        <completionCondition>nrOfCompletedInstances &gt;= 2</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+  </process>
+</definitions>`))
+	if err != nil {
+		t.Fatalf("Parse returned an error: %v", err)
+	}
+
+	const want = "nrOfCompletedInstances >= 2"
+	approve := nodeByID(t, def, "approve")
+	if approve.CompletionCondition != want {
+		t.Fatalf("the engine reads Node.CompletionCondition, and import left it %q, want %q",
+			approve.CompletionCondition, want)
+	}
+	if _, parked := approve.Properties[legacyMultiInstanceConditionProperty]; parked {
+		t.Error("import still parks the condition in a property nothing evaluates")
+	}
+
+	out, err := parser.Export(def)
+	if err != nil {
+		t.Fatalf("Export returned an error: %v", err)
+	}
+	again, err := parser.Parse(strings.NewReader(string(out)))
+	if err != nil {
+		t.Fatalf("re-parsing the exported file failed: %v", err)
+	}
+	if got := nodeByID(t, again, "approve").CompletionCondition; got != want {
+		t.Errorf("after the round trip the condition is %q, want %q\n---\n%s", got, want, out)
+	}
+}
+
+// A version imported before this release holds its condition in the property.
+// Export still writes it, so the file says what its author wrote — and a
+// re-import of that file is what makes the condition take effect.
+func TestAConditionParkedByAnEarlierImportIsStillExported(t *testing.T) {
+	def := &entities.ProcessDefinition{
+		Key: "p",
+		Nodes: []*entities.Node{{
+			ID: "approve", Type: entities.UserTask, MultiInstanceType: "parallel", Collection: "approvers",
+			Properties: map[string]any{legacyMultiInstanceConditionProperty: "nrOfCompletedInstances >= 2"},
+		}},
+	}
+	out, err := (&BPMNXMLParser{}).Export(def)
+	if err != nil {
+		t.Fatalf("Export returned an error: %v", err)
+	}
+	if !strings.Contains(string(out), "nrOfCompletedInstances &gt;= 2") {
+		t.Errorf("the parked condition was dropped on export\n---\n%s", out)
+	}
+}
