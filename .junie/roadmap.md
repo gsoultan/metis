@@ -1099,6 +1099,38 @@
     shown by running two versions together. A delegation whose owner's account has gone is handed
     back to that name, and an administrator then assigns or releases it, with a reason.
     `docs/upgrading.md`, *Handing a task over is checked and recorded*.
+  - **What a client meets that it did not** (`CHANGELOG.md`, `docs/upgrading.md`). A `reason`
+    from anyone but the holder; the target checks; partial `PUT`; `TaskDelegated` and
+    `TaskResolved`; a 404 for an administrator naming nobody on a missing task. Also: assigning
+    or delegating a task to the person who already holds it is a 400 (it answered 200);
+    releasing a task that is not claimed is a 400 for its holder or an administrator (it was a
+    500); a malformed body is a 400 in a sentence that names none of the server's types; an
+    assignment's `TaskClaimed` carries a top-level `assignee`; an edit that changes nothing
+    raises no `TaskUpdated`.
+  - **After the whole-branch review** (2026-10-03), fixed on the branch:
+    - *A completion in flight overrode a hand-over that committed beside it.* `CompleteTask`
+      re-read the task without its row lock, so an administrator's reassignment answered 200
+      and the previous holder's completion then completed the task and took it back; the same
+      window completed a task that had just been delegated. The re-read holds the row
+      (`lockedTask`) and every decision made from the row is made from that read —
+      `TestAHandOverMadeWhileATaskIsBeingCompletedDoesNotLoseToTheCompletion`,
+      `TestATaskBeingDelegatedIsNotCompletedBeforeItIsHandedBack`.
+    - *Lock order, and what it rests on.* A completion, the engine and a migration take the
+      instance and then task rows; a claim, a hand-over and an edit hold one task row and then
+      only read and insert, so nothing waits the other way. That holds because `audit_logs`,
+      `notifications` and `tasks` have no foreign key to `process_instances` in the tables
+      the migration runner builds. The storm model's own DDL declares those keys
+      (`fk_audit_logs_instance_id`, `fk_notifications_instance_id`, `fk_tasks_instance_id`):
+      adding them to the running schema would make a hand-over's audit insert wait for the
+      instance row and turn that one-way wait into a deadlock. Whoever reconciles the two
+      schemas has to change the lock order first.
+    - *The board had no place for a delegated task.* It is with the claimed ones, and its card
+      says and offers what its row does — `TaskInbox.test.tsx` ("the board, for a delegated
+      task").
+    - *The service took holdership from the actor's name alone.* A signed-in account naming
+      somebody else holds nothing — `TestAnAccountActingInAnothersNameIsNotThatPerson` (impl).
+    - *A malformed body's 400 named Go types.* —
+      `TestAHandOverBodyOfTheWrongKindIsRefusedWithoutNamingTheServersTypes`.
   - **Not in this slice.** Hand-over over gRPC and Connect — REST only, as before; they carry a
     task's `owner` and `delegation_state` and no reason, so there only the holder releases.
     Notifying a candidate group. Editing a task's candidates. A Delegate button in the inbox.
@@ -1108,8 +1140,6 @@
     - The reply to a hand-over takes a different time for "no such account" than for "an
       account in another organization" (one read against four). One repository method that
       finds a member by username and organization closes it and removes a wasted read.
-    - `CompleteTask` decides from a read that does not hold the row, so a completion racing a
-      hand-over can be authorized against a holder the task has just lost.
     - Notifications and the stored audit sentence are written by the server in English; only
       the inbox's own words and the timeline's hand-over sentences go through the catalogues,
       and the timeline's other labels ("Step:", "Assignee:") are still English only.

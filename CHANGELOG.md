@@ -27,6 +27,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     that it went to somebody it was not offered to. If the step the task
     belongs to is no longer part of its process, so that the rule cannot be
     checked, the task cannot be handed to anyone until it is migrated.
+    Assigning or delegating a task to the person who already holds it is
+    refused (400, *… already holds this task*); it used to answer 200.
   - **Anyone but the task's holder says why.** `reason` is a new field on
     `POST /api/v1/tasks/{id}/assign`, `/delegate`, `/unclaim` and `/resolve`
     and on `PUT /api/v1/tasks/{id}`. It is optional for the person holding the
@@ -47,16 +49,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   - **The rule is decided on the task's locked row.** The service decides who
     may hand a task over after taking the row's lock, rather than the endpoint
     on an earlier read, so two hand-overs of one task at the same moment can
-    no longer both be judged its holder's.
+    no longer both be judged its holder's. A completion holds the row as
+    well. It re-read the task without holding it, so a hand-over made in that
+    moment was answered 200 and then undone: the task was completed by, and
+    held again by, the person an administrator had just taken it from, or
+    completed while it was with a delegate. Now one of the two is made and the
+    other is told what the task has become.
+  - **Acting in somebody else's name is not acting as them.** The service
+    took "the caller holds the task" from the name it was given. Every route
+    passes the signed-in account's own name, so nothing reached it; a call
+    made by one account naming another is now refused as a stranger is.
   - **A body the server cannot read is the caller's mistake.** A request body
-    that is not JSON is a 400 on assign, delegate, release, hand back and
-    edit. On assign, delegate and edit it used to come back as a server
-    error, and a release never read its body.
+    that is not JSON, or that carries a field of the wrong kind
+    (`{"user_id": 5}`), is a 400 on assign, delegate, release, hand back and
+    edit, in a sentence that does not repeat the decoder's error. On assign,
+    delegate and edit it used to come back as a server error, and a release
+    never read its body.
+  - **Releasing a task that is not claimed is the caller's mistake too.** For
+    its holder or an administrator, releasing a task nobody holds, one that is
+    completed or withdrawn, or one that is with a delegate is a 400 saying
+    which; it used to be a server error (500). Anybody else is refused with
+    the 403 they always were.
 
   **Upgrading:** an integration that assigns, delegates, releases or edits
   tasks it does not hold — with an administrator's token, typically — is
   refused with a 400 until it sends a `reason`. One that assigns to names that
-  are not accounts in the organization is refused those. One that relied on
+  are not accounts in the organization is refused those. One that assigns or
+  delegates a task to the person already holding it — a retry, or a step that
+  makes sure the assignee is somebody — gets a 400 where it got a 200, and can
+  read *already holds this task* as done. One that releases a task that is not
+  claimed gets a 400 where it got a 500. One that relied on
   `PUT` clearing a due date by leaving it out must send `"due_date": null`.
   An administrator who names nobody to hand a task to, on a task that does not
   exist or belongs to another organization, now gets a 404 rather than a 400.
@@ -143,11 +165,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   has not come back. The delegate is told when the task arrives and the owner
   when it returns or is withdrawn. A delegation is now the event `TaskDelegated`
   on the event stream and to webhooks, where it used to be a `TaskUpdated`;
-  `TaskResolved`, for a hand-back, is new. `owner` and `delegation_state` are
+  `TaskResolved`, for a hand-back, is new. An assignment's `TaskClaimed` now
+  carries the person the task went to as `assignee`, beside
+  `variables.assignee`, and an edit that changes nothing raises no
+  `TaskUpdated`. `owner` and `delegation_state` are
   sent, over REST and over Connect and gRPC, only when they mean something, so
   a client reading `delegation_state: "pending"` can rely on the task being
   with a delegate; `resolved` is kept. In the inbox a task delegated to you says who delegated it
-  and offers **Hand back** in place of Complete, *Delegated by you* shows what
+  and offers **Hand back** in place of Complete, in the table and on the
+  board, where a delegated task is with the claimed ones; *Delegated by you* shows what
   is with a delegate, and Reassign, Edit, Release and Hand back are offered
   only to those the server lets use them, with a reason asked for when the
   signed-in user does not hold the task. The reason is optional for an

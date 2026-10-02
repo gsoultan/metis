@@ -49,9 +49,24 @@ upgrade runs migration 32.
 - Handing a task back that has not been delegated: 400. Handing one back as
   somebody other than its delegate or an administrator — its owner included:
   403.
-- A request body that is not JSON, on assign, delegate, release, hand back and
-  edit: 400. On assign, delegate and edit it used to be a server error, and a
-  release never read its body.
+- A hand-over to the person who already holds the task, by assign or by
+  delegate: 400, *… already holds this task*. It used to answer 200. A retry,
+  or a step that makes sure the assignee is somebody, can read that reply as
+  done.
+- Releasing a task that is not claimed — nobody holds it, it is completed or
+  withdrawn, or it is with a delegate — by its holder or an administrator:
+  400, saying which. It used to be a server error (500). Anybody else gets the
+  403 they always did.
+- A request body that is not JSON, or that carries a field of the wrong kind
+  (`{"user_id": 5}`), on assign, delegate, release, hand back and edit: 400,
+  in a sentence that does not repeat the decoder's error. On assign, delegate
+  and edit it used to be a server error, and a release never read its body.
+- A completion sent at the same moment as a hand-over of the same task. Both
+  used to be answered 200, and the completion won: the task was completed by,
+  and held again by, the person it had just been taken from. Now whichever
+  takes the task's row first is made, and the other is refused for what the
+  task has become: a hand-over of a completed task is a 400, a completion by
+  somebody who no longer holds it a 403.
 
 **What changes for an integration.**
 
@@ -69,14 +84,21 @@ upgrade runs migration 32.
 - Where it edits, send only the fields it means to change. A field left out of
   `PUT /api/v1/tasks/{id}` is now left as it is, where it used to blank the
   name and zero the priority; to remove a due date send `"due_date": null` (or
-  `""`). A name is trimmed, and a blank one is refused with a 400.
+  `""`). A name is trimmed, and a blank one is refused with a 400. A delegate
+  holds the task while it is with them, so they may change its name, priority
+  and due date as any holder may; each change is recorded with who made it.
 - An administrator who names nobody to hand a task to, on a task that does not
   exist or is in another organization, gets a 404 where it used to be a 400.
 - Where it listens for a delegation, the event is now `TaskDelegated`; it used
   to arrive as `TaskUpdated`, which a subscriber that keyed on it no longer
   sees for a delegation. A hand-back is `TaskResolved`, which is new: there was
   no hand-back before. Both carry the person the task went to as `assignee`.
-  Nothing else about an event changed.
+  Two more things changed. An assignment is still `TaskClaimed`, and now
+  carries the person the task went to as a top-level `assignee` as well as in
+  `variables.assignee`. And an edit that changes nothing — a `PUT` that
+  resends the values the task already has — writes nothing and raises no
+  `TaskUpdated`, where every `PUT` used to raise one. A release is still
+  `TaskUpdated`.
 - `owner` and `delegation_state` are sent, over REST and over Connect and gRPC,
   only when they mean something: a client reading `delegation_state: "pending"`
   can rely on the task being with a delegate, and `resolved` is kept. A stale
@@ -102,8 +124,10 @@ nullable, converts the delegations that already exist, and builds
 none was recorded — so each becomes a claim by its assignee, which is what it
 was in effect (one with no assignee goes back to the queue). They are converted
 5,000 at a time, each batch its own short transaction; soft-deleted rows are
-converted too, which the query below leaves out because nobody can see them. To
-see the live ones before upgrading:
+converted too, which the query below leaves out because nobody can see them.
+The conversion changes the status alone: it writes no audit entry and leaves
+`updated_at` as it was, so the query's result is the only record of which tasks
+they were. To see the live ones before upgrading:
 
 ```sql
 SELECT id, name, assignee, instance_id, created_at
