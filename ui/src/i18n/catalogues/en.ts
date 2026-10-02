@@ -77,6 +77,23 @@ const en: Catalogue = {
   'handover.withDelegate': 'With {delegate}',
   'handover.delegatedByYouMore': '{count, plural, one {and # more} other {and # more}}',
 
+  // A hand-over on the timeline: who did it, from whom, to whom. The reason,
+  // when there is one, follows after a colon and is whatever the person wrote.
+  'timeline.assigned': '{actor} assigned "{task}" to {target}',
+  'timeline.reassigned': '{actor} reassigned "{task}" from {previous} to {target}',
+  'timeline.delegated': '{actor} delegated "{task}" to {target}',
+  'timeline.delegatedFor': '{actor} delegated "{task}" from {previous} to {target}',
+  'timeline.handedBack': '{actor} handed "{task}" back to {target}',
+  'timeline.handedBackFor': '{actor} handed "{task}" back from {previous} to {target}',
+  'timeline.released': '{actor} released "{task}" back to the queue',
+  'timeline.releasedFor': '{actor} released "{task}" from {previous} back to the queue',
+  'timeline.edited': '{actor} changed {fields} of "{task}"',
+  'timeline.field.name': 'the name',
+  'timeline.field.priority': 'the priority',
+  'timeline.field.due_date': 'the due date',
+  'timeline.lastOf': '{rest} and {last}',
+  'timeline.notOffered': '{sentence}, who is not one of the people it is offered to',
+
   // Changing a task somebody else holds: the reason is kept with the task
   'handover.reason': 'Reason',
   'handover.reasonHint': 'Needed because this task is not with you. People looking at this task later will see this.',

@@ -75,6 +75,21 @@ const id: Catalogue = {
   'handover.withDelegate': 'Pada {delegate}',
   'handover.delegatedByYouMore': '{count, plural, other {dan # lainnya}}',
 
+  'timeline.assigned': '{actor} menugaskan "{task}" kepada {target}',
+  'timeline.reassigned': '{actor} mengalihkan "{task}" dari {previous} kepada {target}',
+  'timeline.delegated': '{actor} mendelegasikan "{task}" kepada {target}',
+  'timeline.delegatedFor': '{actor} mendelegasikan "{task}" dari {previous} kepada {target}',
+  'timeline.handedBack': '{actor} mengembalikan "{task}" kepada {target}',
+  'timeline.handedBackFor': '{actor} mengembalikan "{task}" dari {previous} kepada {target}',
+  'timeline.released': '{actor} melepaskan "{task}" kembali ke antrean',
+  'timeline.releasedFor': '{actor} melepaskan "{task}" dari {previous} kembali ke antrean',
+  'timeline.edited': '{actor} mengubah {fields} pada "{task}"',
+  'timeline.field.name': 'nama',
+  'timeline.field.priority': 'prioritas',
+  'timeline.field.due_date': 'tenggat',
+  'timeline.lastOf': '{rest} dan {last}',
+  'timeline.notOffered': '{sentence}, yang bukan salah satu orang yang ditawari tugas ini',
+
   'handover.reason': 'Alasan',
   'handover.reasonHint':
     'Diperlukan karena tugas ini tidak ada pada Anda. Orang yang melihat tugas ini nanti akan membacanya.',

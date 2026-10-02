@@ -5,6 +5,8 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { asText } from '../types/bpmn';
 import { describeDecision } from '../domain/decisionNarrative';
+import { describeHandOver } from '../domain/handOverNarrative';
+import { useTranslation } from '../i18n/context';
 import { timelineKind } from '../domain/timelineKind';
 
 dayjs.extend(relativeTime);
@@ -25,6 +27,8 @@ const getEventIcon = (type: string) => {
     case 'released':
     case 'assigned':
     case 'delegated':
+    case 'handedBack':
+    case 'edited':
       return <User size={14} />;
     case 'completed':
       return <Check size={14} />;
@@ -46,6 +50,8 @@ const getEventColor = (type: string) => {
     case 'claimed':
     case 'assigned':
     case 'delegated':
+    case 'handedBack':
+    case 'edited':
       return 'indigo';
     case 'completed':
       return 'green';
@@ -77,6 +83,7 @@ function DecisionDetail({ data }: { data?: Record<string, unknown> }) {
 
 export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   const { data, isLoading } = useAuditLogs(instanceId);
+  const { t } = useTranslation();
 
   if (isLoading) return <Text>Loading timeline...</Text>;
   if (!data?.entries || data.entries.length === 0) return <Text c="dimmed">No activity recorded yet.</Text>;
@@ -111,8 +118,9 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
               }
               title={
                 <Group justify="space-between" align="flex-start">
-                  <Text fw={500} size="sm">
-                    {entry.narrative || entry.message}
+                  {/* A reason is typed by a person and can be long: clamp it, and let an unbroken string wrap. */}
+                  <Text fw={500} size="sm" lineClamp={3} style={{ overflowWrap: 'anywhere', minWidth: 0, flex: 1 }}>
+                    {describeHandOver(entry.type, entry.data, entry.node?.name ?? '', t) ?? (entry.narrative || entry.message)}
                   </Text>
                   <Text size="xs" c="dimmed">
                     {dayjs(entry.timestamp).fromNow()}
