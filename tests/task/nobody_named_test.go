@@ -236,8 +236,21 @@ func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *te
 
 				for _, who := range []string{"olga", "ada"} {
 					taskID := h.openTask(t, step)
-					if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action,
-						map[string]any{"user_id": "alice", "reason": "nobody was named for it; alice runs refunds"}); status != http.StatusOK {
+					status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action,
+						map[string]any{"user_id": "alice", "reason": "nobody was named for it; alice runs refunds"})
+					if action == "delegate" {
+						// Nobody holds it, so there is nobody for it to come
+						// back to: it is assigned, not delegated.
+						if status != http.StatusBadRequest || !strings.Contains(body, "claim or assign it first") {
+							t.Fatalf("%s trying to delegate a %s nobody holds: got %d (%s); want 400 saying to claim or assign it first",
+								who, step.Type, status, strings.TrimSpace(body))
+						}
+						if got := h.taskAssignee(t, taskID); got != "" {
+							t.Fatalf("after the refused delegation the task is held by %q, want nobody", got)
+						}
+						continue
+					}
+					if status != http.StatusOK {
 						t.Fatalf("%s trying to %s a %s nobody was named for to alice: got %d (%s), want 200",
 							who, action, step.Type, status, strings.TrimSpace(body))
 					}

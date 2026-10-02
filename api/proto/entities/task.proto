@@ -34,4 +34,15 @@ message Task {
   string type = 16;
 
   string description = 17;
+
+  // Who delegated the task and waits for it back, when it has been delegated.
+  // While status is "delegated" and delegation_state is "pending" the assignee
+  // is the delegate, who works on it and hands it back; only the owner
+  // completes it. All three are needed: an owner or a pending state on a task
+  // with any other status is left over and means nothing.
+  User owner = 18;
+
+  // "pending" while a delegate has the task, "resolved" once they have handed
+  // it back, and empty for a task that was never delegated.
+  string delegation_state = 19;
 }

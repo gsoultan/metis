@@ -122,3 +122,23 @@ type AssignTaskResponse struct {
 }
 
 func (r AssignTaskResponse) Failed() error { return r.Err }
+
+// ResolveTaskRequest hands a delegated task back to its owner.
+type ResolveTaskRequest struct {
+	ID string `json:"id"`
+	// Reason is why. Required unless the caller is the delegate holding it.
+	Reason string `json:"reason,omitzero"`
+}
+
+type ResolveTaskResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r ResolveTaskResponse) Failed() error { return r.Err }
+
+// ListDelegatedTasksRequest asks for the tasks the caller delegated that are
+// still with their delegate. It names nobody: the caller is who the token says.
+type ListDelegatedTasksRequest struct {
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+}

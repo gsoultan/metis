@@ -101,3 +101,14 @@ func (c handOverCaller) mayEdit() error {
 	}
 	return apierr.Forbiddenf("only the person holding this task, or an administrator, can change its name, priority or due date")
 }
+
+// mayResolve refuses a hand-back from anyone but the delegate — who holds the
+// task — or an administrator. Its owner is not among them: they gave it to
+// somebody to work on, and taking it back is that person's to do or an
+// administrator's to decide.
+func (c handOverCaller) mayResolve() error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	return apierr.Forbiddenf("only the person this task was delegated to, or an administrator, can hand it back")
+}

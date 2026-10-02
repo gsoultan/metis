@@ -9,6 +9,8 @@ type handOverKind struct {
 	doing string
 	// missingTarget is what a request naming nobody is told.
 	missingTarget string
+	// needsHolder: the task has to be held by somebody, who stays its owner.
+	needsHolder bool
 }
 
 var (
@@ -21,5 +23,6 @@ var (
 		done:          "delegated",
 		doing:         "delegating this task",
 		missingTarget: "say who the task is delegated to",
+		needsHolder:   true,
 	}
 )

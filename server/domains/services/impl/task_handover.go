@@ -23,6 +23,8 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, change servi
 		previous := task.AssigneeUsername()
 		task.Assignee = &entities.User{Username: step.target}
 		task.Status = entities.TaskClaimed
+		// A hand-over ends whatever delegation the task came back from.
+		task.Owner, task.DelegationState = nil, ""
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
@@ -45,7 +47,8 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, change servi
 	})
 }
 
-// DelegateTask hands a task to somebody to work on.
+// DelegateTask hands a task to somebody to work on, and keeps whoever held it
+// as its owner: the delegate hands it back, and only the owner completes it.
 func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change servicecontracts.HandOver) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		step, err := s.openHandOver(txCtx, id, change, delegating)
@@ -53,9 +56,11 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change ser
 			return err
 		}
 		task := step.task
-		previous := task.AssigneeUsername()
-		task.Status = entities.TaskDelegated
+		owner := task.AssigneeUsername()
+		task.Owner = &entities.User{Username: owner}
 		task.Assignee = &entities.User{Username: step.target}
+		task.Status = entities.TaskDelegated
+		task.DelegationState = entities.DelegationPending
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
@@ -69,7 +74,8 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change ser
 			Variables: task.Variables,
 		}, task, EventTaskDelegated, handOverRecord{
 			actor:             step.caller.username,
-			previousHolder:    previous,
+			previousHolder:    owner,
+			owner:             owner,
 			target:            step.target,
 			reason:            step.reason,
 			candidateOverride: step.candidateOverride,
@@ -103,6 +109,7 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID, change serv
 		previous := task.AssigneeUsername()
 		task.Status = entities.TaskUnclaimed
 		task.Assignee = nil
+		task.Owner, task.DelegationState = nil, ""
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
@@ -128,6 +135,10 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID, change serv
 func refuseUnreleasable(task entities.Task) error {
 	if err := refuseClosed(task, "released"); err != nil {
 		return err
+	}
+	if task.AwaitsHandBack() {
+		return apierr.Invalidf("this task was delegated to %s by %s; it is handed back to %s, not released",
+			task.AssigneeUsername(), task.OwnerUsername(), task.OwnerUsername())
 	}
 	switch task.Status {
 	case entities.TaskClaimed:

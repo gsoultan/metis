@@ -46,6 +46,9 @@ type TaskRepository interface {
 	// for internal callers — the engine and job worker genuinely need every
 	// row and are not driven by a request.
 	ListByAssigneePaged(ctx context.Context, assignee string, p Pagination) (Page[models.TaskModel], error)
+	// ListDelegatedByPaged returns one page of the tasks owner delegated that
+	// are still with their delegate, newest first.
+	ListDelegatedByPaged(ctx context.Context, owner string, p Pagination) (Page[models.TaskModel], error)
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	ListByInstancePaged(ctx context.Context, instanceID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	ListByCandidatesPaged(ctx context.Context, c Candidacy, p Pagination) (Page[models.TaskModel], error)

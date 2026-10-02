@@ -51,6 +51,15 @@ func (s *taskService) openHandOver(ctx context.Context, id uuid.UUID, change ser
 	if err := refuseClosed(task, kind.done); err != nil {
 		return handOverStep{}, err
 	}
+	if task.AwaitsHandBack() {
+		// One way back, so the trail of who had it stays a line: the delegate
+		// hands it back, and its owner hands it on.
+		return handOverStep{}, apierr.Invalidf("this task was delegated to %s by %s; it has to be handed back to %s before it can be %s",
+			task.AssigneeUsername(), task.OwnerUsername(), task.OwnerUsername(), kind.done)
+	}
+	if kind.needsHolder && task.AssigneeUsername() == "" {
+		return handOverStep{}, apierr.Invalidf("nobody holds this task, so there is nobody for it to come back to; claim or assign it first")
+	}
 	target := strings.TrimSpace(change.Target)
 	if target == "" {
 		return handOverStep{}, apierr.Invalidf("%s", kind.missingTarget)

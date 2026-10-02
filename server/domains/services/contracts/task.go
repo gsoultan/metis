@@ -12,6 +12,8 @@ import (
 type TaskService interface {
 	// TaskHandOverService is the part that moves a task between people.
 	TaskHandOverService
+	// TaskDelegationReader lists what somebody delegated and is waiting for.
+	TaskDelegationReader
 
 	GetTask(ctx context.Context, id uuid.UUID) (entities.Task, error)
 	ListTasks(ctx context.Context, projectID uuid.UUID) ([]entities.Task, error)

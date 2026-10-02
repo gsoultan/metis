@@ -333,7 +333,14 @@ func TestADelegationPastTheOfferIsRecordedAsOne(t *testing.T) {
 	}
 
 	// And only then: a delegation to somebody it is offered to records none.
+	// Somebody holds it first — gina, of the finance team — because a task
+	// nobody holds has nobody to come back to and is not delegated at all.
+	h.tokens["gina"] = h.signInWithRoles(t, "gina", entities.RoleUser)
+	h.putInFinance(t, "gina")
 	taskID, instanceID = h.openTaskWith(t, offeredToFinance(), nil)
+	if status, reply := h.post(t, h.tokens["gina"], "/api/v1/tasks/"+taskID+"/claim", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("gina claiming: %d (%s)", status, reply)
+	}
 	if status, reply := h.post(t, boss, "/api/v1/tasks/"+taskID+"/delegate", map[string]any{"user_id": "alice", "reason": "it is hers"}); status != http.StatusOK {
 		t.Fatalf("an administrator delegating the task to alice, who is offered it: got %d (%s), want 200", status, strings.TrimSpace(reply))
 	}

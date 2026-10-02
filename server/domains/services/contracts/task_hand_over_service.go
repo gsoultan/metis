@@ -14,6 +14,8 @@ type TaskHandOverService interface {
 	AssignTask(ctx context.Context, id uuid.UUID, change HandOver) error
 	// DelegateTask hands the task to change.Target to work on.
 	DelegateTask(ctx context.Context, id uuid.UUID, change HandOver) error
+	// ResolveTask hands a delegated task back to its owner, who completes it.
+	ResolveTask(ctx context.Context, id uuid.UUID, change HandOver) error
 	// UnclaimTask puts a claimed task back for its candidates to claim.
 	UnclaimTask(ctx context.Context, id uuid.UUID, change HandOver) error
 	// UpdateTask changes the fields of the task that edit carries, and no

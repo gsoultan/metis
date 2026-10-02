@@ -42,10 +42,19 @@ type Task struct {
 	// The BPMN node type this task came from. The UI branches on it: a manual
 	// task is completed with "Mark as Done" and has no form to fill in, a user
 	// task does. Without it every task looked like a user task.
-	Type          string `protobuf:"bytes,16,opt,name=type,proto3" json:"type,omitempty"`
-	Description   string `protobuf:"bytes,17,opt,name=description,proto3" json:"description,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Type        string `protobuf:"bytes,16,opt,name=type,proto3" json:"type,omitempty"`
+	Description string `protobuf:"bytes,17,opt,name=description,proto3" json:"description,omitempty"`
+	// Who delegated the task and waits for it back, when it has been delegated.
+	// While status is "delegated" and delegation_state is "pending" the assignee
+	// is the delegate, who works on it and hands it back; only the owner
+	// completes it. All three are needed: an owner or a pending state on a task
+	// with any other status is left over and means nothing.
+	Owner *User `protobuf:"bytes,18,opt,name=owner,proto3" json:"owner,omitempty"`
+	// "pending" while a delegate has the task, "resolved" once they have handed
+	// it back, and empty for a task that was never delegated.
+	DelegationState string `protobuf:"bytes,19,opt,name=delegation_state,json=delegationState,proto3" json:"delegation_state,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Task) Reset() {
@@ -197,11 +206,25 @@ func (x *Task) GetDescription() string {
 	return ""
 }
 
+func (x *Task) GetOwner() *User {
+	if x != nil {
+		return x.Owner
+	}
+	return nil
+}
+
+func (x *Task) GetDelegationState() string {
+	if x != nil {
+		return x.DelegationState
+	}
+	return ""
+}
+
 var File_entities_task_proto protoreflect.FileDescriptor
 
 const file_entities_task_proto_rawDesc = "" +
 	"\n" +
-	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xec\x04\n" +
+	"\x13entities/task.proto\x12\aprocess\x1a\x1cgoogle/protobuf/struct.proto\x1a\x13entities/node.proto\x1a\x13entities/user.proto\x1a\x14entities/group.proto\x1a\x16entities/project.proto\x1a\x1fentities/process_instance.proto\"\xbc\x05\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
 	"\aproject\x18\x02 \x01(\v2\x10.process.ProjectR\aproject\x124\n" +
@@ -221,7 +244,9 @@ const file_entities_task_proto_rawDesc = "" +
 	"\bform_key\x18\x0e \x01(\tR\aformKey\x12'\n" +
 	"\x0fform_definition\x18\x0f \x01(\tR\x0eformDefinition\x12\x12\n" +
 	"\x04type\x18\x10 \x01(\tR\x04type\x12 \n" +
-	"\vdescription\x18\x11 \x01(\tR\vdescriptionB\x8b\x01\n" +
+	"\vdescription\x18\x11 \x01(\tR\vdescription\x12#\n" +
+	"\x05owner\x18\x12 \x01(\v2\r.process.UserR\x05owner\x12)\n" +
+	"\x10delegation_state\x18\x13 \x01(\tR\x0fdelegationStateB\x8b\x01\n" +
 	"\vcom.processB\tTaskProtoP\x01Z5github.com/gsoultan/metis/api/proto/entities;entities\xa2\x02\x03PXX\xaa\x02\aProcess\xca\x02\aProcess\xe2\x02\x13Process\\GPBMetadata\xea\x02\aProcessb\x06proto3"
 
 var (
@@ -254,11 +279,12 @@ var file_entities_task_proto_depIdxs = []int32{
 	4, // 4: process.Task.candidate_users:type_name -> process.User
 	5, // 5: process.Task.candidate_groups:type_name -> process.Group
 	6, // 6: process.Task.variables:type_name -> google.protobuf.Struct
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	4, // 7: process.Task.owner:type_name -> process.User
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_entities_task_proto_init() }

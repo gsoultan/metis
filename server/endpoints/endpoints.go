@@ -327,6 +327,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	taskEndpoints.CompleteTask = protected("CompleteTask")(taskEndpoints.CompleteTask)
 	taskEndpoints.UpdateTask = protected("UpdateTask")(taskEndpoints.UpdateTask)
 	taskEndpoints.AssignTask = protected("AssignTask")(taskEndpoints.AssignTask)
+	taskEndpoints.ResolveTask = protected("ResolveTask")(taskEndpoints.ResolveTask)
+	taskEndpoints.ListDelegatedTasks = protected("ListDelegatedTasks")(taskEndpoints.ListDelegatedTasks)
 
 	userEndpoints := user.MakeEndpoints(s)
 	userEndpoints.GetUser = protected("GetUser")(userEndpoints.GetUser)

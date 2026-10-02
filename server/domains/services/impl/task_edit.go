@@ -45,6 +45,11 @@ func (s *taskService) UpdateTask(ctx context.Context, id uuid.UUID, edit service
 		if err != nil || len(changes) == 0 {
 			return err
 		}
+		// The whole row is written back. An owner or a pending mark that no
+		// longer describes the task is not carried on by an edit.
+		if task.HasStaleDelegation() {
+			task.Owner, task.DelegationState = nil, ""
+		}
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}

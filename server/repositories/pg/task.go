@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -238,6 +239,24 @@ func (r *taskRepository) candidates(ctx context.Context, c contracts.Candidacy, 
 
 func (r *taskRepository) ListByAssigneePaged(ctx context.Context, assignee string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
 	return r.paged(ctx, nil, []task.Pred{task.Assignee.Eq(assignee)}, p)
+}
+
+// ListDelegatedByPaged returns the tasks somebody delegated that are still with
+// their delegate.
+//
+// The three things that make a delegation pending (entities.Task.AwaitsHandBack),
+// not the owner alone: a delegated task the engine withdrew, and one that was
+// handed back and completed, keep their owner, and a row a pod of the release
+// before this one wrote over can keep an owner under a status or a state that
+// is no longer a pending delegation. None of those is something its owner is
+// still waiting for. Three predicates and the tenant scope are within what the
+// store holds per query. Read through ix_tasks_owner, which migration 32 builds.
+func (r *taskRepository) ListDelegatedByPaged(ctx context.Context, owner string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+	return r.paged(ctx, nil, []task.Pred{
+		task.Owner.Eq(owner),
+		task.Status.Eq(string(models.TaskDelegated)),
+		task.DelegationState.Eq(string(entities.DelegationPending)),
+	}, p)
 }
 
 func (r *taskRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {

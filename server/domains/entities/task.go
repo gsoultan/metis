@@ -67,12 +67,35 @@ func (t Task) OwnerUsername() string {
 }
 
 // AwaitsHandBack reports whether the task is with a delegate who has to hand
-// it back to its owner before anybody completes it.
+// it back to its owner before anybody completes it. It is the one place that
+// rule is written: everything that asks "is this a pending delegation" asks
+// here.
 //
-// Both halves are asked for. A row delegated by a release that kept no owner
+// All three are asked for. A row delegated by a release that kept no owner
 // has nobody to go back to, and is its assignee's to complete — as it was.
+// And while pods of that release are still running, one of them can claim or
+// release a task this release delegated: it writes the status it knows and
+// leaves the owner and the pending mark it does not, on a task that is no
+// longer delegated. That task is its holder's, not a delegate's.
 func (t Task) AwaitsHandBack() bool {
-	return t.DelegationState == DelegationPending && t.OwnerUsername() != ""
+	return t.Status == TaskDelegated && t.DelegationState == DelegationPending && t.OwnerUsername() != ""
+}
+
+// HasStaleDelegation reports whether the task carries an owner or a delegation
+// state that no longer describes it: it is neither with a delegate (see
+// AwaitsHandBack) nor back in its owner's hands. A release that does not know
+// the two fields leaves them behind when it claims, releases or hands on a
+// task that had them.
+func (t Task) HasStaleDelegation() bool {
+	if t.Owner == nil && t.DelegationState == "" {
+		return false
+	}
+	if t.AwaitsHandBack() {
+		return false
+	}
+	cameBack := t.Status == TaskClaimed && t.DelegationState == DelegationResolved &&
+		t.OwnerUsername() != "" && t.AssigneeUsername() == t.OwnerUsername()
+	return !cameBack
 }
 
 // FallsToOperators reports whether only an administrator or an operator may

@@ -71,7 +71,8 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 		{"delegate", func() error {
 			return svc.DelegateTask(ctx, taskID, servicecontracts.HandOver{Actor: "bob", Target: "alice"})
 		}},
-		{"complete", func() error { return svc.CompleteTask(ctx, taskID, "alice", nil) }},
+		{"hand back", func() error { return svc.ResolveTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice"}) }},
+		{"complete", func() error { return svc.CompleteTask(ctx, taskID, "bob", nil) }},
 	} {
 		if err := step.do(); err != nil {
 			t.Fatalf("%s: %v", step.name, err)
@@ -89,9 +90,9 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 			about = append(about, e.Type+": "+e.Narrative)
 		}
 	}
-	// Created, claimed, released, assigned, delegated, completed.
-	if len(about) != 6 {
-		t.Fatalf("six things happened to the task and the trail has %d entries about it:\n  %s",
+	// Created, claimed, released, assigned, delegated, handed back, completed.
+	if len(about) != 7 {
+		t.Fatalf("seven things happened to the task and the trail has %d entries about it:\n  %s",
 			len(about), strings.Join(about, "\n  "))
 	}
 }

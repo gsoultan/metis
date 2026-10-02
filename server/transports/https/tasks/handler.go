@@ -27,6 +27,14 @@ func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// The literal segment wins over {id}: the mux prefers the more specific
+	// pattern, so "delegated" is never read as a task id.
+	m.Handle("GET /api/v1/tasks/delegated", httptransport.NewServer(
+		eps.ListDelegatedTasks,
+		decodeListDelegatedTasksRequest,
+		common.EncodeResponse,
+		options...,
+	))
 
 	m.Handle("GET /api/v1/tasks/assignee/{assignee}", httptransport.NewServer(
 		eps.ListTasksByAssignee,
@@ -55,6 +63,12 @@ func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransp
 	m.Handle("POST /api/v1/tasks/{id}/delegate", httptransport.NewServer(
 		eps.DelegateTask,
 		decodeDelegateTaskRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/tasks/{id}/resolve", httptransport.NewServer(
+		eps.ResolveTask,
+		decodeResolveTaskRequest,
 		common.EncodeResponse,
 		options...,
 	))
@@ -164,6 +178,20 @@ func decodeUpdateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 
 func decodeAssignTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.AssignTaskRequest
+	if err := decodeBody(r, &req); err != nil {
+		return nil, err
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
+}
+
+func decodeListDelegatedTasksRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
+	return task.ListDelegatedTasksRequest{Page: page, PageSize: pageSize}, nil
+}
+
+func decodeResolveTaskRequest(_ context.Context, r *http.Request) (any, error) {
+	var req task.ResolveTaskRequest
 	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}

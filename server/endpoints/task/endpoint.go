@@ -26,6 +26,8 @@ type Endpoints struct {
 	CompleteTask          endpoint.Endpoint
 	UpdateTask            endpoint.Endpoint
 	AssignTask            endpoint.Endpoint
+	ResolveTask           endpoint.Endpoint
+	ListDelegatedTasks    endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -40,6 +42,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		CompleteTask:          MakeCompleteTaskEndpoint(s),
 		UpdateTask:            MakeUpdateTaskEndpoint(s),
 		AssignTask:            MakeAssignTaskEndpoint(s),
+		ResolveTask:           MakeResolveTaskEndpoint(s),
+		ListDelegatedTasks:    MakeListDelegatedTasksEndpoint(s),
 	}
 }
 
@@ -301,6 +305,47 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		err = s.AssignTask(ctx, id, servicecontracts.HandOver{Actor: actor, Target: req.UserID, Reason: req.Reason})
 		return AssignTaskResponse{Err: err}, nil
+	}
+}
+
+func MakeResolveTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ResolveTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ResolveTaskRequest, got %T", request)
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return ResolveTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return ResolveTaskResponse{Err: err}, nil
+		}
+		// Who may hand it back — the delegate, or an administrator who says
+		// why — is the service's to decide, on the row it holds.
+		err = s.ResolveTask(ctx, id, servicecontracts.HandOver{Actor: actor, Reason: req.Reason})
+		return ResolveTaskResponse{Err: err}, nil
+	}
+}
+
+func MakeListDelegatedTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDelegatedTasksRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ListDelegatedTasksRequest, got %T", request)
+		}
+		// The caller's own, like the inbox: who is asking is the verified
+		// principal, and the request has no field that could name anybody else.
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		page, err := s.ListTasksDelegatedByPaged(ctx, actor, repocontracts.Pagination{Page: req.Page, PageSize: req.PageSize})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return listTasksResponse(page), nil
 	}
 }
 

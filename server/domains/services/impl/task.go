@@ -197,6 +197,9 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			if err := refuseClosedTask(task.Status); err != nil {
 				return err
 			}
+			if task.AwaitsHandBack() {
+				return completionWaitsForHandBack(task, userID)
+			}
 			if task.Assignee != nil {
 				if task.Assignee.Username != userID {
 					return fmt.Errorf("%w: task %s is assigned to %s, not %s", ErrTaskForbidden, id, task.Assignee.Username, userID)
