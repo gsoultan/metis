@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -16,7 +17,16 @@ import (
 //
 // Its text reaches whoever completed a task, so it names no step and no id.
 //
-// Whether a run is waiting is ProcessInstance.WaitsFor.
+// Whether a run is waiting is ProcessInstance.WaitsFor, here and for every
+// caller that is not a person: a job asks before its call and again before it
+// uses the result (tokenWaitsAt), a worker's report is asked before it is
+// accepted (externalTaskService.withdrawnBecauseStepEnded), a called process
+// before it resumes its parent (EndEventHandler.resumeParent) — and each does
+// something other than arrive here when the answer is no. What can still be
+// refused is a completion that reaches the engine through a step the asker did
+// not ask about: work inside a sub-process whose run was ended from outside
+// it, which finishes its own step and then finds the sub-process around it
+// over.
 var errIterationNotWaiting = apierr.Invalidf(
 	"the process is no longer waiting for this part of the step, so it cannot be completed again")
 
@@ -25,6 +35,14 @@ var errIterationNotWaiting = apierr.Invalidf(
 // process has moved on. Advancing again would run everything after it twice.
 var errStepAlreadyFinished = apierr.Invalidf(
 	"this step has already finished and the process has moved on, so there is nothing left to complete")
+
+// isEngineRefusal reports whether err is the engine declining a completion
+// for a step that is not waiting for it. That is a statement about the
+// process, not a failure of the work that was done, and nothing that handles
+// failures of work — an error boundary event — is the place for it.
+func isEngineRefusal(err error) bool {
+	return errors.Is(err, errIterationNotWaiting) || errors.Is(err, errStepAlreadyFinished)
+}
 
 // removeOrCheckMultiInstance handles token removal for both simple and multi-instance
 // nodes.  Returns (true, nil) when execution should continue past the node.

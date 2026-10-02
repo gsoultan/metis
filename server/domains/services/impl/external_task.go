@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -44,7 +45,8 @@ func (s *externalTaskService) FetchAndLock(ctx context.Context, topic string, wo
 }
 
 func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, workerID string, variables map[string]any) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	withdrawn := false
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.ExternalTask().Get(txCtx, taskID)
 		if err != nil {
 			return err
@@ -86,14 +88,19 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 				"worker — fetch it again")
 		}
 
-		// 1. DeleteConnectorInstance external task
-		if err := s.repo.ExternalTask().Delete(txCtx, taskID); err != nil {
+		// 1. The definition the instance is running.
+		def, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
+		if err != nil {
 			return err
 		}
 
-		// 2. The definition the instance is running.
-		def, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
-		if err != nil {
+		// Work for a step that has ended is withdrawn, not counted.
+		if withdrawn, err = s.withdrawnBecauseStepEnded(txCtx, &instance, def, task.Node.ID); err != nil || withdrawn {
+			return err
+		}
+
+		// 2. DeleteConnectorInstance external task
+		if err := s.repo.ExternalTask().Delete(txCtx, taskID); err != nil {
 			return err
 		}
 
@@ -113,6 +120,49 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 
 		return s.engine.Proceed(txCtx, &instance, def, task.Node.ID)
 	})
+	if err != nil {
+		return err
+	}
+	if withdrawn {
+		return errExternalTaskWithdrawn()
+	}
+	return nil
+}
+
+// errExternalTaskWithdrawn answers a worker whose report found its step over:
+// there is no such task. It is what the report would have been told had the
+// work been withdrawn a moment earlier, when the step ended, and what the same
+// report sent again is told by the repository.
+func errExternalTaskWithdrawn() error {
+	return fmt.Errorf("%w: no such external task", apierr.ErrNotFound)
+}
+
+// withdrawnBecauseStepEnded withdraws the work parked on a step that is no
+// longer waiting for it, and reports whether it did.
+//
+// A step that ends takes its parked work with it (Engine.endActivity), so a
+// report normally finds either a step that is waiting or no task at all. The
+// work that is found on a step that has ended was left there by a release
+// before migration 31, which ended a step early without withdrawing anything
+// and kept a token on it for every run. A report on it used to be refused by
+// the engine; the refusal rolled back, the lock ran out, and the work was
+// offered and refused again for as long as the instance existed.
+//
+// Whether the step is waiting is ProcessInstance.WaitsFor, the question the
+// engine asks. All of the step's parked work goes, with one line on the
+// instance's trail, as it would have when the step ended.
+//
+// A step the definition no longer describes is left to the engine, as before.
+func (s *externalTaskService) withdrawnBecauseStepEnded(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) (bool, error) {
+	node := def.FindNode(nodeID)
+	if node == nil || instance.WaitsFor(node, "") {
+		return false, nil
+	}
+	log.Info().
+		Str("instance_id", instance.ID.String()).
+		Str("node_id", nodeID).
+		Msg("A worker reported on work for a step that had already ended; the step's parked work was withdrawn")
+	return true, s.engine.WithdrawParkedWork(ctx, instance, node)
 }
 
 // HandleFailure records a worker's failure to do an external task.
@@ -125,7 +175,8 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 // told and the instance waited at the step with nothing to investigate.
 // Resolving the incident offers it again.
 func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUID, workerID string, errorMessage string, errorDetails string, retries int, retryTimeout int64) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	withdrawn := false
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.ExternalTask().Get(txCtx, taskID)
 		if err != nil {
 			return err
@@ -153,6 +204,18 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		}
 		if err := refuseWorkerWithoutLock(m.WorkerID, workerID); err != nil {
 			return err
+		}
+
+		// A failure at work for a step that has ended is nobody's to retry or
+		// to resolve: the work is withdrawn, as a completion of it would be.
+		if instance.Definition != nil {
+			def, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)
+			if err != nil {
+				return err
+			}
+			if withdrawn, err = s.withdrawnBecauseStepEnded(txCtx, &instance, def, m.NodeID); err != nil || withdrawn {
+				return err
+			}
 		}
 
 		m.ErrorMessage = errorMessage
@@ -191,6 +254,13 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		_, err = s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	if withdrawn {
+		return errExternalTaskWithdrawn()
+	}
+	return nil
 }
 
 // refuseWorkerWithoutLock refuses a report from a worker the task is not
