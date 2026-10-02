@@ -76,6 +76,75 @@ func TestAnAdministratorOfAnotherOrganizationIsNotOneHere(t *testing.T) {
 	}
 }
 
+// Whether the actor holds the task was read from the actor's name before the
+// signed-in account was looked at, so a request from one account naming the
+// holder was treated as the holder's. An account acting in another's name is
+// refused as a stranger is; a call with nobody signed in — the server's own —
+// still acts for the name it gives.
+func TestAnAccountActingInAnothersNameIsNotThatPerson(t *testing.T) {
+	t.Parallel()
+	delegated := entities.Task{
+		Status: entities.TaskDelegated, DelegationState: entities.DelegationPending,
+		Assignee: &entities.User{Username: "alice"}, Owner: &entities.User{Username: "budi"},
+	}
+	impostors := map[string]context.Context{
+		"a member":         signedInAs("mallory", entities.RoleUser),
+		"an administrator": signedInAs("boss", entities.RoleAdmin),
+		"an operator":      signedInAs("olga", entities.RoleOperator),
+		"an account by pointer": context.WithValue(context.Background(), pkgauth.UserContextKey,
+			&entities.User{Username: "mallory", Roles: []string{entities.RoleUser}}),
+	}
+	stranger := handOverCallerFor(signedInAs("mallory", entities.RoleUser), "mallory", heldBy("alice"))
+	for who, ctx := range impostors {
+		t.Run(who+" naming the holder", func(t *testing.T) {
+			t.Parallel()
+			caller := handOverCallerFor(ctx, "alice", heldBy("alice"))
+			if caller.holdsTask || caller.administrator || caller.takesUnnamed {
+				t.Fatalf("the caller was given the holder's standing or their own roles: %+v", caller)
+			}
+			for action, refusals := range map[string][2]error{
+				"hand over": {caller.mayHandOver(heldBy("alice")), stranger.mayHandOver(heldBy("alice"))},
+				"release":   {caller.mayRelease(), stranger.mayRelease()},
+				"edit":      {caller.mayEdit(), stranger.mayEdit()},
+				"hand back": {handOverCallerFor(ctx, "alice", delegated).mayResolve(), stranger.mayResolve()},
+			} {
+				got, want := refusals[0], refusals[1]
+				if !errors.Is(got, apierr.ErrForbidden) || want == nil || got.Error() != want.Error() {
+					t.Errorf("%s: got %v, want the refusal a stranger gets: %v", action, got, want)
+				}
+			}
+		})
+	}
+
+	t.Run("nobody signed in, naming the holder", func(t *testing.T) {
+		t.Parallel()
+		caller := handOverCallerFor(context.Background(), "alice", heldBy("alice"))
+		if !caller.holdsTask || caller.administrator || caller.takesUnnamed {
+			t.Fatalf("the server acting for the holder: %+v; want the holder's standing and no roles", caller)
+		}
+		for action, err := range map[string]error{
+			"hand over": caller.mayHandOver(heldBy("alice")),
+			"release":   caller.mayRelease(),
+			"edit":      caller.mayEdit(),
+			"hand back": handOverCallerFor(context.Background(), "alice", delegated).mayResolve(),
+		} {
+			if err != nil {
+				t.Errorf("%s was refused: %v", action, err)
+			}
+		}
+		if _, err := caller.reasonFor("", "assigning this task"); err != nil {
+			t.Errorf("the holder was asked for a reason: %v", err)
+		}
+	})
+
+	t.Run("an account naming itself", func(t *testing.T) {
+		t.Parallel()
+		if !handOverCallerFor(signedInAs("alice", entities.RoleUser), "alice", heldBy("alice")).holdsTask {
+			t.Fatal("the holder, signed in as themselves, was not treated as the holder")
+		}
+	})
+}
+
 func TestWhoMustSayWhy(t *testing.T) {
 	t.Parallel()
 	holder := handOverCaller{username: "alice", holdsTask: true}

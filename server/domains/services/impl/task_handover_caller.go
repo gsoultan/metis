@@ -35,13 +35,22 @@ type handOverCaller struct {
 // The roles are the signed-in account's in the organization the request is
 // for, and they count only when that account is the actor: a call naming
 // somebody else is not lent the caller's roles (as mayTakeUnnamedTask).
+//
+// Nor is it lent the holder's standing. Whether the actor holds the task was
+// read from the name alone, so a call made by one signed-in account in the
+// name of another was the holder's whenever it named the holder — safe only
+// while every caller passed the account's own name. A request from one account
+// naming another now holds nothing and has no roles: the refusal a stranger
+// gets. A call with nobody signed in is the server's own, and acts for the
+// name it gives.
 func handOverCallerFor(ctx context.Context, actor string, task entities.Task) handOverCaller {
-	caller := handOverCaller{
-		username:  actor,
-		holdsTask: actor != "" && task.AssigneeUsername() == actor,
-	}
+	caller := handOverCaller{username: actor}
 	account := signedIn(ctx)
-	if account == nil || actor == "" || account.Username != actor {
+	if account != nil && account.Username != actor {
+		return caller
+	}
+	caller.holdsTask = actor != "" && task.AssigneeUsername() == actor
+	if account == nil || actor == "" {
 		return caller
 	}
 	organization := entities.ActingOrganization(ctx)
