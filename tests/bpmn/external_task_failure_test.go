@@ -141,3 +141,68 @@ func TestAReportFromAWorkerWithoutTheLockIsRefusedNotFailed(t *testing.T) {
 		t.Fatalf("the worker holding the lock could not complete: %v", err)
 	}
 }
+
+// BPMN 2.0.2 §13.2.3 (Service Task): the work is done for the token waiting at
+// the step, and the token leaves once.
+//
+// Work parked for a worker is a row of its own, and it can outlive the token:
+// a migration that moves the token on leaves it behind. A worker's report on it
+// was passed to the engine, which removes the token of a step that runs once
+// without asking whether there is one — so the report followed the step's
+// outgoing flow a second time. The step is asked first now, the question
+// everything else asks (ProcessInstance.WaitsFor), and work nobody is waiting
+// for is withdrawn.
+func TestAReportOnWorkForAStepTheProcessHasLeftDoesNotMoveItOnAgain(t *testing.T) {
+	h := newEngineHarness(t, "Left Step Project")
+	ctx := h.Ctx()
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "charge-then-ship",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "charge", Type: entities.ServiceTask, Name: "Charge the card", ExternalTopic: "charge-then-ship"},
+			{ID: "ship", Type: entities.UserTask, Name: "Ship the order"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "charge"},
+			{ID: "f2", SourceRef: "charge", TargetRef: "ship"},
+			{ID: "f3", SourceRef: "ship", TargetRef: "end"},
+		},
+	})
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "charge-then-ship", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	fetched, err := h.svc.FetchAndLock(ctx, "charge-then-ship", "worker-1", 1, 60_000)
+	if err != nil || len(fetched) != 1 {
+		t.Fatalf("fetch: %d tasks, %v", len(fetched), err)
+	}
+
+	// The token leaves the step without the work: taken elsewhere, as a
+	// migration takes one.
+	instance, err := h.engine.GetInstance(ctx, instanceID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	instance.RemoveTokenByNodeID("charge")
+	instance.AddToken(&entities.Node{ID: "end"})
+	if err := h.engine.UpdateInstance(ctx, instance); err != nil {
+		t.Fatalf("move the token off the step: %v", err)
+	}
+
+	err = h.svc.Complete(ctx, fetched[0].ID, "worker-1", nil)
+
+	if !errors.Is(err, apierr.ErrNotFound) {
+		t.Fatalf("a report on work for a step the process had left was answered %v, want no such task", err)
+	}
+	if seen := tasksEverOn(t, h, instanceID, "ship"); seen != 0 {
+		t.Fatalf("the report moved the process on from a step it had left: shipping was asked for %d time(s)", seen)
+	}
+	if parked := parkedFor(t, h, instanceID, "charge"); parked != 0 {
+		t.Fatalf("%d piece(s) of work are still parked for a step the process has left", parked)
+	}
+	if lines := trailLines(ctx, t, h, instanceID, "parked_work_withdrawn"); len(lines) != 1 {
+		t.Fatalf("the trail has %d line(s) saying the work was withdrawn, want 1", len(lines))
+	}
+}

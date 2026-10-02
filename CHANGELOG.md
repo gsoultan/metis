@@ -155,9 +155,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   refused when the file is imported (400 over REST), naming the step, rather
   than imported and left to read as "not yet" for ever. Rewrite it and import
   again. Conditions on sequence flows are imported as written, as before.
+- **Work in flight for a step that had already ended is let go instead of
+  refused.** A step that ended early under an earlier release kept a token for
+  each of its runs, and whatever those runs had started stayed in flight. A
+  worker reporting on such an external task — done or failed — is now told
+  there is no such external task, the work is withdrawn and the instance's
+  history says so (`parked_work_withdrawn`); it used to be refused and offered
+  again for as long as the instance existed. A queued service call for such a
+  step is not made, where it used to be made, refused and retried to an
+  incident. A process such a step called can end, where its last step used to
+  fail. The same holds for an external task reported on after its step has
+  ended for any other reason: it is withdrawn, and the process does not move
+  on a second time. An error boundary event never catches the engine declining
+  a completion.
 - **An ad-hoc sub-process that finished left its other steps running.** A step
-  started inside it and still open when its completion condition was met kept
-  its task in somebody's inbox, and the process could never complete. Those
+  started inside it and still open when the sub-process finished — its
+  completion condition was met, or it has none and its first step finished —
+  kept its task in somebody's inbox, and the process could never complete. Those
   steps are now withdrawn, which is BPMN's default: tokens, open user tasks and
   external tasks, and the events they were waiting for, at any depth — a step
   that is itself a sub-process included. A sub-process that says

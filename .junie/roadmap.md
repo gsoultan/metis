@@ -1090,6 +1090,32 @@
     - An ad-hoc sub-process that finishes ends every step inside it at any depth, stops
       waiting for their boundary events, and withdraws their user and external tasks.
     - Completing a withdrawn task is `400` (it was `403`), as is completing one already done.
+  - **Closed on the whole-branch review:**
+    - "Is this step still waiting for this run?" is asked in one place,
+      `entities.ProcessInstance.WaitsFor`, by the engine, the job worker (before its call,
+      before it uses the result, and when a timer comes due), a worker's report, a called
+      process resuming its parent, and an ad-hoc sub-process asked whether it is open. It was
+      asked three ways, and where the answers differed work was let in and then refused.
+    - A sub-process that runs once per item keeps a token per run while the run is inside it.
+      Entering it used to take them all, and the strict completion rule then refused every
+      run's end event: the construct hung, in parallel and in sequence. An instance already
+      inside one at the upgrade (counting, no token) finishes too
+      (`tests/bpmn/multi_instance_subprocess_test.go`).
+    - Work in flight for a step that ended early *before* the upgrade — count dropped, a token
+      left for every run — is let go rather than refused for ever: a called process ends and
+      the parent records `called_process_finished_late`; an external task is withdrawn, with
+      a `parked_work_withdrawn` entry, the first time a worker completes it or fails at it; a
+      queued service call is not made; and an error boundary event never catches the engine
+      declining a completion (`tests/bpmn/multi_instance_ended_before_upgrade_test.go`).
+      A worker's report on a step that holds no token no longer moves the process on a second
+      time (`TestAReportOnWorkForAStepTheProcessHasLeftDoesNotMoveItOnAgain`).
+    - An imported completion condition has the marking other modelers put around an
+      expression taken off — `${…}`, `#{…}`, a leading `=` — and one the evaluator still
+      cannot read is refused on import, naming the step, instead of running the step for
+      everybody (`TestAnImportedConditionInAnotherModelersFormStillEndsTheStepAtTwo`,
+      `TestAnImportedConditionTheEngineCannotReadIsRefusedAndNothingIsDeployed`). Sequence-flow
+      conditions are imported as written, as before.
+    - A late return whose audit line cannot be written returns the failure.
   - **Deliberately not done:** instances this defect had already stranded are not repaired —
     `docs/upgrading.md` has the query that finds them. A version imported before this release
     keeps its completion condition where nothing evaluates it and goes on running all-of-N
@@ -1101,6 +1127,22 @@
       the engine finds a step's sub-process by it: an imported ad-hoc sub-process never
       re-reads its completion condition, and an end event inside an imported embedded
       sub-process is taken for the end of the process. Read from the code; needs a test.
+    - `P0-REL` — the runs of a parallel multi-instance sub-process share the tokens of the
+      steps inside it: a run is counted when an end event inside is reached with no other
+      token inside. With one or two waiting steps inside it comes out right; with more, two
+      runs at different steps can be counted as one and the sub-process then waits for a run
+      nobody will finish. Pre-existing, read from the code and from a probe; needs a test.
+    - `P0-REL` — BPMN import does not read `multiInstanceLoopCharacteristics` on a
+      `<subProcess>`: an imported sub-process that repeats runs once. Seen in a parser test.
+    - `P0-REL` — a step that runs at once (a script, a decision) with an error boundary event
+      that catches everything can still catch the engine declining a completion, when the
+      step is inside a sub-process whose run was ended from outside it
+      (`Engine.executeNodeInternal`); the job worker's path no longer does. Goes with ending
+      what is inside an embedded sub-process when the sub-process is ended.
+    - Tokens a release before migration 31 left on a step that ended early are not removed
+      when they are found; the instance is listed by `docs/upgrading.md` once it has nothing
+      in flight. An unreadable completion condition on an *ad-hoc* sub-process, or on a
+      version that is deployed rather than imported, still reads as "not yet".
     - `P0-REL` — a boundary event on a multi-instance step is armed once for the step and
       once more for every iteration, so a non-interrupting reminder fires n+1 times.
     - `P0-REL` — finishing a step removes every token on it, so an ad-hoc step started twice
