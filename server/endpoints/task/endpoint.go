@@ -157,13 +157,13 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		// Releasing puts the task back for anyone to claim, which is handing it
-		// over to whoever claims it next. It asked nobody's permission, so any
-		// member could release a task somebody else held and take it.
-		if err := mayRelease(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
 		}
-		err = s.UnclaimTask(ctx, id)
+		// Who may release it, and whether they must say why, is the service's
+		// to decide: it holds the task's row while it does.
+		err = s.UnclaimTask(ctx, id, servicecontracts.HandOver{Actor: actor, Reason: req.Reason})
 		return CompleteTaskResponse{Err: err}, nil
 	}
 }
@@ -179,15 +179,12 @@ func MakeDelegateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		// Delegation hands the task to someone else, so the target is a
-		// parameter — but only the person holding it, or an administrator,
-		// may hand it on.
-		if err := mayHandOver(ctx, s, id); err != nil {
+		// parameter — the caller is not: it is whoever the token says.
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
 		}
-		if req.UserID == "" {
-			return CompleteTaskResponse{Err: apierr.Invalidf("say who the task is delegated to")}, nil
-		}
-		err = s.DelegateTask(ctx, id, req.UserID)
+		err = s.DelegateTask(ctx, id, servicecontracts.HandOver{Actor: actor, Target: req.UserID, Reason: req.Reason})
 		return CompleteTaskResponse{Err: err}, nil
 	}
 }
@@ -297,13 +294,11 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return AssignTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		if err := mayHandOver(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return AssignTaskResponse{Err: err}, nil
 		}
-		if req.UserID == "" {
-			return AssignTaskResponse{Err: apierr.Invalidf("say who the task is assigned to")}, nil
-		}
-		err = s.AssignTask(ctx, id, req.UserID)
+		err = s.AssignTask(ctx, id, servicecontracts.HandOver{Actor: actor, Target: req.UserID, Reason: req.Reason})
 		return AssignTaskResponse{Err: err}, nil
 	}
 }
@@ -333,38 +328,6 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 		}
 	}
 	return out, nil
-}
-
-// handOverAction is what a refused hand-over says the caller cannot do.
-const handOverAction = "hand it to someone else"
-
-// mayHandOver refuses a delegate or assign from anyone but the task's current
-// assignee or an administrator. A task with no assignee may be handed on by an
-// administrator only: absent constraint means deny, not "anyone".
-//
-// Except a task nobody was named for — no assignee and no candidates — which
-// is the operators' as well (entities.Task.FallsToOperators): an operator may
-// claim one, and giving it to the person it should have gone to is taking it
-// on their behalf. Anybody else is told who can.
-func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	task, admitted, err := holderOrAdministrator(ctx, s, id)
-	if err != nil || admitted {
-		return err
-	}
-	if task.FallsToOperators() {
-		if entities.TakesUnnamedWork(principal.Roles(ctx)) {
-			return nil
-		}
-		return servicecontracts.ErrNobodyNamed
-	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", handOverAction)
-}
-
-// mayRelease refuses a release from anyone but the task's current assignee or
-// an administrator. Only a task somebody holds can be released, so the
-// operators' share of the work nobody was named for does not come into it.
-func mayRelease(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	return requireHolderOrAdministrator(ctx, s, id, handOverAction)
 }
 
 // mayEdit refuses a change to a task's name, priority or due date on the same

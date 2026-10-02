@@ -189,62 +189,6 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
 }
 
-func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Held, like every other write to a task. A release that read the
-		// task while it was being completed waited for the completion's
-		// commit and then wrote its own copy back — "unclaimed" over
-		// "completed" — and the finished task was open again.
-		m, err := s.lockedTask(txCtx, id)
-		if err != nil {
-			return err
-		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-		if task.Status != entities.TaskClaimed {
-			return fmt.Errorf("task %s is not claimed", id)
-		}
-		task.Status = entities.TaskUnclaimed
-		task.Assignee = nil
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return fmt.Errorf("failed to update task: %w", err)
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: task.Variables,
-		}, task, EventTaskUnclaimed, "")
-		return nil
-	})
-}
-
-func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID string) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		task, err := s.openTaskForHandOver(txCtx, id, "delegated")
-		if err != nil {
-			return err
-		}
-		task.Status = entities.TaskDelegated
-		task.Assignee = &entities.User{Username: userID}
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return fmt.Errorf("failed to update task: %w", err)
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: task.Variables,
-		}, task, EventTaskDelegated, userID)
-		return nil
-	})
-}
-
 func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.Task().Get(txCtx, id)
@@ -451,53 +395,6 @@ func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error 
 
 		return nil
 	})
-}
-
-func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID string) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		task, err := s.openTaskForHandOver(txCtx, id, "assigned")
-		if err != nil {
-			return err
-		}
-		task.Assignee = &entities.User{Username: userID}
-		task.Status = entities.TaskClaimed
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return err
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskClaimed,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: map[string]any{"assignee": userID},
-		}, task, EventTaskAssigned, userID)
-		return nil
-	})
-}
-
-// openTaskForHandOver reads a task about to be delegated or assigned, holding
-// its row, and refuses one nobody can work on any more.
-//
-// Both hand-overs set the status without asking what it was, so a completed
-// task could be handed on — reopened — and completed again, running
-// everything after it a second time. Holding the row matters as much as the
-// check: completion writes it too, so a hand-over that read the task open
-// while it was being completed would otherwise write it back open.
-func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, action string) (entities.Task, error) {
-	m, err := s.lockedTask(ctx, id)
-	if err != nil {
-		return entities.Task{}, err
-	}
-	task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-	switch task.Status {
-	case entities.TaskCompleted:
-		return entities.Task{}, apierr.Invalidf("this task is completed; it cannot be %s", action)
-	case entities.TaskCanceled:
-		return entities.Task{}, apierr.Invalidf("this task was withdrawn; it cannot be %s", action)
-	}
-	return task, nil
 }
 
 // lockedTask reads a task and holds its row, so what is decided from the read

@@ -10,6 +10,9 @@ import (
 
 // TaskService defines the task management operations.
 type TaskService interface {
+	// TaskHandOverService is the part that moves a task between people.
+	TaskHandOverService
+
 	GetTask(ctx context.Context, id uuid.UUID) (entities.Task, error)
 	ListTasks(ctx context.Context, projectID uuid.UUID) ([]entities.Task, error)
 	ListTasksPaged(ctx context.Context, projectID uuid.UUID, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
@@ -24,12 +27,9 @@ type TaskService interface {
 	ListTasksByAssigneePaged(ctx context.Context, assignee string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ListTasksByCandidatesPaged(ctx context.Context, userID string, groups []string, page repocontracts.Pagination) (repocontracts.Page[entities.Task], error)
 	ClaimTask(ctx context.Context, id uuid.UUID, userID string) error
-	UnclaimTask(ctx context.Context, id uuid.UUID) error
-	DelegateTask(ctx context.Context, id uuid.UUID, userID string) error
 	CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error
 	// CreateTaskForNode opens the task a step is waiting on. iterationID names
 	// the run of a multi-instance step it is for, and is empty otherwise.
 	CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error
 	UpdateTask(ctx context.Context, task entities.Task) error
-	AssignTask(ctx context.Context, id uuid.UUID, userID string) error
 }

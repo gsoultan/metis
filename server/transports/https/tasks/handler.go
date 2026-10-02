@@ -3,9 +3,12 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/transports/https/common"
 )
@@ -121,12 +124,17 @@ func decodeClaimTaskRequest(_ context.Context, r *http.Request) (any, error) {
 }
 
 func decodeUnclaimTaskRequest(_ context.Context, r *http.Request) (any, error) {
-	return task.UnclaimTaskRequest{ID: r.PathValue("id")}, nil
+	var req task.UnclaimTaskRequest
+	if err := decodeBody(r, &req); err != nil {
+		return nil, err
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
 }
 
 func decodeDelegateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.DelegateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")
@@ -156,9 +164,23 @@ func decodeUpdateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 
 func decodeAssignTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.AssignTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")
 	return req, nil
+}
+
+// decodeBody reads a request's JSON body into into.
+//
+// No body at all is an empty request rather than an error: releasing a task
+// never took one, and the Connect and older REST clients send none. A body
+// that is there and cannot be read is the caller's mistake and is answered as
+// one — it used to reach the encoder as a plain error, which is a 500.
+func decodeBody(r *http.Request, into any) error {
+	err := json.NewDecoder(r.Body).Decode(into)
+	if err == nil || errors.Is(err, io.EOF) {
+		return nil
+	}
+	return apierr.Invalidf("the request body is not JSON the server can read: %v", err)
 }

@@ -26,7 +26,7 @@ func TestAnAdministratorWhoseRoleIsLowercaseMayReleaseSomebodysTask(t *testing.T
 	}
 	token := h.login(t, "olga")
 
-	status, body := h.post(t, token, "/api/v1/tasks/"+taskID+"/unclaim", map[string]any{})
+	status, body := h.post(t, token, "/api/v1/tasks/"+taskID+"/unclaim", map[string]any{"reason": "alice left; the queue takes it back"})
 	if status != http.StatusOK {
 		t.Fatalf("an administrator whose role reads \"admin\" releasing alice's task: got %d (%s), want 200", status, body)
 	}

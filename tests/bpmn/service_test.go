@@ -1,17 +1,21 @@
 package bpmn_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -546,7 +550,20 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	}
 
 	// Test AssignTask
-	err = svc.AssignTask(ctx, task.ID, "new-user")
+	// The step names nobody, so an administrator gives it to somebody — an
+	// account in the task's organization — and says why.
+	if err := repo.User().Create(ctx, models.UserModel{
+		Username:      "new-user",
+		FullName:      "new-user",
+		Organizations: []models.OrganizationModel{{Base: models.Base{ID: models.UUID(org.ID)}}},
+	}, "hash"); err != nil {
+		t.Fatalf("seed new-user: %v", err)
+	}
+	asBoss := context.WithValue(ctx, pkgauth.UserContextKey,
+		entities.User{Username: "boss", Roles: []string{entities.RoleAdmin}})
+	err = svc.AssignTask(asBoss, task.ID, servicecontracts.HandOver{
+		Actor: "boss", Target: "new-user", Reason: "nobody was named for this step",
+	})
 	if err != nil {
 		t.Fatalf("failed to assign task: %v", err)
 	}

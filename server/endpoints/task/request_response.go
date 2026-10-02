@@ -70,11 +70,15 @@ type ClaimTaskRequest struct {
 
 type UnclaimTaskRequest struct {
 	ID string `json:"id"`
+	// Reason is why the task is released. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type DelegateTaskRequest struct {
 	ID     string `json:"id"`
 	UserID string `json:"user_id"`
+	// Reason is why the task is delegated. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type CompleteTaskRequest struct {
@@ -105,6 +109,8 @@ func (r UpdateTaskResponse) Failed() error { return r.Err }
 type AssignTaskRequest struct {
 	ID     string `json:"id"`
 	UserID string `json:"user_id"`
+	// Reason is why the task is assigned. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type AssignTaskResponse struct {

@@ -236,7 +236,8 @@ func TestATaskNobodyWasNamedForIsHandedOnOnlyByAnAdministratorOrAnOperator(t *te
 
 				for _, who := range []string{"olga", "ada"} {
 					taskID := h.openTask(t, step)
-					if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action, map[string]any{"user_id": "alice"}); status != http.StatusOK {
+					if status, body := h.post(t, h.tokens[who], "/api/v1/tasks/"+taskID+"/"+action,
+						map[string]any{"user_id": "alice", "reason": "nobody was named for it; alice runs refunds"}); status != http.StatusOK {
 						t.Fatalf("%s trying to %s a %s nobody was named for to alice: got %d (%s), want 200",
 							who, action, step.Type, status, strings.TrimSpace(body))
 					}
