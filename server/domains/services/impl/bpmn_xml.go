@@ -309,6 +309,11 @@ type bpmnProcessNode struct {
 	// import is the difference between a sub-process that finishes and one that
 	// holds its token forever.
 	CompletionCondition *bpmnExpression `xml:"completionCondition"`
+	// CancelRemainingInstances is a pointer for the reason CancelActivity is
+	// one: its BPMN default is true, so the only value worth reading or writing
+	// is false, and a plain bool cannot tell "false" from "unset". Only an
+	// ad-hoc sub-process carries it.
+	CancelRemainingInstances *bool `xml:"cancelRemainingInstances,attr,omitempty"`
 
 	// Only bpmnProcess is embedded, for the child-element collections. bpmnNode
 	// is deliberately NOT embedded: it declares `id,attr` and `name,attr` too,
@@ -627,6 +632,9 @@ func (p *BPMNXMLParser) mapSubProcess(bsp bpmnProcessNode, adHoc bool) *entities
 	node.IsAdHoc = adHoc
 	node.IsEventSubProcess = bsp.TriggeredByEvent
 	node.CompletionCondition = bsp.CompletionCondition.text()
+	if adHoc && bsp.CancelRemainingInstances != nil && !*bsp.CancelRemainingInstances {
+		node.Properties[entities.CancelRemainingInstancesProperty] = false
+	}
 	node.Nodes = p.mapNodes(bsp.bpmnProcess)
 	node.Flows = p.mapFlows(bsp.SequenceFlows)
 	return node
@@ -1061,6 +1069,10 @@ func (p *BPMNXMLParser) classifyNodes(nodes []*entities.Node, bp *bpmnProcess, p
 			p.classifyNodes(n.Nodes, &bsp.bpmnProcess, nil)
 			if n.IsAdHoc {
 				bsp.CompletionCondition = formal(n.CompletionCondition)
+				if !n.CancelsRemainingInstances() {
+					keep := false
+					bsp.CancelRemainingInstances = &keep
+				}
 				bp.AdHocSubProcesses = append(bp.AdHocSubProcesses, bsp)
 			} else {
 				bp.SubProcesses = append(bp.SubProcesses, bsp)

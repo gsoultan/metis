@@ -121,24 +121,51 @@ func (e *Engine) cancelOpenTasksOn(ctx context.Context, instance *entities.Proce
 //
 // A failure is returned, for the reason cancelOpenTasksForNode returns one.
 func (e *Engine) withdrawExternalTasksFor(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
+	return e.withdrawExternalTasksOn(ctx, instance, []*entities.Node{node})
+}
+
+// withdrawExternalTasksOn withdraws the work parked for workers on any of
+// nodes, reading the instance's parked work once however many nodes there are.
+//
+// Each node that had work parked gets its own line on the trail, in the order
+// the nodes were given: the line is about a step, and several can end at once
+// when what ends is the sub-process they are inside.
+func (e *Engine) withdrawExternalTasksOn(ctx context.Context, instance *entities.ProcessInstance, nodes []*entities.Node) error {
+	ours := make(map[string]bool, len(nodes))
+	for _, node := range nodes {
+		if node != nil {
+			ours[node.ID] = true
+		}
+	}
+	if len(ours) == 0 {
+		return nil
+	}
+
 	parked, err := e.repo.ExternalTask().ListByProcessInstance(ctx, instance.ID)
 	if err != nil {
 		return fmt.Errorf("list external tasks for instance %s: %w", instance.ID, err)
 	}
-	var withdrawn []string
+	withdrawn := make(map[string][]string)
 	for _, task := range parked {
-		if task.NodeID != node.ID {
+		if !ours[task.NodeID] {
 			continue
 		}
 		if err := e.repo.ExternalTask().Delete(ctx, uuid.UUID(task.ID)); err != nil {
-			return fmt.Errorf("withdraw external task %s on node %s: %w", uuid.UUID(task.ID), node.ID, err)
+			return fmt.Errorf("withdraw external task %s on node %s: %w", uuid.UUID(task.ID), task.NodeID, err)
 		}
-		withdrawn = append(withdrawn, uuid.UUID(task.ID).String())
+		withdrawn[task.NodeID] = append(withdrawn[task.NodeID], uuid.UUID(task.ID).String())
 	}
-	if len(withdrawn) == 0 {
-		return nil
+	for _, node := range nodes {
+		if node == nil || len(withdrawn[node.ID]) == 0 {
+			continue
+		}
+		if err := e.recordParkedWorkWithdrawn(ctx, instance, node, withdrawn[node.ID]); err != nil {
+			return err
+		}
+		// A node given twice is recorded once.
+		delete(withdrawn, node.ID)
 	}
-	return e.recordParkedWorkWithdrawn(ctx, instance, node, withdrawn)
+	return nil
 }
 
 // recordParkedWorkWithdrawn writes, on the instance's trail, that a step ended

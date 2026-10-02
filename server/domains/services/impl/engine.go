@@ -556,32 +556,6 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 	return nil
 }
 
-// checkAdHocCompletion re-evaluates the completion condition of the ad-hoc
-// sub-process a finished step belongs to, and lets the process through when it
-// is satisfied.
-//
-// Returns true when it advanced the process, so the caller stops treating the
-// finished step as an ordinary node.
-func (e *Engine) checkAdHocCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) (bool, error) {
-	if node == nil || node.ParentID == "" {
-		return false, nil
-	}
-	parent := def.FindNode(node.ParentID)
-	if parent == nil || !parent.IsAdHoc {
-		return false, nil
-	}
-	if len(instance.GetTokensByNode(parent)) == 0 {
-		return false, nil
-	}
-	if parent.CompletionCondition != "" &&
-		!logic.GetConditionEvaluatorChain().Evaluate(parent.CompletionCondition, instance.Variables) {
-		// More work to do inside; the sub-process keeps waiting.
-		return false, e.UpdateInstance(ctx, *instance)
-	}
-
-	return true, e.Proceed(ctx, instance, def, parent.ID)
-}
-
 // cleanupEventBasedGatewaySiblings cancels competing tokens when one branch of
 // an event-based gateway is taken.
 func (e *Engine) cleanupEventBasedGatewaySiblings(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {

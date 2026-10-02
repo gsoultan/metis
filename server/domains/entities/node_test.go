@@ -29,3 +29,29 @@ func TestPropertyTextKeepsTextAndEncodesStructure(t *testing.T) {
 		t.Errorf("a node with no properties has no text: got %q", got)
 	}
 }
+
+// BPMN's cancelRemainingInstances defaults to true, so only a sub-process that
+// says false keeps the steps still running inside it — as a real boolean, or
+// as the text a JSON or XML round trip can leave.
+func TestAnAdHocSubProcessCancelsWhatRemainsUnlessToldNotTo(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		properties map[string]any
+		want       bool
+	}{
+		{"no properties at all", nil, true},
+		{"the property is absent", map[string]any{"other": 1}, true},
+		{"explicitly true", map[string]any{entities.CancelRemainingInstancesProperty: true}, true},
+		{"explicitly false", map[string]any{entities.CancelRemainingInstancesProperty: false}, false},
+		{"false as text", map[string]any{entities.CancelRemainingInstancesProperty: " False "}, false},
+		{"anything else as text", map[string]any{entities.CancelRemainingInstancesProperty: "no"}, true},
+		{"not a boolean", map[string]any{entities.CancelRemainingInstancesProperty: 0}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := &entities.Node{Properties: tc.properties}
+			if got := node.CancelsRemainingInstances(); got != tc.want {
+				t.Fatalf("CancelsRemainingInstances() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

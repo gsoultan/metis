@@ -1,6 +1,9 @@
 package entities
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Node represents a node in a BPMN process definition.
 type Node struct {
@@ -228,6 +231,29 @@ func (n *Node) isNonErrorBoundaryKind() bool {
 // stored definition already does.
 func (n *Node) IsNonInterrupting() bool {
 	return n.GetBoolProperty("non_interrupting")
+}
+
+// CancelRemainingInstancesProperty is the node property that carries BPMN's
+// cancelRemainingInstances for an ad-hoc sub-process.
+const CancelRemainingInstancesProperty = "cancel_remaining_instances"
+
+// CancelsRemainingInstances reports whether an ad-hoc sub-process withdraws the
+// steps still running inside it when its completion condition is met.
+//
+// BPMN 2.0.2 §10.3.5 defaults cancelRemainingInstances to true, so an absent
+// property means true — which is every sub-process designed here, where there
+// is no control for it. Only an explicit false keeps them, as a boolean or as
+// the text a JSON or XML round trip can leave; anything else is read as the
+// default rather than as permission to leave work running.
+func (n *Node) CancelsRemainingInstances() bool {
+	switch value := n.Properties[CancelRemainingInstancesProperty].(type) {
+	case bool:
+		return value
+	case string:
+		return !strings.EqualFold(strings.TrimSpace(value), "false")
+	default:
+		return true
+	}
 }
 
 func (n *Node) traverseFlows(callback func(*SequenceFlow)) {

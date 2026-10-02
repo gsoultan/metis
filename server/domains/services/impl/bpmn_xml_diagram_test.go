@@ -616,3 +616,49 @@ func TestAConditionParkedByAnEarlierImportIsStillExported(t *testing.T) {
 		t.Errorf("the parked condition was dropped on export\n---\n%s", out)
 	}
 }
+
+// cancelRemainingInstances="false" is the only value that carries information:
+// BPMN defaults it to true. Dropped on import, a sub-process told to wait for
+// its running steps would cut them short instead.
+func TestAdHocCancelRemainingInstancesRoundTrips(t *testing.T) {
+	parser := &BPMNXMLParser{}
+	def, err := parser.Parse(strings.NewReader(`<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <process id="p">
+    <adHocSubProcess id="keeps" cancelRemainingInstances="false">
+      <userTask id="call" name="Call customer"/>
+      <completionCondition>done &gt;= 1</completionCondition>
+    </adHocSubProcess>
+    <adHocSubProcess id="cancels">
+      <userTask id="search" name="Search records"/>
+      <completionCondition>done &gt;= 1</completionCondition>
+    </adHocSubProcess>
+  </process>
+</definitions>`))
+	if err != nil {
+		t.Fatalf("Parse returned an error: %v", err)
+	}
+	check := func(t *testing.T, def *entities.ProcessDefinition, stage string) {
+		t.Helper()
+		if nodeByID(t, def, "keeps").CancelsRemainingInstances() {
+			t.Errorf("%s: the sub-process told to keep its running steps now cancels them", stage)
+		}
+		if !nodeByID(t, def, "cancels").CancelsRemainingInstances() {
+			t.Errorf("%s: a sub-process that says nothing stopped cancelling, which is BPMN's default", stage)
+		}
+	}
+	check(t, def, "after import")
+
+	out, err := parser.Export(def)
+	if err != nil {
+		t.Fatalf("Export returned an error: %v", err)
+	}
+	if strings.Count(string(out), `cancelRemainingInstances="false"`) != 1 {
+		t.Errorf("export should write the attribute once, on the one that says false\n---\n%s", out)
+	}
+	again, err := parser.Parse(strings.NewReader(string(out)))
+	if err != nil {
+		t.Fatalf("re-parsing the exported file failed: %v", err)
+	}
+	check(t, again, "after the round trip")
+}
