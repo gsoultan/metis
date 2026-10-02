@@ -94,6 +94,71 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An approval several people give never finished its process.** A step that
+  runs once per person — in parallel or one after another — keeps a token for
+  each of them, and completing a task from the inbox did not say whose it was.
+  The count went up and no token came off, so after the last approval the
+  process moved on and then never completed: its end event found tokens still
+  on the approval. A deadline on the approval could also fire after everybody
+  had answered. A task now records which run of its step it is for (migration
+  31) and completing it retires that run.
+- **"Two of three is enough" left the third approval open, and could run the
+  rest of the process twice.** When a step's completion condition was met the
+  process moved on without withdrawing the approvals still open. They stayed in
+  people's inboxes, and completing one could move the process on a second time
+  when the condition was written on what an approver decided (*any rejection
+  ends it*). The approvals nobody needs are now withdrawn — their holders are
+  told, as when a deadline takes a task — and completing one is refused with
+  400: *this task was withdrawn because its step no longer needs it, so it
+  cannot be completed*. A task that is already completed or otherwise not open
+  is refused the same way (it used to answer 403 when it had been withdrawn).
+  A condition is also no longer the only way such a step ends: it finishes when
+  everybody asked has answered, so "two of them" over a list of one no longer
+  waits for ever.
+- **Work waiting for a worker is withdrawn with its step.** When a step that
+  runs once per item ends early, or an interrupting boundary event ends a step,
+  the external tasks still open for it are withdrawn too, and the process's
+  history gets one `parked_work_withdrawn` entry for the step. A worker that
+  still holds one and reports on it is told there is no such external task
+  (not found). Before, only the user tasks were withdrawn and the workers went
+  on offering and finishing work for a step that was over.
+- **A service task for a step that was withdrawn is not called.** The job for
+  an ad-hoc step that was ended with its sub-process, or for an iteration that
+  a completion condition ended, is completed without calling its connector. If
+  the step is withdrawn while the call is under way and the call then fails,
+  there is no retry and no incident.
+- **A process called by a step that already ended no longer moves its parent.**
+  When a call activity's step has ended — a completion condition or an
+  interrupting boundary event took it — and the process it called finishes
+  later, the parent does not advance and the result is not copied into it. The
+  parent's history says so (`called_process_finished_late`). A call activity
+  that did not repeat, whose child came back after its deadline, used to move
+  the parent on a second time; it no longer does. The called process itself is
+  not ended when its step is: it runs on, and its tasks stay open.
+- **A worker's report waits for the instance before it takes its task.**
+  Completing an external task, and reporting its failure, now lock the
+  instance before the task's row, the order everything else uses. Two reports
+  arriving as the step ended could deadlock, and a failure report could
+  collide with the withdrawal. A report from a worker that does not hold the
+  task's lock, or whose lease has run out, is now refused with 400 and names
+  no task; it used to come back as an unclassified error answered 5xx.
+- **A completion condition in an imported BPMN file was ignored.** Import kept
+  `<completionCondition>` of a multi-instance step where nothing evaluates it,
+  so a file that said two-of-three ran as all-of-three. It is now read into the
+  step and evaluated, and export writes it back.
+- **An ad-hoc sub-process that finished left its other steps running.** A step
+  started inside it and still open when its completion condition was met kept
+  its task in somebody's inbox, and the process could never complete. Those
+  steps are now withdrawn, which is BPMN's default: tokens, open user tasks and
+  external tasks, and the events they were waiting for, at any depth — a step
+  that is itself a sub-process included. A sub-process that says
+  `cancelRemainingInstances="false"` waits for them instead, and the attribute
+  travels in a BPMN file both ways.
+
+  **Upgrading:** read [Migration 31: a task records which run of its step it is
+  for](docs/upgrading.md#migration-31-a-task-records-which-run-of-its-step-it-is-for)
+  — what happens to approvals already under way, to processes this defect has
+  already stranded, and to versions imported before this release.
 - **Two updates of the same table could write each other's columns.** The
   data layer (storm 0.15) kept each table's compiled UPDATE statements in a
   cache keyed by which columns change, and published the key and the statement

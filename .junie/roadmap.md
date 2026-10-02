@@ -1032,6 +1032,95 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed): a multi-instance approval finishes cleanly (P0 reliability, slice 1
+  of the approval-adjustments work). Branch `mi-approvals-finish`, one commit per change, each
+  with a test that fails against the code before it. Driver `bpm` · Challengers `go`, `perf`,
+  `test`.
+  - **Problem.** An approval several people give, completed from the inbox, left a token on
+    the step for each of them, so the process moved on and never completed; and a step ended
+    early by its completion condition left the other approvals open, which could move the
+    process on twice.
+  - **Acceptance criteria**, each executable by a non-author and each covered by a test:
+    1. A parallel approval over three people, each completed through the task service, moves
+       the process on once; the instance completes; no token stays on the step
+       (`TestAParallelApprovalCompletedThroughTheInboxFinishesItsInstance`).
+    2. The same one after another: one task open at a time
+       (`TestASequentialApprovalAsksOnePersonAtATimeAndFinishes`).
+    3. Two of three: after the second approval the process moves on once, the third task is
+       withdrawn and its holder told, and completing it is refused in plain words
+       (`TestTwoOfThreeApprovalsEndTheStepAndWithdrawTheThird`).
+    4. The same process imported from BPMN XML behaves the same, and export writes the
+       condition back (`TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne`).
+    5. A task records its iteration (`tasks.iteration_id`, nullable, migration 31). **The rule
+       for a task created before it:** completing it retires the lowest-numbered iteration
+       still waiting on its step — numeric order, exactly one, and for a sequential step the
+       only one — and when the step finishes every token still on it is removed, so a token
+       an earlier completion left behind cannot keep the instance open or move it on twice
+       (`TestATaskFromBeforeMigration31RetiresTheLowestIterationStillWaiting`,
+       `TestAnApprovalHalfDoneBeforeTheUpgradeStillAdvancesOnce`). The rule is
+       `entities.ProcessInstance.WaitingIteration`.
+    6. Completing a task that is not open is refused with 400 before the engine is asked
+       (`TestCompletingATaskThatIsNotOpenIsRefusedBeforeTheEngine`).
+    7. An ad-hoc sub-process whose condition is met withdraws the steps still running inside
+       it, at any depth; `cancelRemainingInstances="false"` makes it wait for them instead.
+       Absent means true, BPMN's default (`tests/bpmn/adhoc_withdrawal_test.go`).
+    8. No engine bookkeeping in the business variables; `go test -race` clean.
+  - **Also closed, same root:** a completion condition replaced "everyone has answered"
+    rather than adding to it, so a threshold the list could not reach held the step for ever;
+    an iteration reported twice was counted twice; a deadline on a multi-instance approval
+    fired after everybody had answered, and when it did end the approval it left the count of
+    iterations behind.
+  - **Closed on review, beyond the first plan:**
+    - Work parked for workers is withdrawn with its step, on an early end and on an
+      interrupting boundary event alike: the rows go in the same transaction, one
+      `parked_work_withdrawn` audit entry per ended step. A worker still holding one gets
+      "no such external task".
+    - External-task `Complete` and `HandleFailure` take the instance lock before the task row
+      (two deadlocks against the withdrawal, each with a test in `tests/postgres`). A report
+      from a worker without the lock, or after the lease, is `400` with no task id; it was an
+      unclassified error answering 5xx.
+    - A called process that finishes after its call activity's step has ended no longer
+      advances the parent or maps its output into it; the parent's trail records
+      `called_process_finished_late`. This also stops a non-repeating call activity whose
+      child returned after its deadline from advancing the parent twice.
+    - A service-task job for a withdrawn step — an ad-hoc inner step, or an iteration an early
+      end took — is completed without calling its connector; if the step is withdrawn during
+      the call and the call fails, no retry and no incident.
+    - An ad-hoc sub-process that finishes ends every step inside it at any depth, stops
+      waiting for their boundary events, and withdraws their user and external tasks.
+    - Completing a withdrawn task is `400` (it was `403`), as is completing one already done.
+  - **Deliberately not done:** instances this defect had already stranded are not repaired —
+    `docs/upgrading.md` has the query that finds them. A version imported before this release
+    keeps its completion condition where nothing evaluates it and goes on running all-of-N
+    until it is imported again. The service calls of iterations a completion condition ends
+    still go out when they were already under way (a queued job cannot be withdrawn); their
+    results are discarded.
+  - **Found and not fixed — for the backlog:**
+    - `P0-REL` — BPMN import does not set `parent_id` on the steps inside a sub-process, and
+      the engine finds a step's sub-process by it: an imported ad-hoc sub-process never
+      re-reads its completion condition, and an end event inside an imported embedded
+      sub-process is taken for the end of the process. Read from the code; needs a test.
+    - `P0-REL` — a boundary event on a multi-instance step is armed once for the step and
+      once more for every iteration, so a non-interrupting reminder fires n+1 times.
+    - `P0-REL` — finishing a step removes every token on it, so an ad-hoc step started twice
+      loses both when the first finishes (in the keep-the-steps mode the sub-process can then
+      move on with the second one's task still open); and a terminate end event leaves open
+      tasks on the other branches, which can still be completed.
+    - `P0-REL` — the children of a call activity that an early end or an interrupting boundary
+      event took keep running, and their tasks stay in inboxes: nothing ends an instance from
+      outside the migration service.
+    - `P0-REL` — `EndEventHandler.resumeParent` reads the parent without a row lock, so two
+      children of a parallel call activity returning at the same moment can lose a count or
+      advance the parent twice. Pre-existing; needs its own fix and a concurrency test.
+    - An open incident on an external task that was withdrawn stays open. Timer jobs of the
+      withdrawn inner steps of an ad-hoc sub-process are not deleted; they complete quietly
+      when they fire. A job reclaimed until its attempts run out raises an incident without
+      checking that its step is still there.
+    - Skipping a multi-instance step in a migration counts one iteration and withdraws every
+      task; the in-place waive of slice 3a ends the whole step (`Engine.endActivity`).
+    - `tests/handlers` `TestTimerEvent` is timing-sensitive under `-race` on a loaded machine
+      (107ms against a 100ms limit, seen once on the untouched baseline).
+
 - 2026-09-28 (completed): storm 0.15.0 → 1.1.0 (Dependabot #134), store regenerated (P0).
   storm v0.16.0 fixed a `MaskCache` that published a column mask and its compiled UPDATE as
   two atomics: two goroutines warming different masks could pair one's mask with the other's

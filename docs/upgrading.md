@@ -18,6 +18,119 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Migration 31: a task records which run of its step it is for
+
+A step that runs once per person keeps a token for each of them. A task did not
+say whose it was, so completing one from the inbox counted an approval and
+retired nobody's token: after the last approval the process moved on, and then
+never completed. Migration 31 adds `tasks.iteration_id`, and a completion now
+retires the run its task was created for.
+
+**The migration itself** adds one nullable column, which rewrites no rows, and
+waits **at most two seconds** for the table. If `tasks` is held longer the
+upgrade stops with
+
+```
+tasks was held for more than 2s by a long query or transaction; the upgrade
+stopped rather than hold every inbox behind it, and will finish when started
+again once that ends
+```
+
+and nothing has changed: let whatever holds the table finish, and start Metis
+again.
+
+**Approvals already under way** need nothing. A task created before the upgrade
+records no run, and completing it retires the lowest-numbered run still waiting
+on its step. A step part-way through — one approval given before the upgrade,
+two after — finishes once, and the token the earlier approval left behind goes
+with it.
+
+**Processes this had already stranded are not repaired.** An instance whose
+approvers had all answered before the upgrade is `active`, holds tokens on the
+approval, and has nothing open. This finds them:
+
+```sql
+WITH live AS (
+  SELECT i.id, i.created_at,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, l.created_at
+  FROM live l
+ WHERE jsonb_array_length(l.tokens) > 0
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                    WHERE coalesce(t->>'iteration_id', '') = '')
+   AND NOT EXISTS (SELECT 1 FROM tasks k
+                    WHERE k.instance_id = l.id AND k.deleted_at IS NULL
+                      AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated'));
+```
+
+Every row is an instance holding only iteration tokens with no task behind any
+of them. Whether each one's business was in fact finished is a decision, not a
+repair: end the ones that were with a migration's *End the instance* action
+(`cancel`, in `docs/process-change-in-flight.md`), which records who decided
+and why.
+
+**"Two of three" now withdraws the third.** A step whose completion condition
+is met withdraws the approvals still open and tells their holders. Before the
+upgrade those tasks were left open; one left open by an *earlier* early finish
+is refused with 400 when somebody completes it — *this step has already
+finished and the process has moved on* — and stays in their list. They are the
+open tasks, recording no run, of a step the instance no longer counts but still
+holds run tokens for:
+
+```sql
+WITH live AS (
+  SELECT i.id,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens,
+         CASE WHEN jsonb_typeof(i.multi_instance::jsonb) = 'object'
+              THEN i.multi_instance::jsonb ELSE '{}'::jsonb END AS counting
+    FROM process_instances i
+   WHERE i.deleted_at IS NULL
+)
+SELECT k.id, k.name, k.assignee
+  FROM tasks k JOIN live l ON l.id = k.instance_id
+ WHERE k.deleted_at IS NULL AND k.iteration_id IS NULL
+   AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')
+   AND NOT l.counting ? k.node_id
+   AND EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                WHERE t->>'node_id' = k.node_id AND coalesce(t->>'iteration_id', '') <> '');
+```
+
+Set them `canceled` once you have looked at them.
+
+**A step now also finishes when everybody asked has answered**, whatever its
+condition says. A condition that the list could not satisfy used to hold the
+step for ever; check any condition that was relying on that.
+
+**Work waiting for workers is withdrawn with its step.** When a step ends early,
+or an interrupting boundary event ends it, the external tasks still open for it
+are deleted, with one `parked_work_withdrawn` entry in the instance's history.
+A worker still holding one is told there is no such external task. Reports from
+a worker that does not hold the task's lock, or whose lease has run out, now
+answer 400 instead of 5xx, so a client that retried on 5xx will stop retrying
+them.
+
+**A process called by a step that already ended** no longer moves its parent
+on. The parent's history records `called_process_finished_late`. The called
+process is not ended when its step is, so its tasks stay open until somebody
+completes them.
+
+**Versions imported from BPMN before this release** keep a multi-instance
+completion condition where nothing evaluates it, and go on running all-of-N —
+changing a deployed version under its running instances is not something an
+upgrade should do. Import the file again (or export and re-import the version)
+to deploy one that honours it.
+
+**Ad-hoc sub-processes** now withdraw the steps still running inside them when
+their completion condition is met, at any depth, with the tasks, the work
+waiting for workers, and the events those steps were waiting for. One that
+should wait for them instead says `cancelRemainingInstances="false"` in its
+BPMN file.
+
 ## Completing a task sets only what its form declares
 
 Completing a task used to write every variable the completion carried into the
