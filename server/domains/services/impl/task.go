@@ -259,6 +259,19 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		if err := authorize(task); err != nil {
 			return err
 		}
+		// Separation of duties is asked again as well, for the same reason. Two
+		// steps it keeps apart can be open at once, on parallel branches, and
+		// one person completing both together was let through twice: each
+		// completion asked above, before it had the instance, when the other
+		// had written its task completed and not yet committed. Completions of
+		// one instance take turns at the instance lock, and a statement sees
+		// what was committed before it began (read committed, the level every
+		// unit of work runs at), so the one that waited reads the other's task
+		// as completed here. The row is the one read under the lock: a
+		// migration may have moved the task to a step with another rule.
+		if err := s.enforceSeparationOfDuties(txCtx, m, userID); err != nil {
+			return err
+		}
 
 		instance := locked
 		fullDef, err := s.engine.GetProcessDefinition(txCtx, instance.Definition.ID)

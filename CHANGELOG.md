@@ -55,6 +55,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     held again by, the person an administrator had just taken it from, or
     completed while it was with a delegate. Now one of the two is made and the
     other is told what the task has become.
+  - **Separation of duties holds when two completions arrive together.** Two
+    steps that `separation_of_duties` keeps apart, open at the same time on
+    parallel branches, could both be completed by one person if the two
+    completions were sent at once: each was checked before the other had
+    committed. The rule is asked again once the completion holds the instance,
+    so the second is refused with the 403 it would have had a moment later.
   - **Acting in somebody else's name is not acting as them.** The service
     took "the caller holds the task" from the name it was given. Every route
     passes the signed-in account's own name, so nothing reached it; a call

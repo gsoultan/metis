@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // A completion and a hand-over of the same task, at the same moment.
@@ -291,5 +292,104 @@ func TestATaskBeingDelegatedIsNotCompletedBeforeItIsHandedBack(t *testing.T) {
 	}
 	if instance.Status == entities.ProcessCompleted {
 		t.Error("the process finished on the completion of a task that was with a delegate")
+	}
+}
+
+// Two steps separation of duties keeps apart, open at the same time on
+// parallel branches, and one person completing both at once.
+//
+// A completion asked whether its person had already done the other step
+// before it took the instance, and never again. The other completion had by
+// then written its task completed and not yet committed, so the question was
+// answered from before it: both were let through, and one person had
+// submitted the request and approved it.
+func TestOnePersonCompletingTwoStepsKeptApartAtOnceCompletesOnlyOne(t *testing.T) {
+	h := newTaskHarness(t)
+	h.storeForm(t, storedRefundForm, map[string]any{"fields": []any{map[string]any{"id": "approved", "type": "boolean"}}})
+	ctx := h.tenantContext()
+	if _, err := h.svc.CreateDefinition(ctx, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "submit-and-approve",
+		Name:    "Submit and approve",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent, Outgoing: []string{"f1"}},
+			{ID: "fork", Type: entities.ParallelGateway, Incoming: []string{"f1"}, Outgoing: []string{"f2", "f3"}},
+			{ID: "submit", Name: "Submit the refund", Type: entities.UserTask, Assignee: "alice", FormKey: storedRefundForm,
+				Incoming: []string{"f2"}, Outgoing: []string{"f4"}},
+			{ID: "approve", Name: "Approve the refund", Type: entities.UserTask, Assignee: "alice",
+				Properties: map[string]any{"separation_of_duties": "submit"},
+				Incoming:   []string{"f3"}, Outgoing: []string{"f5"}},
+			{ID: "join", Type: entities.ParallelGateway, Incoming: []string{"f4", "f5"}, Outgoing: []string{"f6"}},
+			{ID: "end", Type: entities.EndEvent, Incoming: []string{"f6"}},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "fork"},
+			{ID: "f2", SourceRef: "fork", TargetRef: "submit"},
+			{ID: "f3", SourceRef: "fork", TargetRef: "approve"},
+			{ID: "f4", SourceRef: "submit", TargetRef: "join"},
+			{ID: "f5", SourceRef: "approve", TargetRef: "join"},
+			{ID: "f6", SourceRef: "join", TargetRef: "end"},
+		},
+	}); err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "submit-and-approve", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	page, err := h.svc.ListTasksByInstancePaged(ctx, instanceID, repocontracts.Pagination{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list the instance's tasks: %v", err)
+	}
+	taskOn := map[string]string{}
+	for _, task := range page.Items {
+		taskOn[task.NodeID()] = task.ID.String()
+	}
+	if taskOn["submit"] == "" || taskOn["approve"] == "" {
+		t.Fatalf("the two branches opened %v; want a task on submit and one on approve", taskOn)
+	}
+
+	// The submission is held where it reads its form: it has the instance and
+	// has not committed. The approval is sent then, and waits for the instance.
+	release := h.hold(t, "forms")
+	submission := make(chan answer, 1)
+	go func() {
+		submission <- h.send(h.tokens["alice"], "/api/v1/tasks/"+taskOn["submit"]+"/complete",
+			map[string]any{"variables": map[string]any{"approved": true}})
+	}()
+	submitting := h.heldAt(t, "forms")
+
+	approval := make(chan answer, 1)
+	go func() {
+		approval <- h.send(h.tokens["alice"], "/api/v1/tasks/"+taskOn["approve"]+"/complete", map[string]any{})
+	}()
+	approved, answered := h.doneOrWaitingBehind(t, submitting, approval)
+	release()
+	if !answered {
+		approved = <-approval
+	}
+	submitted := <-submission
+	if submitted.err != nil || approved.err != nil {
+		t.Fatalf("the submission: %v; the approval: %v", submitted, approved)
+	}
+
+	if submitted.status != http.StatusOK {
+		t.Fatalf("alice submitting, which nothing forbids her: %v", submitted)
+	}
+	if approved.status != http.StatusForbidden || !strings.Contains(approved.body, "may not be done by the same person") {
+		t.Errorf("alice approving what she was submitting at that moment was answered %v; want the 403 separation of duties gives", approved)
+	}
+	completedBy := map[string]string{}
+	for node, id := range taskOn {
+		if h.taskStatus(t, id) == string(entities.TaskCompleted) {
+			completedBy[node] = h.taskAssignee(t, id)
+		}
+	}
+	if completedBy["submit"] != "alice" {
+		t.Errorf("the submission was answered 200 and its task is completed by %q", completedBy["submit"])
+	}
+	if who, done := completedBy["approve"]; done {
+		t.Errorf("submit and approve are both completed, by %q and %q; separation of duties keeps them apart",
+			completedBy["submit"], who)
 	}
 }

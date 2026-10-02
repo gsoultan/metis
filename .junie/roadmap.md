@@ -1124,6 +1124,14 @@
       adding them to the running schema would make a hand-over's audit insert wait for the
       instance row and turn that one-way wait into a deadlock. Whoever reconciles the two
       schemas has to change the lock order first.
+    - *Two steps separation of duties keeps apart could both be completed by one person if the
+      completions arrived together.* `CompleteTask` asked the rule once, before it held the
+      instance, while the other completion was written and not committed. It asks again after
+      the instance and the task row are held; completions of one instance take turns at the
+      instance lock and run at read committed, so the one that waited sees the other's task
+      completed — `TestOnePersonCompletingTwoStepsKeptApartAtOnceCompletesOnlyOne`. The rule
+      is one-way, as it always was: a step is barred to whoever did the steps *it* names, so
+      two steps that must exclude each other in either order each name the other.
     - *The board had no place for a delegated task.* It is with the claimed ones, and its card
       says and offers what its row does — `TaskInbox.test.tsx` ("the board, for a delegated
       task").
