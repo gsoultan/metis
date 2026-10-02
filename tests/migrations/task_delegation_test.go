@@ -140,6 +140,7 @@ func TestMigration32ReturnsADelegationWithNoOwnerToItsAssignee(t *testing.T) {
 		"a delegation with nobody at all": {delegatedToNobody, "unclaimed", ""},
 		"a claim":                         {claimed, "claimed", "budi"},
 		"a completed task":                {finished, "completed", "dita"},
+		"a soft-deleted delegation":       {deleted, "claimed", "citra"},
 	} {
 		if status, assignee := taskStatusAndAssignee(t, db, want.id); status != want.status || assignee != want.assignee {
 			t.Errorf("%s is %s, held by %q after the upgrade; want %s, held by %q", name, status, assignee, want.status, want.assignee)

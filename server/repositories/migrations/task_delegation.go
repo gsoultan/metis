@@ -26,8 +26,9 @@ const TaskDelegationMigration = 32
 // and 31, for the same reason.
 const taskDelegationLockWait = "2s"
 
-// taskDelegationBatch is how many rows one statement of the backfill touches.
-// One statement over a large inbox holds its row locks until it ends; this many
+// taskDelegationBatch is how many rows one transaction of the backfill touches:
+// the statement that picks them and the statement that updates them. One
+// transaction over a large inbox holds its row locks until it ends; this many
 // at a time keeps each short enough to interleave with work.
 const taskDelegationBatch = 5000
 
