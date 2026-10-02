@@ -20,21 +20,28 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, change servi
 			return err
 		}
 		task := step.task
+		previous := task.AssigneeUsername()
 		task.Assignee = &entities.User{Username: step.target}
 		task.Status = entities.TaskClaimed
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.announce(txCtx, entities.ProcessEvent{
+		return s.announceHandOver(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskClaimed,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: map[string]any{"assignee": step.target},
-		}, task, EventTaskAssigned, step.target)
-		return nil
+			Assignee:  step.target,
+		}, task, EventTaskAssigned, handOverRecord{
+			actor:             step.caller.username,
+			previousHolder:    previous,
+			target:            step.target,
+			reason:            step.reason,
+			candidateOverride: step.candidateOverride,
+		})
 	})
 }
 
@@ -46,21 +53,27 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change ser
 			return err
 		}
 		task := step.task
+		previous := task.AssigneeUsername()
 		task.Status = entities.TaskDelegated
 		task.Assignee = &entities.User{Username: step.target}
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.announce(txCtx, entities.ProcessEvent{
+		return s.announceHandOver(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
-		}, task, EventTaskDelegated, step.target)
-		return nil
+		}, task, EventTaskDelegated, handOverRecord{
+			actor:             step.caller.username,
+			previousHolder:    previous,
+			target:            step.target,
+			reason:            step.reason,
+			candidateOverride: step.candidateOverride,
+		})
 	})
 }
 
@@ -83,24 +96,29 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID, change serv
 		if err := refuseUnreleasable(task); err != nil {
 			return err
 		}
-		if _, err := caller.reasonFor(change.Reason, "releasing this task"); err != nil {
+		reason, err := caller.reasonFor(change.Reason, "releasing this task")
+		if err != nil {
 			return err
 		}
+		previous := task.AssigneeUsername()
 		task.Status = entities.TaskUnclaimed
 		task.Assignee = nil
 		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
-		s.announce(txCtx, entities.ProcessEvent{
+		return s.announceHandOver(txCtx, entities.ProcessEvent{
 			Type:      entities.EventTaskUpdated,
 			Instance:  task.Instance,
 			Project:   task.Project,
 			Node:      namedNode(task),
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
-		}, task, EventTaskUnclaimed, "")
-		return nil
+		}, task, EventTaskUnclaimed, handOverRecord{
+			actor:          caller.username,
+			previousHolder: previous,
+			reason:         reason,
+		})
 	})
 }
 

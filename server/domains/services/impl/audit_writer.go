@@ -16,11 +16,16 @@ import (
 // used in the Narrative lookup; they intentionally differ from technical BPMN
 // event codes to make the audit feed readable to non-technical users.
 const (
-	EventTaskClaimed    = "task_claimed"
-	EventTaskUnclaimed  = "task_unclaimed"
-	EventTaskCompleted  = "task_completed"
-	EventTaskAssigned   = "task_assigned"
-	EventTaskDelegated  = "task_delegated"
+	EventTaskClaimed   = "task_claimed"
+	EventTaskUnclaimed = "task_unclaimed"
+	EventTaskCompleted = "task_completed"
+	EventTaskAssigned  = "task_assigned"
+	EventTaskDelegated = "task_delegated"
+	// EventTaskResolved marks a delegated task handed back to its owner.
+	EventTaskResolved = "task_resolved"
+	// EventTaskEdited marks a change to a task's name, priority or due date,
+	// with who made it and what each field was before and after.
+	EventTaskEdited     = "task_edited"
 	EventTaskEscalated  = "task_escalated"
 	EventTaskCreated    = "task_created"
 	EventProcessStarted = "process_started"
@@ -71,9 +76,11 @@ func NewAuditWriter(repo repcontracts.AuditRepository) contracts.AuditWriter {
 // and persists it via the audit repository.
 func (w *auditWriter) RecordEvent(ctx context.Context, entry entities.AuditEntry) error {
 	if entry.Narrative == "" {
-		actor := actorName(entry)
-		subject := subjectName(entry)
-		entry.Narrative = narrativeFor(entry.Type, subject, actor)
+		if told, ok := handOverNarrative(entry); ok {
+			entry.Narrative = told
+		} else {
+			entry.Narrative = narrativeFor(entry.Type, subjectName(entry), actorName(entry))
+		}
 	}
 
 	m := toAuditModel(entry)
