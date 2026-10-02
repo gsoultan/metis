@@ -64,6 +64,11 @@ func TestAStalePendingMarkIsTakenOffByTheNextHandOverOrEdit(t *testing.T) {
 				t.Fatalf("after %s the task is with %q, owned by %q, %q; want %q, %q, %q",
 					change.name, assignee, owner, state, change.assignee, change.owner, change.state)
 			}
+			// Off the row, not only out of the reply: a client is not sent a
+			// leftover mark whether or not it is still kept.
+			if owner, state := h.storedDelegation(t, taskID); owner != change.owner || state != change.state {
+				t.Fatalf("after %s the row keeps owner %q, %q; want %q, %q", change.name, owner, state, change.owner, change.state)
+			}
 		})
 	}
 }
@@ -158,4 +163,54 @@ func TestWhatSomebodyDelegatedIsListedOnlyInsideTheirOrganization(t *testing.T) 
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID.String() != theirs {
 		t.Fatalf("the other organization lists %d tasks delegated by alice (%v), want its one", len(page.Items), err)
 	}
+}
+
+// The row keeps a pending mark it is no longer waiting on until the next
+// hand-over or edit takes it off. Until then a client is not sent it: whether
+// a task is waiting to be handed back is decided here, once, and the inbox
+// offers "Hand back" on what it is told is pending.
+func TestAStalePendingMarkIsNotSentToAClient(t *testing.T) {
+	h := newTaskHarness(t)
+
+	claimed := h.staleMark(t)
+	if owner, state := h.storedDelegation(t, claimed); owner != "mallory" || state != "pending" {
+		t.Fatalf("the row carries owner %q, %q; the test needs it to carry mallory, pending", owner, state)
+	}
+	if assignee, owner, state := h.delegation(t, claimed); assignee != "alice" || owner != "" || state != "" {
+		t.Fatalf("a task alice holds, with a leftover mark, is sent as with %q, owned by %q, %q; want alice and no delegation", assignee, owner, state)
+	}
+
+	// Withdrawn while it was with its delegate, as the engine withdraws: the
+	// status alone.
+	withdrawn := h.delegatedToMallory(t)
+	if err := h.db.Exec(`UPDATE tasks SET status = 'canceled' WHERE id = ?`, withdrawn).Error; err != nil {
+		t.Fatalf("withdraw the task as the engine does: %v", err)
+	}
+	if _, owner, state := h.delegation(t, withdrawn); owner != "" || state != "" {
+		t.Fatalf("a withdrawn task is sent as owned by %q, %q; want no delegation", owner, state)
+	}
+
+	// The pin: a live delegation and one that came back are sent as they were.
+	live := h.delegatedToMallory(t)
+	if assignee, owner, state := h.delegation(t, live); assignee != "mallory" || owner != "alice" || state != "pending" {
+		t.Fatalf("a task with its delegate is sent as with %q, owned by %q, %q; want mallory, alice, pending", assignee, owner, state)
+	}
+	if status, reply := h.post(t, h.tokens["mallory"], "/api/v1/tasks/"+live+"/resolve", map[string]any{}); status != http.StatusOK {
+		t.Fatalf("mallory handing it back: %d (%s)", status, strings.TrimSpace(reply))
+	}
+	if assignee, owner, state := h.delegation(t, live); assignee != "alice" || owner != "alice" || state != "resolved" {
+		t.Fatalf("a task that came back is sent as with %q, owned by %q, %q; want alice, alice, resolved", assignee, owner, state)
+	}
+}
+
+// storedDelegation reads a task's owner and delegation state from its row —
+// what is kept, which is not always what a client is sent.
+func (h *taskHarness) storedDelegation(t *testing.T, id string) (string, string) {
+	t.Helper()
+	var row struct{ Owner, DelegationState string }
+	if err := h.db.Raw(`SELECT COALESCE(owner, '') AS owner, COALESCE(delegation_state, '') AS delegation_state
+		FROM tasks WHERE id = ?`, id).Scan(&row).Error; err != nil {
+		t.Fatalf("read the task's row: %v", err)
+	}
+	return row.Owner, row.DelegationState
 }
