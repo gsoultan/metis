@@ -15,20 +15,26 @@ type Task struct {
 	// IterationID names which run of a multi-instance step this task is for.
 	// Empty on a task of a step that runs once, and on a task created before
 	// the column existed.
-	IterationID     string         `json:"iteration_id,omitzero"`
-	Name            string         `json:"name"`
-	Description     string         `json:"description,omitzero"`
-	Type            NodeType       `json:"type"`
-	Status          TaskStatus     `json:"status"` // e.g., "unclaimed", "claimed", "completed"
-	Assignee        *User          `json:"assignee,omitzero"`
-	CandidateUsers  []*User        `json:"candidate_users,omitzero"`
-	CandidateGroups []*Group       `json:"candidate_groups,omitzero"`
-	Priority        int            `json:"priority,omitzero"`
-	DueDate         *time.Time     `json:"due_date,omitzero"`
-	FormKey         string         `json:"form_key,omitzero"`
-	FormDefinition  string         `json:"form_definition,omitzero"`
-	Variables       map[string]any `json:"variables,omitzero"`
-	CreatedAt       time.Time      `json:"created_at,omitzero"`
+	IterationID string     `json:"iteration_id,omitzero"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitzero"`
+	Type        NodeType   `json:"type"`
+	Status      TaskStatus `json:"status"` // e.g., "unclaimed", "claimed", "completed"
+	Assignee    *User      `json:"assignee,omitzero"`
+	// Owner is who delegated the task and waits for it back; nil for a task
+	// that has not been delegated.
+	Owner *User `json:"owner,omitzero"`
+	// DelegationState is "pending" while a delegate has the task and
+	// "resolved" once they handed it back.
+	DelegationState DelegationState `json:"delegation_state,omitzero"`
+	CandidateUsers  []*User         `json:"candidate_users,omitzero"`
+	CandidateGroups []*Group        `json:"candidate_groups,omitzero"`
+	Priority        int             `json:"priority,omitzero"`
+	DueDate         *time.Time      `json:"due_date,omitzero"`
+	FormKey         string          `json:"form_key,omitzero"`
+	FormDefinition  string          `json:"form_definition,omitzero"`
+	Variables       map[string]any  `json:"variables,omitzero"`
+	CreatedAt       time.Time       `json:"created_at,omitzero"`
 }
 
 // NodeID returns the BPMN node ID this task was created for, or "" when the
@@ -49,6 +55,24 @@ func (t Task) AssigneeUsername() string {
 		return ""
 	}
 	return t.Assignee.Username
+}
+
+// OwnerUsername returns the username of whoever delegated the task, or "" when
+// nobody did.
+func (t Task) OwnerUsername() string {
+	if t.Owner == nil {
+		return ""
+	}
+	return t.Owner.Username
+}
+
+// AwaitsHandBack reports whether the task is with a delegate who has to hand
+// it back to its owner before anybody completes it.
+//
+// Both halves are asked for. A row delegated by a release that kept no owner
+// has nobody to go back to, and is its assignee's to complete — as it was.
+func (t Task) AwaitsHandBack() bool {
+	return t.DelegationState == DelegationPending && t.OwnerUsername() != ""
 }
 
 // FallsToOperators reports whether only an administrator or an operator may

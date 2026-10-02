@@ -736,7 +736,11 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	task.DueDate = entities.ResolveDueDate(node.DueDate, appeared)
 
 	// The claim does not survive the move. Whoever held this task claimed the
-	// step that was deleted, not the one they are now looking at.
+	// step that was deleted, not the one they are now looking at. Nor does a
+	// delegation: left on, the moved task would wait for a delegate who no
+	// longer holds it to hand it back.
+	task.Owner = ""
+	task.DelegationState = ""
 	if node.Assignee != "" {
 		task.Assignee = node.Assignee
 		task.Status = models.TaskClaimed
