@@ -309,7 +309,7 @@ it is kept in the audit trail beside who did it.
 assigning: the holder stays the task's `owner`, the delegate works on it and
 hands it back with `POST /api/v1/tasks/{id}/resolve`, and only the owner
 completes it. `GET /api/v1/tasks/delegated` lists what the caller delegated
-that has not come back. These three are REST only.
+that has not come back. These routes are REST only.
 
 **Who may take a task.** A task with an assignee is its assignee's to
 complete. One offered to candidate users or groups may be claimed and

@@ -1082,17 +1082,21 @@
     a task's iteration through the adapters and the regenerated store, and a withdrawn task told
     it was withdrawn before anything about its delegation (slice 1's behaviour, asserted in
     `TestWhoATaskGoesBackToSurvivesTheStore` and `TestAWithdrawnDelegationLeavesItsOwnersList`).
-  - **What it costs.** A hand-over makes 13 to 15 table reads under the task's row lock
-    (it made 8): the target checks read the account, its organization, the step and the steps
-    done before it. A hand-over is a person's click, not a hot path, but the lock is held
-    across those reads.
+  - **What it costs.** A hand-over reads more under the task's row lock: the account, the
+    task's project, the step's definition (through the instance), the account's groups when
+    the task is offered to groups, and, for a step with a separation-of-duties rule, the
+    instance's tasks. 8 table reads before and 13 to 15 after were counted once during
+    development from `pg_stat_user_tables` with a throwaway test that is not in the
+    repository. A hand-over is a person's click, not a hot path, but the lock is held across
+    those reads.
   - **Upgrade.** Migration 32 adds `tasks.owner` and `tasks.delegation_state`, returns every
     task already `delegated` to a claim by its assignee in batches of 5,000, and builds
     `ix_tasks_owner` concurrently; it waits two seconds for the table or a delegated row and
     stops, to be started again. During a rolling upgrade a pod still on the old release lets a
     delegate complete or hand on a pending delegation and makes delegations with no owner, so
     finish the rollout before relying on delegation; a rollback after delegations exist returns
-    them to the old one-way behaviour. A delegation whose owner's account has gone is handed
+    them to the old one-way behaviour. Both are read from the previous release's code, not
+    shown by running two versions together. A delegation whose owner's account has gone is handed
     back to that name, and an administrator then assigns or releases it, with a reason.
     `docs/upgrading.md`, *Handing a task over is checked and recorded*.
   - **Not in this slice.** Hand-over over gRPC and Connect — REST only, as before; they carry a

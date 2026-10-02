@@ -141,13 +141,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   they complete it. A task nobody holds cannot be delegated: claim or assign
   it first. `GET /api/v1/tasks/delegated` lists what the caller delegated that
   has not come back. The delegate is told when the task arrives and the owner
-  when it returns or is withdrawn; the events are `TaskDelegated` and
-  `TaskResolved` on the event stream and to webhooks, where both used to be a
-  `TaskUpdated`. In the inbox a task delegated to you says who delegated it
+  when it returns or is withdrawn. A delegation is now the event `TaskDelegated`
+  on the event stream and to webhooks, where it used to be a `TaskUpdated`;
+  `TaskResolved`, for a hand-back, is new. `owner` and `delegation_state` are
+  sent, over REST and over Connect and gRPC, only when they mean something, so
+  a client reading `delegation_state: "pending"` can rely on the task being
+  with a delegate; `resolved` is kept. In the inbox a task delegated to you says who delegated it
   and offers **Hand back** in place of Complete, *Delegated by you* shows what
   is with a delegate, and Reassign, Edit, Release and Hand back are offered
   only to those the server lets use them, with a reason asked for when the
-  signed-in user does not hold the task. The timeline tells each hand-over in
+  signed-in user does not hold the task. The reason is optional for an
+  administrator who holds the task, and needed when handing it to somebody it
+  was not offered to. The timeline tells each hand-over in
   the reader's language, with the reason shown in full. There is no Delegate
   button yet — delegation is made through the API — and hand-over is REST
   only: Connect and gRPC carry the task's `owner` and `delegation_state` and
@@ -160,7 +165,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   or for a delegated row another transaction holds, and then stops, to be
   started again, rather than hold every inbox behind a long query. A webhook
   consumer that keyed on `TaskUpdated` to see delegations must subscribe to
-  `TaskDelegated` and `TaskResolved`. See [Handing a task
+  `TaskDelegated` (and to `TaskResolved`, which is new). See [Handing a task
   over](docs/upgrading.md#handing-a-task-over-is-checked-and-recorded).
 - **A worker can extend its lock on an external task.** Work that outlasted
   the lock it was fetched with was offered to the next worker to ask while the

@@ -42,8 +42,9 @@ upgrade runs migration 32.
   the task is not asked, except an administrator who sends it to somebody it
   was not offered to.
 - Completing a task that has been delegated and not handed back: 403, to its
-  owner as to anybody. Releasing, assigning or delegating it again: 400. It is
-  handed back first.
+  owner as to anybody. Releasing, assigning or delegating it again: 400 for its
+  delegate or an administrator, who are told to hand it back first; 403 for
+  anybody else, its owner included.
 - Delegating a task nobody holds: 400. Claim or assign it first.
 - Handing a task back that has not been delegated: 400. Handing one back as
   somebody other than its delegate or an administrator — its owner included:
@@ -71,10 +72,15 @@ upgrade runs migration 32.
   `""`). A name is trimmed, and a blank one is refused with a 400.
 - An administrator who names nobody to hand a task to, on a task that does not
   exist or is in another organization, gets a 404 where it used to be a 400.
-- Where it listens for a delegation, the event is `TaskDelegated`, and a
-  hand-back is `TaskResolved`; both used to arrive as `TaskUpdated`, which a
-  subscriber that keyed on it no longer sees for them. Both carry the person
-  the task went to as `assignee`. Nothing else about an event changed.
+- Where it listens for a delegation, the event is now `TaskDelegated`; it used
+  to arrive as `TaskUpdated`, which a subscriber that keyed on it no longer
+  sees for a delegation. A hand-back is `TaskResolved`, which is new: there was
+  no hand-back before. Both carry the person the task went to as `assignee`.
+  Nothing else about an event changed.
+- `owner` and `delegation_state` are sent, over REST and over Connect and gRPC,
+  only when they mean something: a client reading `delegation_state: "pending"`
+  can rely on the task being with a delegate, and `resolved` is kept. A stale
+  mark left on a row by a pod of the previous release is not sent.
 
 **What the audit trail says.** Each hand-over is an entry whose `actor` is the
 caller — never the person it went to — with `previous_holder`, `target`,
@@ -95,8 +101,9 @@ nullable, converts the delegations that already exist, and builds
 `ix_tasks_owner` without locking the table. Those delegations have no owner —
 none was recorded — so each becomes a claim by its assignee, which is what it
 was in effect (one with no assignee goes back to the queue). They are converted
-5,000 at a time, each batch its own short transaction. To see them before
-upgrading:
+5,000 at a time, each batch its own short transaction; soft-deleted rows are
+converted too, which the query below leaves out because nobody can see them. To
+see the live ones before upgrading:
 
 ```sql
 SELECT id, name, assignee, instance_id, created_at
@@ -119,7 +126,9 @@ and stops the same way, saying *a delegated task was held for more than 2s*.
 Start the server again once that query has ended and it finishes; nothing it
 had done is undone.
 
-**During a rolling upgrade**, a pod still on the old release lets a delegate
+**During a rolling upgrade** — this is read from the previous release's code,
+not from a rollout of two versions run side by side — a pod still on the old
+release lets a delegate
 complete or hand on a task the new release marks as pending, and a delegation
 an old pod makes has no owner, so it stays its assignee's to complete. Finish
 the rollout before relying on delegation. To find delegations that have no owner
@@ -131,8 +140,9 @@ FROM tasks
 WHERE deleted_at IS NULL AND status = 'delegated' AND COALESCE(owner, '') = '';
 ```
 
-**Rolling back** after delegations exist leaves them as they are in the table:
-the old release treats each as it always did, a task its delegate may complete,
+**Rolling back** after delegations exist leaves them as they are in the table.
+From reading the old release's code, not from running it, it treats each as it
+always did, a task its delegate may complete,
 with nobody to hand it back to.
 
 **A delegation whose owner has left.** Handing a task back goes to the owner's
@@ -147,10 +157,14 @@ WHERE t.deleted_at IS NULL AND t.status = 'delegated' AND t.delegation_state = '
   AND NOT EXISTS (SELECT 1 FROM users u WHERE u.username = t.owner AND u.deleted_at IS NULL);
 ```
 
-**What it costs.** A hand-over makes 13 to 15 table reads under the task's row
-lock where it made 8, because it now checks who the task goes to. It is a
-person's action rather than something a process does, and it is not run in
-bulk.
+**What it costs.** A hand-over reads more than it did, under the task's row
+lock, because it now checks who the task goes to: the account, the task's
+project, the step's definition (through the instance), the account's groups
+when the task is offered to groups, and, for a step with a separation-of-duties
+rule, the instance's tasks. A count of 8 reads before and 13 to 15 after was
+taken once during development from `pg_stat_user_tables` with a throwaway test
+that is not in the repository. It is a person's action rather than something a
+process does, and it is not run in bulk.
 
 ## Migration 31: a task records which run of its step it is for
 
