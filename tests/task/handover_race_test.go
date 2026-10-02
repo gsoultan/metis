@@ -28,6 +28,7 @@ func TestOnlyOneOfSeveralSimultaneousHandOversByTheHolderWins(t *testing.T) {
 		Status:   entities.TaskClaimed,
 		Assignee: &entities.User{Username: "alice"},
 		Node:     &entities.Node{ID: "approve"},
+		Instance: seedCase(t, repo, ctx, projectID),
 	})
 
 	// A server under load has its connections open; left cold, the one

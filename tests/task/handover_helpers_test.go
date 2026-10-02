@@ -63,3 +63,25 @@ func asAdministrator(ctx context.Context, username string) context.Context {
 	return context.WithValue(ctx, pkgauth.UserContextKey,
 		entities.User{Username: username, Roles: []string{entities.RoleAdmin}})
 }
+
+// seedCase seeds a running case whose definition has the one step "approve",
+// for a seeded task to belong to: a hand-over reads the step a task was
+// created from, and is not made for a task that has none.
+func seedCase(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID) *entities.ProcessInstance {
+	t.Helper()
+	definitionID, instanceID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	if err := repo.Definition().Create(ctx, models.ProcessDefinitionModel{
+		Base: models.Base{ID: models.UUID(definitionID)}, ProjectID: models.UUID(projectID),
+		Key: "refund", Name: "Refund", Version: 1,
+		Nodes: []models.FlowNode{{ID: "approve", Name: "Approve the refund", Type: models.NodeType(entities.UserTask)}},
+	}); err != nil {
+		t.Fatalf("seed definition: %v", err)
+	}
+	if _, err := repo.Process().Create(ctx, models.ProcessInstanceModel{
+		Base: models.Base{ID: models.UUID(instanceID)}, ProjectID: models.UUID(projectID),
+		DefinitionID: models.UUID(definitionID), Status: models.ProcessActive,
+	}); err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+	return &entities.ProcessInstance{ID: instanceID}
+}

@@ -41,7 +41,7 @@ func TestObserversStillSeeTheEventsHandOversAlwaysRaised(t *testing.T) {
 	seedMember(t, repo, ctx, "bob")
 	taskID := seedTask(t, repo, ctx, projectID, entities.Task{
 		Name: "Approve the refund", Type: entities.UserTask, Status: entities.TaskClaimed,
-		Assignee: &entities.User{Username: "alice"}, Node: &entities.Node{ID: "approve"},
+		Assignee: &entities.User{Username: "alice"}, Node: &entities.Node{ID: "approve"}, Instance: seedCase(t, repo, ctx, projectID),
 	})
 
 	if err := svc.AssignTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice", Target: "bob"}); err != nil {
