@@ -8,7 +8,7 @@ import { DateInput } from '@mantine/dates';
 import { Edit2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { holdsTask, reasonReady, reasonToSend } from '../../domain/taskDelegation';
+import { reasonNeed, reasonReady, reasonToSend, type Viewer } from '../../domain/taskDelegation';
 import { useTranslation } from '../../i18n/context';
 import type { Task } from '../../services/types';
 import { ReasonField } from './ReasonField';
@@ -16,8 +16,8 @@ import { ReasonField } from './ReasonField';
 interface EditTaskFormProps {
   /** The task as it is being edited. */
   task: Task;
-  /** The signed-in person's username. */
-  viewer: string;
+  /** The signed-in person: who they are and what roles they hold. */
+  viewer: Viewer | null;
   onChange: (task: Task) => void;
   /** The reason is undefined for the task's holder, who is not asked for one. */
   onSave: (reason?: string) => void;
@@ -34,7 +34,7 @@ export function EditTaskForm({ task, viewer, onChange, onSave, onCancel, saving 
   const [reason, setReason] = useState('');
   // They are how the holder orders their own day; anybody else changing them
   // is refused by the server unless they say why.
-  const needsReason = !holdsTask(task, viewer);
+  const need = reasonNeed(task, viewer);
 
   return (
     <Stack py="md">
@@ -56,13 +56,13 @@ export function EditTaskForm({ task, viewer, onChange, onSave, onCancel, saving 
         }}
         clearable
       />
-      {needsReason && <ReasonField value={reason} onChange={setReason} />}
+      {need !== 'none' && <ReasonField value={reason} onChange={setReason} />}
       <Group justify="flex-end" mt="xl">
         <Button variant="default" onClick={onCancel}>{t('common.cancel')}</Button>
         <Button
           color="blue"
-          onClick={() => onSave(reasonToSend(needsReason, reason))}
-          disabled={!reasonReady(needsReason, reason)}
+          onClick={() => onSave(reasonToSend(need, reason))}
+          disabled={!reasonReady(need, reason)}
           loading={saving}
         >
           {t('handover.saveChanges')}

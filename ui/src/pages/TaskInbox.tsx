@@ -63,7 +63,7 @@ import { useRef } from 'react';
 import { statusLabel } from '../components/statusVocabulary';
 import { useTranslation } from '../i18n/context';
 import { offersClaim } from '../domain/unnamedTask';
-import { awaitsHandBack, delegatedBy, handBackOffer, holdsTask, type HandBackOffer } from '../domain/taskDelegation';
+import { awaitsHandBack, delegatedBy, handBackOffer, offersEdit, offersReassign, releaseOffer, type Offer } from '../domain/taskDelegation';
 import { DelegationNote } from '../components/inbox/DelegationNote';
 import { HandBackButton } from '../components/inbox/HandBackButton';
 import { DelegatedByYou } from '../components/inbox/DelegatedByYou';
@@ -115,6 +115,13 @@ interface TaskRowProps {
   onEdit: (task: Task) => void;
   onReassign: (task: Task) => void;
   navigate: NavigateFn;
+  /**
+   * Whether the reader is offered Edit and Reassign. The server refuses both
+   * to anybody but the task's holder and an administrator — and, for Reassign,
+   * an operator on a task nobody was named for — so nobody else is shown them.
+   */
+  mayEdit: boolean;
+  mayReassign: boolean;
 }
 
 /**
@@ -123,7 +130,9 @@ interface TaskRowProps {
  * be.
  */
 type TaskTableRowProps = TaskRowProps & {
-  handBack: HandBackOffer;
+  /** Release: the holder's at one press, an administrator's through a dialog. */
+  release: Offer;
+  handBack: Offer;
   onHandBack: (task: Task) => void;
   /** This row's hand-back has been sent and not yet answered. */
   handingBack: boolean;
@@ -156,7 +165,7 @@ interface KanbanViewProps {
   navigate: NavigateFn;
 }
 
-function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, navigate, handBack, onHandBack, handingBack }: TaskTableRowProps) {
+function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, release, handBack, onHandBack, handingBack }: TaskTableRowProps) {
   const { t } = useTranslation();
   const reference = taskReference(task.variables as Record<string, unknown> | undefined, task.instance?.id);
 
@@ -307,9 +316,13 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
             // owner's to complete. Release and Complete would both be refused,
             // so neither is offered — to anybody.
             handBack === 'none' ? (
-              <Text size="xs" c="dimmed">
-                {t('handover.withDelegate', { delegate: task.assignee?.username ?? '' })}
-              </Text>
+              // Always true of a task with a delegate; asked so that "With"
+              // never stands there with no name after it.
+              task.assignee?.username ? (
+                <Text size="xs" c="dimmed">
+                  {t('handover.withDelegate', { delegate: task.assignee.username })}
+                </Text>
+              ) : null
             ) : (
               <HandBackButton
                 taskName={task.name}
@@ -322,17 +335,21 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
             )
           ) : (
             <>
-              <Tooltip label="Release back to group">
-                {/* This was named "Show candidate groups", which is not what
-                    it does: it releases the task. */}
-                <ActionIcon aria-label={t('handover.releaseLabel', { task: task.name })}
-                  variant="light" 
-                  color="gray"
-                  onClick={() => onUnclaim(task.id)}
-                >
-                  <Users size={16} />
-                </ActionIcon>
-              </Tooltip>
+              {release !== 'none' && (
+                <Tooltip label={t('handover.releaseTooltip')}>
+                  {/* This was named "Show candidate groups", which is not what
+                      it does: it releases the task. */}
+                  <ActionIcon aria-label={t('handover.releaseLabel', { task: task.name })}
+                    // An administrator releasing somebody else's is asked why first.
+                    aria-haspopup={release === 'withReason' ? 'dialog' : undefined}
+                    variant="light" 
+                    color="gray"
+                    onClick={() => onUnclaim(task.id)}
+                  >
+                    <Users size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
               <Button 
                 size="xs" 
                 variant="filled" 
@@ -351,16 +368,16 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Label>Task Management</Menu.Label>
-              <Menu.Item 
-                leftSection={<Edit2 size={14} />} 
-                onClick={() => onEdit(task)}
-              >
-                Edit Task Details
-              </Menu.Item>
-              {/* A task with a delegate goes back to its owner before it goes
-                  anywhere else; the server refuses to reassign it. */}
-              {!awaitsHandBack(task) && (
+              {(mayEdit || mayReassign) && <Menu.Label>Task Management</Menu.Label>}
+              {mayEdit && (
+                <Menu.Item 
+                  leftSection={<Edit2 size={14} />} 
+                  onClick={() => onEdit(task)}
+                >
+                  Edit Task Details
+                </Menu.Item>
+              )}
+              {mayReassign && (
                 <Menu.Item 
                   leftSection={<User size={14} />}
                   onClick={() => onReassign(task)}
@@ -368,7 +385,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
                   Reassign Task
                 </Menu.Item>
               )}
-              <Menu.Divider />
+              {(mayEdit || mayReassign) && <Menu.Divider />}
               <Menu.Item 
                 leftSection={<ExternalLink size={14} />}
                 onClick={() => navigate({
@@ -389,7 +406,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
 /** What the board says instead of "Claim" on a task its reader may not take. */
 const NOBODY_NAMED_NOTE = 'Nobody was named for this. An administrator or an operator can take it.';
 
-function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, claimable }: TaskCardProps) {
+function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, claimable }: TaskCardProps) {
   // How urgent this is, decided in one place rather than by three different
   // inline thresholds — which is what was here, and they had already drifted.
   const urgency = urgencyOf(task);
@@ -419,9 +436,9 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item leftSection={<Edit2 size={12} />} onClick={() => onEdit(task)}>Edit</Menu.Item>
-              <Menu.Item leftSection={<User size={12} />} onClick={() => onReassign(task)}>Reassign</Menu.Item>
-              <Menu.Divider />
+              {mayEdit && <Menu.Item leftSection={<Edit2 size={12} />} onClick={() => onEdit(task)}>Edit</Menu.Item>}
+              {mayReassign && <Menu.Item leftSection={<User size={12} />} onClick={() => onReassign(task)}>Reassign</Menu.Item>}
+              {(mayEdit || mayReassign) && <Menu.Divider />}
               <Menu.Item 
                 leftSection={<ExternalLink size={12} />}
                 onClick={() => navigate({
@@ -539,6 +556,8 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
                   onEdit={onEdit} 
                   onReassign={onReassign} 
                   navigate={navigate}
+                  mayEdit={offersEdit(task, viewer)}
+                  mayReassign={offersReassign(task, viewer)}
                   claimable={offersClaim(task, viewer)}
                 />
               ))}
@@ -616,8 +635,9 @@ export function TaskInbox() {
     reasonInFlight,
     updateTaskMutation,
   } = useTaskInbox();
-  // Who is reading, with their roles: an administrator may hand back or
-  // release a task somebody else holds, and is asked why.
+  // Who is reading, with their roles. What a task offers them follows what
+  // the server lets them do, and an administrator changing a task somebody
+  // else holds is asked why.
   const viewer = useAppStore((state) => state.user);
 
   const onFormSubmit = (values: Record<string, unknown>) => {
@@ -638,7 +658,7 @@ export function TaskInbox() {
   // is asked why first, because the server takes it from them only with a
   // reason.
   const onReleaseClick = (task: Task) => {
-    if (holdsTask(task, currentUser)) {
+    if (releaseOffer(task, viewer) === 'own') {
       handleUnclaim(task.id);
     } else {
       setReasonRequest({ kind: 'release', task });
@@ -903,6 +923,9 @@ export function TaskInbox() {
                         onEdit={setEditingTask}
                         onReassign={onReassignClick}
                         navigate={navigate}
+                        mayEdit={offersEdit(task, viewer)}
+                        mayReassign={offersReassign(task, viewer)}
+                        release={releaseOffer(task, viewer)}
                         handBack={handBackOffer(task, viewer)}
                         onHandBack={onHandBackClick}
                         handingBack={resolvingTaskId === task.id}
@@ -985,7 +1008,7 @@ export function TaskInbox() {
       <ReassignDialog
         opened={reassignModalOpened}
         task={taskToReassign}
-        viewer={currentUser}
+        viewer={viewer}
         users={availableUsers}
         assignee={newAssignee}
         onAssigneeChange={setNewAssignee}
@@ -1070,7 +1093,7 @@ export function TaskInbox() {
 
       <EditTaskDialog
         task={editingTask}
-        viewer={currentUser}
+        viewer={viewer}
         onChange={setEditingTask}
         onSave={(reason) => {
           if (!editingTask) return;

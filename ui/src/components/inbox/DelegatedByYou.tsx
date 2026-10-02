@@ -29,15 +29,19 @@ export function DelegatedByYou({ tasks, total }: DelegatedByYouProps) {
       <Text fw={700} size="sm">{t('handover.delegatedByYou')}</Text>
       <Text size="xs" c="dimmed" mb="sm">{t('handover.delegatedByYouHelp')}</Text>
       <Box component="ul" m={0} p={0} style={{ listStyle: 'none' }}>
-        {tasks.map((task) => (
-          <Box component="li" key={task.id} py={4} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThemeIcon size="sm" variant="light" color="indigo" aria-hidden>
-              <UserCheck size={12} />
-            </ThemeIcon>
-            <Text size="sm" fw={600}>{task.name}</Text>
-            <Text size="sm" c="dimmed">{t('handover.withDelegate', { delegate: task.assignee?.username ?? '' })}</Text>
-          </Box>
-        ))}
+        {tasks.map((task) => {
+          const delegate = task.assignee?.username ?? '';
+          return (
+            <Box component="li" key={task.id} py={4} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ThemeIcon size="sm" variant="light" color="indigo" aria-hidden>
+                <UserCheck size={12} />
+              </ThemeIcon>
+              <Text size="sm" fw={600}>{task.name}</Text>
+              {/* "With" and no name says less than nothing. */}
+              {delegate !== '' && <Text size="sm" c="dimmed">{t('handover.withDelegate', { delegate })}</Text>}
+            </Box>
+          );
+        })}
       </Box>
       {more > 0 && (
         <Text size="xs" c="dimmed" mt="xs">{t('handover.delegatedByYouMore', { count: more })}</Text>

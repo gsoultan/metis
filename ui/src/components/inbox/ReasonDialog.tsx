@@ -28,8 +28,8 @@ export function ReasonForm({ body, confirmLabel, onConfirm, onCancel, busy = fal
         <Button variant="default" onClick={onCancel}>{t('common.cancel')}</Button>
         <Button
           color="indigo"
-          onClick={() => onConfirm(reasonToSend(true, reason) ?? '')}
-          disabled={!reasonReady(true, reason)}
+          onClick={() => onConfirm(reasonToSend('required', reason) ?? '')}
+          disabled={!reasonReady('required', reason)}
           loading={busy}
         >
           {confirmLabel}
@@ -56,9 +56,16 @@ interface ReasonDialogProps {
  */
 export function ReasonDialog({ request, onConfirm, onClose, busy = false }: ReasonDialogProps) {
   const { t } = useTranslation();
-  const task = request?.task;
+  // What was last asked about stays on the dialog while it closes. Reading the
+  // request alone, the title lost the task's name the moment the request was
+  // answered and read "Release task: " until the dialog had gone.
+  const [shown, setShown] = useState(request);
+  if (request !== null && request !== shown) {
+    setShown(request);
+  }
+  const task = shown?.task;
   const holder = task?.assignee?.username ?? '';
-  const handingBack = request?.kind === 'handBack';
+  const handingBack = shown?.kind === 'handBack';
   const name = task?.name ?? '';
 
   return (
@@ -68,16 +75,16 @@ export function ReasonDialog({ request, onConfirm, onClose, busy = false }: Reas
       title={<Text fw={700}>{t(handingBack ? 'handover.handBackForTitle' : 'handover.releaseTitle', { task: name })}</Text>}
       radius="md"
     >
-      {request && task && (
+      {shown && task && (
         <ReasonForm
-          key={`${request.kind}:${task.id}`}
+          key={`${shown.kind}:${task.id}`}
           body={
             handingBack
               ? t('handover.handBackForBody', { delegate: holder, owner: delegatedBy(task) })
               : t('handover.releaseBody', { holder })
           }
           confirmLabel={t(handingBack ? 'handover.handBack' : 'handover.releaseConfirm')}
-          onConfirm={(reason) => onConfirm(request, reason)}
+          onConfirm={(reason) => onConfirm(shown, reason)}
           onCancel={onClose}
           busy={busy}
         />

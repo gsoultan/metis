@@ -69,7 +69,7 @@ const id: Catalogue = {
   'handover.handedBackTitle': 'Tugas dikembalikan',
   'handover.handedBackBody': 'Tugas kembali ke {owner}, yang akan menyelesaikannya.',
   'handover.handBackFailedTitle': 'Tugas tidak berhasil dikembalikan',
-  'handover.handBackFailedBody': 'Tugas masih ada pada Anda. Coba lagi, atau hubungi administrator.',
+  'handover.handBackFailedBody': 'Tidak ada yang berubah. Coba lagi, atau hubungi administrator.',
   'handover.delegatedByYou': 'Anda delegasikan',
   'handover.delegatedByYouHelp': 'Tugas ini ada pada orang lain sampai dikembalikan. Anda yang menyelesaikannya.',
   'handover.withDelegate': 'Pada {delegate}',
@@ -78,15 +78,26 @@ const id: Catalogue = {
   'handover.reason': 'Alasan',
   'handover.reasonHint':
     'Diperlukan karena tugas ini tidak ada pada Anda. Orang yang melihat tugas ini nanti akan membacanya.',
+  'handover.reasonHintOptional':
+    'Diperlukan hanya jika Anda memberikan tugas ini kepada orang yang tidak ditawari tugas ini. Orang yang melihat tugas ini nanti akan membacanya.',
+  'handover.reasonCount': '{count} dari {limit} karakter',
   'handover.handBackForTitle': 'Kembalikan: {task}',
   'handover.handBackForBody':
     '{delegate} sedang mengerjakan tugas ini untuk {owner}. Jika dikembalikan, tugas kembali ke {owner}, yang akan menyelesaikannya.',
   'handover.handBackForFirst':
-    '{delegate} sedang mengerjakan tugas ini untuk {owner}. Anda dapat mengembalikannya atas nama mereka, dengan alasan.',
+    '{delegate} sedang mengerjakan tugas ini untuk {owner}. Anda dapat mengembalikannya atas namanya, dengan alasan.',
   'handover.releaseLabel': 'Lepaskan {task} kembali ke grupnya',
   'handover.releaseTitle': 'Lepaskan tugas: {task}',
   'handover.releaseBody': 'Tugas ini diambil dari {holder} dan dikembalikan agar dapat diambil oleh grupnya.',
   'handover.releaseConfirm': 'Lepaskan tugas',
+  'handover.releaseTooltip': 'Lepaskan kembali ke grup',
+  'handover.releasedTitle': 'Tugas dilepaskan',
+  'handover.releasedBody': 'Tugas kembali ke Tersedia untuk Diambil bagi siapa pun di grupnya.',
+  'handover.releaseFailedTitle': 'Tugas tidak berhasil dilepaskan',
+  'handover.releaseFailedBody': 'Tidak ada yang berubah. Tugas masih ada pada orang yang memegangnya.',
+  'handover.releaseHeldBackTitle': 'Tidak ada yang dilepaskan',
+  'handover.releaseHeldBack':
+    '{count, plural, other {# tugas didelegasikan kepada Anda dan tidak dilepaskan. Kembalikan tugas tersebut.}}',
   'handover.reassignTitle': 'Alihkan Tugas: {task}',
   'handover.newAssignee': 'Penanggung Jawab Baru',
   'handover.selectUser': 'Pilih pengguna',

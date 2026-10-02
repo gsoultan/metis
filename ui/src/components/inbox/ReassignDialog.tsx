@@ -2,19 +2,19 @@ import { Button, Group, Modal, Select, Stack, Text } from '@mantine/core';
 import { User } from 'lucide-react';
 import { useState } from 'react';
 
-import { holdsTask, reasonReady, reasonToSend } from '../../domain/taskDelegation';
+import { reasonReady, reasonToSend, reassignReasonNeed, type Viewer } from '../../domain/taskDelegation';
 import { useTranslation } from '../../i18n/context';
 import type { Task } from '../../services/types';
 import { ReasonField } from './ReasonField';
 
 interface ReassignFormProps {
   task: Task;
-  /** The signed-in person's username. */
-  viewer: string;
+  /** The signed-in person: who they are and what roles they hold. */
+  viewer: Viewer | null;
   users: { value: string; label: string }[];
   assignee: string | null;
   onAssigneeChange: (assignee: string | null) => void;
-  /** The reason is undefined for the task's holder, who is not asked for one. */
+  /** The reason is undefined when none was asked for, or none was written. */
   onConfirm: (assignee: string, reason?: string) => void;
   onCancel: () => void;
   /** The reassignment has been sent and not yet answered. */
@@ -22,15 +22,16 @@ interface ReassignFormProps {
 }
 
 /**
- * What the dialog holds: who the task goes to and, from anybody but its
- * holder, why.
+ * What the dialog holds: who the task goes to, and why.
+ *
+ * Why is asked of anybody but the task's holder, who is not shown the field —
+ * unless they are an administrator, who may send the task to somebody it was
+ * not offered to and has to say why when they do.
  */
 export function ReassignForm({ task, viewer, users, assignee, onAssigneeChange, onConfirm, onCancel, busy = false }: ReassignFormProps) {
   const { t } = useTranslation();
   const [reason, setReason] = useState('');
-  // Somebody moving their own task need not explain it; the server refuses
-  // anybody else who does not.
-  const needsReason = !holdsTask(task, viewer);
+  const need = reassignReasonNeed(task, viewer);
 
   return (
     <Stack py="md">
@@ -44,15 +45,15 @@ export function ReassignForm({ task, viewer, users, assignee, onAssigneeChange, 
         searchable
         clearable
       />
-      {needsReason && <ReasonField value={reason} onChange={setReason} />}
+      {need !== 'none' && <ReasonField value={reason} onChange={setReason} optional={need === 'optional'} />}
       <Group justify="flex-end" mt="xl">
         <Button variant="default" onClick={onCancel}>{t('common.cancel')}</Button>
         <Button
           color="blue"
           onClick={() => {
-            if (assignee) onConfirm(assignee, reasonToSend(needsReason, reason));
+            if (assignee) onConfirm(assignee, reasonToSend(need, reason));
           }}
-          disabled={!assignee || !reasonReady(needsReason, reason)}
+          disabled={!assignee || !reasonReady(need, reason)}
           loading={busy}
         >
           {t('handover.confirmReassign')}

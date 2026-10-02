@@ -22,7 +22,8 @@ import type { Task } from '../services/types';
 import type { ProcessVariables } from '../services/types';
 import { TASK_LIST_EVENTS } from '../domain/taskEvents';
 import { useInvalidateOnEvents } from './useEventStream';
-import type { ReasonRequest } from '../domain/taskDelegation';
+import { splitReleasable, type ReasonRequest } from '../domain/taskDelegation';
+import { useTranslation } from '../i18n/context';
 
 /**
  * The value a column sorts on.
@@ -59,6 +60,7 @@ function sortValue(task: Task, field: string): string | number | undefined {
 
 export function useTaskInbox() {
   const { currentOrganizationId, user } = useAppStore();
+  const { t } = useTranslation();
   // The inbox is always the signed-in user's own. There is no switching:
   // the server takes the actor from the token and ignores any client claim.
   const currentUser = user?.username ?? '';
@@ -124,7 +126,8 @@ export function useTaskInbox() {
   const updateTaskMutation = useUpdateTask();
   const assignTaskMutation = useAssignTask();
   const resolveTaskMutation = useResolveTask();
-  const { data: delegatedData } = useTasksDelegatedByMe();
+  // Read only where it is shown: the card sits above the table.
+  const { data: delegatedData } = useTasksDelegatedByMe({ enabled: viewMode === 'table' });
   // What the reader delegated and is waiting for: theirs to complete, and not
   // in their list while the delegate holds it.
   const delegatedByMe = useMemo(() => delegatedData?.tasks ?? [], [delegatedData]);
@@ -246,9 +249,19 @@ export function useTaskInbox() {
     act: (id: string) => Promise<unknown>,
     noun: string,
     verb: string,
+    // What to send, when that is not the whole selection, and how many of the
+    // selected were held back because the server would only refuse them.
+    ids: string[] = selectedTaskIds,
+    heldBack = 0,
   ) => {
-    const ids = selectedTaskIds;
-    if (ids.length === 0) return;
+    const heldBackNote = heldBack > 0 ? t('handover.releaseHeldBack', { count: heldBack }) : '';
+    if (ids.length === 0) {
+      if (heldBack > 0) {
+        setSelectedTaskIds([]);
+        notifications.show({ title: t('handover.releaseHeldBackTitle'), message: heldBackNote, color: 'orange' });
+      }
+      return;
+    }
 
     setBulkInFlight(true);
     try {
@@ -256,24 +269,26 @@ export function useTaskInbox() {
       setSelectedTaskIds(result.failed.map(outcome => outcome.id));
       notifications.show({
         title: result.failed.length === 0 ? 'Done' : 'Partly done',
-        message: summarise(result, noun, verb),
-        color: result.failed.length === 0 ? 'green' : 'orange',
+        message: [summarise(result, noun, verb), heldBackNote].filter(Boolean).join('. '),
+        color: result.failed.length === 0 && heldBack === 0 ? 'green' : 'orange',
       });
     } finally {
       setBulkInFlight(false);
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     }
-  }, [selectedTaskIds, queryClient]);
+  }, [selectedTaskIds, queryClient, t]);
 
   const handleBulkClaim = useCallback(
     () => runBulkAction(id => processService.claimTask(id), 'task', 'claimed'),
     [runBulkAction],
   );
 
-  const handleBulkUnclaim = useCallback(
-    () => runBulkAction(id => processService.unclaimTask(id), 'task', 'released'),
-    [runBulkAction],
-  );
+  const handleBulkUnclaim = useCallback(() => {
+    // A task delegated to the reader is handed back, not released: the server
+    // refuses it, so it is left out and the reader is told.
+    const { release, heldBack } = splitReleasable(assignedTasks, selectedTaskIds);
+    return runBulkAction(id => processService.unclaimTask(id), 'task', 'released', release, heldBack.length);
+  }, [runBulkAction, assignedTasks, selectedTaskIds]);
 
   return {
     bulkInFlight,

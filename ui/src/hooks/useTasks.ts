@@ -176,6 +176,7 @@ export const useClaimTask = () => {
 
 export const useUnclaimTask = () => {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   return useMutation({
     // The holder releases their own task with nothing more said. Anybody else
     // has to say why, and that goes over the route that carries a reason.
@@ -184,15 +185,17 @@ export const useUnclaimTask = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
-        title: 'Task released',
-        message: "It's back under Available to claim for anyone in the group.",
+        title: t('handover.releasedTitle'),
+        message: t('handover.releasedBody'),
         color: 'gray',
       });
     },
     onError: (error) => {
       notifications.show({
-        title: 'Could not release the task',
-        message: errorMessage(error, 'It is still assigned to you.'),
+        title: t('handover.releaseFailedTitle'),
+        // Said for whoever held it: an administrator releasing somebody
+        // else's task was told "It is still assigned to you", which it never was.
+        message: errorMessage(error, t('handover.releaseFailedBody')),
         color: 'red',
       });
     }
@@ -275,13 +278,16 @@ const DELEGATED_PAGE_SIZE = 25;
  * The tasks the signed-in person delegated that are still with their delegate.
  * The user id is in the key only so that one person's list is never served
  * from another's cache; who is asking comes from the token.
+ *
+ * `enabled` lets the inbox stop reading it while it shows the board, which has
+ * nowhere to put it.
  */
-export const useTasksDelegatedByMe = () => {
+export const useTasksDelegatedByMe = (options: { enabled?: boolean } = {}) => {
   const user = useAppStore((state) => state.user);
   return useQuery({
     queryKey: ['tasks', 'delegated', user?.id ?? ''],
     queryFn: ({ signal }) => processService.listTasksDelegatedByMe({ page: 1, pageSize: DELEGATED_PAGE_SIZE }, signal),
-    enabled: !!user,
+    enabled: !!user && (options.enabled ?? true),
     placeholderData: (previous) => previous,
   });
 };

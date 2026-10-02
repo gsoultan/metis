@@ -66,12 +66,12 @@ const en: Catalogue = {
   // Delegated tasks in the inbox: work that goes back to whoever delegated it
   'handover.delegatedToYouBy': 'Delegated to you by {owner}',
   'handover.handBack': 'Hand back',
-  'handover.handBackLabel': 'Hand {task} back to {owner}',
+  'handover.handBackLabel': 'Hand back {task} to {owner}',
   'handover.handBackFirst': 'Only {owner} completes this. Hand it back when your part is done.',
   'handover.handedBackTitle': 'Task handed back',
   'handover.handedBackBody': 'It is back with {owner}, who completes it.',
   'handover.handBackFailedTitle': 'The task was not handed back',
-  'handover.handBackFailedBody': 'It is still with you. Try again, or ask an administrator.',
+  'handover.handBackFailedBody': 'Nothing was changed. Try again, or ask an administrator.',
   'handover.delegatedByYou': 'Delegated by you',
   'handover.delegatedByYouHelp': 'These are with somebody else until they hand them back. You complete them.',
   'handover.withDelegate': 'With {delegate}',
@@ -80,6 +80,9 @@ const en: Catalogue = {
   // Changing a task somebody else holds: the reason is kept with the task
   'handover.reason': 'Reason',
   'handover.reasonHint': 'Needed because this task is not with you. People looking at this task later will see this.',
+  'handover.reasonHintOptional':
+    'Needed only when you give this task to somebody it was not offered to. People looking at this task later will see this.',
+  'handover.reasonCount': '{count} of {limit} characters',
   'handover.handBackForTitle': 'Hand back: {task}',
   'handover.handBackForBody':
     '{delegate} is working on this for {owner}. Handing it back returns it to {owner}, who completes it.',
@@ -88,6 +91,14 @@ const en: Catalogue = {
   'handover.releaseTitle': 'Release task: {task}',
   'handover.releaseBody': 'This takes the task from {holder} and puts it back for its group to claim.',
   'handover.releaseConfirm': 'Release task',
+  'handover.releaseTooltip': 'Release back to group',
+  'handover.releasedTitle': 'Task released',
+  'handover.releasedBody': "It's back under Available to claim for anyone in the group.",
+  'handover.releaseFailedTitle': 'Could not release the task',
+  'handover.releaseFailedBody': 'Nothing was changed. The task is still with the person who held it.',
+  'handover.releaseHeldBackTitle': 'Nothing was released',
+  'handover.releaseHeldBack':
+    '{count, plural, one {# task was delegated to you and was not released. Hand it back instead.} other {# tasks were delegated to you and were not released. Hand them back instead.}}',
   'handover.reassignTitle': 'Reassign Task: {task}',
   'handover.newAssignee': 'New Assignee',
   'handover.selectUser': 'Select user',

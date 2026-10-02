@@ -22,7 +22,7 @@ describe('a task delegated to the reader', () => {
   it('offers Hand back, named for a screen reader by the task and who it goes to', () => {
     const markup = html(<HandBackButton taskName="Approve the refund" owner="budi" onHandBack={() => {}} />);
     expect(visibleText(markup)).toBe('Hand back');
-    expect(markup).toContain('aria-label="Hand Approve the refund back to budi"');
+    expect(markup).toContain('aria-label="Hand back Approve the refund to budi"');
     expect(markup).toContain('<button');
     // At one press: nothing opens.
     expect(markup).not.toContain('aria-haspopup');
@@ -45,7 +45,7 @@ describe('a delegated task, for an administrator who is not its delegate', () =>
       <HandBackButton taskName="Approve the refund" owner="budi" delegate="mallory" onHandBack={() => {}} />,
     );
     expect(visibleText(markup)).toBe('Hand back');
-    expect(markup).toContain('aria-label="Hand Approve the refund back to budi"');
+    expect(markup).toContain('aria-label="Hand back Approve the refund to budi"');
     expect(markup).toContain('aria-haspopup="dialog"');
   });
 });
@@ -68,6 +68,12 @@ describe('what the reader delegated', () => {
 
   it('says how many more there are than it shows', () => {
     expect(visibleText(html(<DelegatedByYou tasks={tasks} total={5} />))).toContain('and 3 more');
+  });
+
+  it('says nothing about who has a task when it was not told', () => {
+    const text = visibleText(html(<DelegatedByYou tasks={[{ id: 't4', name: 'File the claim' }]} total={1} />));
+    expect(text).toContain('File the claim');
+    expect(text).not.toContain('With');
   });
 
   it('is not there at all when nothing is delegated', () => {
