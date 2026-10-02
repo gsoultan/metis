@@ -47,8 +47,12 @@ with it.
 
 **Processes this had already stranded are not repaired.** An instance whose
 approvers had all answered before the upgrade is `active`, holds tokens on the
-approval, and has nothing open: no task, no job waiting or running, no work
-parked for a worker, no process it called still running. This finds them:
+approval, and has nothing open: no task, no job waiting or running (a timer or a deadline
+is a waiting job), no work parked for a worker, no process it called still
+running, no event it is waiting for, and no open incident. An instance with an
+open incident is waiting on an operator and is not listed, and neither is one
+whose approval still has a deadline or an event pending: it shows up once
+that has passed or been dealt with. This finds them:
 
 ```sql
 WITH live AS (
@@ -73,14 +77,18 @@ SELECT l.id, l.created_at
                     WHERE x.instance_id = l.id AND x.deleted_at IS NULL)
    AND NOT EXISTS (SELECT 1 FROM process_instances c
                     WHERE c.parent_instance_id = l.id AND c.deleted_at IS NULL
-                      AND c.status IN ('active', 'suspended'));
+                      AND c.status IN ('active', 'suspended'))
+   AND NOT EXISTS (SELECT 1 FROM event_subscriptions s
+                    WHERE s.instance_id = l.id AND s.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM incidents n
+                    WHERE n.instance_id = l.id AND n.deleted_at IS NULL
+                      AND n.status = 'open');
 ```
 
 Every row is an instance holding only iteration tokens with nothing in flight
-for any of them. Look at each before you end it: a step that runs once per item
-can also be waiting on something this query cannot see, such as a timer or an
-event the step is waiting for, so open the instance and check what its step
-was waiting for. Whether the business was in fact finished is a decision, not
+for any of them. Look at each before you end it: check the incident list for
+the instance first, and open the instance to see what its step was waiting for.
+Whether the business was in fact finished is a decision, not
 a repair: end the ones that were with a migration's *End the instance* action
 (`cancel`, in `docs/process-change-in-flight.md`), which records who decided
 and why.
