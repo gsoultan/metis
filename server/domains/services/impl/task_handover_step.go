@@ -21,9 +21,8 @@ type handOverStep struct {
 	reason string
 	target string
 	// candidateOverride: an administrator sent the task to somebody it was not
-	// offered to, with a reason. The trail says so. Nothing sets it yet: the
-	// check of who a task may go to does, and that check is not written.
-	candidateOverride bool //nolint:unused // see above
+	// offered to, with a reason. The trail says so.
+	candidateOverride bool
 }
 
 // openHandOver reads the task a hand-over is about, holding its row, and
@@ -32,7 +31,8 @@ type handOverStep struct {
 // In this order, because the order is what a refusal reveals: whether the
 // caller may hand the task on at all comes first, so somebody with no business
 // here learns nothing else about it. Then whether the task can still be handed
-// on, who it goes to, and why.
+// on, who it goes to, and why. Last, whether the person it goes to may have it
+// (admitTarget) — the only part that reads anything but the task.
 //
 // Holding the row matters as much as the checks. Completion writes it too, so
 // a hand-over that read the task open while it was being completed would write
@@ -59,7 +59,11 @@ func (s *taskService) openHandOver(ctx context.Context, id uuid.UUID, change ser
 	if err != nil {
 		return handOverStep{}, err
 	}
-	return handOverStep{row: row, task: task, caller: caller, reason: reason, target: target}, nil
+	step := handOverStep{row: row, task: task, caller: caller, reason: reason, target: target}
+	if step.candidateOverride, err = s.admitTarget(ctx, step); err != nil {
+		return handOverStep{}, err
+	}
+	return step, nil
 }
 
 // refuseClosed refuses to change a task nobody can work on any more. A

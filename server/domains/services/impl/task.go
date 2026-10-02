@@ -169,23 +169,9 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 		return fmt.Errorf("resolve group membership for %s: %w", userID, err)
 	}
 
-	memberOf := make(map[string]struct{}, len(groups))
-	for _, g := range groups {
-		memberOf[g.Name] = struct{}{}
-		memberOf[g.ID.String()] = struct{}{}
+	if inCandidateGroups(task, groups) {
+		return nil
 	}
-	for _, cg := range task.CandidateGroups {
-		if cg == nil {
-			continue
-		}
-		if _, ok := memberOf[cg.Name]; ok {
-			return nil
-		}
-		if _, ok := memberOf[cg.ID.String()]; ok {
-			return nil
-		}
-	}
-
 	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
 }
 
@@ -565,32 +551,41 @@ const SeparationOfDutiesKey = "separation_of_duties"
 // have been skipped, or on a branch this instance did not take. The rule is
 // "not the same person twice", not "that step must have happened".
 func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models.TaskModel, userID string) error {
+	other, conflict, err := s.conflictingStep(ctx, task, userID)
+	if err != nil || !conflict {
+		return err
+	}
+	return fmt.Errorf("%w: %s already did %q on this instance, and %q may not be done by the same person",
+		ErrTaskForbidden, userID, other.NodeID, task.NodeID)
+}
+
+// conflictingStep finds the step userID has already performed on this instance
+// that the task's node says the same person may not also perform.
+//
+// A node it names that the instance never performed is not a conflict: it may
+// have been skipped, or on a branch this instance did not take.
+func (s *taskService) conflictingStep(ctx context.Context, task models.TaskModel, userID string) (models.TaskModel, bool, error) {
 	node, err := s.nodeBehind(ctx, task)
 	if err != nil || node == nil {
 		// A task whose node cannot be read is refused by the caller's own
 		// checks; there is nothing to enforce here.
-		return nil //nolint:nilerr // absence of a node is not a conflict
+		return models.TaskModel{}, false, nil //nolint:nilerr // absence of a node is not a conflict
 	}
 	conflicts := splitNodeList(node.GetStringProperty(SeparationOfDutiesKey))
 	if len(conflicts) == 0 {
-		return nil
+		return models.TaskModel{}, false, nil
 	}
 
 	performed, err := s.repo.Task().ListByInstance(ctx, uuid.UUID(task.InstanceID))
 	if err != nil {
-		return err
+		return models.TaskModel{}, false, err
 	}
 	for _, other := range performed {
-		if other.Status != models.TaskCompleted || !slices.Contains(conflicts, other.NodeID) {
-			continue
+		if other.Status == models.TaskCompleted && slices.Contains(conflicts, other.NodeID) && other.Assignee == userID {
+			return other, true, nil
 		}
-		if other.Assignee != userID {
-			continue
-		}
-		return fmt.Errorf("%w: %s already did %q on this instance, and %q may not be done by the same person",
-			ErrTaskForbidden, userID, other.NodeID, task.NodeID)
 	}
-	return nil
+	return models.TaskModel{}, false, nil
 }
 
 // nodeBehind reads the definition node a task was created from.
