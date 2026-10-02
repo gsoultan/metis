@@ -363,7 +363,10 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			Variables: vars,
 		}, task, EventTaskCompleted, userID)
 
-		return s.engine.Proceed(txCtx, &instance, fullDef, task.NodeID())
+		// Which run of the step this task was, so the engine retires that run's
+		// token and no other. A task created before migration 31 records none,
+		// and the engine then retires the lowest one still waiting.
+		return s.engine.ProceedIteration(txCtx, &instance, fullDef, task.NodeID(), task.IterationID)
 	})
 }
 

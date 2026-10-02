@@ -93,8 +93,17 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 		// variables as it starts — a service task snapshots them into its job —
 		// so each one leaves with its own item.
 		for i := range total {
+			iteration := fmt.Sprintf("%d", i)
+			// An iteration whose token has gone is one the step's completion
+			// condition ended before it began: a step that finishes as it starts
+			// — a script, a decision — can meet the condition on an earlier
+			// iteration, inside this loop. Starting it anyway ran work the
+			// process had already decided it did not need.
+			if _, waiting := instance.WaitingIteration(&node, iteration); !waiting {
+				continue
+			}
 			entities.BindMultiInstanceElement(instance, node, collection, i)
-			if err := t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, fmt.Sprintf("%d", i)); err != nil {
+			if err := t.engine.ExecuteNodeIteration(ctx, instance, def, node.ID, iteration); err != nil {
 				return err
 			}
 		}

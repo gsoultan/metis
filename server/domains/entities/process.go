@@ -3,6 +3,7 @@ package entities
 import (
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,6 +123,74 @@ func (pi *ProcessInstance) RemoveTokenByIteration(node *Node, iterationID string
 	}
 	pi.Tokens = slices.DeleteFunc(pi.Tokens, func(t Token) bool {
 		return t.Node != nil && t.Node.ID == node.ID && t.IterationID == iterationID
+	})
+}
+
+// WaitingIteration names the iteration of node that a completion retires, and
+// reports whether there is one.
+//
+// A completion that names its iteration gets that one, if its token is still
+// on the node; if it is not, the iteration has already been counted or was
+// withdrawn, and there is nothing to retire.
+//
+// A completion that names none gets the lowest-numbered iteration still
+// waiting. That is a task created before migration 31, which recorded no
+// iteration, and every caller that finishes a run without knowing which it was
+// — a call activity's child ending, an external task. Lowest, in numeric
+// order, because it is the same answer every time and needs nothing the old
+// row lacks; for a sequential step it is the only one there is.
+//
+// A token with no iteration is not an iteration: it is a step running once,
+// which HasPlainToken answers.
+func (pi *ProcessInstance) WaitingIteration(node *Node, iterationID string) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	lowest, found := "", false
+	for _, token := range pi.Tokens {
+		if token.Node == nil || token.Node.ID != node.ID || token.IterationID == "" {
+			continue
+		}
+		if iterationID != "" {
+			if token.IterationID == iterationID {
+				return iterationID, true
+			}
+			continue
+		}
+		if !found || iterationBefore(token.IterationID, lowest) {
+			lowest, found = token.IterationID, true
+		}
+	}
+	return lowest, found
+}
+
+// iterationBefore orders iteration ids as the engine numbers them: "2" before
+// "10". An id that is not a number sorts after every number, so a number is
+// always preferred, and two such ids fall back to text order.
+func iterationBefore(a, b string) bool {
+	left, leftErr := strconv.Atoi(a)
+	right, rightErr := strconv.Atoi(b)
+	switch {
+	case leftErr == nil && rightErr == nil:
+		return left < right
+	case leftErr == nil:
+		return true
+	case rightErr == nil:
+		return false
+	default:
+		return a < b
+	}
+}
+
+// HasPlainToken reports whether node holds a token that belongs to no
+// iteration — the step running once, as every step that does not repeat does,
+// and as a repeating step given nothing to repeat over does.
+func (pi *ProcessInstance) HasPlainToken(node *Node) bool {
+	if node == nil {
+		return false
+	}
+	return slices.ContainsFunc(pi.Tokens, func(t Token) bool {
+		return t.Node != nil && t.Node.ID == node.ID && t.IterationID == ""
 	})
 }
 
