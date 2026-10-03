@@ -1057,7 +1057,10 @@
     3. *The rewrite is the safety net for what moves after that read.* An instance that
        reaches a decided step between the apply reading it again and the rewrite's lock is
        left alone and listed, and the same migration run again decides it, for a skip, a
-       cancel and a hold — `TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun`.
+       cancel and a hold — `TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun`;
+       and when the new version has the step too, so that the work would land, because the
+       question there is the decision and not the landing —
+       `TestAnInstanceThatReachesAHeldStepBothVersionsHaveIsNotMovedUndecided`.
     4. *The reproduction from the ledger's review*, with a skip and with no decision at all:
        no token and no open task on the removed step on the new version, and the instance
        runs to its end — `TestTheStrandingReproducedInReviewNoLongerHappens`.

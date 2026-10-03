@@ -429,6 +429,57 @@ func TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun(t
 	}
 }
 
+// TestAnInstanceThatReachesAHeldStepBothVersionsHaveIsNotMovedUndecided.
+//
+// The step need not be one the new version lacks. A hold says "a person looks
+// at every instance waiting here before it goes anywhere"; when both versions
+// have the step, an instance that reached it just before its lock would land
+// perfectly well, and landing is not the question. Moved, it would be on the
+// new version with nobody having looked, and no later run of the migration
+// would find it. It is left where it is, and the next run holds it.
+func TestAnInstanceThatReachesAHeldStepBothVersionsHaveIsNotMovedUndecided(t *testing.T) {
+	f, listing, locks := newLockRacedFixture(t)
+	v1, err := f.svc.CreateDefinition(f.ctx, quotationV1(f))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	if _, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil); err != nil {
+		t.Fatalf("start a quotation: %v", err)
+	}
+	// The same steps again: a version that still has the operations approval.
+	v2, err := f.svc.CreateDefinition(f.ctx, quotationV1(f))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+	beforeTheRewriteLocks(listing, locks, func() { f.completeTaskOn(t, "supervisorReview", "sam") })
+	hold := decideOps(servicecontracts.NodeActionHold, "ask the account manager")
+
+	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, hold...)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !locks.fired {
+		t.Fatal("the hook never reached the rewrite's lock; the test is not exercising the window")
+	}
+	instance := f.assertWaitingAt(t, v1, "opsApprove")
+	f.assertNoMigrationEntries(t, instance.ID)
+	if result.Changed != 0 {
+		t.Errorf("the run says it acted on %d instance(s); it wrote nothing", result.Changed)
+	}
+	assertPassedOver(t, result, instance, "Operations approve", "opsApprove")
+
+	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, hold...); err != nil {
+		t.Fatalf("the second run: %v", err)
+	}
+	instance = f.assertWaitingAt(t, v1, "opsApprove")
+	if rows := f.ledger(t, instance.ID); len(rows) != 1 || rows[0].Kind != entities.DeviationHold {
+		t.Errorf("the second run should have held the instance: %+v", rows)
+	}
+	if open := f.openIncidentsOn(t, instance.ID, "opsApprove"); open != 1 {
+		t.Errorf("%d incident(s) are open at the operations approval, want the one that holds the instance", open)
+	}
+}
+
 // forked is start → split → (Branch A ‖ Branch B → Extra check) → join → end,
 // and without the extra check when withExtra is false: an instance with two
 // tokens, one of which can move onto a step the other version lacks.
