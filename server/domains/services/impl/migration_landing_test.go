@@ -54,6 +54,10 @@ func TestAPassedOverInstanceIsToldWhyInWords(t *testing.T) {
 			[]string{`"Operations approve"`, "no decision had settled it", "stays on version 1", "run the same migration again"}},
 		{"counters would merge", countersWouldMerge(source),
 			[]string{"cannot be added together", "stays on version 1", "Plan the migration again"}},
+		{"not planned for", notPlannedFor(source),
+			[]string{"not on version 1 when this migration was planned", "stays on version 1", "plan the migration again"}},
+		{"already moved", alreadyMoved(source),
+			[]string{"no longer on version 1", "had already moved it", "not moved again"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

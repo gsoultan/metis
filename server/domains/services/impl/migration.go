@@ -417,7 +417,7 @@ func (s *migrationService) apply(
 		}
 
 		moved := map[string]string{}
-		settled := false
+		settled, elsewhere := false, false
 		// Why the instance, once locked, is not to be moved; empty when it is.
 		stuck := ""
 		// The instance_migrated entry is written after the rewrite commits, but
@@ -439,6 +439,17 @@ func (s *migrationService) apply(
 			fresh, lockErr := s.repo.Process().GetForUpdate(txCtx, uuid.UUID(instance.ID))
 			if lockErr != nil {
 				return lockErr
+			}
+			// Is it still on the version this migration moves instances off?
+			// Asked first, and of the locked row: a second run of the same
+			// migration, started while the first was still working, listed the
+			// instance on the old version and reaches it after the first has
+			// moved it. Only the status used to be asked, so the mapping was
+			// applied a second time, to wherever the instance then stood on
+			// the new version.
+			if !onVersion(fresh, sourceDefID) {
+				elsewhere = true
+				return nil
 			}
 			// And re-read the question the listing answered. An instance that
 			// finished while this migration was working through the ones ahead
@@ -549,6 +560,15 @@ func (s *migrationService) apply(
 			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
 				"dealt with; run the same migration again to carry on from here)",
 				instance.ID, err, done, len(instances))
+		}
+		if elsewhere {
+			// Nothing of this run's was written to it. Not counted among those
+			// dealt with either: it is no longer one of the source version's.
+			result.PassedOver = append(result.PassedOver, passedOver(instance, alreadyMoved(source)))
+			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
+				Msg("A migration passed over an instance that another run had already moved off the source version. " +
+					"It was not decided or moved again")
+			continue
 		}
 		if settled {
 			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
@@ -1250,11 +1270,13 @@ func plannedActions(sourceNodes map[string]models.FlowNode, actions map[string]s
 // rather than moved.
 //
 // Neither copy decides anything. Each action asks again, under the instance's
-// lock, whether the instance is still running and still on that step, and acts
-// on nothing else. One that is not is left alone altogether (outcomeMovedOn) —
-// a holder who completed the step meanwhile gave the approval, and advancing
-// past it again would be a second advance. And an instance that reaches a
-// decided step after this read is caught by the rewrite, under its own lock.
+// lock, whether the instance is still running, still on the version being
+// migrated from and still on that step, and acts on nothing else. One that is
+// not is left alone altogether (notDecided) — a holder who completed the step
+// meanwhile gave the approval, and advancing past it again would be a second
+// advance; an instance another run has already moved is not this migration's
+// to decide at all. And an instance that reaches a decided step after this
+// read is caught by the rewrite, under its own lock.
 //
 // Reports what the run should do with the instance next, which step it was
 // found to have left when it is to be passed over, and whether anything was
@@ -1287,7 +1309,10 @@ func (s *migrationService) decide(
 			continue
 		}
 		cancelled, err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID)
-		return settledOr(cancelled, nodeID), err
+		if err != nil || cancelled {
+			return settledOr(cancelled, nodeID), err
+		}
+		return s.notDecided(ctx, instanceID, sourceDefID, nodeID, false)
 	}
 
 	for _, nodeID := range sortedKeys(options.Actions) {
@@ -1296,7 +1321,10 @@ func (s *migrationService) decide(
 			continue
 		}
 		held, err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID)
-		return settledOr(held, nodeID), err
+		if err != nil || held {
+			return settledOr(held, nodeID), err
+		}
+		return s.notDecided(ctx, instanceID, sourceDefID, nodeID, false)
 	}
 
 	skips := 0
@@ -1306,11 +1334,14 @@ func (s *migrationService) decide(
 			continue
 		}
 		skipped, err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID)
-		if err != nil || !skipped {
+		if err != nil {
+			return decision{outcome: outcomeMovedOn, left: nodeID, wrote: skips > 0}, err
+		}
+		if !skipped {
 			// Not on the step any more: the plan no longer describes this
 			// instance, so nothing further is decided about it in this run.
 			// A skip made before this one stands, and is said to have been.
-			return decision{outcome: outcomeMovedOn, left: nodeID, wrote: skips > 0}, err
+			return s.notDecided(ctx, instanceID, sourceDefID, nodeID, skips > 0)
 		}
 		skips++
 	}
@@ -1329,6 +1360,28 @@ func (s *migrationService) decide(
 		return decision{outcome: outcomeDealtWith, wrote: true}, nil
 	}
 	return decision{outcome: outcomeMove, wrote: true}, nil
+}
+
+// notDecided is what the run does with an instance an action found, under its
+// lock, not to be one it decides: no longer running, no longer on the step, or
+// no longer on the version being migrated from.
+//
+// The first two are the instance that moved on, which is passed over and told
+// which step it had left. The third is one another run of a migration has
+// already moved. Telling that one it "stays on" the source version would be
+// false, so it is sent on to the rewrite, which asks under its own lock which
+// version the instance is on, writes nothing to one that has left the source
+// version, and says so. wrote is whether an earlier skip of this run stands.
+func (s *migrationService) notDecided(ctx context.Context, instanceID, sourceDefID uuid.UUID, nodeID string, wrote bool) (decision, error) {
+	left := decision{outcome: outcomeMovedOn, left: nodeID, wrote: wrote}
+	now, err := s.repo.Process().Get(ctx, instanceID)
+	if err != nil {
+		return left, fmt.Errorf("re-reading instance %s, which was not decided at %q: %w", instanceID, nodeID, err)
+	}
+	if !onVersion(now, sourceDefID) {
+		return decision{outcome: outcomeMove, wrote: wrote}, nil
+	}
+	return left, nil
 }
 
 // settledOr is what a cancel or a hold at nodeID made of an instance: dealt
@@ -1379,7 +1432,12 @@ func (s *migrationService) skipNode(
 		// the copy that said "it is parked here" was read before the lock.
 		// Advancing again would put a second token after the step and record
 		// as waived an approval its holder gave.
-		if skipped = parkedOn(live, nodeID); !skipped {
+		//
+		// The same lock answers for the version. An instance another run of a
+		// migration has moved meanwhile can stand on a step of the same name on
+		// the new version, and advancing it from there along this version's
+		// graph would be advancing it along a graph it no longer runs.
+		if skipped = runs(live, sourceDefID) && parkedOn(live, nodeID); !skipped {
 			return nil
 		}
 		withdrawn, err := s.cancelTasksOn(txCtx, instanceID, nodeID)
@@ -1443,7 +1501,9 @@ func (s *migrationService) cancelInstance(
 		// Still running, and still at the step: the cancel is of the instances
 		// waiting there, and the listing that said this was one of them is as
 		// old as the run.
-		if cancelled = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !cancelled {
+		// And still on the version being migrated from: one another run has
+		// moved is no longer part of this migration, whatever step it stands on.
+		if cancelled = stillWaitingAt(fresh, source, nodeID); !cancelled {
 			return nil
 		}
 		instance = fresh
@@ -1646,6 +1706,24 @@ func holdsWork(instance models.ProcessInstanceModel, nodeID string) bool {
 	return false
 }
 
+// onVersion reports whether an instance runs the version with this id.
+func onVersion(instance models.ProcessInstanceModel, definitionID uuid.UUID) bool {
+	return uuid.UUID(instance.DefinitionID) == definitionID
+}
+
+// runs is onVersion for the instance as the engine reads it. One whose version
+// cannot be told is not taken to run this one.
+func runs(instance entities.ProcessInstance, definitionID uuid.UUID) bool {
+	return instance.Definition != nil && instance.Definition.ID == definitionID
+}
+
+// stillWaitingAt is the question a cancel and a hold put to the row their lock
+// returned: is this still one of the instances the decision is about — running,
+// on the version being migrated from, and holding a token on the step.
+func stillWaitingAt(locked models.ProcessInstanceModel, source models.ProcessDefinitionModel, nodeID string) bool {
+	return locked.Status == models.ProcessActive && onVersion(locked, uuid.UUID(source.ID)) && holdsWork(locked, nodeID)
+}
+
 // parkedOn is holdsWork for the instance as the engine reads it, and asks as
 // well that it is still running: the question a skip puts to the row its lock
 // returned.
@@ -1789,7 +1867,7 @@ func (s *migrationService) holdInstance(
 		if err != nil {
 			return fmt.Errorf("reading instance %s to hold it: %w", instanceID, err)
 		}
-		if held = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !held {
+		if held = stillWaitingAt(fresh, source, nodeID); !held {
 			return nil
 		}
 		incidentID, raised, err := s.raiseHoldIncident(txCtx, fresh, nodeID, action, options, source, target)

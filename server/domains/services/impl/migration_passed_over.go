@@ -43,6 +43,15 @@ func notPlannedFor(source models.ProcessDefinitionModel) string {
 		"It stays on version %d; plan the migration again to include it.", source.Version, source.Version)
 }
 
+// alreadyMoved is why an instance was not moved: once locked, it was no longer
+// on the source version. Only a migration changes an instance's version, so
+// another run — an earlier one whose listing this run shared, or one running
+// at the same time — had moved it.
+func alreadyMoved(source models.ProcessDefinitionModel) string {
+	return fmt.Sprintf("It was no longer on version %d when the migration reached it: another run of a migration "+
+		"had already moved it. Nothing was decided about it and it was not moved again.", source.Version)
+}
+
 // nowhereToLand is why an instance was not moved: once locked, it held work —
 // a token, a task, a timer, a waiting event or a counter — on steps the new
 // version has no step for and the mapping does not cover. The planner refuses
