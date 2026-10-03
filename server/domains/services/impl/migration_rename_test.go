@@ -52,16 +52,19 @@ func TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount(t *testing.T) {
 		"control":    {ID: "control"},
 		"submit":     {ID: "submit"},
 	}
-	done := []models.ProcessInstanceModel{{CompletedNodes: []string{"start", "prepare", "submit"}}, {CompletedNodes: []string{"start"}}}
+	done := []models.ProcessInstanceModel{
+		{Status: models.ProcessActive, CompletedNodes: []string{"start", "prepare", "submit"}},
+		{Status: models.ProcessActive, CompletedNodes: []string{"start"}},
+	}
 	cases := []struct {
 		name    string
 		mapping map[string]string
 		want    []string
 	}{
 		{"a redirect of a step an instance completed", map[string]string{"prepare": "control"},
-			[]string{`"prepare" is mapped onto "control"`, `1 instance(s) have completed "prepare"`}},
+			[]string{`"prepare" is mapped onto "control"`, `1 running instance(s) have completed "prepare"`}},
 		{"a redirect of a control nobody has completed", map[string]string{"opsApprove": "control"},
-			[]string{`0 instance(s) have completed "opsApprove"`, `"opsApprove" carries a control obligation`}},
+			[]string{`0 running instance(s) have completed "opsApprove"`, `"opsApprove" carries a control obligation`}},
 		{"a redirect of a step nobody completed and that carries nothing", map[string]string{"control": "prepare"}, nil},
 		{"a rename of a step an instance completed", map[string]string{"submit": "request"}, nil},
 	}
@@ -83,5 +86,26 @@ func TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The number in the warning is of the instances the migration would move:
+// running ones. An instance that finished on this version completed the step
+// too, and is not the plan's to count.
+func TestTheRedirectWarningCountsOnlyRunningInstances(t *testing.T) {
+	t.Parallel()
+	source := map[string]models.FlowNode{"prepare": {ID: "prepare"}, "control": {ID: "control"}}
+	instances := []models.ProcessInstanceModel{
+		{Status: models.ProcessActive, CompletedNodes: []string{"start", "prepare"}},
+		{Status: models.ProcessCompleted, CompletedNodes: []string{"start", "prepare", "control"}},
+		{Status: models.ProcessCancelled, CompletedNodes: []string{"start", "prepare"}},
+	}
+	warnings := redirectWarnings(source, map[string]string{"prepare": "control"}, instances)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `1 running instance(s) have completed "prepare"`) {
+		t.Fatalf("want the one warning counting the one running instance, got %v", warnings)
+	}
+	finishedOnly := redirectWarnings(source, map[string]string{"prepare": "control"}, instances[1:])
+	if len(finishedOnly) != 0 {
+		t.Fatalf("no running instance completed the step and it carries no control; warned anyway: %v", finishedOnly)
 	}
 }

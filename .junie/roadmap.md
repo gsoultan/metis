@@ -1083,7 +1083,15 @@
        it, and deciding the step inside is then taken —
        `TestADecisionOnASubProcessIsRefusedInThePlan` (`undecidable_kinds_test.go`); every node
        type the engine has, refused or accepted by where its handler leaves the token, and a
-       type added later must be placed — `TestADecisionIsRefusedWhereNoInstanceEverWaits`,
+       type added later must be placed; and the walk that names the steps inside ends on a
+       sub-process that is its own parent, on a cycle of parents, and on a definition nested
+       5,000 deep or 20,000 wide, each under a deadline —
+       `TestTheStepsInsideASubProcessThatIsItsOwnParentAreFound`,
+       `TestTheStepsInsideSubProcessesThatAreEachOthersParentAreFound`,
+       `TestTheStepsInsideADeeplyNestedSubProcessAreFoundAtOnce`,
+       `TestTheStepsInsideAWideSubProcessAreFoundAtOnce` (`services/impl`),
+       `TestADryRunOverASubProcessThatIsItsOwnParentAnswers`;
+       `TestADecisionIsRefusedWhereNoInstanceEverWaits`,
        `TestEveryNodeTypeIsDecidedOnPurpose`, `TestABoundaryEventsRefusalSaysToNameItWithItsStep`,
        `TestABoundaryEventMayBeNamedWithTheStepItIsAttachedTo` (`services/impl`).
     5. *Under the lock, work left on a decided step the new version lacks keeps the instance
@@ -1131,7 +1139,7 @@
     instance and leaves the timer to be dismissed when due (`live_rows_pins_test.go`, three
     pins); a skip, a cancel and a hold naming an approval and the deadline on it
     (`decided_with_its_step_pins_test.go`). The 82 tests the package had pass unedited; it
-    has 105. No existing refusal or warning text changed; the landing refusal gained a sentence
+    has 106. No existing refusal or warning text changed; the landing refusal gained a sentence
     after its own, for a boundary event. No pin's recorded text changed: none has a finished
     task on a renamed step.
   - **Rulings, and one decision still this change's own.**
@@ -1159,7 +1167,11 @@
   - **What it costs.** Counted from the code, not measured: nothing per instance in the
     ordinary case — the planned set is a map built once per apply; the version and the plan
     membership are comparisons on rows already read; the landing check reads what it read.
-    One more read of the instance only when an action found it gone.
+    One more read of the instance only when an action found it gone. For each finished task
+    on a renamed step, one scoped read and one single-column `UPDATE`, in the rewrite's
+    transaction. In the plan: the refusal for a sub-process indexes the definition's nodes by
+    parent once and visits each node once, however deep or looped the definition is; the
+    redirect warning reads each running instance's completed steps once.
   - **Upgrade.** No migration. `docs/upgrading.md`, *A task a migration reopened*, has the
     query for tasks 0.4.0 reopened, which reads only columns stored in the clear and is run
     by a test over rows the server wrote, and an unsupported `UPDATE` that puts one back from
@@ -1170,9 +1182,17 @@
       is named in a decision too, and that decision is a fiction: nothing is taken or recorded
       for it. The planner should excuse a boundary event's work when the step it is attached
       to is decided, and then refuse every decision on a boundary event.
+    - **A waiting step mapped onto a node nobody waits at is still accepted.** The planner
+      asks only that the node mapped to exists. A user task mapped onto a gateway, a script
+      task or a start event would leave its token, and its rebuilt task, on a node whose
+      handler never leaves one there. Read from `planFor` and `boundaryRefusals`, not run.
+      The table of where an instance waits (`waitsAt`) is what a refusal would be built on.
     - **A step mapped onto a boundary event, and the start of an event sub-process mapped
       onto a step, are still accepted.** The neighbours of the mapping refused here. Read from
       `boundaryRefusals`, not run.
+    - **Nothing limits how deep or how wide a definition may be, and nothing reads a node's
+      parent when one is saved.** A sub-process that is its own parent deploys. This change's
+      walk is bounded against it; the definition validator should refuse it.
     - **A decision on the start of an event sub-process, and a boundary event on a
       sub-process, have no path.** The first is refused like any start event; the second
       cannot be named with its step, because a decision on the sub-process is itself refused.

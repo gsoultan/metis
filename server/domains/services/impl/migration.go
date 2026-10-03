@@ -1048,12 +1048,18 @@ func boundaryAdvice(sourceNodes map[string]models.FlowNode, unlandable []string)
 			events = append(events, fmt.Sprintf("%q", flowNodeName(node)))
 		}
 	}
-	if len(events) == 0 {
+	switch len(events) {
+	case 0:
 		return ""
+	case 1:
+		return fmt.Sprintf(". Of those, %s is a boundary event: it can be mapped only to a boundary event of the new "+
+			"version; where the new version has none, decide the step it is attached to and name the event in the same "+
+			"decision, and what waits on the event ends with that step", events[0])
 	}
-	return fmt.Sprintf(". Of those, %s is a boundary event: it can be mapped only to a boundary event of the new "+
-		"version; where the new version has none, decide the step it is attached to and name the event in the same "+
-		"decision, and what waits on the event ends with that step", strings.Join(events, ", "))
+	return fmt.Sprintf(". Of those, %s and %s are boundary events: each can be mapped only to a boundary event of the "+
+		"new version; where the new version has none, decide the step each is attached to and name its events in the "+
+		"same decision, and what waits on them ends with that step",
+		strings.Join(events[:len(events)-1], ", "), events[len(events)-1])
 }
 
 // defaultFlowWarnings reports gateways downstream of the landing nodes that
@@ -1133,30 +1139,40 @@ func claimWarnings(moves []entities.NodeMove) []string {
 // see before applying: a control or a separation-of-duties rule on the step
 // mapped to does not see the work done on the step mapped from. Said only
 // where it bites — an instance in the plan has completed the step, or the step
-// carries a control obligation.
+// carries a control obligation. The count is of running instances, which are
+// the ones a migration moves.
 func redirectWarnings(
 	sourceNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []string {
 	renames := renamedSteps(sourceNodes, nodeMapping)
+	// How many of the instances this migration would move have completed each
+	// step: the running ones. The listing has every instance of the version,
+	// finished ones included, and those are not the plan's to count. Counted
+	// in one pass, so that the warning costs a look at each instance's record
+	// and not one for every entry of the mapping.
+	completedBy := map[string]int{}
+	for _, instance := range instances {
+		if instance.Status != models.ProcessActive {
+			continue
+		}
+		for _, id := range instance.CompletedNodes {
+			completedBy[id]++
+		}
+	}
 	var out []string
 	for from, to := range nodeMapping {
 		node, known := sourceNodes[from]
 		if _, renamed := renames[from]; renamed || !known || from == to {
 			continue
 		}
-		completed := 0
-		for _, instance := range instances {
-			if slices.Contains(instance.CompletedNodes, from) {
-				completed++
-			}
-		}
+		completed := completedBy[from]
 		controlled := boolProperty(node.Properties, "compliance_relevant")
 		if completed == 0 && !controlled {
 			continue
 		}
-		detail := fmt.Sprintf("%d instance(s) have completed %q", completed, from)
+		detail := fmt.Sprintf("%d running instance(s) have completed %q", completed, from)
 		if controlled {
 			detail += fmt.Sprintf("; %q carries a control obligation", from)
 		}

@@ -275,7 +275,7 @@ Four questions, in order. Stop at the first that decides.
 - A downstream gateway with a **default flow**, which would route silently instead of raising
   an incident when a variable the removed step used to set is missing.
 - Tasks **claimed or delegated right now**, which go back to the queue.
-- A **redirect of a step instances have completed, or one that carries a control**: open work
+- A **redirect of a step running instances have completed, or one that carries a control**: open work
   moves to the step mapped to, and work already done on the old step does not count as done
   on the new one, so a control or a separation-of-duties rule there will not see it. See *A
   rename and a redirect*, below.
@@ -603,6 +603,13 @@ description, type, priority, due date, form, assignee, candidate users and group
 claim is dropped. A task that lands on a step naming nobody is then an administrator's or an
 operator's to take, like any task with no assignee and no candidates.
 
+Carrying the task across was an authorisation bug: a task mapped from `opsApprove` onto
+`salesApprove` kept the operations manager as assignee and candidate group, which let the
+person whose step had just been deleted complete the step that replaced it, while the sales
+manager never saw it. Camunda preserves the assignee across migration, but only because it
+requires the two activities to be semantically equivalent first; nothing here can establish
+that, so the safe default is the other one.
+
 **A mapping moves only what is still open.** A mapping says where work in progress goes.
 Until this was fixed (0.4.0 has it) the rewrite applied it to every task and every job of the
 instance whatever its status, and since a task that changes node is rebuilt and offered, a
@@ -651,8 +658,9 @@ the completed-steps list who has passed a control (above).
 
 After a redirect, then, a rule or a control on the step mapped *to* does not see work done on
 the step mapped *from*, and should not: it was a different step. The plan says so in a
-warning whenever an instance it covers has completed the redirected step, or the step
-carries a control, so that it is somebody's decision and not a surprise.
+warning whenever a running instance it covers has completed the redirected step, or the
+step carries a control, so that it is somebody's decision and not a surprise. The number in
+the warning is of running instances: the ones the migration would move.
 
 ### Audit
 

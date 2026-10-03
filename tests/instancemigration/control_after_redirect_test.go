@@ -79,7 +79,7 @@ func TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt(t *testin
 	}
 	warned := strings.Join(first.Warnings, "; ")
 	t.Logf("warned: %s", warned)
-	for _, want := range []string{`"prepare"`, `"control"`, "does not count as done", "1 instance"} {
+	for _, want := range []string{`"prepare"`, `"control"`, "does not count as done", "1 running instance"} {
 		if !strings.Contains(warned, want) {
 			t.Errorf("the plan does not warn that %q: %v", want, first.Warnings)
 		}

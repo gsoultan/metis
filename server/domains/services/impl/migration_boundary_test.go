@@ -47,3 +47,35 @@ func TestABoundaryEventIsMappedOnlyToABoundaryEventOnTheSameStep(t *testing.T) {
 		})
 	}
 }
+
+// What the landing refusal adds for boundary events agrees in number with how
+// many there are, and says nothing when there are none.
+func TestTheAdviceForBoundaryEventsAgreesInNumber(t *testing.T) {
+	t.Parallel()
+	source := map[string]models.FlowNode{
+		"approve":  {ID: "approve", Name: "Approve", Type: models.UserTask},
+		"deadline": {ID: "deadline", Name: "Three days passed", Type: models.BoundaryEvent, AttachedToRef: "approve"},
+		"withdrew": {ID: "withdrew", Name: "The customer withdrew", Type: models.BoundaryEvent, AttachedToRef: "approve"},
+	}
+	if got := boundaryAdvice(source, []string{"approve"}); got != "" {
+		t.Errorf("no boundary event among the nodes, and advice all the same: %q", got)
+	}
+	one := boundaryAdvice(source, []string{"approve", "deadline"})
+	for _, want := range []string{`"Three days passed" is a boundary event: it can be mapped only to a boundary event`, "name the event in the same decision"} {
+		if !strings.Contains(one, want) {
+			t.Errorf("for one event the advice does not say %q: %s", want, one)
+		}
+	}
+	several := boundaryAdvice(source, []string{"deadline", "withdrew"})
+	for _, want := range []string{
+		`"Three days passed" and "The customer withdrew" are boundary events: each can be mapped only to a boundary event`,
+		"name its events in the same decision",
+	} {
+		if !strings.Contains(several, want) {
+			t.Errorf("for several events the advice does not say %q: %s", want, several)
+		}
+	}
+	if strings.Contains(several, " is a boundary event") {
+		t.Errorf("several events, and the advice says \"is\": %s", several)
+	}
+}

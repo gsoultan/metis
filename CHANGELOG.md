@@ -393,9 +393,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     not written at all.
 
   The plan gains a warning, and no existing text changes: when a mapping
-  redirects a step that an instance it covers has completed, or one that
-  carries a control, it says that open work moves and that work already done
-  on the old step does not count as done on the new one.
+  redirects a step that a running instance it covers has completed, or one
+  that carries a control, it says that open work moves and that work already
+  done on the old step does not count as done on the new one.
 - **A migration could be refused for a timer that had already fired.** A job
   cannot be deleted, so a timer that fired stays behind as a completed row,
   and the landing check counted every job row as work parked on its step. An
@@ -454,7 +454,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   event on its own, an embedded or event sub-process, start and end events, a
   gateway that routes or only splits, script and business rule tasks, the
   events a process throws — in words that name the node and what to decide
-  instead (for a sub-process, the steps inside it); a dry run shows it.
+  instead (for a sub-process, the steps inside it, found in one bounded walk
+  however the definition nests or loops); a dry run shows it.
   Deliberately still accepted: a boundary event named *together with* the
   step it is attached to, which is how a migration that decides an approval
   says that the approval's deadline goes with it, and which the refusals now
