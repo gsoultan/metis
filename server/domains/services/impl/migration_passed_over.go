@@ -64,6 +64,18 @@ func nowhereToLand(source, target models.ProcessDefinitionModel, nodeIDs []strin
 		stepNames(source, nodeIDs), target.Version, source.Version)
 }
 
+// leftWhereNothingDecides is why an instance was not moved: once locked, it
+// had an open task or a waiting event on a step this migration decides, and no
+// token there. A decision acts on the instances waiting at its step, so
+// nothing would have settled that work, and the new version has no such step.
+func leftWhereNothingDecides(source, target models.ProcessDefinitionModel, nodeIDs []string) string {
+	return fmt.Sprintf("When the migration came to move it, it had a task or a waiting event at %s, where this "+
+		"migration decides the work of the instances waiting there, and it was not waiting there, so no decision "+
+		"reached that work and version %d has nowhere to put it. It was not moved and stays on version %d. "+
+		"That task or waiting event has to be withdrawn before it can be moved.",
+		stepNames(source, nodeIDs), target.Version, source.Version)
+}
+
 // waitingToBeDecided is why an instance was not moved: once locked, it had a
 // token on a step this migration decides rather than moves, and no decision had
 // settled it. It reached the step after its work was decided, or a skip left

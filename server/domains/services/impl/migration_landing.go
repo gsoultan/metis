@@ -35,6 +35,15 @@ import (
 // — the instance reached the step after its work was decided, or a skip left
 // part of a repeating step behind. Moving it would carry it past a decision
 // the plan says is somebody's to make.
+//
+// The same goes for what is not a token. A decision acts on the instances that
+// hold a token on its step, so an open task or a waiting event on a decided
+// step with no token under it is settled by nothing; where the new version has
+// no such step it is not carried there. A job is left out on purpose: a timer
+// cannot be deleted, so a skipped wait leaves its timer behind, pending, on
+// the step the instance has just left, and the engine dismisses it when it
+// comes due because no token waits for it. Holding the instance back for that
+// row would hold it until the timer's hour came round.
 func (s *migrationService) whyNotMoved(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -52,6 +61,12 @@ func (s *migrationService) whyNotMoved(
 	}
 	if nowhere := nodesOf(found.unlandable, found.stateStranded); len(nowhere) > 0 {
 		return nowhereToLand(source, target, nowhere), nil
+	}
+	// No token is on a decided step by now, so a task or a waiting event still
+	// on one is work no decision can reach, and the plan's exemption would
+	// carry it to a version that has no such step.
+	if len(found.leftOnDecided) > 0 {
+		return leftWhereNothingDecides(source, target, found.leftOnDecided), nil
 	}
 	if len(found.stateCollisions) > 0 {
 		return countersWouldMerge(source), nil

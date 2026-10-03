@@ -701,6 +701,11 @@ type surveyResult struct {
 	// landings are the target nodes work would arrive on, for the downstream
 	// graph checks.
 	landings map[string]struct{}
+	// leftOnDecided are the decided nodes the target has no node for that hold
+	// an open task or a waiting event. In the plan that is the work the
+	// decision is for, and it is not read. The rewrite reads it, once the
+	// decisions have been taken (whyNotMoved).
+	leftOnDecided []string
 }
 
 // survey works out where the running work sits and where it would land.
@@ -762,6 +767,19 @@ func (s *migrationService) survey(
 		add(c)
 	}
 
+	// An open task or a waiting event on a decided node the target lacks. A
+	// decided node is never mapped (the planner refuses both at once), so it
+	// lands only where the target has a node of the same id.
+	left := map[string]struct{}{}
+	noteLeft := func(nodeID string) {
+		if _, decided := actions[nodeID]; !decided {
+			return
+		}
+		if _, ok := targetNodes[nodeID]; !ok {
+			left[nodeID] = struct{}{}
+		}
+	}
+
 	// Bookkeeping is tracked separately from tokens: a node can hold a join
 	// counter with no token on it, and that counter still has to land.
 	noteState := func(nodeID string) {
@@ -797,6 +815,9 @@ func (s *migrationService) survey(
 			return surveyResult{}, listErr
 		}
 		for _, task := range tasks {
+			if openTask(task.Status) {
+				noteLeft(task.NodeID)
+			}
 			switch task.Status {
 			case models.TaskUnclaimed:
 				count(task.NodeID, func(c *counts) { c.tasks++ })
@@ -836,6 +857,7 @@ func (s *migrationService) survey(
 			return surveyResult{}, listErr
 		}
 		for _, sub := range subs {
+			noteLeft(sub.NodeID)
 			count(sub.NodeID, func(c *counts) { c.events++ })
 		}
 	}
@@ -863,6 +885,7 @@ func (s *migrationService) survey(
 
 	result.unlandable = sortedKeys(stranded)
 	result.stateStranded = sortedKeys(strandedState)
+	result.leftOnDecided = sortedKeys(left)
 
 	for to, froms := range mergedInto {
 		if len(froms) < 2 {
@@ -1206,6 +1229,12 @@ func (s *migrationService) actionRefusals(
 				"%q is both mapped and set to %s; those are different instructions, so say which one you mean",
 				nodeID, action.Kind))
 		}
+		// A decision is taken on the instances holding a token on the node, so
+		// one on a node no instance ever holds a token on is taken on nobody —
+		// and still excused whatever waits on that node from having to land.
+		if why := nobodyWaitsAt(node, sourceNodes, actions); why != "" {
+			out = append(out, fmt.Sprintf("%s of %q cannot be taken: %s", action.Kind, flowNodeName(node), why))
+		}
 		if action.Kind != servicecontracts.NodeActionSkip {
 			continue
 		}
@@ -1230,6 +1259,64 @@ func (s *migrationService) actionRefusals(
 	}
 	slices.Sort(out)
 	return out
+}
+
+// nobodyWaitsAt says why a decision on a node would be made about nobody, and
+// nothing when it would not.
+//
+// Two kinds of node keep work without ever keeping a token. A boundary event's
+// waiting message or timer sits on the event while the token sits on the step
+// the event is attached to, and the event is executed without a token being
+// put on it. A start event is passed through in the transaction that puts the
+// token there; the start of an event sub-process waits the way a boundary
+// event does. A skip, a cancel or a hold naming either was accepted, found no
+// instance to act on, and recorded nothing — while the plan, which lets work
+// on a decided node go without anywhere to land, moved the instance with a
+// waiting event on a node its new version does not have.
+//
+// One case is left as it was: a boundary event named together with the step it
+// is attached to. A deadline on an approval the new version drops is dropped
+// with it, and naming the deadline beside the approval is the only way the
+// plan is told that its timer needs nowhere to land. Nothing is taken on the
+// event there either, and nothing needs to be: what waits on it ends with its
+// step — a skip of the step lets go of the event's waiting message and leaves
+// its timer to be dismissed when due, a cancel ends the instance, a hold
+// leaves it on the version it runs. The rewrite still asks, under its lock,
+// that nothing is left waiting on the event (whyNotMoved).
+//
+// Only these two kinds. Other nodes a token passes straight through carry no
+// work of their own for a decision to excuse.
+func nobodyWaitsAt(
+	node models.FlowNode,
+	sourceNodes map[string]models.FlowNode,
+	actions map[string]servicecontracts.NodeAction,
+) string {
+	switch node.Type {
+	case models.BoundaryEvent:
+		if _, withItsStep := actions[node.AttachedToRef]; withItsStep {
+			return ""
+		}
+		host := "the step it is attached to"
+		if attached, ok := sourceNodes[node.AttachedToRef]; ok {
+			host = fmt.Sprintf("%q", flowNodeName(attached))
+		}
+		return fmt.Sprintf("it is a boundary event, and no instance ever waits at a boundary event, only at the step "+
+			"it is attached to, so on its own the decision would be made about nobody; decide %s, and what waits "+
+			"on the event ends with that step, or map the event to a boundary event the new version has", host)
+	case models.StartEvent:
+		return "it is a start event, and no instance ever waits at a start event, so the decision would be made about nobody"
+	default:
+		return ""
+	}
+}
+
+// flowNodeName is what a refusal calls a step: its name, and its id when it
+// has none.
+func flowNodeName(node models.FlowNode) string {
+	if node.Name != "" {
+		return node.Name
+	}
+	return node.ID
 }
 
 // plannedActions is what the plan reports back about the decided nodes.
