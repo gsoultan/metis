@@ -1192,7 +1192,11 @@
       `boundaryRefusals`, not run.
     - **Nothing limits how deep or how wide a definition may be, and nothing reads a node's
       parent when one is saved.** A sub-process that is its own parent deploys. This change's
-      walk is bounded against it; the definition validator should refuse it.
+      walk is bounded against it; the definition validator should refuse it. The engine is
+      not bounded against it: `Engine.TriggerEscalation` climbs from a step to its parent in
+      a loop with no record of where it has been, so an escalation thrown inside a
+      sub-process that is its own parent, with nothing catching it, would never return. Read
+      from the code, not run.
     - **A decision on the start of an event sub-process, and a boundary event on a
       sub-process, have no path.** The first is refused like any start event; the second
       cannot be named with its step, because a decision on the sub-process is itself refused.
