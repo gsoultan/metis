@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/form"
 	"github.com/gsoultan/metis/server/repositories/store/group"
 	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
 	"github.com/gsoultan/metis/server/repositories/store/job"
 	"github.com/gsoultan/metis/server/repositories/store/membership"
 	"github.com/gsoultan/metis/server/repositories/store/notification"
@@ -90,10 +91,11 @@ var FlushOrder = map[string]int{
 	"deployment_resources":        34,
 	"event_subscriptions":         35,
 	"external_tasks":              36,
-	"jobs":                        37,
-	"notifications":               38,
-	"service_calls":               39,
-	"incidents":                   40,
+	"instance_deviations":         37,
+	"jobs":                        38,
+	"notifications":               39,
+	"service_calls":               40,
+	"incidents":                   41,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -2537,6 +2539,248 @@ func (p IncidentWithJobQuery) All(ctx context.Context, ex runtime.Executor) ([]I
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "incidents", "jobs")
 		}
 		out[i].Job = &targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithDefinitionRow is instance_deviations with its Definition loaded.
+type InstanceDeviationWithDefinitionRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Definition, which is different from having one that failed to load.
+	Definition *processdefinition.Row
+}
+
+type InstanceDeviationWithDefinitionQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithDefinition starts the plan.
+func InstanceDeviationWithDefinition() InstanceDeviationWithDefinitionQuery {
+	return InstanceDeviationWithDefinitionQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Limit(n int64) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithDefinitionQuery) Offset(n int64) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithDefinitionQuery) After(r InstanceDeviationWithDefinitionRow) InstanceDeviationWithDefinitionQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithDefinitionQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithDefinitionQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithDefinitionRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithDefinitionRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithDefinitionRow{Row: r}
+		key, ok := r.DefinitionID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processdefinition.New().Unordered().
+		Where(processdefinition.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.DefinitionID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "process_definitions")
+		}
+		out[i].Definition = &targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithProjectRow is instance_deviations with its Project loaded.
+type InstanceDeviationWithProjectRow struct {
+	instancedeviation.Row
+	Project project.Row
+}
+
+type InstanceDeviationWithProjectQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithProject starts the plan.
+func InstanceDeviationWithProject() InstanceDeviationWithProjectQuery {
+	return InstanceDeviationWithProjectQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithProjectQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) Limit(n int64) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithProjectQuery) Offset(n int64) InstanceDeviationWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithProjectQuery) After(r InstanceDeviationWithProjectRow) InstanceDeviationWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "projects")
+		}
+		out[i].Project = targets[j]
 	}
 	return out, nil
 }
