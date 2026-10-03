@@ -205,9 +205,9 @@ func TestAnInstanceThatReachesAStepTheNewVersionLacksIsNotMoved(t *testing.T) {
 	v1, v2 := f.waitingAtSupervisorReview(t)
 	listing.atTheEndpointsApplyListing(func() { f.completeTaskOn(t, "supervisorReview", "sam") })
 
-	apply := false
+	dryRun := false
 	reply, body := f.migrateOverTheEndpoint(t, definition.MigrateInstancesRequest{
-		SourceDefinitionID: v1.String(), TargetDefinitionID: v2.String(), DryRun: &apply,
+		SourceDefinitionID: v1.String(), TargetDefinitionID: v2.String(), DryRun: &dryRun,
 	})
 	reached(t, listing)
 
