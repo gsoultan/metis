@@ -28,9 +28,11 @@ func (h *deviationHarness) twoVersionsOfOneStep(t *testing.T) (v1, v2, instanceI
 	if err != nil {
 		t.Fatalf("read v1: %v", err)
 	}
-	second := *first
-	second.ID = uuid.Nil
-	if v2, err = h.svc.CreateDefinition(h.tenantContext(), &second); err != nil {
+	second := &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: first.Key, Name: first.Name,
+		Nodes: first.Nodes, Flows: first.Flows,
+	}
+	if v2, err = h.svc.CreateDefinition(h.tenantContext(), second); err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
 	return v1, v2, instanceID
