@@ -32,24 +32,25 @@ func TestPrepareDeviation(t *testing.T) {
 	cases := []struct {
 		name    string
 		change  func(*entities.Deviation)
-		refused bool
+		refused bool // refused at all
+		client  bool // refused because of what a person typed (400), else a writer's mistake
 	}{
-		{"well formed", func(*entities.Deviation) {}, false},
-		{"unknown kind", func(d *entities.Deviation) { d.Kind = "skip" }, true},
-		{"unknown scope", func(d *entities.Deviation) { d.Scope = "forever" }, true},
-		{"unknown origin", func(d *entities.Deviation) { d.Origin = "api" }, true},
-		{"terminal status on a new row", func(d *entities.Deviation) { d.Status = entities.DeviationRejected }, true},
-		{"no actor", func(d *entities.Deviation) { d.Actor = "  " }, true},
-		{"no reason where one is required", func(d *entities.Deviation) { d.Reason = " " }, true},
-		{"reason too long", func(d *entities.Deviation) { d.Reason = strings.Repeat("x", entities.MaxDeviationReasonLength+1) }, true},
+		{"well formed", func(*entities.Deviation) {}, false, false},
+		{"unknown kind", func(d *entities.Deviation) { d.Kind = "skip" }, true, false},
+		{"unknown scope", func(d *entities.Deviation) { d.Scope = "forever" }, true, false},
+		{"unknown origin", func(d *entities.Deviation) { d.Origin = "api" }, true, false},
+		{"terminal status on a new row", func(d *entities.Deviation) { d.Status = entities.DeviationRejected }, true, false},
+		{"no actor", func(d *entities.Deviation) { d.Actor = "  " }, true, false},
+		{"no reason where one is required", func(d *entities.Deviation) { d.Reason = " " }, true, true},
+		{"reason too long", func(d *entities.Deviation) { d.Reason = strings.Repeat("x", entities.MaxDeviationReasonLength+1) }, true, true},
 		{"no reason on an activation", func(d *entities.Deviation) {
 			d.Kind, d.Origin, d.Reason = entities.DeviationAdHocActivation, entities.DeviationOriginAdHoc, ""
-		}, false},
+		}, false, false},
 		{"a reason on a control loss", func(d *entities.Deviation) {
 			d.Kind, d.Origin, d.Scope, d.Reason = entities.DeviationControlWaived, entities.DeviationOriginMigration, entities.DeviationScopeInstance, "why"
-		}, true},
-		{"no project", func(d *entities.Deviation) { d.Project = nil }, true},
-		{"no instance", func(d *entities.Deviation) { d.Instance = nil }, true},
+		}, true, false},
+		{"no project", func(d *entities.Deviation) { d.Project = nil }, true, false},
+		{"no instance", func(d *entities.Deviation) { d.Instance = nil }, true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -58,8 +59,11 @@ func TestPrepareDeviation(t *testing.T) {
 			c.change(&d)
 			got, err := prepareDeviation(context.Background(), d)
 			if c.refused {
-				if !errors.Is(err, apierr.ErrInvalidArgument) {
-					t.Fatalf("got %v, want it refused as invalid", err)
+				if err == nil {
+					t.Fatal("a malformed row was accepted")
+				}
+				if isClient := errors.Is(err, apierr.ErrInvalidArgument); isClient != c.client {
+					t.Fatalf("got %v: invalid-argument %v, want %v (what a person typed is a 400, a writer's mistake a server error)", err, isClient, c.client)
 				}
 				return
 			}

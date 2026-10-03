@@ -2,6 +2,8 @@ package impl
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -38,32 +40,38 @@ func prepareDeviation(ctx context.Context, d entities.Deviation) (entities.Devia
 	return d, nil
 }
 
+// checkDeviation stops a row an engine writer built wrongly. Such a mistake is
+// a plain error, not apierr.Invalidf, for the reason the repository gives: it
+// is never the client's, so it must surface as a server error that is logged,
+// not as a 400 about something the caller did not do.
 func checkDeviation(d entities.Deviation) error {
 	switch {
 	case !d.Kind.Valid():
-		return apierr.Invalidf("%q is not a kind of deviation the ledger records", d.Kind)
+		return fmt.Errorf("deviation: %q is not a kind of deviation the ledger records", d.Kind)
 	case !d.Scope.Valid():
-		return apierr.Invalidf("%q is not a scope a deviation can have", d.Scope)
+		return fmt.Errorf("deviation: %q is not a scope a deviation can have", d.Scope)
 	case !d.Origin.Valid():
-		return apierr.Invalidf("%q is not a way a deviation can come about", d.Origin)
+		return fmt.Errorf("deviation: %q is not a way a deviation can come about", d.Origin)
 	case d.Status != entities.DeviationApplied && d.Status != entities.DeviationPendingApproval:
-		return apierr.Invalidf("a new deviation is applied or awaiting approval, not %q", d.Status)
+		return fmt.Errorf("deviation: a new deviation is applied or awaiting approval, not %q", d.Status)
 	case d.Actor == "":
-		return apierr.Invalidf("a deviation names who did it")
+		return errors.New("deviation: the actor who did it is not named")
 	case d.Project == nil || d.Project.ID == uuid.Nil:
-		return apierr.Invalidf("a deviation names the project of its instance")
+		return errors.New("deviation: the project of its instance is not named")
 	case d.Instance == nil || d.Instance.ID == uuid.Nil:
-		return apierr.Invalidf("a deviation names the instance it was done to")
+		return errors.New("deviation: the instance it was done to is not named")
+	case d.Kind.ReasonForbidden() && d.Reason != "":
+		return fmt.Errorf("deviation: a %s is the system's record and takes no reason", d.Kind)
 	}
 	return checkDeviationReason(d)
 }
 
+// checkDeviationReason judges the one thing a person typed and can correct: the
+// reason. Only these refusals are the client's (400).
 func checkDeviationReason(d entities.Deviation) error {
 	switch {
 	case d.Kind.ReasonRequired() && d.Reason == "":
 		return apierr.Invalidf("say why: a %s needs a reason", d.Kind)
-	case d.Kind.ReasonForbidden() && d.Reason != "":
-		return apierr.Invalidf("a %s is the system's record and takes no reason", d.Kind)
 	case utf8.RuneCountInString(d.Reason) > entities.MaxDeviationReasonLength:
 		return apierr.Invalidf("the reason is longer than %d characters", entities.MaxDeviationReasonLength)
 	}
