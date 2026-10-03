@@ -1,9 +1,11 @@
 package instancemigration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/endpoints/definition"
 )
@@ -115,4 +117,63 @@ func TestTheRefusalForABoundaryEventsWorkSaysWhatWorks(t *testing.T) {
 		t.Fatalf("what the refusal advises was refused: %v", advised.Refusals)
 	}
 	f.assertNothingIsStranded(t)
+}
+
+// What an operator does instead, when the new version keeps a step and drops
+// the deadline on it: the instances waiting at the step are held there, the
+// deadline named beside the step, and once one has left the step the same
+// migration run again moves it. The deadline's timer, still pending, is let
+// stand because the deadline is named with its step, and is dismissed when it
+// comes due.
+func TestAnInstanceAtAStepWhoseDeadlineWasDroppedIsHeldAndMovedOnceItHasLeftTheStep(t *testing.T) {
+	f := newFixture(t)
+	without := approvalWithDeadline(f.project, true)
+	without.Nodes = slices.DeleteFunc(without.Nodes, func(node *entities.Node) bool {
+		return node.ID == "deadline" || node.ID == "escalate" || node.ID == "escalated"
+	})
+	without.Flows = slices.DeleteFunc(without.Flows, func(flow *entities.SequenceFlow) bool {
+		return flow.ID == "p4" || flow.ID == "p5"
+	})
+	v1, v2 := f.startedOn(t, approvalWithDeadline(f.project, true), without)
+	hold := servicecontracts.NodeAction{Kind: servicecontracts.NodeActionHold, Reason: "the deadline was dropped; look at each"}
+	held := []servicecontracts.MigrationOption{
+		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{"approve": hold, "deadline": hold}),
+		servicecontracts.WithActor("dita"),
+	}
+
+	first, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, held...)
+	if err != nil {
+		t.Fatalf("the first run: %v", err)
+	}
+	instance := f.assertWaitingAt(t, v1, "approve")
+	if first.Changed != 1 || f.openIncidentsOn(t, instance.ID, "approve") != 1 {
+		t.Fatalf("the instance should be held at the approval, on the version it runs: changed=%d", first.Changed)
+	}
+
+	// Its holder gives the approval, and the same migration is run again.
+	f.completeTaskOn(t, "approve", "ada")
+	f.assertWaitingAt(t, v1, "sign")
+	second, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, held...)
+	if err != nil {
+		t.Fatalf("the second run: %v", err)
+	}
+	if second.Changed != 1 || len(second.PassedOver) != 0 {
+		t.Errorf("the second run says it acted on %d and passed over %d (%+v), want one and none", second.Changed, len(second.PassedOver), second.PassedOver)
+	}
+	f.assertWaitingAt(t, v2, "sign")
+	f.assertNothingIsStranded(t)
+
+	// The three days pass: the timer finds no token and is dismissed.
+	if err := f.db.WithContext(f.ctx).Exec(
+		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
+		t.Fatalf("bring the deadline due: %v", err)
+	}
+	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+	f.assertWaitingAt(t, v2, "sign")
+	if rows := f.jobRows(t, instance.ID); len(rows) != 1 || !strings.HasSuffix(rows[0], "status=completed") {
+		t.Errorf("the deadline's timer should have been dismissed when it came due: %v", rows)
+	}
+	f.runsToItsEnd(t)
 }

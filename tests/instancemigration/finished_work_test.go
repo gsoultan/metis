@@ -22,8 +22,10 @@ import (
 // else's name, and the record of who gave it was gone.
 
 // finishedTasks is every completed or canceled task of the instance, each
-// told in full as the database holds it — the columns that say what happened
-// and when, the time it was last written included.
+// told in full as the database holds it: the columns that say what happened.
+// updated_at is told with them, and for a task it shows only that nothing
+// stamped the row: a task write does not move it. That a finished task is not
+// written rests on the code; what is compared here is every column's value.
 func (f *fixture) finishedTasks(t *testing.T, instanceID uuid.UUID) map[string]string {
 	t.Helper()
 	return f.rowsByID(t, `
