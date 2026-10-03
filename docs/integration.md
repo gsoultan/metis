@@ -681,7 +681,8 @@ instance is a 404.
 
 Three things about a row's shape that a client can rely on:
 
-- `actor` is a username, and no account id is returned. The server acting with
+- `actor` is a username, exactly as the account has it — a space at either end
+  included, since that is a different name — and no account id is returned. The server acting with
   nobody signed in is written as `System`, which an account may also be called,
   so `actor_is_server` says which it was: `true` exactly when the row names no
   account, `false` for every row a signed-in account made, whatever its name.
