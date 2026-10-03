@@ -72,7 +72,7 @@ func leftWhereNothingDecides(source, target models.ProcessDefinitionModel, nodeI
 	return fmt.Sprintf("When the migration came to move it, it had a task or a waiting event at %s, where this "+
 		"migration decides the work of the instances waiting there, and it was not waiting there, so no decision "+
 		"reached that work and version %d has nowhere to put it. It was not moved and stays on version %d. "+
-		"That task or waiting event has to be withdrawn before it can be moved.",
+		"Nothing in the product withdraws a single task or waiting event yet, so it stays there until that work is gone.",
 		stepNames(source, nodeIDs), target.Version, source.Version)
 }
 

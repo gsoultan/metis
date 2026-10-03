@@ -179,7 +179,7 @@ func (s *migrationService) planFor(
 	plan.Refusals = append(plan.Refusals, boundaryRefusals(sourceNodes, targetNodes, nodeMapping)...)
 
 	// Nodes whose work is decided rather than moved.
-	plan.Refusals = append(plan.Refusals, s.actionRefusals(sourceNodes, targetNodes, nodeMapping, options.Actions)...)
+	plan.Refusals = append(plan.Refusals, s.actionRefusals(sourceNodes, targetNodes, nodeMapping, options.Actions, incomingFlows(source))...)
 	plan.Actions = plannedActions(sourceNodes, options.Actions)
 
 	// Which nodes the new version dropped altogether. Shown whether or not any
@@ -580,8 +580,8 @@ func (s *migrationService) apply(
 			// plan, finds it where it now stands.
 			result.PassedOver = append(result.PassedOver, passedOver(instance, stuck))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
-				Msg("A migration passed over an instance that had moved, after it was listed, onto work the new version " +
-					"cannot take as it stands. It stays on the version it is running; plan the migration again for where it is now")
+				Msg("A migration passed over an instance that holds work the new version cannot take as it stands. " +
+					"It stays on the version it is running; the reply says what the work is and what to do")
 			continue
 		}
 		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
@@ -1117,6 +1117,18 @@ func nodeIndex(nodes []models.FlowNode) map[string]models.FlowNode {
 	return index
 }
 
+// incomingFlows counts the sequence flows that arrive at each node of a
+// definition, nested ones included. Counted from the flows, as the engine
+// counts them: a node's own list of incoming flows is what the designer drew
+// and need not be there.
+func incomingFlows(def models.ProcessDefinitionModel) map[string]int {
+	incoming := map[string]int{}
+	for _, flow := range allFlows(def) {
+		incoming[flow.TargetRef]++
+	}
+	return incoming
+}
+
 // allFlows returns every sequence flow in a definition, nested ones included.
 func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 	flows := slices.Clone(def.Flows)
@@ -1235,6 +1247,7 @@ func (s *migrationService) actionRefusals(
 	sourceNodes, targetNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
 	actions map[string]servicecontracts.NodeAction,
+	incoming map[string]int,
 ) []string {
 	var out []string
 	for nodeID, action := range actions {
@@ -1273,7 +1286,7 @@ func (s *migrationService) actionRefusals(
 		// A decision is taken on the instances holding a token on the node, so
 		// one on a node no instance ever holds a token on is taken on nobody —
 		// and still excused whatever waits on that node from having to land.
-		if why := nobodyWaitsAt(node, sourceNodes, actions); why != "" {
+		if why := nobodyWaitsAt(node, sourceNodes, actions, incoming); why != "" {
 			out = append(out, fmt.Sprintf("%s of %q cannot be taken: %s", action.Kind, flowNodeName(node), why))
 		}
 		if action.Kind != servicecontracts.NodeActionSkip {
@@ -1300,64 +1313,6 @@ func (s *migrationService) actionRefusals(
 	}
 	slices.Sort(out)
 	return out
-}
-
-// nobodyWaitsAt says why a decision on a node would be made about nobody, and
-// nothing when it would not.
-//
-// Two kinds of node keep work without ever keeping a token. A boundary event's
-// waiting message or timer sits on the event while the token sits on the step
-// the event is attached to, and the event is executed without a token being
-// put on it. A start event is passed through in the transaction that puts the
-// token there; the start of an event sub-process waits the way a boundary
-// event does. A skip, a cancel or a hold naming either was accepted, found no
-// instance to act on, and recorded nothing — while the plan, which lets work
-// on a decided node go without anywhere to land, moved the instance with a
-// waiting event on a node its new version does not have.
-//
-// One case is left as it was: a boundary event named together with the step it
-// is attached to. A deadline on an approval the new version drops is dropped
-// with it, and naming the deadline beside the approval is the only way the
-// plan is told that its timer needs nowhere to land. Nothing is taken on the
-// event there either, and nothing needs to be: what waits on it ends with its
-// step — a skip of the step lets go of the event's waiting message and leaves
-// its timer to be dismissed when due, a cancel ends the instance, a hold
-// leaves it on the version it runs. The rewrite still asks, under its lock,
-// that nothing is left waiting on the event (whyNotMoved).
-//
-// Only these two kinds. Other nodes a token passes straight through carry no
-// work of their own for a decision to excuse.
-func nobodyWaitsAt(
-	node models.FlowNode,
-	sourceNodes map[string]models.FlowNode,
-	actions map[string]servicecontracts.NodeAction,
-) string {
-	switch node.Type {
-	case models.BoundaryEvent:
-		if _, withItsStep := actions[node.AttachedToRef]; withItsStep {
-			return ""
-		}
-		host := "the step it is attached to"
-		if attached, ok := sourceNodes[node.AttachedToRef]; ok {
-			host = fmt.Sprintf("%q", flowNodeName(attached))
-		}
-		return fmt.Sprintf("it is a boundary event, and no instance ever waits at a boundary event, only at the step "+
-			"it is attached to, so on its own the decision would be made about nobody; decide %s, and what waits "+
-			"on the event ends with that step, or map the event to a boundary event the new version has", host)
-	case models.StartEvent:
-		return "it is a start event, and no instance ever waits at a start event, so the decision would be made about nobody"
-	default:
-		return ""
-	}
-}
-
-// flowNodeName is what a refusal calls a step: its name, and its id when it
-// has none.
-func flowNodeName(node models.FlowNode) string {
-	if node.Name != "" {
-		return node.Name
-	}
-	return node.ID
 }
 
 // plannedActions is what the plan reports back about the decided nodes.
