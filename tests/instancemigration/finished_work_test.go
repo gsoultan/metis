@@ -181,8 +181,9 @@ func everyKindOfRow(projectID uuid.UUID, draft, wait, check, approve string) *en
 // One instance with one of each: a completed task, a canceled task, a timer
 // that already fired, an incident that was resolved, and one open task. Every
 // step is renamed by the new version and named by the mapping. Only the open
-// task follows it. The rest say what happened, on the version it happened on,
-// and are not written at all.
+// task is rebuilt. A finished task takes its step's new id and nothing else,
+// because the mapping is a rename; the timer and the incident say what
+// happened, on the version it happened on, and are not written at all.
 func TestAMappingChangesOnlyWhatIsStillOpen(t *testing.T) {
 	f := newFixture(t)
 	v1, v2 := f.startedOn(t,
@@ -240,8 +241,13 @@ func TestAMappingChangesOnlyWhatIsStillOpen(t *testing.T) {
 	}
 	f.assertNothingIsStranded(t)
 
-	// Nothing else did.
-	assertRowsUntouched(t, "finished task", tasks, f.finishedTasks(t, instance.ID))
+	// Nothing else did. Each step was renamed, so a finished task is on its
+	// step's new id; every other column of it is as it was.
+	for id, told := range tasks {
+		told = strings.Replace(told, "node=draft ", "node=write ", 1)
+		tasks[id] = strings.Replace(told, "node=check ", "node=verify ", 1)
+	}
+	assertRowsUntouched(t, "finished task, but for its step's new id", tasks, f.finishedTasks(t, instance.ID))
 	assertRowsUntouched(t, "finished job", jobs, f.jobsInFull(t, instance.ID))
 	assertRowsUntouched(t, "resolved incident", incidents, f.incidentsInFull(t, instance.ID))
 

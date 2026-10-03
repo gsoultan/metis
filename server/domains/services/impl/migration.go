@@ -350,6 +350,9 @@ func (s *migrationService) apply(
 		return result, fmt.Errorf("target definition: %w", err)
 	}
 	targetNodes := nodeIndex(target.Nodes)
+	// The part of the mapping that only renames a step: what finished work
+	// follows.
+	renames := renamedSteps(nodeIndex(source.Nodes), nodeMapping)
 
 	instances, err := s.repo.Process().ListByDefinition(ctx, sourceDefID)
 	if err != nil {
@@ -511,10 +514,20 @@ func (s *migrationService) apply(
 				// names, as every task used to be, it came back claimed or
 				// unclaimed: an approval already given was open work again, in
 				// the name of whoever the new step is for, and nothing said any
-				// longer who had given it. Such a task is not written at all,
-				// its step's id included — a rule that names the old step still
-				// finds who performed it.
+				// longer who had given it.
+				//
+				// What a finished task may take is its step's new id, and only
+				// where the mapping renames the step (renamedSteps): the work
+				// was done on that step, and a rule of the new version — who
+				// did this may not also do that — names it by the new id and
+				// reads finished tasks to find who. That one column is written,
+				// guarded by the status, and it is not listed among the work
+				// re-pointed. Under any other mapping the task is not written
+				// at all: it must not say somebody did a step they did not do.
 				if !openTask(task.Status) {
+					if err := s.renameFinishedStep(txCtx, task, renames); err != nil {
+						return err
+					}
 					continue
 				}
 				mapped := mapNode(nodeMapping, task.NodeID)
@@ -592,6 +605,19 @@ func (s *migrationService) apply(
 	}
 
 	return result, nil
+}
+
+// renameFinishedStep gives a finished task its step's new id, when the mapping
+// renames that step, and writes nothing otherwise.
+func (s *migrationService) renameFinishedStep(ctx context.Context, task models.TaskModel, renames map[string]string) error {
+	to, renamed := renames[task.NodeID]
+	if !renamed {
+		return nil
+	}
+	if _, err := s.repo.Task().RenameFinishedStep(ctx, uuid.UUID(task.ID), to); err != nil {
+		return fmt.Errorf("renaming the step of finished task %s: %w", task.ID, err)
+	}
+	return nil
 }
 
 // recordControlLosses enters in the instance's ledger each acknowledged control
@@ -1141,6 +1167,33 @@ func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 	}
 	walk(def.Nodes)
 	return flows
+}
+
+// renamedSteps is the part of a mapping that renames a step and does nothing
+// else: the id it maps to is not a step of the source version, and no other
+// step is mapped onto it.
+//
+// A mapping has two shapes and they mean different things for work already
+// done. "submit → request", where request is new, says the step has a new
+// name: whoever did the submit did the request. "opsApprove → salesApprove",
+// where the source version has both, sends the open operations approvals to
+// the sales manager, and says nothing of the kind about an operations approval
+// already given; nor do two steps mapped onto one new id, which cannot both
+// be it. Work in progress follows any mapping. Finished work follows only a
+// rename.
+func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
+	mappedOnto := make(map[string]int, len(nodeMapping))
+	for _, to := range nodeMapping {
+		mappedOnto[to]++
+	}
+	renames := map[string]string{}
+	for from, to := range nodeMapping {
+		if _, alsoASourceStep := sourceNodes[to]; alsoASourceStep || mappedOnto[to] != 1 || from == to {
+			continue
+		}
+		renames[from] = to
+	}
+	return renames
 }
 
 // mapNodeList rewrites a list of node ids through the mapping.

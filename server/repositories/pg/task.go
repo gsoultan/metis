@@ -382,6 +382,32 @@ func (r *taskRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status 
 	return nil
 }
 
+// RenameFinishedStep changes the step id of a task that is completed or
+// canceled, and no other column of it.
+//
+// One statement whose condition is part of the write, as a job's claim is: a
+// finished task is the record of what somebody did, so the caller must not be
+// able to put back a status, an assignee or a form it read some time ago, and
+// a task that is still open is not this write's to touch. updated_at is left
+// alone with the rest: nothing was done to the task, its step was renamed.
+func (r *taskRepository) RenameFinishedStep(ctx context.Context, id uuid.UUID, nodeID string) (bool, error) {
+	// Scoped as every write of a task is: one the caller cannot see is not there.
+	if _, err := r.Get(ctx, id); err != nil {
+		return false, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return false, err
+	}
+	renamed, err := ex.Exec(ctx,
+		`UPDATE tasks SET node_id = $1 WHERE id = $2 AND status IN ($3, $4) AND deleted_at IS NULL`,
+		[]any{nodeID, id, string(models.TaskCompleted), string(models.TaskCanceled)})
+	if err != nil {
+		return false, fmt.Errorf("could not rename the finished task's step: %w", err)
+	}
+	return renamed > 0, nil
+}
+
 // CountByStatus counts a project's tasks in one state.
 //
 // Scoped, and it was not: this counted every organization's work, so the number
