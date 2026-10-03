@@ -402,13 +402,22 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return MigrateInstancesResponse{Err: err}, nil
 		}
 		if req.dryRun() {
-			return MigrateInstancesResponse{Plan: plan}, nil
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil)}, nil
 		}
-		if err := s.MigrateInstances(ctx, source, target, req.NodeMapping, opts...); err != nil {
+		result, err := s.ApplyInstanceMigration(ctx, source, target, req.NodeMapping, opts...)
+		if err != nil {
 			// The plan comes back with the refusal so the caller sees both what
 			// they asked for and why it was declined, in one reply.
-			return MigrateInstancesResponse{Plan: plan, Err: err}, nil
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), Err: err}, nil
 		}
-		return MigrateInstancesResponse{Plan: plan, Applied: true}, nil
+		// The plan was made before the apply and says what would happen; the
+		// result says what did. An instance that left its step in between was
+		// left alone, and "applied" on its own would have said otherwise: it is
+		// true unless the run passed instances over and wrote to none.
+		return MigrateInstancesResponse{
+			Plan:       plan,
+			Applied:    result.Changed > 0 || len(result.PassedOver) == 0,
+			PassedOver: passedOverViews(result.PassedOver),
+		}, nil
 	}
 }

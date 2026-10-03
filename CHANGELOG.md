@@ -362,9 +362,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   it is not moved to the new version in that run, because the plan was made
   for where it used to be. It stays on the version it is running, and running
   the same migration again plans for where it now stands. **What a caller
-  meets:** an apply that passed an instance over still answers
-  `applied: true` and does not list it; the server log names it, and a dry run
-  of the same migration afterwards shows what is left.
+  meets:** the reply to an apply now carries `passed_over`, the instances the
+  run left alone, each as `{"instance_id", "reason"}` with the reason in plain
+  words naming the step — *It was no longer waiting at "Operations approve"
+  when the migration reached it, so nothing was decided there and it was not
+  moved…*. It is always present, `[]` when the run left nobody behind and for
+  a dry run. An instance that finished before a migration reached it, which
+  was already left unmoved, is listed there as well. `applied` still says
+  whether anything was written: it is `true` when the run acted on at least
+  one instance, whatever it passed over, and is now `false` when it passed
+  instances over and acted on none, where it used to say `true`.
 - **A migration by an account with no username was recorded as the
   server's.** `POST /api/v1/definitions/versions/migrate` left the caller out
   when the signed-in account had no username, and its skip, cancel or hold was

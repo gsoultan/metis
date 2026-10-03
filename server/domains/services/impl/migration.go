@@ -69,18 +69,26 @@ func NewMigrationService(
 // half-migrated instance is worse than a refused migration — the caller can retry
 // a refusal, and cannot un-strand a token.
 func (s *migrationService) MigrateInstances(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) error {
+	_, err := s.ApplyInstanceMigration(ctx, sourceDefID, targetDefID, nodeMapping, opts...)
+	return err
+}
+
+// ApplyInstanceMigration is MigrateInstances, and says what the run did: how
+// many instances it acted on, and which it left alone because they were no
+// longer where the plan found them.
+func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
 	// Every refusal is worked out by the planner, so what a dry run showed and
 	// what an apply does cannot disagree. Two copies of these checks is how a
 	// preview comes to say "this is fine" about something the apply rejects.
 	plan, err := s.PlanInstanceMigration(ctx, sourceDefID, targetDefID, nodeMapping, opts...)
 	if err != nil {
-		return err
+		return entities.MigrationResult{}, err
 	}
 	if !plan.Applicable() {
-		return apierr.Invalidf("%s", strings.Join(plan.Refusals, "; "))
+		return entities.MigrationResult{}, apierr.Invalidf("%s", strings.Join(plan.Refusals, "; "))
 	}
 	if plan.Instances == 0 {
-		return nil
+		return entities.MigrationResult{}, nil
 	}
 	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, servicecontracts.ApplyMigrationOptions(opts), plan)
 }
@@ -296,26 +304,31 @@ func noteSuffix(note string) string {
 
 // apply performs the migration. Every refusal has already been made by the
 // planner, so this only writes.
+//
+// It reports what it did. The instances it leaves alone are the ones that, by
+// the time it held their lock, were no longer where its listing found them;
+// they are in the result so the caller can be told, not only in the log.
 func (s *migrationService) apply(
 	ctx context.Context,
 	sourceDefID, targetDefID uuid.UUID,
 	nodeMapping map[string]string,
 	options servicecontracts.MigrationOptions,
 	plan entities.MigrationPlan,
-) error {
+) (entities.MigrationResult, error) {
+	var result entities.MigrationResult
 	source, err := s.repo.Definition().Get(ctx, sourceDefID)
 	if err != nil {
-		return fmt.Errorf("source definition: %w", err)
+		return result, fmt.Errorf("source definition: %w", err)
 	}
 	target, err := s.repo.Definition().Get(ctx, targetDefID)
 	if err != nil {
-		return fmt.Errorf("target definition: %w", err)
+		return result, fmt.Errorf("target definition: %w", err)
 	}
 	targetNodes := nodeIndex(target.Nodes)
 
 	instances, err := s.repo.Process().ListByDefinition(ctx, sourceDefID)
 	if err != nil {
-		return fmt.Errorf("failed to list instances for migration: %w", err)
+		return result, fmt.Errorf("failed to list instances for migration: %w", err)
 	}
 	instances, _ = selectInstances(instances, options.Instances)
 
@@ -339,20 +352,24 @@ func (s *migrationService) apply(
 		// an instance that was cancelled or finished by a skip is not migrated
 		// at all: it will never run again, and its record should name the
 		// version it actually ran on.
-		outcome, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
+		made, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
-			return fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
+			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
 				"run the same migration again to carry on from here)", err, done, len(instances))
 		}
-		switch outcome {
+		if made.wrote {
+			result.Changed++
+		}
+		switch made.outcome {
 		case outcomeDealtWith:
 			done++
 			continue
 		case outcomeMovedOn:
 			// Passed over as an instance that finished meanwhile is, further
-			// down: not counted, and still on the source version for the next
-			// run. Said in the log because, unlike a finished one, it may
-			// still be running there.
+			// down: not counted among those dealt with, and still on the
+			// source version for the next run. Said in the result, for whoever
+			// asked for the migration, and in the log.
+			result.PassedOver = append(result.PassedOver, passedOver(instance, leftTheStep(source, made.left)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that was no longer where its listing found it. " +
 					"It stays on the version it is running; run the same migration again to plan for where it is now")
@@ -363,7 +380,7 @@ func (s *migrationService) apply(
 			// A skip moved the tokens, so the copy read before it is stale.
 			refreshed, readErr := s.repo.Process().Get(ctx, uuid.UUID(instance.ID))
 			if readErr != nil {
-				return fmt.Errorf("re-reading instance %s: %w", instance.ID, readErr)
+				return result, fmt.Errorf("re-reading instance %s: %w", instance.ID, readErr)
 			}
 			instance = refreshed
 		}
@@ -375,7 +392,7 @@ func (s *migrationService) apply(
 		// is chosen first.
 		entryID, err := uuid.NewV7()
 		if err != nil {
-			return err
+			return result, err
 		}
 		var waived []entities.ComplianceHold
 		err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
@@ -462,18 +479,22 @@ func (s *migrationService) apply(
 			return s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes)
 		})
 		if err != nil {
-			return fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
+			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
 				"dealt with; run the same migration again to carry on from here)",
 				instance.ID, err, done, len(instances))
 		}
 		if settled {
+			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
 			continue
 		}
 		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
 		done++
+		if !made.wrote {
+			result.Changed++
+		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // recordControlLosses enters in the instance's ledger each acknowledged control
@@ -1140,7 +1161,9 @@ func plannedActions(sourceNodes map[string]models.FlowNode, actions map[string]s
 // altogether (outcomeMovedOn) — a holder who completed the step meanwhile gave
 // the approval, and advancing past it again would be a second advance.
 //
-// Reports what the run should do with the instance next.
+// Reports what the run should do with the instance next, which step it was
+// found to have left when it is to be passed over, and whether anything was
+// written to it.
 func (s *migrationService) decide(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1148,9 +1171,9 @@ func (s *migrationService) decide(
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
 	runID uuid.UUID,
-) (decisionOutcome, error) {
+) (decision, error) {
 	if len(options.Actions) == 0 {
-		return outcomeMove, nil
+		return decision{outcome: outcomeMove}, nil
 	}
 	instanceID := uuid.UUID(instance.ID)
 
@@ -1162,7 +1185,7 @@ func (s *migrationService) decide(
 			continue
 		}
 		cancelled, err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID)
-		return settledOr(cancelled), err
+		return settledOr(cancelled, nodeID), err
 	}
 
 	for _, nodeID := range sortedKeys(options.Actions) {
@@ -1171,7 +1194,7 @@ func (s *migrationService) decide(
 			continue
 		}
 		held, err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID)
-		return settledOr(held), err
+		return settledOr(held, nodeID), err
 	}
 
 	skips := 0
@@ -1184,12 +1207,13 @@ func (s *migrationService) decide(
 		if err != nil || !skipped {
 			// Not on the step any more: the plan no longer describes this
 			// instance, so nothing further is decided about it in this run.
-			return outcomeMovedOn, err
+			// A skip made before this one stands, and is said to have been.
+			return decision{outcome: outcomeMovedOn, left: nodeID, wrote: skips > 0}, err
 		}
 		skips++
 	}
 	if skips == 0 {
-		return outcomeMove, nil
+		return decision{outcome: outcomeMove}, nil
 	}
 
 	// The engine moved the instance, so anything read before this is stale. A
@@ -1197,22 +1221,22 @@ func (s *migrationService) decide(
 	// last step — and there is then nothing left to migrate.
 	refreshed, err := s.repo.Process().Get(ctx, instanceID)
 	if err != nil {
-		return outcomeDealtWith, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
+		return decision{outcome: outcomeDealtWith, wrote: true}, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
 	}
 	if refreshed.Status != models.ProcessActive {
-		return outcomeDealtWith, nil
+		return decision{outcome: outcomeDealtWith, wrote: true}, nil
 	}
-	return outcomeMove, nil
+	return decision{outcome: outcomeMove, wrote: true}, nil
 }
 
-// settledOr is the outcome of a cancel or a hold: the instance is dealt with
-// when the action found it where the listing said, and has moved on when it
-// did not.
-func settledOr(found bool) decisionOutcome {
+// settledOr is what a cancel or a hold at nodeID made of an instance: dealt
+// with when the action found it where the listing said, and moved on from that
+// step, with nothing written, when it did not.
+func settledOr(found bool, nodeID string) decision {
 	if found {
-		return outcomeDealtWith
+		return decision{outcome: outcomeDealtWith, wrote: true}
 	}
-	return outcomeMovedOn
+	return decision{outcome: outcomeMovedOn, left: nodeID}
 }
 
 // skipNode cancels the work parked on one node and advances the instance past

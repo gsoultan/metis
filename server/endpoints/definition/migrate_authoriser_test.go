@@ -17,6 +17,8 @@ type askedOfTheService struct {
 	services.ServiceFacade
 	plans, applies int
 	actor          string
+	// result is what an apply is said to have done.
+	result entities.MigrationResult
 }
 
 func (s *askedOfTheService) PlanInstanceMigration(_ context.Context, _, _ uuid.UUID, _ map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationPlan, error) {
@@ -25,10 +27,10 @@ func (s *askedOfTheService) PlanInstanceMigration(_ context.Context, _, _ uuid.U
 	return entities.MigrationPlan{}, nil
 }
 
-func (s *askedOfTheService) MigrateInstances(_ context.Context, _, _ uuid.UUID, _ map[string]string, opts ...servicecontracts.MigrationOption) error {
+func (s *askedOfTheService) ApplyInstanceMigration(_ context.Context, _, _ uuid.UUID, _ map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
 	s.applies++
 	s.actor = servicecontracts.ApplyMigrationOptions(opts).Actor
-	return nil
+	return s.result, nil
 }
 
 func signedInAs(username string) context.Context {
@@ -96,5 +98,48 @@ func TestADryRunByAnAccountWithNoNameIsRefusedToo(t *testing.T) {
 	}
 	if response := reply.(MigrateInstancesResponse); response.Err == nil || svc.plans != 0 {
 		t.Fatalf("a preview by an account with no name: err %v, planned %d time(s); want it refused", response.Err, svc.plans)
+	}
+}
+
+// "applied" is said from what the run did, not from its having returned. A run
+// that left every instance it reached alone applied nothing; one that left
+// some alone and acted on others did; and the instances left alone are listed
+// either way, as an empty list when there are none.
+func TestAppliedIsSaidFromWhatTheRunDid(t *testing.T) {
+	t.Parallel()
+	apply := false
+	request := MigrateInstancesRequest{
+		SourceDefinitionID: uuid.NewString(), TargetDefinitionID: uuid.NewString(), DryRun: &apply,
+	}
+	left := entities.PassedOverInstance{
+		Instance: &entities.ProcessInstance{ID: uuid.Must(uuid.NewV7())}, Reason: "it had left the step",
+	}
+	cases := []struct {
+		name    string
+		result  entities.MigrationResult
+		applied bool
+	}{
+		{"nobody passed over", entities.MigrationResult{Changed: 2}, true},
+		{"nothing running, so nothing to do", entities.MigrationResult{}, true},
+		{"one acted on, one passed over", entities.MigrationResult{Changed: 1, PassedOver: []entities.PassedOverInstance{left}}, true},
+		{"every instance passed over", entities.MigrationResult{PassedOver: []entities.PassedOverInstance{left}}, false},
+	}
+	for _, c := range cases {
+		reply, err := MakeMigrateInstancesEndpoint(&askedOfTheService{result: c.result})(context.Background(), request)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		response := reply.(MigrateInstancesResponse)
+		if response.Applied != c.applied {
+			t.Errorf("%s: applied = %v, want %v", c.name, response.Applied, c.applied)
+		}
+		if response.PassedOver == nil || len(response.PassedOver) != len(c.result.PassedOver) {
+			t.Errorf("%s: passed_over = %#v, want %d listed and never null", c.name, response.PassedOver, len(c.result.PassedOver))
+		}
+		for _, listed := range response.PassedOver {
+			if listed.InstanceID != left.Instance.ID.String() || listed.Reason != left.Reason {
+				t.Errorf("%s: passed_over lists %+v, want the instance and its reason", c.name, listed)
+			}
+		}
 	}
 }

@@ -67,7 +67,9 @@ has ended and it finishes; nothing it had done is undone.
   holder completed the step, or it finished. Nothing is done to it or recorded
   about it, and it is not moved to the new version in that run; it stays on
   the version it is running for the next run of the same migration. The reply
-  still says `applied: true` and does not list it; the server log names it. A
+  to an apply lists it in `passed_over`, with the reason — a new field, always
+  present, `[]` when nobody was left behind — and `applied` is now `false`
+  when the run passed instances over and acted on none. A
   skip used to advance such an instance a second time, and its ledger row said
   the approval was waived. See [Node actions](process-change-in-flight.md#node-actions--deciding-work-instead-of-moving-it).
 - A row says the act was made, and is never rewritten. A `hold` row therefore

@@ -246,10 +246,39 @@ func (r MigrateInstancesRequest) dryRun() bool {
 
 type MigrateInstancesResponse struct {
 	Plan entities.MigrationPlan `json:"plan"`
-	// Applied says whether anything was written. False for a dry run, and false
-	// for an apply that the plan refused.
-	Applied bool  `json:"applied"`
-	Err     error `json:"err,omitzero"`
+	// Applied says whether anything was written. False for a dry run, false
+	// for an apply that the plan refused, and false for an apply that left
+	// every instance it reached alone (PassedOver says which, and why).
+	Applied bool `json:"applied"`
+	// PassedOver are the instances the apply left exactly as they were because,
+	// by the time it held their lock, they were no longer where the plan found
+	// them: the step had been completed, or the instance had finished. They are
+	// still on the version they were running. Always present, empty when the
+	// apply left nobody behind and for a dry run, so a client need not ask
+	// whether the field is there.
+	PassedOver []PassedOverView `json:"passed_over"`
+	Err        error            `json:"err,omitzero"`
+}
+
+// PassedOverView is one instance an apply left alone, as the reply carries it.
+type PassedOverView struct {
+	InstanceID string `json:"instance_id"`
+	// Reason is why, in plain words; it names a step by its name, not its id.
+	Reason string `json:"reason"`
+}
+
+// passedOverViews is the instances a run left alone as the reply lists them:
+// an empty list, never null, when there are none.
+func passedOverViews(passed []entities.PassedOverInstance) []PassedOverView {
+	views := make([]PassedOverView, 0, len(passed))
+	for _, one := range passed {
+		view := PassedOverView{Reason: one.Reason}
+		if one.Instance != nil {
+			view.InstanceID = one.Instance.ID.String()
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 func (r MigrateInstancesResponse) Failed() error { return r.Err }

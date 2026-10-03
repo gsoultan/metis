@@ -332,13 +332,33 @@ still has a token on that step. An instance that has moved on in between — its
 completed the step, or it finished — is left exactly as it is: nothing is withdrawn,
 advanced, cancelled or raised, no ledger row and no trail entry are written, and it is not
 moved to the new version in that run either, because the plan was made for where it used to
-be. It stays on the version it is running. The server log names it (*A migration passed over
-an instance that was no longer where its listing found it*) with the run's id; the reply does
-not — an apply that passed one over still answers `applied: true` — so a dry run of the same
-migration afterwards is how to see what is left, and running it again plans for where the
-instance now stands. A skip used to advance such an instance a second time and record the
+be. It stays on the version it is running, and running the same migration again plans for
+where it now stands. A skip used to advance such an instance a second time and record the
 approval its holder gave as waived; a cancel ended it; a hold raised an incident at a step
 it had left.
+
+**The reply says which instances were left alone.** The plan in the reply was made before
+the apply and says what would happen; `passed_over` says what did not:
+
+```
+{
+  "plan": { ... },
+  "applied": true,
+  "passed_over": [
+    { "instance_id": "0199…",
+      "reason": "It was no longer waiting at \"Operations approve\" when the migration reached it, so nothing was decided there and it was not moved. It stays on version 1; if it is still running, run the same migration again to plan for where it now stands." }
+  ]
+}
+```
+
+`passed_over` is always present: `[]` when the run left nobody behind, and for a dry run,
+which writes nothing. An instance that finished before the run reached it — which a
+migration already left unmoved, whether it decides work or only moves it — is listed
+there too, as *no longer running when the migration reached it*. `applied` keeps its
+meaning, whether anything was written: `true` when the run acted on at least one instance,
+whatever it passed over, and `false` when it passed instances over and acted on none. The
+server log also names each instance that had left its step (*A migration passed over an
+instance that was no longer where its listing found it*), with the run's id.
 
 `cancelled` is a new instance status. Reusing `completed` would have made an instance that
 was called off read, in every list and every count, exactly like one that succeeded; `failed`
@@ -478,7 +498,8 @@ Three things make that true rather than merely plausible:
   later run finds it again. It does not collect an incident per run.
 - **An instance a decision passed over is still on the source version.** One that left the
   step between the listing and its lock is neither decided nor moved, and is not counted
-  among those dealt with, so the next run finds it and plans for where it now stands.
+  among those dealt with, so the next run finds it and plans for where it now stands. The
+  reply to the apply names it in `passed_over`.
 - **Every entry of one run shares a `run_id`**, so the trail reads back as "what did that
   migration do" rather than as unrelated events sharing a timestamp.
 

@@ -1117,7 +1117,14 @@
        `TestASkipOfAnInstanceThatFinishedAfterTheListingDoesNothing`. Root cause: whether an
        instance was parked on the step was answered from a read taken before the lock and
        never asked again under it. This predates the slice; it is fixed here because the
-       ledger would otherwise certify the second advance as a waiver.
+       ledger would otherwise certify the second advance as a waiver. The reply to the apply
+       names each instance left alone in `passed_over`, with a reason that names the step as
+       people know it, and `applied` is false when the run passed instances over and acted on
+       none — `TestAnApplyNamesTheInstanceItPassedOver`,
+       `TestAnApplyThatPassedOverEveryInstanceSaysNothingWasApplied`,
+       `TestAnApplyNamesAnInstanceThatFinishedBeforeItWasReached`,
+       `TestAnOrdinaryApplyAndADryRunPassNothingOver`, and `TestAppliedIsSaidFromWhatTheRunDid`
+       (`endpoints/definition`).
     10. *Only nobody signed in is the server.* A migration by a signed-in account with no
        username is refused before anything is planned, with the status an ad-hoc activation
        answers for the same account, where it used to be recorded as *System* —
@@ -1171,7 +1178,9 @@
     cannot be recorded stops the run at that instance; a new `step_activated` audit entry and a
     `deviation_id` on the entries of the acts above; a migration's skip, cancel or hold that
     leaves alone an instance which left the step after the run listed it, on the version it is
-    running, while the reply still says `applied: true`.
+    running; `passed_over` on the reply to a migration's apply, always present, listing each
+    instance left alone and why; and `applied: false` for an apply that passed instances over
+    and acted on none, where it said `true`.
   - **Not in this slice.** Waiving, cancelling or holding one instance in place, without a second
     version of its process, and a second approver. Both come in the next ones; the table already has
     the columns for them: nothing writes `approved_by` or `request_id`, and no row is anything but
@@ -1187,9 +1196,13 @@
     - Resolving an incident writes no trail entry and names nobody, so nothing but the
       incident's own `status` and `resolved_at` says that a hold ended, and nothing says who
       ended it.
-    - A migration that passes an instance over (criterion 9) says so only in the server log:
-      `MigrateInstances` returns an error or nothing, and the reply carries the plan made
-      before the apply, so `applied: true` does not list the instances left behind.
+    - The migration dialog does not show `passed_over` yet. It reads `plan` and `applied`, so
+      an apply that acted on some instances and passed others over is told as though every
+      instance the plan counted was dealt with; one that passed every instance over is told,
+      correctly, as *Nothing was moved*.
+    - An apply that stops with an error part-way does not say which instances it had passed
+      over before it stopped; the error names the instance it stopped at and how many had been
+      dealt with, and the log names the ones passed over.
     - The other direction of the same stale listing is open. An instance that advances, between
       the listing and its lock, onto a step the plan did not find it on is rewritten as it then
       stands; when that step is one the new version does not have — the step a skip was meant
