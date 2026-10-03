@@ -2,6 +2,7 @@ package impl
 
 import (
 	"slices"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -29,6 +30,10 @@ type decisionRecord struct {
 	incidentID                    uuid.UUID
 }
 
+// ledgerNodeNameLength is how many characters of a step's name a ledger row
+// keeps: the width of instance_deviations.node_name.
+const ledgerNodeNameLength = 255
+
 // decisionDeviation is the ledger row of a migration's node action. An action
 // kind it does not know gives a row with no kind, which the ledger refuses as
 // the writer's mistake rather than recording something unreadable.
@@ -42,7 +47,7 @@ func decisionDeviation(d decisionRecord, nodeName string) entities.Deviation {
 		Scope:      scope,
 		Origin:     entities.DeviationOriginMigration,
 		Status:     entities.DeviationApplied,
-		Node:       &entities.Node{ID: d.nodeID, Name: nodeName},
+		Node:       &entities.Node{ID: d.nodeID, Name: ledgerNodeName(nodeName)},
 		Actor:      migrationActor(d.options),
 		Reason:     d.action.Reason,
 		RunID:      d.runID,
@@ -132,7 +137,7 @@ func controlLossDeviations(
 			Scope:        entities.DeviationScopeInstance,
 			Origin:       entities.DeviationOriginMigration,
 			Status:       entities.DeviationApplied,
-			Node:         &entities.Node{ID: hold.NodeID, Name: hold.Name},
+			Node:         &entities.Node{ID: hold.NodeID, Name: ledgerNodeName(hold.Name)},
 			Actor:        actor,
 			RunID:        runID,
 			AuditEntryID: entryID,
@@ -152,4 +157,37 @@ func migrationActor(options servicecontracts.MigrationOptions) string {
 		return "System"
 	}
 	return options.Actor
+}
+
+// nodeNameIn is the name of the step with this id, looked for through the whole
+// tree as nodeIndex does, and the id itself for a step with no name or one the
+// graph does not have. It stops at the step, and builds nothing: it runs once
+// for every decision of a migration.
+func nodeNameIn(nodes []models.FlowNode, id string) string {
+	if node, ok := findFlowNode(nodes, id); ok && node.Name != "" {
+		return node.Name
+	}
+	return id
+}
+
+func findFlowNode(nodes []models.FlowNode, id string) (*models.FlowNode, bool) {
+	for i := range nodes {
+		if nodes[i].ID == id {
+			return &nodes[i], true
+		}
+		if found, ok := findFlowNode(nodes[i].Nodes, id); ok {
+			return found, true
+		}
+	}
+	return nil, false
+}
+
+// ledgerNodeName is as much of a step's name as a ledger row keeps, cut between
+// characters. The row's node id identifies the step; the name is there to be
+// read, and one too long for its column must not be what fails a decision.
+func ledgerNodeName(name string) string {
+	if utf8.RuneCountInString(name) <= ledgerNodeNameLength {
+		return name
+	}
+	return string([]rune(name)[:ledgerNodeNameLength])
 }

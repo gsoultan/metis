@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -1047,10 +1048,20 @@ func (s *migrationService) actionRefusals(
 				action.Kind, nodeID))
 			continue
 		}
-		if strings.TrimSpace(action.Reason) == "" {
+		reason := strings.TrimSpace(action.Reason)
+		if reason == "" {
 			out = append(out, fmt.Sprintf(
 				"%s of %q needs a reason: without one the trail cannot tell a step nobody performed "+
 					"from a step somebody did", action.Kind, nodeID))
+		}
+		// Counted as the ledger counts it — characters, after the spaces around
+		// it are dropped — and refused here, where a dry run shows it. Left to
+		// the ledger, it would stop an apply at the first instance on this
+		// node, after the ones ahead of it had already been moved.
+		if utf8.RuneCountInString(reason) > entities.MaxDeviationReasonLength {
+			out = append(out, fmt.Sprintf(
+				"%s of %q has a reason longer than %d characters, which is more than its record can hold; shorten it",
+				action.Kind, nodeID, entities.MaxDeviationReasonLength))
 		}
 		if _, mapped := nodeMapping[nodeID]; mapped {
 			out = append(out, fmt.Sprintf(
@@ -1219,10 +1230,13 @@ func (s *migrationService) skipNode(
 		}
 		// Recorded in the same unit of work: a skip the ledger cannot hold is
 		// a skip that does not happen, and the task goes back as it was.
-		return s.recordDecision(txCtx, decisionRecord{
+		if err := s.recordDecision(txCtx, decisionRecord{
 			instance: instance, definitionID: sourceDefID, source: source, target: target,
 			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: withdrawn,
-		})
+		}); err != nil {
+			return fmt.Errorf("skipping a step of instance %s: %w", instanceID, err)
+		}
+		return nil
 	})
 }
 
@@ -1383,11 +1397,7 @@ func (s *migrationService) recordDecision(ctx context.Context, d decisionRecord)
 	if err != nil {
 		return err
 	}
-	nodeName := d.nodeID
-	if node, ok := nodeIndex(d.source.Nodes)[d.nodeID]; ok && node.Name != "" {
-		nodeName = node.Name
-	}
-	row := decisionDeviation(d, nodeName)
+	row := decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))
 	row.AuditEntryID = auditID
 	recorded, err := s.ledger.Record(ctx, row)
 	if err != nil {
@@ -1570,10 +1580,13 @@ func (s *migrationService) holdInstance(
 		if err != nil || !raised {
 			return err
 		}
-		return s.recordDecision(txCtx, decisionRecord{
+		if err := s.recordDecision(txCtx, decisionRecord{
 			instance: fresh, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
 			nodeID: nodeID, action: action, options: options, runID: runID, incidentID: incidentID,
-		})
+		}); err != nil {
+			return fmt.Errorf("holding instance %s: %w", instanceID, err)
+		}
+		return nil
 	})
 }
 

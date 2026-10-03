@@ -7,13 +7,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
-	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
-	"github.com/gsoultan/metis/server/domains/services"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
-	"github.com/gsoultan/metis/tests/testutils"
 )
 
 func (f *fixture) ledger(t *testing.T, instanceID uuid.UUID) []entities.Deviation {
@@ -224,25 +221,14 @@ func (unledgeredRepository) Deviation() repocontracts.DeviationRepository {
 // every write.
 func newUnledgeredFixture(t *testing.T) *fixture {
 	t.Helper()
-	db := testutils.SetupTestDB(t)
-	repo := unledgeredRepository{repositories.NewRepository(testutils.StormConn(db))}
-	dispatcher := observersimpl.NewEventDispatcher()
-	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(), "migration-test", nil, nil, nil)
-	org, err := svc.CreateOrganization(context.Background(), "Org", "")
-	if err != nil {
-		t.Fatalf("create organization: %v", err)
-	}
-	tenantCtx := entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: org.ID.String()})
-	project, err := svc.CreateProject(tenantCtx, org.ID, "P", "")
-	if err != nil {
-		t.Fatalf("create project: %v", err)
-	}
-	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher, db: db}
+	return newFixtureOver(t, func(repo repositories.Repository) repositories.Repository {
+		return unledgeredRepository{repo}
+	})
 }
 
 // A decision that cannot be entered in the ledger is not made: the skipped
 // approval is still open, the held instance raises no incident, the cancelled
-// one is still running — and the migration says so.
+// one is still running, the trail tells none of it — and the migration says so.
 func TestADecisionThatCannotBeLedgeredIsNotMade(t *testing.T) {
 	for _, kind := range []servicecontracts.NodeActionKind{servicecontracts.NodeActionSkip, servicecontracts.NodeActionCancel, servicecontracts.NodeActionHold} {
 		t.Run(string(kind), func(t *testing.T) {
@@ -264,6 +250,8 @@ func TestADecisionThatCannotBeLedgeredIsNotMade(t *testing.T) {
 			if incidents, _ := f.svc.ListIncidents(f.ctx, instance.ID); len(incidents) != 0 {
 				t.Fatalf("a hold that was not made raised %d incident(s)", len(incidents))
 			}
+			// And the trail does not tell a decision that was not made.
+			f.assertNoMigrationEntries(t, instance.ID)
 		})
 	}
 }
