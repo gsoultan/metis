@@ -217,7 +217,7 @@ func (s *migrationService) planFor(
 	if len(found.unlandable) > 0 {
 		plan.Refusals = append(plan.Refusals, fmt.Sprintf(
 			"version %d of %q has nowhere to put the work parked on %s; map each one to a node it does have",
-			target.Version, target.Key, strings.Join(found.unlandable, ", ")))
+			target.Version, target.Key, strings.Join(found.unlandable, ", "))+boundaryAdvice(sourceNodes, found.unlandable))
 	}
 	// Engine bookkeeping is keyed by node id just as tokens are, and it is the
 	// half nobody sees. A join counter left behind is a gateway that waits for
@@ -956,15 +956,35 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 // else the target happens to attach one to. Mapping the event without mapping
 // the host the same way leaves a timer that fires against work that is not
 // running. Camunda 8 refuses the same shape.
+//
+// And it may be mapped only to a boundary event at all. Only a mapping from one
+// boundary event to another used to be looked at, so one onto an ordinary step
+// passed because the step exists.
 func boundaryRefusals(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) []string {
 	var out []string
 	for from, to := range nodeMapping {
 		src, ok := sourceNodes[from]
-		if !ok || src.Type != models.BoundaryEvent || src.AttachedToRef == "" {
+		if !ok || src.Type != models.BoundaryEvent {
 			continue
 		}
 		tgt, ok := targetNodes[to]
-		if !ok || tgt.Type != models.BoundaryEvent {
+		if !ok {
+			continue
+		}
+		// What sits on a boundary event is a timer or a waiting message that,
+		// when it fires, acts on the node it sits on. Moved onto a step that
+		// is not a boundary event, the timer is read as that step's own wait
+		// coming to an end: the instance was advanced past an approval nobody
+		// gave, and finished with the approver's task still open.
+		if tgt.Type != models.BoundaryEvent {
+			out = append(out, fmt.Sprintf(
+				"%s→%s would put what waits on a boundary event onto a step that is not one: the timer or message of %q "+
+					"would then act on %q itself, as though that step had been performed; a boundary event may be mapped "+
+					"only to a boundary event of the new version",
+				from, to, flowNodeName(src), flowNodeName(tgt)))
+			continue
+		}
+		if src.AttachedToRef == "" {
 			continue
 		}
 		want := mapNode(nodeMapping, src.AttachedToRef)
@@ -978,6 +998,27 @@ func boundaryRefusals(sourceNodes, targetNodes map[string]models.FlowNode, nodeM
 	}
 	slices.Sort(out)
 	return out
+}
+
+// boundaryAdvice is what the landing refusal adds for a boundary event among
+// the nodes it names, and nothing when there is none.
+//
+// "Map each one to a node it does have" is the wrong thing to say of a boundary
+// event: it may be mapped only to a boundary event, and the usual case is that
+// the new version dropped it. What works then is said instead.
+func boundaryAdvice(sourceNodes map[string]models.FlowNode, unlandable []string) string {
+	var events []string
+	for _, id := range unlandable {
+		if node, ok := sourceNodes[id]; ok && node.Type == models.BoundaryEvent {
+			events = append(events, fmt.Sprintf("%q", flowNodeName(node)))
+		}
+	}
+	if len(events) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(". Of those, %s is a boundary event: it can be mapped only to a boundary event of the new "+
+		"version; where the new version has none, decide the step it is attached to and name the event in the same "+
+		"decision, and what waits on the event ends with that step", strings.Join(events, ", "))
 }
 
 // defaultFlowWarnings reports gateways downstream of the landing nodes that
