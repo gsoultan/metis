@@ -239,6 +239,7 @@ func (s *migrationService) planFor(
 	plan.Warnings = append(plan.Warnings, defaultFlowWarnings(target, targetNodes, found.landings)...)
 	plan.Warnings = append(plan.Warnings, disarmedDutyWarnings(targetNodes)...)
 	plan.Warnings = append(plan.Warnings, claimWarnings(found.moves)...)
+	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, nodeMapping, instances)...)
 
 	// A step somebody marked as carrying a control obligation is not a step a
 	// mapping may quietly drop. Held rather than refused outright: the answer is
@@ -487,15 +488,22 @@ func (s *migrationService) apply(
 			for i := range instance.Tokens {
 				instance.Tokens[i].NodeID = mapNode(nodeMapping, instance.Tokens[i].NodeID)
 			}
-			// Everything else on the instance that is keyed by node id. These
-			// are not cosmetic: Joins is what a parallel gateway counts arrived
-			// branches in, MultiInstance is how far through its items a node
-			// is, and CompletedNodes is the guard that stops an activity from
-			// running twice. Leaving them pointing at the old graph deadlocks
-			// the join, re-asks the multi-instance assignees, and lets a
-			// service task fire a second time.
-			instance.CompletedNodes = mapNodeList(nodeMapping, instance.CompletedNodes)
-			instance.CompensatedNodes = mapNodeList(nodeMapping, instance.CompensatedNodes)
+			// Everything else on the instance that is keyed by node id. The
+			// counters are live work and follow the mapping like the tokens
+			// they count: Joins is what a parallel gateway counts arrived
+			// branches in, and MultiInstance is how far through its items a
+			// node is. Leaving them pointing at the old graph deadlocks the
+			// join and re-asks the multi-instance assignees.
+			//
+			// The two lists are a record of work done, read by compensation
+			// and by the question "has this instance passed that control".
+			// They follow a rename only, as a finished task does. Following a
+			// redirect recorded a step the instance had finished as the step
+			// the mapping pointed at: with a finished step redirected onto a
+			// control the instance was only waiting at, the control read as
+			// passed, and a later migration that dropped it asked nobody.
+			instance.CompletedNodes = mapNodeList(renames, instance.CompletedNodes)
+			instance.CompensatedNodes = mapNodeList(renames, instance.CompensatedNodes)
 			instance.MultiInstance = mapMultiInstance(nodeMapping, instance.MultiInstance)
 			instance.Joins = mapJoins(nodeMapping, instance.Joins)
 			if err := s.repo.Process().Update(txCtx, instance); err != nil {
@@ -1115,6 +1123,51 @@ func claimWarnings(moves []entities.NodeMove) []string {
 	return out
 }
 
+// redirectWarnings reports mappings that send a step's open work to a
+// different step, where that says something about work already done.
+//
+// Finished work does not follow a redirect: a step an instance completed stays
+// in its record under its own id, and is not counted as the step the mapping
+// names. That is the truthful record, and it has a consequence somebody should
+// see before applying: a control or a separation-of-duties rule on the step
+// mapped to does not see the work done on the step mapped from. Said only
+// where it bites — an instance in the plan has completed the step, or the step
+// carries a control obligation.
+func redirectWarnings(
+	sourceNodes map[string]models.FlowNode,
+	nodeMapping map[string]string,
+	instances []models.ProcessInstanceModel,
+) []string {
+	renames := renamedSteps(sourceNodes, nodeMapping)
+	var out []string
+	for from, to := range nodeMapping {
+		node, known := sourceNodes[from]
+		if _, renamed := renames[from]; renamed || !known || from == to {
+			continue
+		}
+		completed := 0
+		for _, instance := range instances {
+			if slices.Contains(instance.CompletedNodes, from) {
+				completed++
+			}
+		}
+		controlled := boolProperty(node.Properties, "compliance_relevant")
+		if completed == 0 && !controlled {
+			continue
+		}
+		detail := fmt.Sprintf("%d instance(s) have completed %q", completed, from)
+		if controlled {
+			detail += fmt.Sprintf("; %q carries a control obligation", from)
+		}
+		out = append(out, fmt.Sprintf(
+			"%q is mapped onto %q, which is a different step: open work moves there, but work already done on %q "+
+				"does not count as done on %q, so a control or a separation-of-duties rule on %q will not see it (%s)",
+			from, to, from, to, to, detail))
+	}
+	slices.Sort(out)
+	return out
+}
+
 // removedNodes lists the nodes the target version no longer has.
 func removedNodes(sourceNodes, targetNodes map[string]models.FlowNode) []string {
 	var out []string
@@ -1200,7 +1253,8 @@ func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string
 //
 // Entries with no mapping are kept rather than dropped: CompletedNodes is the
 // record of what this instance actually ran, and a step the new version deleted
-// is still a step this instance performed.
+// is still a step this instance performed. The rewrite gives it the renames of
+// a mapping only (renamedSteps), for the same reason.
 func mapNodeList(nodeMapping map[string]string, ids []string) []string {
 	if len(ids) == 0 {
 		return ids
