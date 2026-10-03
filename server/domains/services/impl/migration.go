@@ -1685,13 +1685,8 @@ func (s *migrationService) skipNode(
 	return skipped, nil
 }
 
-// cancelInstance ends an instance where it stands.
-//
-// Tokens are cleared and the status is set rather than the rows deleted: what
-// this instance did, and how far it got, is the record somebody will ask for.
-// Pending timers are left alone deliberately — JobRepository has no delete, and
-// timerStillApplies already refuses to fire one for an instance that is not
-// active, which is the same thing a terminate end event relies on.
+// cancelInstance ends an instance where it stands. What ending it does, and
+// what it deliberately leaves, is nodeActions.cancel's to say.
 //
 // It reports whether it did. An instance found, once locked, to have finished
 // or to have left nodeID is not one of the instances the cancel was asked to

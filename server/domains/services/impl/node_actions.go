@@ -28,6 +28,11 @@ type nodeActions struct {
 	// that it is gone. nil in wirings that predate node actions: nothing is
 	// announced, and the caller refuses a skip before it gets here.
 	engine servicecontracts.ExecutionEngine
+	// finisher is the same engine, asked for the one thing an advance cannot
+	// do: end a step whole, every run of one that repeats. nil when the engine
+	// is not one that can (or there is none), and a step is then advanced past
+	// as it was before there was a finisher.
+	finisher servicecontracts.ActivityFinisher
 	// audit writes the trail entry of an action. nil only in wirings with no
 	// audit repository (tests), where the ledger row is the whole record.
 	audit servicecontracts.AuditWriter
@@ -39,6 +44,9 @@ type nodeActions struct {
 // the ledger and the audit writer every caller shares.
 func newNodeActions(repo repositories.Repository, engine servicecontracts.ExecutionEngine) nodeActions {
 	a := nodeActions{repo: repo, engine: engine, ledger: NewDeviationLedger(repo)}
+	if finisher, ok := engine.(servicecontracts.ActivityFinisher); ok {
+		a.finisher = finisher
+	}
 	if repo != nil && repo.Audit() != nil {
 		a.audit = NewAuditWriter(repo.Audit())
 	}
@@ -134,9 +142,9 @@ func (a nodeActions) announceWithdrawal(ctx context.Context, task models.TaskMod
 // its id here, so the row can point at it before it exists.
 //
 // It answers the row as the ledger wrote it. The row names its entry even in a
-// wiring with no audit writer (tests only), where no entry is written. Both
-// errors come back as they are; what they mean for the action is the caller's
-// to say.
+// wiring with no audit writer (tests only), where no entry is written. An
+// error — from making the entry's id, from the ledger or from the trail —
+// comes back as it is; what it means for the action is the caller's to say.
 func (a nodeActions) record(ctx context.Context, deviation entities.Deviation, entry entities.AuditEntry) (entities.Deviation, error) {
 	auditID, err := uuid.NewV7()
 	if err != nil {

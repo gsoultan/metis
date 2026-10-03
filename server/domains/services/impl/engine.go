@@ -421,30 +421,9 @@ func (e *Engine) proceedInternal(ctx context.Context, instance *entities.Process
 		return err // not done yet — wait for remaining iterations
 	}
 
-	// A step inside an ad-hoc sub-process finishing is what makes its completion
-	// condition worth re-reading: the condition is written against the work done
-	// inside, so it can only become true here.
-	if done, err := e.checkAdHocCompletion(ctx, instance, def, node); err != nil || done {
-		return err
-	}
-
-	// Step 3: clean up sibling tokens and subscriptions.
-	if err := e.cleanupEventBasedGatewaySiblings(ctx, instance, def, nodeID); err != nil {
-		return err
-	}
-	if err := e.cleanupSubscriptions(ctx, instance, nodeID, def); err != nil {
-		return err
-	}
-
-	// Step 4: mark node completed and follow outgoing flows.
-	instance.MarkCompleted(node)
-	if err := e.followOutgoingFlows(ctx, instance, def, nodeID); err != nil {
-		return err
-	}
-
-	// Step 5: a conditional event waiting elsewhere in this instance may now be
-	// satisfied by what this advance changed.
-	return e.resumeSatisfiedConditionalEvents(ctx, instance, def)
+	// Steps 3–5: the activity is done; what follows is the same however it
+	// became done.
+	return e.continuePastFinished(ctx, instance, def, node, nodeID)
 }
 
 // conditionalSweepKey marks a conditional re-evaluation already in progress.
