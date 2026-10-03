@@ -79,7 +79,7 @@ func TestClaimNarrativeNamesTheTask(t *testing.T) {
 		Definition: &entities.ProcessDefinition{ID: uuid.New()},
 	}
 	node := entities.Node{ID: "approve", Name: "Approve the refund", Type: entities.UserTask}
-	if err := svc.CreateTaskForNode(ctx, instance, node); err != nil {
+	if err := svc.CreateTaskForNode(ctx, instance, node, ""); err != nil {
 		t.Fatalf("create task: %v", err)
 	}
 

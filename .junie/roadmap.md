@@ -1032,6 +1032,195 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-09-28 (completed, narrowed 2026-10-02): a multi-instance approval finishes cleanly (P0
+  reliability, slice 1 of the approval-adjustments work). Branch `mi-approvals-finish`. Driver
+  `bpm` · Challengers `go`, `perf`, `test`.
+  - **Problem.** An approval several people give, completed from the inbox, left a token on
+    the step for each of them, so the process moved on and never completed; and a step ended
+    early by its completion condition left the other approvals open, which could move the
+    process on twice.
+  - **Scope (product owner, 2026-10-02): approvals only.** Counting runs strictly — one
+    completion retires one run's token, a completion with no run to retire is refused, a step
+    that ends early withdraws what it left open — applies to a repeating **user task or manual
+    task** (`entities.Node.IsRepeatingApproval`) and to nothing else. It was first applied to
+    every repeating step, and stopped sub-processes that run once per item from finishing: their
+    runs share the tokens of the steps inside them, so work owed an advance was refused. Two
+    rounds of shape-by-shape fixes each produced new regressions, so every other repeating step
+    — sub-process, external task, call activity, service task, script — and every step that
+    runs once was put back to what it did before the slice (`90e1413`), looseness included.
+    `tests/bpmn/repeating_shapes_unchanged_test.go` drives each of those shapes and compares
+    the instance after every step with pins recorded by running the same file against
+    `90e1413`.
+  - **Follow-up, named:** give each run of a repeating sub-process its own tokens (a design
+    task), then make the counting strict for every repeating step and withdraw what an early
+    end or an interrupting boundary event leaves in flight.
+  - **Acceptance criteria**, each executable by a non-author and each covered by a test:
+    1. A parallel approval over three people, each completed through the task service, moves
+       the process on once; the instance completes; no token stays on the step
+       (`TestAParallelApprovalCompletedThroughTheInboxFinishesItsInstance`).
+    2. The same one after another: one task open at a time
+       (`TestASequentialApprovalAsksOnePersonAtATimeAndFinishes`).
+    3. Two of three: after the second approval the process moves on once, the third task is
+       withdrawn and its holder told, and completing it is refused in plain words
+       (`TestTwoOfThreeApprovalsEndTheStepAndWithdrawTheThird`).
+    4. The same process imported from BPMN XML behaves the same, and export writes the
+       condition back (`TestAnImportedTwoOfThreeApprovalBehavesAsADesignedOne`).
+    5. A task records its iteration (`tasks.iteration_id`, nullable, migration 31). **The rule
+       for a task created before it:** completing it retires the lowest-numbered iteration
+       still waiting on its step — numeric order, exactly one, and for a sequential step the
+       only one — and when the step finishes every token still on it is removed, so a token
+       an earlier completion left behind cannot keep the instance open or move it on twice
+       (`TestATaskFromBeforeMigration31RetiresTheLowestIterationStillWaiting`,
+       `TestAnApprovalHalfDoneBeforeTheUpgradeStillAdvancesOnce`). The rule is
+       `entities.ProcessInstance.WaitingIteration`.
+    6. Completing a task that is not open is refused with 400 before the engine is asked
+       (`TestCompletingATaskThatIsNotOpenIsRefusedBeforeTheEngine`).
+    7. An ad-hoc sub-process whose condition is met withdraws the steps still running inside
+       it, at any depth; `cancelRemainingInstances="false"` makes it wait for them instead.
+       Absent means true, BPMN's default (`tests/bpmn/adhoc_withdrawal_test.go`).
+    8. No engine bookkeeping in the business variables; `go test -race` clean, except
+       `tests/handlers` `TestTimerEvent`, a timing-sensitive test this change does not touch.
+    9. Every repeating step that is not an approval, and every step that runs once, does what
+       it did at `90e1413` (`tests/bpmn/repeating_shapes_unchanged_test.go`, 370 pinned
+       steps over 28 tests, designed and imported definitions).
+  - **Also closed for approvals, same root:** a completion condition replaced "everyone has
+    answered" rather than adding to it, so a threshold the list could not reach held the step
+    for ever; an iteration reported twice was counted twice; a deadline on a repeating
+    approval fired after everybody had answered, and when it did end the approval it left the
+    count of iterations behind. An approval that ended early *before* the upgrade — count
+    dropped, a token left for every approver, the other approvals still open — refuses those
+    approvals when somebody completes one, and a deadline still queued for it does not fire;
+    an approval a deadline interrupted before the upgrade — count left, tokens gone — is
+    still moved on by its deadline when the process comes back to it
+    (`tests/bpmn/multi_instance_approval_upgrade_test.go`). An approval inside a sub-process
+    that runs one item at a time finishes
+    (`TestARepeatingApprovalInsideASubProcessRunOneItemAtATimeFinishes`).
+  - **Closed with the ad-hoc withdrawal:**
+    - An ad-hoc sub-process that finishes ends every step inside it at any depth, stops
+      waiting for their boundary events, and withdraws their user and external tasks — the
+      external tasks in the same transaction, with one `parked_work_withdrawn` audit entry
+      per step. A worker still holding one gets "no such external task". This is the only
+      place parked work is withdrawn.
+    - External-task `Complete` and `HandleFailure` take the instance lock before the task
+      row, the order the withdrawal takes them in. With the old order a report arriving as
+      an ad-hoc sub-process finished deadlocked with it (reproduced), and a failure report
+      was answered "no such row"
+      (`tests/postgres/adhoc_withdrawal_concurrency_test.go`). What a worker without the
+      lock is answered is unchanged.
+    - A service-task job for a step withdrawn with its ad-hoc sub-process is completed
+      without calling its connector; if the step is withdrawn during the call and the call
+      fails, no retry and no incident. Only there: a job whose step is not inside an ad-hoc
+      sub-process, or whose ad-hoc sub-process is still open, does what it always did.
+    - Completing a withdrawn task is `400` (it was `403`), as is completing one already done.
+  - **Closed on import, for approvals only:** an imported completion condition on a user
+    task or a manual task is the one the engine evaluates, has the marking other modelers
+    put around an expression taken off — `${…}`, `#{…}`, a leading `=` — and one the
+    evaluator still cannot read is refused on import, naming the step, instead of running
+    the step for everybody (`TestAnImportedConditionInAnotherModelersFormStillEndsTheStepAtTwo`,
+    `TestAnImportedConditionTheEngineCannotReadIsRefusedAndNothingIsDeployed`). On every
+    other repeating step import does what it did before the slice: the condition is kept as
+    written in the `multi_instance_completion_condition` property, is not evaluated, is not
+    a reason to refuse the file, and is written back on export
+    (`TestAnImportedCompletionConditionIsEvaluatedOnlyOnAnApproval`, and the four
+    `TestAnImportedRepeating…IsUnchanged` tests of the suite). Made live there it met the
+    loose counting those steps keep: one advance per report, or a step that never ends.
+    Sequence-flow conditions are imported as written, as before.
+  - **Deliberately not done:** instances this defect had already stranded are not repaired —
+    `docs/upgrading.md` has the query that finds them. A version imported before this release
+    keeps its completion condition where nothing evaluates it and goes on running all-of-N
+    until it is imported again — and, for a step that is not an approval, after that too:
+    an imported completion condition takes effect on approvals only in this release.
+  - **Found and not fixed — for the backlog:**
+    - `P0-REL` — **the looseness of every repeating step that is not an approval**, pinned as
+      it is by `tests/bpmn/repeating_shapes_unchanged_test.go` and waiting on the follow-up
+      above:
+      - a repeating external task or call activity keeps its tokens when it finishes, so its
+        instance moves on and never completes;
+      - a completion condition met early does not withdraw the other runs: their external
+        tasks stay on offer and a late report is accepted, their called processes run on and
+        their return is accepted, their queued service calls are made — and a condition
+        written on business variables can then move the process on a second time;
+      - an interrupting boundary event on a step — repeating or not — takes its tokens and
+        its user tasks and leaves its external tasks, queued calls and called processes; a
+        late report or return then moves the process on from the interrupted step as well as
+        down the boundary path, and a failed late call is retried to an incident. A
+        repeating step also keeps its count of iterations;
+      - a parallel repeating sub-process with a service call inside makes every call, counts
+        one run and waits for ever; one with three or more waiting steps inside whose runs
+        overlap counts one run too few and waits for ever (the runs share the tokens of the
+        steps inside: a run is counted when an end event inside is reached with no other
+        token inside);
+      - a boundary timer on a repeating sub-process never fires, because the sub-process
+        holds no token while its runs are inside it;
+      - a repeating script whose completion condition is met part-way still runs for every
+        item when it is parallel;
+      - a completion condition replaces "every iteration has finished" rather than adding to
+        it.
+    - `P0-REL` — a repeating approval inside a *parallel* repeating sub-process is asked for
+      the first item only, and the sub-process then waits for ever (it waited for ever before
+      the slice too, with the approval's tokens left on it). Seen in a probe; needs a test
+      with the follow-up.
+    - `P0-REL` — an imported completion condition on an approval written against Camunda 8's
+      counter names (`numberOfInstances`, `numberOfCompletedInstances`, …) is accepted and
+      never holds, and so is one that uses a single `=` to compare with something that is not
+      a plain value (`nrOfCompletedInstances = nrOfInstances - 1`): the approval then runs
+      all-of-N. `logic.CheckCondition` accepts the one-`=` shape without parsing its
+      right-hand side. Either alias or refuse the counter names, and parse the plain shape
+      with FEEL too.
+    - `P0-REL` — an approval a boundary event interrupted before migration 31 keeps its
+      count; when the process comes back to it the step asks nobody until that boundary
+      event fires again (as before the slice). With a deadline it mends itself after one
+      more deadline; with a message or signal that never comes it stays there.
+      `docs/upgrading.md` has the query. Re-entering a step whose count has no run behind
+      it should start it afresh.
+    - A completion the engine refuses is announced first: `CompleteTask` writes the task and
+      dispatches its completed event before the engine can decline (a task an approval that
+      ended before the upgrade left open). The transaction rolls back; observers have been
+      called in it. Ask before announcing.
+    - A repeating approval over an empty list that holds two plain tokens: the first
+      completion takes both, the second person is refused and their task stays open.
+    - A service call queued for a step of an ad-hoc sub-process that finished and was then
+      entered again is made: the sub-process holds a token again.
+    - `P0-REL` — BPMN import does not read `zeebe:loopCharacteristics`, so a Camunda 8 file's
+      multi-instance step runs once whatever its condition says; the leading-`=` support only
+      helps a file that also carries `camunda:collection`.
+    - `P0-REL` — BPMN import does not set `parent_id` on the steps inside a sub-process, and
+      the engine finds a step's sub-process by it: an imported ad-hoc sub-process never
+      re-reads its completion condition, and an end event inside an imported embedded
+      sub-process is taken for the end of the process. Read from the code; needs a test.
+    - `P0-REL` — BPMN import does not read `multiInstanceLoopCharacteristics` on a
+      `<subProcess>`: an imported sub-process that repeats runs once. Seen in a parser test.
+    - Tokens a release before migration 31 left on an approval that ended early are not
+      removed when they are found; the instance is listed by `docs/upgrading.md` once it has
+      nothing in flight. An unreadable completion condition on an *ad-hoc* sub-process, or on
+      a version that is deployed rather than imported, still reads as "not yet".
+    - `P0-REL` — a boundary event on a multi-instance step is armed once for the step and
+      once more for every iteration, so a non-interrupting reminder fires n+1 times.
+    - `P0-REL` — finishing a step removes every token on it, so an ad-hoc step started twice
+      loses both when the first finishes (in the keep-the-steps mode the sub-process can then
+      move on with the second one's task still open); and a terminate end event leaves open
+      tasks on the other branches, which can still be completed.
+    - `P0-REL` — a process called from a step that has ended — by an early end, an
+      interrupting boundary event, or its ad-hoc sub-process finishing — keeps running, and
+      its tasks stay in inboxes: nothing ends an instance from outside the migration service.
+      When it ends it resumes its parent as it always did; for a step inside a finished
+      ad-hoc sub-process that follows the step's outgoing flows, if it has any.
+    - `P0-REL` — `EndEventHandler.resumeParent` reads the parent without a row lock, so two
+      children of a parallel call activity returning at the same moment can lose a count or
+      advance the parent twice. Pre-existing; needs its own fix and a concurrency test.
+    - A worker's report on an external task it does not hold the lock for, or whose lock has
+      run out, is an unclassified error (5xx over REST) that names the task id; it should be
+      a 400 in plain words.
+    - An open incident on an external task that was withdrawn with its ad-hoc sub-process
+      stays open. Timer jobs of the withdrawn inner steps of an ad-hoc sub-process are not
+      deleted; they complete quietly when they fire. A job reclaimed until its attempts run
+      out raises an incident without checking that its step is still there.
+    - Skipping a repeating approval in a migration counts one iteration and withdraws every
+      task, leaving the other iterations' tokens; the in-place waive of slice 3a should end
+      the whole step (`Engine.endActivity`).
+    - `tests/handlers` `TestTimerEvent` is timing-sensitive under `-race` on a loaded machine
+      (107ms against a 100ms limit, seen once on the untouched baseline).
+
 - 2026-09-28 (completed): storm 0.15.0 → 1.1.0 (Dependabot #134), store regenerated (P0).
   storm v0.16.0 fixed a `MaskCache` that published a column mask and its compiled UPDATE as
   two atomics: two goroutines warming different masks could pair one's mask with the other's

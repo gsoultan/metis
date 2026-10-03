@@ -532,53 +532,6 @@ func (e *Engine) waitingConditionalNodes(instance *entities.ProcessInstance, def
 // Deletion errors are returned, not ignored: a subscription that outlives its
 // node can re-trigger an already-completed activity when a later signal or
 // message arrives, producing duplicate execution.
-
-// cancelOpenTasksForNode withdraws any task still open for nodeID.
-//
-// Removing an activity's token cancels it as far as the engine is concerned,
-// but the user task it created is a separate row and nothing was closing it.
-// The work stayed in whoever's inbox it was assigned to, and completing it acted
-// on an activity the process had already abandoned.
-//
-// A failure here is returned: an interrupt that half-happened — token gone, task
-// still offered — is worse than one that reports itself.
-func (e *Engine) cancelOpenTasksForNode(ctx context.Context, instance *entities.ProcessInstance, node *entities.Node) error {
-	if node == nil {
-		return nil
-	}
-	ms, err := e.repo.Task().ListByInstance(ctx, instance.ID)
-	if err != nil {
-		return fmt.Errorf("list tasks for instance %s: %w", instance.ID, err)
-	}
-
-	for i := range ms {
-		m := &ms[i]
-		if m.NodeID != node.ID {
-			continue
-		}
-		if m.Status != models.TaskUnclaimed && m.Status != models.TaskClaimed && m.Status != models.TaskDelegated {
-			continue
-		}
-		if err := e.repo.Task().UpdateStatus(ctx, uuid.UUID(m.ID), models.TaskCanceled); err != nil {
-			return fmt.Errorf("cancel task %s on node %s: %w", m.ID, node.ID, err)
-		}
-		e.dispatcher.Dispatch(ctx, entities.ProcessEvent{
-			Type:      entities.EventTaskCanceled,
-			Instance:  instance,
-			Project:   instance.Project,
-			Node:      node,
-			Timestamp: time.Now().Unix(),
-			Variables: instance.Variables,
-			// Who it was taken from. The task row is in hand here and the
-			// person holding it is the only one who needs telling — the node's
-			// assignee is who the diagram nominated, which is not the same
-			// thing once somebody has claimed it.
-			Assignee: m.Assignee,
-		})
-	}
-	return nil
-}
-
 func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) error {
 	if node == nil || node.Type != entities.BoundaryEvent || node.AttachedToRef == "" {
 		return nil
@@ -590,12 +543,8 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 		return nil
 	}
 
-	hostNode := def.FindNode(node.AttachedToRef)
-	if hostNode != nil {
-		instance.RemoveTokenByNode(hostNode)
-		if err := e.cancelOpenTasksForNode(ctx, instance, hostNode); err != nil {
-			return err
-		}
+	if err := e.endActivity(ctx, instance, def.FindNode(node.AttachedToRef)); err != nil {
+		return err
 	}
 	for _, ev := range def.GetBoundaryEvents(node.AttachedToRef) {
 		if err := e.repo.Subscription().DeleteByNode(ctx, instance.ID, ev.ID); err != nil {
@@ -603,99 +552,6 @@ func (e *Engine) handleBoundaryInterrupt(ctx context.Context, instance *entities
 		}
 	}
 	return nil
-}
-
-// checkAdHocCompletion re-evaluates the completion condition of the ad-hoc
-// sub-process a finished step belongs to, and lets the process through when it
-// is satisfied.
-//
-// Returns true when it advanced the process, so the caller stops treating the
-// finished step as an ordinary node.
-func (e *Engine) checkAdHocCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node) (bool, error) {
-	if node == nil || node.ParentID == "" {
-		return false, nil
-	}
-	parent := def.FindNode(node.ParentID)
-	if parent == nil || !parent.IsAdHoc {
-		return false, nil
-	}
-	if len(instance.GetTokensByNode(parent)) == 0 {
-		return false, nil
-	}
-	if parent.CompletionCondition != "" &&
-		!logic.GetConditionEvaluatorChain().Evaluate(parent.CompletionCondition, instance.Variables) {
-		// More work to do inside; the sub-process keeps waiting.
-		return false, e.UpdateInstance(ctx, *instance)
-	}
-
-	return true, e.Proceed(ctx, instance, def, parent.ID)
-}
-
-// removeOrCheckMultiInstance handles token removal for both simple and multi-instance
-// nodes.  Returns (true, nil) when execution should continue past the node.
-func (e *Engine) removeOrCheckMultiInstance(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
-	if node == nil || node.MultiInstanceType == "" || node.MultiInstanceType == "none" {
-		// By node ID, not by node: this branch deliberately accepts a nil node —
-		// the definition no longer describes what the token is sitting on — and
-		// the token still has to come off, or the instance keeps a token nothing
-		// will ever advance.
-		instance.RemoveTokenByNodeID(nodeID)
-		return true, nil
-	}
-	return e.checkMultiInstanceCompletion(ctx, instance, def, node, nodeID, iterationID)
-}
-
-// checkMultiInstanceCompletion increments the completion counter and returns
-// (true, nil) when all iterations are done (or the completion condition is met).
-func (e *Engine) checkMultiInstanceCompletion(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, nodeID, iterationID string) (bool, error) {
-	completed, total := instance.CompleteMultiInstanceIteration(nodeID)
-	instance.RemoveTokenByIteration(node, iterationID)
-
-	conditionMet := completed >= total
-	if node.CompletionCondition != "" {
-		// The condition sees the business variables plus BPMN's own progress
-		// counters, without either being written back to the instance.
-		conditionMet = logic.GetConditionEvaluatorChain().
-			Evaluate(node.CompletionCondition, instance.MultiInstanceConditionScope(nodeID))
-	}
-
-	if !conditionMet {
-		if err := e.UpdateInstance(ctx, *instance); err != nil {
-			return false, err
-		}
-		// Sequential means one at a time: the next iteration is started when
-		// this one finishes, and nothing was starting it. A task set to run
-		// once per supplier ran for the first supplier and the process then sat
-		// there, with no error and no task, looking like it was still working.
-		if node.MultiInstanceType == "sequential" && completed < total {
-			return false, e.startNextSequentialIteration(ctx, instance, def, node, completed)
-		}
-		return false, nil
-	}
-
-	// Every iteration is done, so the bookkeeping goes.
-	instance.FinishMultiInstance(nodeID)
-	return true, nil
-}
-
-// startNextSequentialIteration runs iteration `index` of a sequential
-// multi-instance node.
-//
-// Each iteration is started from within the one before it, so a collection of
-// n runs n deep. The engine's execution-depth bound applies, which is the same
-// protection an accidental loop gets: a very long collection is reported as
-// exceeding it rather than exhausting the stack.
-func (e *Engine) startNextSequentialIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node *entities.Node, index int) error {
-	iterationID := fmt.Sprintf("%d", index)
-	instance.AddTokenWithIteration(node, iterationID)
-
-	collection, _ := entities.MultiInstanceCollection(instance, *node)
-	entities.BindMultiInstanceElement(instance, *node, collection, index)
-
-	if err := e.UpdateInstance(ctx, *instance); err != nil {
-		return err
-	}
-	return e.ExecuteNodeIteration(ctx, instance, def, node.ID, iterationID)
 }
 
 // cleanupEventBasedGatewaySiblings cancels competing tokens when one branch of

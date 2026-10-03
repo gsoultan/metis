@@ -19,9 +19,13 @@ const (
 // TaskModel represents the GORM model for tasks.
 type TaskModel struct {
 	Base
-	ProjectID       UUID       `gorm:"index" json:"project_id,omitzero"`
-	InstanceID      UUID       `gorm:"index" json:"instance_id,omitzero"`
-	NodeID          string     `json:"node_id"`
+	ProjectID  UUID   `gorm:"index" json:"project_id,omitzero"`
+	InstanceID UUID   `gorm:"index" json:"instance_id,omitzero"`
+	NodeID     string `json:"node_id"`
+	// IterationID names which run of a multi-instance step this task is for
+	// ("0", "1", …). Empty — NULL in the table — on a task of a step that runs
+	// once, and on every task created before migration 31.
+	IterationID     string     `json:"iteration_id,omitzero"`
 	Name            string     `json:"name"`
 	Description     string     `json:"description,omitzero"`
 	Type            NodeType   `gorm:"index" json:"type"`

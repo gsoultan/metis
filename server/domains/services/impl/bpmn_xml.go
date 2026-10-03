@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
 )
 
 // The namespaces a BPMN file has to declare to be loadable by anything else.
@@ -264,6 +267,23 @@ type bpmnNode struct {
 	Script string `xml:"script,omitempty"`
 }
 
+// parkedMultiInstanceConditionProperty is where import keeps a multi-instance
+// completion condition it does not hand to the engine: beside the step, as
+// written, where nothing evaluates it.
+//
+// Releases up to 0.4.0 kept every such condition here, on the belief that the
+// engine evaluated none. An imported approval's condition is now the one the
+// engine evaluates (see mapNode). Every other step's stays here: the engine
+// counts those steps as it always did, and a condition that became live on
+// one would end it early without withdrawing what its other runs had under
+// way, or hold it for ever where the file's condition cannot be met.
+//
+// Nothing moves a condition out of here either: a version already deployed
+// goes on doing what it has been doing, and changing that under running
+// instances is a decision for whoever deploys the next one. Export reads it,
+// so the file says what its author wrote.
+const parkedMultiInstanceConditionProperty = "multi_instance_completion_condition"
+
 // bpmnMultiInstance is the loop characteristics element. The engine reads
 // MultiInstanceType, LoopCardinality, Collection and ElementVariable and had no
 // way to express any of them in a file: a parallel multi-instance task imported
@@ -300,6 +320,11 @@ type bpmnProcessNode struct {
 	// import is the difference between a sub-process that finishes and one that
 	// holds its token forever.
 	CompletionCondition *bpmnExpression `xml:"completionCondition"`
+	// CancelRemainingInstances is a pointer for the reason CancelActivity is
+	// one: its BPMN default is true, so the only value worth reading or writing
+	// is false, and a plain bool cannot tell "false" from "unset". Only an
+	// ad-hoc sub-process carries it.
+	CancelRemainingInstances *bool `xml:"cancelRemainingInstances,attr,omitempty"`
 
 	// Only bpmnProcess is embedded, for the child-element collections. bpmnNode
 	// is deliberately NOT embedded: it declares `id,attr` and `name,attr` too,
@@ -421,6 +446,9 @@ func (p *BPMNXMLParser) Parse(reader io.Reader) (*entities.ProcessDefinition, er
 
 	def.Nodes = p.mapNodes(bp)
 	def.Flows = p.mapFlows(bp.SequenceFlows)
+	if err := refuseUnreadableCompletionConditions(def.Nodes); err != nil {
+		return nil, err
+	}
 
 	// Add Pools/Participants as nodes if they exist
 	for _, coll := range defs.Collaborations {
@@ -618,6 +646,9 @@ func (p *BPMNXMLParser) mapSubProcess(bsp bpmnProcessNode, adHoc bool) *entities
 	node.IsAdHoc = adHoc
 	node.IsEventSubProcess = bsp.TriggeredByEvent
 	node.CompletionCondition = bsp.CompletionCondition.text()
+	if adHoc && bsp.CancelRemainingInstances != nil && !*bsp.CancelRemainingInstances {
+		node.Properties[entities.CancelRemainingInstancesProperty] = false
+	}
 	node.Nodes = p.mapNodes(bsp.bpmnProcess)
 	node.Flows = p.mapFlows(bsp.SequenceFlows)
 	return node
@@ -697,13 +728,17 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		}
 		node.Collection = mi.Collection
 		node.ElementVariable = mi.ElementVariable
-		// The engine does not evaluate a multi-instance completion condition —
-		// Node.CompletionCondition is read only by the ad-hoc sub-process — so
-		// this is kept as a property rather than assigned to that field. It
-		// survives the round trip instead of being silently dropped, without
-		// claiming a behaviour this engine does not have.
-		if c := mi.CompletionCondition.text(); c != "" {
-			node.Properties["multi_instance_completion_condition"] = c
+		// On an approval — a user task or a manual task — the condition goes
+		// into the field the engine evaluates when a run finishes: met, it
+		// ends the step and withdraws the approvals still open. In the
+		// engine's own syntax; see importedCompletionCondition.
+		//
+		// On any other step it is kept as written and not evaluated; see
+		// parkedMultiInstanceConditionProperty.
+		if node.IsRepeatingApproval() {
+			node.CompletionCondition = importedCompletionCondition(mi.CompletionCondition.text())
+		} else if c := mi.CompletionCondition.text(); c != "" {
+			node.Properties[parkedMultiInstanceConditionProperty] = c
 		}
 	}
 
@@ -745,6 +780,71 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 	}
 
 	return node
+}
+
+// importedCompletionCondition is a multi-instance completion condition as the
+// engine reads one, from the text a file carries.
+//
+// BPMN leaves the expression language to the tool, and each modeler marks its
+// own: Camunda 7 and Flowable wrap an expression as ${…} or #{…}, and Camunda 8
+// writes FEEL with a leading "=". The engine's evaluator reads the expression
+// and not the marking, so the marking is taken off. Kept, the condition could
+// not be read and answered false every time: "two of them is enough" ran as
+// "all of them", and nothing said the condition had not been understood.
+//
+// Taking the marking off does not translate the language inside it. What is
+// left is checked when the file is imported
+// (refuseUnreadableCompletionConditions).
+func importedCompletionCondition(written string) string {
+	condition := strings.TrimSpace(written)
+	for _, opening := range []string{"${", "#{"} {
+		if rest, wrapped := strings.CutPrefix(condition, opening); wrapped {
+			if expression, closed := strings.CutSuffix(rest, "}"); closed {
+				return strings.TrimSpace(expression)
+			}
+			// Opened and never closed: left as written, for the check to refuse.
+			return condition
+		}
+	}
+	if expression, marked := strings.CutPrefix(condition, "="); marked {
+		return strings.TrimSpace(expression)
+	}
+	return condition
+}
+
+// refuseUnreadableCompletionConditions refuses a file in which a repeating
+// approval has a completion condition the engine cannot read. A condition on
+// any other step is not evaluated, so there is nothing to refuse it for.
+//
+// Such a condition answers false whenever it is asked, so the step would wait
+// for every one of its runs — silently, and it is the opposite of what a
+// completion condition is written for. An unreadable condition on a sequence
+// flow is not refused here: it is imported as written, and the gateway that
+// cannot choose a flow says so when it is reached. A completion condition has
+// no such moment; "not yet" is an ordinary answer for it. So it is refused
+// while the person who chose the file is still there to read why.
+//
+// The message is for that person: it names the step as the diagram does, and
+// shows the condition as the engine would have read it.
+func refuseUnreadableCompletionConditions(nodes []*entities.Node) error {
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if node.IsRepeatingApproval() && logic.CheckCondition(node.CompletionCondition) != nil {
+			step := "a step with no name"
+			if node.Name != "" {
+				step = fmt.Sprintf("the step '%s'", node.Name)
+			}
+			return apierr.Invalidf("%s repeats until a completion condition this engine cannot read: %s — "+
+				"rewrite the condition as a comparison such as nrOfCompletedInstances >= 2 and import the file again",
+				step, node.CompletionCondition)
+		}
+		if err := refuseUnreadableCompletionConditions(node.Nodes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *BPMNXMLParser) mapFlows(bpFlows []bpmnSequenceFlow) []*entities.SequenceFlow {
@@ -1057,6 +1157,10 @@ func (p *BPMNXMLParser) classifyNodes(nodes []*entities.Node, bp *bpmnProcess, p
 			p.classifyNodes(n.Nodes, &bsp.bpmnProcess, nil)
 			if n.IsAdHoc {
 				bsp.CompletionCondition = formal(n.CompletionCondition)
+				if !n.CancelsRemainingInstances() {
+					keep := false
+					bsp.CancelRemainingInstances = &keep
+				}
 				bp.AdHocSubProcesses = append(bp.AdHocSubProcesses, bsp)
 			} else {
 				bp.SubProcesses = append(bp.SubProcesses, bsp)
@@ -1156,7 +1260,8 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 		if n.LoopCardinality > 0 {
 			mi.LoopCardinality = strconv.Itoa(n.LoopCardinality)
 		}
-		mi.CompletionCondition = formal(n.GetStringProperty("multi_instance_completion_condition"))
+		mi.CompletionCondition = formal(cmp.Or(
+			n.CompletionCondition, n.GetStringProperty(parkedMultiInstanceConditionProperty)))
 		bn.MultiInstance = mi
 	}
 	if n.Type == entities.TerminateEndEvent {

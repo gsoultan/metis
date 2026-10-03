@@ -836,6 +836,7 @@ func Schema(models []any) []Migration {
 		auditWriteOrder(),
 		notificationIndexes(),
 		organizationRoles(),
+		taskIteration(),
 	}
 }
 

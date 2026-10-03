@@ -1,6 +1,9 @@
 package entities
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Node represents a node in a BPMN process definition.
 type Node struct {
@@ -64,6 +67,30 @@ func KnownMultiInstanceType(loop string) bool {
 	default:
 		return false
 	}
+}
+
+// Repeats reports whether the step runs once per item — in parallel or one
+// after another — rather than once.
+func (n *Node) Repeats() bool {
+	return n != nil && n.MultiInstanceType != "" && n.MultiInstanceType != "none"
+}
+
+// IsRepeatingApproval reports whether the step is work for a person that
+// repeats: a user task or a manual task run once per item.
+//
+// These are the steps whose runs the engine counts strictly — one completion
+// retires one run's token, and a completion with no run to retire is refused
+// (Engine.checkApprovalCompletion). Each of their runs is a task of its own,
+// which records the run it is for, and nothing else shares the step's tokens.
+//
+// No other repeating step is counted that way. The runs of a repeating
+// sub-process happen on the steps inside it and share those steps' tokens;
+// work done by an outside worker, a called process and a service call are
+// counted as they finish, without one of the step's tokens standing for each.
+// Held to the strict rule they are refused advances they are owed, so they
+// keep the counting they had.
+func (n *Node) IsRepeatingApproval() bool {
+	return n.Repeats() && (n.Type == UserTask || n.Type == ManualTask)
 }
 
 // Implementation is how a service task is carried out: "push" calls a web
@@ -228,6 +255,29 @@ func (n *Node) isNonErrorBoundaryKind() bool {
 // stored definition already does.
 func (n *Node) IsNonInterrupting() bool {
 	return n.GetBoolProperty("non_interrupting")
+}
+
+// CancelRemainingInstancesProperty is the node property that carries BPMN's
+// cancelRemainingInstances for an ad-hoc sub-process.
+const CancelRemainingInstancesProperty = "cancel_remaining_instances"
+
+// CancelsRemainingInstances reports whether an ad-hoc sub-process withdraws the
+// steps still running inside it when its completion condition is met.
+//
+// BPMN 2.0.2 §10.3.5 defaults cancelRemainingInstances to true, so an absent
+// property means true — which is every sub-process designed here, where there
+// is no control for it. Only an explicit false keeps them, as a boolean or as
+// the text a JSON or XML round trip can leave; anything else is read as the
+// default rather than as permission to leave work running.
+func (n *Node) CancelsRemainingInstances() bool {
+	switch value := n.Properties[CancelRemainingInstancesProperty].(type) {
+	case bool:
+		return value
+	case string:
+		return !strings.EqualFold(strings.TrimSpace(value), "false")
+	default:
+		return true
+	}
 }
 
 func (n *Node) traverseFlows(callback func(*SequenceFlow)) {

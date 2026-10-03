@@ -18,6 +18,251 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Migration 31: a task records which run of its step it is for
+
+A step that runs once per person keeps a token for each of them. A task did not
+say whose it was, so completing one from the inbox counted an approval and
+retired nobody's token: after the last approval the process moved on, and then
+never completed. Migration 31 adds `tasks.iteration_id`, and a completion now
+retires the run its task was created for.
+
+**The migration itself** adds one nullable column, which rewrites no rows, and
+waits **at most two seconds** for the table. If `tasks` is held longer the
+upgrade stops with
+
+```
+tasks was held for more than 2s by a long query or transaction; the upgrade
+stopped rather than hold every inbox behind it, and will finish when started
+again once that ends
+```
+
+and nothing has changed: let whatever holds the table finish, and start Metis
+again.
+
+**Approvals already under way** need nothing. A task created before the upgrade
+records no run, and completing it retires the lowest-numbered run still waiting
+on its step. A step part-way through — one approval given before the upgrade,
+two after — finishes once, and the token the earlier approval left behind goes
+with it.
+
+**Only approvals are counted this way.** The change applies to a user task or a
+manual task that runs once per item. Every other step that runs once per item —
+a sub-process, an external task, a call activity, a service task, a script — is
+counted exactly as it was before the upgrade, and an instance that is inside
+one carries on as it would have. That includes what was already loose about
+them, which this release does not fix:
+
+- an external task or a call activity that runs once per item leaves its
+  tokens on the step when it finishes, so its process moves on and then never
+  completes;
+- when a completion condition ends one of them early, or a deadline interrupts
+  it, the work its other runs have under way is not withdrawn — the external
+  tasks stay on offer, the called processes run on, the queued service calls
+  are made — and that work is accepted when it comes back, which can move the
+  process on from a step it has left;
+- a sub-process run once per item in parallel does not finish when it has a
+  service call inside, or three or more waiting steps inside whose runs
+  overlap, or an approval inside that itself runs once per person (only the
+  first item's approvers are asked): the instance stays `active` with nothing
+  open, and no query below lists it;
+- a deadline on a sub-process that runs once per item never fires.
+
+Fixing these needs each run of a repeating sub-process to have tokens of its
+own; that is the follow-up, and the strict counting of approvals is extended to
+every step after it.
+
+**Processes this had already stranded are not repaired.** An instance whose
+approvers had all answered before the upgrade is `active`, holds tokens on the
+approval, and has nothing open: no task, no job waiting or running (a timer or a deadline
+is a waiting job), no work parked for a worker, no process it called still
+running, no event it is waiting for, and no open incident. An instance with an
+open incident is waiting on an operator and is not listed, and neither is one
+whose approval still has a deadline or an event pending: it shows up once
+that has passed or been dealt with. This finds them:
+
+```sql
+WITH live AS (
+  SELECT i.id, i.created_at,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, l.created_at
+  FROM live l
+ WHERE jsonb_array_length(l.tokens) > 0
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                    WHERE coalesce(t->>'iteration_id', '') = '')
+   AND NOT EXISTS (SELECT 1 FROM tasks k
+                    WHERE k.instance_id = l.id AND k.deleted_at IS NULL
+                      AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated'))
+   AND NOT EXISTS (SELECT 1 FROM jobs j
+                    WHERE j.instance_id = l.id AND j.deleted_at IS NULL
+                      AND j.status IN ('pending', 'running'))
+   AND NOT EXISTS (SELECT 1 FROM external_tasks x
+                    WHERE x.instance_id = l.id AND x.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM process_instances c
+                    WHERE c.parent_instance_id = l.id AND c.deleted_at IS NULL
+                      AND c.status IN ('active', 'suspended'))
+   AND NOT EXISTS (SELECT 1 FROM event_subscriptions s
+                    WHERE s.instance_id = l.id AND s.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM incidents n
+                    WHERE n.instance_id = l.id AND n.deleted_at IS NULL
+                      AND n.status = 'open');
+```
+
+Every row is an instance holding only iteration tokens with nothing in flight
+for any of them. The list is not only approvals from before the upgrade: an
+external task or a call activity that runs once per item strands its process
+the same way, before the upgrade and after it, so run the query again from time
+to time if you use those. Look at each before you end it: check the incident
+list for the instance first, and open the instance to see what its step was
+waiting for. Whether the business was in fact finished is a decision, not
+a repair: end the ones that were with a migration's *End the instance* action
+(`cancel`, in `docs/process-change-in-flight.md`), which records who decided
+and why.
+
+**"Two of three" now withdraws the third.** An approval whose completion
+condition is met withdraws the approvals still open and tells their holders.
+Before the upgrade those tasks were left open; one left open by an *earlier*
+early finish is refused (400 over REST) when somebody completes it — *this step
+has already finished and the process has moved on* — and stays in their list.
+A deadline still pending on such an approval no longer fires; before the
+upgrade it did, and took the process down its deadline path from a step it had
+left. The tasks are the open tasks of a step the instance no longer counts but
+still holds run tokens for. Run this once every server is on the new release:
+while the two releases run side by side, a server still on the old one can end
+an approval early and leave tasks behind that a new one created.
+
+```sql
+WITH live AS (
+  SELECT i.id,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens,
+         CASE WHEN jsonb_typeof(i.multi_instance::jsonb) = 'object'
+              THEN i.multi_instance::jsonb ELSE '{}'::jsonb END AS counting
+    FROM process_instances i
+   WHERE i.deleted_at IS NULL
+)
+SELECT k.id, k.name, k.assignee
+  FROM tasks k JOIN live l ON l.id = k.instance_id
+ WHERE k.deleted_at IS NULL
+   AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')
+   AND NOT l.counting ? k.node_id
+   AND EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                WHERE t->>'node_id' = k.node_id AND coalesce(t->>'iteration_id', '') <> '');
+```
+
+Set them `canceled` once you have looked at them. The step's tokens stay where
+the old release left them, so once its tasks are closed and the instance has
+nothing else in flight it appears in the first list, to be looked at and ended
+like the others.
+
+**An approval a deadline interrupted before the upgrade is still counting.**
+Before the upgrade an interrupting deadline (or any other interrupting boundary
+event) on an approval took its tokens and its tasks and left its count; from
+this release it takes the count too. An instance interrupted before the upgrade
+keeps the count it was left with. That matters only if the process comes back
+to the approval — "chase, then ask again": the step is entered as if it were
+already running and asks nobody, exactly as before the upgrade, and sits there
+until its boundary event fires again. When it does, the approval ends whole,
+and the next time the process reaches it everybody is asked. If the boundary
+event is a deadline that is a wait of one more deadline; if it is a message or
+a signal that may never come, the instance stays on the approval with nothing
+open, and neither query above lists it. This lists the instances that still
+carry such a count, on the approval or elsewhere:
+
+```sql
+WITH live AS (
+  SELECT i.id,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens,
+         CASE WHEN jsonb_typeof(i.multi_instance::jsonb) = 'object'
+              THEN i.multi_instance::jsonb ELSE '{}'::jsonb END AS counting
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, c.node_id,
+       EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                WHERE t->>'node_id' = c.node_id) AS on_the_step
+  FROM live l CROSS JOIN LATERAL jsonb_object_keys(l.counting) AS c(node_id)
+ WHERE EXISTS (SELECT 1 FROM tasks k
+                WHERE k.instance_id = l.id AND k.node_id = c.node_id AND k.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l.tokens) t
+                    WHERE t->>'node_id' = c.node_id AND coalesce(t->>'iteration_id', '') <> '');
+```
+
+A row with `on_the_step` false is elsewhere in its process and needs nothing
+unless it comes back. A row with it true is on the approval asking nobody: let
+its deadline pass, or, if nothing will fire, end the instance or move it with a
+migration as you would have before the upgrade.
+
+**An approval now also finishes when everybody asked has answered**, whatever
+its condition says. A condition that the list could not satisfy used to hold
+the step for ever; check any condition on a repeating user task or manual task
+that was relying on that. On every other repeating step a completion condition
+still replaces "everybody has answered", as before.
+
+**Versions imported from BPMN before this release** keep a multi-instance
+completion condition where nothing evaluates it, and go on running all-of-N —
+changing a deployed version under its running instances is not something an
+upgrade should do. For an approval — a user task or a manual task — import the
+file again (or export and re-import the version) to deploy one that honours
+the condition. For every other repeating step importing again changes nothing:
+in this release an imported completion condition takes effect on approvals
+only, and on a service task, an external task, a call activity or a script it
+stays where it was, not evaluated, and the step runs for every item.
+
+**A file whose completion condition on an approval cannot be read is now
+refused on import.** A completion condition is read in Metis's own expression
+language (FEEL): for example `nrOfCompletedInstances >= 2`, or
+`nrOfCompletedInstances / nrOfInstances >= 0.6`. The marking another modeler
+puts around an expression is taken off — `${…}` and `#{…}` (Camunda 7,
+Flowable), a leading `=` (Camunda 8) — so `${nrOfCompletedInstances >= 2}` now
+works where it used to be imported and never hold. What is inside is not
+translated: a condition written with `==`, `&&` or a method call is refused
+(400 over REST) with a message naming the step, where it used to import and run
+the step for everybody. Rewrite the condition and import again. Two kinds of
+condition are still imported and then never hold — the approval then finishes
+only when everybody has answered — so check for them by eye: one written
+against Camunda 8's counter names (`numberOfInstances`,
+`numberOfCompletedInstances` and the like — Metis provides `nrOfInstances`,
+`nrOfCompletedInstances`, `nrOfActiveInstances`), and one that uses a single
+`=` to compare with something other than a plain value
+(`nrOfCompletedInstances = nrOfInstances - 1`; write `>=`, or compare with a
+number). A file is not refused for a condition on a step that is not an
+approval, readable or not. Conditions on sequence flows are imported as
+written, as before; a gateway that cannot choose a flow raises an error when
+it is reached.
+
+**Ad-hoc sub-processes** now withdraw the steps still running inside them when
+their completion condition is met, at any depth, with the tasks, the work
+waiting for workers, and the events those steps were waiting for. A worker
+still holding work for one of those steps is told there is no such external
+task when it reports, and the instance's history has a `parked_work_withdrawn`
+entry for the step; a service call still queued for one is not made. A process
+one of those steps called is not ended: it runs on, and its tasks stay open
+until somebody completes them. A sub-process that should wait for its steps
+instead says `cancelRemainingInstances="false"` in its BPMN file.
+
+An ad-hoc sub-process with **no** completion condition has always finished when
+the first step inside it does. It now also withdraws every other step that was
+started and is still open — before, they were left in people's inboxes. If the
+steps are all meant to be done, give the sub-process a completion condition
+that says so, or `cancelRemainingInstances="false"`.
+
+With `cancelRemainingInstances="false"`, do not start the same step twice
+while the first is still open. A step holds one place however often it is
+started, so when the first of the two finishes the sub-process no longer sees
+the second: it can move on with the second one's task still open. This is
+not new, and it is on the roadmap.
+
+**Rolling back** to the previous release is safe for the data: the column is
+nullable and the previous release ignores it. The defects come back with it:
+approvals completed from the inbox while it runs leave their tokens behind
+again, and an approval ended early leaves its other tasks open. Upgrading again
+does not re-run migration 31; run the queries above again when you do.
+
 ## Completing a task sets only what its form declares
 
 Completing a task used to write every variable the completion carried into the

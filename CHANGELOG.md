@@ -94,6 +94,84 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An approval several people give never finished its process.** A user task
+  or manual task that runs once per person — in parallel or one after another —
+  keeps a token for each of them, and completing a task from the inbox did not
+  say whose it was. The count went up and no token came off, so after the last
+  approval the process moved on and then never completed: its end event found
+  tokens still on the approval. A deadline on the approval could also fire
+  after everybody had answered. A task now records which run of its step it is
+  for (migration 31) and completing it retires that run.
+- **"Two of three is enough" left the third approval open, and could run the
+  rest of the process twice.** When the completion condition of such an
+  approval was met the process moved on without withdrawing the approvals
+  still open. They stayed in people's inboxes, and completing one could move
+  the process on a second time when the condition was written on what an
+  approver decided (*any rejection ends it*). The approvals nobody needs are
+  now withdrawn — their holders are told, as when a deadline takes a task — and
+  completing one is refused (400 over REST): *this task was withdrawn because
+  its step no longer needs it, so it cannot be completed*. A task that is
+  already completed or otherwise not open is refused the same way (it used to
+  answer 403 over REST when it had been withdrawn). A condition is also no
+  longer the only way such an approval ends: it finishes when everybody asked
+  has answered, so "two of them" over a list of one no longer waits for ever.
+- **A completion condition on an approval in an imported BPMN file was
+  ignored.** Import kept `<completionCondition>` of a multi-instance step where
+  nothing evaluates it, so a file that said two-of-three ran as all-of-three.
+  On a user task or a manual task it is now read into the step and evaluated,
+  and export writes it back. On every other repeating step — a service task, an
+  external task, a call activity, a script — the condition is still kept as
+  written, not evaluated and written back on export, as before: the step runs
+  for every item. On an approval the condition is read in the
+  engine's own expression language (FEEL comparisons such as
+  `nrOfCompletedInstances >= 2`, or `nrOfCompletedInstances / nrOfInstances >=
+  0.6`). The marking other modelers put around an expression is taken off on
+  import — `${…}` and `#{…}` (Camunda 7, Flowable) and a leading `=`
+  (Camunda 8) — but what is inside is not translated: a condition that still
+  cannot be read, such as one written with `==`, `&&` or a method call, is
+  refused when the file is imported (400 over REST), naming the step, rather
+  than imported and left to read as "not yet" for ever. Rewrite it and import
+  again. A file is not refused for a condition on a step that is not an
+  approval. Conditions on sequence flows are imported as written, as before.
+- **An ad-hoc sub-process that finished left its other steps running.** A step
+  started inside it and still open when the sub-process finished — its
+  completion condition was met, or it has none and its first step finished —
+  kept its task in somebody's inbox, and the process could never complete. Those
+  steps are now withdrawn, which is BPMN's default: tokens, open user tasks and
+  external tasks, and the events they were waiting for, at any depth — a step
+  that is itself a sub-process included. The process's history gets one
+  `parked_work_withdrawn` entry for each step whose external tasks were
+  withdrawn; a worker that still holds one and reports on it is told there is
+  no such external task. A service call still queued for a withdrawn step is
+  not made, and one that was under way and then fails is not retried and raises
+  no incident. A sub-process that says `cancelRemainingInstances="false"` waits
+  for its steps instead, and the attribute travels in a BPMN file both ways.
+  So that a worker's report cannot deadlock with the withdrawal, completing an
+  external task and reporting its failure now lock the instance before the
+  task's row. A worker that does not hold the task's lock is answered as
+  before. Two answers differ: a report whose task is withdrawn while it waits
+  for the instance is told there is no such external task, where it used to
+  fail on a deadlock or a missing row; and a failure report for an instance
+  that cannot be read now fails, where it used to be recorded.
+
+  **Not changed in this release:** every other step that runs once per item —
+  a sub-process, an external task, a call activity, a service task, a script —
+  is counted exactly as before, and keeps the looseness it had. A repeating
+  external task or call activity still leaves its tokens on the step when it
+  finishes, so its process still never completes; a completion condition met
+  early on any of them (one designed here — an imported one is not evaluated on
+  these steps), or a deadline that interrupts one, still does not withdraw the
+  work the other runs have under way, and that work is still accepted when it
+  comes back. The strict counting above cannot be applied to
+  them yet: the runs of a sub-process that runs once per item share the tokens
+  of the steps inside it, and counted strictly it stops finishing. The
+  follow-up is to give each run of a repeating sub-process its own tokens, and
+  then make the counting strict for every step.
+
+  **Upgrading:** read [Migration 31: a task records which run of its step it is
+  for](docs/upgrading.md#migration-31-a-task-records-which-run-of-its-step-it-is-for)
+  — what happens to approvals already under way, to processes this defect has
+  already stranded, and to versions imported before this release.
 - **Two updates of the same table could write each other's columns.** The
   data layer (storm 0.15) kept each table's compiled UPDATE statements in a
   cache keyed by which columns change, and published the key and the statement

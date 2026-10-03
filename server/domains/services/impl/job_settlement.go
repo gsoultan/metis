@@ -230,12 +230,138 @@ func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobE
 	return err
 }
 
+// completedBecauseWithdrawn completes a service-task job whose step was
+// withdrawn with the ad-hoc sub-process it is inside, and reports whether it
+// did.
+//
+// Two reads. The first takes no lock, and is all a job whose step is waiting
+// pays. Only when it says the step was withdrawn is the instance locked and
+// asked again, and the job completed in that transaction: what completes a job
+// without doing its work is decided on the locked row, like everything else
+// that settles one.
+func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities.Job, node, adHoc *entities.Node) (bool, error) {
+	glimpse, err := s.engine.GetInstance(ctx, job.Instance.ID)
+	if err != nil {
+		return false, err
+	}
+	if !withdrawnWithAdHoc(&glimpse, adHoc, node, job.IterationID) {
+		return false, nil
+	}
+	withdrawn, err := s.completeIfWithdrawn(ctx, job, node, adHoc)
+	if withdrawn {
+		log.Info().
+			Str("jobId", job.ID.String()).
+			Str("instance_id", job.Instance.ID.String()).
+			Str("node_id", job.Node.ID).
+			Msg("A call queued for a step that had been withdrawn was not made")
+	}
+	return withdrawn, err
+}
+
+// completeIfWithdrawn locks the instance and, if the step the job was queued
+// for was withdrawn with its ad-hoc sub-process, completes the job in the same
+// transaction. The instance first and the job's row second, as every path that
+// settles a job takes them.
+func (s *jobService) completeIfWithdrawn(ctx context.Context, job entities.Job, node, adHoc *entities.Node) (bool, error) {
+	withdrawn := false
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
+		if err != nil {
+			return err
+		}
+		if !withdrawnWithAdHoc(&instance, adHoc, node, job.IterationID) {
+			return nil
+		}
+		withdrawn = true
+		return s.completeJob(txCtx, job)
+	})
+	if err != nil {
+		return false, err
+	}
+	return withdrawn, nil
+}
+
+// withdrawnWithAdHoc reports whether the step a job was queued for was
+// withdrawn with the ad-hoc sub-process around it: the step no longer holds
+// the job's token, and the sub-process holds none either — it has finished,
+// and took what was still running inside it (Engine.endAdHocSteps).
+//
+// A step that lost its token while its sub-process is still open was not
+// withdrawn by it, and its job is left to do what it always did.
+func withdrawnWithAdHoc(instance *entities.ProcessInstance, adHoc, node *entities.Node, iterationID string) bool {
+	return !tokenWaitsAt(instance, node, iterationID) && len(instance.GetTokensByNode(adHoc)) == 0
+}
+
+// droppedForWithdrawnStep completes a failed service-task job whose step was
+// withdrawn with the ad-hoc sub-process it is inside, and reports whether it
+// did.
+//
+// A step can be withdrawn while its call is in flight, and the call can then
+// fail. That failure is nobody's: counting it retried a call nothing wanted,
+// and with the attempts used up raised an incident on an instance that had
+// moved on — whose resolution ran the call again. So the job is completed
+// instead, with no retry and no incident, and a line in the log.
+//
+// Only a service task inside an ad-hoc sub-process: nothing else withdraws a
+// step's queued work, and a failure anywhere else is recorded as it always
+// was. A timer's job sits on a different node from the token it answers to,
+// and its own execution decides whether it still applies.
+//
+// When the question cannot be answered — the definition will not load, it no
+// longer describes the step, the instance cannot be locked — the failure is
+// recorded too. A failure wrongly kept is an incident somebody closes; one
+// wrongly dropped is a step that never runs.
+func (s *jobService) droppedForWithdrawnStep(ctx context.Context, job entities.Job) bool {
+	if job.Type != entities.JobServiceTask || ctx.Err() != nil {
+		return false
+	}
+	def, err := s.engine.GetProcessDefinition(ctx, job.Definition.ID)
+	if err != nil {
+		return false
+	}
+	node := def.FindNode(job.Node.ID)
+	adHoc := enclosingAdHoc(def, node)
+	if adHoc == nil {
+		return false
+	}
+	withdrawn, err := s.completeIfWithdrawn(ctx, job, node, adHoc)
+	if err != nil {
+		log.Warn().Err(err).Str("jobId", job.ID.String()).
+			Msg("Could not tell whether the failed job's step is still waiting; recording the failure")
+		return false
+	}
+	if withdrawn {
+		log.Info().
+			Str("jobId", job.ID.String()).
+			Str("instance_id", job.Instance.ID.String()).
+			Str("node_id", job.Node.ID).
+			Msg("A call for a step that had been withdrawn failed and was dropped: no retry, no incident")
+	}
+	return withdrawn
+}
+
 // tokenWaitsAt reports whether the instance still has the token a job was
 // scheduled for: active, and a token on node — the one for this iteration, on
 // a node that runs once per item.
+//
+// One state is answered differently: a repeating approval that is not
+// counting its runs. Run tokens on it are what a release before migration 31
+// left behind when the step ended early — it stopped counting and kept a token
+// for every approver — and a deadline still queued for it found those tokens,
+// fired, and took the process down its deadline path from a step it had
+// already left. So that step is asked what the engine asks before it counts a
+// completion (ProcessInstance.AwaitsRun): it is waiting only on a plain token.
+//
+// Only while it is not counting. A step that is counting is asked about its
+// tokens like any other — including the one a deadline interrupted before
+// migration 31, which kept its count and, entered again, holds a plain token
+// and asks nobody: its deadline is the only thing that can move it on.
 func tokenWaitsAt(instance *entities.ProcessInstance, node *entities.Node, iterationID string) bool {
 	if instance.Status != entities.ProcessActive || node == nil {
 		return false
+	}
+	if node.IsRepeatingApproval() && !instance.IsMultiInstanceActive(node.ID) {
+		return instance.AwaitsRun(node, iterationID)
 	}
 	tokens := instance.GetTokensByNode(node)
 	if iterationID == "" {

@@ -263,15 +263,9 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// Any authenticated user could therefore complete any unclaimed task in
 		// any project and inject arbitrary variables into the instance.
 		authorize := func(task entities.Task) error {
-			// A refusal, not a failure: the second of two submissions meets
-			// this, and a 5xx would tell its client to send it again. The
-			// inbox's offline queue shows the text to the person, so it names
-			// no id.
-			if task.Status == entities.TaskCompleted {
-				return apierr.Invalidf("this task is already completed")
-			}
-			if task.Status == entities.TaskCanceled {
-				return fmt.Errorf("%w: task %s was cancelled and cannot be completed", ErrTaskForbidden, id)
+			// Closed first, before who is asking: see refuseClosedTask.
+			if err := refuseClosedTask(task.Status); err != nil {
+				return err
 			}
 			if task.Assignee != nil {
 				if task.Assignee.Username != userID {
@@ -363,11 +357,14 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			Variables: vars,
 		}, task, EventTaskCompleted, userID)
 
-		return s.engine.Proceed(txCtx, &instance, fullDef, task.NodeID())
+		// Which run of the step this task was, so the engine retires that run's
+		// token and no other. A task created before migration 31 records none,
+		// and the engine then retires the lowest one still waiting.
+		return s.engine.ProceedIteration(txCtx, &instance, fullDef, task.NodeID(), task.IterationID)
 	})
 }
 
-func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error {
+func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error {
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		idObj, err := uuid.NewV7()
 		if err != nil {
@@ -386,10 +383,13 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 		dueDate := entities.ResolveDueDate(node.DueDate, time.Now())
 
 		task := entities.Task{
-			ID:              idObj,
-			Project:         instance.Project,
-			Instance:        &instance,
-			Node:            &node,
+			ID:       idObj,
+			Project:  instance.Project,
+			Instance: &instance,
+			Node:     &node,
+			// Which run of the step this is. Completing the task hands it back
+			// to the engine, which is how the engine knows whose token to retire.
+			IterationID:     iterationID,
 			Name:            node.Name,
 			Description:     node.Documentation,
 			Type:            node.Type,

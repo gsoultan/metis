@@ -27,7 +27,9 @@ type TaskService interface {
 	UnclaimTask(ctx context.Context, id uuid.UUID) error
 	DelegateTask(ctx context.Context, id uuid.UUID, userID string) error
 	CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error
-	CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node) error
+	// CreateTaskForNode opens the task a step is waiting on. iterationID names
+	// the run of a multi-instance step it is for, and is empty otherwise.
+	CreateTaskForNode(ctx context.Context, instance entities.ProcessInstance, node entities.Node, iterationID string) error
 	UpdateTask(ctx context.Context, task entities.Task) error
 	AssignTask(ctx context.Context, id uuid.UUID, userID string) error
 }

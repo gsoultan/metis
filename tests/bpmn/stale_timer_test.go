@@ -420,3 +420,61 @@ func TestInterruptedActivityCancelsItsTask(t *testing.T) {
 		t.Error("the escalation path did not open")
 	}
 }
+
+// BPMN 2.0.2 §13.4.3 (Intermediate Boundary Events): a boundary event is live
+// only while its activity is; once the activity has completed, the event can
+// no longer occur.
+//
+// Completing a multi-instance approval through the inbox left its iteration
+// tokens on the step, so the deadline's "is the activity still running" check
+// said yes for ever and the escalation fired on an approval everybody had
+// already given.
+func TestADeadlineOnAMultiInstanceApprovalDoesNotFireOnceEveryoneAnswered(t *testing.T) {
+	h := newEngineHarness(t, "Stale Multi Instance Deadline Project")
+	ctx := h.Ctx()
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "approval-by-three-with-deadline",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "approve", Type: entities.UserTask, Name: "Approve the request",
+				MultiInstanceType: "parallel", Collection: "approvers"},
+			{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "approve", Properties: map[string]any{
+				"timer_duration": "PT2H",
+			}},
+			{ID: "escalate", Type: entities.UserTask, Name: "Escalate to the manager"},
+			{ID: "done", Type: entities.UserTask, Name: "Record the decision"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "approve"},
+			{ID: "f2", SourceRef: "approve", TargetRef: "done"},
+			{ID: "f3", SourceRef: "done", TargetRef: "end"},
+			{ID: "f4", SourceRef: "deadline", TargetRef: "escalate"},
+		},
+	})
+	instanceID, err := h.svc.StartProcess(ctx, h.projID, "approval-by-three-with-deadline",
+		map[string]any{"approvers": []any{"ana", "budi", "citra"}})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+
+	for range 3 {
+		completeTaskAt(ctx, t, h, instanceID, "approve", nil)
+	}
+	if !h.waitingAt(ctx, t, instanceID, "done") {
+		t.Fatal("every approver answered and the process did not move on")
+	}
+
+	// Two hours pass.
+	if moved := h.dueNow(ctx, t, instanceID); moved == 0 {
+		t.Fatal("no deadline was waiting to come due")
+	}
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	if seen := tasksEverOn(t, h, instanceID, "escalate"); seen != 0 {
+		t.Fatalf("the deadline fired %d time(s) on an approval everybody had already given", seen)
+	}
+}

@@ -280,6 +280,7 @@ func (r *taskRepository) Create(ctx context.Context, t models.TaskModel) error {
 	setOrNullString(ins.SetAssignee, ins.SetAssigneeNull, t.Assignee)
 	setOrNullString(ins.SetFormKey, ins.SetFormKeyNull, t.FormKey)
 	setOrNullString(ins.SetFormDefinition, ins.SetFormDefinitionNull, t.FormDefinition)
+	setOrNullString(ins.SetIterationID, ins.SetIterationIDNull, t.IterationID)
 	if t.DueDate != nil {
 		ins.SetDueDate(*t.DueDate)
 	}
@@ -318,6 +319,7 @@ func (r *taskRepository) Update(ctx context.Context, t models.TaskModel) error {
 	setOrNullString(mut.SetAssignee, mut.SetAssigneeNull, t.Assignee)
 	setOrNullString(mut.SetFormKey, mut.SetFormKeyNull, t.FormKey)
 	setOrNullString(mut.SetFormDefinition, mut.SetFormDefinitionNull, t.FormDefinition)
+	setOrNullString(mut.SetIterationID, mut.SetIterationIDNull, t.IterationID)
 	if t.DueDate != nil {
 		mut.SetDueDate(*t.DueDate)
 	} else {
@@ -503,6 +505,7 @@ func taskFrom(row task.Row) (models.TaskModel, error) {
 		ProjectID:      models.UUID(row.ProjectID),
 		InstanceID:     models.UUID(row.InstanceID),
 		NodeID:         row.NodeID,
+		IterationID:    valueOr(row.IterationID),
 		Name:           row.Name,
 		Description:    valueOr(row.Description),
 		Type:           models.NodeType(row.Type),

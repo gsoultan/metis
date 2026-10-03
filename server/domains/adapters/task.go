@@ -47,6 +47,7 @@ func (a TaskModelAdapter) ToModel() models.TaskModel {
 			}
 			return ""
 		}(),
+		IterationID:     a.Task.IterationID,
 		Name:            a.Task.Name,
 		Description:     a.Task.Description,
 		Type:            models.NodeType(a.Task.Type),
@@ -91,6 +92,7 @@ func (a TaskEntityAdapter) ToEntity() entities.Task {
 		// caller reading Node.Name would get the newer of the two without any
 		// way to tell. Task.Name is the label to display.
 		Node:            &entities.Node{ID: a.Model.NodeID, Type: entities.NodeType(a.Model.Type)},
+		IterationID:     a.Model.IterationID,
 		Name:            a.Model.Name,
 		Description:     a.Model.Description,
 		Type:            entities.NodeType(a.Model.Type),
