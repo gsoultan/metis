@@ -741,6 +741,15 @@ func (s *migrationService) survey(
 			return surveyResult{}, listErr
 		}
 		for _, job := range jobs {
+			// A job that has run is a record of it, not work: a job cannot be
+			// deleted, so a timer that fired stays behind, one row for every
+			// occurrence of a repeating one. Counted, it refused the migration
+			// of an instance that had long since passed a wait the new version
+			// dropped, for "work parked" on a step nobody was on. A failed one
+			// is still counted: resolving its incident queues it again.
+			if finishedJob(job.Status) {
+				continue
+			}
 			count(job.NodeID, func(c *counts) { c.jobs++ })
 		}
 		// Event subscriptions are the one kind of waiting that does not always
@@ -1602,6 +1611,13 @@ func parkedOn(instance entities.ProcessInstance, nodeID string) bool {
 // openTask reports whether a task is still somebody's to do.
 func openTask(status models.TaskStatus) bool {
 	return status == models.TaskUnclaimed || status == models.TaskClaimed || status == models.TaskDelegated
+}
+
+// finishedJob reports whether a job has run and will not run again. Only a
+// completed one: a pending or running job is work, and a failed one is work
+// too, queued again when its incident is resolved.
+func finishedJob(status models.JobStatus) bool {
+	return status == models.JobCompleted
 }
 
 // remapSubscriptions moves an instance's waiting events onto the new graph.
