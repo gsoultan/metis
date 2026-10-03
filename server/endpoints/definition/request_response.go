@@ -250,10 +250,11 @@ type MigrateInstancesResponse struct {
 	// for an apply that the plan refused, and false for an apply that left
 	// every instance it reached alone (PassedOver says which, and why).
 	Applied bool `json:"applied"`
-	// PassedOver are the instances the apply left exactly as they were because,
-	// by the time it held their lock, they were no longer where the plan found
-	// them: the step had been completed, or the instance had finished. They are
-	// still on the version they were running. Always present, empty when the
+	// PassedOver are the instances the apply did not move because, by the time
+	// it held their lock, they were no longer where the plan found them: the
+	// step had been completed, the instance had finished, or it had gone on to
+	// work the new version cannot take. They are still on the version they were
+	// running. Always present, empty when the
 	// apply left nobody behind and for a dry run, so a client need not ask
 	// whether the field is there.
 	PassedOver []PassedOverView `json:"passed_over"`

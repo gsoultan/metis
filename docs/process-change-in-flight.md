@@ -162,14 +162,29 @@ waived. Each decision asks again under the lock (see *Node actions*, below), and
 demonstrated: `moved_on_test.go` puts the completion between the listing and the lock on
 purpose, for a skip, a cancel and a hold.
 
-What is still not asked again is where a *moved* instance's work lands. An instance that
-advances between the listing and its lock onto a step the plan did not find it on is
-rewritten as it then stands; if that step is one the new version does not have — the step a
-skip was meant to clear, reached a moment too late to be skipped — the instance arrives on
-the new version with a token the new graph cannot place. The planner's "must land somewhere"
-check ran on the listing. Open, and written down in the roadmap. Until it is closed the
-window is as long as the run takes to reach the instance, so it is narrowest for a migration
-that names a few instances at a time when the steps before a removed one are quiet.
+The other direction of the same window was the worse one. An instance that *arrived*,
+between the listing and its lock, on a step the plan did not find it on was rewritten as it
+then stood. When that step was one the new version does not have — the step a skip was meant
+to clear, reached a moment too late to be skipped, or any removed step in a migration that
+only moves work — it arrived on the new version with a token and an open task on a step that
+version lacks. The planner's "must land somewhere" check had run on the listing, and the
+rewrite never asked again of the row its lock returned. The apply answered `applied: true`.
+The task's holder could still complete it; the token came off, nothing followed, and the
+instance stayed `active` with no token and no task, which nothing in the product can then
+move on, end or hold. Both are closed now, and both demonstrated
+(`lands_or_passed_over_test.go`, with the completion placed in the window on purpose):
+
+- **The work is decided for whoever holds it.** Before it decides an instance's work the
+  apply reads the instance again, so one that has reached a step being skipped, cancelled at
+  or held at since the listing gets that decision — the same row, the same entry — as one
+  that was there all along.
+- **An instance is moved only if its work lands, asked under its lock.** In the rewrite's own
+  transaction, on the row its lock returned and before anything is written, the planner's
+  landing check runs again for that one instance. See *An instance is moved only if its work
+  lands*, below.
+
+An instance that has not moved since it was listed passes the check it passed in the plan and
+is migrated exactly as before (`unmoved_pins_test.go`).
 
 This is also why `Claimed` and `Delegated` count separately in the plan: an unclaimed task
 is a queue item, a claimed one is a person mid-sentence.
@@ -246,7 +261,7 @@ Four questions, in order. Stop at the first that decides.
 
 | Refusal | Why |
 | :-- | :-- |
-| Work parked where the target has no node | The original check; a stranded token cannot be un-stranded |
+| Work parked where the target has no node | The original check; a stranded token cannot be un-stranded. Asked in the plan of every instance, and again of each instance under its lock before it is rewritten |
 | Engine bookkeeping with nowhere to land | Names the counter, not just the token riding on it |
 | Two counters merging onto one node | No correct way to add two arrival counts together |
 | A boundary event moved off its activity | A timer firing against work that is not running |
@@ -325,17 +340,51 @@ POST /api/v1/definitions/versions/migrate
   somebody to decide. An instance already held at that node keeps its one open incident, and
   nothing more is recorded for it.
 
-**A decision is made on the instance as its lock finds it.** Which action to try is chosen
-from the listing, and the listing is as old as the run. So each action reads the instance
-again once it holds the instance's lock, and acts only on one that is still running and
-still has a token on that step. An instance that has moved on in between — its holder
-completed the step, or it finished — is left exactly as it is: nothing is withdrawn,
-advanced, cancelled or raised, no ledger row and no trail entry are written, and it is not
-moved to the new version in that run either, because the plan was made for where it used to
-be. It stays on the version it is running, and running the same migration again plans for
-where it now stands. A skip used to advance such an instance a second time and record the
-approval its holder gave as waived; a cancel ended it; a hold raised an incident at a step
-it had left.
+**A decision is made on the instance as its lock finds it.** The listing is as old as the
+run, so before it decides an instance's work the apply reads the instance again, and tries an
+action at every decided step the instance holds a token on in either reading: in the fresh
+one, so that an instance which reached the step after the listing is decided like the rest;
+in the listing's, so that one which has left the step is found to have left it. Neither
+reading decides anything. Each action reads the instance once more when it holds the
+instance's lock, and acts only on one that is still running and still has a token on that
+step. An instance that has moved on in between — its holder completed the step, or it
+finished — is left exactly as it is: nothing is withdrawn, advanced, cancelled or raised, no
+ledger row and no trail entry are written, and it is not moved to the new version in that run
+either, because the plan was made for where it used to be. It stays on the version it is
+running, and running the same migration again plans for where it now stands. A skip used to
+advance such an instance a second time and record the approval its holder gave as waived; a
+cancel ended it; a hold raised an incident at a step it had left.
+
+**An instance is moved only if its work lands, asked under its lock.** The plan answers "does
+everything this instance holds have somewhere to go on the new version" from its listing. The
+rewrite asks it again, of the row its lock returned, in its own transaction and before it
+writes anything, with the planner's own check and the same mapping and decisions the plan was
+given. An instance is left alone — not re-pointed, nothing written, still on the version it is
+running — when, by then,
+
+- it holds a token, an open task, a job row (a timer or a queued service call, one that has
+  already run included), a waiting event or
+  a join or multi-instance counter on a step the new version has no step for and the mapping
+  does not cover, or counters on two steps the mapping puts onto one: what the planner
+  refuses a migration for;
+- or it still has a token on a step the migration skips, cancels at or holds at. In the plan
+  such work needs nowhere to land, because it is to be decided. By the time of the rewrite the
+  decisions have been made, each in its own transaction before it, so a token still there is
+  one no decision settled: the instance reached the step in the few statements between the
+  apply reading it again and locking it, or a skip left part of a repeating step behind.
+
+This also holds for an instance that never moved by itself. A skip advances an instance onto
+the step after the one skipped, and the plan was made for where it stood before: when that
+next step is one the new version lacks too, with no mapping and no decision of its own, the
+skip stands and is recorded and the instance stays on the version it is running. It used to
+be moved there. Likewise when the next step is another one the migration decides, a hold
+after a skipped step for example, whether or not the new version has it: the skip stands, and
+the instance is left for the next run of the same migration to decide at that step, where it
+used to be moved with the decision not made.
+
+The order of the locks is what it was: each decision in its own transaction, instance then
+tasks, and then the rewrite in another, instance first. The check reads the instance's tasks,
+jobs and waiting events under the rewrite's lock and takes no lock of its own.
 
 **The reply says which instances were left alone.** The plan in the reply was made before
 the apply and says what would happen; `passed_over` says what did not:
@@ -354,11 +403,28 @@ the apply and says what would happen; `passed_over` says what did not:
 `passed_over` is always present: `[]` when the run left nobody behind, and for a dry run,
 which writes nothing. An instance that finished before the run reached it — which a
 migration already left unmoved, whether it decides work or only moves it — is listed
-there too, as *no longer running when the migration reached it*. `applied` keeps its
-meaning, whether anything was written: `true` when the run acted on at least one instance,
-whatever it passed over, and `false` when it passed instances over and acted on none. The
-server log also names each instance that had left its step (*A migration passed over an
-instance that was no longer where its listing found it*), with the run's id.
+there too, as *no longer running when the migration reached it*. So is one whose work would
+not land, in a migration that decides work or one that only moves it, with one of these
+reasons, each naming the step as the version it runs names it:
+
+- *When the migration came to move it, it had work at "Operations approve", and version 2 has
+  nowhere to put that, so it was not moved. It stays on version 1. Plan the migration again
+  for where it now stands: it needs a mapping, or a decision, for that work.* A dry run of the
+  same migration is now refused for the work parked on that step, which it names by its id.
+- *When the migration came to move it, it was waiting at "Operations approve", where this
+  migration decides the work rather than moving it, and no decision had settled it, so it was
+  not moved. It stays on version 1; run the same migration again to decide it where it now
+  stands.* Running the same migration again finds it at the step and decides it.
+- *…it was part-way through two steps that this mapping moves onto one, and their progress
+  cannot be added together…*, for counters the mapping would merge.
+
+`applied` keeps its meaning, whether anything was written: `true` when the run acted on at
+least one instance, whatever it passed over, and `false` when it passed instances over and
+acted on none. An instance a skip advanced and the rewrite then left alone counts as acted
+on, and is listed as well. The server log also names each instance that had left its step
+(*A migration passed over an instance that was no longer where its listing found it*) and
+each whose work would not land (*A migration passed over an instance that had moved, after
+it was listed, onto work the new version cannot take as it stands*), with the run's id.
 
 `cancelled` is a new instance status. Reusing `completed` would have made an instance that
 was called off read, in every list and every count, exactly like one that succeeded; `failed`
@@ -377,7 +443,8 @@ Refused, because doing any of these half-way is worse than not doing them:
 
 Work on an actioned node is exempt from the "must land somewhere" check — refusing a
 migration for stranding the very task the caller asked it to cancel would make the feature
-unreachable.
+unreachable. That is the plan's rule. When the instance is rewritten, a token still on an
+actioned node is no longer exempt: see *An instance is moved only if its work lands*, above.
 
 Each decision writes its own trail entry — `node_skipped`, `instance_cancelled` or
 `instance_held` — naming the node, the authoriser and the reason, and a row in the instance's
@@ -488,7 +555,7 @@ leaves some moved and some not. There is deliberately **no run table** to resume
 because the source version already is one: an instance that moved is no longer on it.
 Re-running the same migration therefore picks up exactly what is left.
 
-Three things make that true rather than merely plausible:
+These make that true rather than merely plausible:
 
 - **Anything not still running is skipped.** A migrated instance has left the source
   version; a cancelled one must not be cancelled twice; and a *finished* one must never be
@@ -500,6 +567,11 @@ Three things make that true rather than merely plausible:
   step between the listing and its lock is neither decided nor moved, and is not counted
   among those dealt with, so the next run finds it and plans for where it now stands. The
   reply to the apply names it in `passed_over`.
+- **So is an instance whose work would not land.** One that reached, after the listing, a
+  step the new version cannot take is not moved and is not counted among those dealt with.
+  The reply names it in `passed_over` with what to do: run the same migration again when the
+  step is one the migration decides, and plan again — a dry run now refuses, naming the
+  step by its id — when it needs a mapping or a decision the migration did not have.
 - **Every entry of one run shares a `run_id`**, so the trail reads back as "what did that
   migration do" rather than as unrelated events sharing a timestamp.
 

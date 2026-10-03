@@ -346,6 +346,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A migration could move an instance onto a version that cannot run it, and
+  the instance then hung for ever.** A migration plans from one listing of the
+  instances and then takes them one at a time. Whether everything an instance
+  holds has somewhere to go on the new version was checked in the plan, from
+  that listing, and not again when the instance was locked and rewritten. An
+  instance that went on, in between, to a step the new version does not have —
+  the step a `skip` was there to clear, reached a moment too late to be
+  skipped, or any removed step in a migration that only moves work — was
+  re-pointed at the new version with its token and its open task on a step
+  that version lacks, and the apply answered `applied: true`. Its holder could
+  still complete the task; the token then came off, nothing followed, and the
+  instance stayed `active` with no token and no task, where nothing in the
+  product can move it on, end it or hold it. 0.3.0 and 0.4.0 plan and apply
+  the same way (read from their code), so an installation that has applied a
+  migration may hold such an instance: [An instance a migration left with
+  nothing to do](docs/upgrading.md#an-instance-a-migration-left-with-nothing-to-do)
+  has the queries that find them and what can be done with each. Now:
+  - **A decision reaches whoever holds the work.** Before it decides an
+    instance's work the apply reads the instance again, so one that reached a
+    step being skipped, cancelled at or held at after the listing is skipped,
+    cancelled or held like the rest, with the same ledger row and trail entry.
+  - **An instance is moved only if its work lands, asked under its lock.** In
+    the rewrite's transaction, on the row its lock returned and before anything
+    is written, the planner's own check runs again for that instance. One that
+    holds work the new version has nowhere to put, or that still has a token on
+    a step the migration decides rather than moves, is not rewritten: it stays
+    on the version it is running, untouched, and the reply lists it in
+    `passed_over` with a reason that names the step — *When the migration came
+    to move it, it had work at "Operations approve", and version 2 has nowhere
+    to put that, so it was not moved…*. Plan the migration again, or run it
+    again, as the reason says.
+  - **A skip no longer carries an instance onto a removed step.** A skip
+    advances an instance to the step after the one skipped. When the new
+    version lacks that step too and the migration neither maps nor decides it,
+    or when the skip leaves part of a step that runs once per item behind, the
+    skip stands and is recorded and the instance stays on the version it is
+    running, listed in `passed_over`; it used to be moved. The same holds when
+    the step it advances onto is another one the migration decides, whether
+    or not the new version has it: the instance used to be moved there with
+    that decision not made, and is now left for the next run of the same
+    migration to decide.
+
+  An instance that has not moved since it was listed is migrated exactly as
+  before: the same result, ledger rows and trail entries. `applied` keeps its
+  meaning. The plan, a dry run, every refusal and warning, and the shape of the
+  reply are unchanged. The rewrite reads the instance's tasks, jobs and waiting
+  events once more than it did, inside the transaction it already has open;
+  a migration that decides work reads each instance before deciding it where
+  it used to read it after.
 - **A migration could advance an instance past a step its holder had just
   completed, and record the approval as waived.** A migration lists the
   instances once and then takes them one at a time. Whether an instance was
