@@ -180,6 +180,123 @@ stranded an instance in.
 **Rolling back** needs nothing: no schema changed. The earlier release applies
 a migration as it always did, with the window described above.
 
+## A task a migration reopened
+
+No migration of the schema runs for this either. What changes is in
+[Changing a process that is already running](process-change-in-flight.md#re-derived-assignment):
+a migration with a node mapping now moves only the tasks that are still open,
+and leaves a completed or cancelled one exactly as it is.
+
+**What an earlier release could leave behind.** 0.4.0 applied the mapping to
+every task of the instance on a mapped step, whatever its status, and a task
+that changes step is rebuilt from the step it lands on and offered again (read
+from its code, not run; 0.3.0 changed only the step's id on such a task and
+left its status alone, also read, so it did not reopen one). So any instance
+that was moved by a migration with a mapping, and had already finished a task on one of
+the mapped steps, has that task back as open work: on the step the mapping
+named, with that step's name, form and candidates, assigned to whoever that
+step names or to nobody. Nothing has to have raced; it is what a mapping did.
+An instance migrated with `opsApprove → salesApprove` after its operations
+approval had been given has two open sales approvals where it should have one,
+and one further on has an open task on a step it is no longer at.
+
+The task row itself no longer says what it was. The trail does: its
+`task_completed` entry, or the `TaskCanceled` entry of a task that was
+withdrawn, was written when the task was finished and names the step, and the
+migration's `instance_migrated` entry lists the steps it re-pointed
+(`task_moves`). This finds an open task that was created before a completion
+or a withdrawal on a step, where a later migration then moved that step's
+tasks onto the step the task is on now. Read only; run it on every database
+the server uses.
+
+```sql
+SELECT k.id AS task_id, k.instance_id,
+       k.node_id AS step_now, k.name AS name_now, k.status AS status_now, k.assignee AS assignee_now,
+       c.node_id AS step_it_was_on, c.node_name AS name_it_had,
+       CASE c.type WHEN 'task_completed' THEN 'completed' ELSE 'canceled' END AS it_was,
+       c.data->>'actor' AS by_whom, c.created_at AS at, m.created_at AS reopened_at
+  FROM tasks k
+  JOIN audit_logs m
+    ON m.instance_id = k.instance_id AND m.deleted_at IS NULL
+   AND m.type = 'instance_migrated' AND m.created_at > k.created_at
+ CROSS JOIN LATERAL jsonb_array_elements_text(
+         CASE WHEN jsonb_typeof(m.data->'task_moves') = 'array'
+              THEN m.data->'task_moves' ELSE '[]'::jsonb END) AS mv(move)
+  JOIN audit_logs c
+    ON c.instance_id = k.instance_id AND c.deleted_at IS NULL
+   AND c.type IN ('task_completed', 'TaskCanceled')
+   AND c.node_id = split_part(mv.move, '→', 1)
+   AND c.created_at > k.created_at AND c.created_at < m.created_at
+ WHERE k.deleted_at IS NULL
+   AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')
+   AND k.node_id = split_part(mv.move, '→', 2)
+ ORDER BY k.instance_id, k.created_at, c.created_at;
+```
+
+Each row is a task that is open and should not be: where it is now, the step it
+was on, whether it had been completed or withdrawn, by whom and when (the
+trail does not say who a withdrawn task had been with), and when the migration
+reopened it.
+
+**What the query cannot tell.** The trail does not name tasks, only the step
+and the instance, so this is the closest the schema allows, and it is wrong one
+way: on a step that runs once per item, an item still open when the migration
+ran is listed if another item of the same step had been completed after it was
+created. Check those against the instance: such a task has a token under it and
+was never completed. It also needs the trail entries to exist; an entry the
+server logged as lost is not there to be found.
+
+**Do not complete a listed task.** Run, with rows shaped as 0.4.0 leaves them:
+completing a reopened task that has no token under it was accepted, and
+advanced the instance a second time from that step — a second token, and a
+second open task, on the step after it. Where the reopened task shares a step
+with the genuine one, either can be completed and the instance advances once;
+the other then stays open on an instance that has moved on, and completing it
+later is accepted too.
+
+**There is no supported way to put one back.** Nothing in the product
+withdraws or closes a single task. A migration's `skip` and `cancel` act on an
+instance that holds a token on the step they name, so they do not reach a
+reopened task with no token under it, and where there is a token they withdraw
+every open task on the step, the genuine one included. An audited way to close
+one task is in the roadmap, with the adjustment of one instance in place.
+
+**Unsupported, as a last resort:** the row can be put back in the database from
+what the query listed,
+
+```sql
+UPDATE tasks
+   SET status = 'completed',        -- or 'canceled', as it_was says
+       node_id = '<step_it_was_on>', name = '<name_it_had>',
+       assignee = '<by_whom>'       -- leave this line out for a canceled task
+ WHERE id = '<task_id>'
+   AND status IN ('unclaimed', 'claimed', 'delegated', 'escalated');
+```
+
+one task at a time, in a transaction, after a backup, committing only when it
+reports exactly one row changed. It restores what the trail kept: the status,
+the step, the step's name, and who completed it. What the task's form,
+description, priority, due date and candidates were before the migration is
+not kept anywhere, and they stay those of the step it was moved to. Nothing is
+written to the trail or the ledger by it, so record what was changed, by whom
+and why, outside the product. After it the task is out of its holder's list
+and the instance is not touched.
+
+The query was run with `psql` against a schema with this release's tables, over
+temporary tables holding rows it must list (a completed task reopened on
+another step, a withdrawn one reopened unclaimed) and rows it must not (the
+genuine task created after the completion, an open task a migration moved that
+was never completed, one still completed, one whose step was completed only
+after the migration, a deleted one, a migration entry with no `task_moves`, a
+completion on a step the migration did not move onto this one), and it listed
+the multi-item case above, as said. The `UPDATE` was run on one of the listed
+rows, changed that row, and the query then no longer listed it. Neither was run
+against an installation that 0.4.0 had left a reopened task in: the rows were
+written by hand from what the code writes.
+
+**Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
+it did.
+
 ## Migration 33: an instance's ledger of what was done to it
 
 An instance now keeps a row for each thing done to it that its process did not

@@ -346,6 +346,93 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A migration with a mapping reopened work that was already finished.** A
+  node mapping says where work in progress goes. The rewrite applied it to
+  every task and every job of the instance on a mapped step, whatever its
+  status, and a task that changes step is rebuilt from the step it lands on
+  and offered again. Nothing had to race: a quotation whose operations
+  approval had been given, waiting for the sales manager and migrated with
+  `opsApprove → salesApprove`, had two open sales approvals for one token
+  afterwards, and no task said any longer that the operations approval had
+  been given, or by whom; an instance further on got an open task with no
+  token under it. 0.4.0 does this (read from its code); 0.3.0 changed only the
+  step's id of a finished task and did not reopen it. [A task a migration
+  reopened](docs/upgrading.md#a-task-a-migration-reopened) has the query that
+  finds them and what can be done. Now only an open task (`unclaimed`,
+  `claimed`, `delegated`) follows the mapping, and only a job that can still
+  run (`pending`, `running`, `failed`). A completed or cancelled task and a
+  completed job are not written at all and go on naming the version and the
+  step the work was done on; the trail's `instance_migrated` entry lists as
+  re-pointed only work that was in progress. Waiting events have no finished
+  state, and incidents were never rewritten.
+- **A migration could be refused for a timer that had already fired.** A job
+  cannot be deleted, so a timer that fired stays behind as a completed row,
+  and the landing check counted every job row as work parked on its step. An
+  instance that had long since passed a wait the new version dropped was
+  refused for "work parked" there until the wait was mapped or decided; 0.4.0
+  counts them the same way (read from its code). The
+  check — the same one in a plan, a dry run and under the instance's lock —
+  now counts only a job that can still run, so `moves` in a plan no longer
+  shows finished timers either. A deadline or a wait still running on a step
+  the new version lacks is refused as before.
+- **An apply could move an instance its plan was never made for, past a
+  control nobody accepted the loss of.** An apply plans first and then lists
+  the instances again to work through them. An instance that arrived on the
+  source version between the two — started there while the new version was
+  staged and not yet live, or moved there by another migration — was moved
+  without anything having been asked about it. Where every planned instance
+  had already passed a control step the new version drops, the plan held
+  nothing and asked for no acknowledgement, and the late instance was moved
+  past the step with no `control_waived` row. 0.4.0 plans and lists the same
+  way (read from its code; it has no ledger, so there it is the
+  acknowledgement that was never asked for). The apply now acts only on the
+  instances its plan covered. One it did not is left untouched and listed in
+  `passed_over`: *It was not on version 1 when this migration was planned… plan
+  the migration again to include it.* A dry run then counts it and holds on
+  the control. Nothing new is sent or returned; a dry run and an apply agree
+  as before for every instance the plan covered.
+- **A second run of a migration could move an instance the first had already
+  moved, or decide it.** Under the instance's lock the rewrite asked whether
+  the instance was still running and never whether it was still on the version
+  being migrated from. A second run started while the first was working — a
+  client retrying a slow apply — listed the instance on the old version and
+  reached it after the first had moved it. With a mapping that chains
+  (`opsApprove → supervisorReview`, `supervisorReview → salesApprove`) it moved
+  the instance on again: the supervisor's review passed without anybody
+  performing it, and a second `instance_migrated` entry. 0.4.0 asks the same
+  single question of the rewrite (read from its code). The decisions had the
+  gap too, in this unreleased work only, since a decision is now taken on the
+  instance as read again (the entry below): one naming a step the moved
+  instance then stood on, on the new version, was taken on it — skipped along
+  the old version's graph, cancelled, or held. The rewrite and each decision
+  now ask, under their locks, that the instance is still on the source
+  version, and write nothing to one that is not; it is listed in `passed_over`
+  as already moved.
+- **A skip, cancel or hold naming a boundary event was accepted and never
+  taken.** A decision acts on the instances holding a token on the step it
+  names, and no instance holds a token on a boundary event: the token is on
+  the step the event is attached to. The plan accepted the decision, nothing
+  was skipped, ended or held and nothing recorded, and the apply reported an
+  instance acted on — it had been moved, with the event's waiting message
+  still on a step its new version does not have, because the plan excuses work
+  on a decided step from having to land. 0.4.0 does the same (read from its
+  code). The plan now refuses such a decision, and one on a start event, in
+  words that name the event and the step to decide instead; a dry run shows
+  it. Deliberately still accepted: a boundary event named *together with* the
+  step it is attached to, which is how a migration that decides an approval
+  says that the approval's deadline goes with it. Under the instance's lock,
+  an open task or a waiting event left on a decided step the new version
+  lacks, with no token under it, now keeps the instance where it is. No
+  existing refusal or warning changed its text.
+
+  For all five: an instance the plan covered, still on the source version,
+  whose work is all still open, is migrated exactly as before — the same
+  result, tasks, ledger rows, incidents, trail entries, timers and waiting
+  events (`unmoved_pins_test.go`, `live_rows_pins_test.go`,
+  `decided_with_its_step_pins_test.go`, each written before the change it
+  guards). No schema migration. Not changed, and in the roadmap: mapping a
+  boundary event onto a step that is not a boundary event is still accepted,
+  and its timer then fires against that step.
 - **A migration could move an instance onto a version that cannot run it, and
   the instance then hung for ever.** A migration plans from one listing of the
   instances and then takes them one at a time. Whether everything an instance
