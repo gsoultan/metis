@@ -184,16 +184,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     be written the change is not made, and a change that is rolled back takes
     its row with it.
 
+  What writes no row, by decision — the ledger is for what somebody did to an
+  instance that its process did not decide:
+  - **Resolving an incident**, the one a migration's `hold` raised included.
+    It retries the failed work behind an incident when there is any, and
+    decides nothing about the process. It leaves no trail entry and names
+    nobody either: the incident's own `status` and `resolved_at` are all that
+    say it happened. So **a `hold` row says the hold was placed, not that it
+    is still open**. No row is rewritten once written, and its
+    `after.incident.status` reads `open` for ever; to see whether the hold is
+    still open, read the instance's incidents
+    (`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the
+    row's `after.incident.id`. Whether releasing a hold becomes a recorded act
+    is decided with the hold of one instance in place.
+  - **Sending a message or broadcasting a signal.** It is the event the
+    process was modelled to wait for. The trail shows the instance moving on
+    and not who sent it; governing that channel is its own piece of work.
+  - **An operator or administrator claiming a task nobody was named for.**
+    That is the modelled fallback for such a task, and the trail's claim entry
+    names who took it.
+  - **The engine withdrawing tasks**: approvals a met completion condition no
+    longer needs, a task a boundary event interrupts, work parked for outside
+    workers when an ad-hoc sub-process finishes. The process decided those,
+    and the trail says each was withdrawn.
+  - A holder's own hand-over or edit, and a migration that only moves work, as
+    above.
+
   `GET /api/v1/instances/{id}/deviations` returns them, oldest first, as
   `{"deviations": [...]}`, to anyone signed in to the instance's organization,
   which is who may read its audit trail. An instance of another organization
   is a 404, so the route does not say whether it exists (the audit route
   answers 200 with an empty list there); a malformed id is a 400. The reply
-  names people by username and carries no account ids. `before` and `after`
-  are stored encrypted, as process variables are, and are shown to those
-  readers; `details` is stored plain and is not for business values. Every row
-  is `applied` in this release, read from the code: it is the only status
-  anything writes.
+  names people by username and carries no account ids. The server acting with
+  nobody signed in is written as `System`, which an account may also be
+  called, so each row says which it was: `actor_is_server` is `true` exactly
+  when the row names no account. `before`, `after` and `details` are always
+  objects, `{}` when a row has nothing to put in one. Only `before` and
+  `after` are stored encrypted, as process variables are, and are shown to
+  those readers; `reason`, `actor`, `node_name` and `details` are stored in
+  plain text — the reason as the audit trail's sentence already keeps it — and
+  `details` is not for business values. Every row is `applied` in this
+  release, read from the code: it is the only status anything writes.
 
   The audit entries of a hand-over that wrote a row (a holder's own writes none),
   of a migration's skip, cancel or hold, and of an activation name their row in
@@ -217,9 +248,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   by somebody who does not hold the task, each migration decision and each
   ad-hoc activation do one read, that the instance is in the project, and one
   insert, inside the transaction already open, after a check of the project
-  that is cached for the request; each accepted control loss is one more
-  insert, and an activation also writes a `step_activated` entry, which it had
-  none of before. See [Watching
+  that is cached for the request; each accepted control loss is one more read
+  and one more insert, and an activation also writes a `step_activated` entry,
+  which it had none of before. See [Watching
   instances](docs/integration.md#watching-instances).
 
 - **A delegated task goes back to whoever delegated it.** Delegating was a
@@ -315,6 +346,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A migration could advance an instance past a step its holder had just
+  completed, and record the approval as waived.** A migration lists the
+  instances once and then takes them one at a time. Whether an instance was
+  waiting at a step being skipped, cancelled at or held at was asked of that
+  list and not again once the instance was locked. When the step's holder
+  completed it in between, a `skip` advanced the instance past it a second
+  time — two tokens and two open tasks on the step after it — and the trail,
+  and the new ledger, said the approval was waived; a `cancel` ended an
+  instance that had left the step; a `hold` raised its incident at a step the
+  instance was no longer on. Each now asks again under the instance's lock and
+  acts only on an instance that is still running and still has a token on that
+  step. One that has moved on, or finished, is left exactly as it is: nothing
+  withdrawn, advanced, cancelled or raised, no ledger row, no trail entry, and
+  it is not moved to the new version in that run, because the plan was made
+  for where it used to be. It stays on the version it is running, and running
+  the same migration again plans for where it now stands. **What a caller
+  meets:** an apply that passed an instance over still answers
+  `applied: true` and does not list it; the server log names it, and a dry run
+  of the same migration afterwards shows what is left.
+- **A migration by an account with no username was recorded as the
+  server's.** `POST /api/v1/definitions/versions/migrate` left the caller out
+  when the signed-in account had no username, and its skip, cancel or hold was
+  then recorded as made by `System`. Only nobody signed in is the server: such
+  an account is now refused, for a dry run as for an apply, with the server
+  error an ad-hoc activation answers for the same account.
 - **An approval several people give never finished its process.** A user task
   or manual task that runs once per person — in parallel or one after another —
   keeps a token for each of them, and completing a task from the inbox did not

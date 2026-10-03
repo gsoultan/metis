@@ -1034,7 +1034,8 @@
 
 - 2026-10-03 (completed): an instance keeps a ledger of what was done to it outside its process
   (P0 audit) — the first part of slice 3 of the approval-adjustments work. Branch
-  `instance-deviation-ledger`, stacked on `task-handover-accountability` at `cd7c4a3`; one
+  `instance-deviation-ledger`, from `cd7c4a3`, the head of `task-handover-accountability`,
+  since merged to `main`; one
   commit per change, each with a test that fails without it. Migration 33. Driver: arch for the
   table, the route and the seam, go for the repository, bpm for the migration and the
   activation · Challengers: sec, go, perf; fe and ux for the timeline.
@@ -1063,8 +1064,15 @@
     4. *Reading.* `GET /api/v1/instances/{id}/deviations` for any signed-in member of the
        organization, 401 for nobody, 404 for another organization's instance (administrator
        included), 400 for a malformed id, no account ids — `TestAMemberReadsAnInstancesDeviationsOldestFirst`,
-       `TestTheDeviationsOfAnInstanceAreReadByItsOrganizationOnly`, `TestTheReadRouteReturnsNoAccountIds`,
-       `TestAnInstanceWithoutDeviationsReadsAsAnEmptyList`.
+       `TestTheDeviationsOfAnInstanceAreReadByItsOrganizationOnly`, `TestTheReadRouteReturnsNoAccountIds`
+       (which looks for the account's id itself in the reply, not only for the key names it could
+       travel under), `TestAnInstanceWithoutDeviationsReadsAsAnEmptyList`. A row says whether the
+       server or an account made it (`actor_is_server`, true exactly when the row names no
+       account), and `before`, `after` and `details` are always objects —
+       `TestTheReadRouteSaysWhetherTheServerOrAnAccountActed`,
+       `TestARowThatChangedNothingStillReadsWithItsThreeObjects`,
+       `TestAViewSaysTheServerActedOnlyWhenNoAccountDid` and
+       `TestAViewAlwaysCarriesItsObjectsAndWhoActed` (`endpoints/deviation`).
     5. *Hand-overs.* A row exactly when a reason was required, in the hand-over's transaction,
        and a hand-over whose row cannot be written is not made; a holder's own writes none; and no
        deadlock against a completion — `tests/task`: `TestEveryHandOverByANonHolderIsLedgered`,
@@ -1078,7 +1086,10 @@
        cannot hold is refused in the plan — `tests/instancemigration`:
        `TestASkipIsLedgeredWithItsRunAndItsEntry`, `TestACancelIsLedgeredAndItsEntryIsWrittenWithTheChange`,
        `TestACancelIsRecordedOnceAcrossReruns`, `TestAHoldIsRecordedOnceHoweverOftenTheMigrationRuns`,
-       `TestAnAcknowledgedControlLossIsLedgeredPerInstance`, `TestADecisionThatCannotBeLedgeredIsNotMade`,
+       `TestAnAcknowledgedControlLossIsLedgeredPerInstance`,
+       `TestOnlyTheInstanceThatHadNotPassedTheControlLosesIt` (an instance that had already
+       performed the control step gets no `control_waived` row and is not told as having lost
+       it), `TestADecisionThatCannotBeLedgeredIsNotMade`,
        `TestADecisionWhoseTrailEntryCannotBeWrittenIsNotMade`,
        `TestALedgerFailureOnTheSecondInstanceLeavesTheFirstDoneAndTheRestUntouched`,
        `TestAReasonTheLedgerCannotHoldIsRefusedBeforeAnythingMoves`, `TestAReasonAsLongAsTheLedgerTakesIsAccepted`.
@@ -1094,6 +1105,26 @@
        `handOverNarrative.test.ts` and `TestAnActivationsEntryTellsWhoStartedWhatAndWhy` (impl).
     8. *Denials.* The read route as under 4; the activation route's 401, 403 and 404 as under 7;
        every new write path refuses a caller outside the organization as under 2.
+    9. *A decision is made on the instance as its lock finds it.* A skip, a cancel and a hold
+       each read the instance again under its lock and act only on one that is still running
+       and still has a token on the step; one whose holder completed the step, or that
+       finished, between the migration's listing and that lock is left as it is — nothing
+       withdrawn, advanced, cancelled or raised, no row, no entry, not moved in that run — and
+       the next run of the same migration moves it from where it stands —
+       `tests/instancemigration`: `TestASkipOfAStepCompletedAfterTheListingDoesNothing`,
+       `TestACancelAtAStepCompletedAfterTheListingLeavesTheInstanceRunning`,
+       `TestAHoldAtAStepCompletedAfterTheListingRaisesNothing`,
+       `TestASkipOfAnInstanceThatFinishedAfterTheListingDoesNothing`. Root cause: whether an
+       instance was parked on the step was answered from a read taken before the lock and
+       never asked again under it. This predates the slice; it is fixed here because the
+       ledger would otherwise certify the second advance as a waiver.
+    10. *Only nobody signed in is the server.* A migration by a signed-in account with no
+       username is refused before anything is planned, with the status an ad-hoc activation
+       answers for the same account, where it used to be recorded as *System* —
+       `TestAMigrationByAnAccountWithNoNameIsRefusedAsAnActivationIs`,
+       `TestAMigrationNamesItsAuthoriserOrIsRefused` and
+       `TestADryRunByAnAccountWithNoNameIsRefusedToo` (`endpoints/definition`),
+       `TestAccountTellsNobodyFromAnAccountWithNoName` (`endpoints/principal`).
   - **What it must not have changed**, each with the test that pins it: a holder's reasonless
     hand-over writes no row and every audit sentence is as it was (the holder's tests under 5 and
     slice 2's `TestRecordEventLeavesEveryOtherEntryAsItWas`); a migration that only moves work
@@ -1105,9 +1136,32 @@
   - **What it costs.** A hand-over or edit by somebody who does not hold the task, each
     migration decision and each ad-hoc activation do one more read (that the instance is in the
     project) and one insert, inside the transaction already open, after a check of the project
-    that is cached for the request; each accepted control loss is one more insert, and an ad-hoc
-    activation also writes a `step_activated` trail entry, which it had none of before. Counted
-    from the code, not measured.
+    that is cached for the request; each accepted control loss is one more read and one more
+    insert, and an ad-hoc activation also writes a `step_activated` trail entry, which it had
+    none of before. A skip's check that the instance is still on the step reads the row its lock
+    already returned, and a cancel's and a hold's read nothing more. Counted from the code, not
+    measured.
+  - **What writes no row, by decision.** The ledger is for what somebody did to an instance
+    that its process did not decide. Left out on purpose, each either modelled behaviour or
+    already told by the trail, with one exception named below:
+    - *Sending a message or broadcasting a signal.* The event the process was modelled to wait
+      for. The trail shows the instance moving on, not who sent it; governing that channel is
+      deferred to its own slice.
+    - *An operator or administrator claiming a task nobody was named for.* The modelled
+      fallback for such a task; the trail's claim entry names who took it.
+    - *The engine withdrawing tasks* — approvals a met completion condition no longer needs, a
+      task a boundary event interrupts, work parked for outside workers when an ad-hoc
+      sub-process finishes. The process decided those; the trail says each was withdrawn.
+    - *A holder's own hand-over or edit*, and *a migration that only moves work*, as pinned
+      above.
+    - *Resolving an incident*, the one a migration's hold raised included. It retries the
+      failed work behind an incident and decides nothing about the process. This is the
+      exception: it is not on the trail either (see *Found, not changed*). A `hold` row
+      therefore records that the hold was placed, not that it is still open: no row is
+      rewritten, its `after.incident.status` reads `open` for ever, and whether the hold is
+      still open is the status of the incident it names, read from
+      `GET /api/v1/incidents/{instanceId}`. Whether releasing a hold becomes a ledgered act is
+      decided in the next slice, which adds the hold of one instance in place.
   - **Upgrade.** Migration 33 creates `instance_deviations`, backfills nothing, and waits two
     seconds for `projects` and `process_definitions` and stops, to be started again.
     `docs/upgrading.md`, *Migration 33: an instance's ledger of what was done to it*.
@@ -1115,7 +1169,9 @@
     `POST /api/v1/processes/adhoc/activate`; a reason of more than 2,000 characters on a
     migration's skip, cancel or hold refused in the plan; a migration's skip, cancel or hold that
     cannot be recorded stops the run at that instance; a new `step_activated` audit entry and a
-    `deviation_id` on the entries of the acts above.
+    `deviation_id` on the entries of the acts above; a migration's skip, cancel or hold that
+    leaves alone an instance which left the step after the run listed it, on the version it is
+    running, while the reply still says `applied: true`.
   - **Not in this slice.** Waiving, cancelling or holding one instance in place, without a second
     version of its process, and a second approver. Both come in the next ones; the table already has
     the columns for them: nothing writes `approved_by` or `request_id`, and no row is anything but
@@ -1125,8 +1181,23 @@
       commits and, if it fails, only logged; the row can name an entry that does not exist.
     - A step name over 255 characters is shortened in the ledger row (the entry tells it in full);
       identifiers are never cut.
-    - An account named *System* is told from the server only by whether the row has an account id,
-      which the route does not return.
+    - An account can still be named *System*: nothing reserves the name when an account is
+      created or renamed. The route now tells such an account from the server
+      (`actor_is_server`), but the trail's sentences and the `actor` column do not.
+    - Resolving an incident writes no trail entry and names nobody, so nothing but the
+      incident's own `status` and `resolved_at` says that a hold ended, and nothing says who
+      ended it.
+    - A migration that passes an instance over (criterion 9) says so only in the server log:
+      `MigrateInstances` returns an error or nothing, and the reply carries the plan made
+      before the apply, so `applied: true` does not list the instances left behind.
+    - The other direction of the same stale listing is open. An instance that advances, between
+      the listing and its lock, onto a step the plan did not find it on is rewritten as it then
+      stands; when that step is one the new version does not have — the step a skip was meant
+      to clear — it arrives on the new version with a token and an open task on a step that
+      version lacks. The planner's landing check ran on the listing and the rewrite does not
+      repeat it under the lock. Reproduced with a probe (complete *Supervisor review* between
+      the listing and the lock of a skip of *Operations approve*), not fixed: it changes what a
+      mapping-only migration does, which is a decision of its own.
     - The ledger route answers 404 for another organization's instance where the audit route
       answers 200 with an empty list.
     - `details` is stored unencrypted, so a writer must not put a business value in it; today it

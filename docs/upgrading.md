@@ -62,6 +62,25 @@ has ended and it finishes; nothing it had done is undone.
   running the same migration again carries on. An ad-hoc activation is
   refused and starts nothing. A migration's skip, cancel and hold used to be
   made and the lost entry only logged.
+- A migration's skip, cancel or hold leaves alone an instance that left the
+  step between the migration listing its instances and locking that one — its
+  holder completed the step, or it finished. Nothing is done to it or recorded
+  about it, and it is not moved to the new version in that run; it stays on
+  the version it is running for the next run of the same migration. The reply
+  still says `applied: true` and does not list it; the server log names it. A
+  skip used to advance such an instance a second time, and its ledger row said
+  the approval was waived. See [Node actions](process-change-in-flight.md#node-actions--deciding-work-instead-of-moving-it).
+- A row says the act was made, and is never rewritten. A `hold` row therefore
+  says the hold was placed, not that it is still open: resolving the incident
+  the hold raised writes no row and leaves `after.incident.status` reading
+  `open`. Read the instance's incidents, `GET /api/v1/incidents/{instanceId}`,
+  for the one whose `id` is the row's `after.incident.id`. Resolving an
+  incident, sending a message or a signal, an operator claiming a task nobody
+  was named for, and the engine withdrawing tasks write no row, by decision;
+  [The ledger](process-change-in-flight.md#audit) says why for each.
+- Only `before` and `after` are sealed. `reason`, `actor`, `node_name` and
+  `details` are stored in plain text, as the audit trail's sentence, which
+  already holds the reason, is.
 - Reading an instance's ledger needs the `ENCRYPTION_KEY` its rows were
   written under, because `before` and `after` are sealed as every other copy
   of a process variable is. A backup without that key restores rows whose
@@ -85,15 +104,17 @@ relying on the ledger being complete.
 **Rolling back** leaves the table and its rows where they are. From reading
 the old release's code, not from running it, its application code does not
 read or write them, but its `metis --reseal` walks every column of the schema
-from the catalogue, so it would read the ledger's sealed `before` and `after`
-and rewrite them under its key. As with every migration, the runner only goes
-forward.
+from the catalogue, so it would read the ledger's sealed `before` and `after`.
+It rewrites only the values sealed under a previous key, under the current
+one; a value already under the current key is counted and left as it is. As
+with every migration, the runner only goes forward.
 
 **What it costs.** Counted from the code, not measured: a hand-over or an edit
 by somebody who does not hold the task, each decision a migration makes on an
 instance, and each ad-hoc activation do one more read, that the instance
 belongs to the project the row names, and one insert, inside the transaction
-that is already open. Each accepted control loss is one more insert, and an
+that is already open. Each accepted control loss is the same again, one more
+read and one more insert for each control step the instance loses, and an
 ad-hoc activation also writes a `step_activated` trail entry, which it had none
 of before. The check that the project is the caller's is answered
 from what the request already looked up. A hand-over by the task's holder, and
