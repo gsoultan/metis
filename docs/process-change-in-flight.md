@@ -302,6 +302,9 @@ POST /api/v1/definitions/versions/migrate
   its record should name the version it actually ran. Pending timers are left alone, because
   `timerStillApplies` already refuses to fire one for an instance that is not active, which
   is what a terminate end event relies on too.
+- **`hold`** leaves the instance on the source version and raises an incident at the node for
+  somebody to decide. An instance already held at that node keeps its one open incident, and
+  nothing more is recorded for it.
 
 `cancelled` is a new instance status. Reusing `completed` would have made an instance that
 was called off read, in every list and every count, exactly like one that succeeded; `failed`
@@ -312,6 +315,7 @@ Refused, because doing any of these half-way is worse than not doing them:
 | Refusal | Why |
 | :-- | :-- |
 | A skip or cancel with no reason | Without one the trail cannot tell a step nobody performed from a step somebody did |
+| A skip, cancel or hold with a reason of more than 2,000 characters | The instance's ledger row cannot hold it. Refused in the plan, so a dry run and an apply agree: left to the ledger it would stop an apply at the first instance on that node, after the ones ahead of it had been moved |
 | A node that is both mapped and actioned | Two contradictory instructions; guessing is how the wrong one gets applied |
 | Skipping a node with no outgoing flow | Nowhere to advance to |
 | Skipping a gateway | Several outgoing flows: which branch would it have taken? |
@@ -321,10 +325,19 @@ Work on an actioned node is exempt from the "must land somewhere" check — refu
 migration for stranding the very task the caller asked it to cancel would make the feature
 unreachable.
 
-Each decision writes its own trail entry — `node_skipped` or `instance_cancelled` — naming
-the node, the authoriser and the reason. Separate from the migration entry because it is a
-separate fact, and the one an auditor actually asks about: not *this instance changed
-version* but *this approval did not happen, and here is who said so and why*.
+Each decision writes its own trail entry — `node_skipped`, `instance_cancelled` or
+`instance_held` — naming the node, the authoriser and the reason, and a row in the instance's
+ledger (see *Audit* below). Separate from the migration entry because it is a separate fact,
+and the one an auditor actually asks about: not *this instance changed version* but *this
+approval did not happen, and here is who said so and why*.
+
+The entry and the row are written in the change's own transaction, so a decision that cannot
+be recorded is not made. For a skip that is the withdrawal and the advance; for a cancel, the
+cancellation; for a hold, the incident, which now runs in a transaction that locks the
+instance, as a cancel's does. The migration stops at the instance it could not record, names
+it, and says how many had been dealt with; running it again carries on. A decision's entry
+used to be written after the fact, or logged and carried on when it failed. A cancel also no
+longer writes `instance_cancelled` for an instance it found, once locked, no longer running.
 
 ### Re-derived assignment
 
@@ -345,7 +358,35 @@ that, so the safe default is the other one.
 Every migrated instance gets an `instance_migrated` entry naming the source and target
 version, which work was re-pointed, who authorised it, and which controls were waived.
 Written outside the unit of work: a migration that succeeded should not roll back because
-the audit write failed, and a lost entry is logged loudly.
+the audit write failed, and a lost entry is logged loudly. The decisions above are not
+written that way: their entries are part of the change.
+
+**The ledger.** What was done to an instance outside its process is also kept as rows in
+`instance_deviations`, which can be asked for by instance, where the trail is read as a
+timeline. A migration writes one row per decision on each instance, and the rows of one
+migration share its `run_id`:
+
+| Act | Row | Reaches | What it records |
+| :-- | :-- | :-- | :-- |
+| `skip` | `waive` | the task | the tasks withdrawn, as they were and as they are (status and assignee), and how many |
+| `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, and the tasks withdrawn |
+| `hold` | `hold` | the instance | the incident raised |
+| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, and its `compliance_note` when it has one |
+
+A `control_waived` row has no reason, because whoever acknowledged the loss signed for every
+instance at once; it is written once per lost step, in the same transaction as the rewrite and
+before any of it, and an instance that had already performed the step gets none. Each row
+names the trail entry that tells the same act, and the entries of a skip, cancel or hold name
+their row in `deviation_id`. The `instance_migrated` entry, written after the rewrite commits,
+is the one a control-loss row names; if that entry is lost, which is logged, the row names an
+entry that does not exist. A migration that only moves work and waives no control writes no
+row.
+
+Hand-overs and edits of a task by somebody who does not hold it, and a step started inside an
+ad-hoc sub-process, write rows as well; the changelog lists every writer. Anyone signed in to
+the instance's organization reads them with `GET /api/v1/instances/{id}/deviations`
+([Watching instances](integration.md#watching-instances)). `before` and `after` are stored
+encrypted, as variables are; `details` is not, so nothing written there is a business value.
 
 ### Scheduled cutovers
 

@@ -669,7 +669,15 @@ tasks it takes, so two replicas never publish one task inside its lock. See
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID        # status + variables
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/audit  # the timeline
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/path   # execution path + frequencies
+curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/deviations  # what was done outside its process
 ```
+
+`/deviations` answers `{"deviations": [...]}`, oldest first, with a row for each
+thing done to the instance that its process did not decide — a hand-over by
+somebody who did not hold the task, a migration's skip, cancel or hold, a step
+started inside an ad-hoc sub-process — saying who did it, why and what changed,
+to anyone signed in to the instance's organization; another organization's
+instance is a 404.
 
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.

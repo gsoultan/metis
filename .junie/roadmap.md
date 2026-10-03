@@ -1032,6 +1032,111 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-10-03 (completed): an instance keeps a ledger of what was done to it outside its process
+  (P0 audit) — the first part of slice 3 of the approval-adjustments work. Branch
+  `instance-deviation-ledger`, stacked on `task-handover-accountability` at `cd7c4a3`; one
+  commit per change, each with a test that fails without it. Migration 33. Driver: arch for the
+  table, the route and the seam, go for the repository, bpm for the migration and the
+  activation · Challengers: sec, go, perf; fe and ux for the timeline.
+  - **Problem.** An administrator's override, a migration's skip, cancel or hold, and a step
+    started inside an ad-hoc sub-process left at most an audit entry that an auditor cannot ask
+    for by instance, and a migration's cancel or hold could lose its entry while the change
+    stood.
+  - **Acceptance criteria**, each with the test that holds it (`tests/deviation` unless named):
+    1. *The table.* Created as the model describes it, with no foreign key to the rows a
+       hand-over and a completion lock, and with closed sets of kind, scope, origin and status —
+       `TestMigration33CreatesTheLedgerAsTheModelDescribesIt`,
+       `TestTheLedgerHasNoForeignKeyToTheRowsAHandOverAndACompletionLock` (`tests/migrations`),
+       `TestDeviationKindsAreAClosedSetWithTheirReasonRule` and
+       `TestDeviationScopesOriginsAndStatusesAreClosedSets` (entities).
+    2. *Written only inside the change it records.* `TestADeviationIsRecordedOnlyInTheTransactionThatMakesIt`,
+       `TestInTransactionIsTrueOnlyForAnOpenTransaction` (`repositories/db`); sealed, scoped to
+       the organization and to the instance's project — `TestARecordedDeviationKeepsItsBusinessDataSealed`,
+       `TestAnotherOrganizationNeitherWritesNorReadsAnInstancesDeviations`,
+       `TestARowNamingAnInstanceOutsideItsProjectIsRefused`; a malformed row is a server error
+       and leaves nothing — `TestAMalformedDeviationIsRefusedAndLeavesNoRow`,
+       `TestPrepareDeviation` (impl); rows of one act read in the order written —
+       `TestRowsWrittenInOneTransactionComeBackInWriteOrder`.
+    3. *Reason.* Required for every kind but `control_waived` (which takes none) and
+       `adhoc_activation` (optional); a person's missing or over-long reason is a 400, in plain
+       words — `TestTheLedgerRefusesAReasonlessOverride`, `TestTheReasonRefusalIsPlainEnglishWithNoKindSlug` (impl).
+    4. *Reading.* `GET /api/v1/instances/{id}/deviations` for any signed-in member of the
+       organization, 401 for nobody, 404 for another organization's instance (administrator
+       included), 400 for a malformed id, no account ids — `TestAMemberReadsAnInstancesDeviationsOldestFirst`,
+       `TestTheDeviationsOfAnInstanceAreReadByItsOrganizationOnly`, `TestTheReadRouteReturnsNoAccountIds`,
+       `TestAnInstanceWithoutDeviationsReadsAsAnEmptyList`.
+    5. *Hand-overs.* A row exactly when a reason was required, in the hand-over's transaction,
+       and a hand-over whose row cannot be written is not made; a holder's own writes none; and no
+       deadlock against a completion — `tests/task`: `TestEveryHandOverByANonHolderIsLedgered`,
+       `TestAHolderHandingOnTheirOwnTaskWritesNoLedgerRow`, `TestOnlyAHandOverThatNeededAReasonIsLedgered`,
+       `TestAnAdministratorHoldersOverrideIsLedgered`, `TestAHandOverThatCannotBeLedgeredIsNotMade`,
+       `TestANonHolderHandOverInFlightIsNotDeadlockedByACompletion`.
+    6. *Migrations.* A skip, a cancel, a hold and each accepted control loss write their rows
+       with the run's id and name their entries; each is recorded once across reruns; one that
+       cannot be recorded is not made, and nor is one whose entry cannot be written; a failure on
+       the second instance leaves the first done and the rest untouched; a reason the ledger
+       cannot hold is refused in the plan — `tests/instancemigration`:
+       `TestASkipIsLedgeredWithItsRunAndItsEntry`, `TestACancelIsLedgeredAndItsEntryIsWrittenWithTheChange`,
+       `TestACancelIsRecordedOnceAcrossReruns`, `TestAHoldIsRecordedOnceHoweverOftenTheMigrationRuns`,
+       `TestAnAcknowledgedControlLossIsLedgeredPerInstance`, `TestADecisionThatCannotBeLedgeredIsNotMade`,
+       `TestADecisionWhoseTrailEntryCannotBeWrittenIsNotMade`,
+       `TestALedgerFailureOnTheSecondInstanceLeavesTheFirstDoneAndTheRestUntouched`,
+       `TestAReasonTheLedgerCannotHoldIsRefusedBeforeAnythingMoves`, `TestAReasonAsLongAsTheLedgerTakesIsAccepted`.
+    7. *Ad-hoc activation.* A row and a `step_activated` entry, written before the step runs and
+       rolled back with it; an optional reason; nobody signed in is *System*; an account with no
+       name is refused — `tests/bpmn`: `TestAnActivationIsLedgeredWithItsActorAndReason`,
+       `TestAnActivationWithNobodySignedInIsLedgeredAsTheSystem`, `TestAnActivationThatCannotBeLedgeredIsNotMade`,
+       `TestAnActivationByAnAccountWithNoNameIsRefusedAndNothingIsLeft`,
+       `TestAnActivationWhoseEntryCannotBeWrittenIsNotMade`, `TestAStepThatFailsToStartLeavesNoRecordOfBeingStarted`,
+       `TestAnActivationIsToldBeforeWhatTheStepThenDid`, `TestAnOverLongReasonIsRefusedBeforeAnythingIsReadOrStarted`;
+       the route and its roles — `TestOnlyAnOperatorOrAdministratorActivatesAStepAndTheirReasonIsKept`,
+       `TestAnActivationReasonTooLongIsRefusedAndNoneAtAllIsAccepted`; the timeline —
+       `handOverNarrative.test.ts` and `TestAnActivationsEntryTellsWhoStartedWhatAndWhy` (impl).
+    8. *Denials.* The read route as under 4; the activation route's 401, 403 and 404 as under 7;
+       every new write path refuses a caller outside the organization as under 2.
+  - **What it must not have changed**, each with the test that pins it: a holder's reasonless
+    hand-over writes no row and every audit sentence is as it was (the holder's tests under 5 and
+    slice 2's `TestRecordEventLeavesEveryOtherEntryAsItWas`); a migration that only moves work
+    writes no row (`TestAMappingOnlyMigrationLedgersNothing`); slice 1's same-as-main suite
+    (`tests/bpmn/repeating_shapes_unchanged_test.go` and `_pins_test.go`), which this branch does not
+    edit; migration 22's repair, whose test now leaves out a table a later migration creates
+    (`TestMigration22RepairsEveryColumnTheReaderNeeds`), because a table created at 33 never had
+    its columns made nullable and adding it to 22's list would change that migration.
+  - **What it costs.** A hand-over or edit by somebody who does not hold the task, each
+    migration decision and each ad-hoc activation do one more read (that the instance is in the
+    project) and one insert, inside the transaction already open, after a check of the project
+    that is cached for the request. Counted from the code, not measured.
+  - **Upgrade.** Migration 33 creates `instance_deviations`, backfills nothing, and waits two
+    seconds for `projects` and `process_definitions` and stops, to be started again.
+    `docs/upgrading.md`, *Migration 33: an instance's ledger of what was done to it*.
+  - **What a client meets that it did not** (`CHANGELOG.md`). The new route; a `reason` on
+    `POST /api/v1/processes/adhoc/activate`; a reason of more than 2,000 characters on a
+    migration's skip, cancel or hold refused in the plan; a migration's cancel or hold that
+    cannot be recorded stops the run at that instance; a new `step_activated` audit entry and a
+    `deviation_id` on the entries of the acts above.
+  - **Not in this slice.** Waiving, cancelling or holding one instance in place, without a second
+    version of its process, and a second approver. Both come in the next ones; the table already has
+    the columns (`status`, `approved_by`, `request_id`) and nothing writes them.
+  - **Found, not changed:**
+    - A control-loss row names the `instance_migrated` entry, which is written after the rewrite
+      commits and, if it fails, only logged; the row can name an entry that does not exist.
+    - A step name over 255 characters is shortened in the ledger row (the entry tells it in full);
+      identifiers are never cut.
+    - An account named *System* is told from the server only by whether the row has an account id,
+      which the route does not return.
+    - The ledger route answers 404 for another organization's instance where the audit route
+      answers 200 with an empty list.
+    - `details` is stored unencrypted, so a writer must not put a business value in it; today it
+      holds a count, a sub-process id, an override marker and a control's compliance note.
+    - Skipping a repeating approval in a migration is still as slice 1's entry describes it
+      under *Found and not fixed*: it counts one iteration and leaves the other iterations'
+      tokens. The skip is now ledgered, not fixed; the in-place waive that follows is to end
+      the whole step.
+    - `EndEventHandler.resumeParent` loads the parent and resumes it without looking at the
+      parent's status, so a called instance that ends after its parent was cancelled, as a
+      migration's cancel does, advances the cancelled parent. Read from the code, not reproduced;
+      still open.
+
 - 2026-10-03 (completed): hand-overs are checked and recorded (P0 security & audit) — slice 2
   of the approval-adjustments work. Branch `task-handover-accountability`, stacked on
   `mi-approvals-finish` at `c8250a3`; one commit per change, each with a test that fails without it.
