@@ -339,14 +339,25 @@ func (s *migrationService) apply(
 		// an instance that was cancelled or finished by a skip is not migrated
 		// at all: it will never run again, and its record should name the
 		// version it actually ran on.
-		carryOn, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
+		outcome, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
 			return fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
 				"run the same migration again to carry on from here)", err, done, len(instances))
 		}
-		if !carryOn {
+		switch outcome {
+		case outcomeDealtWith:
 			done++
 			continue
+		case outcomeMovedOn:
+			// Passed over as an instance that finished meanwhile is, further
+			// down: not counted, and still on the source version for the next
+			// run. Said in the log because, unlike a finished one, it may
+			// still be running there.
+			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
+				Msg("A migration passed over an instance that was no longer where its listing found it. " +
+					"It stays on the version it is running; run the same migration again to plan for where it is now")
+			continue
+		case outcomeMove:
 		}
 		if len(options.Actions) > 0 {
 			// A skip moved the tokens, so the copy read before it is stale.
@@ -1122,7 +1133,14 @@ func plannedActions(sourceNodes map[string]models.FlowNode, actions map[string]s
 // that then fails — leaves the instance past a node that was going away anyway,
 // still on the version it started on, and still correct.
 //
-// Reports whether the instance should go on to be migrated at all.
+// The copy of the instance it is given is the listing's, and as old as the run
+// has been going. It only chooses which action to try: each action asks again,
+// under the instance's lock, whether the instance is still running and still on
+// that step, and acts on nothing else. One that is not is left alone
+// altogether (outcomeMovedOn) — a holder who completed the step meanwhile gave
+// the approval, and advancing past it again would be a second advance.
+//
+// Reports what the run should do with the instance next.
 func (s *migrationService) decide(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1130,9 +1148,9 @@ func (s *migrationService) decide(
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
 	runID uuid.UUID,
-) (carryOn bool, err error) {
+) (decisionOutcome, error) {
 	if len(options.Actions) == 0 {
-		return true, nil
+		return outcomeMove, nil
 	}
 	instanceID := uuid.UUID(instance.ID)
 
@@ -1143,10 +1161,8 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionCancel || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
-			return false, err
-		}
-		return false, nil
+		cancelled, err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID)
+		return settledOr(cancelled), err
 	}
 
 	for _, nodeID := range sortedKeys(options.Actions) {
@@ -1154,25 +1170,26 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionHold || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
-			return false, err
-		}
-		return false, nil
+		held, err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID)
+		return settledOr(held), err
 	}
 
-	var skipped []string
+	skips := 0
 	for _, nodeID := range sortedKeys(options.Actions) {
 		action := options.Actions[nodeID]
 		if action.Kind != servicecontracts.NodeActionSkip || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID); err != nil {
-			return false, err
+		skipped, err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID)
+		if err != nil || !skipped {
+			// Not on the step any more: the plan no longer describes this
+			// instance, so nothing further is decided about it in this run.
+			return outcomeMovedOn, err
 		}
-		skipped = append(skipped, nodeID)
+		skips++
 	}
-	if len(skipped) == 0 {
-		return true, nil
+	if skips == 0 {
+		return outcomeMove, nil
 	}
 
 	// The engine moved the instance, so anything read before this is stale. A
@@ -1180,13 +1197,30 @@ func (s *migrationService) decide(
 	// last step — and there is then nothing left to migrate.
 	refreshed, err := s.repo.Process().Get(ctx, instanceID)
 	if err != nil {
-		return false, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
+		return outcomeDealtWith, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
 	}
-	return refreshed.Status == models.ProcessActive, nil
+	if refreshed.Status != models.ProcessActive {
+		return outcomeDealtWith, nil
+	}
+	return outcomeMove, nil
+}
+
+// settledOr is the outcome of a cancel or a hold: the instance is dealt with
+// when the action found it where the listing said, and has moved on when it
+// did not.
+func settledOr(found bool) decisionOutcome {
+	if found {
+		return outcomeDealtWith
+	}
+	return outcomeMovedOn
 }
 
 // skipNode cancels the work parked on one node and advances the instance past
 // it as though it had been performed.
+//
+// It reports whether it did. An instance found, once locked, to have finished
+// or to hold no token on the node is not skipped: nothing is withdrawn,
+// advanced or recorded.
 func (s *migrationService) skipNode(
 	ctx context.Context,
 	instanceID, sourceDefID uuid.UUID,
@@ -1196,16 +1230,16 @@ func (s *migrationService) skipNode(
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
 	runID uuid.UUID,
-) error {
+) (skipped bool, err error) {
 	if s.engine == nil {
-		return apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
+		return false, apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
 	}
 	// One unit of work. Withdrawing the task and advancing past the step each
 	// committed on their own, so an advance that failed — a gateway after the
 	// step with no branch to take — left the task withdrawn and the token on
 	// the step: nobody could do the work, and nothing would move the instance
 	// on. Now a failed advance puts the task back as it was.
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// The instance first, then its task, the order CompleteTask takes
 		// them in: a completion racing the skip waits here, and then finds
 		// the task withdrawn rather than performing a step already advanced
@@ -1213,6 +1247,14 @@ func (s *migrationService) skipNode(
 		live, err := s.engine.GetInstanceForUpdate(txCtx, instanceID)
 		if err != nil {
 			return fmt.Errorf("reading instance %s to skip %q: %w", instanceID, nodeID, err)
+		}
+		// And the other way round: a completion that won the race has already
+		// advanced the instance past the step. Asked of the locked row, because
+		// the copy that said "it is parked here" was read before the lock.
+		// Advancing again would put a second token after the step and record
+		// as waived an approval its holder gave.
+		if skipped = parkedOn(live, nodeID); !skipped {
+			return nil
 		}
 		withdrawn, err := s.cancelTasksOn(txCtx, instanceID, nodeID)
 		if err != nil {
@@ -1238,6 +1280,10 @@ func (s *migrationService) skipNode(
 		}
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	return skipped, nil
 }
 
 // cancelInstance ends an instance where it stands.
@@ -1247,6 +1293,10 @@ func (s *migrationService) skipNode(
 // Pending timers are left alone deliberately — JobRepository has no delete, and
 // timerStillApplies already refuses to fire one for an instance that is not
 // active, which is the same thing a terminate end event relies on.
+//
+// It reports whether it did. An instance found, once locked, to have finished
+// or to have left nodeID is not one of the instances the cancel was asked to
+// end, and is left running.
 func (s *migrationService) cancelInstance(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1255,16 +1305,19 @@ func (s *migrationService) cancelInstance(
 	options servicecontracts.MigrationOptions,
 	source, target models.ProcessDefinitionModel,
 	runID uuid.UUID,
-) error {
+) (cancelled bool, err error) {
 	instanceID := uuid.UUID(instance.ID)
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// The locked row, not the listed one, for the same reason apply uses
 		// it: writing a copy read earlier would undo whatever landed in between.
 		fresh, lockErr := s.repo.Process().GetForUpdate(txCtx, instanceID)
 		if lockErr != nil {
 			return lockErr
 		}
-		if fresh.Status != models.ProcessActive {
+		// Still running, and still at the step: the cancel is of the instances
+		// waiting there, and the listing that said this was one of them is as
+		// old as the run.
+		if cancelled = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !cancelled {
 			return nil
 		}
 		instance = fresh
@@ -1309,9 +1362,9 @@ func (s *migrationService) cancelInstance(
 		})
 	})
 	if err != nil {
-		return fmt.Errorf("cancelling instance %s: %w", instanceID, err)
+		return false, fmt.Errorf("cancelling instance %s: %w", instanceID, err)
 	}
-	return nil
+	return cancelled, nil
 }
 
 // cancelTasksOn cancels the open work parked on one node, and returns those
@@ -1467,6 +1520,21 @@ func holdsWork(instance models.ProcessInstanceModel, nodeID string) bool {
 	return false
 }
 
+// parkedOn is holdsWork for the instance as the engine reads it, and asks as
+// well that it is still running: the question a skip puts to the row its lock
+// returned.
+func parkedOn(instance entities.ProcessInstance, nodeID string) bool {
+	if instance.Status != entities.ProcessActive {
+		return false
+	}
+	for _, token := range instance.Tokens {
+		if token.Node != nil && token.Node.ID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
 // openTask reports whether a task is still somebody's to do.
 func openTask(status models.TaskStatus) bool {
 	return status == models.TaskUnclaimed || status == models.TaskClaimed || status == models.TaskDelegated
@@ -1554,6 +1622,11 @@ func selectInstances(all []models.ProcessInstanceModel, wanted []uuid.UUID) (kep
 // the right answer is "a person needs to look at this one", and the worst thing
 // to do with that is guess — so this only changes where it is visible, not what
 // it is.
+//
+// It reports whether the instance is held at nodeID: true when it raised the
+// incident and when one was already open there, false for an instance found,
+// once locked, to have finished or to have left the step — nothing is raised
+// or recorded for that one.
 func (s *migrationService) holdInstance(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1562,18 +1635,19 @@ func (s *migrationService) holdInstance(
 	options servicecontracts.MigrationOptions,
 	source, target models.ProcessDefinitionModel,
 	runID uuid.UUID,
-) error {
+) (held bool, err error) {
 	instanceID := uuid.UUID(instance.ID)
 	// One unit of work with the instance locked, as a cancel takes it: a hold
 	// waits behind a completion racing it, and does nothing to an instance that
-	// finished meanwhile. The incident, its ledger row and its trail entry go in
-	// together, so a hold that cannot be recorded raises nothing.
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	// finished meanwhile or that the completion moved off the step. The
+	// incident, its ledger row and its trail entry go in together, so a hold
+	// that cannot be recorded raises nothing.
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		fresh, err := s.repo.Process().GetForUpdate(txCtx, instanceID)
 		if err != nil {
 			return fmt.Errorf("reading instance %s to hold it: %w", instanceID, err)
 		}
-		if fresh.Status != models.ProcessActive {
+		if held = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !held {
 			return nil
 		}
 		incidentID, raised, err := s.raiseHoldIncident(txCtx, fresh, nodeID, action, options, source, target)
@@ -1588,6 +1662,10 @@ func (s *migrationService) holdInstance(
 		}
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	return held, nil
 }
 
 // raiseHoldIncident raises the incident that holds an instance at nodeID, and
