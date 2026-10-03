@@ -3,6 +3,7 @@ package instancemigration
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -180,6 +181,52 @@ func TestAnAcknowledgedControlLossIsLedgeredPerInstance(t *testing.T) {
 	}
 	if entry := f.entryOf(t, instance.ID, impl.EventInstanceMigrated); entry.ID != rows[0].AuditEntryID {
 		t.Errorf("the row names entry %s; the migration entry is %s", rows[0].AuditEntryID, entry.ID)
+	}
+}
+
+// TestOnlyTheInstanceThatHadNotPassedTheControlLosesIt.
+//
+// Root cause: which controls an instance lost was worked out from its completed
+// steps after the migration had re-pointed them at the new graph. With the
+// control step mapped onto another, an instance that had given the approval no
+// longer listed it, and was told — and would now be ledgered — as having lost
+// it. It is worked out once, from the locked row's own list, before the
+// rewrite.
+func TestOnlyTheInstanceThatHadNotPassedTheControlLosesIt(t *testing.T) {
+	f := newFixture(t)
+	v1, err := f.svc.CreateDefinition(f.ctx, controlledTwoStep(f.project))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	passed, err := f.svc.StartProcess(f.ctx, f.project, "controlled-two-step", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	f.completeTaskOn(t, "opsApprove", "ada")
+	pending, err := f.svc.StartProcess(f.ctx, f.project, "controlled-two-step", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	v2, err := f.svc.CreateDefinition(f.ctx, controlledTwoStepWithout(f.project))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+	if err := f.svc.MigrateInstances(f.ctx, v1, v2, map[string]string{"opsApprove": "salesApprove"},
+		servicecontracts.WithAcknowledgedHolds("opsApprove"), servicecontracts.WithActor("dita")); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if rows := f.ledger(t, passed); len(rows) != 0 {
+		t.Errorf("the instance that had given the approval has %d ledger row(s): %+v", len(rows), rows)
+	}
+	rows := f.ledger(t, pending)
+	if len(rows) != 1 || rows[0].Kind != entities.DeviationControlWaived || rows[0].Node == nil || rows[0].Node.ID != "opsApprove" {
+		t.Errorf("the instance that had not given it: %+v, want one control_waived row for the approval", rows)
+	}
+	if told := f.entryOf(t, passed, impl.EventInstanceMigrated).Narrative; strings.Contains(told, "had not yet passed") {
+		t.Errorf("the instance that gave the approval is told as having lost it: %s", told)
+	}
+	if told := f.entryOf(t, pending, impl.EventInstanceMigrated).Narrative; !strings.Contains(told, "had not yet passed") {
+		t.Errorf("the instance that had not given the approval is not told as having lost it: %s", told)
 	}
 }
 
