@@ -131,9 +131,88 @@ func TestAnotherOrganizationNeitherWritesNorReadsAnInstancesDeviations(t *testin
 // the repository checks it.
 func TestARowNamingAnInstanceOutsideItsProjectIsRefused(t *testing.T) {
 	h := newDeviationHarness(t)
-	d := h.sample(uuid.Must(uuid.NewV7()))
-	if _, err := h.write(h.tenantContext(), d); !errors.Is(err, apierr.ErrNotFound) {
+	existing := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	other, err := h.svc.CreateProject(h.tenantContext(), h.orgID, "Another Project", "")
+	if err != nil {
+		t.Fatalf("create the second project: %v", err)
+	}
+
+	missing := h.sample(uuid.Must(uuid.NewV7()))
+	if _, err := h.write(h.tenantContext(), missing); !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("a row naming an instance that does not exist: got %v, want not found", err)
+	}
+
+	// The instance exists, in this organization, but not in the project the row names.
+	wrongProject := h.sample(existing)
+	wrongProject.Project = &entities.Project{ID: other.ID}
+	if _, err := h.write(h.tenantContext(), wrongProject); !errors.Is(err, apierr.ErrNotFound) {
+		t.Fatalf("a row naming an instance in another project of the same organization: got %v, want not found", err)
+	}
+	for _, id := range []uuid.UUID{existing, missing.Instance.ID} {
+		if n := h.rowCount(t, id); n != 0 {
+			t.Fatalf("a refused row left %d row(s) against instance %s", n, id)
+		}
+	}
+}
+
+// A kind or an instance the engine writer left out is its own mistake, not the
+// client's: it is a plain error (a 500 that is logged), the unit of work rolls
+// back, and no row is left.
+func TestAMalformedDeviationIsRefusedAndLeavesNoRow(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+
+	badKind := h.sample(instanceID)
+	badKind.Kind = "reassign-ish"
+	noInstance := h.sample(instanceID)
+	noInstance.Instance = nil
+	noProject := h.sample(instanceID)
+	noProject.Project = nil
+	for name, d := range map[string]entities.Deviation{"a bad kind": badKind, "no instance": noInstance, "no project": noProject} {
+		_, err := h.write(h.tenantContext(), d)
+		if err == nil {
+			t.Fatalf("%s: the deviation was recorded", name)
+		}
+		if errors.Is(err, apierr.ErrInvalidArgument) || errors.Is(err, apierr.ErrNotFound) {
+			t.Errorf("%s: refused as a client error (%v); an engine writer's mistake is a server error", name, err)
+		}
+	}
+	if n := h.rowCount(t, instanceID); n != 0 {
+		t.Fatalf("refused deviations left %d row(s)", n)
+	}
+}
+
+// One act writes several rows in one transaction, which share created_at; the
+// ledger still reads them in the order they were written.
+func TestRowsWrittenInOneTransactionComeBackInWriteOrder(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	var want []uuid.UUID
+	err := h.repo.UnitOfWork().Do(h.tenantContext(), func(tx context.Context) error {
+		for range 3 {
+			written, err := h.repo.Deviation().Create(tx, func() entities.Deviation {
+				d := h.sample(instanceID)
+				d.ID = uuid.Nil
+				return d
+			}())
+			if err != nil {
+				return err
+			}
+			want = append(want, written.ID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	rows, err := h.repo.Deviation().ListByInstance(h.tenantContext(), instanceID)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("read %d rows (err %v), want 3", len(rows), err)
+	}
+	for i := range rows {
+		if rows[i].ID != want[i] {
+			t.Fatalf("row %d is %s, want %s: rows of one transaction read in write order", i, rows[i].ID, want[i])
+		}
 	}
 }
 

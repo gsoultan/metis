@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
-	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/internal/pkg/health"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
@@ -62,12 +61,6 @@ func newDeviationHarness(t *testing.T) *deviationHarness {
 // tenantContext is a request from inside the harness's organization.
 func (h *deviationHarness) tenantContext() context.Context {
 	return entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: h.orgID.String()})
-}
-
-// adminContext is that request from a signed-in administrator called name.
-func (h *deviationHarness) adminContext(name string) context.Context {
-	return context.WithValue(h.tenantContext(), pkgauth.UserContextKey,
-		entities.User{Username: name, Roles: []string{entities.RoleAdmin}})
 }
 
 // signIn creates an account in the harness's organization and returns its token.
@@ -190,4 +183,14 @@ func (h *deviationHarness) sample(instanceID uuid.UUID) entities.Deviation {
 		Before:   map[string]any{"tasks": map[string]any{"t1": map[string]any{"assignee": "alice"}}},
 		After:    map[string]any{"tasks": map[string]any{"t1": map[string]any{"assignee": "bob"}}},
 	}
+}
+
+// rowCount is how many ledger rows instanceID has, read straight from the table.
+func (h *deviationHarness) rowCount(t *testing.T, instanceID uuid.UUID) int {
+	t.Helper()
+	var n int
+	if err := h.db.Raw(`SELECT count(*) FROM instance_deviations WHERE instance_id = ?`, instanceID).Row().Scan(&n); err != nil {
+		t.Fatalf("count the ledger rows: %v", err)
+	}
+	return n
 }

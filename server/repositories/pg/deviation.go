@@ -2,6 +2,7 @@ package pg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -45,6 +46,11 @@ func (r *deviationRepository) Create(ctx context.Context, d entities.Deviation) 
 	if err != nil {
 		return entities.Deviation{}, err
 	}
+	if d.ID == uuid.Nil {
+		// The database default is a v4: rows written in one transaction share
+		// created_at, and ordered by a random id they come back in no order.
+		d.ID = uuid.Must(uuid.NewV7())
+	}
 	ins, err := stageDeviation(d, projectID, instanceID)
 	if err != nil {
 		return entities.Deviation{}, err
@@ -62,12 +68,17 @@ func (r *deviationRepository) Create(ctx context.Context, d entities.Deviation) 
 
 // checkedTarget refuses a deviation that is malformed, that names a project
 // that is not the caller's, or that names an instance outside that project.
+//
+// A malformed deviation is a plain error, not apierr.Invalidf: it is made by an
+// engine writer, never by a client, so it has to surface as a server error that
+// is logged and alerted on, not as a 400 telling the caller about something it
+// did not do. The unit of work around it still rolls back.
 func (r *deviationRepository) checkedTarget(ctx context.Context, d entities.Deviation) (projectID, instanceID uuid.UUID, err error) {
 	if d.Project == nil || d.Project.ID == uuid.Nil || d.Instance == nil || d.Instance.ID == uuid.Nil {
-		return uuid.Nil, uuid.Nil, apierr.Invalidf("a deviation names the project and the instance it belongs to")
+		return uuid.Nil, uuid.Nil, errors.New("deviation: the project and the instance it belongs to are not named")
 	}
 	if !d.Kind.Valid() || !d.Scope.Valid() || !d.Origin.Valid() || !d.Status.Valid() {
-		return uuid.Nil, uuid.Nil, apierr.Invalidf("a deviation has a kind, scope, origin and status from the closed sets (got %q, %q, %q, %q)",
+		return uuid.Nil, uuid.Nil, fmt.Errorf("deviation: kind, scope, origin and status must come from the closed sets (got %q, %q, %q, %q)",
 			d.Kind, d.Scope, d.Origin, d.Status)
 	}
 	projectID, instanceID = d.Project.ID, d.Instance.ID
