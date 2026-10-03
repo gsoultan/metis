@@ -93,3 +93,28 @@ func TestHasRoleIgnoresCaseAsTheEndpointGatesDo(t *testing.T) {
 		})
 	}
 }
+
+// Username says "nobody" for no account and for an account with no name alike.
+// Account tells them apart: whoever records an actor must not write a person
+// with no name down as the server.
+func TestAccountTellsNobodyFromAnAccountWithNoName(t *testing.T) {
+	var nobody *entities.User
+	cases := []struct {
+		name     string
+		ctx      context.Context
+		signedIn bool
+		username string
+	}{
+		{"nobody signed in", context.Background(), false, ""},
+		{"a nil account", context.WithValue(context.Background(), pkgauth.UserContextKey, nobody), false, ""},
+		{"an account with no name", context.WithValue(context.Background(), pkgauth.UserContextKey, entities.User{}), true, ""},
+		{"a named account", context.WithValue(context.Background(), pkgauth.UserContextKey, entities.User{Username: "dita"}), true, "dita"},
+		{"a named account by pointer", context.WithValue(context.Background(), pkgauth.UserContextKey, &entities.User{Username: "dita"}), true, "dita"},
+	}
+	for _, c := range cases {
+		account, signedIn := Account(c.ctx)
+		if signedIn != c.signedIn || account.Username != c.username {
+			t.Errorf("%s: signed in %v as %q, want %v as %q", c.name, signedIn, account.Username, c.signedIn, c.username)
+		}
+	}
+}
