@@ -144,14 +144,28 @@ nothing to do there. So what is left is a decision, not a repair:
   whoever completed it gave that approval.
 - If the business still needs what should have followed, start it again as a
   new instance.
-- The stranded instance stays `active` in every list and every count until its
-  row says otherwise. There is no API for that. Setting it in the database,
-  `UPDATE process_instances SET status = 'cancelled', updated_at = now() WHERE
-  id = '<id>' AND status = 'active'`, takes it out of the running instances and
-  records nothing: no trail entry, no ledger row, nobody's name. Write down
-  who decided and why somewhere that is kept. If the instance was called by
-  another process (`parent_instance_id` is set), that parent is still waiting
-  for it and is not resumed by this.
+- **There is no supported way to close such an instance yet.** No route ends
+  an instance, and a migration's `cancel`, the only thing in the product that
+  sets an instance `cancelled`, ends an instance that holds a token on the
+  step it names, so it cannot reach one that holds none. Left as it is, the instance has nothing in flight
+  and nothing will run for it; it goes on showing as running in every list and
+  every count. An audited way to close it is on the roadmap.
+- **Unsupported, as a last resort:** the row can be changed in the database,
+
+  ```sql
+  UPDATE process_instances SET status = 'cancelled', updated_at = now()
+   WHERE id = '<id>' AND status = 'active';
+  ```
+
+  one instance at a time, in a transaction, after a backup, committing only
+  when it reports exactly one row changed. It takes the instance out of the
+  running ones and writes nothing else: no trail entry, no ledger row, no
+  notification or webhook goes out, and nothing anywhere says who decided or
+  why. Record the decision, the
+  instance's id, who made it and the reason, outside the product, somewhere
+  that is kept. If the instance was called by another process
+  (`parent_instance_id` is set), that parent is still waiting for it and is
+  not resumed by this.
 
 Both queries were run with `psql` against a schema with this release's tables,
 over temporary tables holding rows each must list and rows each must not: for the

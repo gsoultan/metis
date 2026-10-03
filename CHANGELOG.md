@@ -382,7 +382,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     version lacks that step too and the migration neither maps nor decides it,
     or when the skip leaves part of a step that runs once per item behind, the
     skip stands and is recorded and the instance stays on the version it is
-    running, listed in `passed_over`; it used to be moved.
+    running, listed in `passed_over`; it used to be moved. The same holds when
+    the step it advances onto is another one the migration decides, whether
+    or not the new version has it: the instance used to be moved there with
+    that decision not made, and is now left for the next run of the same
+    migration to decide.
 
   An instance that has not moved since it was listed is migrated exactly as
   before: the same result, ledger rows and trail entries. `applied` keeps its

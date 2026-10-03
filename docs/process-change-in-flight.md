@@ -362,7 +362,8 @@ writes anything, with the planner's own check and the same mapping and decisions
 given. An instance is left alone — not re-pointed, nothing written, still on the version it is
 running — when, by then,
 
-- it holds a token, an open task, a job (a timer, a queued service call), a waiting event or
+- it holds a token, an open task, a job row (a timer or a queued service call, one that has
+  already run included), a waiting event or
   a join or multi-instance counter on a step the new version has no step for and the mapping
   does not cover, or counters on two steps the mapping puts onto one: what the planner
   refuses a migration for;
@@ -376,7 +377,10 @@ This also holds for an instance that never moved by itself. A skip advances an i
 the step after the one skipped, and the plan was made for where it stood before: when that
 next step is one the new version lacks too, with no mapping and no decision of its own, the
 skip stands and is recorded and the instance stays on the version it is running. It used to
-be moved there.
+be moved there. Likewise when the next step is another one the migration decides, a hold
+after a skipped step for example, whether or not the new version has it: the skip stands, and
+the instance is left for the next run of the same migration to decide at that step, where it
+used to be moved with the decision not made.
 
 The order of the locks is what it was: each decision in its own transaction, instance then
 tasks, and then the rewrite in another, instance first. The check reads the instance's tasks,

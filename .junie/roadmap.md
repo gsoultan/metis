@@ -1090,9 +1090,16 @@
     `TestPinASkipLeavesAnInstanceElsewhereToBeMoved`. The planner, the dry run, every refusal
     and warning text and the reply's shape are untouched, and the 67 tests the package had
     pass unedited.
-  - **What does change for an instance that did not move by itself.** Only criterion 6: a skip
-    that itself leaves the instance on work the new version cannot take. That instance used to
-    be moved onto the new version with a token on a step it lacks.
+  - **What does change for an instance that did not move by itself.** Three cases, each a skip
+    that itself leaves the instance somewhere the plan was not made for. Two are criterion 6:
+    the step after the skipped one is missing from the new version with no mapping and no
+    decision, and a skip that leaves part of a repeating step behind; that instance used to be
+    moved onto the new version with a token on a step it lacks. The third was found in review
+    and has no test of its own: a skip that advances the instance onto another step the
+    migration decides, one the new version keeps (a hold after a skipped step, say). It used
+    to be moved there with that decision not made; it is now left on its version, listed, and
+    decided by the next run (`undecidedSteps`, `migration_landing.go`, which asks only whether
+    a decided step still holds a token).
   - **Lock order.** Unchanged: each decision in its own transaction (instance, then tasks),
     then the rewrite in another (instance first). The apply's extra read of the instance is
     outside any transaction, and the check under the rewrite's lock only reads.
@@ -1110,15 +1117,54 @@
       `active` on its own version with tokens on the step and no open task.
     - Two skipped steps in a row are not skipped in one run: the second is found only by the
       next run, because a run decides from where the instance stood when it was read.
-    - Read from the code, not reproduced: an instance started on the source version after the
-      plan's listing is applied to without having been planned for. Its landing is now checked
-      under its lock, but a control it has not passed, when the plan found none pending, is
-      lost with no acknowledgement asked.
-    - Read from the code, not reproduced: an instance a concurrent run of the same migration
-      has already moved is rewritten a second time by this one; the rewrite does not check
-      that the locked row is still on the source version.
-    - Read from the code: `survey` counts every job row of an instance, finished ones
-      included, in the plan as under the lock.
+    - Five defects in the same code path, none of them this change's and none the stale
+      listing. "Reproduced" means by the probes of this change's review, each at head and on the
+      service before the fix, with the same result on both; the code locations are
+      `server/domains/services/impl/migration.go` at head. The same code is in 0.4.0 for all
+      five (read from `v0.4.0`, not run there; 0.4.0 has no ledger, so for P2 it is the
+      unacknowledged loss that is the same). They are to be fixed in their own change, next,
+      P1 and P2 first.
+      - **P1, reproduced; the most serious, and nothing has to race.** A migration with a node
+        mapping rewrites every task of the instance on a mapped step, whatever the task's
+        status: the rewrite's loop over the instance's tasks has no test of status (`:458-478`),
+        and `retargetTask` sets each one `claimed` or `unclaimed` (`:838`, `:842`). A task
+        already completed becomes open work again on the step it was mapped to. An instance
+        that had completed *Operations approve* and waited at *Sales approve*, migrated with
+        `opsApprove → salesApprove`, has two open *Sales approve* tasks afterwards, and the
+        record that the operations approval was given is gone from its task. An instance
+        further on gets an open task with no token under it.
+      - **P2, reproduced.** An instance started on the source version between the plan's
+        listing (`:174`) and the apply's (`:335`) is moved without having been planned for.
+        Its landing is now checked under its lock. A control it has not passed is not: the
+        holds come from the plan's list (`:231`) and the rewrite reads only those (`:434`),
+        so when the plan found no instance pending the control is lost with no
+        acknowledgement asked and no `control_waived` row.
+      - **P3, reproduced.** The rewrite checks that the locked row is still running (`:413`),
+        not that it is still on the source version, and maps its tokens again (`:441`). A
+        second run with a chained mapping (`opsApprove → supervisorReview`,
+        `supervisorReview → salesApprove`) moved an instance the first run had put at
+        *Supervisor review* on to *Sales approve*: two `instance_migrated` entries, and a
+        review passed without being performed. A client retrying a slow apply is how two runs
+        overlap.
+      - **P4, reproduced.** A `hold` or a `cancel` naming a boundary event passes the plan
+        (`actionRefusals`, from `:1088`, asks nothing about the kind of node), is never taken
+        (`holdsWork`, `:1578`, looks for a token, and no token sits on a boundary event) and
+        writes nothing, while the plan lets the event's subscription stand without anywhere to
+        land (`:664`) and the rewrite leaves an unmapped subscription as it is (`:1633`). The
+        instance is moved with a subscription on a node the new version lacks; the message,
+        when it comes, is accepted with no error, the subscription is consumed and nothing
+        happens. The fix belongs in the plan: refuse a decision on a node that cannot hold a
+        token.
+      - **P5, read from the code.** `survey` counts every job row of an instance, finished
+        ones included (`:744`; `pg/job.go:221` returns every row), in the plan as under the
+        lock. It errs towards refusing: an instance that passed a timer or a service step the
+        new version dropped is refused in the plan, or passed over as having work there,
+        until the step is mapped.
+    - No supported way exists to close an instance that is `active` with nothing left: no
+      route ends an instance, and a migration's `cancel` needs a token on the step it names
+      (`:1384`). `docs/upgrading.md` says so and gives a direct `UPDATE` only as an unsupported
+      last resort. An audited way to close such an instance is needed: the cancel of one
+      instance in place, planned next, must work on an instance that holds no token.
     - The migration dialog still does not show `passed_over` (the ledger entry's note).
 
 - 2026-10-03 (completed): an instance keeps a ledger of what was done to it outside its process
