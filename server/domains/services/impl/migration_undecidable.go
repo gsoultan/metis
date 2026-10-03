@@ -76,6 +76,22 @@ var passedThrough = map[models.NodeType]string{
 	models.CompensationThrowEvent: "a compensation the process throws",
 }
 
+// waitsAt reports whether an instance can be waiting at a node: the table
+// above, as a yes or a no. It reads the one node and nothing else, so that
+// whatever asks it of many nodes asks it once of each.
+func waitsAt(node models.FlowNode, incoming map[string]int) bool {
+	switch node.Type {
+	case models.BoundaryEvent, models.Pool, models.Lane:
+		return false
+	case models.SubProcess:
+		return node.IsAdHoc
+	case models.ParallelGateway, models.InclusiveGateway:
+		return incoming[node.ID] > 1
+	}
+	_, passes := passedThrough[node.Type]
+	return !passes
+}
+
 // nobodyWaitsAt says why a decision on a node would be made about nobody, and
 // nothing when an instance can be waiting there.
 //
@@ -88,12 +104,19 @@ var passedThrough = map[models.NodeType]string{
 // its timer to be dismissed when due, a cancel ends the instance, a hold
 // leaves it on the version it runs. The rewrite still asks, under its lock,
 // that nothing is left waiting on the event (whyNotMoved).
+//
+// inside is the definition's nodes by the node they are inside (nodesByParent),
+// asked for only when a sub-process has to be told what to decide instead.
 func nobodyWaitsAt(
 	node models.FlowNode,
 	sourceNodes map[string]models.FlowNode,
 	actions map[string]servicecontracts.NodeAction,
 	incoming map[string]int,
+	inside func() map[string][]models.FlowNode,
 ) string {
+	if waitsAt(node, incoming) {
+		return ""
+	}
 	const aboutNobody = "so the decision would be made about nobody"
 	switch node.Type {
 	case models.BoundaryEvent:
@@ -109,63 +132,109 @@ func nobodyWaitsAt(
 			"deciding both, and what waits on the event ends with that step, or map the event to a boundary event the "+
 			"new version has", host)
 	case models.SubProcess:
-		if node.IsAdHoc {
-			return ""
-		}
 		return fmt.Sprintf("it is a sub-process, and an instance inside one waits at the steps inside it, never at the "+
-			"sub-process itself, %s; decide the steps inside it instead%s", aboutNobody, andWhichSteps(stepsInside(node, sourceNodes, incoming)))
+			"sub-process itself, %s; decide the steps inside it instead%s", aboutNobody, andWhichSteps(stepsInside(node.ID, inside(), incoming)))
 	case models.ParallelGateway, models.InclusiveGateway:
-		if incoming[node.ID] > 1 {
-			return ""
-		}
 		return fmt.Sprintf("it is a gateway that only splits the flow, and an instance passes straight through one, %s; "+
 			"decide the step it waits at instead", aboutNobody)
 	case models.Pool, models.Lane:
 		return fmt.Sprintf("it is a %s, not a step, and no instance waits at one, %s", node.Type, aboutNobody)
 	}
-	if kind, ok := passedThrough[node.Type]; ok {
-		return fmt.Sprintf("it is %s, and an instance passes straight through one without waiting there, %s; "+
-			"decide the step it waits at instead", kind, aboutNobody)
-	}
-	return ""
+	return fmt.Sprintf("it is %s, and an instance passes straight through one without waiting there, %s; "+
+		"decide the step it waits at instead", passedThrough[node.Type], aboutNobody)
 }
 
-// stepsInside is the steps of a sub-process an instance can wait at, at any
-// depth, as people know them and in that order. A definition may nest a
-// sub-process's nodes inside it or keep them beside it naming their parent;
-// both are read, as the engine reads both.
-func stepsInside(sub models.FlowNode, sourceNodes map[string]models.FlowNode, incoming map[string]int) []string {
-	seen := map[string]struct{}{}
-	var names []string
-	var walk func(parentID string, nested []models.FlowNode)
-	walk = func(parentID string, nested []models.FlowNode) {
-		children := slices.Clone(nested)
-		for _, id := range sortedKeys(sourceNodes) {
-			if sourceNodes[id].ParentID == parentID {
-				children = append(children, sourceNodes[id])
-			}
+// nodesByParent is a definition's nodes by the node each is inside, built once
+// for a plan. A definition may nest a sub-process's nodes inside it or keep
+// them beside it naming their parent; both are read, as the engine reads both,
+// and a node found both ways is listed once. In the order of the nodes' ids,
+// so that the same definition is always read the same way.
+//
+// What a node says its parent is, is whatever its author wrote: itself, or a
+// node that in turn names it. That is why this only records who says what, and
+// leaves following it to a walk that never visits a node twice (stepsInside).
+func nodesByParent(sourceNodes map[string]models.FlowNode) map[string][]models.FlowNode {
+	inside := map[string][]models.FlowNode{}
+	listed := map[[2]string]struct{}{}
+	add := func(parentID string, child models.FlowNode) {
+		pair := [2]string{parentID, child.ID}
+		if _, done := listed[pair]; done {
+			return
 		}
-		for _, child := range children {
-			if _, done := seen[child.ID]; done {
+		listed[pair] = struct{}{}
+		inside[parentID] = append(inside[parentID], child)
+	}
+	// Nodes nested inside a node are a tree as stored, so they are followed
+	// down; each node's own nested list is read once, whether it is reached
+	// from the index or from the node it is nested in.
+	expanded := map[string]struct{}{}
+	for _, id := range sortedKeys(sourceNodes) {
+		node := sourceNodes[id]
+		if node.ParentID != "" {
+			add(node.ParentID, node)
+		}
+		pending := []models.FlowNode{node}
+		for len(pending) > 0 {
+			parent := pending[len(pending)-1]
+			pending = pending[:len(pending)-1]
+			if _, done := expanded[parent.ID]; done {
 				continue
 			}
-			seen[child.ID] = struct{}{}
-			if nobodyWaitsAt(child, sourceNodes, nil, incoming) == "" {
-				names = append(names, fmt.Sprintf("%q", flowNodeName(child)))
+			expanded[parent.ID] = struct{}{}
+			for _, nested := range parent.Nodes {
+				add(parent.ID, nested)
+				pending = append(pending, nested)
 			}
-			walk(child.ID, child.Nodes)
 		}
 	}
-	walk(sub.ID, sub.Nodes)
+	return inside
+}
+
+// stepsInside is the steps inside a sub-process an instance can wait at, at
+// any depth, as people know them and in that order.
+//
+// One walk with one record of what it has visited, and no recursion: each node
+// is looked at once however the definition nests or loops, so it ends on a
+// sub-process that is its own parent or on a cycle of parents of any length,
+// and costs one visit a node. It used to start again from every sub-process it
+// met, with a clean record each time: the work doubled with each level of
+// nesting, and a node that was its own parent sent it round until the stack
+// gave out, which nothing can recover from.
+func stepsInside(subID string, inside map[string][]models.FlowNode, incoming map[string]int) []string {
+	visited := map[string]struct{}{subID: {}}
+	pending := []string{subID}
+	var names []string
+	for len(pending) > 0 {
+		parentID := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		for _, child := range inside[parentID] {
+			if _, done := visited[child.ID]; done {
+				continue
+			}
+			visited[child.ID] = struct{}{}
+			if waitsAt(child, incoming) {
+				names = append(names, fmt.Sprintf("%q", flowNodeName(child)))
+			}
+			pending = append(pending, child.ID)
+		}
+	}
 	slices.Sort(names)
 	return names
 }
+
+// stepsNamed is how many steps a refusal names before it counts the rest. A
+// definition is somebody's input, and a sub-process with twenty thousand steps
+// in it must not make a refusal twenty thousand names long.
+const stepsNamed = 10
 
 // andWhichSteps ends a sentence with the steps to decide, or with nothing when
 // there are none to name.
 func andWhichSteps(names []string) string {
 	if len(names) == 0 {
 		return ""
+	}
+	if len(names) > stepsNamed {
+		return fmt.Sprintf(": %s, and %d more", strings.Join(names[:stepsNamed], ", "), len(names)-stepsNamed)
 	}
 	return ": " + strings.Join(names, ", ")
 }

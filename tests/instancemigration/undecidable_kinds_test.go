@@ -3,6 +3,7 @@ package instancemigration
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -117,5 +118,49 @@ func TestADecisionOnASubProcessIsRefusedInThePlan(t *testing.T) {
 				t.Errorf("the decision at the step inside should be in the ledger: %+v", rows)
 			}
 		})
+	}
+}
+
+// A definition is somebody's input, and nothing stops a sub-process in it from
+// naming itself as its parent: it deploys. Working out what to decide instead
+// of that sub-process used to go round it until the stack gave out, which took
+// the server with it — from a dry run, with no instance running.
+func TestADryRunOverASubProcessThatIsItsOwnParentAnswers(t *testing.T) {
+	f := newFixture(t)
+	looped := func() *entities.ProcessDefinition {
+		def := checkedInside(f.project)
+		def.Key, def.Name = "looped-inside", "Looped inside"
+		def.Nodes[1].ParentID = "checks"
+		return def
+	}
+	v1, err := f.svc.CreateDefinition(f.ctx, looped())
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	v2, err := f.svc.CreateDefinition(f.ctx, looped())
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+
+	answered := make(chan []string, 1)
+	go func() {
+		plan, planErr := f.svc.PlanInstanceMigration(f.ctx, v1, v2, nil,
+			servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
+				"checks": {Kind: servicecontracts.NodeActionHold, Reason: "the checks are under review"},
+			}))
+		if planErr != nil {
+			answered <- []string{"error: " + planErr.Error()}
+			return
+		}
+		answered <- plan.Refusals
+	}()
+	select {
+	case refusals := <-answered:
+		told := strings.Join(refusals, "; ")
+		if !strings.Contains(told, `"Checks" cannot be taken`) || !strings.Contains(told, `"Check the request"`) {
+			t.Fatalf("the dry run should refuse the decision on the sub-process and name the step inside it: %s", told)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dry run had not answered after five seconds")
 	}
 }

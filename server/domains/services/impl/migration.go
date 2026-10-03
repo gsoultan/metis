@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -1357,6 +1358,9 @@ func (s *migrationService) actionRefusals(
 	incoming map[string]int,
 ) []string {
 	var out []string
+	// Which nodes are inside which, for telling what to decide instead of a
+	// sub-process: built at most once for the plan, and only if it is asked for.
+	inside := sync.OnceValue(func() map[string][]models.FlowNode { return nodesByParent(sourceNodes) })
 	for nodeID, action := range actions {
 		node, known := sourceNodes[nodeID]
 		if !known {
@@ -1393,7 +1397,7 @@ func (s *migrationService) actionRefusals(
 		// A decision is taken on the instances holding a token on the node, so
 		// one on a node no instance ever holds a token on is taken on nobody —
 		// and still excused whatever waits on that node from having to land.
-		if why := nobodyWaitsAt(node, sourceNodes, actions, incoming); why != "" {
+		if why := nobodyWaitsAt(node, sourceNodes, actions, incoming, inside); why != "" {
 			out = append(out, fmt.Sprintf("%s of %q cannot be taken: %s", action.Kind, flowNodeName(node), why))
 		}
 		if action.Kind != servicecontracts.NodeActionSkip {
