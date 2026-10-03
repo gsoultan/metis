@@ -80,7 +80,8 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 	// Every refusal is worked out by the planner, so what a dry run showed and
 	// what an apply does cannot disagree. Two copies of these checks is how a
 	// preview comes to say "this is fine" about something the apply rejects.
-	plan, err := s.PlanInstanceMigration(ctx, sourceDefID, targetDefID, nodeMapping, opts...)
+	options := servicecontracts.ApplyMigrationOptions(opts)
+	plan, covered, err := s.planFor(ctx, sourceDefID, targetDefID, nodeMapping, options)
 	if err != nil {
 		return entities.MigrationResult{}, err
 	}
@@ -90,7 +91,7 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 	if plan.Instances == 0 {
 		return entities.MigrationResult{}, nil
 	}
-	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, servicecontracts.ApplyMigrationOptions(opts), plan)
+	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
 }
 
 // PlanInstanceMigration works out what MigrateInstances would do, and writes
@@ -102,19 +103,35 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 // are the things a human should look at before applying, not the things that
 // would corrupt an instance.
 func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationPlan, error) {
-	options := servicecontracts.ApplyMigrationOptions(opts)
+	plan, _, err := s.planFor(ctx, sourceDefID, targetDefID, nodeMapping, servicecontracts.ApplyMigrationOptions(opts))
+	return plan, err
+}
+
+// planFor is PlanInstanceMigration, and also hands back the instances the plan
+// was made for.
+//
+// The plan a caller is shown counts them; the apply needs to know which they
+// were. Everything a plan establishes about an instance — that its work lands,
+// which controls it loses and that somebody accepted the loss — is established
+// for these and for no others, so an apply may act on these and on no others.
+func (s *migrationService) planFor(
+	ctx context.Context,
+	sourceDefID, targetDefID uuid.UUID,
+	nodeMapping map[string]string,
+	options servicecontracts.MigrationOptions,
+) (entities.MigrationPlan, []models.ProcessInstanceModel, error) {
 	var plan entities.MigrationPlan
 	if sourceDefID == targetDefID {
-		return plan, apierr.Invalidf("the source and target versions are the same definition")
+		return plan, nil, apierr.Invalidf("the source and target versions are the same definition")
 	}
 
 	source, err := s.repo.Definition().Get(ctx, sourceDefID)
 	if err != nil {
-		return plan, fmt.Errorf("source definition: %w", err)
+		return plan, nil, fmt.Errorf("source definition: %w", err)
 	}
 	target, err := s.repo.Definition().Get(ctx, targetDefID)
 	if err != nil {
-		return plan, fmt.Errorf("target definition: %w", err)
+		return plan, nil, fmt.Errorf("target definition: %w", err)
 	}
 	plan.SourceKey = source.Key
 	plan.SourceVersion = source.Version
@@ -125,11 +142,11 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 	// onto "supplier-onboarding" was previously accepted and left every instance
 	// claiming to be running a process it had never started.
 	if source.Key != target.Key {
-		return plan, apierr.Invalidf("cannot migrate %q onto %q: they are different processes, not two versions of one",
+		return plan, nil, apierr.Invalidf("cannot migrate %q onto %q: they are different processes, not two versions of one",
 			source.Key, target.Key)
 	}
 	if source.ProjectID != target.ProjectID {
-		return plan, apierr.Invalidf("cannot migrate between projects")
+		return plan, nil, apierr.Invalidf("cannot migrate between projects")
 	}
 
 	// Indexed over the whole tree, not just the top level: a node inside a
@@ -152,7 +169,7 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 		// Raised rather than collected: a mapping that names a node the target
 		// does not have is wrong on its face, independently of what is running,
 		// so there is nothing further to plan.
-		return plan, apierr.Invalidf("version %d of %q has no node for %s",
+		return plan, nil, apierr.Invalidf("version %d of %q has no node for %s",
 			target.Version, target.Key, strings.Join(badTargets, ", "))
 	}
 
@@ -173,19 +190,19 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 
 	instances, err := s.repo.Process().ListByDefinition(ctx, sourceDefID)
 	if err != nil {
-		return plan, fmt.Errorf("failed to list instances for migration: %w", err)
+		return plan, nil, fmt.Errorf("failed to list instances for migration: %w", err)
 	}
 	instances, missing := selectInstances(instances, options.Instances)
 	if len(missing) > 0 {
 		// Named and not there is a refusal, not a silent omission: somebody who
 		// listed twelve instances and had eleven moved would have no way to
 		// find out which one did not.
-		return plan, apierr.Invalidf("version %d of %q is not running instance(s) %s",
+		return plan, nil, apierr.Invalidf("version %d of %q is not running instance(s) %s",
 			source.Version, source.Key, strings.Join(missing, ", "))
 	}
 	plan.Instances = len(instances)
 	if len(instances) == 0 {
-		return plan, nil
+		return plan, nil, nil
 	}
 
 	// Every place the instances currently sit has to land on a node the target
@@ -194,7 +211,7 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 	// old code stranded.
 	found, err := s.survey(ctx, instances, targetNodes, nodeMapping, options.Actions)
 	if err != nil {
-		return plan, err
+		return plan, nil, err
 	}
 	plan.Moves = found.moves
 	if len(found.unlandable) > 0 {
@@ -241,7 +258,7 @@ func (s *migrationService) PlanInstanceMigration(ctx context.Context, sourceDefI
 
 	slices.Sort(plan.Refusals)
 	slices.Sort(plan.Warnings)
-	return plan, nil
+	return plan, instances, nil
 }
 
 // complianceHolds finds the control-bearing steps this migration would take
@@ -306,7 +323,8 @@ func noteSuffix(note string) string {
 // planner, so this only writes.
 //
 // It reports what it did. The instances it leaves alone are the ones that, by
-// the time it held their lock, were no longer where its listing found them;
+// the time it held their lock, were no longer where its listing found them,
+// and the ones the plan was not made for (planned is the plan's own listing);
 // they are in the result so the caller can be told, not only in the log.
 //
 // "Only writes" is true of an instance that stayed where the plan found it. The
@@ -320,6 +338,7 @@ func (s *migrationService) apply(
 	nodeMapping map[string]string,
 	options servicecontracts.MigrationOptions,
 	plan entities.MigrationPlan,
+	planned map[uuid.UUID]struct{},
 ) (entities.MigrationResult, error) {
 	var result entities.MigrationResult
 	source, err := s.repo.Definition().Get(ctx, sourceDefID)
@@ -351,6 +370,20 @@ func (s *migrationService) apply(
 		// an instance that moved is no longer on the source version at all, and
 		// one that was cancelled must not be cancelled again.
 		if instance.Status != models.ProcessActive {
+			continue
+		}
+		// Nor is one the plan never saw this run's to move. The plan is made
+		// from one listing and this loop from a second, and an instance that
+		// arrived on the source version in between — started there, or moved
+		// there by another migration — was asked nothing: not whether its work
+		// lands, and not whether it loses a control somebody has to accept.
+		// Moved all the same, it lost that control with no acknowledgement
+		// asked for and no row to say so.
+		if _, covered := planned[uuid.UUID(instance.ID)]; !covered {
+			result.PassedOver = append(result.PassedOver, passedOver(instance, notPlannedFor(source)))
+			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
+				Msg("A migration passed over an instance that was not on the source version when it was planned. " +
+					"It stays on the version it is running; plan the migration again to include it")
 			continue
 		}
 
@@ -1682,6 +1715,15 @@ func (s *migrationService) remapSubscriptions(
 		}
 	}
 	return nil
+}
+
+// plannedFor is the instances a plan was made for, by id.
+func plannedFor(instances []models.ProcessInstanceModel) map[uuid.UUID]struct{} {
+	planned := make(map[uuid.UUID]struct{}, len(instances))
+	for _, instance := range instances {
+		planned[uuid.UUID(instance.ID)] = struct{}{}
+	}
+	return planned
 }
 
 // selectInstances narrows a list to the ones named, and reports any name that

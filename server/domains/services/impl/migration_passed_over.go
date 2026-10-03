@@ -33,6 +33,16 @@ func noLongerRunning(source models.ProcessDefinitionModel) string {
 		"It stays on version %d, the one it ran on.", source.Version)
 }
 
+// notPlannedFor is why an instance was not moved: it was not on the source
+// version when the migration was planned, so nothing the plan establishes was
+// established for it. It started there afterwards, or another migration moved
+// it there.
+func notPlannedFor(source models.ProcessDefinitionModel) string {
+	return fmt.Sprintf("It was not on version %d when this migration was planned: it started, or was moved there, "+
+		"after that. Nothing had been asked about it, so nothing was decided about it and it was not moved. "+
+		"It stays on version %d; plan the migration again to include it.", source.Version, source.Version)
+}
+
 // nowhereToLand is why an instance was not moved: once locked, it held work —
 // a token, a task, a timer, a waiting event or a counter — on steps the new
 // version has no step for and the mapping does not cover. The planner refuses
