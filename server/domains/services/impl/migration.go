@@ -460,6 +460,19 @@ func (s *migrationService) apply(
 				return err
 			}
 			for _, task := range tasks {
+				// Only work that is still somebody's to do follows the mapping.
+				// A mapping says where work in progress goes; a task that was
+				// completed or cancelled is the record of what happened, on the
+				// version it happened on. Rebuilt from the step the mapping
+				// names, as every task used to be, it came back claimed or
+				// unclaimed: an approval already given was open work again, in
+				// the name of whoever the new step is for, and nothing said any
+				// longer who had given it. Such a task is not written at all,
+				// its step's id included — a rule that names the old step still
+				// finds who performed it.
+				if !openTask(task.Status) {
+					continue
+				}
 				mapped := mapNode(nodeMapping, task.NodeID)
 				if mapped == task.NodeID {
 					continue
@@ -483,6 +496,13 @@ func (s *migrationService) apply(
 				return err
 			}
 			for _, job := range jobs {
+				// The same rule for a timer or a call that has already run: it
+				// stays naming the version and the step it ran on. Only what can
+				// still run is pointed at the new graph — a failed job too, which
+				// runs again when its incident is resolved.
+				if finishedJob(job.Status) {
+					continue
+				}
 				job.DefinitionID = models.UUID(targetDefID)
 				job.NodeID = mapNode(nodeMapping, job.NodeID)
 				if err := s.repo.Job().Update(txCtx, job); err != nil {
