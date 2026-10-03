@@ -195,8 +195,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   is `applied` in this release, read from the code: it is the only status
   anything writes.
 
-  The audit entries of a hand-over, of a migration's skip, cancel or hold, and
-  of an activation name their row in `deviation_id`. A new `step_activated`
+  The audit entries of a hand-over that wrote a row (a holder's own writes none),
+  of a migration's skip, cancel or hold, and of an activation name their row in
+  `deviation_id`. A new `step_activated`
   entry says who started a step inside an ad-hoc sub-process, and why when
   they said, and the timeline tells it in English and in Indonesian. A
   migration's own `instance_migrated` entry does not name the control-loss
@@ -216,7 +217,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   by somebody who does not hold the task, each migration decision and each
   ad-hoc activation do one read, that the instance is in the project, and one
   insert, inside the transaction already open, after a check of the project
-  that is cached for the request. See [Watching
+  that is cached for the request; each accepted control loss is one more
+  insert, and an activation also writes a `step_activated` entry, which it had
+  none of before. See [Watching
   instances](docs/integration.md#watching-instances).
 
 - **A delegated task goes back to whoever delegated it.** Delegating was a

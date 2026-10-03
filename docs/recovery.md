@@ -21,14 +21,14 @@ waiting on, a payment half-made, an approval someone believes they granted.
 | **Human tasks** | `tasks` | Approvals disappear from inboxes. A completed one may be re-requested. |
 | **Definitions & decisions** | `process_definitions`, `decision_definitions`, `deployments` | Running instances pin a version; losing it strands them mid-flight. |
 | **Which version is live** | `process_definition_releases`, `decision_releases` | New instances start on the highest process version rather than the one chosen, and every step that names no decision version fails: a decision with no live version refuses to guess one. |
-| **Audit trail** | `audit_logs`, `variable_snapshot` | The compliance answer to "who approved this". Usually the hardest loss to explain. |
+| **Audit trail** | `audit_logs`, `variable_snapshot`, `instance_deviations` | The compliance answer to "who approved this", and, in `instance_deviations`, to "what was done to this instance outside its process". Usually the hardest loss to explain. |
 | **Credentials** | `connector_instances` | Recoverable by re-entering them, *if* anyone still knows them. |
 | **Identity** | `users`, `groups`, `memberships`, `organizations`, `projects` | Nobody can log in. |
 
 Two things are **not** in the database and are lost independently:
 
 - **`ENCRYPTION_KEY`.** Process and task variables are encrypted at rest, and so is every
-  copy the engine keeps of them — history, audit trail, queued work, recorded responses. A
+  copy the engine keeps of them — history, audit trail, the ledger of what was done to an instance, queued work, recorded responses. A
   database backup without this key restores rows that cannot be read. **Back it up separately, and never in
   the same store as the database backup** — one compromise should not yield both.
 - **`config.yaml`**, which holds the connection string and JWT secret.

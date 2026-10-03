@@ -1040,7 +1040,7 @@
   activation · Challengers: sec, go, perf; fe and ux for the timeline.
   - **Problem.** An administrator's override, a migration's skip, cancel or hold, and a step
     started inside an ad-hoc sub-process left at most an audit entry that an auditor cannot ask
-    for by instance, and a migration's cancel or hold could lose its entry while the change
+    for by instance, and a migration's skip, cancel or hold could lose its entry while the change
     stood.
   - **Acceptance criteria**, each with the test that holds it (`tests/deviation` unless named):
     1. *The table.* Created as the model describes it, with no foreign key to the rows a
@@ -1105,18 +1105,21 @@
   - **What it costs.** A hand-over or edit by somebody who does not hold the task, each
     migration decision and each ad-hoc activation do one more read (that the instance is in the
     project) and one insert, inside the transaction already open, after a check of the project
-    that is cached for the request. Counted from the code, not measured.
+    that is cached for the request; each accepted control loss is one more insert, and an ad-hoc
+    activation also writes a `step_activated` trail entry, which it had none of before. Counted
+    from the code, not measured.
   - **Upgrade.** Migration 33 creates `instance_deviations`, backfills nothing, and waits two
     seconds for `projects` and `process_definitions` and stops, to be started again.
     `docs/upgrading.md`, *Migration 33: an instance's ledger of what was done to it*.
   - **What a client meets that it did not** (`CHANGELOG.md`). The new route; a `reason` on
     `POST /api/v1/processes/adhoc/activate`; a reason of more than 2,000 characters on a
-    migration's skip, cancel or hold refused in the plan; a migration's cancel or hold that
+    migration's skip, cancel or hold refused in the plan; a migration's skip, cancel or hold that
     cannot be recorded stops the run at that instance; a new `step_activated` audit entry and a
     `deviation_id` on the entries of the acts above.
   - **Not in this slice.** Waiving, cancelling or holding one instance in place, without a second
     version of its process, and a second approver. Both come in the next ones; the table already has
-    the columns (`status`, `approved_by`, `request_id`) and nothing writes them.
+    the columns for them: nothing writes `approved_by` or `request_id`, and no row is anything but
+    `applied`.
   - **Found, not changed:**
     - A control-loss row names the `instance_migrated` entry, which is written after the rewrite
       commits and, if it fails, only logged; the row can name an entry that does not exist.

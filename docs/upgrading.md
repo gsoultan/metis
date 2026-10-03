@@ -60,8 +60,8 @@ has ended and it finishes; nothing it had done is undone.
   and the task stays as it was. A migration's skip, cancel or hold fails that
   instance's step, names the instance, and says how many had been dealt with;
   running the same migration again carries on. An ad-hoc activation is
-  refused and starts nothing. A migration's cancel and hold used to be made
-  and the lost entry only logged.
+  refused and starts nothing. A migration's skip, cancel and hold used to be
+  made and the lost entry only logged.
 - Reading an instance's ledger needs the `ENCRYPTION_KEY` its rows were
   written under, because `before` and `after` are sealed as every other copy
   of a process variable is. A backup without that key restores rows whose
@@ -83,14 +83,19 @@ missing the act, which its audit trail still shows. Finish the rollout before
 relying on the ledger being complete.
 
 **Rolling back** leaves the table and its rows where they are. From reading
-the old release's code, not from running it, nothing in it reads or writes
-them. As with every migration, the runner only goes forward.
+the old release's code, not from running it, its application code does not
+read or write them, but its `metis --reseal` walks every column of the schema
+from the catalogue, so it would read the ledger's sealed `before` and `after`
+and rewrite them under its key. As with every migration, the runner only goes
+forward.
 
 **What it costs.** Counted from the code, not measured: a hand-over or an edit
 by somebody who does not hold the task, each decision a migration makes on an
 instance, and each ad-hoc activation do one more read, that the instance
 belongs to the project the row names, and one insert, inside the transaction
-that is already open. The check that the project is the caller's is answered
+that is already open. Each accepted control loss is one more insert, and an
+ad-hoc activation also writes a `step_activated` trail entry, which it had none
+of before. The check that the project is the caller's is answered
 from what the request already looked up. A hand-over by the task's holder, and
 a migration that only moves work and waives no control, do neither. It is a person's action or an
 administrator's migration, not something the engine does for every token.

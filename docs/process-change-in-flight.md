@@ -314,7 +314,7 @@ Refused, because doing any of these half-way is worse than not doing them:
 
 | Refusal | Why |
 | :-- | :-- |
-| A skip or cancel with no reason | Without one the trail cannot tell a step nobody performed from a step somebody did |
+| A skip, cancel or hold with no reason | Without one the trail cannot tell a step nobody performed from a step somebody did |
 | A skip, cancel or hold with a reason of more than 2,000 characters | The instance's ledger row cannot hold it. Refused in the plan, so a dry run and an apply agree: left to the ledger it would stop an apply at the first instance on that node, after the ones ahead of it had been moved |
 | A node that is both mapped and actioned | Two contradictory instructions; guessing is how the wrong one gets applied |
 | Skipping a node with no outgoing flow | Nowhere to advance to |
