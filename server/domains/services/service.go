@@ -142,7 +142,7 @@ func NewServiceFacade(
 	groupSvc := serviceimpl.NewGroupService(repo)
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
-	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo.UnitOfWork())
+	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)
 	setupSvc := serviceimpl.NewSetupService(repo.User())
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 

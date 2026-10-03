@@ -83,6 +83,7 @@ const id: Catalogue = {
   'timeline.handedBackFor': '{actor} mengembalikan "{task}" dari {previous} kepada {target}',
   'timeline.released': '{actor} melepaskan "{task}" kembali ke antrean',
   'timeline.releasedFor': '{actor} melepaskan "{task}" dari {previous} kembali ke antrean',
+  'timeline.stepActivated': '{actor} memulai "{task}"',
   'timeline.edited': '{actor} mengubah {fields} pada "{task}"',
   'timeline.field.name': 'nama',
   'timeline.field.priority': 'prioritas',

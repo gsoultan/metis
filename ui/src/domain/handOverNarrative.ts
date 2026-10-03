@@ -4,7 +4,8 @@
  *
  * The server stores a sentence with each audit entry, in English. For a
  * hand-over the entry also says who did it, who had the task, who has it now
- * and why, so the same sentence can be said through the catalogues. Anything
+ * and why, so the same sentence can be said through the catalogues. So does
+ * the entry for a step somebody started inside an ad-hoc sub-process. Anything
  * this cannot say, whether another kind of entry or one written before the
  * trail kept who acted, returns null, and the timeline shows what the server
  * stored.
@@ -61,6 +62,9 @@ function moved(type: string, data: Record<string, unknown> | undefined, task: st
       const fields = editedFields(data, t);
       return fields.length > 0 ? t('timeline.edited', { actor, task, fields: inWords(fields, t) }) : null;
     }
+    // A step somebody started inside an ad-hoc sub-process.
+    case 'step_activated':
+      return t('timeline.stepActivated', values);
     default:
       return null;
   }
