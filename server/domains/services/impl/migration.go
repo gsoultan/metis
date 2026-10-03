@@ -39,6 +39,11 @@ type migrationService struct {
 	// loss, in the transaction that makes it. A ledger that cannot be written
 	// refuses the decision rather than letting it happen unrecorded.
 	ledger servicecontracts.DeviationRecorder
+	// actions is what a skip, a cancel and a hold do once this service has
+	// decided to do one. It decides nothing: each of them is asked for under
+	// the instance lock, after the row that lock returned has answered that the
+	// instance is still one the decision is about.
+	actions nodeActions
 }
 
 // NewMigrationService creates a new MigrationService implementation.
@@ -46,11 +51,14 @@ func NewMigrationService(
 	repo repositories.Repository,
 	engine servicecontracts.ExecutionEngine,
 ) servicecontracts.MigrationService {
-	s := &migrationService{repo: repo, engine: engine, ledger: NewDeviationLedger(repo)}
-	if repo != nil && repo.Audit() != nil {
-		s.audit = NewAuditWriter(repo.Audit())
+	// One ledger and one audit writer: the ones the node actions record
+	// through are the ones the rest of a migration writes to.
+	actions := newNodeActions(repo, engine)
+	return &migrationService{
+		repo: repo, engine: engine,
+		audit: actions.audit, ledger: actions.ledger,
+		actions: actions,
 	}
-	return s
 }
 
 // MigrateInstances moves running instances from one version of a process onto
@@ -1650,10 +1658,6 @@ func (s *migrationService) skipNode(
 		if skipped = runs(live, sourceDefID) && parkedOn(live, nodeID); !skipped {
 			return nil
 		}
-		withdrawn, err := s.cancelTasksOn(txCtx, instanceID, nodeID)
-		if err != nil {
-			return err
-		}
 		def, err := s.engine.GetProcessDefinition(txCtx, sourceDefID)
 		if err != nil {
 			return fmt.Errorf("reading the version %s is running to skip %q: %w", instanceID, nodeID, err)
@@ -1661,8 +1665,9 @@ func (s *migrationService) skipNode(
 		// Advanced on the graph the instance is actually running, not the one
 		// it is moving to: the node being skipped is the one the new version
 		// does not have, so only the old graph knows what follows it.
-		if err := s.engine.Proceed(txCtx, &live, def, nodeID); err != nil {
-			return fmt.Errorf("advancing instance %s past %q: %w", instanceID, nodeID, err)
+		withdrawn, err := s.actions.waive(txCtx, &live, def, nodeID)
+		if err != nil {
+			return err
 		}
 		// Recorded in the same unit of work: a skip the ledger cannot hold is
 		// a skip that does not happen, and the task goes back as it was.
@@ -1716,43 +1721,14 @@ func (s *migrationService) cancelInstance(
 		if cancelled = stillWaitingAt(fresh, source, nodeID); !cancelled {
 			return nil
 		}
-		instance = fresh
-		tasks, err := s.repo.Task().ListByInstance(txCtx, instanceID)
+		ended, withdrawn, err := s.actions.cancel(txCtx, fresh)
 		if err != nil {
-			return err
-		}
-		var withdrawn []models.TaskModel
-		for _, task := range tasks {
-			if !openTask(task.Status) {
-				continue
-			}
-			if err := s.repo.Task().UpdateStatus(txCtx, uuid.UUID(task.ID), models.TaskCanceled); err != nil {
-				return err
-			}
-			s.announceWithdrawal(txCtx, task)
-			withdrawn = append(withdrawn, task)
-		}
-		// Waiting events go with it. An instance that will never run again
-		// cannot honour a subscription, and leaving one means a message arrives
-		// later and correlates to something that has stopped.
-		subs, err := s.repo.Subscription().ListByInstance(txCtx, instanceID)
-		if err != nil {
-			return err
-		}
-		for _, sub := range subs {
-			if err := s.repo.Subscription().Delete(txCtx, uuid.UUID(sub.ID)); err != nil {
-				return err
-			}
-		}
-		instance.Tokens = nil
-		instance.Status = models.ProcessCancelled
-		if err := s.repo.Process().Update(txCtx, instance); err != nil {
 			return err
 		}
 		// The ledger row and the trail entry go in with the change: a
 		// cancellation that cannot be recorded leaves the instance running.
 		return s.recordDecision(txCtx, decisionRecord{
-			instance: instance, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
+			instance: ended, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
 			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: withdrawn,
 			instanceBefore: string(models.ProcessActive), instanceAfter: string(models.ProcessCancelled),
 		})
@@ -1763,76 +1739,10 @@ func (s *migrationService) cancelInstance(
 	return cancelled, nil
 }
 
-// cancelTasksOn cancels the open work parked on one node, and returns those
-// tasks as they were before it, for the record of what was withdrawn.
-func (s *migrationService) cancelTasksOn(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]models.TaskModel, error) {
-	var withdrawn []models.TaskModel
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		tasks, err := s.repo.Task().ListByInstance(txCtx, instanceID)
-		if err != nil {
-			return err
-		}
-		for _, task := range tasks {
-			if task.NodeID != nodeID || !openTask(task.Status) {
-				continue
-			}
-			if err := s.repo.Task().UpdateStatus(txCtx, uuid.UUID(task.ID), models.TaskCanceled); err != nil {
-				return err
-			}
-			s.announceWithdrawal(txCtx, task)
-			withdrawn = append(withdrawn, task)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return withdrawn, nil
-}
-
-// announceWithdrawal says that a task was taken off somebody's list.
-//
-// Skipping a step and cancelling an instance both cancel work that is in
-// somebody's hands. The trail records why, which answers the auditor's question
-// but not the assignee's: from their side a task simply disappears, which looks
-// the same as somebody else completing it, or as a bug. The engine raises this
-// event when a boundary event withdraws a task; a migration withdrawing one is
-// the same thing happening for a different reason.
-func (s *migrationService) announceWithdrawal(ctx context.Context, task models.TaskModel) {
-	if s.engine == nil {
-		return
-	}
-	instance, err := s.engine.GetInstance(ctx, uuid.UUID(task.InstanceID))
-	if err != nil {
-		log.Warn().Err(err).Str("task", uuid.UUID(task.ID).String()).
-			Msg("A withdrawn task could not be announced; whoever held it will not be told")
-		return
-	}
-	// The definition on the instance is a reference rather than the whole
-	// graph, so the node has to be read from the definition itself — otherwise
-	// the event names the person but not the work, and "a task was withdrawn"
-	// with no task in it is not worth sending.
-	var node *entities.Node
-	if instance.Definition != nil {
-		if def, defErr := s.engine.GetProcessDefinition(ctx, instance.Definition.ID); defErr == nil && def != nil {
-			node = def.FindNode(task.NodeID)
-		}
-	}
-	s.engine.DispatchEvent(ctx, entities.ProcessEvent{
-		Type:      entities.EventTaskCanceled,
-		Instance:  &instance,
-		Project:   instance.Project,
-		Node:      node,
-		Timestamp: time.Now().Unix(),
-		Variables: instance.Variables,
-		Assignee:  task.Assignee,
-		Owner:     ownerAwaitingHandBack(task),
-	})
-}
-
 // recordDecision writes the ledger row and the trail entry for a step nobody
 // performed, in the caller's unit of work, and makes them name each other: the
-// entry is given its id here, so the row can point at it before it exists.
+// entry is given its id as they are written, so the row can point at it before
+// it exists.
 //
 // Separate from the migration entry because it is a separate fact, and the one
 // an auditor actually asks about: not "this instance changed version" but "this
@@ -1842,23 +1752,8 @@ func (s *migrationService) announceWithdrawal(ctx context.Context, task models.T
 // is not made. The row names its entry even in a wiring with no audit writer
 // (tests only), where no entry is written.
 func (s *migrationService) recordDecision(ctx context.Context, d decisionRecord) error {
-	auditID, err := uuid.NewV7()
-	if err != nil {
-		return err
-	}
 	row := decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))
-	row.AuditEntryID = auditID
-	recorded, err := s.ledger.Record(ctx, row)
-	if err != nil {
-		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
-	}
-	if s.audit == nil {
-		return nil
-	}
-	entry := decisionEntry(d)
-	entry.ID = auditID
-	entry.Data[auditDeviationID] = recorded.ID.String()
-	if err := s.audit.RecordEvent(ctx, entry); err != nil {
+	if _, err := s.actions.record(ctx, row, decisionEntry(d)); err != nil {
 		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
 	}
 	return nil
@@ -2100,7 +1995,7 @@ func (s *migrationService) holdInstance(
 
 // raiseHoldIncident raises the incident that holds an instance at nodeID, and
 // reports whether it raised one: an instance already held there keeps its one
-// open incident.
+// open incident, and its id is answered with false.
 func (s *migrationService) raiseHoldIncident(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -2110,34 +2005,12 @@ func (s *migrationService) raiseHoldIncident(
 	source, target models.ProcessDefinitionModel,
 ) (uuid.UUID, bool, error) {
 	// A held instance stays on the source version, so a second run of the same
-	// migration finds it again. Raising a second incident for the same node
-	// would turn one instance somebody has to look at into a growing pile of
-	// identical rows, which is the fastest way to make an inbox worth ignoring.
-	open, err := s.repo.Incident().ListByInstance(ctx, uuid.UUID(instance.ID))
-	if err != nil {
-		return uuid.Nil, false, fmt.Errorf("reading the incidents already on instance %s: %w", instance.ID, err)
-	}
-	for _, existing := range open {
-		if existing.NodeID == nodeID && existing.Status == models.IncidentOpen {
-			return uuid.Nil, false, nil
-		}
-	}
-
-	incident := models.IncidentModel{
-		InstanceID:   instance.ID,
-		DefinitionID: instance.DefinitionID,
-		NodeID:       nodeID,
-		Status:       models.IncidentOpen,
-		Error: fmt.Sprintf(
-			"held out of the migration from version %d to version %d of %q by %s: %s",
-			source.Version, target.Version, target.Key, migrationActor(options), action.Reason),
-	}
-	incident.ID = models.UUID(uuid.New())
-	created, err := s.repo.Incident().Create(ctx, incident)
-	if err != nil {
-		return uuid.Nil, false, fmt.Errorf("raising the incident that holds instance %s: %w", instance.ID, err)
-	}
-	return uuid.UUID(created.ID), true, nil
+	// migration finds it again: the incident already open on the step is kept,
+	// and a second one is not raised beside it.
+	message := fmt.Sprintf(
+		"held out of the migration from version %d to version %d of %q by %s: %s",
+		source.Version, target.Version, target.Key, migrationActor(options), action.Reason)
+	return s.actions.hold(ctx, instance, nodeID, message)
 }
 
 // disarmedDutyWarnings reports separation-of-duties rules the new version has
