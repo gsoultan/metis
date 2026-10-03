@@ -122,3 +122,23 @@ func TestALedgerWithNoRepositoryRefusesEveryWrite(t *testing.T) {
 		t.Fatal("a ledger with no repository answered a read as though it had nothing")
 	}
 }
+
+// What a person is told is plain English: no kind slug such as task_edit or
+// adhoc_activation, which is an internal name.
+func TestTheReasonRefusalIsPlainEnglishWithNoKindSlug(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []entities.DeviationKind{entities.DeviationReassign, entities.DeviationTaskEdit} {
+		d := wellFormedDeviation()
+		d.Kind, d.Reason = kind, ""
+		_, err := prepareDeviation(context.Background(), d)
+		if err == nil || !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Fatalf("%s with no reason: got %v, want an invalid-argument refusal", kind, err)
+		}
+		if strings.Contains(err.Error(), string(kind)) || strings.Contains(err.Error(), "_") {
+			t.Errorf("the refusal %q names the internal kind %q", err.Error(), kind)
+		}
+		if !strings.Contains(err.Error(), "say why") {
+			t.Errorf("the refusal %q does not ask for a reason", err.Error())
+		}
+	}
+}

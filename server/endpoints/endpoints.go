@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/connector"
 	"github.com/gsoultan/metis/server/endpoints/decision"
 	"github.com/gsoultan/metis/server/endpoints/definition"
+	"github.com/gsoultan/metis/server/endpoints/deviation"
 	"github.com/gsoultan/metis/server/endpoints/environment"
 	"github.com/gsoultan/metis/server/endpoints/external_task"
 	"github.com/gsoultan/metis/server/endpoints/group"
@@ -40,6 +41,7 @@ type Endpoints struct {
 	PlatformUser      platformuser.Endpoints
 	ExternalTask      external_task.Endpoints
 	Incident          incident.Endpoints
+	Deviation         deviation.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -262,6 +264,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	incidentEndpoints.ListIncidents = protected("ListIncidents")(incidentEndpoints.ListIncidents)
 	incidentEndpoints.ResolveIncident = operator("ResolveIncident")(incidentEndpoints.ResolveIncident)
 
+	// Reading an instance's deviations takes what reading its audit trail takes:
+	// a signed-in account of the instance's organization. The ledger repository
+	// answers a foreign instance as not found.
+	deviationEndpoints := deviation.MakeEndpoints(s)
+	deviationEndpoints.ListInstanceDeviations = protected("ListInstanceDeviations")(deviationEndpoints.ListInstanceDeviations)
+
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
 	// create organizations over HTTP, and anybody at all over the gRPC
@@ -418,6 +426,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		PlatformUser:      accountEndpoints,
 		ExternalTask:      externalTaskEndpoints,
 		Incident:          incidentEndpoints,
+		Deviation:         deviationEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,

@@ -71,7 +71,7 @@ func checkDeviation(d entities.Deviation) error {
 func checkDeviationReason(d entities.Deviation) error {
 	switch {
 	case d.Kind.ReasonRequired() && d.Reason == "":
-		return apierr.Invalidf("say why: a %s needs a reason", d.Kind)
+		return apierr.Invalidf("say why: a reason is required for this change")
 	case utf8.RuneCountInString(d.Reason) > entities.MaxDeviationReasonLength:
 		return apierr.Invalidf("the reason is longer than %d characters", entities.MaxDeviationReasonLength)
 	}
