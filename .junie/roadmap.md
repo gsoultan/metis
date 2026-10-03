@@ -1032,6 +1032,92 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-10-04 (completed): a migration never moves an instance onto a version that cannot run
+  it (P0 reliability). Branch `migration-lands-or-passes-over`, from `instance-deviation-ledger`
+  at `4bfdf89`; no schema migration. Driver: bpm · Challengers: go, test, arch.
+  - **Problem.** A migration checked where an instance's work lands from its listing and not
+    again under the instance's lock, so an instance that reached a removed step in between was
+    re-pointed at a version without that step, and once its holder completed the task it stayed
+    `active` for ever with no token and no task.
+  - **Root cause.** "Can everything this instance holds land on the new version" was answered
+    from a read taken before the instance's lock and never asked of the row the rewrite's lock
+    returned; and which decision an instance gets was chosen from that same read.
+  - **Acceptance criteria**, each with the test that holds it (`tests/instancemigration`,
+    `lands_or_passed_over_test.go` unless named):
+    1. *A migration that only moves work leaves alone an instance that reached, after the
+       listing, a step the new version lacks.* Not rewritten, on its version with its token and
+       task, nothing recorded, in `passed_over` with a reason naming the step and no id,
+       `applied` false; a dry run afterwards is refused for that step; completing the step
+       then advances it normally — `TestAnInstanceThatReachesAStepTheNewVersionLacksIsNotMoved`.
+    2. *A decision reaches an instance that arrived at its step after the listing.* Skipped
+       (advanced, a `waive` row, a `node_skipped` entry) and then moved; cancelled; held —
+       `TestAnInstanceThatReachesASkippedStepAfterTheListingIsSkippedAndThenMoved`,
+       `TestAnInstanceThatReachesAStepBeingCancelledAtAfterTheListingIsCancelled`,
+       `TestAnInstanceThatReachesAStepBeingHeldAtAfterTheListingIsHeld`.
+    3. *The rewrite is the safety net for what moves after that read.* An instance that
+       reaches a decided step between the apply reading it again and the rewrite's lock is
+       left alone and listed, and the same migration run again decides it, for a skip, a
+       cancel and a hold — `TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun`.
+    4. *The reproduction from the ledger's review*, with a skip and with no decision at all:
+       no token and no open task on the removed step on the new version, and the instance
+       runs to its end — `TestTheStrandingReproducedInReviewNoLongerHappens`.
+    5. *An instance is one row.* With two tokens of which one moved, it is left whole, or
+       skipped at the step it reached and moved whole —
+       `TestAnInstanceWithOneOfTwoTokensOnAStepTheNewVersionLacksIsNotMoved`,
+       `TestAnInstanceWithOneOfTwoTokensOnASkippedStepIsSkippedThereAndMoved`.
+    6. *A skip does not carry an instance onto a removed step.* When the step after the one
+       skipped is missing from the new version too, or the skip leaves part of a repeating step
+       behind, the skip stands and the instance stays on its version —
+       `TestASkipThatLandsOnAStepTheNewVersionLacksLeavesTheInstanceOnItsVersion`,
+       `TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithoutTheStep`.
+    7. *No instance is left active with nothing to move it.* `assertNothingIsStranded` runs in
+       every test above: each active instance has a token and an open task, each on a step the
+       version it runs has; `runsToItsEnd` then completes what is open until the instance
+       finishes.
+    8. *The reasons are words.* Step names, never an id where there is a name —
+       `TestStepNamesReadAsASentenceAndNeverByIDWhereThereIsAName`,
+       `TestAPassedOverInstanceIsToldWhyInWords`,
+       `TestUndecidedStepsAreTheDecidedStepsStillHoldingAToken` (`services/impl`).
+  - **What it must not have changed**, with the tests that pin it, written and passing before
+    the change (`unmoved_pins_test.go`): an instance that has not moved since the listing has
+    the same result, tasks, ledger rows, incidents and trail entries, for a migration that only
+    moves work, one that re-points it, a skip, a cancel, a hold, and a skip in a run where
+    another instance is elsewhere — `TestPinAMappingOnlyMigrationOfAnUnmovedInstance`,
+    `TestPinARepointingMigrationOfAnUnmovedInstance`, `TestPinADecisionAboutAnUnmovedInstance`,
+    `TestPinASkipLeavesAnInstanceElsewhereToBeMoved`. The planner, the dry run, every refusal
+    and warning text and the reply's shape are untouched, and the 67 tests the package had
+    pass unedited.
+  - **What does change for an instance that did not move by itself.** Only criterion 6: a skip
+    that itself leaves the instance on work the new version cannot take. That instance used to
+    be moved onto the new version with a token on a step it lacks.
+  - **Lock order.** Unchanged: each decision in its own transaction (instance, then tasks),
+    then the rewrite in another (instance first). The apply's extra read of the instance is
+    outside any transaction, and the check under the rewrite's lock only reads.
+  - **What it costs.** Counted from the code, not measured: the rewrite reads the instance's
+    tasks, jobs and waiting events once more, in the transaction already open. A migration
+    that decides work reads each instance before deciding it; the read it used to make after
+    deciding is gone, so that count is unchanged.
+  - **Upgrade.** No migration. `docs/upgrading.md`, *An instance a migration left with nothing
+    to do*, has two queries for instances an earlier release stranded, each run over temporary
+    tables holding rows it must and must not list.
+  - **Found, not changed:**
+    - Skipping a repeating approval still counts one iteration and withdraws every task (slice
+      1's entry). The instance is no longer moved with the leftover tokens; it takes one run of
+      the same migration per remaining iteration to clear the step, and between runs it is
+      `active` on its own version with tokens on the step and no open task.
+    - Two skipped steps in a row are not skipped in one run: the second is found only by the
+      next run, because a run decides from where the instance stood when it was read.
+    - Read from the code, not reproduced: an instance started on the source version after the
+      plan's listing is applied to without having been planned for. Its landing is now checked
+      under its lock, but a control it has not passed, when the plan found none pending, is
+      lost with no acknowledgement asked.
+    - Read from the code, not reproduced: an instance a concurrent run of the same migration
+      has already moved is rewritten a second time by this one; the rewrite does not check
+      that the locked row is still on the source version.
+    - Read from the code: `survey` counts every job row of an instance, finished ones
+      included, in the plan as under the lock.
+    - The migration dialog still does not show `passed_over` (the ledger entry's note).
+
 - 2026-10-03 (completed): an instance keeps a ledger of what was done to it outside its process
   (P0 audit) — the first part of slice 3 of the approval-adjustments work. Branch
   `instance-deviation-ledger`, from `cd7c4a3`, the head of `task-handover-accountability`,
@@ -1203,14 +1289,6 @@
     - An apply that stops with an error part-way does not say which instances it had passed
       over before it stopped; the error names the instance it stopped at and how many had been
       dealt with, and the log names the ones passed over.
-    - The other direction of the same stale listing is open. An instance that advances, between
-      the listing and its lock, onto a step the plan did not find it on is rewritten as it then
-      stands; when that step is one the new version does not have — the step a skip was meant
-      to clear — it arrives on the new version with a token and an open task on a step that
-      version lacks. The planner's landing check ran on the listing and the rewrite does not
-      repeat it under the lock. Reproduced with a probe (complete *Supervisor review* between
-      the listing and the lock of a skip of *Operations approve*), not fixed: it changes what a
-      mapping-only migration does, which is a decision of its own.
     - The ledger route answers 404 for another organization's instance where the audit route
       answers 200 with an empty list.
     - `details` is stored unencrypted, so a writer must not put a business value in it; today it
