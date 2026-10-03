@@ -21,11 +21,11 @@ func TestAnActivationsEntryTellsWhoStartedWhatAndWhy(t *testing.T) {
 		wantReasonInData bool
 	}{
 		{"named steps, no reason", research, &entities.Node{ID: "call", Name: "Call the customer"}, "olga", "",
-			"olga started “Call the customer” inside “Research the claim”", false},
+			`olga started "Call the customer" inside "Research the claim"`, false},
 		{"with a reason", research, &entities.Node{ID: "call", Name: "Call the customer"}, "olga", "the customer asked",
-			"olga started “Call the customer” inside “Research the claim”: the customer asked", true},
+			`olga started "Call the customer" inside "Research the claim": the customer asked`, true},
 		{"steps nobody named", &entities.Node{ID: "research"}, &entities.Node{ID: "call"}, "System", "",
-			"System started “call” inside “research”", false},
+			`System started "call" inside "research"`, false},
 	}
 	for _, c := range cases {
 		row := entities.Deviation{
