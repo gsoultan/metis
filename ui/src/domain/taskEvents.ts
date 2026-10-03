@@ -12,4 +12,8 @@ export const TASK_LIST_EVENTS = [
   'TaskUpdated',
   'TaskCompleted',
   'TaskCanceled',
+  // A task delegated to somebody arrives in their inbox, and one handed back
+  // returns to its owner's: both lists are stale until they are read again.
+  'TaskDelegated',
+  'TaskResolved',
 ] as const;

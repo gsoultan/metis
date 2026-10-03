@@ -18,6 +18,178 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Handing a task over is checked and recorded
+
+Assigning, delegating, releasing, handing back and editing a task are held to
+rules they did not have, a delegation now goes back to whoever made it, and the
+upgrade runs migration 32.
+
+**What is refused that was not.**
+
+- A hand-over to a name that is not an account in the task's organization: 400,
+  *there is nobody called "…" in this organization to hand the task to*. The
+  same words for a name nobody has and for another organization's member.
+- A hand-over to somebody who already did a step the task's
+  `separation_of_duties` names: 400, for an administrator as for anybody. When
+  the step the task belongs to is no longer part of its process, nobody can
+  check that rule and the task cannot be handed to anyone until it is migrated.
+- A hand-over of a task offered to people or teams to somebody who is not one
+  of them: 400 for its holder. An administrator may do it with a `reason`, and
+  the audit entry says it went to somebody the task was not offered to.
+- Any assign, delegate, release, hand back or edit by somebody who does not
+  hold the task — an administrator, or an operator handing on a task nobody was
+  named for — without a `reason`: 400, *say why you are …*. The person holding
+  the task is not asked, except an administrator who sends it to somebody it
+  was not offered to.
+- Completing a task that has been delegated and not handed back: 403, to its
+  owner as to anybody. Releasing, assigning or delegating it again: 400 for its
+  delegate or an administrator, who are told to hand it back first; 403 for
+  anybody else, its owner included.
+- Delegating a task nobody holds: 400. Claim or assign it first.
+- Handing a task back that has not been delegated: 400. Handing one back as
+  somebody other than its delegate or an administrator — its owner included:
+  403.
+- A hand-over to the person who already holds the task, by assign or by
+  delegate: 400, *… already holds this task*. It used to answer 200. A retry,
+  or a step that makes sure the assignee is somebody, can read that reply as
+  done.
+- Releasing a task that is not claimed — nobody holds it, it is completed or
+  withdrawn, or it is with a delegate — by its holder or an administrator:
+  400, saying which. It used to be a server error (500). Anybody else gets the
+  403 they always did.
+- A request body that is not JSON, or that carries a field of the wrong kind
+  (`{"user_id": 5}`), on assign, delegate, release, hand back and edit: 400,
+  in a sentence that does not repeat the decoder's error. On assign, delegate
+  and edit it used to be a server error, and a release never read its body.
+- A completion sent at the same moment as a hand-over of the same task. Both
+  used to be answered 200, and the completion won: the task was completed by,
+  and held again by, the person it had just been taken from. Now whichever
+  takes the task's row first is made, and the other is refused for what the
+  task has become: a hand-over of a completed task is a 400, a completion by
+  somebody who no longer holds it a 403.
+
+**What changes for an integration.**
+
+- Send `"reason": "…"` (at most 1000 characters) wherever it acts on tasks it
+  does not hold:
+  `{"user_id": "citra", "reason": "budi is on leave until Monday"}`.
+- Releasing over Connect or gRPC carries no reason, so there only the person
+  holding the task can release it. An administrator who does not hold it uses
+  `POST /api/v1/tasks/{id}/unclaim` with a `reason`.
+- Where it delegates, expect the delegate to hand back with
+  `POST /api/v1/tasks/{id}/resolve` and the original holder to complete.
+  `GET /api/v1/tasks/delegated` lists what the caller delegated that is still
+  with a delegate. A task now carries `owner` and `delegation_state`
+  (`pending` while it is with the delegate, `resolved` once handed back).
+- Where it edits, send only the fields it means to change. A field left out of
+  `PUT /api/v1/tasks/{id}` is now left as it is, where it used to blank the
+  name and zero the priority; to remove a due date send `"due_date": null` (or
+  `""`). A name is trimmed, and a blank one is refused with a 400. A delegate
+  holds the task while it is with them, so they may change its name, priority
+  and due date as any holder may; each change is recorded with who made it.
+- An administrator who names nobody to hand a task to, on a task that does not
+  exist or is in another organization, gets a 404 where it used to be a 400.
+- Where it listens for a delegation, the event is now `TaskDelegated`; it used
+  to arrive as `TaskUpdated`, which a subscriber that keyed on it no longer
+  sees for a delegation. A hand-back is `TaskResolved`, which is new: there was
+  no hand-back before. Both carry the person the task went to as `assignee`.
+  Two more things changed. An assignment is still `TaskClaimed`, and now
+  carries the person the task went to as a top-level `assignee` as well as in
+  `variables.assignee`. And an edit that changes nothing — a `PUT` that
+  resends the values the task already has — writes nothing and raises no
+  `TaskUpdated`, where every `PUT` used to raise one. A release is still
+  `TaskUpdated`.
+- `owner` and `delegation_state` are sent, over REST and over Connect and gRPC,
+  only when they mean something: a client reading `delegation_state: "pending"`
+  can rely on the task being with a delegate, and `resolved` is kept. A stale
+  mark left on a row by a pod of the previous release is not sent.
+
+**What the audit trail says.** Each hand-over is an entry whose `actor` is the
+caller — never the person it went to — with `previous_holder`, `target`,
+`reason` and, for a delegation, `owner` beside it. The types are
+`task_assigned`, `task_delegated`, `task_resolved`, `task_unclaimed` and
+`task_edited`; an edit carries each changed field's value before and after.
+Entries written before the upgrade keep the sentence they had. The entry is
+written in the transaction that moves the task: when it cannot be written the
+task is not moved.
+
+**Notifications.** The person a task is assigned or delegated to is told, and
+so is an owner when the task is handed back or when the engine or a migration
+withdraws a delegation they made. A migration that retargets a delegated task
+tells nobody. The words of a notification are written by the server in English.
+
+**Migration 32** adds `tasks.owner` and `tasks.delegation_state`, both
+nullable, converts the delegations that already exist, and builds
+`ix_tasks_owner` without locking the table. Those delegations have no owner —
+none was recorded — so each becomes a claim by its assignee, which is what it
+was in effect (one with no assignee goes back to the queue). They are converted
+5,000 at a time, each batch its own short transaction; soft-deleted rows are
+converted too, which the query below leaves out because nobody can see them.
+The conversion changes the status alone: it writes no audit entry and leaves
+`updated_at` as it was, so the query's result is the only record of which tasks
+they were. To see the live ones before upgrading:
+
+```sql
+SELECT id, name, assignee, instance_id, created_at
+FROM tasks
+WHERE deleted_at IS NULL AND status = 'delegated';
+```
+
+Adding the columns needs `tasks` to itself for a moment. The migration waits
+two seconds for it and then stops, saying
+
+```
+tasks was held for more than 2s by a long query or transaction; the upgrade
+stopped rather than hold every inbox and every completion behind it, and will
+finish when started again once that ends
+```
+
+rather than queue every inbox and every completion behind a long query. The
+conversion waits two seconds for a delegated row that another transaction holds,
+and stops the same way, saying *a delegated task was held for more than 2s*.
+Start the server again once that query has ended and it finishes; nothing it
+had done is undone.
+
+**During a rolling upgrade** — this is read from the previous release's code,
+not from a rollout of two versions run side by side — a pod still on the old
+release lets a delegate
+complete or hand on a task the new release marks as pending, and a delegation
+an old pod makes has no owner, so it stays its assignee's to complete. Finish
+the rollout before relying on delegation. To find delegations that have no owner
+once it is done:
+
+```sql
+SELECT id, name, assignee, instance_id, created_at
+FROM tasks
+WHERE deleted_at IS NULL AND status = 'delegated' AND COALESCE(owner, '') = '';
+```
+
+**Rolling back** after delegations exist leaves them as they are in the table.
+From reading the old release's code, not from running it, it treats each as it
+always did, a task its delegate may complete,
+with nobody to hand it back to.
+
+**A delegation whose owner has left.** Handing a task back goes to the owner's
+name whether or not it still has an account, so the delegate is never stuck. The
+task is then that name's claim, which nobody can complete: an administrator
+assigns it to somebody, or releases it, with a reason. To find them:
+
+```sql
+SELECT t.id, t.name, t.assignee AS delegate, t.owner
+FROM tasks t
+WHERE t.deleted_at IS NULL AND t.status = 'delegated' AND t.delegation_state = 'pending'
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.username = t.owner AND u.deleted_at IS NULL);
+```
+
+**What it costs.** A hand-over reads more than it did, under the task's row
+lock, because it now checks who the task goes to: the account, the task's
+project, the step's definition (through the instance), the account's groups
+when the task is offered to groups, and, for a step with a separation-of-duties
+rule, the instance's tasks. A count of 8 reads before and 13 to 15 after was
+taken once during development from `pg_stat_user_tables` with a throwaway test
+that is not in the repository. It is a person's action rather than something a
+process does, and it is not run in bulk.
+
 ## Migration 31: a task records which run of its step it is for
 
 A step that runs once per person keeps a token for each of them. A task did not

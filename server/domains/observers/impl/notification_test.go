@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -234,5 +235,129 @@ func TestTheExplicitAssigneeWinsOverTheOldVariablesRoute(t *testing.T) {
 
 	if got := notifier.recipients(); len(got) != 1 || got[0] != "dita" {
 		t.Fatalf("told %v; the event's own assignee field should win", got)
+	}
+}
+
+// handedTo is the event a hand-over raises: about the person it names, whatever
+// the diagram nominated.
+func handedTo(eventType, who string) entities.ProcessEvent {
+	event := taskCreated(&entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"})
+	event.Type = eventType
+	event.Assignee = who
+	return event
+}
+
+// A delegation was raised as TaskUpdated, which nothing here listens for: the
+// work arrived in the delegate's inbox and nobody told them.
+func TestADelegateIsToldTheTaskIsWithThem(t *testing.T) {
+	notifier := &recordingNotifier{}
+	NewNotificationObserver(notifier).OnEvent(context.Background(), handedTo(entities.EventTaskDelegated, "dita"))
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "dita" {
+		t.Fatalf("a task delegated to dita told %v", got)
+	}
+	if title := notifier.sent[0].Title; title != "A task was delegated to you" {
+		t.Errorf("the notification is titled %q", title)
+	}
+	if msg := notifier.sent[0].Message; !strings.Contains(msg, `"Operations approve"`) || !strings.Contains(msg, "Quotation approval") || !strings.Contains(msg, "Hand it back") {
+		t.Errorf("the message does not name the work, the process and what to do with it: %q", msg)
+	}
+}
+
+func TestAnOwnerIsToldTheirTaskIsBack(t *testing.T) {
+	notifier := &recordingNotifier{}
+	NewNotificationObserver(notifier).OnEvent(context.Background(), handedTo(entities.EventTaskResolved, "ollie"))
+
+	if got := notifier.recipients(); len(got) != 1 || got[0] != "ollie" {
+		t.Fatalf("a task handed back to ollie told %v", got)
+	}
+	if title := notifier.sent[0].Title; title != "A task was handed back to you" {
+		t.Errorf("the notification is titled %q", title)
+	}
+	if msg := notifier.sent[0].Message; !strings.Contains(msg, `"Operations approve"`) || !strings.Contains(msg, "yours to complete") {
+		t.Errorf("the message does not say the work is theirs to finish: %q", msg)
+	}
+}
+
+// The pin for the wording function this change rewrites: the two sentences it
+// already wrote, with a process to name and without one, word for word.
+func TestTheWaitingAndWithdrawnSentencesAreWhatTheyWere(t *testing.T) {
+	named := &entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"}
+	for _, c := range []struct {
+		name  string
+		event entities.ProcessEvent
+		want  string
+	}{
+		{"waiting", taskCreated(named), `"Operations approve" is waiting for you in Quotation approval.`},
+		{"waiting, no process", withoutProcess(taskCreated(named)), `"Operations approve" is waiting for you.`},
+		{"waiting, no step name", taskCreated(&entities.Node{ID: "opsApprove", Assignee: "ollie"}), `A task is waiting for you in Quotation approval.`},
+		{"claimed", handedTo(entities.EventTaskClaimed, "dita"), `"Operations approve" is waiting for you in Quotation approval.`},
+		{"withdrawn", taskCancelled(named, "dita"), `"Operations approve" in Quotation approval is no longer needed and has been taken off your list.`},
+		{"withdrawn, no process", withoutProcess(taskCancelled(named, "dita")), `"Operations approve" is no longer needed and has been taken off your list.`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			notifier := &recordingNotifier{}
+			NewNotificationObserver(notifier).OnEvent(context.Background(), c.event)
+			if len(notifier.sent) != 1 || notifier.sent[0].Message != c.want {
+				t.Fatalf("sent %+v; want one notification reading %q", notifier.sent, c.want)
+			}
+		})
+	}
+}
+
+// withoutProcess is the event with nothing to call its process by.
+func withoutProcess(event entities.ProcessEvent) entities.ProcessEvent {
+	event.Instance = &entities.ProcessInstance{ID: event.Instance.ID}
+	return event
+}
+
+// A withdrawn task that was with a delegate had somebody else waiting on it:
+// its owner, who was told nothing and went on waiting for it to come back.
+func TestTheOwnerOfAWithdrawnDelegationIsToldWhatTheDelegateIs(t *testing.T) {
+	notifier := &recordingNotifier{}
+	event := taskCancelled(&entities.Node{ID: "opsApprove", Name: "Operations approve", Assignee: "ollie"}, "dita")
+	event.Owner = "ollie"
+	NewNotificationObserver(notifier).OnEvent(context.Background(), event)
+
+	if got := notifier.recipients(); len(got) != 2 || got[0] != "dita" || got[1] != "ollie" {
+		t.Fatalf("a task withdrawn from dita, who had it from ollie, told %v; want dita, then ollie", got)
+	}
+	delegate, owner := notifier.sent[0], notifier.sent[1]
+	if owner.Title != "A task was withdrawn" || owner.Title != delegate.Title || owner.Message != delegate.Message ||
+		owner.Type != delegate.Type || owner.Link != delegate.Link {
+		t.Errorf("the owner was sent %+v, which is not what the delegate was sent: %+v", owner, delegate)
+	}
+}
+
+func TestAnOwnerIsToldOfAWithdrawalOnceAndOfNothingElse(t *testing.T) {
+	node := &entities.Node{ID: "opsApprove", Name: "Operations approve"}
+	for _, c := range []struct {
+		name  string
+		event func() entities.ProcessEvent
+		want  []string
+	}{
+		{"the owner is the holder", func() entities.ProcessEvent {
+			event := taskCancelled(node, "ollie")
+			event.Owner = "ollie"
+			return event
+		}, []string{"ollie"}},
+		{"an owner on an event that is not a withdrawal", func() entities.ProcessEvent {
+			event := handedTo(entities.EventTaskDelegated, "dita")
+			event.Owner = "ollie"
+			return event
+		}, []string{"dita"}},
+		{"an owner on an event the notifier does not act on", func() entities.ProcessEvent {
+			event := handedTo(entities.EventTaskUpdated, "dita")
+			event.Owner = "ollie"
+			return event
+		}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			notifier := &recordingNotifier{}
+			NewNotificationObserver(notifier).OnEvent(context.Background(), c.event())
+			if got := notifier.recipients(); !slices.Equal(got, c.want) {
+				t.Fatalf("told %v, want %v", got, c.want)
+			}
+		})
 	}
 }

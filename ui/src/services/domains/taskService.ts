@@ -1,12 +1,18 @@
 import { taskClient } from "../shared/connect";
 import { requestJSON } from "../shared/rest";
-import type { ProcessVariables } from "../types";
+import type { DelegatedTask, ProcessVariables } from "../types";
 import { raiseIfRefused } from "../raise";
 import { queueRequest } from "../../pwa/outbox";
 import { outboxAvailable } from "../../pwa/outboxStore";
 
 type ListIncidentsResponse = {
   incidents?: unknown[];
+  err?: string;
+};
+
+type ListDelegatedTasksResponse = {
+  tasks?: DelegatedTask[];
+  page?: { total: number; page: number; page_size: number; has_more: boolean };
   err?: string;
 };
 
@@ -101,31 +107,78 @@ export const taskService = {
     return { err: raiseIfRefused(response).error };
   },
 
-  async delegateTask(id: string, userId: string, signal?: AbortSignal) {
+  /**
+   * Releases a task somebody else holds, saying why.
+   *
+   * The holder's own release (unclaimTask) goes over Connect, whose message
+   * has no reason in it; the server takes a release from anybody else only
+   * with one, and this route carries it.
+   */
+  async releaseTaskFor(id: string, reason: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/tasks/${id}/unclaim`, {
+      method: "POST",
+      body: { reason },
+      signal,
+    });
+    return { err: raiseIfRefused(data).err };
+  },
+
+  /*
+   * A reason is carried when one is given. The task's holder gives none; the
+   * server refuses anybody else who does not say why.
+   */
+  async delegateTask(id: string, userId: string, reason?: string, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>(`/tasks/${id}/delegate`, {
       method: "POST",
-      body: { user_id: userId },
+      body: reason ? { user_id: userId, reason } : { user_id: userId },
       signal,
     });
     return { err: raiseIfRefused(data).err };
   },
 
-  async updateTask(id: string, name: string, priority: number, dueDate?: string, signal?: AbortSignal) {
+  async updateTask(id: string, name: string, priority: number, dueDate?: string, reason?: string, signal?: AbortSignal) {
+    const fields = { name, priority, due_date: dueDate };
     const data = await requestJSON<{ err?: string }>(`/tasks/${id}`, {
       method: "PUT",
-      body: { name, priority, due_date: dueDate },
+      body: reason ? { ...fields, reason } : fields,
       signal,
     });
     return { err: raiseIfRefused(data).err };
   },
 
-  async assignTask(id: string, userId: string, signal?: AbortSignal) {
+  async assignTask(id: string, userId: string, reason?: string, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>(`/tasks/${id}/assign`, {
       method: "POST",
-      body: { user_id: userId },
+      body: reason ? { user_id: userId, reason } : { user_id: userId },
       signal,
     });
     return { err: raiseIfRefused(data).err };
+  },
+
+  /**
+   * Hands a delegated task back to whoever delegated it. The delegate gives no
+   * reason; an administrator doing it for them must.
+   */
+  async resolveTask(id: string, reason?: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/tasks/${id}/resolve`, {
+      method: "POST",
+      body: reason ? { reason } : {},
+      signal,
+    });
+    return { err: raiseIfRefused(data).err };
+  },
+
+  /**
+   * One page of the tasks the signed-in person delegated that are still with
+   * their delegate. Who is asking comes from the token.
+   */
+  async listTasksDelegatedByMe(page?: PageRequest, signal?: AbortSignal) {
+    const query = page ? `?page=${page.page}&page_size=${page.pageSize}` : "";
+    const data = raiseIfRefused(
+      await requestJSON<ListDelegatedTasksResponse>(`/tasks/delegated${query}`, { signal }),
+    );
+    const tasks = data.tasks ?? [];
+    return { tasks, total: data.page?.total ?? tasks.length };
   },
 
   /**

@@ -22,6 +22,10 @@ func (a TaskModelAdapter) ToModel() models.TaskModel {
 	if a.Task.Assignee != nil {
 		assignee = a.Task.Assignee.Username
 	}
+	var owner string
+	if a.Task.Owner != nil {
+		owner = a.Task.Owner.Username
+	}
 	candidateUsers := make([]string, len(a.Task.CandidateUsers))
 	for i, u := range a.Task.CandidateUsers {
 		if u != nil {
@@ -53,6 +57,8 @@ func (a TaskModelAdapter) ToModel() models.TaskModel {
 		Type:            models.NodeType(a.Task.Type),
 		Status:          models.TaskStatus(a.Task.Status),
 		Assignee:        assignee,
+		Owner:           owner,
+		DelegationState: string(a.Task.DelegationState),
 		CandidateUsers:  candidateUsers,
 		CandidateGroups: candidateGroups,
 		Priority:        a.Task.Priority,
@@ -71,6 +77,10 @@ func (a TaskEntityAdapter) ToEntity() entities.Task {
 	var assignee *entities.User
 	if a.Model.Assignee != "" {
 		assignee = &entities.User{Username: a.Model.Assignee}
+	}
+	var owner *entities.User
+	if a.Model.Owner != "" {
+		owner = &entities.User{Username: a.Model.Owner}
 	}
 	candidateUsers := make([]*entities.User, len(a.Model.CandidateUsers))
 	for i, u := range a.Model.CandidateUsers {
@@ -98,6 +108,8 @@ func (a TaskEntityAdapter) ToEntity() entities.Task {
 		Type:            entities.NodeType(a.Model.Type),
 		Status:          entities.TaskStatus(a.Model.Status),
 		Assignee:        assignee,
+		Owner:           owner,
+		DelegationState: entities.DelegationState(a.Model.DelegationState),
 		CandidateUsers:  candidateUsers,
 		CandidateGroups: candidateGroups,
 		Priority:        a.Model.Priority,

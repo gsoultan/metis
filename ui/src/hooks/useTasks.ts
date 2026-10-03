@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore';
 import type { ProcessVariables } from '../services/types';
 import { useInvalidateOnEvents } from './useEventStream';
 import { errorMessage } from '../services/shared/errors';
+import { useTranslation } from '../i18n/context';
 
 type AllTasksResult = Awaited<ReturnType<typeof processService.listTasks>>;
 
@@ -175,20 +176,26 @@ export const useClaimTask = () => {
 
 export const useUnclaimTask = () => {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   return useMutation({
-    mutationFn: (id: string) => processService.unclaimTask(id),
+    // The holder releases their own task with nothing more said. Anybody else
+    // has to say why, and that goes over the route that carries a reason.
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      reason ? processService.releaseTaskFor(id, reason) : processService.unclaimTask(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
-        title: 'Task released',
-        message: "It's back under Available to claim for anyone in the group.",
+        title: t('handover.releasedTitle'),
+        message: t('handover.releasedBody'),
         color: 'gray',
       });
     },
     onError: (error) => {
       notifications.show({
-        title: 'Could not release the task',
-        message: errorMessage(error, 'It is still assigned to you.'),
+        title: t('handover.releaseFailedTitle'),
+        // Said for whoever held it: an administrator releasing somebody
+        // else's task was told "It is still assigned to you", which it never was.
+        message: errorMessage(error, t('handover.releaseFailedBody')),
         color: 'red',
       });
     }
@@ -198,7 +205,8 @@ export const useUnclaimTask = () => {
 export const useDelegateTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, userId }: { id: string; userId: string }) => processService.delegateTask(id, userId),
+    mutationFn: ({ id, userId, reason }: { id: string; userId: string; reason?: string }) =>
+      processService.delegateTask(id, userId, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
@@ -220,8 +228,8 @@ export const useDelegateTask = () => {
 export const useUpdateTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name, priority, dueDate }: { id: string; name: string; priority: number; dueDate?: string }) =>
-      processService.updateTask(id, name, priority, dueDate),
+    mutationFn: ({ id, name, priority, dueDate, reason }: { id: string; name: string; priority: number; dueDate?: string; reason?: string }) =>
+      processService.updateTask(id, name, priority, dueDate, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
@@ -243,7 +251,8 @@ export const useUpdateTask = () => {
 export const useAssignTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, userId }: { id: string; userId: string }) => processService.assignTask(id, userId),
+    mutationFn: ({ id, userId, reason }: { id: string; userId: string; reason?: string }) =>
+      processService.assignTask(id, userId, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       notifications.show({
@@ -259,5 +268,54 @@ export const useAssignTask = () => {
         color: 'red',
       });
     }
+  });
+};
+
+/** How many delegated tasks the inbox shows before saying "and N more". */
+const DELEGATED_PAGE_SIZE = 25;
+
+/**
+ * The tasks the signed-in person delegated that are still with their delegate.
+ * The user id is in the key only so that one person's list is never served
+ * from another's cache; who is asking comes from the token.
+ *
+ * `enabled` lets the inbox stop reading it while it shows the board, which has
+ * nowhere to put it.
+ */
+export const useTasksDelegatedByMe = (options: { enabled?: boolean } = {}) => {
+  const user = useAppStore((state) => state.user);
+  return useQuery({
+    queryKey: ['tasks', 'delegated', user?.id ?? ''],
+    queryFn: ({ signal }) => processService.listTasksDelegatedByMe({ page: 1, pageSize: DELEGATED_PAGE_SIZE }, signal),
+    enabled: !!user && (options.enabled ?? true),
+    placeholderData: (previous) => previous,
+  });
+};
+
+/**
+ * Hands a delegated task back to its owner. The delegate sends no reason; an
+ * administrator handing back somebody else's sends theirs.
+ */
+export const useResolveTask = () => {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; owner: string; reason?: string }) => processService.resolveTask(id, reason),
+    onSuccess: (_result, { owner }) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      notifications.show({
+        title: t('handover.handedBackTitle'),
+        message: t('handover.handedBackBody', { owner }),
+        color: 'indigo',
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: t('handover.handBackFailedTitle'),
+        // The server's refusal is a sentence written for whoever was refused.
+        message: errorMessage(error, t('handover.handBackFailedBody')),
+        color: 'red',
+      });
+    },
   });
 };

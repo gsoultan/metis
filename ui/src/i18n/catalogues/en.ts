@@ -63,6 +63,70 @@ const en: Catalogue = {
   'inbox.nothingWaiting':
     '{count, plural, =0 {Nothing needs your attention} one {# task waiting} other {# tasks waiting}}',
 
+  // Delegated tasks in the inbox: work that goes back to whoever delegated it
+  'handover.delegatedToYouBy': 'Delegated to you by {owner}',
+  'handover.handBack': 'Hand back',
+  'handover.handBackLabel': 'Hand back {task} to {owner}',
+  'handover.handBackFirst': 'Only {owner} completes this. Hand it back when your part is done.',
+  'handover.handedBackTitle': 'Task handed back',
+  'handover.handedBackBody': 'It is back with {owner}, who completes it.',
+  'handover.handBackFailedTitle': 'The task was not handed back',
+  'handover.handBackFailedBody': 'Nothing was changed. Try again, or ask an administrator.',
+  'handover.delegatedByYou': 'Delegated by you',
+  'handover.delegatedByYouHelp': 'These are with somebody else until they hand them back. You complete them.',
+  'handover.withDelegate': 'With {delegate}',
+  'handover.delegatedByYouMore': '{count, plural, one {and # more} other {and # more}}',
+
+  // A hand-over on the timeline: who did it, from whom, to whom. The reason,
+  // when there is one, follows after a colon and is whatever the person wrote.
+  'timeline.assigned': '{actor} assigned "{task}" to {target}',
+  'timeline.reassigned': '{actor} reassigned "{task}" from {previous} to {target}',
+  'timeline.delegated': '{actor} delegated "{task}" to {target}',
+  'timeline.delegatedFor': '{actor} delegated "{task}" from {previous} to {target}',
+  'timeline.handedBack': '{actor} handed "{task}" back to {target}',
+  'timeline.handedBackFor': '{actor} handed "{task}" back from {previous} to {target}',
+  'timeline.released': '{actor} released "{task}" back to the queue',
+  'timeline.releasedFor': '{actor} released "{task}" from {previous} back to the queue',
+  'timeline.edited': '{actor} changed {fields} of "{task}"',
+  'timeline.field.name': 'the name',
+  'timeline.field.priority': 'the priority',
+  'timeline.field.due_date': 'the due date',
+  'timeline.lastOf': '{rest} and {last}',
+  'timeline.notOffered': '{sentence}, who is not one of the people it is offered to',
+
+  // Changing a task somebody else holds: the reason is kept with the task
+  'handover.reason': 'Reason',
+  'handover.reasonHint': 'Needed because this task is not with you. People looking at this task later will see this.',
+  'handover.reasonHintOptional':
+    'Needed only when you give this task to somebody it was not offered to. People looking at this task later will see this.',
+  'handover.reasonCount': '{count} of {limit} characters',
+  'handover.handBackForTitle': 'Hand back: {task}',
+  'handover.handBackForBody':
+    '{delegate} is working on this for {owner}. Handing it back returns it to {owner}, who completes it.',
+  'handover.handBackForFirst': '{delegate} is working on this for {owner}. You can hand it back for them, with a reason.',
+  'handover.releaseLabel': 'Release {task} back to its group',
+  'handover.releaseTitle': 'Release task: {task}',
+  'handover.releaseBody': 'This takes the task from {holder} and puts it back for its group to claim.',
+  'handover.releaseConfirm': 'Release task',
+  'handover.releaseTooltip': 'Release back to group',
+  'handover.releasedTitle': 'Task released',
+  'handover.releasedBody': "It's back under Available to claim for anyone in the group.",
+  'handover.releaseFailedTitle': 'Could not release the task',
+  'handover.releaseFailedBody': 'Nothing was changed. The task is still with the person who held it.',
+  'handover.releaseHeldBackTitle': 'Nothing was released',
+  'handover.releaseHeldBack':
+    '{count, plural, one {# task was delegated to you and was not released. Hand it back instead.} other {# tasks were delegated to you and were not released. Hand them back instead.}}',
+  'handover.reassignTitle': 'Reassign Task: {task}',
+  'handover.newAssignee': 'New Assignee',
+  'handover.selectUser': 'Select user',
+  'handover.newAssigneeHelp': 'Select a user to take responsibility for this task',
+  'handover.confirmReassign': 'Confirm Reassignment',
+  'handover.editTitle': 'Edit Task: {task}',
+  'handover.taskName': 'Task Name',
+  'handover.priority': 'Priority',
+  'handover.dueDate': 'Due Date',
+  'handover.saveChanges': 'Save Changes',
+
   // Offline and updates
   'offline.title': 'You are offline',
   'offline.body':

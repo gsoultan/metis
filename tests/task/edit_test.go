@@ -36,7 +36,8 @@ func TestOnlyTheHolderOrAnAdministratorMayEditATask(t *testing.T) {
 	}
 
 	administrator := h.signInAdministrator(t, "boss")
-	if status, body := edit(administrator, "Approve the refund today", 90); status != http.StatusOK {
+	if status, body := h.do(t, http.MethodPut, administrator, "/api/v1/tasks/"+taskID,
+		map[string]any{"name": "Approve the refund today", "priority": 90, "reason": "the customer escalated"}); status != http.StatusOK {
 		t.Fatalf("an administrator editing somebody else's task: got %d (%s)", status, body)
 	}
 	if name, priority := h.taskNameAndPriority(t, taskID); name != "Approve the refund today" || priority != 90 {

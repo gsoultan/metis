@@ -82,3 +82,41 @@ func TestCancellingAnInstanceAnnouncesTheWorkItTakesAway(t *testing.T) {
 		t.Errorf("the withdrawal names %q; ollie was holding the operations approval", got)
 	}
 }
+
+// A task with a delegate is in two people's hands: the delegate's, who holds
+// it, and its owner's, who is waiting to have it back. A migration that took
+// it away named only the first, so the owner went on waiting.
+func TestAMigrationWithdrawingADelegatedTaskNamesItsOwnerToo(t *testing.T) {
+	for name, kind := range map[string]servicecontracts.NodeActionKind{
+		"skipping the step":       servicecontracts.NodeActionSkip,
+		"cancelling the instance": servicecontracts.NodeActionCancel,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			watcher := &withdrawalWatcher{}
+			f.dispatcher.Register(watcher)
+			v1, v2 := f.parkedOnOpsApprove(t)
+			// ollie has delegated the operations approval to dita.
+			if err := f.db.Exec(`UPDATE tasks SET status = 'delegated', assignee = 'dita', owner = 'ollie',
+				delegation_state = 'pending' WHERE node_id = 'opsApprove'`).Error; err != nil {
+				t.Fatalf("delegate the operations approval: %v", err)
+			}
+
+			if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil,
+				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
+					"opsApprove": {Kind: kind, Reason: "the role was eliminated"},
+				}),
+				servicecontracts.WithActor("dita")); err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+
+			if len(watcher.events) != 1 {
+				t.Fatalf("withdrawing one delegated task raised %d withdrawal events, want 1", len(watcher.events))
+			}
+			if event := watcher.events[0]; event.Assignee != "dita" || event.Owner != "ollie" {
+				t.Fatalf("the withdrawal names %q as holding the task and %q as waiting for it back; want dita and ollie",
+					event.Assignee, event.Owner)
+			}
+		})
+	}
+}

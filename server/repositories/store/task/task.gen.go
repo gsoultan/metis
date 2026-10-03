@@ -34,6 +34,8 @@ type Row struct {
 	Assignee        runtime.Null[string]
 	CandidateUsers  runtime.JSON
 	CandidateGroups runtime.JSON
+	Owner           runtime.Null[string]
+	DelegationState runtime.Null[string]
 	Priority        int64
 	DueDate         runtime.Null[time.Time]
 	FormKey         runtime.Null[string]
@@ -78,7 +80,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 20
+const nCols = 22
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -278,41 +280,55 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.strs[q.ns] = r.Assignee.V
 		q.ns++
 	case 14:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.Owner.V
+		q.ns++
+	case 15:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.DelegationState.V
+		q.ns++
+	case 16:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.Priority)
 		q.nn++
-	case 15:
+	case 17:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.DueDate.V
 		q.ntm++
-	case 16:
+	case 18:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.FormKey.V
 		q.ns++
-	case 17:
+	case 19:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.FormDefinition.V
 		q.ns++
-	case 18:
+	case 20:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.Variables
 		q.ns++
-	case 19:
+	case 21:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -493,12 +509,14 @@ var (
 	Assignee        = NullTextCol{11}
 	CandidateUsers  = JSONCol{12}
 	CandidateGroups = JSONCol{13}
-	Priority        = Int64Col{14}
-	DueDate         = NullTimeCol{15}
-	FormKey         = NullTextCol{16}
-	FormDefinition  = NullTextCol{17}
-	Variables       = TextCol{18}
-	DeletedAt       = NullTimeCol{19}
+	Owner           = NullTextCol{14}
+	DelegationState = NullTextCol{15}
+	Priority        = Int64Col{16}
+	DueDate         = NullTimeCol{17}
+	FormKey         = NullTextCol{18}
+	FormDefinition  = NullTextCol{19}
+	Variables       = TextCol{20}
+	DeletedAt       = NullTimeCol{21}
 )
 
 // UUIDCol addresses a uuid column.
@@ -890,27 +908,41 @@ func (q *Query) leaf(p Pred) {
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
 		case 14:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 15:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 16:
 			if int(q.nai64) >= 3 {
 				q.over = true
 				return
 			}
 			q.anyI64[q.nai64] = p.anyI64
 			q.nai64++
-		case 16:
-			if int(q.nas) >= 3 {
-				q.over = true
-				return
-			}
-			q.anyStr[q.nas] = p.anyStr
-			q.nas++
-		case 17:
-			if int(q.nas) >= 3 {
-				q.over = true
-				return
-			}
-			q.anyStr[q.nas] = p.anyStr
-			q.nas++
 		case 18:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 19:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
+		case 20:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -1025,33 +1057,33 @@ func (q *Query) leaf(p Pred) {
 		q.jsns[q.njs] = p.jsn
 		q.njs++
 	case 14:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 15:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 16:
 		if int(q.nn) >= 6 {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = p.num
 		q.nn++
-	case 15:
+	case 17:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 16:
-		if int(q.ns) >= 6 {
-			q.over = true
-			return
-		}
-		q.strs[q.ns] = p.str
-		q.ns++
-	case 17:
-		if int(q.ns) >= 6 {
-			q.over = true
-			return
-		}
-		q.strs[q.ns] = p.str
-		q.ns++
 	case 18:
 		if int(q.ns) >= 6 {
 			q.over = true
@@ -1060,6 +1092,20 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 19:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 20:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 21:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -1202,74 +1248,100 @@ func (q Query) CandidateGroupsHasAnyKey(v ...string) Query {
 func (q Query) CandidateGroupsHasAllKeys(v ...string) Query {
 	return q.Where(CandidateGroups.HasAllKeys(v...))
 }
-func (q Query) PriorityEq(v int64) Query              { return q.Where(Priority.Eq(v)) }
-func (q Query) PriorityNotEq(v int64) Query           { return q.Where(Priority.NotEq(v)) }
-func (q Query) PriorityGt(v int64) Query              { return q.Where(Priority.Gt(v)) }
-func (q Query) PriorityGte(v int64) Query             { return q.Where(Priority.Gte(v)) }
-func (q Query) PriorityLt(v int64) Query              { return q.Where(Priority.Lt(v)) }
-func (q Query) PriorityLte(v int64) Query             { return q.Where(Priority.Lte(v)) }
-func (q Query) PriorityIn(v ...int64) Query           { return q.Where(Priority.In(v...)) }
-func (q Query) PriorityNotIn(v ...int64) Query        { return q.Where(Priority.NotIn(v...)) }
-func (q Query) DueDateEq(v time.Time) Query           { return q.Where(DueDate.Eq(v)) }
-func (q Query) DueDateNotEq(v time.Time) Query        { return q.Where(DueDate.NotEq(v)) }
-func (q Query) DueDateGt(v time.Time) Query           { return q.Where(DueDate.Gt(v)) }
-func (q Query) DueDateGte(v time.Time) Query          { return q.Where(DueDate.Gte(v)) }
-func (q Query) DueDateLt(v time.Time) Query           { return q.Where(DueDate.Lt(v)) }
-func (q Query) DueDateLte(v time.Time) Query          { return q.Where(DueDate.Lte(v)) }
-func (q Query) DueDateIsNull() Query                  { return q.Where(DueDate.IsNull()) }
-func (q Query) DueDateIsNotNull() Query               { return q.Where(DueDate.IsNotNull()) }
-func (q Query) FormKeyEq(v string) Query              { return q.Where(FormKey.Eq(v)) }
-func (q Query) FormKeyNotEq(v string) Query           { return q.Where(FormKey.NotEq(v)) }
-func (q Query) FormKeyGt(v string) Query              { return q.Where(FormKey.Gt(v)) }
-func (q Query) FormKeyGte(v string) Query             { return q.Where(FormKey.Gte(v)) }
-func (q Query) FormKeyLt(v string) Query              { return q.Where(FormKey.Lt(v)) }
-func (q Query) FormKeyLte(v string) Query             { return q.Where(FormKey.Lte(v)) }
-func (q Query) FormKeyEqLower(v string) Query         { return q.Where(FormKey.EqLower(v)) }
-func (q Query) FormKeyLike(v string) Query            { return q.Where(FormKey.Like(v)) }
-func (q Query) FormKeyILike(v string) Query           { return q.Where(FormKey.ILike(v)) }
-func (q Query) FormKeyIn(v ...string) Query           { return q.Where(FormKey.In(v...)) }
-func (q Query) FormKeyNotIn(v ...string) Query        { return q.Where(FormKey.NotIn(v...)) }
-func (q Query) FormKeyIsNull() Query                  { return q.Where(FormKey.IsNull()) }
-func (q Query) FormKeyIsNotNull() Query               { return q.Where(FormKey.IsNotNull()) }
-func (q Query) FormDefinitionEq(v string) Query       { return q.Where(FormDefinition.Eq(v)) }
-func (q Query) FormDefinitionNotEq(v string) Query    { return q.Where(FormDefinition.NotEq(v)) }
-func (q Query) FormDefinitionGt(v string) Query       { return q.Where(FormDefinition.Gt(v)) }
-func (q Query) FormDefinitionGte(v string) Query      { return q.Where(FormDefinition.Gte(v)) }
-func (q Query) FormDefinitionLt(v string) Query       { return q.Where(FormDefinition.Lt(v)) }
-func (q Query) FormDefinitionLte(v string) Query      { return q.Where(FormDefinition.Lte(v)) }
-func (q Query) FormDefinitionEqLower(v string) Query  { return q.Where(FormDefinition.EqLower(v)) }
-func (q Query) FormDefinitionLike(v string) Query     { return q.Where(FormDefinition.Like(v)) }
-func (q Query) FormDefinitionILike(v string) Query    { return q.Where(FormDefinition.ILike(v)) }
-func (q Query) FormDefinitionIn(v ...string) Query    { return q.Where(FormDefinition.In(v...)) }
-func (q Query) FormDefinitionNotIn(v ...string) Query { return q.Where(FormDefinition.NotIn(v...)) }
-func (q Query) FormDefinitionIsNull() Query           { return q.Where(FormDefinition.IsNull()) }
-func (q Query) FormDefinitionIsNotNull() Query        { return q.Where(FormDefinition.IsNotNull()) }
-func (q Query) VariablesEq(v string) Query            { return q.Where(Variables.Eq(v)) }
-func (q Query) VariablesNotEq(v string) Query         { return q.Where(Variables.NotEq(v)) }
-func (q Query) VariablesGt(v string) Query            { return q.Where(Variables.Gt(v)) }
-func (q Query) VariablesGte(v string) Query           { return q.Where(Variables.Gte(v)) }
-func (q Query) VariablesLt(v string) Query            { return q.Where(Variables.Lt(v)) }
-func (q Query) VariablesLte(v string) Query           { return q.Where(Variables.Lte(v)) }
-func (q Query) VariablesEqLower(v string) Query       { return q.Where(Variables.EqLower(v)) }
-func (q Query) VariablesLike(v string) Query          { return q.Where(Variables.Like(v)) }
-func (q Query) VariablesILike(v string) Query         { return q.Where(Variables.ILike(v)) }
-func (q Query) VariablesIn(v ...string) Query         { return q.Where(Variables.In(v...)) }
-func (q Query) VariablesNotIn(v ...string) Query      { return q.Where(Variables.NotIn(v...)) }
-func (q Query) DeletedAtEq(v time.Time) Query         { return q.Where(DeletedAt.Eq(v)) }
-func (q Query) DeletedAtNotEq(v time.Time) Query      { return q.Where(DeletedAt.NotEq(v)) }
-func (q Query) DeletedAtGt(v time.Time) Query         { return q.Where(DeletedAt.Gt(v)) }
-func (q Query) DeletedAtGte(v time.Time) Query        { return q.Where(DeletedAt.Gte(v)) }
-func (q Query) DeletedAtLt(v time.Time) Query         { return q.Where(DeletedAt.Lt(v)) }
-func (q Query) DeletedAtLte(v time.Time) Query        { return q.Where(DeletedAt.Lte(v)) }
-func (q Query) DeletedAtIsNull() Query                { return q.Where(DeletedAt.IsNull()) }
-func (q Query) DeletedAtIsNotNull() Query             { return q.Where(DeletedAt.IsNotNull()) }
+func (q Query) OwnerEq(v string) Query                 { return q.Where(Owner.Eq(v)) }
+func (q Query) OwnerNotEq(v string) Query              { return q.Where(Owner.NotEq(v)) }
+func (q Query) OwnerGt(v string) Query                 { return q.Where(Owner.Gt(v)) }
+func (q Query) OwnerGte(v string) Query                { return q.Where(Owner.Gte(v)) }
+func (q Query) OwnerLt(v string) Query                 { return q.Where(Owner.Lt(v)) }
+func (q Query) OwnerLte(v string) Query                { return q.Where(Owner.Lte(v)) }
+func (q Query) OwnerEqLower(v string) Query            { return q.Where(Owner.EqLower(v)) }
+func (q Query) OwnerLike(v string) Query               { return q.Where(Owner.Like(v)) }
+func (q Query) OwnerILike(v string) Query              { return q.Where(Owner.ILike(v)) }
+func (q Query) OwnerIn(v ...string) Query              { return q.Where(Owner.In(v...)) }
+func (q Query) OwnerNotIn(v ...string) Query           { return q.Where(Owner.NotIn(v...)) }
+func (q Query) OwnerIsNull() Query                     { return q.Where(Owner.IsNull()) }
+func (q Query) OwnerIsNotNull() Query                  { return q.Where(Owner.IsNotNull()) }
+func (q Query) DelegationStateEq(v string) Query       { return q.Where(DelegationState.Eq(v)) }
+func (q Query) DelegationStateNotEq(v string) Query    { return q.Where(DelegationState.NotEq(v)) }
+func (q Query) DelegationStateGt(v string) Query       { return q.Where(DelegationState.Gt(v)) }
+func (q Query) DelegationStateGte(v string) Query      { return q.Where(DelegationState.Gte(v)) }
+func (q Query) DelegationStateLt(v string) Query       { return q.Where(DelegationState.Lt(v)) }
+func (q Query) DelegationStateLte(v string) Query      { return q.Where(DelegationState.Lte(v)) }
+func (q Query) DelegationStateEqLower(v string) Query  { return q.Where(DelegationState.EqLower(v)) }
+func (q Query) DelegationStateLike(v string) Query     { return q.Where(DelegationState.Like(v)) }
+func (q Query) DelegationStateILike(v string) Query    { return q.Where(DelegationState.ILike(v)) }
+func (q Query) DelegationStateIn(v ...string) Query    { return q.Where(DelegationState.In(v...)) }
+func (q Query) DelegationStateNotIn(v ...string) Query { return q.Where(DelegationState.NotIn(v...)) }
+func (q Query) DelegationStateIsNull() Query           { return q.Where(DelegationState.IsNull()) }
+func (q Query) DelegationStateIsNotNull() Query        { return q.Where(DelegationState.IsNotNull()) }
+func (q Query) PriorityEq(v int64) Query               { return q.Where(Priority.Eq(v)) }
+func (q Query) PriorityNotEq(v int64) Query            { return q.Where(Priority.NotEq(v)) }
+func (q Query) PriorityGt(v int64) Query               { return q.Where(Priority.Gt(v)) }
+func (q Query) PriorityGte(v int64) Query              { return q.Where(Priority.Gte(v)) }
+func (q Query) PriorityLt(v int64) Query               { return q.Where(Priority.Lt(v)) }
+func (q Query) PriorityLte(v int64) Query              { return q.Where(Priority.Lte(v)) }
+func (q Query) PriorityIn(v ...int64) Query            { return q.Where(Priority.In(v...)) }
+func (q Query) PriorityNotIn(v ...int64) Query         { return q.Where(Priority.NotIn(v...)) }
+func (q Query) DueDateEq(v time.Time) Query            { return q.Where(DueDate.Eq(v)) }
+func (q Query) DueDateNotEq(v time.Time) Query         { return q.Where(DueDate.NotEq(v)) }
+func (q Query) DueDateGt(v time.Time) Query            { return q.Where(DueDate.Gt(v)) }
+func (q Query) DueDateGte(v time.Time) Query           { return q.Where(DueDate.Gte(v)) }
+func (q Query) DueDateLt(v time.Time) Query            { return q.Where(DueDate.Lt(v)) }
+func (q Query) DueDateLte(v time.Time) Query           { return q.Where(DueDate.Lte(v)) }
+func (q Query) DueDateIsNull() Query                   { return q.Where(DueDate.IsNull()) }
+func (q Query) DueDateIsNotNull() Query                { return q.Where(DueDate.IsNotNull()) }
+func (q Query) FormKeyEq(v string) Query               { return q.Where(FormKey.Eq(v)) }
+func (q Query) FormKeyNotEq(v string) Query            { return q.Where(FormKey.NotEq(v)) }
+func (q Query) FormKeyGt(v string) Query               { return q.Where(FormKey.Gt(v)) }
+func (q Query) FormKeyGte(v string) Query              { return q.Where(FormKey.Gte(v)) }
+func (q Query) FormKeyLt(v string) Query               { return q.Where(FormKey.Lt(v)) }
+func (q Query) FormKeyLte(v string) Query              { return q.Where(FormKey.Lte(v)) }
+func (q Query) FormKeyEqLower(v string) Query          { return q.Where(FormKey.EqLower(v)) }
+func (q Query) FormKeyLike(v string) Query             { return q.Where(FormKey.Like(v)) }
+func (q Query) FormKeyILike(v string) Query            { return q.Where(FormKey.ILike(v)) }
+func (q Query) FormKeyIn(v ...string) Query            { return q.Where(FormKey.In(v...)) }
+func (q Query) FormKeyNotIn(v ...string) Query         { return q.Where(FormKey.NotIn(v...)) }
+func (q Query) FormKeyIsNull() Query                   { return q.Where(FormKey.IsNull()) }
+func (q Query) FormKeyIsNotNull() Query                { return q.Where(FormKey.IsNotNull()) }
+func (q Query) FormDefinitionEq(v string) Query        { return q.Where(FormDefinition.Eq(v)) }
+func (q Query) FormDefinitionNotEq(v string) Query     { return q.Where(FormDefinition.NotEq(v)) }
+func (q Query) FormDefinitionGt(v string) Query        { return q.Where(FormDefinition.Gt(v)) }
+func (q Query) FormDefinitionGte(v string) Query       { return q.Where(FormDefinition.Gte(v)) }
+func (q Query) FormDefinitionLt(v string) Query        { return q.Where(FormDefinition.Lt(v)) }
+func (q Query) FormDefinitionLte(v string) Query       { return q.Where(FormDefinition.Lte(v)) }
+func (q Query) FormDefinitionEqLower(v string) Query   { return q.Where(FormDefinition.EqLower(v)) }
+func (q Query) FormDefinitionLike(v string) Query      { return q.Where(FormDefinition.Like(v)) }
+func (q Query) FormDefinitionILike(v string) Query     { return q.Where(FormDefinition.ILike(v)) }
+func (q Query) FormDefinitionIn(v ...string) Query     { return q.Where(FormDefinition.In(v...)) }
+func (q Query) FormDefinitionNotIn(v ...string) Query  { return q.Where(FormDefinition.NotIn(v...)) }
+func (q Query) FormDefinitionIsNull() Query            { return q.Where(FormDefinition.IsNull()) }
+func (q Query) FormDefinitionIsNotNull() Query         { return q.Where(FormDefinition.IsNotNull()) }
+func (q Query) VariablesEq(v string) Query             { return q.Where(Variables.Eq(v)) }
+func (q Query) VariablesNotEq(v string) Query          { return q.Where(Variables.NotEq(v)) }
+func (q Query) VariablesGt(v string) Query             { return q.Where(Variables.Gt(v)) }
+func (q Query) VariablesGte(v string) Query            { return q.Where(Variables.Gte(v)) }
+func (q Query) VariablesLt(v string) Query             { return q.Where(Variables.Lt(v)) }
+func (q Query) VariablesLte(v string) Query            { return q.Where(Variables.Lte(v)) }
+func (q Query) VariablesEqLower(v string) Query        { return q.Where(Variables.EqLower(v)) }
+func (q Query) VariablesLike(v string) Query           { return q.Where(Variables.Like(v)) }
+func (q Query) VariablesILike(v string) Query          { return q.Where(Variables.ILike(v)) }
+func (q Query) VariablesIn(v ...string) Query          { return q.Where(Variables.In(v...)) }
+func (q Query) VariablesNotIn(v ...string) Query       { return q.Where(Variables.NotIn(v...)) }
+func (q Query) DeletedAtEq(v time.Time) Query          { return q.Where(DeletedAt.Eq(v)) }
+func (q Query) DeletedAtNotEq(v time.Time) Query       { return q.Where(DeletedAt.NotEq(v)) }
+func (q Query) DeletedAtGt(v time.Time) Query          { return q.Where(DeletedAt.Gt(v)) }
+func (q Query) DeletedAtGte(v time.Time) Query         { return q.Where(DeletedAt.Gte(v)) }
+func (q Query) DeletedAtLt(v time.Time) Query          { return q.Where(DeletedAt.Lt(v)) }
+func (q Query) DeletedAtLte(v time.Time) Query         { return q.Where(DeletedAt.Lte(v)) }
+func (q Query) DeletedAtIsNull() Query                 { return q.Where(DeletedAt.IsNull()) }
+func (q Query) DeletedAtIsNotNull() Query              { return q.Where(DeletedAt.IsNotNull()) }
 
 // softDeleteWhere keeps marked rows out of every read in this package.
 // The splice ANDs it AHEAD of the caller's predicates, so a call site
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at" FROM "tasks"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "owner", "delegation_state", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at" FROM "tasks"`
 const countPrefix = `SELECT count(*) FROM "tasks"`
 const existsPrefix = `SELECT 1 FROM "tasks"`
 const existsSuffix = ` LIMIT 1`
@@ -1390,6 +1462,18 @@ var orderTable = [nCols][4]string{
 		"\"candidate_groups\" ASC NULLS FIRST",
 		"\"candidate_groups\" DESC NULLS LAST",
 	},
+	{ // owner
+		"\"owner\"",
+		"\"owner\" DESC",
+		"\"owner\" ASC NULLS FIRST",
+		"\"owner\" DESC NULLS LAST",
+	},
+	{ // delegation_state
+		"\"delegation_state\"",
+		"\"delegation_state\" DESC",
+		"\"delegation_state\" ASC NULLS FIRST",
+		"\"delegation_state\" DESC NULLS LAST",
+	},
 	{ // priority
 		"\"priority\"",
 		"\"priority\" DESC",
@@ -1445,6 +1529,8 @@ var identTable = [nCols]string{
 	"\"assignee\"",
 	"\"candidate_users\"",
 	"\"candidate_groups\"",
+	"\"owner\"",
+	"\"delegation_state\"",
 	"\"priority\"",
 	"\"due_date\"",
 	"\"form_key\"",
@@ -1483,7 +1569,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [20][28]runtime.Frag{
+var fragTable = [22][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1904,6 +1990,66 @@ var fragTable = [20][28]runtime.Frag{
 		{},
 		{},
 	},
+	{ // owner
+		{}, // opNone
+		{A: "\"owner\" = $", B: ""},
+		{A: "\"owner\" <> $", B: ""},
+		{A: "\"owner\" > $", B: ""},
+		{A: "\"owner\" >= $", B: ""},
+		{A: "\"owner\" < $", B: ""},
+		{A: "\"owner\" <= $", B: ""},
+		{A: "lower(\"owner\") = lower($", B: ")"},
+		{A: "\"owner\" LIKE $", B: ""},
+		{A: "\"owner\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"owner\" = ANY($", B: ")"},
+		{A: "\"owner\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"owner\" IS NULL", B: ""},
+		{A: "\"owner\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // delegation_state
+		{}, // opNone
+		{A: "\"delegation_state\" = $", B: ""},
+		{A: "\"delegation_state\" <> $", B: ""},
+		{A: "\"delegation_state\" > $", B: ""},
+		{A: "\"delegation_state\" >= $", B: ""},
+		{A: "\"delegation_state\" < $", B: ""},
+		{A: "\"delegation_state\" <= $", B: ""},
+		{A: "lower(\"delegation_state\") = lower($", B: ")"},
+		{A: "\"delegation_state\" LIKE $", B: ""},
+		{A: "\"delegation_state\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"delegation_state\" = ANY($", B: ")"},
+		{A: "\"delegation_state\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"delegation_state\" IS NULL", B: ""},
+		{A: "\"delegation_state\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 	{ // priority
 		{}, // opNone
 		{A: "\"priority\" = $", B: ""},
@@ -2253,12 +2399,14 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Assignee = runtime.NullText(rv[11], sl)
 	r.CandidateUsers = runtime.JSON(runtime.JSONB(rv[12], sl))
 	r.CandidateGroups = runtime.JSON(runtime.JSONB(rv[13], sl))
-	r.Priority = runtime.Int8(rv[14])
-	r.DueDate = runtime.Nullable(rv[15], runtime.Timestamptz)
-	r.FormKey = runtime.NullText(rv[16], sl)
-	r.FormDefinition = runtime.NullText(rv[17], sl)
-	r.Variables = sl.Str(rv[18])
-	r.DeletedAt = runtime.Nullable(rv[19], runtime.Timestamptz)
+	r.Owner = runtime.NullText(rv[14], sl)
+	r.DelegationState = runtime.NullText(rv[15], sl)
+	r.Priority = runtime.Int8(rv[16])
+	r.DueDate = runtime.Nullable(rv[17], runtime.Timestamptz)
+	r.FormKey = runtime.NullText(rv[18], sl)
+	r.FormDefinition = runtime.NullText(rv[19], sl)
+	r.Variables = sl.Str(rv[20])
+	r.DeletedAt = runtime.Nullable(rv[21], runtime.Timestamptz)
 	return nil
 }
 
@@ -2378,18 +2526,26 @@ func (q Query) bindPreds(b *binder) []any {
 				v = append(v, &b.anyStr[nas])
 				nas++
 			case 14:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 15:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 16:
 				b.anyI64[nai64] = q.anyI64[nai64]
 				v = append(v, &b.anyI64[nai64])
 				nai64++
-			case 16:
-				b.anyStr[nas] = q.anyStr[nas]
-				v = append(v, &b.anyStr[nas])
-				nas++
-			case 17:
-				b.anyStr[nas] = q.anyStr[nas]
-				v = append(v, &b.anyStr[nas])
-				nas++
 			case 18:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 19:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
+			case 20:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
@@ -2454,26 +2610,34 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.jsns[njs])
 			njs++
 		case 14:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 15:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 16:
 			b.nums[nn] = q.nums[nn]
 			v = append(v, &b.nums[nn])
 			nn++
-		case 15:
+		case 17:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 16:
-			b.strs[ns] = q.strs[ns]
-			v = append(v, &b.strs[ns])
-			ns++
-		case 17:
-			b.strs[ns] = q.strs[ns]
-			v = append(v, &b.strs[ns])
-			ns++
 		case 18:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
 			ns++
 		case 19:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 20:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 21:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -2614,7 +2778,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at"`
+const insertSQL = `INSERT INTO "tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "owner", "delegation_state", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "owner", "delegation_state", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at"`
 
 const updatePrefix = `UPDATE "tasks" SET `
 const deletePrefix = `DELETE FROM "tasks"`
@@ -2634,15 +2798,17 @@ const (
 	dAssignee        uint64 = 1 << 9
 	dCandidateUsers  uint64 = 1 << 10
 	dCandidateGroups uint64 = 1 << 11
-	dPriority        uint64 = 1 << 12
-	dDueDate         uint64 = 1 << 13
-	dFormKey         uint64 = 1 << 14
-	dFormDefinition  uint64 = 1 << 15
-	dVariables       uint64 = 1 << 16
-	dDeletedAt       uint64 = 1 << 17
+	dOwner           uint64 = 1 << 12
+	dDelegationState uint64 = 1 << 13
+	dPriority        uint64 = 1 << 14
+	dDueDate         uint64 = 1 << 15
+	dFormKey         uint64 = 1 << 16
+	dFormDefinition  uint64 = 1 << 17
+	dVariables       uint64 = 1 << 18
+	dDeletedAt       uint64 = 1 << 19
 )
 
-const nUpdatable = 18
+const nUpdatable = 20
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -2658,6 +2824,8 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"assignee\" = $", B: ""},         // assignee
 	{A: "\"candidate_users\" = $", B: ""},  // candidate_users
 	{A: "\"candidate_groups\" = $", B: ""}, // candidate_groups
+	{A: "\"owner\" = $", B: ""},            // owner
+	{A: "\"delegation_state\" = $", B: ""}, // delegation_state
 	{A: "\"priority\" = $", B: ""},         // priority
 	{A: "\"due_date\" = $", B: ""},         // due_date
 	{A: "\"form_key\" = $", B: ""},         // form_key
@@ -2682,6 +2850,8 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // assignee has no server-side form
 	{},                                   // candidate_users has no server-side form
 	{},                                   // candidate_groups has no server-side form
+	{},                                   // owner has no server-side form
+	{},                                   // delegation_state has no server-side form
 	{A: "\"priority\" = \"priority\" + 1", B: ""}, // priority = its own value plus one
 	{A: "\"due_date\" = now()", B: ""},            // due_date = the database's clock
 	{},                                            // form_key has no server-side form
@@ -2713,15 +2883,17 @@ const (
 	iAssignee        uint64 = 1 << 11
 	iCandidateUsers  uint64 = 1 << 12
 	iCandidateGroups uint64 = 1 << 13
-	iPriority        uint64 = 1 << 14
-	iDueDate         uint64 = 1 << 15
-	iFormKey         uint64 = 1 << 16
-	iFormDefinition  uint64 = 1 << 17
-	iVariables       uint64 = 1 << 18
-	iDeletedAt       uint64 = 1 << 19
+	iOwner           uint64 = 1 << 14
+	iDelegationState uint64 = 1 << 15
+	iPriority        uint64 = 1 << 16
+	iDueDate         uint64 = 1 << 17
+	iFormKey         uint64 = 1 << 18
+	iFormDefinition  uint64 = 1 << 19
+	iVariables       uint64 = 1 << 20
+	iDeletedAt       uint64 = 1 << 21
 )
 
-const nInsertable = 20
+const nInsertable = 22
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2739,6 +2911,8 @@ var insCols = [nInsertable]string{
 	"\"assignee\"",
 	"\"candidate_users\"",
 	"\"candidate_groups\"",
+	"\"owner\"",
+	"\"delegation_state\"",
 	"\"priority\"",
 	"\"due_date\"",
 	"\"form_key\"",
@@ -2753,7 +2927,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"tasks\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"owner\", \"delegation_state\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2772,7 +2946,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"node_id\", \"iteration_id\", \"name\", \"description\", \"type\", \"status\", \"assignee\", \"candidate_users\", \"candidate_groups\", \"owner\", \"delegation_state\", \"priority\", \"due_date\", \"form_key\", \"form_definition\", \"variables\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -2925,6 +3099,34 @@ func (m *Mut) SetCandidateGroups(v runtime.JSON) {
 	m.row.CandidateGroups = v
 	m.dirty |= dCandidateGroups
 	m.expr &^= dCandidateGroups
+}
+
+func (m *Mut) SetOwner(v string) {
+	m.row.Owner = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dOwner
+	m.expr &^= dOwner
+}
+
+// SetOwnerNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetOwnerNull() {
+	m.row.Owner = runtime.Null[string]{}
+	m.dirty |= dOwner
+	m.expr &^= dOwner
+}
+
+func (m *Mut) SetDelegationState(v string) {
+	m.row.DelegationState = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dDelegationState
+	m.expr &^= dDelegationState
+}
+
+// SetDelegationStateNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetDelegationStateNull() {
+	m.row.DelegationState = runtime.Null[string]{}
+	m.dirty |= dDelegationState
+	m.expr &^= dDelegationState
 }
 
 func (m *Mut) SetPriority(v int64) {
@@ -3143,6 +3345,30 @@ func (n *Ins) SetCandidateGroups(v runtime.JSON) {
 	n.set |= iCandidateGroups
 }
 
+func (n *Ins) SetOwner(v string) {
+	n.row.Owner = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iOwner
+}
+
+// SetOwnerNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetOwnerNull() {
+	n.row.Owner = runtime.Null[string]{}
+	n.set |= iOwner
+}
+
+func (n *Ins) SetDelegationState(v string) {
+	n.row.DelegationState = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iDelegationState
+}
+
+// SetDelegationStateNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetDelegationStateNull() {
+	n.row.DelegationState = runtime.Null[string]{}
+	n.set |= iDelegationState
+}
+
 func (n *Ins) SetPriority(v int64) {
 	n.row.Priority = v
 	n.set |= iPriority
@@ -3246,7 +3472,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 18)
+	set := make([]string, 0, 20)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -3286,21 +3512,27 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "candidate_groups")
 		}
 		if mask&(1<<14) != 0 {
-			set = append(set, "priority")
+			set = append(set, "owner")
 		}
 		if mask&(1<<15) != 0 {
-			set = append(set, "due_date")
+			set = append(set, "delegation_state")
 		}
 		if mask&(1<<16) != 0 {
-			set = append(set, "form_key")
+			set = append(set, "priority")
 		}
 		if mask&(1<<17) != 0 {
-			set = append(set, "form_definition")
+			set = append(set, "due_date")
 		}
 		if mask&(1<<18) != 0 {
-			set = append(set, "variables")
+			set = append(set, "form_key")
 		}
 		if mask&(1<<19) != 0 {
+			set = append(set, "form_definition")
+		}
+		if mask&(1<<20) != 0 {
+			set = append(set, "variables")
+		}
+		if mask&(1<<21) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -3363,6 +3595,8 @@ var assignFor = map[string]string{
 	"assignee":         "\"assignee\" = EXCLUDED.\"assignee\"",
 	"candidate_users":  "\"candidate_users\" = EXCLUDED.\"candidate_users\"",
 	"candidate_groups": "\"candidate_groups\" = EXCLUDED.\"candidate_groups\"",
+	"owner":            "\"owner\" = EXCLUDED.\"owner\"",
+	"delegation_state": "\"delegation_state\" = EXCLUDED.\"delegation_state\"",
 	"priority":         "\"priority\" = EXCLUDED.\"priority\"",
 	"due_date":         "\"due_date\" = EXCLUDED.\"due_date\"",
 	"form_key":         "\"form_key\" = EXCLUDED.\"form_key\"",
@@ -3441,16 +3675,20 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 13:
 			args = append(args, n.row.CandidateGroups)
 		case 14:
-			args = append(args, n.row.Priority)
+			args = append(args, n.row.Owner.Arg())
 		case 15:
-			args = append(args, n.row.DueDate.Arg())
+			args = append(args, n.row.DelegationState.Arg())
 		case 16:
-			args = append(args, n.row.FormKey.Arg())
+			args = append(args, n.row.Priority)
 		case 17:
-			args = append(args, n.row.FormDefinition.Arg())
+			args = append(args, n.row.DueDate.Arg())
 		case 18:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.FormKey.Arg())
 		case 19:
+			args = append(args, n.row.FormDefinition.Arg())
+		case 20:
+			args = append(args, n.row.Variables)
+		case 21:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3489,7 +3727,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 20)
+	args := make([]any, 0, 22)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -3504,6 +3742,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Assignee.Arg())
 	args = append(args, r.CandidateUsers)
 	args = append(args, r.CandidateGroups)
+	args = append(args, r.Owner.Arg())
+	args = append(args, r.DelegationState.Arg())
 	args = append(args, r.Priority)
 	args = append(args, r.DueDate.Arg())
 	args = append(args, r.FormKey.Arg())
@@ -3550,6 +3790,8 @@ var copyCols = []string{
 	"assignee",
 	"candidate_users",
 	"candidate_groups",
+	"owner",
+	"delegation_state",
 	"priority",
 	"due_date",
 	"form_key",
@@ -3562,7 +3804,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [20]any
+	buf  [22]any
 }
 
 func (s *rowSource) Next() bool {
@@ -3594,12 +3836,14 @@ func (s *rowSource) Values() []any {
 	s.buf[11] = r.Assignee.Ptr()
 	s.buf[12] = &r.CandidateUsers
 	s.buf[13] = &r.CandidateGroups
-	s.buf[14] = &r.Priority
-	s.buf[15] = r.DueDate.Ptr()
-	s.buf[16] = r.FormKey.Ptr()
-	s.buf[17] = r.FormDefinition.Ptr()
-	s.buf[18] = &r.Variables
-	s.buf[19] = r.DeletedAt.Ptr()
+	s.buf[14] = r.Owner.Ptr()
+	s.buf[15] = r.DelegationState.Ptr()
+	s.buf[16] = &r.Priority
+	s.buf[17] = r.DueDate.Ptr()
+	s.buf[18] = r.FormKey.Ptr()
+	s.buf[19] = r.FormDefinition.Ptr()
+	s.buf[20] = &r.Variables
+	s.buf[21] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -3650,8 +3894,10 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 17
 	mask |= 1 << 18
 	mask |= 1 << 19
+	mask |= 1 << 20
+	mask |= 1 << 21
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 20)
+	args := make([]any, 0, 22)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -3666,6 +3912,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Assignee.Arg())
 	args = append(args, r.CandidateUsers)
 	args = append(args, r.CandidateGroups)
+	args = append(args, r.Owner.Arg())
+	args = append(args, r.DelegationState.Arg())
 	args = append(args, r.Priority)
 	args = append(args, r.DueDate.Arg())
 	args = append(args, r.FormKey.Arg())
@@ -3734,16 +3982,20 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 13:
 			args = append(args, n.row.CandidateGroups)
 		case 14:
-			args = append(args, n.row.Priority)
+			args = append(args, n.row.Owner.Arg())
 		case 15:
-			args = append(args, n.row.DueDate.Arg())
+			args = append(args, n.row.DelegationState.Arg())
 		case 16:
-			args = append(args, n.row.FormKey.Arg())
+			args = append(args, n.row.Priority)
 		case 17:
-			args = append(args, n.row.FormDefinition.Arg())
+			args = append(args, n.row.DueDate.Arg())
 		case 18:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.FormKey.Arg())
 		case 19:
+			args = append(args, n.row.FormDefinition.Arg())
+		case 20:
+			args = append(args, n.row.Variables)
+		case 21:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3816,16 +4068,20 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 11:
 			args = append(args, m.row.CandidateGroups)
 		case 12:
-			args = append(args, m.row.Priority)
+			args = append(args, m.row.Owner.Arg())
 		case 13:
-			args = append(args, m.row.DueDate.Arg())
+			args = append(args, m.row.DelegationState.Arg())
 		case 14:
-			args = append(args, m.row.FormKey.Arg())
+			args = append(args, m.row.Priority)
 		case 15:
-			args = append(args, m.row.FormDefinition.Arg())
+			args = append(args, m.row.DueDate.Arg())
 		case 16:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.FormKey.Arg())
 		case 17:
+			args = append(args, m.row.FormDefinition.Arg())
+		case 18:
+			args = append(args, m.row.Variables)
+		case 19:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -3948,16 +4204,20 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 11:
 			args = append(args, m.row.CandidateGroups)
 		case 12:
-			args = append(args, m.row.Priority)
+			args = append(args, m.row.Owner.Arg())
 		case 13:
-			args = append(args, m.row.DueDate.Arg())
+			args = append(args, m.row.DelegationState.Arg())
 		case 14:
-			args = append(args, m.row.FormKey.Arg())
+			args = append(args, m.row.Priority)
 		case 15:
-			args = append(args, m.row.FormDefinition.Arg())
+			args = append(args, m.row.DueDate.Arg())
 		case 16:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.FormKey.Arg())
 		case 17:
+			args = append(args, m.row.FormDefinition.Arg())
+		case 18:
+			args = append(args, m.row.Variables)
+		case 19:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

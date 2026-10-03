@@ -17,6 +17,8 @@ describe('timelineKind', () => {
     expect(timelineKind('task_unclaimed')).toBe('released');
     expect(timelineKind('task_delegated')).toBe('delegated');
     expect(timelineKind('task_assigned')).toBe('assigned');
+    expect(timelineKind('task_resolved')).toBe('handedBack');
+    expect(timelineKind('task_edited')).toBe('edited');
   });
 
   it('treats anything it does not know, including object keys, as other', () => {

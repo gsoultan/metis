@@ -69,10 +69,15 @@ memberships are read and how a request is scoped.
   `unknown`. Wanted: a route or method that reaches a service around its chain.
 - **Work that belongs to somebody.** Claiming, completing and handing over
   tasks: a task that names nobody is an administrator's or an operator's (new
-  in 0.4.0). Editing a task somebody else holds, and reading and clearing
-  somebody's notifications, took only a login until this cycle; any other
-  endpoint that takes a person or a record from the request without asking
-  whose it is is a suspect.
+  in 0.4.0). Handing a task over is decided by the service on the task's
+  locked row (`server/domains/services/impl/task_handover_step.go`,
+  `task_handover_target.go`): who may, whether they said why, and whether the
+  person it goes to is in the organization, offered the step and not barred by
+  separation of duties. Wanted: a hand-over that reaches somebody those checks
+  should have refused, or one that leaves no audit entry. Editing a task
+  somebody else holds, and reading and clearing somebody's notifications, took
+  only a login until this cycle; any other endpoint that takes a person or a
+  record from the request without asking whose it is is a suspect.
 
 ### 3. Process definitions, which are untrusted input
 

@@ -169,80 +169,10 @@ func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task
 		return fmt.Errorf("resolve group membership for %s: %w", userID, err)
 	}
 
-	memberOf := make(map[string]struct{}, len(groups))
-	for _, g := range groups {
-		memberOf[g.Name] = struct{}{}
-		memberOf[g.ID.String()] = struct{}{}
+	if inCandidateGroups(task, groups) {
+		return nil
 	}
-	for _, cg := range task.CandidateGroups {
-		if cg == nil {
-			continue
-		}
-		if _, ok := memberOf[cg.Name]; ok {
-			return nil
-		}
-		if _, ok := memberOf[cg.ID.String()]; ok {
-			return nil
-		}
-	}
-
 	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
-}
-
-func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Held, like every other write to a task. A release that read the
-		// task while it was being completed waited for the completion's
-		// commit and then wrote its own copy back — "unclaimed" over
-		// "completed" — and the finished task was open again.
-		m, err := s.lockedTask(txCtx, id)
-		if err != nil {
-			return err
-		}
-		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-		if task.Status != entities.TaskClaimed {
-			return fmt.Errorf("task %s is not claimed", id)
-		}
-		task.Status = entities.TaskUnclaimed
-		task.Assignee = nil
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return fmt.Errorf("failed to update task: %w", err)
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: task.Variables,
-		}, task, EventTaskUnclaimed, "")
-		return nil
-	})
-}
-
-func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, userID string) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		task, err := s.openTaskForHandOver(txCtx, id, "delegated")
-		if err != nil {
-			return err
-		}
-		task.Status = entities.TaskDelegated
-		task.Assignee = &entities.User{Username: userID}
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return fmt.Errorf("failed to update task: %w", err)
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: task.Variables,
-		}, task, EventTaskDelegated, userID)
-		return nil
-	})
 }
 
 func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error {
@@ -266,6 +196,9 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 			// Closed first, before who is asking: see refuseClosedTask.
 			if err := refuseClosedTask(task.Status); err != nil {
 				return err
+			}
+			if task.AwaitsHandBack() {
+				return completionWaitsForHandBack(task, userID)
 			}
 			if task.Assignee != nil {
 				if task.Assignee.Username != userID {
@@ -296,15 +229,47 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// step the instance is no longer on. Taking the lock makes the two
 		// serialise; re-reading and re-checking is what makes the second one
 		// see what the first did.
+		//
+		// The re-read holds the task's row as well. A hand-over needs only that
+		// row, not the instance, so one committed between an unheld re-read and
+		// the write below, and the write put back the row as it had been read:
+		// a task an administrator had just taken from somebody was completed
+		// by them and theirs again, and a task that had just been delegated was
+		// completed while it was with its delegate. Held, the hand-over waits
+		// and is told the task is completed; or it got there first, and
+		// everything asked of the row below — closed, with a delegate, whose
+		// it is — is asked of the row it left.
+		//
+		// The instance, then the task: the order the engine and a migration
+		// take them in. A claim, a hand-over and an edit hold one task row and
+		// then only read and insert — they never wait for an instance or for a
+		// second task row — so nothing waits in the other direction. That
+		// rests on the tables a hand-over inserts into (audit_logs,
+		// notifications) having no foreign key to process_instances, as the
+		// migrations build them: with one, the insert would wait for the
+		// instance this holds.
 		locked, err := s.engine.GetInstanceForUpdate(txCtx, uuid.UUID(m.InstanceID))
 		if err != nil {
 			return err
 		}
-		if m, err = s.repo.Task().Get(txCtx, id); err != nil {
-			return fmt.Errorf("failed to re-read task %s: %w", id, err)
+		if m, err = s.lockedTask(txCtx, id); err != nil {
+			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
 		if err := authorize(task); err != nil {
+			return err
+		}
+		// Separation of duties is asked again as well, for the same reason. Two
+		// steps it keeps apart can be open at once, on parallel branches, and
+		// one person completing both together was let through twice: each
+		// completion asked above, before it had the instance, when the other
+		// had written its task completed and not yet committed. Completions of
+		// one instance take turns at the instance lock, and a statement sees
+		// what was committed before it began (read committed, the level every
+		// unit of work runs at), so the one that waited reads the other's task
+		// as completed here. The row is the one read under the lock: a
+		// migration may have moved the task to a step with another rule.
+		if err := s.enforceSeparationOfDuties(txCtx, m, userID); err != nil {
 			return err
 		}
 
@@ -419,85 +384,6 @@ func (s *taskService) CreateTaskForNode(ctx context.Context, instance entities.P
 		}, task, EventTaskCreated, "")
 		return nil
 	})
-}
-
-func (s *taskService) UpdateTask(ctx context.Context, task entities.Task) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		// Held for the reason UnclaimTask holds it: the whole row is written
-		// back, status included, so an unheld read could reopen a task
-		// completed in between.
-		m, err := s.lockedTask(txCtx, task.ID)
-		if err != nil {
-			return err
-		}
-		existing := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-		// UpdateConnectorInstance specific allowed fields
-		existing.Name = task.Name
-		existing.Priority = task.Priority
-		existing.DueDate = task.DueDate
-
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: existing}.ToModel()); err != nil {
-			return err
-		}
-
-		s.engine.DispatchEvent(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskUpdated,
-			Instance:  existing.Instance,
-			Project:   existing.Project,
-			Node:      existing.Node,
-			Timestamp: time.Now().Unix(),
-			Variables: existing.Variables,
-		})
-
-		return nil
-	})
-}
-
-func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, userID string) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		task, err := s.openTaskForHandOver(txCtx, id, "assigned")
-		if err != nil {
-			return err
-		}
-		task.Assignee = &entities.User{Username: userID}
-		task.Status = entities.TaskClaimed
-		if err := s.repo.Task().Update(txCtx, adapters.TaskModelAdapter{Task: task}.ToModel()); err != nil {
-			return err
-		}
-
-		s.announce(txCtx, entities.ProcessEvent{
-			Type:      entities.EventTaskClaimed,
-			Instance:  task.Instance,
-			Project:   task.Project,
-			Node:      namedNode(task),
-			Timestamp: time.Now().Unix(),
-			Variables: map[string]any{"assignee": userID},
-		}, task, EventTaskAssigned, userID)
-		return nil
-	})
-}
-
-// openTaskForHandOver reads a task about to be delegated or assigned, holding
-// its row, and refuses one nobody can work on any more.
-//
-// Both hand-overs set the status without asking what it was, so a completed
-// task could be handed on — reopened — and completed again, running
-// everything after it a second time. Holding the row matters as much as the
-// check: completion writes it too, so a hand-over that read the task open
-// while it was being completed would otherwise write it back open.
-func (s *taskService) openTaskForHandOver(ctx context.Context, id uuid.UUID, action string) (entities.Task, error) {
-	m, err := s.lockedTask(ctx, id)
-	if err != nil {
-		return entities.Task{}, err
-	}
-	task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
-	switch task.Status {
-	case entities.TaskCompleted:
-		return entities.Task{}, apierr.Invalidf("this task is completed; it cannot be %s", action)
-	case entities.TaskCanceled:
-		return entities.Task{}, apierr.Invalidf("this task was withdrawn; it cannot be %s", action)
-	}
-	return task, nil
 }
 
 // lockedTask reads a task and holds its row, so what is decided from the read
@@ -668,32 +554,49 @@ const SeparationOfDutiesKey = "separation_of_duties"
 // have been skipped, or on a branch this instance did not take. The rule is
 // "not the same person twice", not "that step must have happened".
 func (s *taskService) enforceSeparationOfDuties(ctx context.Context, task models.TaskModel, userID string) error {
+	other, conflict, err := s.conflictingStep(ctx, task, userID)
+	if err != nil || !conflict {
+		return err
+	}
+	return fmt.Errorf("%w: %s already did %q on this instance, and %q may not be done by the same person",
+		ErrTaskForbidden, userID, other.NodeID, task.NodeID)
+}
+
+// conflictingStep finds the step userID has already performed on this instance
+// that the task's node says the same person may not also perform.
+//
+// A node it names that the instance never performed is not a conflict: it may
+// have been skipped, or on a branch this instance did not take.
+func (s *taskService) conflictingStep(ctx context.Context, task models.TaskModel, userID string) (models.TaskModel, bool, error) {
 	node, err := s.nodeBehind(ctx, task)
 	if err != nil || node == nil {
-		// A task whose node cannot be read is refused by the caller's own
-		// checks; there is nothing to enforce here.
-		return nil //nolint:nilerr // absence of a node is not a conflict
+		// For a claim and a completion, which are all that come through here,
+		// a task whose node cannot be read has nothing to enforce. A hand-over
+		// does not come through here: it reads the node itself and stops when
+		// it cannot (admitTarget).
+		return models.TaskModel{}, false, nil //nolint:nilerr // absence of a node is not a conflict
 	}
+	return s.conflictingStepOn(ctx, task, node, userID)
+}
+
+// conflictingStepOn is conflictingStep for a caller that has already read the
+// task's node, and has decided for itself what a node it cannot read means.
+func (s *taskService) conflictingStepOn(ctx context.Context, task models.TaskModel, node *entities.Node, userID string) (models.TaskModel, bool, error) {
 	conflicts := splitNodeList(node.GetStringProperty(SeparationOfDutiesKey))
 	if len(conflicts) == 0 {
-		return nil
+		return models.TaskModel{}, false, nil
 	}
 
 	performed, err := s.repo.Task().ListByInstance(ctx, uuid.UUID(task.InstanceID))
 	if err != nil {
-		return err
+		return models.TaskModel{}, false, err
 	}
 	for _, other := range performed {
-		if other.Status != models.TaskCompleted || !slices.Contains(conflicts, other.NodeID) {
-			continue
+		if other.Status == models.TaskCompleted && slices.Contains(conflicts, other.NodeID) && other.Assignee == userID {
+			return other, true, nil
 		}
-		if other.Assignee != userID {
-			continue
-		}
-		return fmt.Errorf("%w: %s already did %q on this instance, and %q may not be done by the same person",
-			ErrTaskForbidden, userID, other.NodeID, task.NodeID)
 	}
-	return nil
+	return models.TaskModel{}, false, nil
 }
 
 // nodeBehind reads the definition node a task was created from.

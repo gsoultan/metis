@@ -87,6 +87,8 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 		"/api/v1/instances?needs_attention=true&project_id=" + projectID.String(),
 		"/api/v1/tasks",
 		"/api/v1/tasks/assignee/walker",
+		// What the signed-in person delegated and is waiting for.
+		"/api/v1/tasks/delegated",
 		"/api/v1/connectors",
 		"/api/v1/connectors/instances",
 		"/api/v1/connector-manifests",

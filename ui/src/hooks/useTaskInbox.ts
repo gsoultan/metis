@@ -13,6 +13,8 @@ import {
   useUnclaimTask,
   useUpdateTask,
   useAssignTask,
+  useResolveTask,
+  useTasksDelegatedByMe,
   useUsers,
 } from './useProcess';
 import { useAppStore } from '../store/useAppStore';
@@ -20,6 +22,8 @@ import type { Task } from '../services/types';
 import type { ProcessVariables } from '../services/types';
 import { TASK_LIST_EVENTS } from '../domain/taskEvents';
 import { useInvalidateOnEvents } from './useEventStream';
+import { splitReleasable, type ReasonRequest } from '../domain/taskDelegation';
+import { useTranslation } from '../i18n/context';
 
 /**
  * The value a column sorts on.
@@ -56,6 +60,7 @@ function sortValue(task: Task, field: string): string | number | undefined {
 
 export function useTaskInbox() {
   const { currentOrganizationId, user } = useAppStore();
+  const { t } = useTranslation();
   // The inbox is always the signed-in user's own. There is no switching:
   // the server takes the actor from the token and ignores any client claim.
   const currentUser = user?.username ?? '';
@@ -84,6 +89,9 @@ export function useTaskInbox() {
   const [reassignModalOpened, setReassignModalOpened] = useState(false);
   const [taskToReassign, setTaskToReassign] = useState<Task | null>(null);
   const [newAssignee, setNewAssignee] = useState<string | null>(null);
+  // A release or a hand-back of a task somebody else holds, waiting for its
+  // reason. The holder's own never comes here: it goes at one press.
+  const [reasonRequest, setReasonRequest] = useState<ReasonRequest<Task> | null>(null);
 
   // Through the authenticated stream. This opened an EventSource, which cannot
   // send the Authorization header, so the events endpoint answered 401 and the
@@ -117,6 +125,13 @@ export function useTaskInbox() {
   const unclaimTaskMutation = useUnclaimTask();
   const updateTaskMutation = useUpdateTask();
   const assignTaskMutation = useAssignTask();
+  const resolveTaskMutation = useResolveTask();
+  // Read only where it is shown: the card sits above the table.
+  const { data: delegatedData } = useTasksDelegatedByMe({ enabled: viewMode === 'table' });
+  // What the reader delegated and is waiting for: theirs to complete, and not
+  // in their list while the delegate holds it.
+  const delegatedByMe = useMemo(() => delegatedData?.tasks ?? [], [delegatedData]);
+  const delegatedTotal = delegatedData?.total ?? delegatedByMe.length;
 
   // Memoised so the lists below do not see a new array identity every render.
   const assignedTasks = useMemo(() => assignedData?.tasks ?? [], [assignedData]);
@@ -135,8 +150,10 @@ export function useTaskInbox() {
     claimTaskMutation.mutate({ id, taskName });
   }, [claimTaskMutation]);
 
-  const handleUnclaim = useCallback((id: string) => {
-    unclaimTaskMutation.mutate(id);
+  const handleUnclaim = useCallback((id: string, reason?: string) => {
+    unclaimTaskMutation.mutate({ id, reason }, {
+      onSuccess: () => setReasonRequest(null),
+    });
   }, [unclaimTaskMutation]);
 
   const handleComplete = useCallback((id: string, variables: ProcessVariables, taskName?: string) => {
@@ -147,8 +164,8 @@ export function useTaskInbox() {
     });
   }, [completeTaskMutation]);
 
-  const handleAssign = useCallback((id: string, userId: string) => {
-    assignTaskMutation.mutate({ id, userId }, {
+  const handleAssign = useCallback((id: string, userId: string, reason?: string) => {
+    assignTaskMutation.mutate({ id, userId, reason }, {
       onSuccess: () => {
         setReassignModalOpened(false);
         setTaskToReassign(null);
@@ -156,6 +173,13 @@ export function useTaskInbox() {
       }
     });
   }, [assignTaskMutation]);
+
+  const handleResolve = useCallback((id: string, owner: string, reason?: string) => {
+    // The owner travels with it so the notice can say who it went back to.
+    resolveTaskMutation.mutate({ id, owner, reason }, {
+      onSuccess: () => setReasonRequest(null),
+    });
+  }, [resolveTaskMutation]);
 
   const handleSort = useCallback((field: string) => {
     if (sortBy === field) {
@@ -225,9 +249,19 @@ export function useTaskInbox() {
     act: (id: string) => Promise<unknown>,
     noun: string,
     verb: string,
+    // What to send, when that is not the whole selection, and how many of the
+    // selected were held back because the server would only refuse them.
+    ids: string[] = selectedTaskIds,
+    heldBack = 0,
   ) => {
-    const ids = selectedTaskIds;
-    if (ids.length === 0) return;
+    const heldBackNote = heldBack > 0 ? t('handover.releaseHeldBack', { count: heldBack }) : '';
+    if (ids.length === 0) {
+      if (heldBack > 0) {
+        setSelectedTaskIds([]);
+        notifications.show({ title: t('handover.releaseHeldBackTitle'), message: heldBackNote, color: 'orange' });
+      }
+      return;
+    }
 
     setBulkInFlight(true);
     try {
@@ -235,24 +269,26 @@ export function useTaskInbox() {
       setSelectedTaskIds(result.failed.map(outcome => outcome.id));
       notifications.show({
         title: result.failed.length === 0 ? 'Done' : 'Partly done',
-        message: summarise(result, noun, verb),
-        color: result.failed.length === 0 ? 'green' : 'orange',
+        message: [summarise(result, noun, verb), heldBackNote].filter(Boolean).join('. '),
+        color: result.failed.length === 0 && heldBack === 0 ? 'green' : 'orange',
       });
     } finally {
       setBulkInFlight(false);
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     }
-  }, [selectedTaskIds, queryClient]);
+  }, [selectedTaskIds, queryClient, t]);
 
   const handleBulkClaim = useCallback(
     () => runBulkAction(id => processService.claimTask(id), 'task', 'claimed'),
     [runBulkAction],
   );
 
-  const handleBulkUnclaim = useCallback(
-    () => runBulkAction(id => processService.unclaimTask(id), 'task', 'released'),
-    [runBulkAction],
-  );
+  const handleBulkUnclaim = useCallback(() => {
+    // A task delegated to the reader is handed back, not released: the server
+    // refuses it, so it is left out and the reader is told.
+    const { release, heldBack } = splitReleasable(assignedTasks, selectedTaskIds);
+    return runBulkAction(id => processService.unclaimTask(id), 'task', 'released', release, heldBack.length);
+  }, [runBulkAction, assignedTasks, selectedTaskIds]);
 
   return {
     bulkInFlight,
@@ -301,6 +337,16 @@ export function useTaskInbox() {
     handleUnclaim,
     handleComplete,
     handleAssign,
+    assigning: assignTaskMutation.isPending,
+    handleResolve,
+    // The task being handed back right now, so its button cannot be pressed twice.
+    resolvingTaskId: resolveTaskMutation.isPending ? resolveTaskMutation.variables?.id ?? null : null,
+    delegatedByMe,
+    delegatedTotal,
+    reasonRequest,
+    setReasonRequest,
+    // A release or a hand-back with a reason has been sent and not yet answered.
+    reasonInFlight: unclaimTaskMutation.isPending || resolveTaskMutation.isPending,
     updateTaskMutation,
   };
 }

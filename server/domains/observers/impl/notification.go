@@ -22,9 +22,26 @@ func NewNotificationObserver(notificationService serviceContracts.NotificationSe
 
 func (o *notificationObserver) OnEvent(ctx context.Context, event entities.ProcessEvent) {
 	switch event.Type {
-	case entities.EventTaskCreated, entities.EventTaskClaimed, entities.EventTaskCanceled:
+	case entities.EventTaskCreated, entities.EventTaskClaimed, entities.EventTaskCanceled,
+		entities.EventTaskDelegated, entities.EventTaskResolved:
 		o.handleTaskEvent(ctx, event)
 	}
+	if owner, waiting := ownerOfWithdrawnDelegation(event); waiting {
+		o.handleTaskEvent(ctx, owner)
+	}
+}
+
+// ownerOfWithdrawnDelegation is the withdrawal of a delegated task as its
+// owner is told it: the same notice the delegate gets, addressed to them.
+//
+// The delegate held the task, so the withdrawal is about them. The owner was
+// waiting for it to come back, and with nothing said went on waiting.
+func ownerOfWithdrawnDelegation(event entities.ProcessEvent) (entities.ProcessEvent, bool) {
+	if event.Type != entities.EventTaskCanceled || event.Owner == "" || event.Owner == event.Assignee {
+		return entities.ProcessEvent{}, false
+	}
+	event.Assignee = event.Owner
+	return event, true
 }
 
 // handleTaskEvent tells whoever now has work that they have it.
@@ -110,6 +127,10 @@ func taskNotificationTitle(event entities.ProcessEvent) string {
 		return "A task was withdrawn"
 	case entities.EventTaskCreated:
 		return "A task is waiting for you"
+	case entities.EventTaskDelegated:
+		return "A task was delegated to you"
+	case entities.EventTaskResolved:
+		return "A task was handed back to you"
 	default:
 		return "Task Update"
 	}
@@ -125,22 +146,24 @@ func taskNotificationMessage(event entities.ProcessEvent) string {
 	if event.Node != nil && event.Node.Name != "" {
 		taskName = fmt.Sprintf("%q", event.Node.Name)
 	}
-	process := processName(event)
-
-	// Work being taken away needs saying as plainly as work arriving. A task
-	// that vanishes from an inbox with no explanation is indistinguishable
-	// from one somebody else completed, or from a bug.
-	if event.Type == entities.EventTaskCanceled {
-		if process != "" {
-			return fmt.Sprintf("%s in %s is no longer needed and has been taken off your list.", taskName, process)
-		}
-		return fmt.Sprintf("%s is no longer needed and has been taken off your list.", taskName)
+	where := ""
+	if process := processName(event); process != "" {
+		where = " in " + process
 	}
 
-	if process != "" {
-		return fmt.Sprintf("%s is waiting for you in %s.", taskName, process)
+	switch event.Type {
+	case entities.EventTaskCanceled:
+		// Work being taken away needs saying as plainly as work arriving. A
+		// task that vanishes from an inbox with no explanation is
+		// indistinguishable from one somebody else completed, or from a bug.
+		return fmt.Sprintf("%s%s is no longer needed and has been taken off your list.", taskName, where)
+	case entities.EventTaskDelegated:
+		// What is different about this work: it is not theirs to finish.
+		return fmt.Sprintf("%s%s was delegated to you. Hand it back when your part is done; whoever delegated it completes it.", taskName, where)
+	case entities.EventTaskResolved:
+		return fmt.Sprintf("%s%s was handed back to you. It is yours to complete.", taskName, where)
 	}
-	return fmt.Sprintf("%s is waiting for you.", taskName)
+	return fmt.Sprintf("%s is waiting for you%s.", taskName, where)
 }
 
 // processName is what to call the process in a sentence.

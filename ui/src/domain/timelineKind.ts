@@ -14,6 +14,8 @@ export type TimelineKind =
   | 'released'
   | 'assigned'
   | 'delegated'
+  | 'handedBack'
+  | 'edited'
   | 'completed'
   | 'withdrawn'
   | 'ended'
@@ -35,6 +37,8 @@ const KINDS = new Map<string, TimelineKind>([
   ['task_unclaimed', 'released'],
   ['task_assigned', 'assigned'],
   ['task_delegated', 'delegated'],
+  ['task_resolved', 'handedBack'],
+  ['task_edited', 'edited'],
   ['TaskCompleted', 'completed'],
   ['task_completed', 'completed'],
   ['TaskCanceled', 'withdrawn'],

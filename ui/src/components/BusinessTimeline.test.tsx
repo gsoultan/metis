@@ -95,3 +95,86 @@ describe('one step on the business timeline', () => {
     expect(approved).toBeLessThan(checked);
   });
 });
+
+/**
+ * A hand-over read "Task "Approve the refund" was assigned to citra": the
+ * person it went to, and nobody who did it. The entry says who now, and the
+ * timeline tells it from the entry in the reader's language.
+ */
+describe('a hand-over on the business timeline', () => {
+  const handedOver: ApiAuditEntry[] = [
+    {
+      id: 'h1',
+      type: 'task_assigned',
+      message: '',
+      narrative: 'ana reassigned task "Approve the refund" from budi to citra: budi is on leave',
+      timestamp: '2026-09-28T10:00:00Z',
+      node: { id: 'approve', name: 'Approve the refund' },
+      data: { actor: 'ana', target: 'citra', previous_holder: 'budi', reason: 'budi is on leave' },
+    },
+    {
+      // Written before the trail kept who acted: only the stored sentence.
+      id: 'h0',
+      type: 'task_assigned',
+      message: '',
+      narrative: 'Task "Approve the refund" was assigned to budi',
+      timestamp: '2026-09-27T10:00:00Z',
+      node: { id: 'approve', name: 'Approve the refund' },
+      data: { actor: 'budi' },
+    },
+  ];
+
+  it('says who reassigned it, from whom, to whom and why', () => {
+    shown = handedOver;
+    const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
+    expect(text).toContain('ana reassigned &quot;Approve the refund&quot; from budi to citra');
+    expect(text).toContain('Reason: budi is on leave');
+    expect(text).toContain('Task &quot;Approve the refund&quot; was assigned to budi');
+  });
+
+  it('renders a reason as text, never as markup', () => {
+    shown = [{ ...handedOver[0], data: { ...handedOver[0].data, reason: '<img src=x onerror=alert(1)>' } }];
+    const html = renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('says it in Indonesian to somebody reading in Indonesian', async () => {
+    shown = handedOver;
+    const { TranslationContext } = await import('../i18n/context');
+    const { format } = await import('../i18n/translate');
+    const indonesian = (await import('../i18n/catalogues/id')).default;
+    const text = textOf(renderToStaticMarkup(
+      <MantineProvider>
+        <TranslationContext value={{ locale: 'id', setLocale: () => {}, t: (key, values) => format(indonesian, key, values) }}>
+          <BusinessTimeline instanceId="i1" />
+        </TranslationContext>
+      </MantineProvider>,
+    ));
+    expect(text).toContain('ana mengalihkan &quot;Approve the refund&quot; dari budi kepada citra');
+    expect(text).toContain('Alasan: budi is on leave');
+    expect(text).toContain('Task &quot;Approve the refund&quot; was assigned to budi');
+  });
+
+  it('shows the whole of a 1000-character, multi-line reason, unclamped', () => {
+    const reason = Array.from({ length: 10 }, (_, n) => `line ${n} ${'x'.repeat(90 - String(n).length)}`).join('\n');
+    expect(reason.length).toBeGreaterThanOrEqual(900);
+    expect(reason.length).toBeLessThanOrEqual(1000);
+    shown = [{ ...handedOver[0], data: { ...handedOver[0].data, reason } }];
+    const html = renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>);
+    expect(html).toContain(reason);
+    expect(html).toContain('white-space:pre-wrap');
+    expect(html).not.toContain('line-clamp');
+  });
+
+  it('shows what the server stored, unchanged, for the entries slice 1 added', () => {
+    shown = [
+      { id: 'p1', type: 'parked_work_withdrawn', message: '', narrative: 'Parked work at "Wait" was withdrawn', timestamp: '2026-09-28T10:00:00Z', data: { actor: 'ana', target: 'citra', reason: 'r' } },
+      { id: 'p2', type: 'called_process_finished_late', message: '', narrative: 'The called process finished after the parent moved on', timestamp: '2026-09-28T10:01:00Z', data: { actor: 'ana', target: 'citra' } },
+    ];
+    const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
+    expect(text).toContain('Parked work at &quot;Wait&quot; was withdrawn');
+    expect(text).toContain('The called process finished after the parent moved on');
+    expect(text).not.toContain('Reason:');
+  });
+});

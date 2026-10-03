@@ -1,0 +1,123 @@
+package impl
+
+import (
+	"context"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+)
+
+// handOverAction is what a refused hand-over says the caller cannot do.
+const handOverAction = "hand it to someone else"
+
+// handOverCaller is who is asking for a hand-over, as far as the rules care:
+// whether they hold the task, and what their roles let them do.
+//
+// It is worked out from the task as it stands under the row lock. The endpoint
+// used to decide this from an unlocked read, so a hand-over racing another was
+// judged against a task that had already changed hands.
+type handOverCaller struct {
+	username string
+	// holdsTask: the caller is the task's current assignee.
+	holdsTask bool
+	// administrator: the caller holds ADMIN, globally or in the organization
+	// the request is for — what principal.HasRole answers at an endpoint.
+	administrator bool
+	// takesUnnamed: the caller may take a task nobody was named for.
+	takesUnnamed bool
+}
+
+// handOverCallerFor describes actor as the caller of a hand-over of task.
+//
+// The roles are the signed-in account's in the organization the request is
+// for, and they count only when that account is the actor: a call naming
+// somebody else is not lent the caller's roles (as mayTakeUnnamedTask).
+//
+// Nor is it lent the holder's standing. Whether the actor holds the task was
+// read from the name alone, so a call made by one signed-in account in the
+// name of another was the holder's whenever it named the holder — safe only
+// while every caller passed the account's own name. A request from one account
+// naming another now holds nothing and has no roles: the refusal a stranger
+// gets. A call with nobody signed in is the server's own, and acts for the
+// name it gives.
+func handOverCallerFor(ctx context.Context, actor string, task entities.Task) handOverCaller {
+	caller := handOverCaller{username: actor}
+	account := signedIn(ctx)
+	if account != nil && account.Username != actor {
+		return caller
+	}
+	caller.holdsTask = actor != "" && task.AssigneeUsername() == actor
+	if account == nil || actor == "" {
+		return caller
+	}
+	organization := entities.ActingOrganization(ctx)
+	caller.administrator = account.HoldsRoleIn(organization, entities.RoleAdmin)
+	caller.takesUnnamed = entities.TakesUnnamedWork(account.RolesIn(organization))
+	return caller
+}
+
+// mayHandOver refuses an assign or a delegate from anyone but the task's
+// holder or an administrator. A task nobody was named for is the operators'
+// as well (entities.Task.FallsToOperators); anybody else is told who can.
+func (c handOverCaller) mayHandOver(task entities.Task) error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	if task.FallsToOperators() {
+		if c.takesUnnamed {
+			return nil
+		}
+		return servicecontracts.ErrNobodyNamed
+	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", handOverAction)
+}
+
+// mayRelease refuses a release from anyone but the holder or an administrator.
+// Only a task somebody holds can be released, so the operators' share of the
+// work nobody was named for does not come into it.
+func (c handOverCaller) mayRelease() error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", handOverAction)
+}
+
+// reasonFor returns the reason, trimmed, and refuses a hand-over that needs
+// one and has none. Somebody handing on their own task need not explain it;
+// anyone else changing whose work it is must, and it is kept with the entry.
+// doing completes "say why you are …".
+func (c handOverCaller) reasonFor(reason, doing string) (string, error) {
+	reason = strings.TrimSpace(reason)
+	if utf8.RuneCountInString(reason) > servicecontracts.MaxHandOverReasonLength {
+		return "", apierr.Invalidf("the reason is longer than %d characters; say it more briefly",
+			servicecontracts.MaxHandOverReasonLength)
+	}
+	if reason == "" && !c.holdsTask {
+		return "", apierr.Invalidf("say why you are %s: a reason is required from anyone but the person holding the task", doing)
+	}
+	return reason, nil
+}
+
+// mayEdit refuses a change to a task's name, priority or due date from anyone
+// but its holder or an administrator. They are how its holder orders their
+// day; a task nobody holds is an administrator's to change.
+func (c handOverCaller) mayEdit() error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	return apierr.Forbiddenf("only the person holding this task, or an administrator, can change its name, priority or due date")
+}
+
+// mayResolve refuses a hand-back from anyone but the delegate — who holds the
+// task — or an administrator. Its owner is not among them: they gave it to
+// somebody to work on, and taking it back is that person's to do or an
+// administrator's to decide.
+func (c handOverCaller) mayResolve() error {
+	if c.administrator || c.holdsTask {
+		return nil
+	}
+	return apierr.Forbiddenf("only the person this task was delegated to, or an administrator, can hand it back")
+}

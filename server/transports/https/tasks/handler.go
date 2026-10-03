@@ -3,11 +3,15 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/transports/https/common"
+	"github.com/rs/zerolog/log"
 )
 
 func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransport.ServerOption) {
@@ -21,6 +25,14 @@ func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransp
 	m.Handle("GET /api/v1/tasks/{id}", httptransport.NewServer(
 		eps.GetTask,
 		decodeGetTaskRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	// The literal segment wins over {id}: the mux prefers the more specific
+	// pattern, so "delegated" is never read as a task id.
+	m.Handle("GET /api/v1/tasks/delegated", httptransport.NewServer(
+		eps.ListDelegatedTasks,
+		decodeListDelegatedTasksRequest,
 		common.EncodeResponse,
 		options...,
 	))
@@ -52,6 +64,12 @@ func RegisterHandlers(m *http.ServeMux, eps task.Endpoints, options []httptransp
 	m.Handle("POST /api/v1/tasks/{id}/delegate", httptransport.NewServer(
 		eps.DelegateTask,
 		decodeDelegateTaskRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/tasks/{id}/resolve", httptransport.NewServer(
+		eps.ResolveTask,
+		decodeResolveTaskRequest,
 		common.EncodeResponse,
 		options...,
 	))
@@ -121,12 +139,17 @@ func decodeClaimTaskRequest(_ context.Context, r *http.Request) (any, error) {
 }
 
 func decodeUnclaimTaskRequest(_ context.Context, r *http.Request) (any, error) {
-	return task.UnclaimTaskRequest{ID: r.PathValue("id")}, nil
+	var req task.UnclaimTaskRequest
+	if err := decodeBody(r, &req); err != nil {
+		return nil, err
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
 }
 
 func decodeDelegateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.DelegateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")
@@ -147,7 +170,7 @@ func decodeCompleteTaskRequest(_ context.Context, r *http.Request) (any, error) 
 
 func decodeUpdateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.UpdateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")
@@ -156,9 +179,44 @@ func decodeUpdateTaskRequest(_ context.Context, r *http.Request) (any, error) {
 
 func decodeAssignTaskRequest(_ context.Context, r *http.Request) (any, error) {
 	var req task.AssignTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeBody(r, &req); err != nil {
 		return nil, err
 	}
 	req.ID = r.PathValue("id")
 	return req, nil
+}
+
+func decodeListDelegatedTasksRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
+	return task.ListDelegatedTasksRequest{Page: page, PageSize: pageSize}, nil
+}
+
+func decodeResolveTaskRequest(_ context.Context, r *http.Request) (any, error) {
+	var req task.ResolveTaskRequest
+	if err := decodeBody(r, &req); err != nil {
+		return nil, err
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
+}
+
+// decodeBody reads a request's JSON body into into.
+//
+// No body at all is an empty request rather than an error: releasing a task
+// never took one, and the Connect and older REST clients send none. A body
+// that is there and cannot be read is the caller's mistake and is answered as
+// one — it used to reach the encoder as a plain error, which is a 500.
+//
+// The answer is a sentence and not the decoder's error, which names the
+// server's own types ("Go struct field DelegateTaskRequest.user_id of type
+// string"). What the decoder said is logged, at a level that is off unless
+// somebody is looking: any caller can send a bad body as often as they like.
+func decodeBody(r *http.Request, into any) error {
+	err := json.NewDecoder(r.Body).Decode(into)
+	if err == nil || errors.Is(err, io.EOF) {
+		return nil
+	}
+	log.Debug().Err(err).Str("path", r.URL.Path).Msg("A task request body could not be read")
+	return apierr.Invalidf("the request body is not JSON the server can read; " +
+		"check that it is complete and that each field holds the kind of value it takes")
 }

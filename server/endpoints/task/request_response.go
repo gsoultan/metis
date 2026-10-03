@@ -1,8 +1,6 @@
 package task
 
 import (
-	"time"
-
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
@@ -70,11 +68,15 @@ type ClaimTaskRequest struct {
 
 type UnclaimTaskRequest struct {
 	ID string `json:"id"`
+	// Reason is why the task is released. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type DelegateTaskRequest struct {
 	ID     string `json:"id"`
 	UserID string `json:"user_id"`
+	// Reason is why the task is delegated. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type CompleteTaskRequest struct {
@@ -89,11 +91,17 @@ type CompleteTaskResponse struct {
 
 func (r CompleteTaskResponse) Failed() error { return r.Err }
 
+// UpdateTaskRequest changes a task's name, priority or due date. Only the
+// fields the request carries change: a field left out is left as it is.
 type UpdateTaskRequest struct {
-	ID       string     `json:"id"`
-	Name     string     `json:"name,omitzero"`
-	Priority int        `json:"priority,omitzero"`
-	DueDate  *time.Time `json:"due_date,omitzero"`
+	ID       string  `json:"id"`
+	Name     *string `json:"name,omitempty"`
+	Priority *int    `json:"priority,omitempty"`
+	// DueDate is absent to keep the due date, null or "" to remove it, or an
+	// RFC 3339 time to set it.
+	DueDate DueDateField `json:"due_date"`
+	// Reason is why the task is changed. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type UpdateTaskResponse struct {
@@ -105,6 +113,8 @@ func (r UpdateTaskResponse) Failed() error { return r.Err }
 type AssignTaskRequest struct {
 	ID     string `json:"id"`
 	UserID string `json:"user_id"`
+	// Reason is why the task is assigned. Required unless the caller holds it.
+	Reason string `json:"reason,omitzero"`
 }
 
 type AssignTaskResponse struct {
@@ -112,3 +122,23 @@ type AssignTaskResponse struct {
 }
 
 func (r AssignTaskResponse) Failed() error { return r.Err }
+
+// ResolveTaskRequest hands a delegated task back to its owner.
+type ResolveTaskRequest struct {
+	ID string `json:"id"`
+	// Reason is why. Required unless the caller is the delegate holding it.
+	Reason string `json:"reason,omitzero"`
+}
+
+type ResolveTaskResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r ResolveTaskResponse) Failed() error { return r.Err }
+
+// ListDelegatedTasksRequest asks for the tasks the caller delegated that are
+// still with their delegate. It names nobody: the caller is who the token says.
+type ListDelegatedTasksRequest struct {
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+}

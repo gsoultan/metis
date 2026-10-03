@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -240,6 +241,24 @@ func (r *taskRepository) ListByAssigneePaged(ctx context.Context, assignee strin
 	return r.paged(ctx, nil, []task.Pred{task.Assignee.Eq(assignee)}, p)
 }
 
+// ListDelegatedByPaged returns the tasks somebody delegated that are still with
+// their delegate.
+//
+// The three things that make a delegation pending (entities.Task.AwaitsHandBack),
+// not the owner alone: a delegated task the engine withdrew, and one that was
+// handed back and completed, keep their owner, and a row a pod of the release
+// before this one wrote over can keep an owner under a status or a state that
+// is no longer a pending delegation. None of those is something its owner is
+// still waiting for. Three predicates and the tenant scope are within what the
+// store holds per query. Read through ix_tasks_owner, which migration 32 builds.
+func (r *taskRepository) ListDelegatedByPaged(ctx context.Context, owner string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
+	return r.paged(ctx, nil, []task.Pred{
+		task.Owner.Eq(owner),
+		task.Status.Eq(string(models.TaskDelegated)),
+		task.DelegationState.Eq(string(entities.DelegationPending)),
+	}, p)
+}
+
 func (r *taskRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -278,6 +297,8 @@ func (r *taskRepository) Create(ctx context.Context, t models.TaskModel) error {
 	ins.SetPriority(int64(t.Priority))
 	setOrNullString(ins.SetDescription, ins.SetDescriptionNull, t.Description)
 	setOrNullString(ins.SetAssignee, ins.SetAssigneeNull, t.Assignee)
+	setOrNullString(ins.SetOwner, ins.SetOwnerNull, t.Owner)
+	setOrNullString(ins.SetDelegationState, ins.SetDelegationStateNull, t.DelegationState)
 	setOrNullString(ins.SetFormKey, ins.SetFormKeyNull, t.FormKey)
 	setOrNullString(ins.SetFormDefinition, ins.SetFormDefinitionNull, t.FormDefinition)
 	setOrNullString(ins.SetIterationID, ins.SetIterationIDNull, t.IterationID)
@@ -317,6 +338,8 @@ func (r *taskRepository) Update(ctx context.Context, t models.TaskModel) error {
 	mut.SetPriority(int64(t.Priority))
 	setOrNullString(mut.SetDescription, mut.SetDescriptionNull, t.Description)
 	setOrNullString(mut.SetAssignee, mut.SetAssigneeNull, t.Assignee)
+	setOrNullString(mut.SetOwner, mut.SetOwnerNull, t.Owner)
+	setOrNullString(mut.SetDelegationState, mut.SetDelegationStateNull, t.DelegationState)
 	setOrNullString(mut.SetFormKey, mut.SetFormKeyNull, t.FormKey)
 	setOrNullString(mut.SetFormDefinition, mut.SetFormDefinitionNull, t.FormDefinition)
 	setOrNullString(mut.SetIterationID, mut.SetIterationIDNull, t.IterationID)
@@ -502,18 +525,20 @@ func taskFrom(row task.Row) (models.TaskModel, error) {
 			CreatedAt: row.CreatedAt,
 			UpdatedAt: row.UpdatedAt,
 		},
-		ProjectID:      models.UUID(row.ProjectID),
-		InstanceID:     models.UUID(row.InstanceID),
-		NodeID:         row.NodeID,
-		IterationID:    valueOr(row.IterationID),
-		Name:           row.Name,
-		Description:    valueOr(row.Description),
-		Type:           models.NodeType(row.Type),
-		Status:         models.TaskStatus(row.Status),
-		Assignee:       valueOr(row.Assignee),
-		Priority:       int(row.Priority),
-		FormKey:        valueOr(row.FormKey),
-		FormDefinition: valueOr(row.FormDefinition),
+		ProjectID:       models.UUID(row.ProjectID),
+		InstanceID:      models.UUID(row.InstanceID),
+		NodeID:          row.NodeID,
+		IterationID:     valueOr(row.IterationID),
+		Name:            row.Name,
+		Description:     valueOr(row.Description),
+		Type:            models.NodeType(row.Type),
+		Status:          models.TaskStatus(row.Status),
+		Assignee:        valueOr(row.Assignee),
+		Owner:           valueOr(row.Owner),
+		DelegationState: valueOr(row.DelegationState),
+		Priority:        int(row.Priority),
+		FormKey:         valueOr(row.FormKey),
+		FormDefinition:  valueOr(row.FormDefinition),
 	}
 	if due, ok := row.DueDate.Get(); ok {
 		t.DueDate = &due

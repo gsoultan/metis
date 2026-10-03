@@ -151,8 +151,11 @@ to:
 
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"user_id": "<username>"}' "$METIS/api/v1/tasks/<task-id>/assign"
+  -d '{"user_id": "<username>", "reason": "<why it goes to them>"}' "$METIS/api/v1/tasks/<task-id>/assign"
 ```
+
+The reason is required — you do not hold the task — and is kept in the
+instance's audit trail with your name.
 
 Then fix the step in the designer, which warns about it, so the next instance
 names somebody — a user step or a manual one, under *Who does this*.

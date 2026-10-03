@@ -5,6 +5,8 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { asText } from '../types/bpmn';
 import { describeDecision } from '../domain/decisionNarrative';
+import { handOverParts } from '../domain/handOverNarrative';
+import { useTranslation } from '../i18n/context';
 import { timelineKind } from '../domain/timelineKind';
 
 dayjs.extend(relativeTime);
@@ -25,6 +27,8 @@ const getEventIcon = (type: string) => {
     case 'released':
     case 'assigned':
     case 'delegated':
+    case 'handedBack':
+    case 'edited':
       return <User size={14} />;
     case 'completed':
       return <Check size={14} />;
@@ -46,6 +50,8 @@ const getEventColor = (type: string) => {
     case 'claimed':
     case 'assigned':
     case 'delegated':
+    case 'handedBack':
+    case 'edited':
       return 'indigo';
     case 'completed':
       return 'green';
@@ -77,6 +83,7 @@ function DecisionDetail({ data }: { data?: Record<string, unknown> }) {
 
 export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   const { data, isLoading } = useAuditLogs(instanceId);
+  const { t } = useTranslation();
 
   if (isLoading) return <Text>Loading timeline...</Text>;
   if (!data?.entries || data.entries.length === 0) return <Text c="dimmed">No activity recorded yet.</Text>;
@@ -97,7 +104,9 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
     <ScrollArea.Autosize mah={500} offsetScrollbars>
       <Box p="md">
         <Timeline active={entries.length} bulletSize={24} lineWidth={2}>
-          {entries.map((entry, index) => (
+          {entries.map((entry, index) => {
+            const told = handOverParts(entry.type, entry.data, entry.node?.name ?? '', t);
+            return (
             <Timeline.Item
               key={entry.id || index}
               bullet={
@@ -112,7 +121,7 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
               title={
                 <Group justify="space-between" align="flex-start">
                   <Text fw={500} size="sm">
-                    {entry.narrative || entry.message}
+                    {told?.sentence ?? (entry.narrative || entry.message)}
                   </Text>
                   <Text size="xs" c="dimmed">
                     {dayjs(entry.timestamp).fromNow()}
@@ -121,6 +130,12 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
               }
             >
               <Stack gap={4} mt={4}>
+                {/* The whole reason, as typed: line breaks kept, long words wrapped, never clamped. */}
+                {told?.reason && (
+                  <Text size="xs" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {t('handover.reason')}: {told.reason}
+                  </Text>
+                )}
                 {entry.node?.name && (
                   <Text size="xs" c="dimmed">
                     Step: {entry.node.name}
@@ -139,7 +154,8 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
                 )}
               </Stack>
             </Timeline.Item>
-          ))}
+            );
+          })}
         </Timeline>
       </Box>
     </ScrollArea.Autosize>

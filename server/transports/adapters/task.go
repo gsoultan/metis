@@ -39,6 +39,13 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 	if a.Task.Assignee != nil {
 		assignee = a.Task.Assignee.Username
 	}
+	// Not the row's own when it carries a pending mark it is not waiting on:
+	// see DelegationForClients.
+	sentOwner, sentState := a.Task.DelegationForClients()
+	owner := ""
+	if sentOwner != nil {
+		owner = sentOwner.Username
+	}
 	var candidateUsers []*pbentities.User
 	if len(a.Task.CandidateUsers) > 0 {
 		candidateUsers = make([]*pbentities.User, 0, len(a.Task.CandidateUsers))
@@ -78,5 +85,11 @@ func (a TaskPBAdapter) ToProto() *pbentities.Task {
 		FormDefinition: a.Task.FormDefinition,
 		Type:           string(a.Task.Type),
 		Description:    a.Task.Description,
+		// Who it goes back to, and whether it has yet: the inbox offers Hand
+		// back instead of Complete on a task that is waiting for one — which
+		// is a delegated task with an owner and a pending state, all three
+		// (entities.Task.AwaitsHandBack).
+		Owner:           userRef(owner),
+		DelegationState: string(sentState),
 	}
 }

@@ -9,7 +9,7 @@ describe('TASK_LIST_EVENTS', () => {
 
   it('covers every task event the engine raises', () => {
     // server/domains/entities/process_event.go
-    for (const type of ['TaskCreated', 'TaskClaimed', 'TaskUpdated', 'TaskCompleted', 'TaskCanceled']) {
+    for (const type of ['TaskCreated', 'TaskClaimed', 'TaskUpdated', 'TaskCompleted', 'TaskCanceled', 'TaskDelegated', 'TaskResolved']) {
       expect(TASK_LIST_EVENTS).toContain(type);
     }
   });

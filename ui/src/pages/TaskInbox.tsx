@@ -13,7 +13,6 @@ import {
   Modal,
   Select,
   Menu,
-  NumberInput,
   Table,
   ScrollArea,
   Accordion,
@@ -27,12 +26,6 @@ import {
   Box,
   Pagination,
 } from '@mantine/core';
-// Imported here rather than at the root: the date-picker stylesheet is only
-// needed where a picker is, and importing it eagerly pulled the whole
-// @mantine/dates chunk (~19 kB gzipped) onto the critical path for every
-// visitor, picker or not.
-import '@mantine/dates/styles.css';
-import { DateInput } from '@mantine/dates';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 dayjs.extend(relativeTime);
@@ -70,6 +63,13 @@ import { useRef } from 'react';
 import { statusLabel } from '../components/statusVocabulary';
 import { useTranslation } from '../i18n/context';
 import { offersClaim } from '../domain/unnamedTask';
+import { awaitsHandBack, delegatedBy, handBackOffer, offersEdit, offersReassign, releaseOffer, type Offer } from '../domain/taskDelegation';
+import { DelegationNote } from '../components/inbox/DelegationNote';
+import { DelegateAction } from '../components/inbox/DelegateAction';
+import { DelegatedByYou } from '../components/inbox/DelegatedByYou';
+import { ReassignDialog } from '../components/inbox/ReassignDialog';
+import { EditTaskDialog } from '../components/inbox/EditTaskDialog';
+import { ReasonDialog } from '../components/inbox/ReasonDialog';
 import { useAppStore } from '../store/useAppStore';
 
 function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
@@ -115,7 +115,28 @@ interface TaskRowProps {
   onEdit: (task: Task) => void;
   onReassign: (task: Task) => void;
   navigate: NavigateFn;
+  /**
+   * Whether the reader is offered Edit and Reassign. The server refuses both
+   * to anybody but the task's holder and an administrator — and, for Reassign,
+   * an operator on a task nobody was named for — so nobody else is shown them.
+   */
+  mayEdit: boolean;
+  mayReassign: boolean;
+  /**
+   * What the reader may do with a delegated task: the delegate, or an
+   * administrator, is offered Hand back where Complete would be.
+   */
+  handBack: Offer;
+  onHandBack: (task: Task) => void;
+  /** This task's hand-back has been sent and not yet answered. */
+  handingBack: boolean;
 }
+
+/** A row of the table also offers Release, which the board's card does not. */
+type TaskTableRowProps = TaskRowProps & {
+  /** Release: the holder's at one press, an administrator's through a dialog. */
+  release: Offer;
+};
 
 /** The subset of TanStack Router's navigate that this page uses. */
 type NavigateFn = (args: { to: string; search?: Record<string, unknown> }) => void;
@@ -140,11 +161,15 @@ interface KanbanViewProps {
   onComplete: (task: Task) => void;
   onEdit: (task: Task) => void;
   onReassign: (task: Task) => void;
+  onHandBack: (task: Task) => void;
+  /** The task whose hand-back has been sent and not yet answered, if any. */
+  resolvingTaskId: string | null;
   searchQuery: string;
   navigate: NavigateFn;
 }
 
-function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, navigate }: TaskRowProps) {
+function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, release, handBack, onHandBack, handingBack }: TaskTableRowProps) {
+  const { t } = useTranslation();
   const reference = taskReference(task.variables as Record<string, unknown> | undefined, task.instance?.id);
 
   return (
@@ -194,6 +219,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
               {task.formKey && (
                 <Badge size="xs" variant="outline" color="gray">Form: {task.formKey}</Badge>
               )}
+              {handBack === 'own' && <DelegationNote owner={delegatedBy(task)} />}
             </Group>
           </Stack>
         </Group>
@@ -288,17 +314,25 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
             >
               Claim Task
             </Button>
+          ) : awaitsHandBack(task) ? (
+            <DelegateAction task={task} offer={handBack} onHandBack={() => onHandBack(task)} busy={handingBack} />
           ) : (
             <>
-              <Tooltip label="Release back to group">
-                <ActionIcon aria-label="Show candidate groups" 
-                  variant="light" 
-                  color="gray"
-                  onClick={() => onUnclaim(task.id)}
-                >
-                  <Users size={16} />
-                </ActionIcon>
-              </Tooltip>
+              {release !== 'none' && (
+                <Tooltip label={t('handover.releaseTooltip')}>
+                  {/* This was named "Show candidate groups", which is not what
+                      it does: it releases the task. */}
+                  <ActionIcon aria-label={t('handover.releaseLabel', { task: task.name })}
+                    // An administrator releasing somebody else's is asked why first.
+                    aria-haspopup={release === 'withReason' ? 'dialog' : undefined}
+                    variant="light" 
+                    color="gray"
+                    onClick={() => onUnclaim(task.id)}
+                  >
+                    <Users size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
               <Button 
                 size="xs" 
                 variant="filled" 
@@ -317,20 +351,24 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Label>Task Management</Menu.Label>
-              <Menu.Item 
-                leftSection={<Edit2 size={14} />} 
-                onClick={() => onEdit(task)}
-              >
-                Edit Task Details
-              </Menu.Item>
-              <Menu.Item 
-                leftSection={<User size={14} />}
-                onClick={() => onReassign(task)}
-              >
-                Reassign Task
-              </Menu.Item>
-              <Menu.Divider />
+              {(mayEdit || mayReassign) && <Menu.Label>Task Management</Menu.Label>}
+              {mayEdit && (
+                <Menu.Item 
+                  leftSection={<Edit2 size={14} />} 
+                  onClick={() => onEdit(task)}
+                >
+                  Edit Task Details
+                </Menu.Item>
+              )}
+              {mayReassign && (
+                <Menu.Item 
+                  leftSection={<User size={14} />}
+                  onClick={() => onReassign(task)}
+                >
+                  Reassign Task
+                </Menu.Item>
+              )}
+              {(mayEdit || mayReassign) && <Menu.Divider />}
               <Menu.Item 
                 leftSection={<ExternalLink size={14} />}
                 onClick={() => navigate({
@@ -351,7 +389,7 @@ function TaskRow({ task, isSelected, onToggleSelection, onClaim, onUnclaim, onCo
 /** What the board says instead of "Claim" on a task its reader may not take. */
 const NOBODY_NAMED_NOTE = 'Nobody was named for this. An administrator or an operator can take it.';
 
-function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, claimable }: TaskCardProps) {
+function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, onEdit, onReassign, navigate, mayEdit, mayReassign, claimable, handBack, onHandBack, handingBack }: TaskCardProps) {
   // How urgent this is, decided in one place rather than by three different
   // inline thresholds — which is what was here, and they had already drifted.
   const urgency = urgencyOf(task);
@@ -381,9 +419,9 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item leftSection={<Edit2 size={12} />} onClick={() => onEdit(task)}>Edit</Menu.Item>
-              <Menu.Item leftSection={<User size={12} />} onClick={() => onReassign(task)}>Reassign</Menu.Item>
-              <Menu.Divider />
+              {mayEdit && <Menu.Item leftSection={<Edit2 size={12} />} onClick={() => onEdit(task)}>Edit</Menu.Item>}
+              {mayReassign && <Menu.Item leftSection={<User size={12} />} onClick={() => onReassign(task)}>Reassign</Menu.Item>}
+              {(mayEdit || mayReassign) && <Menu.Divider />}
               <Menu.Item 
                 leftSection={<ExternalLink size={12} />}
                 onClick={() => navigate({
@@ -411,6 +449,7 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
         {task.formKey && (
           <Badge size="xs" variant="outline" color="gray">Form: {task.formKey}</Badge>
         )}
+        {handBack === 'own' && <DelegationNote owner={delegatedBy(task)} />}
       </Group>
 
       <Stack gap={8}>
@@ -447,6 +486,11 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
             // tells the reader whom to ask.
             <Text size="xs" c="dimmed">{NOBODY_NAMED_NOTE}</Text>
           )
+        ) : awaitsHandBack(task) ? (
+          // As its row in the table: Hand back for the delegate or an
+          // administrator, who has it for everybody else, and Complete for
+          // nobody — the server refuses it until the task is handed back.
+          <DelegateAction task={task} offer={handBack} onHandBack={() => onHandBack(task)} busy={handingBack} />
         ) : (
           <Button size="compact-xs" color={task.type === 'manualTask' ? 'blue' : 'green'} onClick={() => onComplete(task)}>
             {task.type === 'manualTask' ? 'Done' : 'Complete'}
@@ -457,16 +501,20 @@ function TaskCard({ task, isSelected, onToggleSelection, onClaim, onComplete, on
   );
 }
 
-function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, searchQuery, navigate }: KanbanViewProps) {
+function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUnclaim, onComplete, onEdit, onReassign, onHandBack, resolvingTaskId, searchQuery, navigate }: KanbanViewProps) {
   // Who is looking decides what the board offers them to claim.
   const viewer = useAppStore((state) => state.user);
   // The column headings are the status names, so they come from the same place
   // the badges do — "Unclaimed" here and "Available" on the card was the board
   // disagreeing with the cards on it.
+  //
+  // A task with a delegate is work somebody has taken up, so it is with the
+  // claimed ones. It had no column: the board left out every delegated task,
+  // and the delegate who reads the board never saw the work or Hand back.
   const columns = [
-    { id: 'unclaimed', title: statusLabel('unclaimed'), status: 'unclaimed', color: 'grape' },
-    { id: 'claimed', title: statusLabel('claimed'), status: 'claimed', color: 'indigo' },
-    { id: 'completed', title: statusLabel('completed'), status: 'completed', color: 'green' },
+    { id: 'unclaimed', title: statusLabel('unclaimed'), statuses: ['unclaimed'], color: 'grape' },
+    { id: 'claimed', title: statusLabel('claimed'), statuses: ['claimed', 'delegated'], color: 'indigo' },
+    { id: 'completed', title: statusLabel('completed'), statuses: ['completed'], color: 'green' },
   ];
 
   const filteredTasks = tasks.filter((t) => {
@@ -474,22 +522,26 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
     const q = searchQuery.toLowerCase();
     return t.name?.toLowerCase().includes(q) || t.id?.toLowerCase().includes(q);
   });
+  const stages = columns.map((col) => ({
+    ...col,
+    cards: filteredTasks.filter((t) => col.statuses.includes(t.status)),
+  }));
 
   return (
     <Grid gap="md">
-      {columns.map(col => (
+      {stages.map(col => (
         <Grid.Col span={{ base: 12, md: 4 }} key={col.id}>
           <Paper p="md" radius="lg" bg="gray.0" withBorder h="100%" style={{ minHeight: 500 }}>
             <Group justify="space-between" mb="md">
               <Group gap="xs">
                 <Badge color={col.color} variant="filled" size="sm">{col.title}</Badge>
                 <Text size="xs" c="dimmed" fw={500}>
-                  {filteredTasks.filter((t) => t.status === col.status).length} Tasks
+                  {col.cards.length} Tasks
                 </Text>
               </Group>
             </Group>
             <Stack gap="md">
-              {filteredTasks.filter((t) => t.status === col.status).map((task) => (
+              {col.cards.map((task) => (
                 <TaskCard 
                   key={task.id} 
                   task={task} 
@@ -501,10 +553,15 @@ function KanbanView({ tasks, selectedTaskIds, onToggleSelection, onClaim, onUncl
                   onEdit={onEdit} 
                   onReassign={onReassign} 
                   navigate={navigate}
+                  mayEdit={offersEdit(task, viewer)}
+                  mayReassign={offersReassign(task, viewer)}
                   claimable={offersClaim(task, viewer)}
+                  handBack={handBackOffer(task, viewer)}
+                  onHandBack={onHandBack}
+                  handingBack={resolvingTaskId === task.id}
                 />
               ))}
-              {filteredTasks.filter((t) => t.status === col.status).length === 0 && (
+              {col.cards.length === 0 && (
                 <Stack align="center" py={40} gap="xs">
                   <ClipboardList size={24} color="var(--mantine-color-gray-4)" />
                   <Text size="xs" c="dimmed">No tasks in this stage</Text>
@@ -568,8 +625,20 @@ export function TaskInbox() {
     handleUnclaim,
     handleComplete,
     handleAssign,
+    assigning,
+    handleResolve,
+    resolvingTaskId,
+    delegatedByMe,
+    delegatedTotal,
+    reasonRequest,
+    setReasonRequest,
+    reasonInFlight,
     updateTaskMutation,
   } = useTaskInbox();
+  // Who is reading, with their roles. What a task offers them follows what
+  // the server lets them do, and an administrator changing a task somebody
+  // else holds is asked why.
+  const viewer = useAppStore((state) => state.user);
 
   const onFormSubmit = (values: Record<string, unknown>) => {
     if (selectedTask) {
@@ -582,6 +651,25 @@ export function TaskInbox() {
       handleComplete(task.id, {}, task.name);
     } else {
       setSelectedTask(task);
+    }
+  };
+
+  // Its holder releases a task, or hands it back, at one press. Anybody else
+  // is asked why first, because the server takes it from them only with a
+  // reason.
+  const onReleaseClick = (task: Task) => {
+    if (releaseOffer(task, viewer) === 'own') {
+      handleUnclaim(task.id);
+    } else {
+      setReasonRequest({ kind: 'release', task });
+    }
+  };
+
+  const onHandBackClick = (task: Task) => {
+    if (handBackOffer(task, viewer) === 'own') {
+      handleResolve(task.id, delegatedBy(task));
+    } else {
+      setReasonRequest({ kind: 'handBack', task });
     }
   };
 
@@ -686,6 +774,10 @@ export function TaskInbox() {
           </Paper>
         )}
       </Transition>
+
+      {viewMode === 'table' && activeTab === 'assigned' && (
+        <DelegatedByYou tasks={delegatedByMe} total={delegatedTotal} />
+      )}
 
       <Tabs value={activeTab} onChange={setActiveTab} variant="pills" radius="md">
         {viewMode === 'table' && (
@@ -826,11 +918,17 @@ export function TaskInbox() {
                         isSelected={selectedTaskIds.includes(task.id)}
                         onToggleSelection={toggleSelection}
                         onClaim={handleClaim}
-                        onUnclaim={handleUnclaim}
+                        onUnclaim={() => onReleaseClick(task)}
                         onComplete={onCompleteClick}
                         onEdit={setEditingTask}
                         onReassign={onReassignClick}
                         navigate={navigate}
+                        mayEdit={offersEdit(task, viewer)}
+                        mayReassign={offersReassign(task, viewer)}
+                        release={releaseOffer(task, viewer)}
+                        handBack={handBackOffer(task, viewer)}
+                        onHandBack={onHandBackClick}
+                        handingBack={resolvingTaskId === task.id}
                       />
                     )}
                   />
@@ -900,6 +998,8 @@ export function TaskInbox() {
               onComplete={onCompleteClick}
               onEdit={setEditingTask}
               onReassign={onReassignClick}
+              onHandBack={onHandBackClick}
+              resolvingTaskId={resolvingTaskId}
               searchQuery={searchQuery}
               navigate={navigate}
             />
@@ -907,44 +1007,19 @@ export function TaskInbox() {
         )}
       </Tabs>
 
-      <Modal
+      <ReassignDialog
         opened={reassignModalOpened}
+        task={taskToReassign}
+        viewer={viewer}
+        users={availableUsers}
+        assignee={newAssignee}
+        onAssigneeChange={setNewAssignee}
+        onConfirm={(assignee, reason) => {
+          if (taskToReassign) handleAssign(taskToReassign.id, assignee, reason);
+        }}
         onClose={() => setReassignModalOpened(false)}
-        title={
-          <Group gap="xs">
-            <User size={18} color="var(--mantine-color-blue-6)" />
-            <Text fw={700}>Reassign Task: {taskToReassign?.name}</Text>
-          </Group>
-        }
-        radius="md"
-      >
-        <Stack py="md">
-          <Select
-            label="New Assignee"
-            placeholder="Select user"
-            description="Select a user to take responsibility for this task"
-            data={availableUsers}
-            value={newAssignee}
-            onChange={setNewAssignee}
-            searchable
-            clearable
-          />
-          <Group justify="flex-end" mt="xl">
-            <Button variant="default" onClick={() => setReassignModalOpened(false)}>Cancel</Button>
-            <Button 
-              color="blue" 
-              onClick={() => {
-                if (taskToReassign && newAssignee) {
-                  handleAssign(taskToReassign.id, newAssignee);
-                }
-              }} 
-              disabled={!newAssignee}
-            >
-              Confirm Reassignment
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        busy={assigning}
+      />
 
       <Modal
         opened={!!selectedTask}
@@ -1018,65 +1093,38 @@ export function TaskInbox() {
         )}
       </Modal>
 
-      <Modal
-        opened={!!editingTask}
+      <EditTaskDialog
+        task={editingTask}
+        viewer={viewer}
+        onChange={setEditingTask}
+        onSave={(reason) => {
+          if (!editingTask) return;
+          updateTaskMutation.mutate({
+            id: editingTask.id,
+            name: editingTask.name,
+            priority: Number(editingTask.priority),
+            dueDate: editingTask.dueDate,
+            reason,
+          }, {
+            onSuccess: () => setEditingTask(null),
+          });
+        }}
         onClose={() => setEditingTask(null)}
-        title={
-          <Group gap="xs">
-            <Edit2 size={18} color="var(--mantine-color-blue-6)" />
-            <Text fw={700}>Edit Task: {editingTask?.name}</Text>
-          </Group>
-        }
-        size="md"
-        radius="md"
-      >
-        {editingTask && (
-          <Stack py="md">
-            <TextInput 
-              label="Task Name" 
-              value={editingTask.name} 
-              onChange={(e) => setEditingTask({...editingTask, name: e.currentTarget.value})}
-            />
-            <NumberInput 
-              label="Priority" 
-              value={editingTask.priority} 
-              onChange={(val) => setEditingTask({...editingTask, priority: Number(val) || 0})}
-            />
-            <DateInput 
-              label="Due Date" 
-              value={editingTask.dueDate ? new Date(editingTask.dueDate) : null} 
-              onChange={(date: string | Date | null) => {
-                if (!date) {
-                  setEditingTask({...editingTask, dueDate: '' });
-                  return;
-                }
-                const d = new Date(date);
-                setEditingTask({...editingTask, dueDate: d.toISOString()});
-              }}
-              clearable
-            />
-            <Group justify="flex-end" mt="xl">
-              <Button variant="default" onClick={() => setEditingTask(null)}>Cancel</Button>
-              <Button 
-                color="blue" 
-                onClick={() => {
-                  updateTaskMutation.mutate({
-                    id: editingTask.id,
-                    name: editingTask.name,
-                    priority: Number(editingTask.priority),
-                    dueDate: editingTask.dueDate
-                  }, {
-                    onSuccess: () => setEditingTask(null)
-                  });
-                }} 
-                loading={updateTaskMutation.isPending}
-              >
-                Save Changes
-              </Button>
-            </Group>
-          </Stack>
-        )}
-      </Modal>
+        saving={updateTaskMutation.isPending}
+      />
+
+      <ReasonDialog
+        request={reasonRequest}
+        onConfirm={(request, reason) => {
+          if (request.kind === 'release') {
+            handleUnclaim(request.task.id, reason);
+          } else {
+            handleResolve(request.task.id, delegatedBy(request.task), reason);
+          }
+        }}
+        onClose={() => setReasonRequest(null)}
+        busy={reasonInFlight}
+      />
     </Stack>
   );
 }

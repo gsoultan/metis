@@ -75,7 +75,10 @@ func newTaskHarness(t *testing.T) *taskHarness {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	sse := observersimpl.NewSSEObserver()
-	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "actor-test-secret", nil, nil, nil)
+	dispatcher := observersimpl.NewEventDispatcher()
+	svc := services.NewServiceFacade(repo, dispatcher, sse, "actor-test-secret", nil, nil, nil)
+	// As the server wires it: whoever work arrives for is told.
+	dispatcher.Register(observersimpl.NewNotificationObserver(svc))
 
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
 	server := httptest.NewServer(handler)

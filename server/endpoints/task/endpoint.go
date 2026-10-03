@@ -26,6 +26,8 @@ type Endpoints struct {
 	CompleteTask          endpoint.Endpoint
 	UpdateTask            endpoint.Endpoint
 	AssignTask            endpoint.Endpoint
+	ResolveTask           endpoint.Endpoint
+	ListDelegatedTasks    endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -40,6 +42,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		CompleteTask:          MakeCompleteTaskEndpoint(s),
 		UpdateTask:            MakeUpdateTaskEndpoint(s),
 		AssignTask:            MakeAssignTaskEndpoint(s),
+		ResolveTask:           MakeResolveTaskEndpoint(s),
+		ListDelegatedTasks:    MakeListDelegatedTasksEndpoint(s),
 	}
 }
 
@@ -157,13 +161,13 @@ func MakeUnclaimTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		// Releasing puts the task back for anyone to claim, which is handing it
-		// over to whoever claims it next. It asked nobody's permission, so any
-		// member could release a task somebody else held and take it.
-		if err := mayRelease(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
 		}
-		err = s.UnclaimTask(ctx, id)
+		// Who may release it, and whether they must say why, is the service's
+		// to decide: it holds the task's row while it does.
+		err = s.UnclaimTask(ctx, id, servicecontracts.HandOver{Actor: actor, Reason: req.Reason})
 		return CompleteTaskResponse{Err: err}, nil
 	}
 }
@@ -179,15 +183,12 @@ func MakeDelegateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return CompleteTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		// Delegation hands the task to someone else, so the target is a
-		// parameter — but only the person holding it, or an administrator,
-		// may hand it on.
-		if err := mayHandOver(ctx, s, id); err != nil {
+		// parameter — the caller is not: it is whoever the token says.
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return CompleteTaskResponse{Err: err}, nil
 		}
-		if req.UserID == "" {
-			return CompleteTaskResponse{Err: apierr.Invalidf("say who the task is delegated to")}, nil
-		}
-		err = s.DelegateTask(ctx, id, req.UserID)
+		err = s.DelegateTask(ctx, id, servicecontracts.HandOver{Actor: actor, Target: req.UserID, Reason: req.Reason})
 		return CompleteTaskResponse{Err: err}, nil
 	}
 }
@@ -269,20 +270,21 @@ func MakeUpdateTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return UpdateTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		// A task's name, priority and due date are how its holder orders their
-		// day. Anybody in the organization could change them on somebody else's
-		// task — push the date out, drop the priority — so editing is held to
-		// the rule handing it on is.
-		if err := mayEdit(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return UpdateTaskResponse{Err: err}, nil
 		}
-		task := entities.Task{
-			ID:       id,
-			Name:     req.Name,
-			Priority: req.Priority,
-			DueDate:  req.DueDate,
-		}
-		err = s.UpdateTask(ctx, task)
+		// A task's name, priority and due date are how its holder orders their
+		// day. Who may change them, and whether they must say why, is decided
+		// by the service on the row it holds.
+		err = s.UpdateTask(ctx, id, servicecontracts.TaskEdit{
+			Actor:        actor,
+			Reason:       req.Reason,
+			Name:         req.Name,
+			Priority:     req.Priority,
+			DueDate:      req.DueDate.Value,
+			ClearDueDate: req.DueDate.Present && req.DueDate.Value == nil,
+		})
 		return UpdateTaskResponse{Err: err}, nil
 	}
 }
@@ -297,14 +299,53 @@ func MakeAssignTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return AssignTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
-		if err := mayHandOver(ctx, s, id); err != nil {
+		actor, err := principal.Username(ctx)
+		if err != nil {
 			return AssignTaskResponse{Err: err}, nil
 		}
-		if req.UserID == "" {
-			return AssignTaskResponse{Err: apierr.Invalidf("say who the task is assigned to")}, nil
-		}
-		err = s.AssignTask(ctx, id, req.UserID)
+		err = s.AssignTask(ctx, id, servicecontracts.HandOver{Actor: actor, Target: req.UserID, Reason: req.Reason})
 		return AssignTaskResponse{Err: err}, nil
+	}
+}
+
+func MakeResolveTaskEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ResolveTaskRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ResolveTaskRequest, got %T", request)
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return ResolveTaskResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return ResolveTaskResponse{Err: err}, nil
+		}
+		// Who may hand it back — the delegate, or an administrator who says
+		// why — is the service's to decide, on the row it holds.
+		err = s.ResolveTask(ctx, id, servicecontracts.HandOver{Actor: actor, Reason: req.Reason})
+		return ResolveTaskResponse{Err: err}, nil
+	}
+}
+
+func MakeListDelegatedTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDelegatedTasksRequest)
+		if !ok {
+			return nil, fmt.Errorf("task: expected a ListDelegatedTasksRequest, got %T", request)
+		}
+		// The caller's own, like the inbox: who is asking is the verified
+		// principal, and the request has no field that could name anybody else.
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		page, err := s.ListTasksDelegatedByPaged(ctx, actor, repocontracts.Pagination{Page: req.Page, PageSize: req.PageSize})
+		if err != nil {
+			return ListTasksResponse{Err: err}, nil
+		}
+		return listTasksResponse(page), nil
 	}
 }
 
@@ -333,70 +374,4 @@ func callerGroups(ctx context.Context, s services.ServiceFacade) ([]string, erro
 		}
 	}
 	return out, nil
-}
-
-// handOverAction is what a refused hand-over says the caller cannot do.
-const handOverAction = "hand it to someone else"
-
-// mayHandOver refuses a delegate or assign from anyone but the task's current
-// assignee or an administrator. A task with no assignee may be handed on by an
-// administrator only: absent constraint means deny, not "anyone".
-//
-// Except a task nobody was named for — no assignee and no candidates — which
-// is the operators' as well (entities.Task.FallsToOperators): an operator may
-// claim one, and giving it to the person it should have gone to is taking it
-// on their behalf. Anybody else is told who can.
-func mayHandOver(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	task, admitted, err := holderOrAdministrator(ctx, s, id)
-	if err != nil || admitted {
-		return err
-	}
-	if task.FallsToOperators() {
-		if entities.TakesUnnamedWork(principal.Roles(ctx)) {
-			return nil
-		}
-		return servicecontracts.ErrNobodyNamed
-	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", handOverAction)
-}
-
-// mayRelease refuses a release from anyone but the task's current assignee or
-// an administrator. Only a task somebody holds can be released, so the
-// operators' share of the work nobody was named for does not come into it.
-func mayRelease(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	return requireHolderOrAdministrator(ctx, s, id, handOverAction)
-}
-
-// mayEdit refuses a change to a task's name, priority or due date on the same
-// terms: its holder or an administrator, and for a task nobody holds, an
-// administrator.
-func mayEdit(ctx context.Context, s services.ServiceFacade, id uuid.UUID) error {
-	return requireHolderOrAdministrator(ctx, s, id, "change its name, priority or due date")
-}
-
-// requireHolderOrAdministrator admits the task's current assignee or an
-// administrator to what the refusal names.
-func requireHolderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID, action string) error {
-	_, admitted, err := holderOrAdministrator(ctx, s, id)
-	if err != nil || admitted {
-		return err
-	}
-	return apierr.Forbiddenf("only the person holding this task, or an administrator, can %s", action)
-}
-
-// holderOrAdministrator reports whether the caller is an administrator or holds
-// the task, and returns the task when it had to be read to say.
-func holderOrAdministrator(ctx context.Context, s services.ServiceFacade, id uuid.UUID) (entities.Task, bool, error) {
-	actor, err := principal.Username(ctx)
-	if err != nil {
-		return entities.Task{}, false, err
-	}
-	if principal.HasRole(ctx, entities.RoleAdmin) {
-		return entities.Task{}, true, nil
-	}
-	task, err := s.GetTask(ctx, id)
-	if err != nil {
-		return entities.Task{}, false, err
-	}
-	return task, task.AssigneeUsername() == actor, nil
 }

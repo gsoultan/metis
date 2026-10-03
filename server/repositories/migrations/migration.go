@@ -837,6 +837,7 @@ func Schema(models []any) []Migration {
 		notificationIndexes(),
 		organizationRoles(),
 		taskIteration(),
+		taskDelegation(),
 	}
 }
 

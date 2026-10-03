@@ -30,6 +30,13 @@ type Task struct {
 	CandidateUsers  storm.JSON
 	CandidateGroups storm.JSON
 
+	// Owner is who delegated the task and waits for it back, a username like
+	// the assignee. DelegationState is "pending" while the delegate has it and
+	// "resolved" once they handed it back; both are NULL for a task never
+	// delegated.
+	Owner           *string
+	DelegationState *string
+
 	// Priority and DueDate are what the inbox computes urgency from. Both are
 	// authored on the node and copied here when the task is created.
 	Priority int
@@ -57,6 +64,10 @@ func (t2 *Task) Schema(t *storm.Table) {
 	t.Col(&t2.Status).Index()
 	t.Col(&t2.Assignee).Size(255)
 	t.Col(&t2.Assignee).Index()
+	t.Col(&t2.Owner).Size(255)
+	// What somebody delegated is read by owner, for every inbox that opens.
+	t.Col(&t2.Owner).Index()
+	t.Col(&t2.DelegationState).Size(32)
 	t.Col(&t2.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.

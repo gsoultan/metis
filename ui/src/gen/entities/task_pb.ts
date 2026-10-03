@@ -21,7 +21,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file entities/task.proto.
  */
 export const file_entities_task: GenFile = /*@__PURE__*/
-  fileDesc("ChNlbnRpdGllcy90YXNrLnByb3RvEgdwcm9jZXNzIsEDCgRUYXNrEgoKAmlkGAEgASgJEiEKB3Byb2plY3QYAiABKAsyEC5wcm9jZXNzLlByb2plY3QSKgoIaW5zdGFuY2UYAyABKAsyGC5wcm9jZXNzLlByb2Nlc3NJbnN0YW5jZRIbCgRub2RlGAQgASgLMg0ucHJvY2Vzcy5Ob2RlEgwKBG5hbWUYBSABKAkSDgoGc3RhdHVzGAYgASgJEh8KCGFzc2lnbmVlGAcgASgLMg0ucHJvY2Vzcy5Vc2VyEiYKD2NhbmRpZGF0ZV91c2VycxgIIAMoCzINLnByb2Nlc3MuVXNlchIoChBjYW5kaWRhdGVfZ3JvdXBzGAkgAygLMg4ucHJvY2Vzcy5Hcm91cBIQCghwcmlvcml0eRgKIAEoBRIQCghkdWVfZGF0ZRgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJEioKCXZhcmlhYmxlcxgNIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSEAoIZm9ybV9rZXkYDiABKAkSFwoPZm9ybV9kZWZpbml0aW9uGA8gASgJEgwKBHR5cGUYECABKAkSEwoLZGVzY3JpcHRpb24YESABKAlCiwEKC2NvbS5wcm9jZXNzQglUYXNrUHJvdG9QAVo1Z2l0aHViLmNvbS9nc291bHRhbi9tZXRpcy9hcGkvcHJvdG8vZW50aXRpZXM7ZW50aXRpZXOiAgNQWFiqAgdQcm9jZXNzygIHUHJvY2Vzc+ICE1Byb2Nlc3NcR1BCTWV0YWRhdGHqAgdQcm9jZXNzYgZwcm90bzM", [file_google_protobuf_struct, file_entities_node, file_entities_user, file_entities_group, file_entities_project, file_entities_process_instance]);
+  fileDesc("ChNlbnRpdGllcy90YXNrLnByb3RvEgdwcm9jZXNzIvkDCgRUYXNrEgoKAmlkGAEgASgJEiEKB3Byb2plY3QYAiABKAsyEC5wcm9jZXNzLlByb2plY3QSKgoIaW5zdGFuY2UYAyABKAsyGC5wcm9jZXNzLlByb2Nlc3NJbnN0YW5jZRIbCgRub2RlGAQgASgLMg0ucHJvY2Vzcy5Ob2RlEgwKBG5hbWUYBSABKAkSDgoGc3RhdHVzGAYgASgJEh8KCGFzc2lnbmVlGAcgASgLMg0ucHJvY2Vzcy5Vc2VyEiYKD2NhbmRpZGF0ZV91c2VycxgIIAMoCzINLnByb2Nlc3MuVXNlchIoChBjYW5kaWRhdGVfZ3JvdXBzGAkgAygLMg4ucHJvY2Vzcy5Hcm91cBIQCghwcmlvcml0eRgKIAEoBRIQCghkdWVfZGF0ZRgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJEioKCXZhcmlhYmxlcxgNIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSEAoIZm9ybV9rZXkYDiABKAkSFwoPZm9ybV9kZWZpbml0aW9uGA8gASgJEgwKBHR5cGUYECABKAkSEwoLZGVzY3JpcHRpb24YESABKAkSHAoFb3duZXIYEiABKAsyDS5wcm9jZXNzLlVzZXISGAoQZGVsZWdhdGlvbl9zdGF0ZRgTIAEoCUKLAQoLY29tLnByb2Nlc3NCCVRhc2tQcm90b1ABWjVnaXRodWIuY29tL2dzb3VsdGFuL21ldGlzL2FwaS9wcm90by9lbnRpdGllcztlbnRpdGllc6ICA1BYWKoCB1Byb2Nlc3PKAgdQcm9jZXNz4gITUHJvY2Vzc1xHUEJNZXRhZGF0YeoCB1Byb2Nlc3NiBnByb3RvMw", [file_google_protobuf_struct, file_entities_node, file_entities_user, file_entities_group, file_entities_project, file_entities_process_instance]);
 
 /**
  * @generated from message process.Task
@@ -115,6 +115,25 @@ export type Task = Message<"process.Task"> & {
    * @generated from field: string description = 17;
    */
   description: string;
+
+  /**
+   * Who delegated the task and waits for it back, when it has been delegated.
+   * While status is "delegated" and delegation_state is "pending" the assignee
+   * is the delegate, who works on it and hands it back; only the owner
+   * completes it. All three are needed: an owner or a pending state on a task
+   * with any other status is left over and means nothing.
+   *
+   * @generated from field: process.User owner = 18;
+   */
+  owner?: User | undefined;
+
+  /**
+   * "pending" while a delegate has the task, "resolved" once they have handed
+   * it back, and empty for a task that was never delegated.
+   *
+   * @generated from field: string delegation_state = 19;
+   */
+  delegationState: string;
 };
 
 /**

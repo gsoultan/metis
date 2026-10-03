@@ -7,6 +7,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
 )
@@ -26,6 +27,12 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
 		"audit-once-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
+	// The people the task moves between are accounts in its organization, and
+	// the one who assigns a task nobody holds is an administrator.
+	for _, name := range []string{"alice", "bob"} {
+		seedMember(t, repo, ctx, name)
+	}
+	asBoss := asAdministrator(ctx, "boss")
 
 	if _, err := svc.CreateDefinition(ctx, &entities.ProcessDefinition{
 		Project: &entities.Project{ID: projectID},
@@ -57,10 +64,15 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 		do   func() error
 	}{
 		{"claim", func() error { return svc.ClaimTask(ctx, taskID, "alice") }},
-		{"release", func() error { return svc.UnclaimTask(ctx, taskID) }},
-		{"assign", func() error { return svc.AssignTask(ctx, taskID, "bob") }},
-		{"delegate", func() error { return svc.DelegateTask(ctx, taskID, "alice") }},
-		{"complete", func() error { return svc.CompleteTask(ctx, taskID, "alice", nil) }},
+		{"release", func() error { return svc.UnclaimTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice"}) }},
+		{"assign", func() error {
+			return svc.AssignTask(asBoss, taskID, servicecontracts.HandOver{Actor: "boss", Target: "bob", Reason: "bob reviews expenses this week"})
+		}},
+		{"delegate", func() error {
+			return svc.DelegateTask(ctx, taskID, servicecontracts.HandOver{Actor: "bob", Target: "alice"})
+		}},
+		{"hand back", func() error { return svc.ResolveTask(ctx, taskID, servicecontracts.HandOver{Actor: "alice"}) }},
+		{"complete", func() error { return svc.CompleteTask(ctx, taskID, "bob", nil) }},
 	} {
 		if err := step.do(); err != nil {
 			t.Fatalf("%s: %v", step.name, err)
@@ -78,9 +90,9 @@ func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 			about = append(about, e.Type+": "+e.Narrative)
 		}
 	}
-	// Created, claimed, released, assigned, delegated, completed.
-	if len(about) != 6 {
-		t.Fatalf("six things happened to the task and the trail has %d entries about it:\n  %s",
+	// Created, claimed, released, assigned, delegated, handed back, completed.
+	if len(about) != 7 {
+		t.Fatalf("seven things happened to the task and the trail has %d entries about it:\n  %s",
 			len(about), strings.Join(about, "\n  "))
 	}
 }
