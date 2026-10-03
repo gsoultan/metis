@@ -24,6 +24,9 @@ type taskService struct {
 	repo        repositories.Repository
 	engine      servicecontracts.ExecutionEngine
 	auditWriter servicecontracts.AuditWriter
+	// ledger records the hand-overs and edits that are deviations, in the
+	// transaction that makes them.
+	ledger servicecontracts.DeviationRecorder
 	// undeclaredReports is which steps have been named for setting variables
 	// their form does not declare, while EnvAllowUndeclaredTaskVariables is on.
 	undeclaredReports undeclaredVariableReports
@@ -38,6 +41,7 @@ func NewTaskService(
 		repo:        repo,
 		engine:      engine,
 		auditWriter: auditWriter,
+		ledger:      NewDeviationLedger(repo),
 	}
 }
 
