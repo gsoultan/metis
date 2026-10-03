@@ -121,9 +121,77 @@ func TestTheReadRouteReturnsNoAccountIds(t *testing.T) {
 		t.Fatalf("the row does not keep the account id (%d, %v); this test would prove nothing", stored, err)
 	}
 	_, _, body := h.readDeviations(t, h.signIn(t, "member", entities.RoleUser), instanceID.String())
-	for _, key := range []string{`"actor_id"`, `"approved_by_id"`} {
-		if strings.Contains(body, key) {
-			t.Fatalf("the reply carries %s: %s", key, body)
+	// The id itself, not only the names it could travel under: a field added
+	// later under another name would carry it past a check of key names.
+	for _, forbidden := range []string{`"actor_id"`, `"approved_by_id"`, account.String()} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("the reply carries %s: %s", forbidden, body)
+		}
+	}
+}
+
+// recordAs enters d in the ledger as the caller of ctx, through the seam every
+// writer uses, so the row keeps the account id the seam gives it.
+func (h *deviationHarness) recordAs(t *testing.T, ctx context.Context, d entities.Deviation) {
+	t.Helper()
+	ledger := serviceimpl.NewDeviationLedger(h.repo)
+	if err := h.repo.UnitOfWork().Do(ctx, func(tx context.Context) error {
+		_, err := ledger.Record(tx, d)
+		return err
+	}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+}
+
+// The server, acting with nobody signed in, is written as "System" — and so is
+// an account somebody named System. The row tells them apart by the account id
+// it keeps, which the route does not return, so the route says which it was.
+func TestTheReadRouteSaysWhetherTheServerOrAnAccountActed(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+
+	byTheServer := h.sample(instanceID)
+	byTheServer.Actor = "System"
+	h.recordAs(t, h.tenantContext(), byTheServer)
+
+	byAnAccount := h.sample(instanceID)
+	byAnAccount.Actor = "System"
+	h.recordAs(t, context.WithValue(h.tenantContext(), pkgauth.UserContextKey,
+		entities.User{ID: uuid.Must(uuid.NewV7()), Username: "System", Roles: []string{entities.RoleAdmin}}), byAnAccount)
+
+	status, reply, body := h.readDeviations(t, h.signIn(t, "member", entities.RoleUser), instanceID.String())
+	if status != http.StatusOK || len(reply.Deviations) != 2 {
+		t.Fatalf("read: %d (%s), want the two rows", status, body)
+	}
+	for i, want := range []bool{true, false} {
+		row := reply.Deviations[i]
+		if row["actor"] != "System" {
+			t.Fatalf("row %d is by %v; both are written as System, which is the point", i, row["actor"])
+		}
+		if got, present := row["actor_is_server"]; !present || got != want {
+			t.Errorf("row %d: actor_is_server = %v (present %v), want %v", i, got, present, want)
+		}
+	}
+}
+
+// before, after and details are always objects: a client reads row.before.tasks
+// without first asking whether there is a before. A row that changed nothing
+// has three empty ones.
+func TestARowThatChangedNothingStillReadsWithItsThreeObjects(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	bare := h.sample(instanceID)
+	bare.Before, bare.After, bare.Details = nil, nil, nil
+	if _, err := h.write(h.tenantContext(), bare); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	status, _, body := h.readDeviations(t, h.signIn(t, "member", entities.RoleUser), instanceID.String())
+	if status != http.StatusOK {
+		t.Fatalf("read: %d (%s)", status, body)
+	}
+	for _, want := range []string{`"before":{}`, `"after":{}`, `"details":{}`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the reply has no %s: %s", want, body)
 		}
 	}
 }
