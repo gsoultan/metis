@@ -152,6 +152,25 @@ test in `race_test.go` does not reliably land inside it (it passes against the o
 too, which its comment says). What that test does guard is the invariant — however the two
 interleave, the result is one of the two legitimate orders and never a mixture.
 
+A decision has the same window, and a wider one. A migration lists the instances once and
+then takes them one at a time, so the copy it holds of the last instance is as old as the
+whole run. Whether an instance was waiting at a step being skipped, cancelled at or held at
+was asked of that copy and never again once the instance was locked: the operations manager
+who clicked Submit in between had the step advanced past a second time — two tokens and two
+open tasks on the step after it — and the trail, and now the ledger, said the approval was
+waived. Each decision asks again under the lock (see *Node actions*, below), and this one is
+demonstrated: `moved_on_test.go` puts the completion between the listing and the lock on
+purpose, for a skip, a cancel and a hold.
+
+What is still not asked again is where a *moved* instance's work lands. An instance that
+advances between the listing and its lock onto a step the plan did not find it on is
+rewritten as it then stands; if that step is one the new version does not have — the step a
+skip was meant to clear, reached a moment too late to be skipped — the instance arrives on
+the new version with a token the new graph cannot place. The planner's "must land somewhere"
+check ran on the listing. Open, and written down in the roadmap. Until it is closed the
+window is as long as the run takes to reach the instance, so it is narrowest for a migration
+that names a few instances at a time when the steps before a removed one are quiet.
+
 This is also why `Claimed` and `Delegated` count separately in the plan: an unclaimed task
 is a queue item, a claimed one is a person mid-sentence.
 
@@ -302,6 +321,44 @@ POST /api/v1/definitions/versions/migrate
   its record should name the version it actually ran. Pending timers are left alone, because
   `timerStillApplies` already refuses to fire one for an instance that is not active, which
   is what a terminate end event relies on too.
+- **`hold`** leaves the instance on the source version and raises an incident at the node for
+  somebody to decide. An instance already held at that node keeps its one open incident, and
+  nothing more is recorded for it.
+
+**A decision is made on the instance as its lock finds it.** Which action to try is chosen
+from the listing, and the listing is as old as the run. So each action reads the instance
+again once it holds the instance's lock, and acts only on one that is still running and
+still has a token on that step. An instance that has moved on in between — its holder
+completed the step, or it finished — is left exactly as it is: nothing is withdrawn,
+advanced, cancelled or raised, no ledger row and no trail entry are written, and it is not
+moved to the new version in that run either, because the plan was made for where it used to
+be. It stays on the version it is running, and running the same migration again plans for
+where it now stands. A skip used to advance such an instance a second time and record the
+approval its holder gave as waived; a cancel ended it; a hold raised an incident at a step
+it had left.
+
+**The reply says which instances were left alone.** The plan in the reply was made before
+the apply and says what would happen; `passed_over` says what did not:
+
+```
+{
+  "plan": { ... },
+  "applied": true,
+  "passed_over": [
+    { "instance_id": "0199…",
+      "reason": "It was no longer waiting at \"Operations approve\" when the migration reached it, so nothing was decided there and it was not moved. It stays on version 1; if it is still running, run the same migration again to plan for where it now stands." }
+  ]
+}
+```
+
+`passed_over` is always present: `[]` when the run left nobody behind, and for a dry run,
+which writes nothing. An instance that finished before the run reached it — which a
+migration already left unmoved, whether it decides work or only moves it — is listed
+there too, as *no longer running when the migration reached it*. `applied` keeps its
+meaning, whether anything was written: `true` when the run acted on at least one instance,
+whatever it passed over, and `false` when it passed instances over and acted on none. The
+server log also names each instance that had left its step (*A migration passed over an
+instance that was no longer where its listing found it*), with the run's id.
 
 `cancelled` is a new instance status. Reusing `completed` would have made an instance that
 was called off read, in every list and every count, exactly like one that succeeded; `failed`
@@ -311,7 +368,8 @@ Refused, because doing any of these half-way is worse than not doing them:
 
 | Refusal | Why |
 | :-- | :-- |
-| A skip or cancel with no reason | Without one the trail cannot tell a step nobody performed from a step somebody did |
+| A skip, cancel or hold with no reason | Without one the trail cannot tell a step nobody performed from a step somebody did |
+| A skip, cancel or hold with a reason of more than 2,000 characters | The instance's ledger row cannot hold it. Refused in the plan, so a dry run and an apply agree: left to the ledger it would stop an apply at the first instance on that node, after the ones ahead of it had been moved |
 | A node that is both mapped and actioned | Two contradictory instructions; guessing is how the wrong one gets applied |
 | Skipping a node with no outgoing flow | Nowhere to advance to |
 | Skipping a gateway | Several outgoing flows: which branch would it have taken? |
@@ -321,10 +379,19 @@ Work on an actioned node is exempt from the "must land somewhere" check — refu
 migration for stranding the very task the caller asked it to cancel would make the feature
 unreachable.
 
-Each decision writes its own trail entry — `node_skipped` or `instance_cancelled` — naming
-the node, the authoriser and the reason. Separate from the migration entry because it is a
-separate fact, and the one an auditor actually asks about: not *this instance changed
-version* but *this approval did not happen, and here is who said so and why*.
+Each decision writes its own trail entry — `node_skipped`, `instance_cancelled` or
+`instance_held` — naming the node, the authoriser and the reason, and a row in the instance's
+ledger (see *Audit* below). Separate from the migration entry because it is a separate fact,
+and the one an auditor actually asks about: not *this instance changed version* but *this
+approval did not happen, and here is who said so and why*.
+
+The entry and the row are written in the change's own transaction, so a decision that cannot
+be recorded is not made. For a skip that is the withdrawal and the advance; for a cancel, the
+cancellation; for a hold, the incident, which now runs in a transaction that locks the
+instance, as a cancel's does. The migration stops at the instance it could not record, names
+it, and says how many had been dealt with; running it again carries on. A decision's entry
+used to be written after the fact, or logged and carried on when it failed. A cancel also no
+longer writes `instance_cancelled` for an instance it found, once locked, no longer running.
 
 ### Re-derived assignment
 
@@ -345,7 +412,64 @@ that, so the safe default is the other one.
 Every migrated instance gets an `instance_migrated` entry naming the source and target
 version, which work was re-pointed, who authorised it, and which controls were waived.
 Written outside the unit of work: a migration that succeeded should not roll back because
-the audit write failed, and a lost entry is logged loudly.
+the audit write failed, and a lost entry is logged loudly. The decisions above are not
+written that way: their entries are part of the change.
+
+**The ledger.** What was done to an instance outside its process is also kept as rows in
+`instance_deviations`, which can be asked for by instance, where the trail is read as a
+timeline. A migration writes one row per decision on each instance, and the rows of one
+migration share its `run_id`:
+
+| Act | Row | Reaches | What it records |
+| :-- | :-- | :-- | :-- |
+| `skip` | `waive` | the task | the tasks withdrawn, as they were and as they are (status and assignee), and how many |
+| `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, and the tasks withdrawn |
+| `hold` | `hold` | the instance | the incident raised |
+| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, and its `compliance_note` when it has one |
+
+A `control_waived` row has no reason, because whoever acknowledged the loss signed for every
+instance at once; it is written once per lost step, in the same transaction as the rewrite and
+before any of it, and an instance that had already performed the step gets none. Each row
+names the trail entry that tells the same act, and the entries of a skip, cancel or hold name
+their row in `deviation_id`. The `instance_migrated` entry, written after the rewrite commits,
+is the one a control-loss row names; if that entry is lost, which is logged, the row names an
+entry that does not exist. A migration that only moves work and waives no control writes no
+row.
+
+**A `hold` row says the hold was placed, not that it is still open.** A hold is an incident
+raised at the step, and resolving that incident (`POST /api/v1/incidents/{id}/resolve`, an
+operator's call) writes no row and changes none: nothing rewrites a ledger row once it is
+written, so `after.incident.status` reads `open` for ever. Resolving it leaves no trail entry
+and names nobody either; the incident's own `status` and `resolved_at` are all that say it
+happened. To see whether a hold is still open, read the instance's incidents
+(`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the row's
+`after.incident.id`. A hold does not stop the step's holder from completing it, and a later
+run of the same migration, finding the incident resolved and the instance still on the step,
+places a new hold and writes a new row. Whether releasing a hold becomes a recorded act is
+decided with the hold of one instance in place, which is not in this release.
+
+**What writes no row, by decision.** The ledger is for what somebody did to an instance that
+its process did not decide. These change an instance too, and are left out on purpose:
+
+| Lever | Who | Why no row | Where it shows |
+| :-- | :-- | :-- | :-- |
+| Resolving an incident, a hold's included | operator | It retries the failed work behind an incident, when there is any; it decides nothing about the process | The incident's `status` and `resolved_at` only: no trail entry, no name |
+| Sending a message, broadcasting a signal | any member (message), operator (signal) | It is the event the process was modelled to wait for | The trail shows the instance moving on from the waiting step, and not who sent it; governing that channel is its own piece of work |
+| An operator or administrator claiming a task nobody was named for | operator, administrator | The modelled fallback for such a task | The trail's claim entry names who took it |
+| The engine withdrawing tasks: approvals a met completion condition no longer needs, a task a boundary event interrupts, work parked for outside workers when an ad-hoc sub-process finishes | the engine | The process decided it | A withdrawal entry on the trail (`parked_work_withdrawn` for parked work) |
+| A holder handing on or editing their own task | the holder | No reason is required of them | The hand-over's trail entry |
+| A migration that only moves work and waives no control | administrator | It decides no step's work | `instance_migrated` |
+
+Hand-overs and edits of a task by somebody who does not hold it, and a step started inside an
+ad-hoc sub-process, write rows as well; the changelog lists every writer. Anyone signed in to
+the instance's organization reads them with `GET /api/v1/instances/{id}/deviations`
+([Watching instances](integration.md#watching-instances)). Only `before` and `after` are
+stored encrypted, as variables are. `reason`, `actor`, `node_name` and `details` are stored
+in plain text: the reason is what a person typed, and the trail's sentence already keeps it
+in plain text; nothing written to `details` is a business value. The reply carries no
+account ids, and the server acting with nobody signed in is written as `System`, a name an
+account may also have, so each row says which it was: `actor_is_server` is `true` exactly
+when the row names no account.
 
 ### Scheduled cutovers
 
@@ -372,6 +496,10 @@ Three things make that true rather than merely plausible:
   actually did.
 - **`hold` is idempotent.** A held instance stays on the source version by design, so every
   later run finds it again. It does not collect an incident per run.
+- **An instance a decision passed over is still on the source version.** One that left the
+  step between the listing and its lock is neither decided nor moved, and is not counted
+  among those dealt with, so the next run finds it and plans for where it now stands. The
+  reply to the apply names it in `passed_over`.
 - **Every entry of one run shares a `run_id`**, so the trail reads back as "what did that
   migration do" rather than as unrelated events sharing a timestamp.
 

@@ -108,6 +108,13 @@ func TestMigration22IsIdempotent(t *testing.T) {
 
 type columnRef struct{ table, column string }
 
+// createdAfterMigration22 are the tables a numbered migration created after 22.
+// Migration 22 repairs the tables an installation had when it ran; one of these
+// does not exist then, and its own migration creates it with the constraints
+// already on it, so there is nothing for 22 to repair and no upgraded
+// installation that has its columns nullable.
+var createdAfterMigration22 = map[string]bool{"instance_deviations": true}
+
 // columnsTheReaderNeeds is the model's own answer: a storm field that is not a
 // pointer is not nullable, and the generated reader is compiled from that.
 func columnsTheReaderNeeds(t *testing.T, db *gorm.DB) []columnRef {
@@ -119,6 +126,9 @@ func columnsTheReaderNeeds(t *testing.T, db *gorm.DB) []columnRef {
 
 	var needed []columnRef
 	for _, table := range want.Tables {
+		if createdAfterMigration22[table.Name] {
+			continue
+		}
 		for _, column := range table.Columns {
 			if !column.NotNull {
 				continue

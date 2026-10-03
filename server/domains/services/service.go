@@ -33,6 +33,7 @@ type service struct {
 	contracts.SetupService
 	contracts.NotificationService
 	contracts.SimulationService
+	contracts.DeviationService
 }
 
 type ServiceParams struct {
@@ -59,6 +60,7 @@ type ServiceParams struct {
 	SetupService           contracts.SetupService
 	NotificationService    contracts.NotificationService
 	SimulationService      contracts.SimulationService
+	DeviationService       contracts.DeviationService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -86,6 +88,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		SetupService:           p.SetupService,
 		NotificationService:    p.NotificationService,
 		SimulationService:      p.SimulationService,
+		DeviationService:       p.DeviationService,
 	}
 }
 
@@ -139,7 +142,7 @@ func NewServiceFacade(
 	groupSvc := serviceimpl.NewGroupService(repo)
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
-	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo.UnitOfWork())
+	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)
 	setupSvc := serviceimpl.NewSetupService(repo.User())
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
@@ -191,6 +194,8 @@ func NewServiceFacade(
 		return simEngine
 	})
 
+	deviationLedger := serviceimpl.NewDeviationLedger(repo)
+
 	return NewService(ServiceParams{
 		OrganizationService:    orgSvc,
 		ProjectService:         projectSvc,
@@ -215,6 +220,7 @@ func NewServiceFacade(
 		SetupService:           setupSvc,
 		NotificationService:    notificationSvc,
 		SimulationService:      simulationSvc,
+		DeviationService:       deviationLedger,
 	})
 }
 

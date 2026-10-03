@@ -838,6 +838,7 @@ func Schema(models []any) []Migration {
 		organizationRoles(),
 		taskIteration(),
 		taskDelegation(),
+		instanceDeviations(),
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 type AdHocActivator interface {
 	// ActivateTask activates a specific task node inside an ad-hoc subprocess.
 	// The caller supplies the instance, the ad-hoc subprocess node ID, and the
-	// target task node ID to activate.
-	ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID string, taskNodeID string) error
+	// target task node ID to activate. Who started the step is entered in the
+	// instance's deviation ledger and on its trail, with the reason an option
+	// gives; an activation that cannot be recorded is not made.
+	ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID string, taskNodeID string, opts ...ActivationOption) error
 }

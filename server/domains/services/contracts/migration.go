@@ -21,6 +21,13 @@ type MigrationService interface {
 	PlanInstanceMigration(ctx context.Context, sourceDefID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...MigrationOption) (entities.MigrationPlan, error)
 
 	MigrateInstances(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...MigrationOption) error
+
+	// ApplyInstanceMigration is MigrateInstances, and reports what the run did:
+	// how many instances it acted on, and which it left alone because they
+	// were no longer where the plan found them. A caller that answers somebody
+	// uses this one, so that "applied" is not said of a run that left an
+	// instance running the old version.
+	ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...MigrationOption) (entities.MigrationResult, error)
 }
 
 // MigrationOption adjusts one migration.

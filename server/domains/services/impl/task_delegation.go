@@ -61,6 +61,7 @@ func (s *taskService) ResolveTask(ctx context.Context, id uuid.UUID, change serv
 			target:         owner,
 			owner:          owner,
 			reason:         reason,
+			byHolder:       caller.holdsTask,
 		})
 	})
 }

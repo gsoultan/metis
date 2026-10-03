@@ -6,6 +6,10 @@ import "github.com/gsoultan/metis/server/repositories/contracts"
 type Repository interface {
 	Audit() contracts.AuditRepository
 
+	// Deviation is what was done to an instance that its process did not decide;
+	// written only inside the transaction that does it.
+	Deviation() contracts.DeviationRepository
+
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.
 	SharedCounter() contracts.SharedCounterRepository

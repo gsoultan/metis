@@ -112,6 +112,7 @@ func TestStrictScope_NoReadPathLosesItsIdentity(t *testing.T) {
 			"/api/v1/instances/"+seeded.instanceID.String()+"/path",
 			"/api/v1/instances/"+seeded.instanceID.String()+"/subprocesses",
 			"/api/v1/incidents/"+seeded.instanceID.String(),
+			"/api/v1/instances/"+seeded.instanceID.String()+"/deviations",
 			// Narrowing to one process reaches the definition predicate and the
 			// grouped counts beside it.
 			"/api/v1/instances?project_id="+projectID.String()+

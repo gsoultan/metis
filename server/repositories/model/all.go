@@ -59,6 +59,8 @@ func All() []any {
 		&VariableSnapshot{},
 		&CompensatableActivity{},
 		&ServiceCall{},
+		// What was done to an instance that its process did not decide.
+		&InstanceDeviation{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},
