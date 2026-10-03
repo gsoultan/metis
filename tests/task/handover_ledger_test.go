@@ -305,3 +305,28 @@ func TestANonHolderHandOverInFlightIsNotDeadlockedByACompletion(t *testing.T) {
 		t.Fatalf("the ledger after the race: %+v, want one reassignment", rows)
 	}
 }
+
+// A step may be named at greater length than the ledger keeps. A hand-over of
+// its task is still ledgered: the row carries as much of the name as fits —
+// the step's id is what identifies it — rather than the hand-over failing on a
+// name nobody at the task could change.
+func TestAHandOverOfAStepWithAVeryLongNameIsStillLedgered(t *testing.T) {
+	h := newTaskHarness(t)
+	boss := h.signInAdministrator(t, "boss")
+	h.tokens["bob"] = h.signInWithRoles(t, "bob", entities.RoleUser)
+	step := heldByAlice()
+	step.Name = string([]rune(strings.Repeat("persetujuan — ", 22))[:300])
+	taskID, instanceID := h.openTaskWith(t, step, nil)
+
+	status, reply := h.post(t, boss, "/api/v1/tasks/"+taskID+"/assign", map[string]any{"user_id": "bob", "reason": "alice is on leave"})
+	if status != http.StatusOK {
+		t.Fatalf("assign: %d (%s)", status, reply)
+	}
+	row := lastRow(t, h.ledgerOf(t, instanceID), entities.DeviationReassign)
+	if row.Node == nil || row.Node.ID != "step" {
+		t.Fatalf("the reassignment's row: %+v", row)
+	}
+	if kept := []rune(row.Node.Name); len(kept) != 255 || !strings.HasPrefix(step.Name, row.Node.Name) {
+		t.Errorf("the row keeps %d characters of the step's name, want the first 255", len(kept))
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -140,5 +141,78 @@ func TestTheReasonRefusalIsPlainEnglishWithNoKindSlug(t *testing.T) {
 		if !strings.Contains(err.Error(), "say why") {
 			t.Errorf("the refusal %q does not ask for a reason", err.Error())
 		}
+	}
+}
+
+// The ledger keeps 255 characters of a step's name. A definition's author may
+// name a step at greater length, and a row that then failed to insert would
+// fail the change it records — a hand-over, or a migration its dry run called
+// fine. The name is for reading, so the row keeps as much of it as fits, cut
+// between characters and never inside one.
+func TestPrepareDeviationKeepsAsMuchOfALongStepNameAsFits(t *testing.T) {
+	t.Parallel()
+	// The 255th character is two bytes long, and so is the one after it: a cut
+	// counted in bytes would split one of them.
+	long := strings.Repeat("a", deviationNodeNameLength-1) + "éé" + strings.Repeat("b", 40)
+	node := &entities.Node{ID: "opsApprove", Name: long}
+	d := wellFormedDeviation()
+	d.Node = node
+
+	got, err := prepareDeviation(context.Background(), d)
+	if err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	want := strings.Repeat("a", deviationNodeNameLength-1) + "é"
+	if got.Node == nil || got.Node.Name != want {
+		t.Fatalf("the row keeps %d characters of the name, want the first %d ending on the whole é",
+			utf8.RuneCountInString(got.Node.Name), deviationNodeNameLength)
+	}
+	if !utf8.ValidString(got.Node.Name) {
+		t.Error("the name was cut inside a character")
+	}
+	if got.Node.ID != "opsApprove" {
+		t.Errorf("the row names step %q, want its id untouched", got.Node.ID)
+	}
+	if node.Name != long {
+		t.Error("the caller's own node was changed; the entry written beside the row tells the whole name")
+	}
+}
+
+func TestPrepareDeviationKeepsAStepNameThatFitsWhole(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"", "Operations approve", strings.Repeat("é", deviationNodeNameLength)} {
+		node := &entities.Node{ID: "opsApprove", Name: name}
+		d := wellFormedDeviation()
+		d.Node = node
+		got, err := prepareDeviation(context.Background(), d)
+		if err != nil {
+			t.Fatalf("refused: %v", err)
+		}
+		if got.Node != node || got.Node.Name != name {
+			t.Errorf("a name of %d characters was changed to %q", utf8.RuneCountInString(name), got.Node.Name)
+		}
+	}
+	d := wellFormedDeviation()
+	if got, err := prepareDeviation(context.Background(), d); err != nil || got.Node != nil {
+		t.Errorf("a row about no step: node %v, err %v", got.Node, err)
+	}
+}
+
+// What identifies is never cut: a shortened step id or actor would name a
+// different step or a different person. One too long for its column is a
+// writer's mistake, and is left for the insert to refuse as a server error.
+func TestPrepareDeviationDoesNotCutWhatIdentifies(t *testing.T) {
+	t.Parallel()
+	longID := strings.Repeat("n", deviationNodeNameLength+20)
+	d := wellFormedDeviation()
+	d.Node = &entities.Node{ID: longID, Name: "Approve"}
+	d.Actor = strings.Repeat("u", 300)
+	d.IterationID = strings.Repeat("i", 300)
+	got, err := prepareDeviation(context.Background(), d)
+	if err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	if got.Node.ID != longID || got.Actor != d.Actor || got.IterationID != d.IterationID {
+		t.Error("an identifier was shortened")
 	}
 }
