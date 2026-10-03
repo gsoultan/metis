@@ -10,6 +10,10 @@ package entities
 // holds its lock. The apply leaves such an instance alone, and this is where
 // it says so. Without it "applied" was the whole answer, and
 // it was given for a run that had left an instance running the old version.
+//
+// Two more kinds of instance are left alone and listed: one that arrived on the
+// source version after the plan was made, which the plan therefore never
+// covered, and one another run of a migration had already moved off it.
 type MigrationResult struct {
 	// Changed is how many instances the run acted on: moved to the new version,
 	// or settled by a skip, a cancel or a hold. An instance found already held

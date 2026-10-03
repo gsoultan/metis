@@ -253,8 +253,11 @@ type MigrateInstancesResponse struct {
 	// PassedOver are the instances the apply did not move because, by the time
 	// it held their lock, they were no longer where the plan found them: the
 	// step had been completed, the instance had finished, or it had gone on to
-	// work the new version cannot take. They are still on the version they were
-	// running. Always present, empty when the
+	// work the new version cannot take. Those are still on the version they
+	// were running. So is an instance the plan was not made for, which arrived
+	// on that version after the apply planned. One another run of a migration
+	// had already moved is listed too, and is on the version that run put it
+	// on. Always present, empty when the
 	// apply left nobody behind and for a dry run, so a client need not ask
 	// whether the field is there.
 	PassedOver []PassedOverView `json:"passed_over"`

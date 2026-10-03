@@ -120,4 +120,5 @@ func TestATimerStillRunningOnAStepTheNewVersionLacksStillStopsTheMigration(t *te
 		t.Fatal("the apply accepted what the plan refused")
 	}
 	f.assertWaitingAt(t, v1, "approve")
+	f.assertNothingIsStranded(t)
 }

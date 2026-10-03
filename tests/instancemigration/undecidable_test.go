@@ -139,6 +139,11 @@ func TestAWaitingMessageOnABoundaryEventTheNewVersionLacksStillStopsTheMigration
 	if plan.Applicable() || !strings.Contains(strings.Join(plan.Refusals, "; "), "nowhere to put the work parked on customerWithdrew") {
 		t.Fatalf("the migration should be refused for the waiting message: %v", plan.Refusals)
 	}
+	if err := f.svc.MigrateInstances(f.ctx, v1, v2, nil); err == nil {
+		t.Fatal("the apply accepted what the plan refused")
+	}
+	f.assertWaitingAt(t, v1, "approve")
+	f.assertNothingIsStranded(t)
 }
 
 // TestWorkLeftOnADecidedStepIsNotCarriedToAVersionWithoutTheStep.
@@ -190,6 +195,11 @@ func TestWorkLeftOnADecidedStepIsNotCarriedToAVersionWithoutTheStep(t *testing.T
 				t.Errorf("the instance holds %v, want its one token on the supervisor's review", on)
 			}
 			f.assertEveryTokenHasAStep(t)
+			// The open task left by hand is itself a task with no token under
+			// it: the premise of that case, not something the migration did.
+			if what == "a waiting event" {
+				f.assertNothingIsStranded(t)
+			}
 			f.assertNoMigrationEntries(t, instance.ID)
 			if rows := f.ledger(t, instance.ID); len(rows) != 0 {
 				t.Errorf("an instance that was left alone has %d ledger row(s): %+v", len(rows), rows)
