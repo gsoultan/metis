@@ -216,3 +216,38 @@ func TestPrepareDeviationDoesNotCutWhatIdentifies(t *testing.T) {
 		t.Error("an identifier was shortened")
 	}
 }
+
+// TestPrepareDeviationRecordsAnAccountsNameExactlyAndKeepsItsId.
+//
+// Root cause: the seam trimmed the actor and then compared the trimmed name
+// with the signed-in account's own, untrimmed. For an account whose username
+// has a space at either end the two differed, so the row kept no account id —
+// and a row with no account id is read as the server's. A username is an
+// identifier: it is recorded as it is, and "dita " is not "dita".
+func TestPrepareDeviationRecordsAnAccountsNameExactlyAndKeepsItsId(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"System ", " System", "dita ", "dita"} {
+		account := uuid.Must(uuid.NewV7())
+		ctx := context.WithValue(context.Background(), pkgauth.UserContextKey, entities.User{ID: account, Username: name})
+		d := wellFormedDeviation()
+		d.Actor = name
+		got, err := prepareDeviation(ctx, d)
+		if err != nil {
+			t.Fatalf("an act by the account %q was refused: %v", name, err)
+		}
+		if got.Actor != name {
+			t.Errorf("the account %q is recorded as %q", name, got.Actor)
+		}
+		if got.ActorID != account {
+			t.Errorf("the row of the account %q keeps the account id %s, want its own %s", name, got.ActorID, account)
+		}
+	}
+	// Still refused: an actor that is nothing but spaces names nobody.
+	for _, blank := range []string{"", " ", "\t \n"} {
+		d := wellFormedDeviation()
+		d.Actor = blank
+		if _, err := prepareDeviation(context.Background(), d); err == nil || errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Errorf("an actor of %q: %v, want it refused as the writer's mistake", blank, err)
+		}
+	}
+}

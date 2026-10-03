@@ -22,8 +22,13 @@ const deviationNodeNameLength = 255
 // person typed, keeps as much of a step's name as the ledger has room for,
 // gives the row the ids it lacks, and names the signed-in account when that
 // account is the actor.
+//
+// The actor is not among the words it trims. A username identifies, and an
+// account may be called "dita " with the space: trimmed, the row named somebody
+// else, no longer matched the signed-in account, and so kept no account id —
+// which a reader takes for the server acting. It is recorded exactly as the
+// writer gave it. Only one that is nothing but spaces is refused.
 func prepareDeviation(ctx context.Context, d entities.Deviation) (entities.Deviation, error) {
-	d.Actor = strings.TrimSpace(d.Actor)
 	d.Reason = strings.TrimSpace(d.Reason)
 	if err := checkDeviation(d); err != nil {
 		return entities.Deviation{}, err
@@ -60,7 +65,7 @@ func checkDeviation(d entities.Deviation) error {
 		return fmt.Errorf("deviation: %q is not a way a deviation can come about", d.Origin)
 	case d.Status != entities.DeviationApplied && d.Status != entities.DeviationPendingApproval:
 		return fmt.Errorf("deviation: a new deviation is applied or awaiting approval, not %q", d.Status)
-	case d.Actor == "":
+	case strings.TrimSpace(d.Actor) == "":
 		return errors.New("deviation: the actor who did it is not named")
 	case d.Project == nil || d.Project.ID == uuid.Nil:
 		return errors.New("deviation: the project of its instance is not named")
