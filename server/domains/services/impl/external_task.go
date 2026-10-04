@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -45,7 +46,8 @@ func (s *externalTaskService) FetchAndLock(ctx context.Context, topic string, wo
 }
 
 func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, workerID string, variables map[string]any) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	var ended entities.ProcessStatus
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.ExternalTask().Get(txCtx, taskID)
 		if err != nil {
 			return err
@@ -81,6 +83,12 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
 			return err
 		}
+		// Asked of the row this holds, before anything is written: an instance
+		// that has ended is not moved on by a report that arrives afterwards.
+		if instanceEnded(instance.Status) {
+			ended = instance.Status
+			return s.repo.ExternalTask().Delete(txCtx, taskID)
+		}
 		if err := refuseReport(m, workerID); err != nil {
 			return err
 		}
@@ -113,6 +121,30 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 
 		return s.engine.Proceed(txCtx, &instance, def, task.Node.ID)
 	})
+	if err != nil {
+		return err
+	}
+	return refusedForEnded(ended)
+}
+
+// refusedForEnded is what a worker is told when the work it reports on
+// belongs to an instance that has ended, and nil when the instance had not.
+//
+// A report is the worker saying the instance may move on, or that somebody
+// should look at it. An instance that was cancelled, that failed, or that ran
+// to an end event while the work was still out does neither: the report used
+// to be taken all the same, and a cancelled instance was moved on to its next
+// step by a worker that reported late.
+//
+// The work is taken off the list in the transaction that finds this, so it is
+// offered to nobody again, and the refusal is made after that transaction has
+// been kept: returned from inside it, it would undo the removal. It is the
+// worker's to read and not to retry, so it is an invalid argument.
+func refusedForEnded(status entities.ProcessStatus) error {
+	if status == "" {
+		return nil
+	}
+	return apierr.Invalidf("This work belongs to an instance that has ended (%s); it is no longer wanted.", status)
 }
 
 // HandleFailure records a worker's failure to do an external task.
@@ -125,7 +157,8 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 // told and the instance waited at the step with nothing to investigate.
 // Resolving the incident offers it again.
 func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUID, workerID string, errorMessage string, errorDetails string, retries int, retryTimeout int64) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	var ended entities.ProcessStatus
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.ExternalTask().Get(txCtx, taskID)
 		if err != nil {
 			return err
@@ -156,6 +189,13 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		}
 		if m, err = s.repo.ExternalTask().Get(txCtx, taskID); err != nil {
 			return err
+		}
+		// A failure on an instance that has ended is nobody's to look into: it
+		// waits out no retry and raises no incident. The work is taken off the
+		// list, and the worker told why (refusedForEnded).
+		if instanceEnded(instance.Status) {
+			ended = instance.Status
+			return s.repo.ExternalTask().Delete(txCtx, taskID)
 		}
 		if m.WorkerID != workerID {
 			return fmt.Errorf("task %s is locked by another worker", taskID)
@@ -197,6 +237,26 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		_, err = s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	return refusedForEnded(ended)
+}
+
+// instanceEnded reports whether an instance will not run again: it ran to an
+// end, it failed, or somebody cancelled it. One that is suspended has not
+// ended — it can be made active again, and what it was waiting for is still
+// wanted then — and neither has one in a state this does not know.
+//
+// It is what is asked before something acts for an instance from outside its
+// own advance. Its tokens are gone, but the work it parked and the calls it
+// queued are rows of their own, and they outlive it.
+func instanceEnded(status entities.ProcessStatus) bool {
+	switch status {
+	case entities.ProcessCompleted, entities.ProcessFailed, entities.ProcessCancelled:
+		return true
+	}
+	return false
 }
 
 // refuseReport refuses a worker's report on a task it does not hold: the task
