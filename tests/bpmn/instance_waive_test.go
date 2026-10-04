@@ -474,10 +474,10 @@ func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 				t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 			}
 			out, err := w.apply(t, command)
-			want := "The values given fit no way out of “" + shape.called + "”, so the waive was not applied and nothing was changed. " +
-				"Preview again and give a value one of its branches accepts."
-			if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
-				t.Fatalf("a waive whose gateway could not choose: got %v\nwant it refused as the caller's to fix, saying\n  %s", err, want)
+			want := apierr.Invalidf("The values given fit no way out of “%s”, so the waive was not applied and nothing was changed. "+
+				"Preview again and give a value one of its branches accepts.", shape.called)
+			if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+				t.Fatalf("a waive whose gateway could not choose: got\n  %v\nwant it refused as the caller's to fix, saying exactly\n  %v", err, want)
 			}
 			if out.Applied || out.Deviation != nil {
 				t.Errorf("a waive that failed answered as though it had acted: %+v", out)
@@ -625,8 +625,7 @@ func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
 
 	bare := deviationCommand(entities.DeviationWaive, child, "review", nil)
 	plan := w.preview(t, bare)
-	warning := "This instance was started by “Supplier onboarding” at “Check the supplier”, which receives its results when it ends. " +
-		"What that process decides from them was not read; check it before applying."
+	warning := callerNotReadWarning
 	if !said(plan.Warnings, warning) {
 		t.Fatalf("the plan does not warn\n  %s\nits warnings:%s", warning, lines(plan.Warnings))
 	}
@@ -641,10 +640,10 @@ func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
 	// Applied with no value: the caller's gateway has nothing to decide from.
 	before := everyRow(t, h)
 	out, err := w.apply(t, bare)
-	want := "“Supplier approved?”, in the process that started this one, had no way out for the result, " +
-		"so the waive was not applied and nothing was changed."
-	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
-		t.Fatalf("a waive whose caller could not decide: got %v\nwant it refused, saying\n  %s", err, want)
+	want := apierr.Invalidf("“Supplier approved?”, in the process that started this one, had no way out for the result, " +
+		"so the waive was not applied and nothing was changed.")
+	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+		t.Fatalf("a waive whose caller could not decide: got\n  %v\nwant it refused, saying exactly\n  %v", err, want)
 	}
 	if out.Applied || out.Deviation != nil {
 		t.Errorf("a waive that failed answered as though it had acted: %+v", out)
@@ -662,6 +661,163 @@ func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
 	requireInstanceStatus(ctx, t, h, child, entities.ProcessCompleted)
 	if !h.waitingAt(ctx, t, parent, "drop") || h.waitingAt(ctx, t, parent, "sign") {
 		t.Fatal("the caller did not decide from what the waiver counted as")
+	}
+}
+
+// callerNotReadWarning is what a plan for a waive in an instance of
+// supplierCheck's called process says of its caller.
+const callerNotReadWarning = "This instance was started by “Supplier onboarding” at “Check the supplier”, " +
+	"which receives its results when it ends and was not read. " +
+	"Where that process decides on a value this step would have set and you give none, " +
+	"it decides on the value it already holds, or undoes the waive if it holds none. Check that process before applying."
+
+// Review Focus 3, one process up. A caller hands its values to the process it
+// calls and takes them back when that process ends. So when the caller
+// already holds a value for a field the waived step would have set, and the
+// waiver gives none, the caller's gateway decides on the value it held: the
+// waive is applied, and the caller goes down the branch of an answer nobody
+// gave this time. The caller's process is not read by a plan for the called
+// instance, so nothing refuses this. What the plan does is say so, in the
+// warning — and this pins both: what happens, and that the administrator was
+// told it could.
+func TestAWaiveInACalledProcessLetsItsCallerDecideOnAValueItAlreadyHolds(t *testing.T) {
+	h := newEngineHarness(t, "Called Waive Stale Caller Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	supplierCheck(t, h, "supplier-review-stale", "onboarding-stale")
+	parent, err := h.svc.StartProcess(ctx, h.projID, "onboarding-stale", map[string]any{"approved": true})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	child := theOneCalledBy(t, h, parent)
+	if held := variablesOf(t, h, child)["approved"]; held != true {
+		t.Fatalf("the called instance was handed approved = %v by its caller, want true; this test rests on that", held)
+	}
+
+	out := w.mustApply(t, deviationCommand(entities.DeviationWaive, child, "review", nil))
+	if !said(out.Plan.Warnings, callerNotReadWarning) {
+		t.Fatalf("the plan that was applied did not warn\n  %s\nits warnings:%s", callerNotReadWarning, lines(out.Plan.Warnings))
+	}
+	requireInstanceStatus(ctx, t, h, child, entities.ProcessCompleted)
+	if !h.waitingAt(ctx, t, parent, "sign") || h.waitingAt(ctx, t, parent, "drop") {
+		t.Fatal("the caller did not decide on the value it already held")
+	}
+	// The record of the waive says nothing was set: the answer the caller
+	// took was not the waiver's.
+	if row := w.theWaive(t, child); row.After["variables"] != nil {
+		t.Errorf("the waive is recorded as setting %v; it set nothing", row.After["variables"])
+	}
+}
+
+// What follows a waived step may be a step that calls another process, and
+// that process starts inside the same advance. A gateway there with no way
+// out undoes the waive too. It is neither this instance's gateway nor its
+// caller's, and is said to be neither: nobody is told to supply a value for a
+// process their preview only warned it had not read.
+func TestAWaiveThatAProcessItGoesOnToCallCannotFollowIsUndone(t *testing.T) {
+	h := newEngineHarness(t, "Waive Into Called Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "stock-check", Name: "Stock check",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "in-hand", Type: entities.ExclusiveGateway, Name: "Stock in hand?"},
+			{ID: "ship", Type: entities.UserTask, Name: "Ship it"},
+			{ID: "order", Type: entities.UserTask, Name: "Order it"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "c1", SourceRef: "start", TargetRef: "in-hand"},
+			{ID: "yes", SourceRef: "in-hand", TargetRef: "ship", Condition: "stock = plenty"},
+			{ID: "no", SourceRef: "in-hand", TargetRef: "order", Condition: "stock = none"},
+			{ID: "c2", SourceRef: "ship", TargetRef: "end"},
+			{ID: "c3", SourceRef: "order", TargetRef: "end"},
+		},
+	})
+	id := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "order-with-stock-check",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "count", Type: entities.UserTask, Name: "Count the stock", Assignee: "rita", Properties: testutils.FormDeclaring("stock")},
+			{ID: "check", Type: entities.CallActivity, Name: "Check the stock", Properties: map[string]any{"called_process_key": "stock-check"}},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "count"},
+			{ID: "f2", SourceRef: "count", TargetRef: "check"},
+			{ID: "f3", SourceRef: "check", TargetRef: "end"},
+		},
+	}, nil)
+	before := everyRow(t, h)
+
+	command := deviationCommand(entities.DeviationWaive, id, "count", map[string]any{"stock": "some"})
+	if plan := w.preview(t, command); !plan.Applicable() {
+		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
+	}
+	out, err := w.apply(t, command)
+	want := apierr.Invalidf("“Stock in hand?”, in another process this waive reached, had no way out, " +
+		"so the waive was not applied and nothing was changed.")
+	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+		t.Fatalf("a waive the called process could not follow: got\n  %v\nwant it refused, saying exactly\n  %v", err, want)
+	}
+	if out.Applied || out.Deviation != nil {
+		t.Errorf("a waive that failed answered as though it had acted: %+v", out)
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("a waive the called process could not follow changed %v", changed)
+	}
+	if called, err := h.svc.ListSubProcesses(ctx, id); err != nil || len(called) != 0 {
+		t.Fatalf("the undone waive left %d called instance(s) behind (%v)", len(called), err)
+	}
+
+	// With a value the called process has a branch for, the waive is applied
+	// and that process is running.
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "count", map[string]any{"stock": "none"}))
+	if !h.waitingAt(ctx, t, theOneCalledBy(t, h, id), "order") {
+		t.Fatal("the called process did not take the branch of the value the waiver gave")
+	}
+}
+
+// A waive that gives no value can meet a gateway with no way out as well: one
+// that reads something the waived step never set. Nothing was given, so
+// nothing given is said to fit badly, and nobody is told to give a value the
+// step's form does not have: the instance held no way out, and nothing was
+// changed.
+func TestAWaiveThatGivesNothingAndCannotAdvanceSaysWhatTheInstanceHeld(t *testing.T) {
+	h := newEngineHarness(t, "Unroutable Bare Waive Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	id := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "unroutable-bare-waive",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita", Properties: testutils.FormDeclaring("verdict")},
+			{ID: "size", Type: entities.ExclusiveGateway, Name: "Large claim?"},
+			{ID: "large", Type: entities.EndEvent},
+			{ID: "small", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "review"},
+			{ID: "f2", SourceRef: "review", TargetRef: "size"},
+			{ID: "yes", SourceRef: "size", TargetRef: "large", Condition: "amount > 1000"},
+			{ID: "no", SourceRef: "size", TargetRef: "small", Condition: "amount <= 1000"},
+		},
+	}, nil)
+	before := everyRow(t, h)
+
+	command := deviationCommand(entities.DeviationWaive, id, "review", nil)
+	if plan := w.preview(t, command); !plan.Applicable() {
+		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
+	}
+	_, err := w.apply(t, command)
+	want := apierr.Invalidf("“Large claim?” had no way out for the values this instance holds, so the waive was not applied and nothing was changed.")
+	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+		t.Fatalf("a waive that gave nothing and could not advance: got\n  %v\nwant exactly\n  %v", err, want)
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("a waive that could not advance changed %v", changed)
 	}
 }
 

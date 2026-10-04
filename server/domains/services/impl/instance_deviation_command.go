@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -80,7 +81,12 @@ func normalizedDeviationCommand(command entities.DeviationCommand) (entities.Dev
 
 // checkDeviationOutputs refuses outputs no waive could set: any at all on a
 // cancel or a hold, more than a form has fields, heavier than the record
-// keeps, a value with no name, and a value given as nothing.
+// keeps, a value with no name, a name too long, and a value given as nothing.
+//
+// A name is too long past the length a plan lists a name at. A plan refuses a
+// waive that is missing a value with such a name, because the name cannot be
+// read off the plan; refused here as well, "too long a name for a waive to
+// set" is true of the name whether it was missing or given.
 //
 // A null is refused because it is not a value. Whatever reads the field after
 // the step would be told it had been supplied, and would decide on nothing —
@@ -95,14 +101,22 @@ func checkDeviationOutputs(kind entities.DeviationKind, outputs map[string]any) 
 	if len(outputs) > entities.MaxDeviationOutputs {
 		return apierr.Invalidf("a waive sets at most %d values, and this one names %d", entities.MaxDeviationOutputs, len(outputs))
 	}
-	var null []string
+	var null, tooLong []string
 	for name, value := range outputs {
 		if name == "" {
 			return apierr.Invalidf("an output needs the name of the field it sets")
 		}
+		if utf8.RuneCountInString(name) > deviationNodeNameLength {
+			tooLong = append(tooLong, name)
+		}
 		if value == nil {
 			null = append(null, name)
 		}
+	}
+	if len(tooLong) > 0 {
+		// The first in order, so the same request is told the same thing.
+		return apierr.Invalidf("“%s” is too long a name for a waive to set: a field's name is at most %d characters",
+			shortened(slices.Min(tooLong)), deviationNodeNameLength)
 	}
 	if len(null) > 0 {
 		return nullOutputs(null)

@@ -335,3 +335,37 @@ func TestThePlanListsEveryKindOfDecisionPointThatReadsTheStep(t *testing.T) {
 		}
 	}
 }
+
+// A field's name is its author's to choose, and a waive sets none longer than
+// a plan can list. A request that gives such a name is malformed — told which
+// name, in a preview as in an apply — and one of exactly that length is not.
+func TestAnOutputNamedLongerThanAPlanListsANameIsRefusedBeforeAnythingIsPlanned(t *testing.T) {
+	h := newEngineHarness(t, "Waive Long Output Name Project")
+	w := newWaiver(h)
+	id := w.start(t, claimWithAGateway(h.projID, "claim-long-output"), nil)
+	before := everyRow(t, h)
+
+	tooLong := strings.Repeat("ü", 256)
+	want := apierr.Invalidf("“%s…” is too long a name for a waive to set: a field's name is at most 255 characters", strings.Repeat("ü", 64))
+	for what, dryRun := range map[string]bool{"a preview": true, "an apply": false} {
+		command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true, tooLong: 1})
+		command.DryRun, command.VisitKey = dryRun, "dv1-any-key-at-all-it-is-not-looked-at"
+		out, err := w.svc.DeviateInstance(w.ctx, command)
+		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+			t.Errorf("%s giving a name of 256 characters: got\n  %v\nwant exactly\n  %v", what, err, want)
+		}
+		if out.Applied || len(out.Plan.Refusals) != 0 || out.Plan.VisitKey != "" {
+			t.Errorf("%s giving a name of 256 characters was answered with a plan: %+v", what, out)
+		}
+	}
+	// One character shorter is a name like any other: the plan is made, and
+	// refuses it for what it is — a field the form does not declare.
+	fits := strings.Repeat("ü", 255)
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true, fits: 1}))
+	if plan.Applicable() || !refusalMentions(plan, "form does not declare") {
+		t.Errorf("a name of 255 characters the form does not declare: refusals:%s", lines(plan.Refusals))
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("refused requests changed %v", changed)
+	}
+}

@@ -3,7 +3,6 @@ package impl
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"time"
@@ -85,7 +84,7 @@ func (s *instanceDeviationService) waiveStep(
 	}
 	withdrawn, err := s.actions.waive(ctx, live, def, command.NodeID)
 	if err != nil {
-		return entities.Deviation{}, waiveFailed(uuid.UUID(locked.ID), callerOf(locked), plan.NodeName, err)
+		return entities.Deviation{}, waiveFailed(uuid.UUID(locked.ID), callerOf(locked), plan.NodeName, len(command.Outputs) > 0, err)
 	}
 
 	row := inPlaceDeviation(locked, plan, command, actor, runID)
@@ -114,36 +113,100 @@ func (s *instanceDeviationService) waiveStep(
 // waiveFailed is what somebody who asked for a waive is told when the effect
 // failed: withdrawing the step's work, or moving the instance on from it.
 //
-// One failure is theirs to put right. A gateway reached by the advance found
-// no flow for the values the instance then held — the ones the waiver gave —
-// and declares no default. It is told as a refusal, naming the gateway, and
-// it says that nothing was changed: the error is returned through the unit
-// of work, which undoes the waive whole.
+// One failure is a refusal. A gateway reached by the advance found no flow
+// for the values the instance then held and declares no default. It is told
+// naming the gateway, and it says that nothing was changed: the error is
+// returned through the unit of work, which undoes the waive whole. It is a
+// refusal — the waive cannot be applied as things stand — whether or not
+// another request could be: in this command every such answer is one.
 //
-// The advance does not stop at the end of this instance. It runs on into the
-// process that called it, and into one a later step calls, and the gateway
-// may be there — in a definition no preview of this instance showed. Then
-// nobody is told to supply a value for it, and it is said to be the caller's
-// only when it is: callerID is the instance that started this one, or nil.
+// What the caller is told to do about it depends on whose gateway it was and
+// on what they gave. With values given and the gateway this instance's, they
+// are told to give one a branch accepts. With none given there is nothing of
+// theirs that fitted badly, and the form may have no field the gateway reads:
+// they are told the instance held no way out. And the advance does not stop
+// at the end of this instance — it runs on into the process that called it,
+// into one a later step calls, into one a signal wakes — so the gateway may
+// be in a definition no preview of this instance showed. Then nobody is told
+// to supply a value for it, and it is said to be the caller's only when it
+// is: callerID is the instance that started this one, or nil.
 //
 // Every other failure is the server's (effectFailed), whatever class it came
-// with.
-func waiveFailed(instanceID, callerID uuid.UUID, step string, err error) error {
-	var noFlow *entities.NoFlowSelectedError
-	if !errors.As(err, &noFlow) {
+// with — and so is a gateway's when anything else failed beside it
+// (soleGatewayFailure).
+func waiveFailed(instanceID, callerID uuid.UUID, step string, gaveOutputs bool, err error) error {
+	noFlow := soleGatewayFailure(err)
+	if noFlow == nil {
 		return effectFailed(fmt.Sprintf("waiving “%s”", step), err)
 	}
 	gateway := cmp.Or(shownStepName(noFlow.GatewayName), noFlow.GatewayID)
+	const unchanged = "so the waive was not applied and nothing was changed."
 	switch {
+	case noFlow.InstanceID == instanceID && gaveOutputs:
+		return apierr.Invalidf("The values given fit no way out of “%s”, %s Preview again and give a value one of its branches accepts.",
+			gateway, unchanged)
 	case noFlow.InstanceID == instanceID:
-		return apierr.Invalidf("The values given fit no way out of “%s”, so the waive was not applied and nothing was changed. "+
-			"Preview again and give a value one of its branches accepts.", gateway)
+		return apierr.Invalidf("“%s” had no way out for the values this instance holds, %s", gateway, unchanged)
 	case callerID != uuid.Nil && noFlow.InstanceID == callerID:
-		return apierr.Invalidf("“%s”, in the process that started this one, had no way out for the result, "+
-			"so the waive was not applied and nothing was changed.", gateway)
+		return apierr.Invalidf("“%s”, in the process that started this one, had no way out for the result, %s", gateway, unchanged)
 	}
-	return apierr.Invalidf("“%s”, in another process this waive would have moved on, had no way out, "+
-		"so the waive was not applied and nothing was changed.", gateway)
+	return apierr.Invalidf("“%s”, in another process this waive reached, had no way out, %s", gateway, unchanged)
+}
+
+// soleGatewayFailure answers the gateway with no way out that a failure
+// consists of, and nil when the failure is, or holds, anything else.
+//
+// A failure is a tree. Most of it is a chain — each layer wrapping the one
+// below with what it was doing — and such a chain is the gateway's failure
+// when its last link is. But a signal or a message delivered to several
+// instances collects what failed for each and joins them (BroadcastSignal,
+// SendMessage), and one of those may be a gateway while another is the
+// database. Told as the gateway's, that would be a refusal for something no
+// request can put right, with the server's failure unsaid. So a join is the
+// gateway's only when every part of it is; when several are, the first is
+// the one named.
+//
+// This is told from the tree alone, and can be: everything on the way up
+// wraps with %w or joins. A layer that kept only the words of what it
+// wrapped would hide the gateway, and the failure would be the server's —
+// the safe way to be wrong.
+func soleGatewayFailure(err error) *entities.NoFlowSelectedError {
+	for err != nil {
+		// Each link is looked at as itself, not through errors.As: the walk
+		// is the unwrapping, and it has to stop at a join to ask of every part.
+		if noFlow, is := err.(*entities.NoFlowSelectedError); is { //nolint:errorlint // one link of the walk, by design
+			return noFlow
+		}
+		switch wrapper := err.(type) { //nolint:errorlint // one link of the walk, by design
+		case interface{ Unwrap() error }:
+			err = wrapper.Unwrap()
+		case interface{ Unwrap() []error }:
+			return soleGatewayFailureOfAll(wrapper.Unwrap())
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+// soleGatewayFailureOfAll is soleGatewayFailure for the parts of a join: the
+// first part's gateway when every part is a gateway's failure, and nil when
+// any is not or there are none.
+func soleGatewayFailureOfAll(parts []error) *entities.NoFlowSelectedError {
+	var first *entities.NoFlowSelectedError
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		noFlow := soleGatewayFailure(part)
+		if noFlow == nil {
+			return nil
+		}
+		if first == nil {
+			first = noFlow
+		}
+	}
+	return first
 }
 
 // callerOf is the instance that started the one a row is of, or nil for one

@@ -52,8 +52,8 @@ func (s *instanceDeviationService) planWaive(ctx context.Context, p *planning) e
 // from the step that called it and decides from them — a gateway there may
 // read a field the waived step would have set. The caller runs another
 // definition, and a plan reads the one its instance runs: so nothing is
-// refused for the caller's sake, and the plan says what it did not read and
-// where, as it does of a process this one calls. Said only of a caller that
+// refused for the caller's sake, and the plan says what it did not read,
+// where, and what comes of it (callerWasNotRead). Said only of a caller that
 // has not ended: one that has receives nothing.
 func (s *instanceDeviationService) warnThatTheCallerWasNotRead(ctx context.Context, p *planning) error {
 	started := p.instance.ParentInstance
@@ -74,9 +74,27 @@ func (s *instanceDeviationService) warnThatTheCallerWasNotRead(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	p.warn("This instance was started by “%s” at “%s”, which receives its results when it ends. "+
-		"What that process decides from them was not read; check it before applying.", process, step)
+	p.warn("%s", callerWasNotRead(process, step))
 	return nil
+}
+
+// callerWasNotRead is the warning of a caller a plan did not read: the process
+// it runs, the step of it that called when that is known, and what it does
+// with a value the waiver does not give.
+//
+// It says both things that can happen, because they are opposite. A caller
+// handed its values to the instance it called and takes them back when that
+// instance ends: holding a value for a field the waived step would have set,
+// it decides on that value and the waive is applied; holding none, its
+// gateway has no way out and the waive is undone.
+func callerWasNotRead(process, step string) string {
+	at := ""
+	if step != "" {
+		at = fmt.Sprintf(" at “%s”", step)
+	}
+	return fmt.Sprintf("This instance was started by “%s”%s, which receives its results when it ends and was not read. "+
+		"Where that process decides on a value this step would have set and you give none, "+
+		"it decides on the value it already holds, or undoes the waive if it holds none. Check that process before applying.", process, at)
 }
 
 // whereItWasCalledFrom names the process a caller runs and the step of it

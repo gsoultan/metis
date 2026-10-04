@@ -233,14 +233,16 @@ func TestTheRecordOfAWaiveKeepsOnlyValuesTheInstanceHeld(t *testing.T) {
 }
 
 // What somebody who asked for a waive is told when what follows the step
-// fails. A gateway with no way out for the values given is theirs to fix, and
-// is told as that, by name. Everything else is the server's: the words are
-// kept, and whatever class the failure carried — not found, invalid,
-// forbidden — is not, since the instance exists, the request was well formed
-// and the caller may make it.
+// fails. A gateway with no way out is told as a refusal, by name, in a
+// sentence that says where the gateway is and that nothing was changed; the
+// whole of what the caller reads is pinned here, word for word. Everything
+// else is the server's: the words are kept, and whatever class the failure
+// carried — not found, invalid, forbidden — is not, since the instance
+// exists, the request was well formed and the caller may make it.
 func TestAWaiveThatFailsIsToldAsWhatItIs(t *testing.T) {
 	instance := uuid.Must(uuid.NewV7())
 	caller := uuid.Must(uuid.NewV7())
+	other := uuid.Must(uuid.NewV7())
 	gateway := func(of uuid.UUID, name string) error {
 		return &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide", GatewayName: name, InstanceID: of}
 	}
@@ -250,46 +252,72 @@ func TestAWaiveThatFailsIsToldAsWhatItIs(t *testing.T) {
 	asAResumedCallerWraps := func(err error) error {
 		return asTheEffectWraps(fmt.Errorf("resume parent instance %s at call activity %q: %w", caller, "check", err))
 	}
-	const here = ", so the waive was not applied and nothing was changed. Preview again and give a value one of its branches accepts."
-	const there = ", in the process that started this one, had no way out for the result, so the waive was not applied and nothing was changed."
-	const elsewhere = ", in another process this waive would have moved on, had no way out, so the waive was not applied and nothing was changed."
-	other := uuid.Must(uuid.NewV7())
+	// As a signal or a message delivered to several instances reports what
+	// failed: each failure wrapped, all of them joined.
+	asABroadcastJoins := func(failures ...error) error {
+		wrapped := make([]error, len(failures))
+		for i, failure := range failures {
+			wrapped[i] = fmt.Errorf("trigger signal subscription %d: %w", i, failure)
+		}
+		return asTheEffectWraps(errors.Join(wrapped...))
+	}
+	const unchanged = "so the waive was not applied and nothing was changed."
+	const given, none = true, false
 
 	for name, tc := range map[string]struct {
-		failure error
-		want    string
+		failure     error
+		gaveOutputs bool
+		want        string
 	}{
-		"a gateway of this instance": {asTheEffectWraps(gateway(instance, "Verdict?")),
-			"The values given fit no way out of “Verdict?”" + here},
-		"a gateway nobody named": {asTheEffectWraps(gateway(instance, "")),
-			"The values given fit no way out of “decide”" + here},
-		"a gateway with a very long name": {asTheEffectWraps(gateway(instance, strings.Repeat("é", 300))),
-			"The values given fit no way out of “" + strings.Repeat("é", deviationNodeNameLength) + "”" + here},
-		"a gateway of the process that called this one": {asAResumedCallerWraps(gateway(caller, "Supplier approved?")),
-			"“Supplier approved?”" + there},
-		"a caller's gateway nobody named": {asAResumedCallerWraps(gateway(caller, "")),
-			"“decide”" + there},
+		"a gateway of this instance, with values given": {asTheEffectWraps(gateway(instance, "Verdict?")), given,
+			"The values given fit no way out of “Verdict?”, " + unchanged + " Preview again and give a value one of its branches accepts."},
+		"a gateway nobody named": {asTheEffectWraps(gateway(instance, "")), given,
+			"The values given fit no way out of “decide”, " + unchanged + " Preview again and give a value one of its branches accepts."},
+		"a gateway with a very long name": {asTheEffectWraps(gateway(instance, strings.Repeat("é", 300))), given,
+			"The values given fit no way out of “" + strings.Repeat("é", deviationNodeNameLength) + "”, " + unchanged +
+				" Preview again and give a value one of its branches accepts."},
+		// Nothing was given, so nothing given can be said to fit badly.
+		"a gateway of this instance, with no values given": {asTheEffectWraps(gateway(instance, "Verdict?")), none,
+			"“Verdict?” had no way out for the values this instance holds, " + unchanged},
+		"a gateway of the process that called this one": {asAResumedCallerWraps(gateway(caller, "Supplier approved?")), given,
+			"“Supplier approved?”, in the process that started this one, had no way out for the result, " + unchanged},
+		"a caller's gateway nobody named": {asAResumedCallerWraps(gateway(caller, "")), none,
+			"“decide”, in the process that started this one, had no way out for the result, " + unchanged},
 		// Neither this instance nor the one that started it: a process the
-		// advance went on to start, or a caller further up. It is not said to
-		// be the caller's, and nobody is told to supply a value for it.
-		"a gateway of some other instance the advance reached": {asTheEffectWraps(gateway(other, "Stock in hand?")),
-			"“Stock in hand?”" + elsewhere},
+		// advance went on to start or to wake, or a caller further up. It is
+		// not said to be the caller's, and nobody is told to supply a value.
+		"a gateway of some other instance the advance reached": {asTheEffectWraps(gateway(other, "Stock in hand?")), given,
+			"“Stock in hand?”, in another process this waive reached, had no way out, " + unchanged},
+		"the one failure of a broadcast": {asABroadcastJoins(gateway(other, "Stock in hand?")), given,
+			"“Stock in hand?”, in another process this waive reached, had no way out, " + unchanged},
+		// Every part of what failed is a gateway with no way out: the first is named.
+		"two gateways, of two instances a broadcast woke": {asABroadcastJoins(gateway(other, "Stock in hand?"), gateway(caller, "Supplier approved?")), given,
+			"“Stock in hand?”, in another process this waive reached, had no way out, " + unchanged},
 	} {
-		err := waiveFailed(instance, caller, "Review the claim", tc.failure)
-		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), tc.want) {
-			t.Errorf("%s: got %v\nwant it refused as the caller's to fix, saying\n  %s", name, err, tc.want)
+		err := waiveFailed(instance, caller, "Review the claim", tc.gaveOutputs, tc.failure)
+		if want := apierr.Invalidf("%s", tc.want); !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+			t.Errorf("%s: got\n  %v\nwant it refused as the caller's to fix, saying exactly\n  %v", name, err, want)
 		}
 	}
 
+	notFound := fmt.Errorf("%w: no live version of decision no-such-decision", apierr.ErrNotFound)
 	for name, failure := range map[string]error{
-		"a decision nobody stored":  asTheEffectWraps(fmt.Errorf("%w: no live version of decision no-such-decision", apierr.ErrNotFound)),
+		"a decision nobody stored":  asTheEffectWraps(notFound),
 		"the engine refusing":       asTheEffectWraps(apierr.Invalidf("this step has already finished")),
 		"something forbidden":       asTheEffectWraps(apierr.Forbiddenf("not for you")),
 		"a definition that loops":   asTheEffectWraps(errors.New("BPMN_ERROR:execution exceeded 1000 nodes at \"again\"")),
 		"the database":              asTheEffectWraps(errors.New("could not update the process instance")),
 		"an error thrown by a step": asTheEffectWraps(errors.New("BPMN_ERROR:charge-failed")),
+		// A failure of the server's anywhere in the advance outranks a
+		// gateway's: what failed is not only something a value could fix, and
+		// a refusal would tell the caller that it was.
+		"a gateway beside a failure of the server's":     asABroadcastJoins(gateway(other, "Stock in hand?"), notFound),
+		"a failure of the server's beside a gateway":     asABroadcastJoins(errors.New("lock instance x: connection reset"), gateway(instance, "Verdict?")),
+		"a gateway and a failure wrapped into one error": asTheEffectWraps(fmt.Errorf("%w, and then %w", gateway(instance, "Verdict?"), notFound)),
+		"a join, inside a join, holding one other failure": asABroadcastJoins(gateway(other, "Stock in hand?"),
+			errors.Join(gateway(caller, "Supplier approved?"), errors.New("delete subscription y: connection reset"))),
 	} {
-		err := waiveFailed(instance, caller, "Review the claim", failure)
+		err := waiveFailed(instance, caller, "Review the claim", given, failure)
 		if err == nil {
 			t.Fatalf("%s: no error", name)
 		}
@@ -321,16 +349,58 @@ func TestAnEffectThatFailsAnswersAsTheServers(t *testing.T) {
 // then never said to be "in the process that started this one".
 func TestAWaiveWithNoCallerNeverBlamesOne(t *testing.T) {
 	instance, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	const elsewhere = "“decide”, in another process this waive reached, had no way out, so the waive was not applied and nothing was changed."
 	failure := &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide", InstanceID: other}
-	err := waiveFailed(instance, uuid.Nil, "Review the claim", failure)
-	if !errors.Is(err, apierr.ErrInvalidArgument) || strings.Contains(err.Error(), "started this one") ||
-		!strings.Contains(err.Error(), "in another process this waive would have moved on") {
-		t.Errorf("got %v, want it refused without naming a caller", err)
+	if err := waiveFailed(instance, uuid.Nil, "Review the claim", true, failure); err.Error() != apierr.Invalidf("%s", elsewhere).Error() {
+		t.Errorf("got %v, want it refused without naming a caller: %s", err, elsewhere)
 	}
 	// And a gateway whose error names no instance is not taken for this one's.
 	unnamed := &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide"}
-	if err := waiveFailed(instance, uuid.Nil, "Review the claim", unnamed); strings.Contains(err.Error(), "started this one") ||
-		strings.Contains(err.Error(), "Preview again and give a value") {
+	if err := waiveFailed(instance, uuid.Nil, "Review the claim", true, unnamed); err.Error() != apierr.Invalidf("%s", elsewhere).Error() {
 		t.Errorf("a gateway of no known instance: %v; it is neither this instance's nor its caller's", err)
+	}
+}
+
+// What a plan says of a caller it did not read: that the caller decides on a
+// value it already holds when the waiver gives none, and undoes the waive
+// when it holds none. The step that called is named when it is known.
+func TestTheWarningOfACallerThatWasNotRead(t *testing.T) {
+	const rest = ", which receives its results when it ends and was not read. " +
+		"Where that process decides on a value this step would have set and you give none, " +
+		"it decides on the value it already holds, or undoes the waive if it holds none. Check that process before applying."
+	for name, tc := range map[string]struct{ process, step, want string }{
+		"the process and the step that called": {"Supplier onboarding", "Check the supplier",
+			"This instance was started by “Supplier onboarding” at “Check the supplier”" + rest},
+		"a caller whose calling step is not known": {"Supplier onboarding", "",
+			"This instance was started by “Supplier onboarding”" + rest},
+	} {
+		if got := callerWasNotRead(tc.process, tc.step); got != tc.want {
+			t.Errorf("%s:\n  %s\nwant\n  %s", name, got, tc.want)
+		}
+	}
+}
+
+// A name longer than a plan lists a name at cannot be set by a waive, given
+// or missing: a request that gives one is malformed, and is told which.
+func TestAnOutputWithANameTooLongToSetIsAMalformedRequest(t *testing.T) {
+	command := func(name string) entities.DeviationCommand {
+		return entities.DeviationCommand{Kind: entities.DeviationWaive, NodeID: "approve", DryRun: true, Outputs: map[string]any{name: true}}
+	}
+	fits := strings.Repeat("é", deviationNodeNameLength)
+	if _, err := normalizedDeviationCommand(command(fits)); err != nil {
+		t.Errorf("a name of %d characters, which a plan lists whole: %v", deviationNodeNameLength, err)
+	}
+	tooLong := strings.Repeat("ü", deviationNodeNameLength+1)
+	_, err := normalizedDeviationCommand(command(tooLong))
+	want := apierr.Invalidf("“%s…” is too long a name for a waive to set: a field's name is at most %d characters",
+		strings.Repeat("ü", maxNameShown), deviationNodeNameLength)
+	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
+		t.Errorf("a name one character longer: got\n  %v\nwant\n  %v", err, want)
+	}
+	// A cancel that carries outputs is told that first, whatever they are called.
+	hold := command(tooLong)
+	hold.Kind = entities.DeviationHold
+	if _, err := normalizedDeviationCommand(hold); err == nil || strings.Contains(err.Error(), "too long a name") {
+		t.Errorf("a hold carrying an output with a long name: %v, want it told a hold sets none", err)
 	}
 }
