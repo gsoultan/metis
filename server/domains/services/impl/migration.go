@@ -308,6 +308,12 @@ func noteSuffix(note string) string {
 // It reports what it did. The instances it leaves alone are the ones that, by
 // the time it held their lock, were no longer where its listing found them;
 // they are in the result so the caller can be told, not only in the log.
+//
+// "Only writes" is true of an instance that stayed where the plan found it. The
+// plan is made from one listing and the instances are then taken one at a time,
+// so each is asked again where it stands: before its work is decided, and under
+// the lock the rewrite holds (whyNotMoved). One that has moved onto work the
+// new version cannot take is not rewritten.
 func (s *migrationService) apply(
 	ctx context.Context,
 	sourceDefID, targetDefID uuid.UUID,
@@ -376,17 +382,11 @@ func (s *migrationService) apply(
 			continue
 		case outcomeMove:
 		}
-		if len(options.Actions) > 0 {
-			// A skip moved the tokens, so the copy read before it is stale.
-			refreshed, readErr := s.repo.Process().Get(ctx, uuid.UUID(instance.ID))
-			if readErr != nil {
-				return result, fmt.Errorf("re-reading instance %s: %w", instance.ID, readErr)
-			}
-			instance = refreshed
-		}
 
 		moved := map[string]string{}
 		settled := false
+		// Why the instance, once locked, is not to be moved; empty when it is.
+		stuck := ""
 		// The instance_migrated entry is written after the rewrite commits, but
 		// the control-loss rows written inside it point at that entry, so its id
 		// is chosen first.
@@ -412,6 +412,20 @@ func (s *migrationService) apply(
 			// of it is not ours to move.
 			if fresh.Status != models.ProcessActive {
 				settled = true
+				return nil
+			}
+			// And the question the plan answered from its listing: can what this
+			// instance holds land on the new version? Asked of the locked row,
+			// before anything is written. An instance that reached a step the
+			// new version does not have, after it was listed, used to be
+			// re-pointed all the same; its holder then completed a task nothing
+			// follows, and the instance stayed active with no token for ever.
+			why, checkErr := s.whyNotMoved(txCtx, fresh, source, target, targetNodes, nodeMapping, options.Actions)
+			if checkErr != nil {
+				return checkErr
+			}
+			if why != "" {
+				stuck = why
 				return nil
 			}
 			// Worked out from the locked row's own completed steps, before they
@@ -485,6 +499,16 @@ func (s *migrationService) apply(
 		}
 		if settled {
 			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
+			continue
+		}
+		if stuck != "" {
+			// Left exactly as its lock found it, on the version it is running.
+			// Not counted among those dealt with: the next run, or the next
+			// plan, finds it where it now stands.
+			result.PassedOver = append(result.PassedOver, passedOver(instance, stuck))
+			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
+				Msg("A migration passed over an instance that had moved, after it was listed, onto work the new version " +
+					"cannot take as it stands. It stays on the version it is running; plan the migration again for where it is now")
 			continue
 		}
 		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
@@ -1155,18 +1179,27 @@ func plannedActions(sourceNodes map[string]models.FlowNode, actions map[string]s
 // still on the version it started on, and still correct.
 //
 // The copy of the instance it is given is the listing's, and as old as the run
-// has been going. It only chooses which action to try: each action asks again,
-// under the instance's lock, whether the instance is still running and still on
-// that step, and acts on nothing else. One that is not is left alone
-// altogether (outcomeMovedOn) — a holder who completed the step meanwhile gave
-// the approval, and advancing past it again would be a second advance.
+// has been going, so it reads the instance again and tries an action at a step
+// the instance holds work on in either copy. On the fresh copy, because an
+// instance that reached the step after the listing is one of the instances the
+// decision is about: left out, it was moved with its token on the very step a
+// skip was there to clear. On the listing's too, so that an instance which has
+// left the step meanwhile is still found to have left it, and is left alone
+// rather than moved.
+//
+// Neither copy decides anything. Each action asks again, under the instance's
+// lock, whether the instance is still running and still on that step, and acts
+// on nothing else. One that is not is left alone altogether (outcomeMovedOn) —
+// a holder who completed the step meanwhile gave the approval, and advancing
+// past it again would be a second advance. And an instance that reaches a
+// decided step after this read is caught by the rewrite, under its own lock.
 //
 // Reports what the run should do with the instance next, which step it was
 // found to have left when it is to be passed over, and whether anything was
 // written to it.
 func (s *migrationService) decide(
 	ctx context.Context,
-	instance models.ProcessInstanceModel,
+	listed models.ProcessInstanceModel,
 	sourceDefID uuid.UUID,
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
@@ -1175,13 +1208,20 @@ func (s *migrationService) decide(
 	if len(options.Actions) == 0 {
 		return decision{outcome: outcomeMove}, nil
 	}
-	instanceID := uuid.UUID(instance.ID)
+	instanceID := uuid.UUID(listed.ID)
+	instance, err := s.repo.Process().Get(ctx, instanceID)
+	if err != nil {
+		return decision{}, fmt.Errorf("re-reading instance %s to decide its work: %w", instanceID, err)
+	}
+	atStep := func(nodeID string) bool {
+		return holdsWork(instance, nodeID) || holdsWork(listed, nodeID)
+	}
 
 	// Cancel wins over skip: there is no point advancing an instance past a
 	// node in order to end it two lines later.
 	for _, nodeID := range sortedKeys(options.Actions) {
 		action := options.Actions[nodeID]
-		if action.Kind != servicecontracts.NodeActionCancel || !holdsWork(instance, nodeID) {
+		if action.Kind != servicecontracts.NodeActionCancel || !atStep(nodeID) {
 			continue
 		}
 		cancelled, err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID)
@@ -1190,7 +1230,7 @@ func (s *migrationService) decide(
 
 	for _, nodeID := range sortedKeys(options.Actions) {
 		action := options.Actions[nodeID]
-		if action.Kind != servicecontracts.NodeActionHold || !holdsWork(instance, nodeID) {
+		if action.Kind != servicecontracts.NodeActionHold || !atStep(nodeID) {
 			continue
 		}
 		held, err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID)
@@ -1200,7 +1240,7 @@ func (s *migrationService) decide(
 	skips := 0
 	for _, nodeID := range sortedKeys(options.Actions) {
 		action := options.Actions[nodeID]
-		if action.Kind != servicecontracts.NodeActionSkip || !holdsWork(instance, nodeID) {
+		if action.Kind != servicecontracts.NodeActionSkip || !atStep(nodeID) {
 			continue
 		}
 		skipped, err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID)

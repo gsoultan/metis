@@ -18,6 +18,168 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## An instance a migration left with nothing to do
+
+No migration of the schema runs for this, and nothing changes for an instance
+that is where a migration's plan found it. What changes is what an apply does
+with an instance that moved while the migration was running, and that is in
+[Changing a process that is already running](process-change-in-flight.md#node-actions--deciding-work-instead-of-moving-it):
+such an instance is left on the version it is running and listed in
+`passed_over`.
+
+**What an earlier release could leave behind.** 0.3.0 and 0.4.0 checked where
+an instance's work lands when they planned a migration, from one listing of the
+instances, and not again when they rewrote each one (read from their code, not
+run). An instance that reached, in between, a step the new version
+does not have was moved onto the new version with its token, and its open task,
+on that step. The apply reported nothing. It then went one of two ways, and a
+query finds each. Both read only; run them on every database the server uses,
+the main one and each environment's.
+
+**1. Still holding the step.** The instance is `active` on a version that has
+no step for a token it holds. If the step has a task, the task is still in its
+holder's list, and completing it is what makes the instance unrecoverable, so
+look for these first:
+
+```sql
+WITH RECURSIVE steps AS (
+  SELECT d.id AS definition_id, n.step
+    FROM process_definitions d
+   CROSS JOIN LATERAL jsonb_array_elements(
+           CASE WHEN jsonb_typeof(d.nodes::jsonb) = 'array'
+                THEN d.nodes::jsonb ELSE '[]'::jsonb END) AS n(step)
+  UNION ALL
+  SELECT s.definition_id, n.step
+    FROM steps s
+   CROSS JOIN LATERAL jsonb_array_elements(
+           CASE WHEN jsonb_typeof(s.step->'nodes') = 'array'
+                THEN s.step->'nodes' ELSE '[]'::jsonb END) AS n(step)
+), live AS (
+  SELECT i.id, i.definition_id,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, d.key AS process, d.version, t.token->>'node_id' AS step,
+       (SELECT count(*) FROM tasks k
+         WHERE k.instance_id = l.id AND k.deleted_at IS NULL
+           AND k.node_id = t.token->>'node_id'
+           AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated')) AS open_tasks
+  FROM live l
+  LEFT JOIN process_definitions d ON d.id = l.definition_id
+ CROSS JOIN LATERAL jsonb_array_elements(l.tokens) AS t(token)
+ WHERE NOT EXISTS (SELECT 1 FROM steps s
+                    WHERE s.definition_id = l.definition_id
+                      AND s.step->>'id' = t.token->>'node_id')
+ ORDER BY l.id;
+```
+
+Each row is one token: the instance, the version it is on, the step that
+version does not have, and how many tasks are open on that step. A step inside
+a sub-process is found wherever it is nested. For each instance, before
+anybody completes the task: plan a migration of that one instance back to a
+version that has the step — the version it came from, named in its
+`instance_migrated` trail entry — by sending `"instances": ["<id>"]` with the
+two version ids, as a dry run first. The plan says whether it can be applied:
+everything the instance holds must have a step on that version. Applied, the
+instance is on that version at the step, and completing the step advances it
+as that version says. Then run the migration you meant, with a mapping or a
+decision for the step.
+
+**2. With nothing left.** The step's holder completed the task. The token came
+off, nothing followed because the version has no such step, and the instance
+is `active` with no token, no open task, no job waiting or running, no work
+parked for a worker, no event it is waiting for, no open incident and no
+process it called still running:
+
+```sql
+WITH live AS (
+  SELECT i.id, i.definition_id, i.updated_at,
+         CASE WHEN jsonb_typeof(i.tokens::jsonb) = 'array'
+              THEN i.tokens::jsonb ELSE '[]'::jsonb END AS tokens
+    FROM process_instances i
+   WHERE i.status = 'active' AND i.deleted_at IS NULL
+)
+SELECT l.id, d.key AS process, d.version, l.updated_at,
+       EXISTS (SELECT 1 FROM audit_logs a
+                WHERE a.instance_id = l.id AND a.deleted_at IS NULL
+                  AND a.type = 'instance_migrated') AS migrated
+  FROM live l LEFT JOIN process_definitions d ON d.id = l.definition_id
+ WHERE jsonb_array_length(l.tokens) = 0
+   AND NOT EXISTS (SELECT 1 FROM tasks k
+                    WHERE k.instance_id = l.id AND k.deleted_at IS NULL
+                      AND k.status IN ('unclaimed', 'claimed', 'delegated', 'escalated'))
+   AND NOT EXISTS (SELECT 1 FROM jobs j
+                    WHERE j.instance_id = l.id AND j.deleted_at IS NULL
+                      AND j.status IN ('pending', 'running'))
+   AND NOT EXISTS (SELECT 1 FROM external_tasks x
+                    WHERE x.instance_id = l.id AND x.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM process_instances c
+                    WHERE c.parent_instance_id = l.id AND c.deleted_at IS NULL
+                      AND c.status IN ('active', 'suspended'))
+   AND NOT EXISTS (SELECT 1 FROM event_subscriptions s
+                    WHERE s.instance_id = l.id AND s.deleted_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM incidents n
+                    WHERE n.instance_id = l.id AND n.deleted_at IS NULL
+                      AND n.status = 'open')
+ ORDER BY l.updated_at;
+```
+
+`migrated` is true when the instance's trail has an `instance_migrated` entry.
+An instance listed with it false was not moved by a migration whose entry was
+kept, and got here some other way; the list is every running instance with
+nothing in flight, whatever stranded it.
+
+Nothing in the product moves such an instance on, ends it or holds it. A
+completion needs a task. A migration's `skip`, `cancel` and `hold` act on an
+instance that holds a token on the step they name, and this one holds none; the
+step it was stranded on cannot be named either, because the version it is on
+does not have it (*there is no node "…" in the version being migrated from*).
+A migration that only moves work moves it to another version as it is, with
+nothing to do there. So what is left is a decision, not a repair:
+
+- Read its trail to see what was done. For an instance a migration stranded,
+  the last task completed is on the step the new version did not have, and
+  whoever completed it gave that approval.
+- If the business still needs what should have followed, start it again as a
+  new instance.
+- **There is no supported way to close such an instance yet.** No route ends
+  an instance, and a migration's `cancel`, the only thing in the product that
+  sets an instance `cancelled`, ends an instance that holds a token on the
+  step it names, so it cannot reach one that holds none. Left as it is, the instance has nothing in flight
+  and nothing will run for it; it goes on showing as running in every list and
+  every count. An audited way to close it is on the roadmap.
+- **Unsupported, as a last resort:** the row can be changed in the database,
+
+  ```sql
+  UPDATE process_instances SET status = 'cancelled', updated_at = now()
+   WHERE id = '<id>' AND status = 'active';
+  ```
+
+  one instance at a time, in a transaction, after a backup, committing only
+  when it reports exactly one row changed. It takes the instance out of the
+  running ones and writes nothing else: no trail entry, no ledger row, no
+  notification or webhook goes out, and nothing anywhere says who decided or
+  why. Record the decision, the
+  instance's id, who made it and the reason, outside the product, somewhere
+  that is kept. If the instance was called by another process
+  (`parent_instance_id` is set), that parent is still waiting for it and is
+  not resumed by this.
+
+Both queries were run with `psql` against a schema with this release's tables,
+over temporary tables holding rows each must list and rows each must not: for the
+second, an instance with a token, with an open task, with a pending and with a
+running job, with parked work, with a waiting event, with an open incident,
+with an active child, one that is finished and one that is deleted are left
+out, and one with only finished, resolved or deleted things around it is
+listed; for the first, a token on a step nested two sub-processes deep is left
+out. Neither was run against an installation that an earlier release had
+stranded an instance in.
+
+**Rolling back** needs nothing: no schema changed. The earlier release applies
+a migration as it always did, with the window described above.
+
 ## Migration 33: an instance's ledger of what was done to it
 
 An instance now keeps a row for each thing done to it that its process did not
