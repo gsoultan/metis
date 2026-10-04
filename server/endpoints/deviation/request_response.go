@@ -18,6 +18,71 @@ type ListInstanceDeviationsResponse struct {
 
 func (r ListInstanceDeviationsResponse) Failed() error { return r.Err }
 
+// DeviateInstanceRequest asks for one running instance to be dealt with where
+// it stands: a step of it waived, the instance cancelled, or the instance held
+// for somebody to decide.
+type DeviateInstanceRequest struct {
+	// InstanceID is taken from the address, never from the body.
+	InstanceID string `json:"-"`
+	// Kind is waive, cancel or hold.
+	Kind string `json:"kind"`
+	// NodeID is the step the act is made at. A cancel may leave it out: that
+	// is how an instance that waits at no step is closed.
+	NodeID string `json:"node_id,omitzero"`
+	Reason string `json:"reason"`
+	// Outputs is what a waived step counts as, by the name of the field of its
+	// form. A waive only.
+	Outputs map[string]any `json:"outputs,omitzero"`
+	// VisitKey is the visit_key of the plan a preview answered. An apply names
+	// it.
+	VisitKey string `json:"visit_key,omitzero"`
+
+	// DryRun asks what would happen and changes nothing. The default, because
+	// this acts on an instance that is somebody's order or somebody's claim:
+	// committing has to be the thing asked for, not the thing got by omission.
+	//
+	// A pointer so that saying nothing can be told from saying false.
+	DryRun *bool `json:"dry_run,omitzero"`
+}
+
+// dryRun reports whether the request is a preview: anything but an explicit
+// false.
+func (r DeviateInstanceRequest) dryRun() bool {
+	return r.DryRun == nil || *r.DryRun
+}
+
+// DeviateInstanceResponse answers a DeviateInstanceRequest.
+//
+// A preview carries the plan and nothing else: Applied is false and there is
+// no Deviation. A plan that refuses is still an answer. An apply carries the
+// plan it was applied with and the record of the change, as the ledger's read
+// route gives it.
+//
+// A request that was already made is answered with Replayed and the record
+// the first one wrote. Its plan names the act and lists nothing: what there
+// was to list is no longer there to read, so its lists are empty and its
+// counts are zero, and neither says there was nothing.
+type DeviateInstanceResponse struct {
+	Plan     PlanView `json:"plan"`
+	Applied  bool     `json:"applied"`
+	Replayed bool     `json:"replayed"`
+	// Deviation is left out of a preview.
+	Deviation *DeviationView `json:"deviation,omitzero"`
+	Err       error          `json:"err,omitzero"`
+}
+
+func (r DeviateInstanceResponse) Failed() error { return r.Err }
+
+// responseOf maps what the service answered to what the route returns.
+func responseOf(outcome entities.DeviationOutcome) DeviateInstanceResponse {
+	response := DeviateInstanceResponse{Plan: PlanViewOf(outcome.Plan), Applied: outcome.Applied, Replayed: outcome.Replayed}
+	if outcome.Deviation != nil {
+		view := ViewOf(*outcome.Deviation)
+		response.Deviation = &view
+	}
+	return response
+}
+
 // DeviationView is a deviation as a member of the organization reads it. It
 // carries names, never account ids: an account id identifies a person inside
 // the ledger across renames, and a reader has no use for it.

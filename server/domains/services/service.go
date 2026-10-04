@@ -220,7 +220,7 @@ func NewServiceFacade(
 		SetupService:           setupSvc,
 		NotificationService:    notificationSvc,
 		SimulationService:      simulationSvc,
-		DeviationService:       deviationLedger,
+		DeviationService:       serviceimpl.NewDeviationService(deviationLedger, serviceimpl.NewInstanceDeviationService(repo, engine)),
 	})
 }
 
