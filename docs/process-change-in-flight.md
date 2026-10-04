@@ -816,23 +816,22 @@ the outcome” is still open though the instance is not waiting there; it will b
 
 | Refused | In the plan's words |
 | :-- | :-- |
-| A called instance that waits at a step | *This instance was started by another process (instance 0199…); cancel that one, or hold this one.* |
 | An instance while a process it called has not ended | *This instance is waiting on 1 process(es) it started (0199…); cancel or finish those first.* |
 | A cancel naming no step, of an instance that waits somewhere | *This instance is waiting at “Operations approve”; say which of those steps it is to be ended at.* |
 | A step the instance is not waiting at, or one its process does not have | *This instance is not waiting at “Sales approve”.* |
 
-Read the first two together. While a called instance waits at a step, neither it nor its
-caller can be cancelled in place: each refusal points at the other
-(`TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne`). Finish the called instance
-(its steps can be completed, or waived) and then cancel the caller, or hold either. The
-first refusal does not ask what has become of the caller: a called instance that waits at a
-step is refused even when its caller has ended (read from the planner, not run).
-
-A called instance that waits **nowhere** can be closed alone, with a cancel that names no
-step. Closing it resumes nobody, and its plan warns *This instance was started by another
-process (instance 0199…), which is still waiting for it and is not resumed by this; cancel
-or hold that one next.* The caller is then cancelled at its call step
-(`TestAStrandedCalledInstanceAndItsCallerCanBothBeClosed`).
+A **called instance** can be cancelled in place, where it waits or when it waits nowhere.
+Cancelling it ends that instance and resumes nobody. While its caller has not ended, its
+plan warns *This instance was started by another process (instance 0199…), which is still
+waiting for it and is not resumed by this; cancel or hold that one next.* The caller is
+left where it was, at its call step, and is refused while a process it called has not
+ended. So to end a process and what it called, cancel the called instance first, then the
+caller at its call step (`TestACalledInstanceIsCancelledAloneAndItsCallerOnlyAfterIt`; for
+a called instance that waits nowhere, with a cancel that names no step,
+`TestAStrandedCalledInstanceAndItsCallerCanBothBeClosed`). When the caller has already
+ended — a terminate end event on another branch ended it while the process it called was
+still running — there is no such warning, and the cancel closes what the caller left behind
+(`TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt`).
 
 What a cancel leaves, in place as in a migration:
 

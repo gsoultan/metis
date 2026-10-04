@@ -488,10 +488,11 @@ func theOneCalledBy(t *testing.T, h engineHarness, caller uuid.UUID) uuid.UUID {
 	return called[0].ID
 }
 
-// Design §7.4, rules 11 and 12. A called instance that is waiting is part of a
-// larger process, and an instance waiting on one it started cannot be ended
-// under it: the plan refuses both, names the other instance, and lists what is
-// still running.
+// Design §7.4 rule 12, and the final-wave ruling FW-1 in place of rule 11. An
+// instance waiting on one it started cannot be ended under it: the plan
+// refuses, names the other instance, and lists what is still running. A called
+// instance that is waiting can be cancelled, and the plan warns that its caller
+// is still waiting for it and is not resumed.
 func TestThePlanForACancelSaysWhatElseDependsOnTheInstance(t *testing.T) {
 	h := newEngineHarness(t, "Plan Cancel Project")
 	w := newWaiver(h)
@@ -513,9 +514,13 @@ func TestThePlanForACancelSaysWhatElseDependsOnTheInstance(t *testing.T) {
 		t.Errorf("cancelling around a called instance: called %v, refusals:%s\nwant only\n  %s", around.CalledInstances, lines(around.Refusals), want)
 	}
 	inside := w.preview(t, deviationCommand(entities.DeviationCancel, called, "review", nil))
-	want = "This instance was started by another process (instance " + caller.String() + "); cancel that one, or hold this one."
-	if !reflect.DeepEqual(inside.Refusals, []string{want}) || len(inside.CalledInstances) != 0 {
-		t.Errorf("cancelling a called instance: called %v, refusals:%s\nwant only\n  %s", inside.CalledInstances, lines(inside.Refusals), want)
+	wantWarnings := []string{
+		"This instance was started by another process (instance " + caller.String() + "), which is still waiting for it and is not resumed by this; cancel or hold that one next.",
+		"“Review the supplier” is with rita, who will be told it was withdrawn.",
+	}
+	if !inside.Applicable() || !reflect.DeepEqual(inside.Warnings, wantWarnings) || len(inside.CalledInstances) != 0 {
+		t.Errorf("cancelling a called instance: called %v, refusals:%s\nwarnings:%s\nwant it accepted with the warnings:%s",
+			inside.CalledInstances, lines(inside.Refusals), lines(inside.Warnings), lines(wantWarnings))
 	}
 	// Either can be held, and the step inside the called one can be waived.
 	for what, command := range map[string]entities.DeviationCommand{

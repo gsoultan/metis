@@ -365,16 +365,19 @@ Before you apply, know what a cancel does not do:
   when it comes due. A queued call is not made, and shows as pending on the
   cancelled instance until its turn comes.
 
-Two refusals to expect where one process calls another:
+Where one process calls another, cancel the called instance first:
 
-| Refused | Do |
-| :-- | :-- |
-| *This instance was started by another process (instance …); cancel that one, or hold this one.* | A called instance that waits at a step cannot be cancelled in place. |
-| *This instance is waiting on 1 process(es) it started (…); cancel or finish those first.* | A caller cannot be cancelled while a process it called has not ended. |
+- The caller is refused while a process it called has not ended: *This
+  instance is waiting on 1 process(es) it started (…); cancel or finish those
+  first.* The ids in the sentence are the instances to cancel or finish.
+- The called instance can be cancelled where it waits. Its plan warns *This
+  instance was started by another process (instance …), which is still
+  waiting for it and is not resumed by this; cancel or hold that one next.*
+  Cancelling it resumes nobody: the caller stays at its call step.
+- Then cancel the caller, naming its call step, or hold it.
 
-While the called instance waits at a step, each refusal points at the other,
-and neither instance can be cancelled in place. Finish the called instance —
-complete its steps, or waive them — and then cancel the caller. Or hold either.
+A called instance whose caller has already ended is cancelled the same way,
+and its plan has no such warning.
 
 For an instance with more than 200 open tasks, the cancel's ledger row names
 the 200 tasks with the lowest ids and counts them all. Who held a task it does

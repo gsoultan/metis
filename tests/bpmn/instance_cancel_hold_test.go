@@ -585,12 +585,16 @@ func TestTheIncidentOfAHoldIsRedactedAndHoldsTheLongestReason(t *testing.T) {
 	}
 }
 
-// Design §7.4, rules 11 and 12, at the apply. A called instance that is
-// waiting is part of a larger process, and an instance waiting on one it
-// started cannot be ended under it: an apply of either cancel is refused with
-// what its preview said, and nothing is changed. A hold needs nothing further,
-// so either can be held.
-func TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne(t *testing.T) {
+// Design §7.4 rule 12 and the final-wave ruling FW-1, at the apply. An instance
+// waiting on one it started cannot be ended under it: that cancel is refused
+// with what its preview said, and nothing is changed. A hold needs nothing
+// further, so either can be held.
+//
+// The called instance can be cancelled where it waits (FW-1 reverses the
+// design's rule 11): the plan warns that its caller is still waiting for it and
+// is not resumed, the cancel moves nobody but the instance it ends, and its
+// caller can then be cancelled in its turn.
+func TestACalledInstanceIsCancelledAloneAndItsCallerOnlyAfterIt(t *testing.T) {
 	h := newEngineHarness(t, "Cancel Called Project")
 	h.recordsAsProductionDoes()
 	w := newWaiver(h)
@@ -608,31 +612,23 @@ func TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne(t *testing.T) {
 	child := theOneCalledBy(t, h, parent)
 	before := everyRow(t, h)
 
-	for what, refused := range map[string]struct {
-		command entities.DeviationCommand
-		says    []string
-	}{
-		"cancelling around an active called instance": {deviationCommand(entities.DeviationCancel, parent, "haveItChecked", nil),
-			[]string{"is waiting on 1 process(es) it started", child.String()}},
-		"cancelling a called instance that is waiting": {deviationCommand(entities.DeviationCancel, child, "review", nil),
-			[]string{"started by another process", parent.String()}},
-	} {
-		plan := w.preview(t, refused.command)
-		if plan.Applicable() || !refusalMentions(plan, refused.says...) {
-			t.Fatalf("%s: the plan's refusals:%s", what, lines(plan.Refusals))
-		}
-		out, err := w.apply(t, refused.command)
-		if !errors.Is(err, apierr.ErrInvalidArgument) || out.Applied || out.Deviation != nil {
-			t.Fatalf("%s, applied: %+v, %v; want it refused as something the caller can fix", what, out, err)
-		}
-		for _, words := range refused.says {
-			if !strings.Contains(err.Error(), words) {
-				t.Errorf("%s, applied: told %q; it does not say %q", what, err, words)
-			}
+	around := deviationCommand(entities.DeviationCancel, parent, "haveItChecked", nil)
+	says := []string{"is waiting on 1 process(es) it started", child.String()}
+	plan := w.preview(t, around)
+	if plan.Applicable() || !refusalMentions(plan, says...) {
+		t.Fatalf("cancelling around an active called instance: the plan's refusals:%s", lines(plan.Refusals))
+	}
+	out, err := w.apply(t, around)
+	if !errors.Is(err, apierr.ErrInvalidArgument) || out.Applied || out.Deviation != nil {
+		t.Fatalf("cancelling around an active called instance, applied: %+v, %v; want it refused as something the caller can fix", out, err)
+	}
+	for _, words := range says {
+		if !strings.Contains(err.Error(), words) {
+			t.Errorf("cancelling around an active called instance, applied: told %q; it does not say %q", err, words)
 		}
 	}
 	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
-		t.Fatalf("refused cancels changed %v", changed)
+		t.Fatalf("the refused cancel changed %v", changed)
 	}
 
 	for what, command := range map[string]entities.DeviationCommand{
@@ -650,6 +646,134 @@ func TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne(t *testing.T) {
 	}
 	requireInstanceStatus(ctx, t, h, child, entities.ProcessCompleted)
 	requireInstanceStatus(ctx, t, h, parent, entities.ProcessCompleted)
+
+	// A second pair, to end by cancelling: the called instance first.
+	caller, err := h.svc.StartProcess(ctx, h.projID, "onboarding-cancel", nil)
+	if err != nil {
+		t.Fatalf("start the second caller: %v", err)
+	}
+	called := theOneCalledBy(t, h, caller)
+	reviewing := theOpenTask(t, h, called, "review")
+	inside := deviationCommand(entities.DeviationCancel, called, "review", nil)
+	wantWarnings := []string{
+		"This instance was started by another process (instance " + caller.String() + "), which is still waiting for it and is not resumed by this; cancel or hold that one next.",
+		"“Review the supplier” is with rita, who will be told it was withdrawn.",
+	}
+	if plan := w.preview(t, inside); !plan.Applicable() || !reflect.DeepEqual(plan.Warnings, wantWarnings) {
+		t.Fatalf("cancelling a called instance that is waiting: refusals:%s\nwarnings:%s\nwant it accepted with the warnings:%s",
+			lines(plan.Refusals), lines(plan.Warnings), lines(wantWarnings))
+	}
+	callerBefore, err := h.repo.Process().Get(ctx, caller)
+	if err != nil {
+		t.Fatalf("read the caller: %v", err)
+	}
+	w.mustApply(t, inside)
+	requireInstanceStatus(ctx, t, h, called, entities.ProcessCancelled)
+	if now, err := h.svc.GetTask(ctx, reviewing.ID); err != nil || now.Status != entities.TaskCanceled {
+		t.Errorf("the called instance's task is %q (%v), want it withdrawn", now.Status, err)
+	}
+	rows := w.ledger(t, called)
+	if len(rows) != 1 || rows[0].Kind != entities.DeviationCancel || rows[0].Node == nil || rows[0].Node.ID != "review" {
+		t.Fatalf("the called instance's ledger: %+v", rows)
+	}
+	// A cancel of a called instance resumes nobody: its caller's row is as it
+	// was, token and all, and nothing of the caller is recorded as deviating.
+	callerAfter, err := h.repo.Process().Get(ctx, caller)
+	if err != nil {
+		t.Fatalf("read the caller again: %v", err)
+	}
+	if !reflect.DeepEqual(callerBefore, callerAfter) {
+		t.Fatalf("cancelling the called instance changed its caller's row:\nwas %+v\nis  %+v", callerBefore, callerAfter)
+	}
+	if waiting := requireInstanceStatus(ctx, t, h, caller, entities.ProcessActive); tokensOn(t, h, caller, "haveItChecked") != 1 || len(waiting.Tokens) != 1 {
+		t.Fatalf("the caller holds %d token(s), %d on the call; cancelling what it called was not to move it", len(waiting.Tokens), tokensOn(t, h, caller, "haveItChecked"))
+	}
+	if rows := w.ledger(t, caller); len(rows) != 0 {
+		t.Fatalf("cancelling the called instance wrote %d ledger row(s) on its caller", len(rows))
+	}
+
+	// Then the caller: nothing it started is still running.
+	next := deviationCommand(entities.DeviationCancel, caller, "haveItChecked", nil)
+	if plan := w.preview(t, next); !plan.Applicable() || len(plan.CalledInstances) != 0 || len(plan.Warnings) != 0 {
+		t.Fatalf("cancelling the caller once what it called is cancelled: called %v, refusals:%s\nwarnings:%s",
+			plan.CalledInstances, lines(plan.Refusals), lines(plan.Warnings))
+	}
+	w.mustApply(t, next)
+	requireInstanceStatus(ctx, t, h, caller, entities.ProcessCancelled)
+	if rows := w.ledger(t, caller); len(rows) != 1 || rows[0].Node == nil || rows[0].Node.ID != "haveItChecked" {
+		t.Fatalf("the caller's ledger: %+v", rows)
+	}
+}
+
+// endsEarlyAround is start → fork → Have it checked (a call) and Decide now
+// (held by dana) → a terminate end event. Dana deciding ends the instance while
+// the process it called is still running: the engine ends nothing a step
+// called when the step's instance ends early.
+func endsEarlyAround(projectID uuid.UUID, key, called string) *entities.ProcessDefinition {
+	return &entities.ProcessDefinition{
+		Project: &entities.Project{ID: projectID}, Key: key,
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "fork", Type: entities.ParallelGateway},
+			{ID: "haveItChecked", Type: entities.CallActivity, Name: "Have it checked", Properties: map[string]any{"called_process_key": called}},
+			{ID: "decide", Type: entities.UserTask, Name: "Decide now", Assignee: "dana"},
+			{ID: "stop", Type: entities.TerminateEndEvent},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "e1", SourceRef: "start", TargetRef: "fork"},
+			{ID: "e2", SourceRef: "fork", TargetRef: "haveItChecked"},
+			{ID: "e3", SourceRef: "fork", TargetRef: "decide"},
+			{ID: "e4", SourceRef: "decide", TargetRef: "stop"},
+			{ID: "e5", SourceRef: "haveItChecked", TargetRef: "end"},
+		},
+	}
+}
+
+// Final-wave ruling FW-1. A process called from a step whose instance has
+// since ended keeps running, and nothing else ends it: it is cancelled where
+// it waits, and the plan says nothing of a caller that is waiting for nothing.
+// The caller is ended the way production ends one early: a terminate end
+// event on another branch.
+func TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt(t *testing.T) {
+	h := newEngineHarness(t, "Cancel Called Caller Ended Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "supplier-review-outlives",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the supplier", Assignee: "rita"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{{ID: "c1", SourceRef: "start", TargetRef: "review"}, {ID: "c2", SourceRef: "review", TargetRef: "end"}},
+	})
+	caller := w.start(t, endsEarlyAround(h.projID, "onboarding-ends-early", "supplier-review-outlives"), nil)
+	called := theOneCalledBy(t, h, caller)
+	if err := completeAs(ctx, h, theOpenTask(t, h, caller, "decide"), "dana", nil); err != nil {
+		t.Fatalf("dana decides: %v", err)
+	}
+	requireInstanceStatus(ctx, t, h, caller, entities.ProcessCompleted)
+	if left := requireInstanceStatus(ctx, t, h, called, entities.ProcessActive); tokensOn(t, h, called, "review") != 1 || len(left.Tokens) != 1 {
+		t.Fatalf("the called instance holds %d token(s); this test needs it still waiting at its step after its caller ended", len(left.Tokens))
+	}
+
+	cancel := deviationCommand(entities.DeviationCancel, called, "review", nil)
+	want := []string{"“Review the supplier” is with rita, who will be told it was withdrawn."}
+	if plan := w.preview(t, cancel); !plan.Applicable() || !reflect.DeepEqual(plan.Warnings, want) {
+		t.Fatalf("cancelling a called instance whose caller has ended: refusals:%s\nwarnings:%s\nwant it accepted with only:%s",
+			lines(plan.Refusals), lines(plan.Warnings), lines(want))
+	}
+	ended, err := h.repo.Process().Get(ctx, caller)
+	if err != nil {
+		t.Fatalf("read the caller: %v", err)
+	}
+	w.mustApply(t, cancel)
+	requireInstanceStatus(ctx, t, h, called, entities.ProcessCancelled)
+	if now, err := h.repo.Process().Get(ctx, caller); err != nil || !reflect.DeepEqual(ended, now) {
+		t.Fatalf("cancelling the called instance changed its ended caller (%v):\nwas %+v\nis  %+v", err, ended, now)
+	}
 }
 
 // Rulings addendum §11. Whatever a preview saw is asked again of the locked
@@ -982,9 +1106,9 @@ func TestCancellingInPlaceWithdrawsATaskTheInstanceNoLongerWaitsFor(t *testing.T
 }
 
 // Rulings addendum §10, for a called instance (plan Ruling 24). One that
-// holds nothing will never end and never resume its caller, and while it is
-// active its caller cannot be cancelled either. It is the one called instance
-// that may be cancelled alone; its caller, which is not resumed, is then
+// holds nothing reaches no end event, so it does not resume its caller, and
+// while it has not ended its caller cannot be cancelled either. It is
+// cancelled alone, naming no step; its caller, which is not resumed, is then
 // closed in its turn, at the step where it was waiting for it.
 func TestAStrandedCalledInstanceAndItsCallerCanBothBeClosed(t *testing.T) {
 	h := newEngineHarness(t, "Stranded Called Project")

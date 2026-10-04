@@ -1143,7 +1143,10 @@
     12. *A cancel is the whole instance, shown and keyed whole* —
         `TestACancelShowsAndKeysEverythingItWouldWithdraw`,
         `TestACancelOfMoreWorkThanAPlanListsWithdrawsAllOfIt`,
-        `TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne`.
+        `TestACalledInstanceIsCancelledAloneAndItsCallerOnlyAfterIt`,
+        `TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt` (a called
+        instance is cancelled where it waits, with a warning while its caller has not
+        ended; the caller is refused until what it called has ended).
     13. *An instance with nothing left can be closed* (rulings addendum §10) —
         `TestCancellingInPlaceClosesAnInstanceThatHoldsNothing`,
         `TestACancelThatNamesNoStepClosesAnInstanceThatWaitsNowhere`,
@@ -1298,12 +1301,13 @@
       nothing when it comes due (*read*).
     - **No event says an instance was cancelled or held.** Only `TaskCanceled` for each task
       withdrawn (*run*: the no-step cancel and the hold raise none).
-    - **A called instance that waits at a step, and its caller, cannot be cancelled in
-      place**: each refusal points at the other (*run*:
-      `TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne`). The first refusal does
-      not ask what became of the caller, so a called instance whose caller has ended is
-      refused too (*read* while writing the docs; not in the task ledger). Slice 1's item,
-      a process called from a step that has ended keeps running, is therefore still open.
+    - **Cancelling a called instance leaves its caller waiting.** The cancel resumes nobody;
+      the plan warns of a caller that has not ended, and the caller has then to be cancelled
+      or held by hand (*run*: `TestACalledInstanceIsCancelledAloneAndItsCallerOnlyAfterIt`).
+      Nothing ends a called instance when its caller ends early: slice 1's item, a process
+      called from a step that has ended keeps running, is still open, and such an instance
+      is now closable with the cancel in place (*run*:
+      `TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt`).
     - **An instance holding a token on a step its version lacks is out of reach in place**:
       naming the step is refused for a step the process does not have, and naming none is
       refused because it waits somewhere (*read* while writing the docs; not in the task

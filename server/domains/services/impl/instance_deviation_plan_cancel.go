@@ -24,16 +24,14 @@ import (
 // much work parked for outside workers it would withdraw and how many open
 // incidents it would close.
 //
-// A called instance that waits somewhere is part of a larger process, and is
-// refused. One that waits nowhere will never end, so it will never resume its
-// caller, and its caller cannot be cancelled while it runs: it may be closed
-// alone, with a warning naming the caller (rulings addendum §13).
+// A called instance may be cancelled alone, wherever it stands. Its caller
+// cannot be cancelled while it has not ended, so it is the one that goes
+// first: when the caller has not ended either, the plan warns that the caller
+// is still waiting for it and is not resumed (warnOfTheCaller). The cancel
+// ends this instance and moves nobody else.
 func (s *instanceDeviationService) planCancel(ctx context.Context, p *planning) error {
 	waitsSomewhere := len(p.instance.Tokens) > 0
 	running := p.instance.Status == entities.ProcessActive
-	if caller := p.instance.ParentInstance; caller != nil && waitsSomewhere {
-		p.refuse("This instance was started by another process (instance %s); cancel that one, or hold this one.", caller.ID)
-	}
 	called, err := s.calledAndNotEnded(ctx, p.instance.ID, "")
 	if err != nil {
 		return err
@@ -55,7 +53,7 @@ func (s *instanceDeviationService) planCancel(ctx context.Context, p *planning) 
 	if running {
 		p.warnOfWorkNobodyWaitsFor()
 	}
-	if running && !waitsSomewhere {
+	if running {
 		if err := s.warnOfTheCaller(ctx, p); err != nil {
 			return err
 		}
@@ -153,7 +151,7 @@ func itOrThey(count int) string {
 	return "they"
 }
 
-// warnOfTheCaller says, of a called instance that is closed alone, that the
+// warnOfTheCaller says, of a called instance that is cancelled alone, that the
 // process that started it is not resumed. Said only of a caller that has not
 // ended: one that has is waiting for nothing, and cannot be cancelled or held
 // next.
