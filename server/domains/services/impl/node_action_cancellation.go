@@ -1,6 +1,10 @@
 package impl
 
-import "github.com/gsoultan/metis/server/repositories/models"
+import (
+	"github.com/google/uuid"
+
+	"github.com/gsoultan/metis/server/repositories/models"
+)
 
 // cancellation is what cancelling an instance did: the row as it was written,
 // and what was taken with it.
@@ -13,4 +17,7 @@ type cancellation struct {
 	// parkedWithdrawn is how many pieces of work parked for outside workers it
 	// took off the list they fetch from.
 	parkedWithdrawn int
+	// incidentsClosed is the incidents it found open on the instance and
+	// closed, in the order of their ids.
+	incidentsClosed []uuid.UUID
 }

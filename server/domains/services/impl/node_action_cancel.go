@@ -1,8 +1,11 @@
 package impl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,7 +18,7 @@ import (
 // and the tasks it withdrew as they were before.
 //
 // It is cancelWhole, for a caller that records the instance and its tasks and
-// nothing else of what a cancel takes: the migration.
+// nothing else of what a cancel takes or closes: the migration.
 func (a nodeActions) cancel(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -41,6 +44,9 @@ func (a nodeActions) cancel(
 // Work parked for outside workers is withdrawn too (withdrawParked). It is a
 // row of its own, like a task, and it used to outlive the instance: a worker
 // was still handed it, and its report moved the cancelled instance on.
+//
+// The incidents the instance has open are closed (closeIncidents): there is
+// nothing left on it for anybody to decide.
 //
 // Tokens are cleared and the status is set rather than the rows deleted: what
 // this instance did, and how far it got, is the record somebody will ask for.
@@ -78,12 +84,55 @@ func (a nodeActions) cancelWhole(ctx context.Context, locked models.ProcessInsta
 			return cancellation{}, err
 		}
 	}
+	closed, err := a.closeIncidents(ctx, instanceID)
+	if err != nil {
+		return cancellation{}, err
+	}
 	locked.Tokens = nil
 	locked.Status = models.ProcessCancelled
 	if err := a.repo.Process().Update(ctx, locked); err != nil {
 		return cancellation{}, err
 	}
-	return cancellation{instance: locked, withdrawn: withdrawn, parkedWithdrawn: parked}, nil
+	return cancellation{instance: locked, withdrawn: withdrawn, parkedWithdrawn: parked, incidentsClosed: closed}, nil
+}
+
+// closeIncidents closes the incidents an instance has open, and returns their
+// ids in order.
+//
+// An incident asks somebody to look at an instance and decide. A cancelled
+// instance has nothing left to decide, and an incident left open on it stays
+// in the inbox for good.
+//
+// Each is closed by setting its status and when — not by resolving it.
+// Resolving an incident does something for the instance: it puts the failed
+// job back to be tried, or offers the parked work to a worker again, and
+// neither is wanted for an instance that has ended. What the incident says
+// went wrong is left as it is: that is the evidence.
+//
+// Called with the instance held. A job that fails for good holds the instance
+// while it decides whether to raise an incident (jobService.failJob), and a
+// worker that gives up holds it too, so an incident is either here to close
+// or is not raised.
+func (a nodeActions) closeIncidents(ctx context.Context, instanceID uuid.UUID) ([]uuid.UUID, error) {
+	incidents, err := a.repo.Incident().ListByInstance(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the incidents on instance %s: %w", instanceID, err)
+	}
+	var closed []uuid.UUID
+	now := time.Now()
+	for _, incident := range incidents {
+		if incident.Status != models.IncidentOpen {
+			continue
+		}
+		incident.Status = models.IncidentResolved
+		incident.ResolvedAt = &now
+		if err := a.repo.Incident().Update(ctx, incident); err != nil {
+			return nil, fmt.Errorf("closing incident %s of instance %s: %w", uuid.UUID(incident.ID), instanceID, err)
+		}
+		closed = append(closed, uuid.UUID(incident.ID))
+	}
+	slices.SortFunc(closed, func(x, y uuid.UUID) int { return bytes.Compare(x[:], y[:]) })
+	return closed, nil
 }
 
 // withdrawParked takes the work an instance has parked for outside workers
