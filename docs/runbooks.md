@@ -191,13 +191,284 @@ alternative to sending somebody's approval down an arbitrary branch.
 
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" \
-  "$METIS/api/v1/incidents/<instance-id>" | jq '.incidents[] | {node_id, message, created_at}'
+  "$METIS/api/v1/incidents/<instance-id>" | jq '.incidents[] | {id, step: .node.id, error, status, created_at}'
 ```
 
 The incident inbox in the interface shows the same thing with the cause in plain
-words and a **Retry** button, which is the supported fix. Use it after correcting
+words and a **Try again** button, which is the supported fix. Use it after correcting
 whatever the message names. If the cause was the process model itself, deploy a
 corrected version — running instances continue on the version they started on.
+
+An incident whose text begins *held at* is not a failure. An administrator held
+the instance there for somebody to decide; the text says who and why. See
+[Holding an instance, and letting it go](#holding-an-instance-and-letting-it-go).
+
+### It is waiting on nothing
+
+`active`, with no token, no open task, no job waiting or running, nothing
+parked for a worker and no event it waits for: nothing will run for it, and it
+shows as running in every list. A migration of an earlier
+release could leave one, and so does a process whose last step has no flow
+leaving it. See
+[Closing an instance that has nothing left to do](#closing-an-instance-that-has-nothing-left-to-do).
+
+---
+
+## Waiving, cancelling or holding one instance
+
+One instance has to be dealt with outside what its process says: the approver
+has left and the order cannot wait, the request was withdrawn, somebody has to
+look before it goes further. An administrator of the instance's organization
+does it through one route, in two calls: a preview, then an apply. It needs no
+second version of the process, and nothing here is an `UPDATE`.
+
+What each act does and what it refuses is in
+[Changing a process that is already running](process-change-in-flight.md#in-place-waive-cancel-and-hold).
+The request and the reply, field by field, are in
+[`integration.md`](integration.md#waiving-cancelling-or-holding-one-instance).
+
+Three things hold for all of it:
+
+- **A request changes nothing unless it says `"dry_run": false`.** Left out,
+  it is a preview. Preview as often as you like: it holds no row and writes
+  nothing.
+- **Say why.** `reason` is required, at most 2,000 characters, and is kept in
+  the instance's ledger and on its timeline with your name.
+- **Your token has to be an administrator's, in the instance's organization.**
+  If your account belongs to several organizations, add
+  `-H "X-Organization-ID: <the instance's organization>"`. Without it the
+  request is for your first membership, and an instance of another
+  organization is answered 404, *no such process instance*.
+
+### First, preview
+
+The step's id is the `node_id` of the task that is waiting:
+
+```sql
+SELECT node_id, name, status, assignee FROM tasks
+WHERE instance_id = '<instance-id>' AND status IN ('unclaimed', 'claimed', 'delegated');
+```
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>"}' \
+  "$METIS/api/v1/instances/<instance-id>/deviations" \
+  | jq '.plan | {applicable, refusals, warnings, missing, visit_key, open_work_in_all,
+                 open_work: [.open_work[] | {name, node_name, status, assignee}]}'
+```
+
+Read it in this order:
+
+1. **`applicable`.** `false` means an apply would be refused, and `refusals`
+   says why: every reason at once, each a sentence that says what to do
+   instead.
+2. **`warnings`.** Whose work would be taken, and what the preview could not
+   read. A warning does not stop an apply. A warning that something *was not
+   read* is yours to go and read.
+3. **`open_work`.** The tasks that would be withdrawn, and who has them. It
+   lists the first 200; `open_work_in_all` is how many there are.
+4. **`visit_key`.** Keep it. The apply sends it back.
+
+### Waiving a step
+
+For a step a person was to do — a user task or a manual task — that nobody
+will now do. The task is withdrawn, its holder is told, and the instance moves
+on as its process says.
+
+1. Preview, as above.
+2. **If `missing` names anything, the waive has to say what it counts as.**
+   Each name is a field of the step's form that something in the process
+   decides from: a gateway, a decision table, a condition. Whether a waived
+   approval counts as approved is the process owner's decision, not the
+   operator's. Ask, then put the values in `outputs` and preview again:
+
+   ```bash
+   curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>", "outputs": {"approved": true}}' \
+     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, missing, visit_key}'
+   ```
+
+   A value the instance already holds from an earlier visit to the step does
+   not count; it has to be said again. `missing` is the complete list. Only
+   fields the step's form declares can be set.
+3. **Read the warnings about what was not read.** A process a later step
+   calls, and the process that started this one, are not read. Where the
+   warning names one, open it and see what it does with the value before you
+   apply.
+4. Apply: the same request, with the `visit_key` and `"dry_run": false`.
+
+   ```bash
+   curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>", "outputs": {"approved": true},
+          "visit_key": "<visit_key>", "dry_run": false}' \
+     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '{applied, replayed, deviation}'
+   ```
+
+What comes back, and what to do with it:
+
+| You get | It means | Do |
+| :-- | :-- | :-- |
+| `"applied": true, "replayed": false` | The step was waived. | Nothing. |
+| `"applied": true, "replayed": true` | This same request was already made, and acted then. Nothing was done twice. | Nothing. |
+| 400 *this instance has moved since you previewed it; preview again* | Between the preview and the apply a task of the step was completed, opened or withdrawn, or the instance left the step. | Preview again. If the instance no longer waits at the step, somebody did it, and there is nothing to waive. |
+| 400 *this step was already waived by boss* | The visit has had its act, and this request asks for something else: another reason, other values. | Read the ledger, below. |
+| 400 *The values given fit no way out of “Large order?”…* | A gateway had no branch for the value. Nothing was changed, and the task is open again. | Preview again and give a value one of its branches accepts. |
+| 400 with the plan's refusals | The plan refuses now. | Preview again and read them. |
+| 500 | The server failed. Nothing was changed. | The sentence says what was being done; look in the log, then send the same request again. |
+| No answer | The apply is waiting for the instance's lock, or for a task somebody is claiming or handing over. The server sets no deadline. | Stop the request and send the same one again. It acts, or it answers `replayed: true`. |
+
+Afterwards the task reads `canceled`, never `completed`, and the ledger says
+`waive`:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/instances/<instance-id>/deviations" \
+  | jq '.deviations[] | {kind, origin, node_name, actor, reason, created_at}'
+```
+
+Do not read the instance's list of completed steps to tell a waived step from
+a performed one: a waived step is in it. Read the task, the timeline or the
+ledger.
+
+**It will not waive:** work for a system or a worker (retry it, or resolve its
+incident), a step that calls another process (waive the step inside that
+process), a step with more than one way out, and a step that runs once and
+that the instance reached twice at the same moment. Each refusal says which.
+
+### Cancelling an instance
+
+A cancel ends the **whole instance**, whichever step you name. Name a step it
+waits at:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind": "cancel", "node_id": "<step-id>", "reason": "<why>"}' \
+  "$METIS/api/v1/instances/<instance-id>/deviations" \
+  | jq '.plan | {applicable, refusals, warnings, visit_key, open_work_in_all, called_instances}'
+```
+
+The preview lists every open task of the instance, on every branch, and its
+warnings say what else goes: *2 piece(s) of work parked for outside workers
+will be withdrawn.*, *1 open incident(s) on this instance will be closed.*
+Apply with the `visit_key` and `"dry_run": false`, as for a waive. A cancel's
+preview goes stale when anything open on the instance changes, so on a busy
+instance expect to preview again.
+
+Before you apply, know what a cancel does not do:
+
+- **It does not recall a call already on its way.** A call to another system
+  that is in flight when the instance is cancelled is still made. Its result
+  is not written. If that call books or pays for something, undo it there.
+- **It tells nobody the instance was cancelled.** Each holder is told their
+  task was withdrawn. No event says the instance ended: an integration that
+  watches the event stream or a webhook hears of the tasks and nothing else.
+- **It leaves timers and queued calls as rows.** A pending timer does nothing
+  when it comes due. A queued call is not made, and shows as pending on the
+  cancelled instance until its turn comes.
+
+Two refusals to expect where one process calls another:
+
+| Refused | Do |
+| :-- | :-- |
+| *This instance was started by another process (instance …); cancel that one, or hold this one.* | A called instance that waits at a step cannot be cancelled in place. |
+| *This instance is waiting on 1 process(es) it started (…); cancel or finish those first.* | A caller cannot be cancelled while a process it called has not ended. |
+
+While the called instance waits at a step, each refusal points at the other,
+and neither instance can be cancelled in place. Finish the called instance —
+complete its steps, or waive them — and then cancel the caller. Or hold either.
+
+For an instance with more than 200 open tasks, the cancel's ledger row names
+the 200 tasks with the lowest ids and counts them all. Who held a task it does
+not name is on the task itself and in the notice they were sent:
+
+```sql
+SELECT id, node_id, assignee FROM tasks
+WHERE instance_id = '<instance-id>' AND status = 'canceled' ORDER BY id;
+```
+
+### Closing an instance that has nothing left to do
+
+An instance that is `active` and waits at no step. The query that finds them
+is in [`upgrading.md`](upgrading.md#an-instance-a-migration-left-with-nothing-to-do).
+A cancel that names **no step** is the supported way to close one:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind": "cancel", "reason": "<why>"}' \
+  "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, visit_key}'
+```
+
+- The plan warns *This instance is not waiting at any step. Cancelling it
+  closes it.* That says where the instance waits and nothing more. Whether a
+  timer or a message could still move it was not looked at: check its jobs
+  and what it is waiting for with the queries under
+  [A stuck process instance](#a-stuck-process-instance) before you close it.
+- *“…” is still open though the instance is not waiting there; it will be
+  withdrawn.* means a task was left open with nothing under it. The cancel
+  withdraws it and tells its holder.
+- *This instance was started by another process (instance …), which is still
+  waiting for it and is not resumed by this; cancel or hold that one next.*
+  The instance was called by another, which waits for it at its call step and
+  will go on waiting. Closing this one resumes nobody. Cancel the caller next,
+  naming its call step, or hold it.
+- Refused with *This instance is waiting at “…”; say which of those steps it
+  is to be ended at.*: it is not one of these. It waits somewhere. Name the
+  step.
+
+Apply with the `visit_key` and `"dry_run": false`. The ledger row and the
+timeline entry name no step: *This instance was ended by boss while it was not
+waiting at any step.*
+
+A waive and a hold need a step, so an instance with nothing left can be
+cancelled and cannot be held.
+
+### Holding an instance, and letting it go
+
+A hold raises an incident at the step the instance waits at, so that it shows
+where somebody will look. **It does not stop the step's work.** Whoever holds
+the task can still complete it, and the instance then moves on with the
+incident still open.
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind": "hold", "node_id": "<step-id>", "reason": "<why>"}' \
+  "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, visit_key}'
+```
+
+Apply with the `visit_key` and `"dry_run": false`.
+
+- **The reason is public within the organization.** It is written into the
+  incident's text, *held at “Operations approve” by boss: …*, which anyone who
+  can read the instance's incidents reads.
+- **The inbox words it as a failure.** The incident inbox shows it as
+  *Operations approve failed*, with an explanation written for failed calls
+  and a **Try again** button. It is a hold. Read the incident's own text.
+- **A step that already has an open incident keeps it.** The plan warns
+  *“Operations approve” already has an open incident; the hold will use it.*
+  The hold is recorded, and no second incident is raised. On a step that calls
+  a system or parks work for a worker, that incident may be the engine's own
+  failure, and **Try again** on it retries the call.
+
+**To let a hold go**, resolve its incident. That takes the operator role, and
+it is what **Try again** does:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" \
+  "$METIS/api/v1/incidents/<instance-id>" | jq '.incidents[] | {id, step: .node.id, error, status}'
+curl -sX POST -H "Authorization: Bearer $TOKEN" "$METIS/api/v1/incidents/<incident-id>/resolve"
+```
+
+**Nothing records who let a hold go, or when they decided.** Resolving writes
+no timeline entry and no ledger row. The incident's `status` and `resolved_at`
+are all there is, and the ledger's `hold` row goes on reading `open`. If it
+matters who released it, write that down somewhere that is kept.
+
+After the incident is resolved the step can be held again: preview again and
+apply. The earlier preview's `visit_key` will not do; sent again it answers
+`replayed: true` for the first hold and holds nothing.
+
+If the held step is completed and the instance finishes, the incident stays
+open until somebody resolves it. A cancel of a held instance closes the hold's
+incident with the instance's other open incidents.
 
 ---
 

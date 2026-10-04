@@ -87,6 +87,12 @@ instance is on that version at the step, and completing the step advances it
 as that version says. Then run the migration you meant, with a mapping or a
 decision for the step.
 
+The waive, cancel and hold of one instance in place, new in this release, do
+not reach an instance in this state (read from the planner, not run). Naming
+the step is refused, *This process has no step "…".*, because the version it is
+on does not have it; and a cancel that names no step is refused because the
+instance does hold a token. Move it back first, as above.
+
 **2. With nothing left.** The step's holder completed the task. The token came
 off, nothing followed because the version has no such step, and the instance
 is `active` with no token, no open task, no job waiting or running, no work
@@ -131,41 +137,35 @@ An instance listed with it false was not moved by a migration whose entry was
 kept, and got here some other way; the list is every running instance with
 nothing in flight, whatever stranded it.
 
-Nothing in the product moves such an instance on, ends it or holds it. A
-completion needs a task. A migration's `skip`, `cancel` and `hold` act on an
-instance that holds a token on the step they name, and this one holds none; the
-step it was stranded on cannot be named either, because the version it is on
-does not have it (*there is no node "…" in the version being migrated from*).
-A migration that only moves work moves it to another version as it is, with
-nothing to do there. So what is left is a decision, not a repair:
+Nothing moves such an instance on. A completion needs a task. A migration's
+`skip`, `cancel` and `hold` act on an instance that holds a token on the step
+they name, and this one holds none; the step it was stranded on cannot be named
+either, because the version it is on does not have it (*there is no node "…" in
+the version being migrated from*). A migration that only moves work moves it to
+another version as it is, with nothing to do there. It can be closed, and that
+is a decision, not a repair:
 
 - Read its trail to see what was done. For an instance a migration stranded,
   the last task completed is on the step the new version did not have, and
   whoever completed it gave that approval.
 - If the business still needs what should have followed, start it again as a
   new instance.
-- **There is no supported way to close such an instance yet.** No route ends
-  an instance, and a migration's `cancel`, the only thing in the product that
-  sets an instance `cancelled`, ends an instance that holds a token on the
-  step it names, so it cannot reach one that holds none. Left as it is, the instance has nothing in flight
-  and nothing will run for it; it goes on showing as running in every list and
-  every count. An audited way to close it is on the roadmap.
-- **Unsupported, as a last resort:** the row can be changed in the database,
-
-  ```sql
-  UPDATE process_instances SET status = 'cancelled', updated_at = now()
-   WHERE id = '<id>' AND status = 'active';
-  ```
-
-  one instance at a time, in a transaction, after a backup, committing only
-  when it reports exactly one row changed. It takes the instance out of the
-  running ones and writes nothing else: no trail entry, no ledger row, no
-  notification or webhook goes out, and nothing anywhere says who decided or
-  why. Record the decision, the
-  instance's id, who made it and the reason, outside the product, somewhere
-  that is kept. If the instance was called by another process
-  (`parent_instance_id` is set), that parent is still waiting for it and is
-  not resumed by this.
+- **Close it with a cancel in place that names no step.** An administrator of
+  the instance's organization sends `POST /api/v1/instances/{id}/deviations`
+  with `{"kind": "cancel", "reason": "…"}`. As it is, that is a dry run and
+  answers the plan, which warns *This instance is not waiting at any step.
+  Cancelling it closes it.* Sent again with the plan's `visit_key` and
+  `"dry_run": false`, it closes the instance: its status is `cancelled`, and a
+  row in its ledger and an `instance_cancelled` entry on its trail say who
+  closed it and why, and name no step.
+  [Closing an instance that has nothing left to do](runbooks.md#closing-an-instance-that-has-nothing-left-to-do)
+  has the calls. This replaces the direct `UPDATE` of the row that this page
+  gave as an unsupported last resort, which left no record of who decided.
+- If the instance was called by another process (`parent_instance_id` is
+  set), that parent is still waiting for it and is not resumed by closing it.
+  The plan says so. Cancel or hold the parent next.
+- Left as it is, the instance has nothing in flight and nothing will run for
+  it; it goes on showing as running in every list and every count.
 
 Both queries were run with `psql` against a schema with this release's tables,
 over temporary tables holding rows each must list and rows each must not: for the
@@ -321,8 +321,11 @@ later is accepted too.
 withdraws or closes a single task. A migration's `skip` and `cancel` act on an
 instance that holds a token on the step they name, so they do not reach a
 reopened task with no token under it, and where there is a token they withdraw
-every open task on the step, the genuine one included. An audited way to close
-one task is in the roadmap, with the adjustment of one instance in place.
+every open task on the step, the genuine one included. The waive and the
+cancel of one instance in place, new in this release, are no different: a waive
+is refused where the instance holds no token on the step and otherwise
+withdraws every open task on it, and a cancel ends the whole instance. An
+audited way to close one task is in the roadmap.
 
 **Unsupported, as a last resort:** the row can be put back in the database from
 what the query listed,

@@ -1032,6 +1032,299 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-10-04 (completed): an administrator can waive, cancel or hold one instance in place
+  (P0 reliability & audit) — the second part of slice 3 of the approval-adjustments work
+  (3a-2). Branch `in-place-waive`, from `migration-rewrites-what-is-open` at `4aa14e7`; no
+  schema migration. Driver: bpm for the acts and the engine, arch for the route ·
+  Challengers: sec, go, test, perf, po.
+  - **Problem.** One running instance could be dealt with outside its process only by
+    deploying a second version and migrating it with a `skip`, a `cancel` or a `hold`. An
+    instance that was `active` with nothing left could not be closed at all. And the effects
+    a migration's decisions share had defects of their own, found while they were being made
+    callable for one instance: a skip of an approval several people give ended one run and
+    left the rest; a skip and a cancel recorded a task as nobody's while taking it from
+    somebody who had just claimed it; a cancel left parked work on offer and incidents open,
+    and a worker's late report then moved the cancelled instance on.
+  - **What changed.**
+    - *The command.* `POST /api/v1/instances/{id}/deviations`, `kind` `waive`, `cancel` or
+      `hold`, for administrators of the organization the request is for, at the endpoint and
+      again at the service. A dry run unless the body says `"dry_run": false`. A preview
+      answers the plan with every refusal that is true, the warnings and a `visit_key`; an
+      apply names the key and is decided on the row its lock returned: replay first, then
+      still running, then the plan made again from that row with the same key and no
+      refusal, then still waiting where it acts; the act, its ledger row (`origin:
+      in_place`) and its trail entry in that one transaction.
+    - *A waive* ends a user or manual task without anybody performing it, recorded as
+      waived: the tasks `canceled`, each holder told, `node_skipped` with `outcome: waived`,
+      no completion announced. Its outputs are limited to what the form of every open task
+      declares, whatever `METIS_ALLOW_UNDECLARED_TASK_VARIABLES` says, and every place in
+      the definition that decides from a field the step declares must be given its value.
+    - *A cancel* ends the whole instance, whichever step it names, and with no step closes
+      an instance that waits at no step.
+    - *A hold* raises one incident, or uses the one open on the step, and changes nothing
+      else; its key covers the step's incidents, so a step can be held again once the
+      incident is resolved.
+    - *One implementation of the three effects* (`nodeActions`), which the migration's
+      `skipNode`, `cancelInstance` and `holdInstance` now call under the locks and guards
+      they had. A skip of a user or manual task ends the step whole
+      (`Engine.FinishActivity`). A skip and a cancel hold the row of each task they
+      withdraw, after the instance and in id order, and record and announce from that row.
+      A cancel withdraws parked external tasks and closes the instance's open incidents; a
+      migration's cancel records the two counts when they are not zero.
+    - *An instance that has ended stays ended.* A worker's report on one is refused and its
+      parked work removed; a queued call for one is settled without calling; a job that
+      fails for one raises no incident. These three commits (`ef6243d`, `e9bde36`,
+      `4633531`) are also PR #146 against `main`, where the defect has been since 0.4.0;
+      whichever merges second carries no diff for them.
+    - *A gateway with no way out fails with a typed error* (`entities.NoFlowSelectedError`),
+      its text byte for byte what it was, so a waive that cannot advance is answered 400
+      naming the gateway and an error boundary event still catches it.
+  - **Acceptance criteria**, each with the test that holds it (`tests/bpmn` unless named):
+    1. *In place, no second version* (A6) — `TestAWaivedStepIsWithdrawnItsHolderToldAndTheInstanceMovesOn`,
+       `TestCancellingInPlaceEndsTheInstanceAndWithdrawsItsWork`,
+       `TestHoldingInPlaceRaisesOneIncidentAndChangesNothingElse`.
+    2. *Dry run by default; only the boolean `false` in the field named so applies* (A7) —
+       `TestOnlyARequestThatSaysDryRunFalseChangesAnything` (24 near-misses, every table
+       unchanged after each) and `TestADeviationRequestThatCannotBeReadIsRefusedInPlainWords`
+       (`tests/deviation`); `TestAnApplyWithoutThePreviewsVisitKeyIsRefused`;
+       `TestAPreviewChangesNothingAndWaitsForNobody`.
+    3. *A reason is required* (A8) and *a waive is refused where it would guess* (A9): a
+       step with other than one way out, anything but a user or manual task with open work,
+       a step reached more than once at once — `TestAWaiveIsRefusedWhereItWouldGuess`,
+       `TestEveryRefusalSaysWhatIsWrongInWordsSomebodyCanActOn`,
+       `TestAWaiveOfAStepReachedTwiceAtOnceIsRefused`.
+    4. *A repeating approval is ended whole* (A10) —
+       `TestWaivingAParallelApprovalWithdrawsEveryOpenRunAndAdvancesOnce`,
+       `TestWaivingASequentialApprovalStartsNoFurtherRun`; through a migration,
+       `TestASkippedRepeatingApprovalLeavesNoRunBehind` (`tests/instancemigration`).
+    5. *Embedded, ad-hoc and called* (A11) — `TestAWaiveInsideAnEmbeddedSubProcessMovesOnInsideIt`,
+       `TestAWaiveInsideAnAdHocSubProcessRereadsItsCompletionCondition`,
+       `TestAWaiveInACalledProcessResumesItsCaller`,
+       `TestAWaiveInACalledProcessSaysItsCallerWasNotRead`,
+       `TestAWaiveInACalledProcessLetsItsCallerDecideOnAValueItAlreadyHolds`.
+    6. *Recorded as waived, never as an approval* (A12) — criterion 1's first test: no
+       `TaskCompleted`, no `task_completed`, `outcome: waived`.
+    7. *Only fields the form declares* (A13) — `TestAWaiveSetsOnlyWhatTheStepsFormDeclares`
+       (with the escape hatch on), `TestAWaiveMaySetOnlyWhatEveryOpenRunsFormDeclares`.
+    8. *Every decision point that reads the step is listed, and a missing value refuses*
+       (A14) — `TestAWaiveMustSayWhatItCountsAsForTheGatewayAfterIt`,
+       `TestAValueLeftFromAnEarlierVisitDoesNotCountForTheGateway`,
+       `TestThePlanListsEveryKindOfDecisionPointThatReadsTheStep`;
+       `TestDecisionPointsReading`, `TestADecisionPointIsListedWhereverTheInstanceCouldMeetIt`,
+       `TestWhatTheEngineDoesNotEvaluateIsNotADecisionPoint` (`services/impl`);
+       `TestReferencedNames`, `TestDecisionTableReads` (`logic`).
+    9. *A retried request never acts twice* (A15) — `TestTwoAppliesOfOnePreviewWaiveOnce`,
+       `TestAppliesOfOnePreviewSentTogetherWaiveOnce`, `TestTwoAppliesOfOnePreviewCancelOnce`,
+       `TestTwoAppliesOfOnePreviewHoldOnce`, `TestADifferentRequestForAVisitAlreadyActedOnIsRefused`,
+       `TestARetryOfAWaiveAnswersItsRowWhateverTheInstanceHasBecome`,
+       `TestAWaiveOfAStepThatMovedSinceThePreviewIsRefused`,
+       `TestACompletionThatArrivesWhileItsStepIsBeingWaivedIsRefused`; `TestDeviationVisitKey`
+       and its four neighbours (`services/impl`).
+    10. *Administrators only; other organizations see nothing* (A17) —
+        `TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance` (seven callers, three
+        kinds, preview and apply, whole bodies, every table unchanged),
+        `TestSomebodyWhoMayNotDeviateIsToldNothingElse`,
+        `TestAnInstanceOfAnotherOrganizationIsAnsweredAsOneThatIsNotThere` (`tests/deviation`);
+        `TestTheServiceRefusesAnyoneButAnAdministrator`,
+        `TestAnApplyByAnybodyButTheOrganizationsAdministratorChangesNothing`;
+        `TestMakeEndpoints_AdministrativeEndpointsAreRoleGated`, `role_legend_test.go`
+        (`endpoints`), `tests/endpointwiring`, `tests/roledrift`.
+    11. *Statuses are real, through the route*: 200 for a plan, refused or not, an apply and
+        a replay; 400 for a malformed request, an apply the plan refuses and an apply that
+        comes too late; 500 for the server's own failure whatever its words —
+        `TestAMalformedDeviationRequestIsA400ThatSaysWhatToFix`,
+        `TestARefusedPlanIsA200ToPreviewAndA400ToApply`,
+        `TestAnApplyThatComesTooLateIsA400ThatSaysWhatHappened`,
+        `TestAnApplyOnASuspendedInstanceIsA400ThatSaysToResumeIt`,
+        `TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`,
+        `TestAFailureThatIsTheServersIsA500WhateverItsWordsSay`,
+        `TestTheReplyToADeviationHasOneShapeWhateverItHolds`,
+        `TestANumberAWaiveCountsAsIsTheNumberTheGatewayCompares` (`tests/deviation`).
+    12. *A cancel is the whole instance, shown and keyed whole* —
+        `TestACancelShowsAndKeysEverythingItWouldWithdraw`,
+        `TestACancelOfMoreWorkThanAPlanListsWithdrawsAllOfIt`,
+        `TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne`.
+    13. *An instance with nothing left can be closed* (rulings addendum §10) —
+        `TestCancellingInPlaceClosesAnInstanceThatHoldsNothing`,
+        `TestACancelThatNamesNoStepClosesAnInstanceThatWaitsNowhere`,
+        `TestCancellingInPlaceWithdrawsATaskTheInstanceNoLongerWaitsFor`,
+        `TestAStrandedCalledInstanceAndItsCallerCanBothBeClosed`;
+        `TestAnInstanceWithNothingLeftIsClosedOverTheRoute` (`tests/deviation`).
+    14. *A cancel leaves nothing that can move the instance* —
+        `TestACancelWithdrawsTheWorkParkedForWorkers`, `TestACancelClosesTheIncidentsOpenOnTheInstance`,
+        `TestCancellingInPlaceTakesTheWorkParkedForWorkers`,
+        `TestNoCallIsMadeForAnInstanceCancelledInPlace`,
+        `TestCancellingInPlaceClosesTheIncidentsOnTheInstance`;
+        `TestAWorkerReportingOnAnInstanceThatHasEndedIsRefused`,
+        `TestNoCallIsMadeForAnInstanceThatHasEnded`,
+        `TestACallThatFailsAsItsInstanceEndsRaisesNoIncident`.
+    15. *The record names who held the work when it was taken* —
+        `TestAWaiveRecordsWhoHeldTheWorkWhenItWasTaken`,
+        `TestACancelRecordsWhoHeldTheWorkWhenItWasTaken`;
+        `TestAClaimRacingASkipIsRecordedAsItWasAnnounced`,
+        `TestAClaimRacingACancellationIsRecordedAsItWasAnnounced` (`tests/instancemigration`).
+    16. *A hold can be made again* — `TestAHoldCanBeMadeAgainOnceItsIncidentIsResolved`,
+        `TestAHoldOfAStepAlreadyHeldUsesItsIncidentAndIsStillRecorded`.
+    17. *A plan has a size whatever the process* —
+        `TestAPlanListsAHundredDecisionPointsTheOnesToActOnFirst`,
+        `TestAPlanListsTwoHundredOpenTasksAndKeysThemAll`,
+        `TestThePlanNamesEveryMissingValueAndSaysWhenOneWaiveCannotSetThemAll`;
+        `TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize`,
+        `TestAPlanStaysSmallWhateverTheProcess` (`services/impl`).
+  - **What it must not have changed.** The 106 tests `tests/instancemigration` had pass
+    unedited: the package has 111, the five new ones in three new files, and nothing else
+    in it changed (`git diff --stat 4aa14e7 -- tests/instancemigration`). Slice 1's
+    same-as-main suite (`tests/bpmn/repeating_shapes_unchanged_test.go` and `_pins_test.go`)
+    is not edited. A completion sets what it set
+    (`TestACompletionMaySetExactlyWhatTheTasksFormIsSaidToDeclare`, `services/impl`). An
+    error boundary event still catches a gateway with no way out
+    (`TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches`). A migration's
+    cancel of an instance with nothing parked and no incident open records what it recorded
+    (`TestACancelOfAnInstanceWithNothingParkedSaysNothingOfIt`).
+  - **Rulings.**
+    - *The whole definition is read, not what follows the step.* A walk along the flows is
+      right only while it copies every way the engine moves a token, and it missed four.
+      The cost is being asked for a value only a place already passed would read.
+    - *Every cancel shows and keys the whole instance.* A cancel naming a step withdrew
+      every open task and listed only that step's.
+    - *Only what was looked at is said.* The warning for an instance that waits nowhere
+      does not say nothing will move it on: its jobs and waiting events were not read.
+    - *A repeating approval is ended whole, and a step that runs once and was reached
+      several times at once is refused*: a waive that moved on fewer times than completing
+      each task would is a branch dropped without a word.
+    - *A caller upstream and a called process downstream are warned of, not refused.* A
+      plan reads the definition its instance runs.
+    - *A gateway with no way out during a waive is the caller's to hear about* (400, by a
+      typed error, never by matching text), and only when it is the whole of what failed.
+    - *The body is decoded before the gate*, as on every route: a signed-in account that is
+      not an administrator gets the 400 for a body that cannot be read.
+    - *The in-place cancel's row names at most 200 tasks*; the migration's row is not
+      changed, because its rows are pinned.
+  - **Lock order.** Instance, then task rows by id, then external-task rows, everywhere:
+    the in-place apply, a migration's decision, a completion and a worker's report take
+    the instance first. A hold takes the instance only. A preview takes nothing.
+  - **What it costs.** Counted from the code, not measured. A preview reads the instance,
+    its definition and its whole task list; for a waive each distinct form once and at most
+    64 decision tables; for a cancel the processes it called, its parked work and its
+    incidents; for a hold its incidents. An apply locks the instance, looks for the visit's
+    row, makes the plan again, takes one `FOR UPDATE` per open task it withdraws, and writes
+    one ledger row and one trail entry. Every service job reads its instance once more
+    before its call, without a lock; a job that fails for the last time locks it once.
+  - **Upgrade.** No migration. `docs/upgrading.md`, *An instance a migration left with
+    nothing to do*: the unsupported `UPDATE` is replaced by the cancel in place.
+  - **What a client meets that it did not** (`CHANGELOG.md`). The new route. On a migration:
+    a skip of a repeating approval clears the step in one run; a skip or a cancel waits for
+    a claim in flight; a cancel's row and entry carry `external_tasks_withdrawn` and
+    `incidents_closed` when there were any, and the instance's incidents read `resolved`.
+    For a worker: a report on work of an ended instance is refused, HTTP 200 with the
+    refusal in `error`. The generic sentences `narrativeFor` keeps for `instance_cancelled`
+    and `instance_held` no longer say "by a migration"; every writer of those entries gives
+    a sentence of its own, so no reader meets them.
+  - **Not in this slice.** A second approver for a waiver (3b). A screen: the command is
+    made through the API. A Connect or gRPC call. Recording who released a hold: resolving
+    an incident still writes nothing. Closing one task of an instance. A deadline on the
+    server for an apply that waits.
+  - **Found, not changed.** Each says how it is known: *probe* (run once and deleted),
+    *run* (a test in the tree shows it), *read* (from the code, not run).
+    - **`EndEventHandler.resumeParent` writes the caller from an unlocked read** (`GetInstance`,
+      then `UpdateInstance`). A called process that ends while its caller is waived, or
+      completed by hand, at a parallel step puts the caller's token back on the finished
+      step and leaves the next step's task with no token. *Probe*; on `main` too. A waive on
+      a caller holds the caller's row longer than a completion by hand, so each one widens
+      the window. P0 reliability, its own PR. The same function resuming a cancelled caller
+      (the ledger entry's item) cannot be reached through the cancel in place, which is
+      refused around a called instance that has not ended, and is still open through a
+      migration's cancel (*read*).
+    - **A step that runs once and is reached twice at once** (two flows of a parallel fork
+      entering one user task) holds two tokens and two tasks. The first completion takes
+      both tokens and moves on once; the second task is then completed with no token under
+      it and moves on again (*probe*, and *run*: `TestAWaiveOfAStepReachedTwiceAtOnceIsRefused`
+      finishes both by hand). With an end event after the step, the first completion
+      completes the instance with the second task still open, and nothing closes that task:
+      a cancel of a completed instance is refused (recorded by Task 5; the ledger does not
+      say it was run). A migration's skip of such a step advances once (*read*).
+    - **Work of an instance that ended on its own can still be fetched.** The engine does not
+      withdraw parked work when an instance ends other than by a cancel: at a terminate end
+      event, or an end event reached with work still parked. A worker fetches it, does it,
+      and is refused when it reports (*run*: `TestWorkFetchedAfterItsInstanceEndedIsRefusedAndRemoved`).
+      The fetch has no predicate on the instance's status: its query is generated, for
+      three dialects.
+    - **A worker's report makes no token check on a running instance.** A report on a step
+      an interrupting boundary event already left still advances from that step (*read*).
+      A worker whose lock has run out is refused before the instance's status is asked,
+      so the row of an ended instance's work stays and is offered again (*read*).
+    - **The check before a call asks only whether the instance has ended.** A queued call
+      for a step its running instance has already left is still made; asking for the token
+      too would move `TestADeadlineOnAServiceCallIsUnchanged` (*read* from the pin). The
+      read decodes the whole instance row and is not benchmarked.
+    - **The worker routes answer HTTP 200 with the refusal in `error`** (*probe*, over HTTP;
+      Connect and gRPC not run).
+    - **A suspended instance.** A worker's report and a queued call proceed for one as
+      before. The in-place refusals tell the caller to resume it, and nothing in the product
+      suspends an instance or resumes one (*read*).
+    - **Message correlation keys read process variables.** A value left by an earlier visit
+      correlates silently; it is not a decision point of a waive's plan (*read*).
+    - **A value derived from the step's is not traced.** A script, or a service task's
+      input mapping, that computes another variable from a field the waived step sets is
+      not followed to the gateway that reads that variable (*read*, and
+      `TestWhatTheEngineDoesNotEvaluateIsNotADecisionPoint`).
+    - **Nothing at deploy bounds a form's field count, how many nodes share an id, or a
+      name's length.** Duplicate node ids deploy. The plan is bounded against each; the
+      definition validator should refuse them (*read*). Where nodes share an id a point's
+      `reads_in_all` and `missing_in_all` are sums, and can count a name twice.
+    - **Resolving an incident takes no lock on the instance, asks nothing of its status and
+      writes no trail entry** (*read*). So a hold's release is unrecorded, an incident a
+      hold found open can be resolved a moment later, and an incident on an ended instance
+      can be resolved. A hold's incident outlives its instance completing normally
+      (*read*).
+    - **The inbox words a hold as "<step> failed" with "Try again"**, and `explainIncident`
+      reads a technical cause out of the administrator's reason (*read*:
+      `IncidentInbox.tsx`, `domain/incidents.ts`). A hold on a service or external step may
+      use the engine's own failure incident, where "Try again" retries the call.
+    - **`withdrawOn` and the engine's `cancelOpenTasksOn` withdraw from an unlocked read.**
+      The holder window closed here for a waive and a cancel is open for a skip of a step
+      that is not a user or manual task, and for a task a boundary event or a met
+      completion condition withdraws (*read*).
+    - **No scoped read of an instance's open tasks exists.** Every plan and every apply
+      reads the instance's whole task history and filters it (*read*).
+    - **A gateway refusal answered 400 is still logged at Error level**, once per frame, in
+      `NodeHandlerTemplate.Execute` (*read* by the review).
+    - **The migration's cancel row grows with the open task count**: two entries a task, in
+      one row, with no cap (by arithmetic, not measured). `withdrawParked` fails the
+      cancel when the instance's definition will not load (*read*).
+    - **A queued job of a cancelled instance stays `pending` until its time comes** (*read*),
+      and is then completed without calling (*run*:
+      `TestNoCallIsMadeForAnInstanceCancelledInPlace`). A pending timer stays too, and does
+      nothing when it comes due (*read*).
+    - **No event says an instance was cancelled or held.** Only `TaskCanceled` for each task
+      withdrawn (*run*: the no-step cancel and the hold raise none).
+    - **A called instance that waits at a step, and its caller, cannot be cancelled in
+      place**: each refusal points at the other (*run*:
+      `TestCancelIsRefusedOnACalledInstanceAndAroundAnActiveOne`). The first refusal does
+      not ask what became of the caller, so a called instance whose caller has ended is
+      refused too (*read* while writing the docs; not in the task ledger). Slice 1's item,
+      a process called from a step that has ended keeps running, is therefore still open.
+    - **An instance holding a token on a step its version lacks is out of reach in place**:
+      naming the step is refused for a step the process does not have, and naming none is
+      refused because it waits somewhere (*read* while writing the docs; not in the task
+      ledger). `docs/upgrading.md` says to migrate it back first.
+    - **A step with no way out leaves its instance `active` with nothing left once it is
+      completed**, because the engine ends an instance only at an end event. Closable now
+      with the cancel in place, not prevented (*run*: the fixture of
+      `TestCancellingInPlaceClosesAnInstanceThatHoldsNothing`).
+    - **No supported way closes one task** (the entry below's item): a waive ends every
+      open task of its step, a cancel the instance.
+    - **The route.** `Idempotency-Key` on it is not tested: read from the interceptor, a
+      preview and its apply under one key get a 409, and the first answer of any status
+      is replayed for 15 minutes. Duplicate names inside `outputs` keep the last. Whole
+      numbers past 2^53 lose precision, as on the completion route. No route has a deadline
+      on the server, and an apply waiting on a lock holds one of the 128 in-flight slots.
+      A caller instance that cannot be found gives no warning and the apply then fails as
+      a 500. A 400 carries no machine-readable code (all *read*).
+    - The reason ends its sentence with two full stops when it ends with one itself.
+    - The migration dialog does not show `passed_over` (the ledger entry's note). Connect
+      and gRPC have no deviation call. There is no approval screen (P2).
+
 - 2026-10-04 (completed): a migration rewrites only what is open, and only what it planned for
   (P0 reliability). Branch `migration-rewrites-what-is-open`, stacked on
   `migration-lands-or-passes-over` at `d8c6e19`; no schema migration. Driver: bpm ·
@@ -1310,20 +1603,27 @@
     to do*, has two queries for instances an earlier release stranded, each run over temporary
     tables holding rows it must and must not list.
   - **Found, not changed:**
-    - Skipping a repeating approval still counts one iteration and withdraws every task (slice
+    - ~~Skipping a repeating approval still counts one iteration and withdraws every task (slice
       1's entry). The instance is no longer moved with the leftover tokens; it takes one run of
       the same migration per remaining iteration to clear the step, and between runs it is
-      `active` on its own version with tokens on the step and no open task.
+      `active` on its own version with tokens on the step and no open task.~~ *Done 2026-10-04:
+      see that date's "waive, cancel or hold one instance in place" entry. A skip of a user or
+      manual task ends the step whole, in one run
+      (`TestASkippedRepeatingApprovalLeavesNoRunBehind`).*
     - Two skipped steps in a row are not skipped in one run: the second is found only by the
       next run, because a run decides from where the instance stood when it was read.
     - ~~Five defects in the same code path, none of them this change's and none the stale
       listing (P1 to P5 of this change's review).~~ *Done 2026-10-04: see that date's "a migration
       rewrites only what is open" entry, which fixes all five and says what it found in turn.*
-    - No supported way exists to close an instance that is `active` with nothing left: no
+    - ~~No supported way exists to close an instance that is `active` with nothing left: no
       route ends an instance, and a migration's `cancel` needs a token on the step it names
       (`:1384`). `docs/upgrading.md` says so and gives a direct `UPDATE` only as an unsupported
       last resort. An audited way to close such an instance is needed: the cancel of one
-      instance in place, planned next, must work on an instance that holds no token.
+      instance in place, planned next, must work on an instance that holds no token.~~ *Done
+      2026-10-04: see that date's "waive, cancel or hold one instance in place" entry. A
+      cancel in place that names no step closes it, recorded
+      (`TestCancellingInPlaceClosesAnInstanceThatHoldsNothing`), and `docs/upgrading.md` gives
+      that in place of the `UPDATE`.*
     - The migration dialog still does not show `passed_over` (the ledger entry's note).
 
 - 2026-10-03 (completed): an instance keeps a ledger of what was done to it outside its process
@@ -1501,10 +1801,11 @@
       answers 200 with an empty list.
     - `details` is stored unencrypted, so a writer must not put a business value in it; today it
       holds a count, a sub-process id, an override marker and a control's compliance note.
-    - Skipping a repeating approval in a migration is still as slice 1's entry describes it
+    - ~~Skipping a repeating approval in a migration is still as slice 1's entry describes it
       under *Found and not fixed*: it counts one iteration and leaves the other iterations'
       tokens. The skip is now ledgered, not fixed; the in-place waive that follows is to end
-      the whole step.
+      the whole step.~~ *Done 2026-10-04: see that date's "waive, cancel or hold one instance
+      in place" entry. The waive in place and a migration's skip both end the whole step.*
     - `EndEventHandler.resumeParent` loads the parent and resumes it without looking at the
       parent's status, so a called instance that ends after its parent was cancelled, as a
       migration's cancel does, advances the cancelled parent. Read from the code, not reproduced;
@@ -1824,9 +2125,11 @@
       stays open. Timer jobs of the withdrawn inner steps of an ad-hoc sub-process are not
       deleted; they complete quietly when they fire. A job reclaimed until its attempts run
       out raises an incident without checking that its step is still there.
-    - Skipping a repeating approval in a migration counts one iteration and withdraws every
+    - ~~Skipping a repeating approval in a migration counts one iteration and withdraws every
       task, leaving the other iterations' tokens; the in-place waive of slice 3a should end
-      the whole step (`Engine.endActivity`).
+      the whole step (`Engine.endActivity`).~~ *Done 2026-10-04: see that date's "waive,
+      cancel or hold one instance in place" entry (`Engine.FinishActivity`, which a
+      migration's skip of a user or manual task calls too).*
     - `tests/handlers` `TestTimerEvent` is timing-sensitive under `-race` on a loaded machine
       (107ms against a 100ms limit, seen once on the untouched baseline).
 
