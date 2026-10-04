@@ -25,6 +25,7 @@ import (
 const (
 	maxDecisionPointsListed = 100
 	maxPointsNamed          = 10
+	maxOpenWorkListed       = 200
 )
 
 // planning is one plan being made: what was read of the instance, and the
@@ -100,18 +101,60 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 			p.plan.NodeName = cmp.Or(p.node.Name, p.node.ID)
 		}
 	}
-	// The key is made from exactly the tasks the plan lists, so what an
-	// administrator was shown is what the key stands for.
-	ids := make([]uuid.UUID, 0, len(open))
-	for _, task := range open {
+	p.plan.VisitKey = p.visitKey()
+	p.listOpenWork()
+	return p, nil
+}
+
+// visitKey is the key of the work the plan is made for: every open task where
+// the command acts, whether or not the plan lists it. What is listed is for
+// reading; what is keyed is what the act would take.
+func (p *planning) visitKey() string {
+	ids := make([]uuid.UUID, 0, len(p.open))
+	for _, task := range p.open {
 		ids = append(ids, uuid.UUID(task.ID))
+	}
+	return deviationVisitKey(p.instance, p.command.Kind, p.command.NodeID, ids)
+}
+
+// listOpenWork puts the open tasks where the command acts into the plan: the
+// first maxOpenWorkListed of them, and how many there are. How much work an
+// instance has open is the instance's to say — a step done once for each of a
+// thousand people has a thousand tasks — and a plan is for reading. The visit
+// key is made from every one of them, and the act withdraws every one.
+func (p *planning) listOpenWork() {
+	p.plan.OpenWorkInAll = len(p.open)
+	for _, task := range p.listedOpen() {
 		p.plan.OpenWork = append(p.plan.OpenWork, entities.DeviationOpenWork{
 			TaskID: uuid.UUID(task.ID), Name: taskName(task), NodeID: task.NodeID, NodeName: p.stepName(task.NodeID),
 			Status: entities.TaskStatus(task.Status), Assignee: task.Assignee, IterationID: task.IterationID,
 		})
 	}
-	p.plan.VisitKey = deviationVisitKey(instance, command.Kind, command.NodeID, ids)
-	return p, nil
+	if more := len(p.open) - len(p.plan.OpenWork); more > 0 {
+		p.warn("%d more %s open and %s not listed here.", more, taskOrTasksAre(more), isOrAre(more))
+	}
+}
+
+// listedOpen is the open tasks a plan lists and speaks of one by one; the
+// rest are counted.
+func (p *planning) listedOpen() []models.TaskModel {
+	return p.open[:min(len(p.open), maxOpenWorkListed)]
+}
+
+// stepShown is the step the command names, as a sentence names it.
+func (p *planning) stepShown() string {
+	return shownStepName(p.plan.NodeName)
+}
+
+// shownStepName is a name a definition's author chose — a step's, a task's —
+// as a plan shows it: the first deviationNodeNameLength characters, cut
+// between characters, which is how the ledger keeps a step's name
+// (deviationNode). The id is never cut: a shortened id names another step.
+func shownStepName(name string) string {
+	if utf8.RuneCountInString(name) <= deviationNodeNameLength {
+		return name
+	}
+	return string([]rune(name)[:deviationNodeNameLength])
 }
 
 // graphRunBy reads the version of a process an instance runs: the graph a
@@ -163,11 +206,12 @@ func (s *instanceDeviationService) openWhereItActs(ctx context.Context, instance
 	return open, nil
 }
 
-// stepName is what the step with an id is called: its name, or the id for a
-// step with no name and for one the process no longer has.
+// stepName is what the step with an id is called, as a plan shows it: its
+// name, or the id for a step with no name and for one the process no longer
+// has.
 func (p *planning) stepName(nodeID string) string {
 	if node := p.def.FindNode(nodeID); node != nil && node.Name != "" {
-		return node.Name
+		return shownStepName(node.Name)
 	}
 	return nodeID
 }
@@ -195,7 +239,7 @@ func (p *planning) refuseWhereItStands() {
 	case p.node == nil:
 		p.refuse("This process has no step %q.", p.command.NodeID)
 	case len(p.instance.GetTokensByNode(p.node)) == 0:
-		p.refuse("This instance is not waiting at “%s”.", p.plan.NodeName)
+		p.refuse("This instance is not waiting at “%s”.", p.stepShown())
 	}
 	// Counted as the ledger counts it: characters, after the spaces around it
 	// are dropped.
@@ -209,12 +253,32 @@ func (p *planning) refuseWhereItStands() {
 
 // warnWhoLosesWork says whose work a waive or a cancel would take. Each is
 // told when it happens; the administrator is told before.
+//
+// The tasks the plan lists are spoken of one by one, and the rest counted.
 func (p *planning) warnWhoLosesWork() {
-	for _, task := range p.open {
-		if task.Assignee != "" && (task.Status == models.TaskClaimed || task.Status == models.TaskDelegated) {
+	held := func(task models.TaskModel) bool {
+		return task.Assignee != "" && (task.Status == models.TaskClaimed || task.Status == models.TaskDelegated)
+	}
+	listed := p.listedOpen()
+	for _, task := range listed {
+		if held(task) {
 			p.warn("“%s” is with %s, who will be told it was withdrawn.", taskName(task), task.Assignee)
 		}
 	}
+	if more := countOf(p.open[len(listed):], held); more > 0 {
+		p.warn("%d more open %s with somebody, who will be told %s withdrawn.", more, taskOrTasksAre(more), itWasOrTheyWere(more))
+	}
+}
+
+// countOf is how many tasks are so.
+func countOf(tasks []models.TaskModel, so func(models.TaskModel) bool) int {
+	count := 0
+	for _, task := range tasks {
+		if so(task) {
+			count++
+		}
+	}
+	return count
 }
 
 // planHold asks nothing further of a hold, and warns when the step is held
@@ -230,7 +294,7 @@ func (s *instanceDeviationService) planHold(ctx context.Context, p *planning) er
 	}
 	for _, incident := range incidents {
 		if incident.NodeID == p.node.ID && incident.Status == models.IncidentOpen {
-			p.warn("“%s” already has an open incident; the hold will use it.", p.plan.NodeName)
+			p.warn("“%s” already has an open incident; the hold will use it.", p.stepShown())
 			return nil
 		}
 	}
@@ -260,10 +324,10 @@ func pastTense(kind entities.DeviationKind) string {
 	return string(kind)
 }
 
-// taskName is what a task is called: its own name, or its step's id when it
-// has none.
+// taskName is what a task is called, as a plan shows it: its own name, or its
+// step's id when it has none.
 func taskName(task models.TaskModel) string {
-	return cmp.Or(task.Name, task.NodeID)
+	return cmp.Or(shownStepName(task.Name), task.NodeID)
 }
 
 // hasEnded reports whether an instance will not run again: it finished, it
@@ -284,6 +348,18 @@ func idsAsText(ids []uuid.UUID) []string {
 		text[i] = id.String()
 	}
 	return text
+}
+
+// namesShownOf is namesShown for a list that holds only the first of inAll
+// names: what it holds, and how many more there are.
+func namesShownOf(names []string, inAll int) string {
+	shown, _ := shownNames(names)
+	for i, name := range shown {
+		if name == "" {
+			shown[i] = `""`
+		}
+	}
+	return joinShown(shown, max(inAll, len(names))-len(shown))
 }
 
 // namesShown words names for a sentence of a plan, as a refused completion
@@ -318,6 +394,21 @@ func joinShown(shown []string, more int) string {
 		text = fmt.Sprintf("%s and %d more", text, more)
 	}
 	return text
+}
+
+// taskOrTasksAre and itWasOrTheyWere word a count of tasks.
+func taskOrTasksAre(count int) string {
+	if count == 1 {
+		return "task is"
+	}
+	return "tasks are"
+}
+
+func itWasOrTheyWere(count int) string {
+	if count == 1 {
+		return "it was"
+	}
+	return "they were"
 }
 
 // itOrThem is the word for one thing or for several.

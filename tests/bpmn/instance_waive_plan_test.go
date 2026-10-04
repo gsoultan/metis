@@ -38,8 +38,9 @@ func TestThePlanNamesTheWorkAndItsKeyChangesOnlyWhenTheWorkDoes(t *testing.T) {
 		NodeID: "opsApprove", NodeName: "Operations approve", VisitKey: plan.VisitKey,
 		OpenWork: []entities.DeviationOpenWork{{TaskID: task.ID, Name: "Operations approve", NodeID: "opsApprove", NodeName: "Operations approve",
 			Status: entities.TaskClaimed, Assignee: "ollie"}},
-		Outputs:  map[string]any{"approved": true},
-		Warnings: []string{"“Operations approve” is with ollie, who will be told it was withdrawn."},
+		OpenWorkInAll: 1,
+		Outputs:       map[string]any{"approved": true},
+		Warnings:      []string{"“Operations approve” is with ollie, who will be told it was withdrawn."},
 	}
 	if !reflect.DeepEqual(plan, want) {
 		t.Fatalf("the plan for a waive:\n got  %+v\n want %+v", plan, want)
@@ -578,8 +579,9 @@ func TestACancelThatNamesNoStepIsToldWhereTheInstanceWaits(t *testing.T) {
 // nothingFollows is start → Check the order, a step with no way out. The
 // validator accepts it, and the engine ends an instance only at an end event:
 // completing the step takes the token off and leaves the instance active and
-// waiting nowhere — the state docs/upgrading.md calls "with nothing left",
-// reached the way production reaches it.
+// waiting nowhere, reached the way production reaches it. Whether anything
+// else could still move such an instance — a timer, a message — is not
+// something these tests or the plan look at.
 func nothingFollows(projectID uuid.UUID, key string) *entities.ProcessDefinition {
 	return &entities.ProcessDefinition{
 		Project: &entities.Project{ID: projectID}, Key: key, Name: "Order check",
@@ -614,7 +616,7 @@ func finishTheOnlyStep(t *testing.T, h engineHarness, id uuid.UUID) uuid.UUID {
 // by nothing else. The plan accepts it and says in a warning what it is
 // closing — and, when a task is still open under it or a caller is still
 // waiting for it, says that too.
-func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
+func TestACancelThatNamesNoStepClosesAnInstanceThatWaitsNowhere(t *testing.T) {
 	h := newEngineHarness(t, "Plan Nothing Left Project")
 	w := newWaiver(h)
 	ctx := h.Ctx()
@@ -623,12 +625,12 @@ func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
 
 	// Only what was looked at is said: where it waits. Whether a timer or a
 	// message could still move it was not looked at, so it is not claimed.
-	nothingLeft := "This instance is not waiting at any step. Cancelling it closes it."
+	waitsNowhere := "This instance is not waiting at any step. Cancelling it closes it."
 	closing := deviationCommand(entities.DeviationCancel, id, "", nil)
 	plan := w.preview(t, closing)
 	if !plan.Applicable() || plan.NodeID != "" || plan.NodeName != "" || plan.Scope != entities.DeviationScopeInstance ||
-		len(plan.OpenWork) != 0 || len(plan.VisitKey) != 36 || !reflect.DeepEqual(plan.Warnings, []string{nothingLeft}) {
-		t.Fatalf("the plan for an instance with nothing left: %+v\nrefusals:%s\nwarnings:%s", plan, lines(plan.Refusals), lines(plan.Warnings))
+		len(plan.OpenWork) != 0 || len(plan.VisitKey) != 36 || !reflect.DeepEqual(plan.Warnings, []string{waitsNowhere}) {
+		t.Fatalf("the plan for an instance that waits nowhere: %+v\nrefusals:%s\nwarnings:%s", plan, lines(plan.Refusals), lines(plan.Warnings))
 	}
 	for _, kind := range []entities.DeviationKind{entities.DeviationWaive, entities.DeviationHold, entities.DeviationCancel} {
 		if at := w.preview(t, deviationCommand(kind, id, "check", nil)); !said(at.Refusals, "This instance is not waiting at “Check the order”.") {
@@ -645,7 +647,7 @@ func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
 	}
 	reopened := w.preview(t, closing)
 	wantWarnings := []string{
-		nothingLeft,
+		waitsNowhere,
 		"“Check the order” is still open though the instance is not waiting there; it will be withdrawn.",
 		"“Check the order” is with rita, who will be told it was withdrawn.",
 	}
@@ -660,19 +662,20 @@ func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
 		t.Error("a task opening on an instance that held nothing did not change the key of the cancel that closes it")
 	}
 
-	// A called instance with nothing left never ends, so it never resumes its
-	// caller, and its caller cannot be cancelled while it is active.
+	// A called instance that waits nowhere reaches no end event, so it does
+	// not resume its caller, and its caller cannot be cancelled while it has
+	// not ended.
 	h.deploy(t, nothingFollows(h.projID, "plan-stranded-called"))
 	caller := w.start(t, callerOf(h.projID, "plan-stranded-caller", "plan-stranded-called"), nil)
 	called := theOneCalledBy(t, h, caller)
 	finishTheOnlyStep(t, h, called)
 	alone := w.preview(t, deviationCommand(entities.DeviationCancel, called, "", nil))
 	wantWarnings = []string{
-		nothingLeft,
+		waitsNowhere,
 		"This instance was started by another process (instance " + caller.String() + "), which is still waiting for it and is not resumed by this; cancel or hold that one next.",
 	}
 	if !alone.Applicable() || !reflect.DeepEqual(alone.Warnings, wantWarnings) {
-		t.Errorf("closing a called instance with nothing left: refusals:%s\nwarnings:%s\nwant the warnings:%s",
+		t.Errorf("closing a called instance that waits nowhere: refusals:%s\nwarnings:%s\nwant the warnings:%s",
 			lines(alone.Refusals), lines(alone.Warnings), lines(wantWarnings))
 	}
 	if around := w.preview(t, deviationCommand(entities.DeviationCancel, caller, "haveItChecked", nil)); around.Applicable() {
@@ -1090,5 +1093,215 @@ func TestAPlanSaysWhichDecisionsItDidNotReadForTheirNumber(t *testing.T) {
 	want = append(want, "60 more steps could not be read either; check them before applying.")
 	if !reflect.DeepEqual(plan.Warnings, want) {
 		t.Errorf("the warnings:%s\nwant:%s", lines(plan.Warnings), lines(want))
+	}
+}
+
+// A decision point names the first ten values it is missing. The plan's own
+// list names them all, so that nothing that stops a waive has to be found by
+// previewing again; and when there are more than one waive may set, the plan
+// says so at once.
+func TestThePlanNamesEveryMissingValueAndSaysWhenOneWaiveCannotSetThemAll(t *testing.T) {
+	h := newEngineHarness(t, "Plan Missing Project")
+	w := newWaiver(h)
+	process := func(key string, fields []string) *entities.ProcessDefinition {
+		return &entities.ProcessDefinition{
+			Project: &entities.Project{ID: h.projID}, Key: key,
+			Nodes: []*entities.Node{
+				{ID: "start", Type: entities.StartEvent},
+				{ID: "fill", Type: entities.UserTask, Name: "Fill in the claim", Assignee: "rita", Properties: testutils.FormDeclaring(fields...)},
+				{ID: "complete", Type: entities.ExclusiveGateway, Name: "Complete?", DefaultFlow: "no"},
+				{ID: "pay", Type: entities.UserTask, Name: "Pay the claim"},
+				{ID: "end", Type: entities.EndEvent},
+			},
+			Flows: []*entities.SequenceFlow{
+				{ID: "f1", SourceRef: "start", TargetRef: "fill"},
+				{ID: "f2", SourceRef: "fill", TargetRef: "complete"},
+				{ID: "yes", SourceRef: "complete", TargetRef: "pay", Condition: strings.Join(fields, " and ")},
+				{ID: "no", SourceRef: "complete", TargetRef: "end"},
+				{ID: "f3", SourceRef: "pay", TargetRef: "end"},
+			},
+		}
+	}
+	numbered := func(count int) []string {
+		fields := make([]string, count)
+		for i := range fields {
+			fields[i] = fmt.Sprintf("part%02d", i)
+		}
+		return fields
+	}
+
+	twelve := numbered(12)
+	id := w.start(t, process("plan-missing-twelve", twelve), nil)
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, id, "fill", nil))
+	point, listed := pointOfKind(plan, "complete", entities.DecisionPointGateway)
+	if !listed || !reflect.DeepEqual(point.Missing, twelve[:10]) || point.MissingInAll != 12 {
+		t.Fatalf("the gateway names %v of %d missing (listed %v); want the first ten of twelve", point.Missing, point.MissingInAll, listed)
+	}
+	if !reflect.DeepEqual(plan.Missing, twelve) || plan.MissingInAll != 12 {
+		t.Errorf("the plan names %v of %d missing; want all twelve", plan.Missing, plan.MissingInAll)
+	}
+	want := "“Complete?” decides from part00, part01, part02, part03, part04, part05, part06, part07, part08, part09 and 2 more, which “Fill in the claim” would have set; " +
+		"say what the waiver counts as by supplying part00, part01, part02, part03, part04, part05, part06, part07, part08, part09 and 2 more."
+	if !reflect.DeepEqual(plan.Refusals, []string{want}) {
+		t.Errorf("the refusals:%s\nwant only\n  %s", lines(plan.Refusals), want)
+	}
+	// What the plan named is enough: given all twelve, nothing refuses.
+	given := map[string]any{}
+	for _, name := range plan.Missing {
+		given[name] = true
+	}
+	if all := w.preview(t, deviationCommand(entities.DeviationWaive, id, "fill", given)); !all.Applicable() || len(all.Missing) != 0 || all.MissingInAll != 0 {
+		t.Errorf("with every value the plan named given: %d still missing, refusals:%s", all.MissingInAll, lines(all.Refusals))
+	}
+
+	sixty := numbered(60)
+	id = w.start(t, process("plan-missing-sixty", sixty), nil)
+	plan = w.preview(t, deviationCommand(entities.DeviationWaive, id, "fill", nil))
+	if !reflect.DeepEqual(plan.Missing, sixty[:entities.MaxDeviationOutputs]) || plan.MissingInAll != 60 {
+		t.Errorf("the plan names %d of %d missing; want the first %d of sixty", len(plan.Missing), plan.MissingInAll, entities.MaxDeviationOutputs)
+	}
+	want = "This process decides from 60 values “Fill in the claim” would have set, and one waive may set at most 50. " +
+		"Complete or reassign “Fill in the claim” instead, or hold the instance."
+	if !said(plan.Refusals, want) {
+		t.Errorf("the plan does not refuse with\n  %s\nits refusals:%s", want, lines(plan.Refusals))
+	}
+}
+
+// A process is somebody's input, so a plan lists no more than a hundred of
+// its decision points: those missing a value first, then those nobody could
+// read, then the rest — each group in the order of its steps' ids — and says
+// how many there are and how many it left out. The refusals still come from
+// all of them.
+func TestAPlanListsAHundredDecisionPointsTheOnesToActOnFirst(t *testing.T) {
+	h := newEngineHarness(t, "Plan Hundred Points Project")
+	w := newWaiver(h)
+	def := &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "plan-hundred-points",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita", Properties: testutils.FormDeclaring("approved", "amount")},
+		},
+		Flows: []*entities.SequenceFlow{{ID: "f0", SourceRef: "start", TargetRef: "review"}},
+	}
+	// 120 gateways in a row. Their ids are chosen so that the order of the
+	// ids is the opposite of the order a plan lists them in: the eighty the
+	// waive supplies come first by id, then the twenty nobody can read, then
+	// the twenty missing a value.
+	previous := "review"
+	gateway := func(id, name, condition string) {
+		def.Nodes = append(def.Nodes, &entities.Node{ID: id, Type: entities.ExclusiveGateway, Name: name, DefaultFlow: id + "-else"})
+		def.Flows = append(def.Flows,
+			&entities.SequenceFlow{ID: id + "-in", SourceRef: previous, TargetRef: id},
+			&entities.SequenceFlow{ID: id + "-if", SourceRef: id, TargetRef: "end", Condition: condition},
+		)
+		previous = id
+	}
+	for i := range 80 {
+		gateway(fmt.Sprintf("a-supplied-%02d", i), fmt.Sprintf("Supplied %02d", i), "approved")
+	}
+	for i := range 20 {
+		gateway(fmt.Sprintf("m-unread-%02d", i), fmt.Sprintf("Unread %02d", i), "js:total > 10")
+	}
+	for i := range 20 {
+		gateway(fmt.Sprintf("z-missing-%02d", i), fmt.Sprintf("Missing %02d", i), "amount > 100")
+	}
+	def.Nodes = append(def.Nodes, &entities.Node{ID: "end", Type: entities.EndEvent})
+	for _, node := range def.Nodes {
+		if node.Type == entities.ExclusiveGateway {
+			def.Flows = append(def.Flows, &entities.SequenceFlow{ID: node.ID + "-else", SourceRef: node.ID, TargetRef: "end"})
+		}
+	}
+	def.Flows = append(def.Flows, &entities.SequenceFlow{ID: "last", SourceRef: previous, TargetRef: "end"})
+	id := w.start(t, def, nil)
+
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true}))
+	if len(plan.DecisionPoints) != 100 || plan.DecisionPointsInAll != 120 {
+		t.Fatalf("%d decision points listed of %d, want 100 of 120", len(plan.DecisionPoints), plan.DecisionPointsInAll)
+	}
+	var want []string
+	for i := range 20 {
+		want = append(want, fmt.Sprintf("z-missing-%02d", i))
+	}
+	for i := range 20 {
+		want = append(want, fmt.Sprintf("m-unread-%02d", i))
+	}
+	for i := range 60 {
+		want = append(want, fmt.Sprintf("a-supplied-%02d", i))
+	}
+	var got []string
+	for _, point := range plan.DecisionPoints {
+		got = append(got, point.NodeID)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the points are listed in the order\n  %v\nwant those missing a value, then those nobody could read, then the rest:\n  %v", got, want)
+	}
+	if notListed := "20 more steps read what “Review the claim” would have set and are not listed here."; !said(plan.Warnings, notListed) {
+		t.Errorf("the plan does not warn\n  %s\nits warnings:%s", notListed, lines(plan.Warnings))
+	}
+	// Every one of the twenty missing a value is refused for: ten by name,
+	// ten counted.
+	if len(plan.Refusals) != 11 || plan.Refusals[0] != "“Missing 00” decides from amount, which “Review the claim” would have set; say what the waiver counts as by supplying amount." ||
+		plan.Refusals[10] != "10 more steps read values “Review the claim” would have set. In all, say what the waiver counts as by supplying amount." {
+		t.Errorf("the refusals:%s", lines(plan.Refusals))
+	}
+	if !reflect.DeepEqual(plan.Missing, []string{"amount"}) || plan.MissingInAll != 1 {
+		t.Errorf("the plan names %v of %d missing, want amount", plan.Missing, plan.MissingInAll)
+	}
+}
+
+// A step done once for each of many people has a task for each, and a cancel
+// lists the tasks of the whole instance. The plan shows two hundred and counts
+// them all; its key, like the act, is of every one of them.
+func TestAPlanListsTwoHundredOpenTasksAndKeysThemAll(t *testing.T) {
+	h := newEngineHarness(t, "Plan Many Tasks Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	approvers := make([]any, 205)
+	for i := range approvers {
+		approvers[i] = fmt.Sprintf("approver%03d", i)
+	}
+	id := startApproval(t, h, approvalDefinition(h.projID, "plan-many-tasks", "parallel", ""), approvers...)
+	open := openIterationTasks(ctx, t, h, id, "approve")
+	if len(open) != 205 {
+		t.Fatalf("the step has %d open tasks; this test needs 205", len(open))
+	}
+
+	for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationWaive, entities.DeviationHold} {
+		plan := w.preview(t, deviationCommand(kind, id, "approve", nil))
+		if len(plan.OpenWork) != 200 || plan.OpenWorkInAll != 205 || !plan.Applicable() {
+			t.Errorf("a %s: %d tasks listed of %d, refusals:%s\nwant 200 of 205 and no refusal", kind, len(plan.OpenWork), plan.OpenWorkInAll, lines(plan.Refusals))
+		}
+		if notListed := "5 more tasks are open and are not listed here."; !reflect.DeepEqual(plan.Warnings, []string{notListed}) {
+			t.Errorf("a %s warns:%s\nwant only\n  %s", kind, lines(plan.Warnings), notListed)
+		}
+	}
+
+	// A task the plan does not list is finished: the work is different, and
+	// the key with it. (Its run's token goes with it, which would change the
+	// key by itself; that the key is made from the tasks not listed too is
+	// pinned where no token moves, in the planner's own tests.)
+	cancel := deviationCommand(entities.DeviationCancel, id, "approve", nil)
+	before := w.preview(t, cancel)
+	listed := map[uuid.UUID]bool{}
+	for _, work := range before.OpenWork {
+		listed[work.TaskID] = true
+	}
+	var unlisted *entities.Task
+	for i := range open {
+		if !listed[open[i].ID] {
+			unlisted = &open[i]
+			break
+		}
+	}
+	if unlisted == nil {
+		t.Fatal("every open task is listed; this test needs one that is not")
+	}
+	if err := completeAs(ctx, h, *unlisted, "carol", map[string]any{"decision": "yes"}); err != nil {
+		t.Fatalf("complete a task the plan did not list: %v", err)
+	}
+	after := w.preview(t, cancel)
+	if after.OpenWorkInAll != 204 || after.VisitKey == before.VisitKey {
+		t.Errorf("after a task the plan did not list was finished: %d open in all, the key changed: %v; want 204 and a different key",
+			after.OpenWorkInAll, after.VisitKey != before.VisitKey)
 	}
 }

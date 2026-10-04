@@ -11,6 +11,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // planCancel asks what only a cancel needs: that nothing else is waiting on
@@ -76,7 +77,8 @@ func (p *planning) whereItWaits() string {
 // warnOfWorkNobodyWaitsFor says which of the tasks a cancel lists are open on
 // a step the instance holds no token on — work the process is no longer
 // waiting for, wherever else the instance waits. A cancel withdraws it with
-// the rest.
+// the rest. The tasks the plan lists are spoken of one by one, and the rest
+// counted.
 func (p *planning) warnOfWorkNobodyWaitsFor() {
 	waitedAt := make(map[string]struct{}, len(p.instance.Tokens))
 	for _, token := range p.instance.Tokens {
@@ -84,11 +86,27 @@ func (p *planning) warnOfWorkNobodyWaitsFor() {
 			waitedAt[token.Node.ID] = struct{}{}
 		}
 	}
-	for _, task := range p.open {
-		if _, waits := waitedAt[task.NodeID]; !waits {
+	nobodyWaits := func(task models.TaskModel) bool {
+		_, waits := waitedAt[task.NodeID]
+		return !waits
+	}
+	listed := p.listedOpen()
+	for _, task := range listed {
+		if nobodyWaits(task) {
 			p.warn("“%s” is still open though the instance is not waiting there; it will be withdrawn.", taskName(task))
 		}
 	}
+	if more := countOf(p.open[len(listed):], nobodyWaits); more > 0 {
+		p.warn("%d more open %s on steps the instance is not waiting at; %s will be withdrawn.", more, taskOrTasksAre(more), itOrThey(more))
+	}
+}
+
+// itOrThey is the word for one task or for several.
+func itOrThey(count int) string {
+	if count == 1 {
+		return "it"
+	}
+	return "they"
 }
 
 // warnOfTheCaller says, of a called instance that is closed alone, that the

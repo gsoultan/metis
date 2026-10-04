@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func TestDecisionPointsReading(t *testing.T) {
 	}
 	reads := versionsOf(map[string]map[int][]string{"refundPolicy": {0: {"amount", "approved"}}})
 	taken := declares("approved", "reviewers")
-	points := decisionPointsReading(def, "review", taken, map[string]any{}, reads)
+	points := decisionPointsReading(def, "review", taken, map[string]any{}, reads).points
 
 	g1 := missesOnly(t, points, "g1", entities.DecisionPointGateway, "approved")
 	if !g1.HasDefaultFlow || !g1.Analysed || g1.NodeName != "Approved?" || !slices.Equal(g1.Reads, []string{"approved"}) || g1.ReadsInAll != 1 {
@@ -141,7 +142,7 @@ func TestDecisionPointsReading(t *testing.T) {
 	}
 
 	// Supplying the value clears what is missing and keeps the point listed.
-	supplied := decisionPointsReading(def, "review", taken, map[string]any{"approved": false, "reviewers": []any{"ann"}}, reads)
+	supplied := decisionPointsReading(def, "review", taken, map[string]any{"approved": false, "reviewers": []any{"ann"}}, reads).points
 	if p := missesOnly(t, supplied, "g1", entities.DecisionPointGateway); !slices.Equal(p.Supplied, []string{"approved"}) {
 		t.Errorf("with approved supplied, g1 is %+v", p)
 	}
@@ -155,7 +156,7 @@ func TestDecisionPointsReading(t *testing.T) {
 
 	// A decision nobody can find cannot be read; it is a warning, not a guess.
 	for name, lookup := range map[string]decisionReads{"no such decision": versionsOf(nil), "no lookup": nil} {
-		unknown := decisionPointsReading(def, "review", taken, map[string]any{}, lookup)
+		unknown := decisionPointsReading(def, "review", taken, map[string]any{}, lookup).points
 		if p, ok := pointAt(unknown, "check", entities.DecisionPointDecisionTable); !ok || p.Analysed {
 			t.Errorf("%s: %+v (found %v)", name, p, ok)
 		}
@@ -204,7 +205,7 @@ func TestADecisionPointIsListedWhereverTheInstanceCouldMeetIt(t *testing.T) {
 			flow("f4", "handle", "research", ""), flow("f5", "research", "end", ""),
 		},
 	}
-	points := decisionPointsReading(def, "review", declares("approved"), nil, nil)
+	points := decisionPointsReading(def, "review", declares("approved"), nil, nil).points
 	for _, id := range []string{"late", "side", "w-gate", "r-gate", "before"} {
 		missesOnly(t, points, id, entities.DecisionPointGateway, "approved")
 	}
@@ -225,7 +226,7 @@ func TestTheCompletionConditionOfTheAdHocSubProcessIsADecisionPoint(t *testing.T
 		},
 		Flows: []*entities.SequenceFlow{flow("f", "research", "decide", "")},
 	}
-	points := decisionPointsReading(def, "call", declares("reviewsDone"), nil, nil)
+	points := decisionPointsReading(def, "call", declares("reviewsDone"), nil, nil).points
 	if p := missesOnly(t, points, "research", entities.DecisionPointCompletionCondition, "reviewsDone"); p.NodeName != "Research the claim" {
 		t.Fatalf("the ad-hoc completion condition: %+v", p)
 	}
@@ -243,14 +244,14 @@ func TestWhatTheWaivedStepRepeatsOverIsNotListed(t *testing.T) {
 		{ID: "counted", Type: entities.ServiceTask, MultiInstanceType: "parallel", Collection: "suppliers"},
 	}}
 	taken := declares("approved", "reviewers")
-	points := decisionPointsReading(def, "review", taken, nil, nil)
+	points := decisionPointsReading(def, "review", taken, nil, nil).points
 	missesOnly(t, points, "again", entities.DecisionPointCollection, "reviewers")
 	missesOnly(t, points, "again", entities.DecisionPointCompletionCondition, "approved")
 	if len(points) != 2 {
 		t.Errorf("only the other repeating step is listed; got %+v", points)
 	}
 	// Waiving the other one lists this one instead.
-	if other := decisionPointsReading(def, "again", taken, nil, nil); len(other) != 2 || other[0].NodeID != "review" || other[1].NodeID != "review" {
+	if other := decisionPointsReading(def, "again", taken, nil, nil).points; len(other) != 2 || other[0].NodeID != "review" || other[1].NodeID != "review" {
 		t.Errorf("waiving the other step: %+v", other)
 	}
 }
@@ -265,7 +266,7 @@ func TestAWaivedStepWhoseIdIsUsedTwiceIsAskedForItsOwnListToo(t *testing.T) {
 		{ID: "review", Type: entities.UserTask, Name: "Review"},
 		{ID: "review", Type: entities.UserTask, Name: "Review again", MultiInstanceType: "parallel", Collection: "reviewers", CompletionCondition: "approved"},
 	}}
-	points := decisionPointsReading(def, "review", declares("approved", "reviewers"), nil, nil)
+	points := decisionPointsReading(def, "review", declares("approved", "reviewers"), nil, nil).points
 	missesOnly(t, points, "review", entities.DecisionPointCollection, "reviewers")
 	missesOnly(t, points, "review", entities.DecisionPointCompletionCondition, "approved")
 	if len(points) != 2 {
@@ -313,7 +314,7 @@ func TestADecisionTableIsReadAsTheEngineEvaluatesIt(t *testing.T) {
 		}
 		return versions(key, version)
 	}
-	points := decisionPointsReading(def, "review", declares("approved"), nil, reads)
+	points := decisionPointsReading(def, "review", declares("approved"), nil, reads).points
 
 	for _, id := range []string{"pinned", "pinned-int", "unmapped", "assign"} {
 		if p := missesOnly(t, points, id, entities.DecisionPointDecisionTable, "approved"); !p.Analysed {
@@ -389,7 +390,7 @@ func TestACellOrARequiredDecisionThatReadsTheStepIsFound(t *testing.T) {
 	def := &entities.ProcessDefinition{Nodes: []*entities.Node{
 		node("byCell"), node("byRequired"), node("byColumn"), node("dangling"),
 	}}
-	points := decisionPointsReading(def, "review", declares("approved_limit"), nil, tablesByKey(tables))
+	points := decisionPointsReading(def, "review", declares("approved_limit"), nil, tablesByKey(tables)).points
 
 	missesOnly(t, points, "byCell", entities.DecisionPointDecisionTable, "approved_limit")
 	missesOnly(t, points, "byRequired", entities.DecisionPointDecisionTable, "approved_limit")
@@ -421,7 +422,7 @@ func TestACalledProcessIsListedWhenItIsHandedWhatTheStepSets(t *testing.T) {
 		call("some", map[string]any{"decision": "approved", "sum": "amount", "flag": true}),
 		call("none", map[string]any{"sum": "amount", "text": "approved = true"}),
 	}}
-	points := decisionPointsReading(def, "review", declares("approved", "comment"), map[string]any{"comment": "waived"}, nil)
+	points := decisionPointsReading(def, "review", declares("approved", "comment"), map[string]any{"comment": "waived"}, nil).points
 
 	for _, id := range []string{"everything", "empty-mapping", "mistyped-mapping"} {
 		p := missesOnly(t, points, id, entities.DecisionPointCalledProcess)
@@ -435,7 +436,7 @@ func TestACalledProcessIsListedWhenItIsHandedWhatTheStepSets(t *testing.T) {
 	if _, listed := pointAt(points, "none", entities.DecisionPointCalledProcess); listed {
 		t.Error("a mapping that hands over nothing the step declares is listed")
 	}
-	if nothing := decisionPointsReading(def, "review", nil, nil, nil); len(nothing) != 0 {
+	if nothing := decisionPointsReading(def, "review", nil, nil, nil).points; len(nothing) != 0 {
 		t.Errorf("a step that declares nothing hands a called process nothing: %+v", nothing)
 	}
 }
@@ -456,7 +457,7 @@ func TestAConditionNamingADeclaredFieldByItsWholeTextReadsIt(t *testing.T) {
 			flow("b", "parsed", "end", "amount > 100"),
 		},
 	}
-	points := decisionPointsReading(def, "review", declares("first name", "amount > 100"), nil, nil)
+	points := decisionPointsReading(def, "review", declares("first name", "amount > 100"), nil, nil).points
 	if p := missesOnly(t, points, "worded", entities.DecisionPointGateway, "first name"); p.Analysed {
 		t.Errorf("text FEEL cannot read is still not analysable: %+v", p)
 	}
@@ -488,7 +489,7 @@ func TestWhatTheEngineDoesNotEvaluateIsNotADecisionPoint(t *testing.T) {
 			flow("d", "nowhere", "end", "approved"), flow("e", "bare", "end", ""),
 		},
 	}
-	if points := decisionPointsReading(def, "review", declares("approved"), nil, nil); len(points) != 0 {
+	if points := decisionPointsReading(def, "review", declares("approved"), nil, nil).points; len(points) != 0 {
 		t.Errorf("listed %+v", points)
 	}
 }
@@ -518,7 +519,7 @@ func TestADefinitionThatLoopsOnItselfIsReadOnce(t *testing.T) {
 			flow("d1", "deep", "deep", "not(approved)"),
 		},
 	}
-	points := decisionPointsReading(def, "review", declares("approved", "comment"), nil, nil)
+	points := decisionPointsReading(def, "review", declares("approved", "comment"), nil, nil).points
 	missesOnly(t, points, "gate", entities.DecisionPointGateway, "approved")
 	missesOnly(t, points, "deep", entities.DecisionPointGateway, "approved")
 	if p := missesOnly(t, points, "twice", entities.DecisionPointConditionalEvent, "approved"); p.Analysed || p.NodeName != "Twice" {
@@ -527,7 +528,7 @@ func TestADefinitionThatLoopsOnItselfIsReadOnce(t *testing.T) {
 	if len(points) != 3 {
 		t.Errorf("%d points listed, want 3: %+v", len(points), points)
 	}
-	if got := decisionPointsReading(nil, "review", declares("approved"), nil, nil); got != nil {
+	if got := decisionPointsReading(nil, "review", declares("approved"), nil, nil).points; got != nil {
 		t.Errorf("no definition: %+v", got)
 	}
 }
@@ -554,7 +555,7 @@ func TestALargeDefinitionIsReadInOnePass(t *testing.T) {
 	def.Nodes = append(def.Nodes, innermost)
 
 	started := time.Now()
-	points := decisionPointsReading(def, "g00000", declares("approved"), map[string]any{"approved": true}, nil)
+	points := decisionPointsReading(def, "g00000", declares("approved"), map[string]any{"approved": true}, nil).points
 	elapsed := time.Since(started)
 
 	if len(points) != gateways+1 {
@@ -612,7 +613,7 @@ func TestWhatTheEngineReadsIsListedAsItReadsIt(t *testing.T) {
 	// Only the version in force is there: a lookup by any other number finds
 	// nothing, and the point would be listed as not analysed.
 	reads := versionsOf(map[string]map[int][]string{"policy": {0: {"approved"}}})
-	points := decisionPointsReading(def, "review", declares("approved", ""), nil, reads)
+	points := decisionPointsReading(def, "review", declares("approved", ""), nil, reads).points
 
 	missesOnly(t, points, "task", entities.DecisionPointConditionalEvent, "approved")
 	missesOnly(t, points, "service", entities.DecisionPointConditionalEvent, "approved")
@@ -664,6 +665,9 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 	lookups := 0
 	policy := func(key string, _ int) ([]string, bool, bool) {
 		lookups++
+		if strings.HasPrefix(key, "form") {
+			return many(2_000, "field"), true, true
+		}
 		return append(many(5_000, key+"-input"), "approved"), true, true
 	}
 	shapes := []struct {
@@ -676,6 +680,10 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 		reads   int
 		listed  int
 		lookups int
+		// missing is how many fields are missing over the whole definition,
+		// and missingAt how many points miss one.
+		missing   int
+		missingAt int
 	}{
 		{
 			name: "one gateway id on every node, with as many flows",
@@ -688,7 +696,7 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 				}
 				return def
 			}(),
-			declared: declares("approved"), points: 1, reads: 1, listed: 1,
+			declared: declares("approved"), points: 1, reads: 1, listed: 1, missing: 1, missingAt: 1,
 		},
 		{
 			name: "one event id on every node, each with a condition of its own",
@@ -696,21 +704,22 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 				return &entities.Node{ID: "c", Type: entities.IntermediateCatchEvent,
 					Properties: map[string]any{"condition_expression": fmt.Sprintf("approved and v%05d", i)}}
 			})},
-			declared: declares("approved"), points: 1, reads: copies + 1, listed: 1,
+			declared: declares("approved"), points: 1, reads: copies + 1, listed: 1, missing: 1, missingAt: 1,
 		},
 		{
 			name: "a call activity on every node, each handed every field of a long form",
 			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
 				return &entities.Node{ID: fmt.Sprintf("call%05d", i), Type: entities.CallActivity}
 			})},
-			declared: declares(many(2_000, "field")...), points: copies, reads: 2_000, listed: 2_000,
+			// Handed over, not known to be read: nothing is missing.
+			declared: declares(many(2_000, "field")...), points: copies, reads: 2_000, listed: maxNamesShown,
 		},
 		{
 			name: "every node consulting one large decision",
 			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
 				return &entities.Node{ID: fmt.Sprintf("rule%05d", i), Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": "policy"}}
 			})},
-			declared: declares("approved"), points: copies, reads: 5_001, listed: 1, lookups: 1,
+			declared: declares("approved"), points: copies, reads: 5_001, listed: 1, lookups: 1, missing: 1, missingAt: copies,
 		},
 		{
 			name: "one rule id on every node, consulting two large decisions in turn",
@@ -718,14 +727,25 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 				return &entities.Node{ID: "r", Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": fmt.Sprintf("policy%d", i%2)}}
 			})},
 			// Each decision's count added up: approved is read by both.
-			declared: declares("approved"), points: 1, reads: 10_002, listed: 1, lookups: 2,
+			declared: declares("approved"), points: 1, reads: 10_002, listed: 1, lookups: 2, missing: 1, missingAt: 1,
 		},
 		{
 			name: "ten thousand ids of two nodes each, one consulting one large decision and one the other",
 			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
 				return &entities.Node{ID: fmt.Sprintf("pair%05d", i/2), Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": fmt.Sprintf("policy%d", i%2)}}
 			})},
-			declared: declares("approved"), points: copies / 2, reads: 10_002, listed: 1, lookups: 2,
+			declared: declares("approved"), points: copies / 2, reads: 10_002, listed: 1, lookups: 2, missing: 1, missingAt: copies / 2,
+		},
+		{
+			// Ids times the length of the form: every one of ten thousand ids
+			// is two nodes consulting two decisions, and both decisions read
+			// every field of a form of two thousand.
+			name: "ten thousand ids of two nodes each, consulting two decisions that both read all of a long form",
+			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
+				return &entities.Node{ID: fmt.Sprintf("long%05d", i/2), Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": fmt.Sprintf("form%d", i%2)}}
+			})},
+			declared: declares(many(2_000, "field")...), points: copies / 2, reads: 4_000, listed: maxNamesShown, lookups: 2,
+			missing: 2_000, missingAt: copies / 2,
 		},
 		{
 			name: "ten thousand ids of two nodes each, one fed through a mapping and one consulting a large decision",
@@ -736,13 +756,14 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 				}
 				return &entities.Node{ID: fmt.Sprintf("fed%05d", i/2), Type: entities.BusinessRuleTask, Properties: properties}
 			})},
-			declared: declares("approved"), points: copies / 2, reads: 5_002, listed: 1, lookups: 1,
+			declared: declares("approved"), points: copies / 2, reads: 5_002, listed: 1, lookups: 1, missing: 1, missingAt: copies / 2,
 		},
 	}
 	for _, shape := range shapes {
 		lookups = 0
 		started := time.Now()
-		points := decisionPointsReading(shape.def, "review", shape.declared, nil, policy)
+		found := decisionPointsReading(shape.def, "review", shape.declared, nil, policy)
+		points := found.points
 		elapsed := time.Since(started)
 		t.Logf("%s: %d nodes read in %s", shape.name, copies, elapsed)
 		if elapsed > 5*time.Second {
@@ -761,10 +782,19 @@ func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
 		if lookups != shape.lookups {
 			t.Errorf("%s: a decision was looked up %d times, want %d", shape.name, lookups, shape.lookups)
 		}
-		// What the points hold between them, counting a list they share once:
-		// in proportion to the definition and the form, never to the tables.
-		if held, most := namesHeldBy(points), 4*copies+len(shape.declared); held > most {
+		if len(found.missing) != shape.missing || found.missingAt != shape.missingAt {
+			t.Errorf("%s: %d fields missing over the definition at %d points, want %d at %d",
+				shape.name, len(found.missing), found.missingAt, shape.missing, shape.missingAt)
+		}
+		// What is held: a few names for each point, counting a list they share
+		// once, and one set of what is missing no bigger than the form. In
+		// proportion to the points and to the form, never to one times the
+		// other.
+		if held, most := namesHeldBy(points), 3*maxNamesShown*len(points); held > most {
 			t.Errorf("%s: the points hold %d names between them, want no more than %d", shape.name, held, most)
+		}
+		if len(found.missing) > len(shape.declared) {
+			t.Errorf("%s: %d names are held as missing, more than the %d fields the form has", shape.name, len(found.missing), len(shape.declared))
 		}
 	}
 }
@@ -784,4 +814,64 @@ func namesHeldBy(points []entities.DecisionPoint) int {
 		}
 	}
 	return held
+}
+
+// A point names the first few of what it reads, supplies and misses, and
+// counts the rest; the whole of what is missing is kept once, for all the
+// points together. A process the instance calls is handed the step's fields
+// and is not known to read them, so it adds nothing to what is missing.
+func TestAPointNamesAFewAndTheScanKeepsWhatIsMissingOnce(t *testing.T) {
+	t.Parallel()
+	fields := make([]string, 12)
+	for i := range fields {
+		fields[i] = fmt.Sprintf("field%02d", i)
+	}
+	def := &entities.ProcessDefinition{
+		Nodes: []*entities.Node{
+			{ID: "all", Type: entities.ExclusiveGateway, Name: "Everything in order?"},
+			{ID: "one", Type: entities.ExclusiveGateway, Name: "Approved?"},
+			{ID: "given", Type: entities.ExclusiveGateway, Name: "Signed?"},
+			{ID: "call", Type: entities.CallActivity, Name: "Check the supplier"},
+		},
+		Flows: []*entities.SequenceFlow{
+			flow("a", "all", "end", strings.Join(fields, " and ")+" and somethingElse"),
+			flow("b", "one", "end", "approved"),
+			flow("c", "given", "end", "signed"),
+		},
+	}
+	declared := declares(append(slices.Clone(fields), "approved", "signed")...)
+	found := decisionPointsReading(def, "review", declared, map[string]any{"signed": true}, nil)
+
+	all, _ := pointAt(found.points, "all", entities.DecisionPointGateway)
+	if !slices.Equal(all.Missing, fields[:maxNamesShown]) || all.MissingInAll != 12 || !slices.Equal(all.Reads, fields[:maxNamesShown]) || all.ReadsInAll != 13 {
+		t.Errorf("a point missing twelve values names %v of %d and reads %v of %d; want the first ten of twelve, and of thirteen", all.Missing, all.MissingInAll, all.Reads, all.ReadsInAll)
+	}
+	if given, _ := pointAt(found.points, "given", entities.DecisionPointGateway); given.MissingInAll != 0 || !slices.Equal(given.Supplied, []string{"signed"}) {
+		t.Errorf("a point given its value: %+v", given)
+	}
+	called, listed := pointAt(found.points, "call", entities.DecisionPointCalledProcess)
+	if !listed || called.MissingInAll != 0 || len(called.Missing) != 0 || len(called.Reads) != maxNamesShown || called.ReadsInAll != 14 {
+		t.Errorf("the called process: %+v (listed %v); want ten of fourteen handed and nothing missing", called, listed)
+	}
+	if want := append([]string{"approved"}, fields...); !slices.Equal(sortedKeys(found.missing), want) {
+		t.Errorf("missing over the definition: %v\nwant every field somebody reads and nobody gave: %v", sortedKeys(found.missing), want)
+	}
+	if found.missingAt != 2 {
+		t.Errorf("%d points are missing a value, want the two gateways", found.missingAt)
+	}
+}
+
+// A step's name is shown as the ledger keeps one: its first 255 characters,
+// never half of one. A definition's author can call a step anything.
+func TestAPointsStepIsNamedAsTheLedgerWouldKeepTheName(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("é", 300)
+	def := &entities.ProcessDefinition{
+		Nodes: []*entities.Node{{ID: "g", Type: entities.ExclusiveGateway, Name: long}},
+		Flows: []*entities.SequenceFlow{flow("a", "g", "end", "approved")},
+	}
+	point, _ := pointAt(decisionPointsReading(def, "review", declares("approved"), nil, nil).points, "g", entities.DecisionPointGateway)
+	if point.NodeName != strings.Repeat("é", 255) {
+		t.Errorf("the point is named with %d characters (%d bytes), want the first 255 whole", len([]rune(point.NodeName)), len(point.NodeName))
+	}
 }

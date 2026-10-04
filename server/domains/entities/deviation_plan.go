@@ -29,6 +29,9 @@ type DeviationPlan struct {
 	// waive and a hold, and anywhere on the instance for a cancel, which
 	// withdraws them all whichever step it names.
 	OpenWork []DeviationOpenWork
+	// OpenWorkInAll is how many such tasks there are. OpenWork lists the
+	// first of them; the visit key and the act cover them all.
+	OpenWorkInAll int
 	// Outputs is what a waive would set.
 	Outputs map[string]any
 	// DecisionPoints is the places in the process that decide from a value
@@ -39,6 +42,14 @@ type DeviationPlan struct {
 	// refusals are worked out from all of them.
 	DecisionPoints      []DecisionPoint
 	DecisionPointsInAll int
+	// Missing is every value the waived step would have set that some
+	// decision point reads and the waive does not give, sorted: the whole of
+	// what has still to be supplied, where a decision point names only the
+	// first few it is missing. No more are listed than one waive may set
+	// (MaxDeviationOutputs), each cut to a length somebody would read;
+	// MissingInAll is how many there are.
+	Missing      []string
+	MissingInAll int
 	// CalledInstances is the processes this instance started that are still
 	// running, which a cancel has to wait for.
 	CalledInstances []uuid.UUID

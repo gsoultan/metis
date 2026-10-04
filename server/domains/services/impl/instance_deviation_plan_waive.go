@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -29,7 +30,7 @@ func (s *instanceDeviationService) planWaive(ctx context.Context, p *planning) e
 	if len(p.open) == 0 {
 		// With no task there is no form to read, so nothing is said of what
 		// the step declares or of what reads it.
-		p.refuse("Nobody has “%s” to do, so there is nothing to waive.", p.plan.NodeName)
+		p.refuse("Nobody has “%s” to do, so there is nothing to waive.", p.stepShown())
 		return nil
 	}
 	p.warnWhoLosesWork()
@@ -39,7 +40,7 @@ func (s *instanceDeviationService) planWaive(ctx context.Context, p *planning) e
 // refuseWorkNobodyDoes refuses to waive a step that is not a person's work,
 // and says what to do with that kind of step instead.
 func (s *instanceDeviationService) refuseWorkNobodyDoes(ctx context.Context, p *planning) error {
-	name := p.plan.NodeName
+	name := p.stepShown()
 	switch p.node.Type {
 	case entities.ServiceTask:
 		p.refuse("“%s” is work for a system, not a person; retry it or resolve its incident instead of waiving it.", name)
@@ -71,9 +72,9 @@ func (p *planning) refuseWaysOut() {
 	case ways == 1:
 	case ways == 0 && p.insideAdHoc():
 	case ways == 0:
-		p.refuse("“%s” has no way out, so there is nowhere for the instance to go once it is waived.", p.plan.NodeName)
+		p.refuse("“%s” has no way out, so there is nowhere for the instance to go once it is waived.", p.stepShown())
 	default:
-		p.refuse("“%s” has %d ways out, so waiving it would choose a branch on the business's behalf.", p.plan.NodeName, ways)
+		p.refuse("“%s” has %d ways out, so waiving it would choose a branch on the business's behalf.", p.stepShown(), ways)
 	}
 }
 
@@ -103,7 +104,7 @@ func (p *planning) refuseReachedMoreThanOnce() {
 	}
 	if reached := len(p.instance.GetTokensByNode(p.node)); reached > 1 {
 		p.refuse("“%s” was reached %d times at once on this instance, and a waive would move the instance on only once. "+
-			"Complete or reassign its tasks instead, or hold the instance.", p.plan.NodeName, reached)
+			"Complete or reassign its tasks instead, or hold the instance.", p.stepShown(), reached)
 	}
 }
 
@@ -120,11 +121,11 @@ func (s *instanceDeviationService) planOutputs(ctx context.Context, p *planning)
 		project = p.instance.Project.ID
 	}
 	lookup := s.decisionLookup(ctx, project)
-	points := decisionPointsReading(p.def, p.node.ID, anyRun, p.command.Outputs, lookup.reads)
+	found := decisionPointsReading(p.def, p.node.ID, anyRun, p.command.Outputs, lookup.reads)
 	if lookup.err != nil {
 		return lookup.err
 	}
-	p.takePoints(points, anyRun, everyRun, func(point entities.DecisionPoint) bool {
+	p.takePoints(found, anyRun, everyRun, func(point entities.DecisionPoint) bool {
 		if point.Kind != entities.DecisionPointDecisionTable {
 			return false
 		}
@@ -138,19 +139,37 @@ func (s *instanceDeviationService) planOutputs(ctx context.Context, p *planning)
 	return nil
 }
 
-// takePoints turns the decision points of a process into what a plan says of
-// them: the refusals and the warnings, worked out from every one, and the
-// points themselves, of which a plan lists no more than a screenful and says
-// how many there are. pastBound tells a point left unread because the process
-// consults more decision tables than one plan reads.
-func (p *planning) takePoints(points []entities.DecisionPoint, anyRun, everyRun map[string]struct{}, pastBound func(entities.DecisionPoint) bool) {
-	step := p.plan.NodeName
-	p.plan.Refusals = append(p.plan.Refusals, outputRefusals(step, p.command.Outputs, anyRun, everyRun, points)...)
+// takePoints turns what a scan found into what a plan says of it: the
+// refusals and the warnings, worked out from every point, the points
+// themselves, of which a plan lists no more than a screenful and says how
+// many there are, and the whole of what is missing. pastBound tells a point
+// left unread because the process consults more decision tables than one plan
+// reads.
+func (p *planning) takePoints(found decisionPointsFound, anyRun, everyRun map[string]struct{}, pastBound func(entities.DecisionPoint) bool) {
+	step, points := p.stepShown(), found.points
+	p.plan.Refusals = append(p.plan.Refusals, outputRefusals(step, p.command.Outputs, anyRun, everyRun, found)...)
 	p.plan.Warnings = append(p.plan.Warnings, unreadPointWarnings(step, points, pastBound)...)
 	p.plan.DecisionPoints, p.plan.DecisionPointsInAll = listedPoints(points), len(points)
 	if more := len(points) - len(p.plan.DecisionPoints); more > 0 {
 		p.warn("%d more %s what “%s” would have set and %s not listed here.", more, stepsRead(more), step, isOrAre(more))
 	}
+	p.plan.Missing, p.plan.MissingInAll = missingShown(found.missing), len(found.missing)
+}
+
+// missingShown is what a plan lists as missing: every value, in order, each
+// cut to a length somebody would read — and no more of them than one waive
+// may set, since a waive that needs more cannot be made at all and is refused
+// for that.
+func missingShown(missing map[string]struct{}) []string {
+	if len(missing) == 0 {
+		return nil
+	}
+	names := sortedKeys(missing)
+	names = names[:min(len(names), entities.MaxDeviationOutputs)]
+	for i, name := range names {
+		names[i] = shortened(name)
+	}
+	return slices.Clip(names)
 }
 
 // declaredByOpenTasks is what the forms of a step's open tasks declare: what
@@ -190,82 +209,95 @@ func (s *instanceDeviationService) declaredByOpenTasks(ctx context.Context, open
 
 // outputRefusals is why a waive's outputs will not do: it sets what the
 // step's form does not declare, it leaves a decision point without a value it
-// reads from the step, or the value is one only some of the step's open runs
-// could have set.
+// reads from the step, the values it would have to give are more than one
+// waive may set, or a value is one only some of the step's open runs could
+// have set.
 //
-// Every point is counted, and every missing value is among those named. The
-// first few points are named one by one and the rest together, so the answer
-// is a dozen sentences for a process of any size.
-func outputRefusals(step string, outputs map[string]any, anyRun, everyRun map[string]struct{}, points []entities.DecisionPoint) []string {
+// It is worked out from what the scan found for the whole process — every
+// value that is missing, and how many points miss one — and never from the
+// few names a point shows. The first few points are named one by one and the
+// rest counted, so the answer is a dozen sentences for a process of any size;
+// the plan's own list of what is missing is the complete one.
+func outputRefusals(step string, outputs map[string]any, anyRun, everyRun map[string]struct{}, found decisionPointsFound) []string {
 	var refusals []string
 	if undeclared := namesOutside(outputs, anyRun); len(undeclared) > 0 {
 		refusals = append(refusals, fmt.Sprintf("“%s”'s form does not declare %s, so a waiver cannot set %s.",
 			step, namesShown(undeclared), itOrThem(len(undeclared))))
 	}
-	var wanting []entities.DecisionPoint
-	for _, point := range points {
-		if len(point.Missing) > 0 {
-			wanting = append(wanting, point)
+	named := 0
+	for _, point := range found.points {
+		if named == maxPointsNamed {
+			break
+		}
+		if point.MissingInAll > 0 {
+			refusals = append(refusals, missingAt(point, step))
+			named++
 		}
 	}
-	named := min(len(wanting), maxPointsNamed)
-	for _, point := range wanting[:named] {
-		refusals = append(refusals, missingAt(point, step))
+	if rest := found.missingAt - named; rest > 0 {
+		refusals = append(refusals, fmt.Sprintf("%d more %s values “%s” would have set. In all, say what the waiver counts as by supplying %s.",
+			rest, stepsRead(rest), step, namesShown(sortedKeys(found.missing))))
 	}
-	if rest := wanting[named:]; len(rest) > 0 {
-		names := namesShown(sortedKeys(missingAcross(rest)))
-		refusals = append(refusals, fmt.Sprintf("%d more %s %s, which “%s” would have set; say what the waiver counts as by supplying %s.",
-			len(rest), stepsRead(len(rest)), names, step, names))
+	if tooMany := moreThanOneWaiveSets(step, len(outputs), len(found.missing)); tooMany != "" {
+		refusals = append(refusals, tooMany)
 	}
-	// asked is every value the waiver gives or is asked for.
-	asked := missingAcross(wanting)
-	for name := range outputs {
-		asked[name] = struct{}{}
-	}
-	var someRunsOnly []string
-	for _, name := range sortedKeys(asked) {
-		_, some := anyRun[name]
-		_, every := everyRun[name]
-		if some && !every {
-			someRunsOnly = append(someRunsOnly, name)
-		}
-	}
-	if len(someRunsOnly) > 0 {
+	if someRunsOnly := declaredBySomeRunsOnly(outputs, found.missing, anyRun, everyRun); len(someRunsOnly) > 0 {
 		refusals = append(refusals, fmt.Sprintf("%s %s not declared by every open task of “%s”, so a waiver cannot supply %s.",
 			namesShown(someRunsOnly), isOrAre(len(someRunsOnly)), step, itOrThem(len(someRunsOnly))))
 	}
 	return refusals
 }
 
+// moreThanOneWaiveSets is the refusal of a waive that would have to give more
+// values than a waive may: what it gives already and what is still missing
+// come to more than MaxDeviationOutputs. Said at once, with the count, so
+// that nobody finds it by supplying the values ten at a time.
+func moreThanOneWaiveSets(step string, given, missing int) string {
+	switch {
+	case missing == 0 || given+missing <= entities.MaxDeviationOutputs:
+		return ""
+	case given == 0:
+		return fmt.Sprintf("This process decides from %d values “%s” would have set, and one waive may set at most %d. "+
+			"Complete or reassign “%s” instead, or hold the instance.", missing, step, entities.MaxDeviationOutputs, step)
+	}
+	return fmt.Sprintf("This process decides from %d more values “%s” would have set, beside the %d this waive gives, and one waive may set at most %d. "+
+		"Complete or reassign “%s” instead, or hold the instance.", missing, step, given, entities.MaxDeviationOutputs, step)
+}
+
+// declaredBySomeRunsOnly is the values the waiver gives or is asked for that
+// some of the step's open runs could have set and others could not, sorted.
+func declaredBySomeRunsOnly(outputs map[string]any, missing, anyRun, everyRun map[string]struct{}) []string {
+	var names []string
+	consider := func(name string) {
+		_, some := anyRun[name]
+		_, every := everyRun[name]
+		if some && !every {
+			names = append(names, name)
+		}
+	}
+	for name := range outputs {
+		consider(name)
+	}
+	for name := range missing {
+		if _, given := outputs[name]; !given {
+			consider(name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 // missingAt is the refusal for one decision point that is missing a value the
-// step would have set. A step that repeats over a list does not decide from
-// it: it takes its runs from it.
+// step would have set: the first few it is missing, and how many more. A step
+// that repeats over a list does not decide from it: it takes its runs from it.
 func missingAt(point entities.DecisionPoint, step string) string {
-	names := namesShown(point.Missing)
+	names := namesShownOf(point.Missing, point.MissingInAll)
 	does := "decides from"
 	if point.Kind == entities.DecisionPointCollection {
 		does = "takes its list of runs from"
 	}
 	return fmt.Sprintf("“%s” %s %s, which “%s” would have set; say what the waiver counts as by supplying %s.",
 		point.NodeName, does, names, step, names)
-}
-
-// missingAcross is every value some point of a list is missing, each once.
-//
-// Points that read the same decision share one list of what they miss, and a
-// process may have thousands of them: a list already taken is not taken
-// again, so this costs what the lists are long, not that times the points.
-func missingAcross(points []entities.DecisionPoint) map[string]struct{} {
-	names := map[string]struct{}{}
-	taken := map[*string]int{}
-	for _, point := range points {
-		if len(point.Missing) == 0 || taken[&point.Missing[0]] >= len(point.Missing) {
-			continue
-		}
-		taken[&point.Missing[0]] = len(point.Missing)
-		addNames(names, point.Missing)
-	}
-	return names
 }
 
 // unreadPointWarnings says which decision points nobody could vouch for, the
@@ -285,7 +317,7 @@ func unreadPointWarnings(step string, points []entities.DecisionPoint, pastBound
 		case point.Kind == entities.DecisionPointCalledProcess:
 			warnings = append(warnings, fmt.Sprintf("“%s” starts another process and hands it %s, which “%s” would have set; "+
 				"that process was not read, so check what it does with %s before applying.",
-				point.NodeName, namesShown(point.Reads), step, itOrThem(len(point.Reads))))
+				point.NodeName, namesShownOf(point.Reads, point.ReadsInAll), step, itOrThem(len(point.Reads))))
 		case pastBound != nil && pastBound(point):
 			warnings = append(warnings, fmt.Sprintf("“%s” was not read: this process consults more decision tables than one preview reads (%d). "+
 				"Check it before applying.", point.NodeName, maxDecisionTablesPerPlan))
@@ -303,9 +335,9 @@ func unreadPointWarnings(step string, points []entities.DecisionPoint, pastBound
 // first, then those nobody could read, then the rest, each group in the order
 // it came in, and no more than maxDecisionPointsListed in all.
 //
-// Each is shown with its lists cut as a sentence would cut them. The cut is
-// made on a copy: the points share their lists, and what is cut for one would
-// be cut for all.
+// Each is shown with the names in its lists cut to a length somebody would
+// read. The cut is made on a copy: the points share their lists, and what is
+// cut for one would be cut for all.
 func listedPoints(points []entities.DecisionPoint) []entities.DecisionPoint {
 	if len(points) == 0 {
 		return nil

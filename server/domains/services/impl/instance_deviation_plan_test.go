@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // tableReading is a decision table with one column for each name, requiring
@@ -223,7 +224,7 @@ func TestManyStepsConsultingOneDecisionCostOneWalkOfIt(t *testing.T) {
 		var points []entities.DecisionPoint
 		read := func() {
 			stored = shape.stored()
-			points = decisionPointsReading(def, "review", declares("approved"), nil, newDecisionLookup(stored.load).reads)
+			points = decisionPointsReading(def, "review", declares("approved"), nil, newDecisionLookup(stored.load).reads).points
 		}
 		started := time.Now()
 		read()
@@ -280,32 +281,33 @@ func TestAPlanStaysSmallWhateverTheProcess(t *testing.T) {
 		return func(string, int) ([]string, bool, bool) { return names, true, true }
 	}
 	shapes := []struct {
-		name      string
-		def       *entities.ProcessDefinition
-		fields    []string
-		lookup    decisionReads
-		refusals  int
-		warnings  int
-		refusedBy string
+		name     string
+		def      *entities.ProcessDefinition
+		fields   []string
+		lookup   decisionReads
+		refusals int
+		warnings int
+		// missing is how many values the plan says are missing in all.
+		missing int
 	}{
 		{
 			name: "a call activity on every step, each handed every field",
 			def: nodes(func(i int) *entities.Node {
 				return &entities.Node{ID: fmt.Sprintf("call%05d", i), Name: fmt.Sprintf("Call %05d", i), Type: entities.CallActivity}
 			}),
-			fields: short, refusals: 0, warnings: maxPointsNamed + 2,
+			fields: short, refusals: 0, warnings: maxPointsNamed + 2, missing: 0,
 		},
 		{
 			name:   "every step consulting one decision that reads every field",
 			def:    rulesConsulting(steps, "policy"),
-			fields: short, lookup: everyField(short), refusals: maxPointsNamed + 1,
-			warnings: 1, refusedBy: "19990 more steps read field00000, field00001,",
+			fields: short, lookup: everyField(short), refusals: maxPointsNamed + 2,
+			warnings: 1, missing: fields,
 		},
 		{
 			name:   "every step consulting one decision that reads every field, the fields named at length",
 			def:    rulesConsulting(steps, "policy"),
-			fields: long, lookup: everyField(long), refusals: maxPointsNamed + 1,
-			warnings: 1, refusedBy: "19990 more steps read a very long name",
+			fields: long, lookup: everyField(long), refusals: maxPointsNamed + 2,
+			warnings: 1, missing: fields,
 		},
 		{
 			name: "a gateway on every step, each with a condition of its own",
@@ -318,16 +320,16 @@ func TestAPlanStaysSmallWhateverTheProcess(t *testing.T) {
 				}
 				return def
 			}(),
-			fields: short, refusals: maxPointsNamed + 1,
-			warnings: 1, refusedBy: "19990 more steps read field00000, field00001,",
+			fields: short, refusals: maxPointsNamed + 2,
+			warnings: 1, missing: fields,
 		},
 	}
 	for _, shape := range shapes {
 		declared := declares(shape.fields...)
 		p := &planning{plan: entities.DeviationPlan{NodeID: "review", NodeName: "Review the claim"}}
 		started := time.Now()
-		points := decisionPointsReading(shape.def, "review", declared, nil, shape.lookup)
-		p.takePoints(points, declared, declared, nil)
+		found := decisionPointsReading(shape.def, "review", declared, nil, shape.lookup)
+		p.takePoints(found, declared, declared, nil)
 		elapsed := time.Since(started)
 		encoded, err := json.Marshal(p.plan)
 		if err != nil {
@@ -348,8 +350,20 @@ func TestAPlanStaysSmallWhateverTheProcess(t *testing.T) {
 		if len(p.plan.Refusals) != shape.refusals || len(p.plan.Warnings) != shape.warnings {
 			t.Errorf("%s: %d refusals and %d warnings, want %d and %d", shape.name, len(p.plan.Refusals), len(p.plan.Warnings), shape.refusals, shape.warnings)
 		}
-		if shape.refusedBy != "" && !strings.HasPrefix(p.plan.Refusals[len(p.plan.Refusals)-1], shape.refusedBy) {
-			t.Errorf("%s: the last refusal is %q, want it to count the steps not named: %q…", shape.name, p.plan.Refusals[len(p.plan.Refusals)-1], shape.refusedBy)
+		// Everything missing is counted, the first of it is named in the plan's
+		// own list, and a waive that could never give it all is told so.
+		if p.plan.MissingInAll != shape.missing || len(p.plan.Missing) != min(shape.missing, entities.MaxDeviationOutputs) {
+			t.Errorf("%s: %d values missing in all and %d named, want %d and %d",
+				shape.name, p.plan.MissingInAll, len(p.plan.Missing), shape.missing, min(shape.missing, entities.MaxDeviationOutputs))
+		}
+		if shape.missing > 0 {
+			counted := fmt.Sprintf("%d more steps read values “Review the claim” would have set. In all, say what the waiver counts as by supplying ", steps-maxPointsNamed)
+			tooMany := fmt.Sprintf("This process decides from %d values “Review the claim” would have set, and one waive may set at most %d. "+
+				"Complete or reassign “Review the claim” instead, or hold the instance.", shape.missing, entities.MaxDeviationOutputs)
+			if !slices.ContainsFunc(p.plan.Refusals, func(said string) bool { return strings.HasPrefix(said, counted) }) || !slices.Contains(p.plan.Refusals, tooMany) {
+				t.Errorf("%s: the refusals do not count the steps not named, or do not say one waive cannot set so much:\n  %s",
+					shape.name, strings.Join(p.plan.Refusals[maxPointsNamed:], "\n  "))
+			}
 		}
 		if want := fmt.Sprintf("%d more steps read what “Review the claim” would have set and are not listed here.", steps-maxDecisionPointsListed); !slices.Contains(p.plan.Warnings, want) {
 			t.Errorf("%s: the warnings do not say how many points are not listed: %q", shape.name, p.plan.Warnings)
@@ -375,39 +389,56 @@ func TestDecisionLookupKeepsTheErrorOfAStoreThatFails(t *testing.T) {
 	}
 }
 
+// pointMissing is a decision point missing names, as the scan leaves one: it
+// names the first ten and counts them all.
+func pointMissing(id, name string, kind entities.DecisionPointKind, names ...string) entities.DecisionPoint {
+	return entities.DecisionPoint{NodeID: id, NodeName: name, Kind: kind, Analysed: true,
+		Missing: names[:min(len(names), maxNamesShown)], MissingInAll: len(names)}
+}
+
+// foundMissing is what a scan answers for points that between them miss names.
+func foundMissing(points []entities.DecisionPoint, names ...string) decisionPointsFound {
+	found := decisionPointsFound{points: points, missing: declares(names...)}
+	for _, point := range points {
+		if point.MissingInAll > 0 {
+			found.missingAt++
+		}
+	}
+	return found
+}
+
 // What a waive may set is what every open run's form declares; what the
 // process may expect from the step is what any run's form declares (plan
 // Ruling 8). A value only some runs could set is refused, not guessed.
 //
-// A step is named in the first few sentences and counted in the last, so a
-// process with thousands of gateways refuses in a dozen sentences and still
-// names every value it wants.
+// A refusal is worked out from what the scan found for the whole process —
+// every missing value, and how many steps miss one — and never from the few
+// names a point shows. A step is named in the first few sentences and counted
+// in the last, so a process with thousands of gateways refuses in a dozen
+// sentences and still says every value it wants.
 func TestOutputRefusals(t *testing.T) {
 	t.Parallel()
 	gateway := entities.DecisionPoint{NodeID: "g", NodeName: "Approved?", Kind: entities.DecisionPointGateway, Analysed: true}
-	missing := func(names ...string) []entities.DecisionPoint {
-		point := gateway
-		point.Missing = names
-		return []entities.DecisionPoint{point}
+	missing := func(names ...string) decisionPointsFound {
+		return foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, names...)}, names...)
 	}
-	list := entities.DecisionPoint{NodeID: "ask", NodeName: "Ask each reviewer", Kind: entities.DecisionPointCollection,
-		Analysed: true, Missing: []string{"reviewers"}}
+	list := pointMissing("ask", "Ask each reviewer", entities.DecisionPointCollection, "reviewers")
 	many := make([]string, 25)
 	outputs := map[string]any{}
 	for i := range many {
 		many[i] = fmt.Sprintf("field%02d", i)
 		outputs[many[i]] = i
 	}
+	sixty := namesNumbered(60, "value")
 	// Fourteen gateways, each missing approved; the last two miss region too.
 	var gateways []entities.DecisionPoint
 	var named []string
 	for i := range 14 {
-		point := entities.DecisionPoint{NodeID: fmt.Sprintf("g%02d", i), NodeName: fmt.Sprintf("Gate %02d", i),
-			Kind: entities.DecisionPointGateway, Analysed: true, Missing: []string{"approved"}}
+		names := []string{"approved"}
 		if i >= 12 {
-			point.Missing = []string{"approved", "region"}
+			names = []string{"approved", "region"}
 		}
-		gateways = append(gateways, point)
+		gateways = append(gateways, pointMissing(fmt.Sprintf("g%02d", i), fmt.Sprintf("Gate %02d", i), entities.DecisionPointGateway, names...))
 		if i < maxPointsNamed {
 			named = append(named, fmt.Sprintf("“Gate %02d” decides from approved, which “Approve” would have set; "+
 				"say what the waiver counts as by supplying approved.", i))
@@ -418,20 +449,21 @@ func TestOutputRefusals(t *testing.T) {
 		outputs  map[string]any
 		anyRun   map[string]struct{}
 		everyRun map[string]struct{}
-		points   []entities.DecisionPoint
+		found    decisionPointsFound
 		want     []string
 	}{
-		{"everything declared and supplied", map[string]any{"approved": true}, declares("approved"), declares("approved"), []entities.DecisionPoint{gateway}, nil},
-		{"nothing set and nothing asked", nil, declares("approved"), declares("approved"), nil, nil},
-		{"values no form declares", map[string]any{"zeta": 1, "amount": 2, "approved": true}, declares("approved"), declares("approved"), nil,
+		{"everything declared and supplied", map[string]any{"approved": true}, declares("approved"), declares("approved"),
+			foundMissing([]entities.DecisionPoint{gateway}), nil},
+		{"nothing set and nothing asked", nil, declares("approved"), declares("approved"), decisionPointsFound{}, nil},
+		{"values no form declares", map[string]any{"zeta": 1, "amount": 2, "approved": true}, declares("approved"), declares("approved"), decisionPointsFound{},
 			[]string{"“Approve”'s form does not declare amount, zeta, so a waiver cannot set them."}},
-		{"one value no form declares", map[string]any{"amount": 2}, declares("approved"), declares("approved"), nil,
+		{"one value no form declares", map[string]any{"amount": 2}, declares("approved"), declares("approved"), decisionPointsFound{},
 			[]string{"“Approve”'s form does not declare amount, so a waiver cannot set it."}},
 		{"a value a decision point is missing", nil, declares("approved"), declares("approved"), missing("approved"),
 			[]string{"“Approved?” decides from approved, which “Approve” would have set; say what the waiver counts as by supplying approved."}},
-		{"a list a later step repeats over", nil, declares("reviewers"), declares("reviewers"), []entities.DecisionPoint{list},
+		{"a list a later step repeats over", nil, declares("reviewers"), declares("reviewers"), foundMissing([]entities.DecisionPoint{list}, "reviewers"),
 			[]string{"“Ask each reviewer” takes its list of runs from reviewers, which “Approve” would have set; say what the waiver counts as by supplying reviewers."}},
-		{"a value only some runs' forms declare, supplied", map[string]any{"amount": 2}, declares("approved", "amount"), declares("approved"), nil,
+		{"a value only some runs' forms declare, supplied", map[string]any{"amount": 2}, declares("approved", "amount"), declares("approved"), decisionPointsFound{},
 			[]string{"amount is not declared by every open task of “Approve”, so a waiver cannot supply it."}},
 		{"a value only some runs' forms declare, missing at a decision point", nil, declares("approved", "amount"), declares("approved"), missing("amount"),
 			[]string{
@@ -443,27 +475,79 @@ func TestOutputRefusals(t *testing.T) {
 				"“Approved?” decides from amount, which “Approve” would have set; say what the waiver counts as by supplying amount.",
 				"amount, tier are not declared by every open task of “Approve”, so a waiver cannot supply them.",
 			}},
-		{"more undeclared values than anybody would read", outputs, declares(), declares(), nil,
+		{"more undeclared values than anybody would read", outputs, declares(), declares(), decisionPointsFound{},
 			[]string{"“Approve”'s form does not declare field00, field01, field02, field03, field04, field05, field06, field07, field08, field09 and 15 more, so a waiver cannot set them."}},
-		{"a decision point missing more than anybody would read", nil, declares(many...), declares(many...), missing(many...),
+		// The point names ten of the twenty-five it is missing, and counts the rest.
+		{"a decision point missing more than it names", nil, declares(many...), declares(many...), missing(many...),
 			[]string{"“Approved?” decides from field00, field01, field02, field03, field04, field05, field06, field07, field08, field09 and 15 more, " +
 				"which “Approve” would have set; say what the waiver counts as by supplying field00, field01, field02, field03, field04, field05, field06, field07, field08, field09 and 15 more."}},
-		{"more decision points than anybody would read", nil, declares("approved", "region"), declares("approved", "region"), gateways,
-			append(slices.Clone(named), "4 more steps read approved, region, which “Approve” would have set; say what the waiver counts as by supplying approved, region.")},
-		{"one decision point more than is named", nil, declares("approved", "region"), declares("approved", "region"), gateways[:maxPointsNamed+1],
-			append(slices.Clone(named), "1 more step reads approved, which “Approve” would have set; say what the waiver counts as by supplying approved.")},
-		{"a value only some runs declare, missing at a point that is counted and not named", nil, declares("approved", "region"), declares("approved"), gateways,
+		{"more decision points than anybody would read", nil, declares("approved", "region"), declares("approved", "region"), foundMissing(gateways, "approved", "region"),
+			append(slices.Clone(named), "4 more steps read values “Approve” would have set. In all, say what the waiver counts as by supplying approved, region.")},
+		{"one decision point more than is named", nil, declares("approved", "region"), declares("approved", "region"), foundMissing(gateways[:maxPointsNamed+1], "approved"),
+			append(slices.Clone(named), "1 more step reads values “Approve” would have set. In all, say what the waiver counts as by supplying approved.")},
+		{"a value only some runs declare, missing at a point that is counted and not named", nil, declares("approved", "region"), declares("approved"), foundMissing(gateways, "approved", "region"),
 			append(slices.Clone(named),
-				"4 more steps read approved, region, which “Approve” would have set; say what the waiver counts as by supplying approved, region.",
+				"4 more steps read values “Approve” would have set. In all, say what the waiver counts as by supplying approved, region.",
 				"region is not declared by every open task of “Approve”, so a waiver cannot supply it.")},
+		// What blocks the waive is not to be found ten names at a time: one
+		// waive sets fifty values at most, and this one would have to set sixty.
+		{"more values missing than one waive may set", nil, declares(sixty...), declares(sixty...), missing(sixty...),
+			[]string{
+				"“Approved?” decides from value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 50 more, " +
+					"which “Approve” would have set; say what the waiver counts as by supplying value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 50 more.",
+				"This process decides from 60 values “Approve” would have set, and one waive may set at most 50. Complete or reassign “Approve” instead, or hold the instance.",
+			}},
+		{"more values missing than one waive may set beside what it gives", map[string]any{"value00000": 1, "value00001": 2}, declares(sixty...), declares(sixty...), missing(sixty[2:]...),
+			[]string{
+				"“Approved?” decides from value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009, value00010, value00011 and 48 more, " +
+					"which “Approve” would have set; say what the waiver counts as by supplying value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009, value00010, value00011 and 48 more.",
+				"This process decides from 58 more values “Approve” would have set, beside the 2 this waive gives, and one waive may set at most 50. " +
+					"Complete or reassign “Approve” instead, or hold the instance.",
+			}},
+		{"as many values missing as one waive may set", nil, declares(sixty...), declares(sixty...), missing(sixty[:50]...),
+			[]string{"“Approved?” decides from value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 40 more, " +
+				"which “Approve” would have set; say what the waiver counts as by supplying value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 40 more."}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			if got := outputRefusals("Approve", c.outputs, c.anyRun, c.everyRun, c.points); !reflect.DeepEqual(got, c.want) {
+			if got := outputRefusals("Approve", c.outputs, c.anyRun, c.everyRun, c.found); !reflect.DeepEqual(got, c.want) {
 				t.Errorf("got\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(c.want, "\n  "))
 			}
 		})
+	}
+}
+
+// The plan's own list of what is missing is the whole of it: sorted, each
+// name cut to what somebody would read, and no more of them than one waive
+// may set, with the count of them all beside it.
+func TestThePlanNamesEveryValueThatIsMissing(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("n", maxNameShown+20)
+	twelve := append(namesNumbered(11, "value"), long)
+	p := &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
+	p.takePoints(foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, twelve...)}, twelve...),
+		declares(twelve...), declares(twelve...), nil)
+	want := append([]string{strings.Repeat("n", maxNameShown) + "…"}, namesNumbered(11, "value")...)
+	if !reflect.DeepEqual(p.plan.Missing, want) || p.plan.MissingInAll != 12 {
+		t.Errorf("the plan names %d of %d missing values: %q\nwant all twelve: %q", len(p.plan.Missing), p.plan.MissingInAll, p.plan.Missing, want)
+	}
+	if len(p.plan.DecisionPoints) != 1 || len(p.plan.DecisionPoints[0].Missing) != maxNamesShown || p.plan.DecisionPoints[0].MissingInAll != 12 {
+		t.Errorf("the point: %+v, want it to name ten and count twelve", p.plan.DecisionPoints)
+	}
+
+	sixty := namesNumbered(60, "value")
+	p = &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
+	p.takePoints(foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, sixty...)}, sixty...),
+		declares(sixty...), declares(sixty...), nil)
+	if !reflect.DeepEqual(p.plan.Missing, sixty[:entities.MaxDeviationOutputs]) || p.plan.MissingInAll != 60 {
+		t.Errorf("the plan names %d of %d missing values, want the first %d of 60", len(p.plan.Missing), p.plan.MissingInAll, entities.MaxDeviationOutputs)
+	}
+
+	p = &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
+	p.takePoints(decisionPointsFound{}, declares(), declares(), nil)
+	if p.plan.Missing != nil || p.plan.MissingInAll != 0 {
+		t.Errorf("with nothing missing the plan names %q and counts %d", p.plan.Missing, p.plan.MissingInAll)
 	}
 }
 
@@ -729,6 +813,99 @@ func TestRequireDeviationAdministrator(t *testing.T) {
 	for _, answer := range answers {
 		if answer != answers[0] {
 			t.Errorf("two refusals read differently, %q and %q: the answer says why, and so who is asking", answers[0], answer)
+		}
+	}
+}
+
+// A plan lists a screenful of the tasks it would act on and counts them all;
+// what it says of each task it says one by one for those it lists and in one
+// sentence for the rest. The work is the instance's to have, so there is no
+// bound on it but this one.
+func TestOpenWorkIsListedUpToAScreenfulAndCountedInAll(t *testing.T) {
+	t.Parallel()
+	const tasks = maxOpenWorkListed + 30
+	open := make([]models.TaskModel, tasks)
+	for i := range open {
+		id := uuid.UUID{}
+		id[14], id[15] = byte(i>>8), byte(i)
+		open[i] = models.TaskModel{Base: models.Base{ID: models.UUID(id)}, Name: fmt.Sprintf("Approve %03d", i), NodeID: "approve",
+			Status: models.TaskClaimed, Assignee: fmt.Sprintf("holder%03d", i)}
+		if i%2 == 1 {
+			open[i].NodeID, open[i].Status, open[i].Assignee = "left", models.TaskUnclaimed, ""
+		}
+	}
+	step := &entities.Node{ID: "approve", Name: strings.Repeat("é", 300)}
+	p := &planning{
+		def:      &entities.ProcessDefinition{Nodes: []*entities.Node{step}},
+		instance: entities.ProcessInstance{Status: entities.ProcessActive, Tokens: []entities.Token{{Node: &entities.Node{ID: "approve"}}}},
+		command:  entities.DeviationCommand{Kind: entities.DeviationCancel},
+		open:     open,
+	}
+	p.listOpenWork()
+	if len(p.plan.OpenWork) != maxOpenWorkListed || p.plan.OpenWorkInAll != tasks {
+		t.Fatalf("%d tasks listed of %d, want %d of %d", len(p.plan.OpenWork), p.plan.OpenWorkInAll, maxOpenWorkListed, tasks)
+	}
+	if first := p.plan.OpenWork[0]; first.Name != "Approve 000" || first.NodeName != strings.Repeat("é", 255) || first.Assignee != "holder000" {
+		t.Errorf("the first task listed: %+v; want its step named with the first 255 characters of the step's name", first)
+	}
+	if want := []string{"30 more tasks are open and are not listed here."}; !reflect.DeepEqual(p.plan.Warnings, want) {
+		t.Errorf("after listing: %q, want %q", p.plan.Warnings, want)
+	}
+
+	p.plan.Warnings = nil
+	p.warnOfWorkNobodyWaitsFor()
+	if len(p.plan.Warnings) != maxOpenWorkListed/2+1 ||
+		p.plan.Warnings[0] != "“Approve 001” is still open though the instance is not waiting there; it will be withdrawn." ||
+		p.plan.Warnings[maxOpenWorkListed/2] != "15 more open tasks are on steps the instance is not waiting at; they will be withdrawn." {
+		t.Errorf("%d warnings of work nobody waits for; the first %q and the last %q", len(p.plan.Warnings), p.plan.Warnings[0], p.plan.Warnings[len(p.plan.Warnings)-1])
+	}
+
+	p.plan.Warnings = nil
+	p.warnWhoLosesWork()
+	if len(p.plan.Warnings) != maxOpenWorkListed/2+1 ||
+		p.plan.Warnings[0] != "“Approve 000” is with holder000, who will be told it was withdrawn." ||
+		p.plan.Warnings[maxOpenWorkListed/2] != "15 more open tasks are with somebody, who will be told they were withdrawn." {
+		t.Errorf("%d warnings of who loses work; the first %q and the last %q", len(p.plan.Warnings), p.plan.Warnings[0], p.plan.Warnings[len(p.plan.Warnings)-1])
+	}
+
+	// The key is of every task, listed or not: one the plan does not list is
+	// finished, and it is a different visit though no token has moved.
+	whole := p.visitKey()
+	p.open = open[:tasks-1]
+	if p.visitKey() == whole {
+		t.Error("a task the plan does not list went, and the key did not change: the key must cover what the act would take, not what is shown")
+	}
+
+	// One past the screenful is one, in words.
+	p.open, p.plan = open[:maxOpenWorkListed+1], entities.DeviationPlan{}
+	p.listOpenWork()
+	p.warnWhoLosesWork()
+	want := "1 more open task is with somebody, who will be told it was withdrawn."
+	if p.plan.Warnings[0] != "1 more task is open and is not listed here." || p.plan.Warnings[len(p.plan.Warnings)-1] != want {
+		t.Errorf("one task more than is listed: %q … %q", p.plan.Warnings[0], p.plan.Warnings[len(p.plan.Warnings)-1])
+	}
+	// And a screenful or less is listed whole, with nothing said of the rest.
+	p.open, p.plan = open[:3], entities.DeviationPlan{}
+	p.listOpenWork()
+	if len(p.plan.OpenWork) != 3 || p.plan.OpenWorkInAll != 3 || len(p.plan.Warnings) != 0 {
+		t.Errorf("three tasks: %d listed of %d, warnings %q", len(p.plan.OpenWork), p.plan.OpenWorkInAll, p.plan.Warnings)
+	}
+}
+
+// A name a definition's author chose is shown as the ledger keeps one: the
+// first 255 characters, cut between characters.
+func TestShownStepName(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]string{
+		"":                              "",
+		"Approve":                       "Approve",
+		strings.Repeat("a", 255):        strings.Repeat("a", 255),
+		strings.Repeat("a", 256):        strings.Repeat("a", 255),
+		strings.Repeat("é", 300):        strings.Repeat("é", 255),
+		strings.Repeat("批", 254) + "ab": strings.Repeat("批", 254) + "a",
+	} {
+		if got := shownStepName(name); got != want {
+			t.Errorf("a name of %d characters is shown with %d (%d bytes), want %d", len([]rune(name)), len([]rune(got)), len(got), len([]rune(want)))
 		}
 	}
 }

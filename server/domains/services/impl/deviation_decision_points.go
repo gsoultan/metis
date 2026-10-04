@@ -88,28 +88,31 @@ const AssignmentDecisionVersionForTest = assignmentDecisionVersionProperty
 // analysed only if every one of them is, and it has a default flow only if
 // every one of them has.
 //
-// A point names only the fields the step declares, so its lists are never
-// longer than the form, and counts everything else it reads (ReadsInAll).
+// A point names only fields the step declares, and only the first few of
+// them, with counts of all it reads and all it is missing (ReadsInAll,
+// MissingInAll). Every field some point is missing is answered once, beside
+// the points, and how many points miss one: what is held is the points and
+// the form, never one times the other.
 //
 // Points that read the same thing — one decision, or everything a call
 // activity hands over — share the lists that say so. They are for reading:
 // nothing here writes to a list once it is in a point, and a caller that
 // wants a shorter or a different list makes its own.
 func decisionPointsReading(def *entities.ProcessDefinition, nodeID string, takenFromStep map[string]struct{},
-	outputs map[string]any, reads decisionReads) []entities.DecisionPoint {
+	outputs map[string]any, reads decisionReads) decisionPointsFound {
 	if def == nil {
-		return nil
+		return decisionPointsFound{}
 	}
 	ids, copies, outgoing := definitionParts(def)
 	scan := decisionScan{waived: nodeID, ownRepeatLeftOut: len(copies[nodeID]) == 1,
-		declared: takenFromStep, outputs: outputs, lookup: reads}
+		declared: takenFromStep, outputs: outputs, lookup: reads, missing: map[string]struct{}{}}
 
 	var points []entities.DecisionPoint
 	for _, id := range ids {
 		points = append(points, scan.pointsAt(copies[id], outgoing[id])...)
 	}
 	slices.SortFunc(points, byNodeThenKind)
-	return points
+	return decisionPointsFound{points: points, missing: scan.missing, missingAt: scan.missingAt}
 }
 
 // definitionParts is a definition taken apart by id: the ids of its nodes in

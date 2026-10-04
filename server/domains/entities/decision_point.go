@@ -17,9 +17,10 @@ type DecisionPoint struct {
 	Kind     DecisionPointKind
 
 	// Reads is what the point is known to read of the fields the step's form
-	// declares, sorted: the names somebody waiving the step can act on. For a
-	// called process it is what the process is handed of those fields: what it
-	// then reads is not known.
+	// declares, sorted: the names somebody waiving the step can act on, and
+	// no more of them than a sentence would spell out. For a called process
+	// it is what the process is handed of those fields: what it then reads is
+	// not known.
 	Reads []string
 	// ReadsInAll is how many variables the point is known to read, the step's
 	// and everybody else's. A decision table of a thousand columns reads a
@@ -29,13 +30,20 @@ type DecisionPoint struct {
 	ReadsInAll int
 	// Supplied is what it takes from the step that the waiver gives a value
 	// for; Missing is what it is known to take from the step that the waiver
-	// does not. Both sorted. Nothing is known to be missing from a called
-	// process, which is not read: Analysed says so instead.
+	// does not. Both sorted, and like Reads the first few: the whole of what
+	// is missing is the plan's to list, once for every point. Nothing is
+	// known to be missing from a called process, which is not read: Analysed
+	// says so instead.
 	//
 	// Reads, Supplied and Missing may be shared with other points that read
 	// the same thing. Read them; to cut or change one, copy it first.
 	Supplied []string
 	Missing  []string
+	// MissingInAll is how many of the step's fields the point is known to
+	// take that the waiver does not supply; Missing names the first of them.
+	// Counted as ReadsInAll is where nodes share an id, and never more than
+	// the form has fields.
+	MissingInAll int
 
 	// HasDefaultFlow reports that a gateway has a flow to take when no
 	// condition holds, so a missing value sends it there.

@@ -331,7 +331,7 @@ func TestEveryRefusalSaysWhatIsWrongInWordsSomebodyCanActOn(t *testing.T) {
 			}
 		}
 		// A cancel that names no step is refused for the same reason, and is
-		// not told the instance has nothing left to do: it is done.
+		// not told that cancelling closes it: it is closed.
 		plan := w.preview(t, deviationCommand(entities.DeviationCancel, done, "", nil))
 		if !said(plan.Refusals, "This instance is completed; only a running instance can be cancelled.") || len(plan.Warnings) != 0 {
 			t.Errorf("a cancel of a finished instance: refusals:%s\nwarnings:%s", lines(plan.Refusals), lines(plan.Warnings))

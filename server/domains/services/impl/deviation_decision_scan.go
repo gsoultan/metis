@@ -15,10 +15,14 @@ import (
 // and what has been read once so that it is not read again.
 //
 // What a point reads is held as a DecisionPoint with no node yet: how many
-// names it reads, which of them the step declares, what of those the waiver
-// supplies and what it does not. Many steps may read the same thing, so the
-// two that can be large — a decision, and everything a call activity hands
-// over — are worked out once and shared.
+// names it reads, the first few of them the step declares, and the first few
+// of those the waiver supplies and does not, with a count of each. Many steps
+// may read the same thing, so a decision's reading, and what a call activity
+// hands over, are worked out once and shared.
+//
+// What every point is missing is kept here once, for the whole scan: a set no
+// bigger than the form, where a full list at every point would be the points
+// times the form.
 type decisionScan struct {
 	// waived is the step being waived, whose own repeating is not asked
 	// again — when ownRepeatLeftOut says so.
@@ -41,6 +45,11 @@ type decisionScan struct {
 	// everything is what a call activity with no input mapping is handed:
 	// every field the step declares. Worked out the first time one is met.
 	everything *entities.DecisionPoint
+
+	// missing is every field the step declares that some point reads and the
+	// waiver does not supply; missingAt is how many points miss one.
+	missing   map[string]struct{}
+	missingAt int
 }
 
 // pointsAt is the decision points the nodes of one id are, at most one of
@@ -53,7 +62,10 @@ func (s *decisionScan) pointsAt(copies []*entities.Node, flows []*entities.Seque
 		if first == nil || (point.Analysed && len(point.Supplied)+len(point.Missing) == 0) {
 			return
 		}
-		point.NodeID, point.NodeName = first.ID, cmp.Or(first.Name, first.ID)
+		point.NodeID, point.NodeName = first.ID, shownStepName(cmp.Or(first.Name, first.ID))
+		if point.MissingInAll > 0 {
+			s.missingAt++
+		}
 		points = append(points, point)
 	}
 	add(s.gateway(copies, flows))
@@ -66,14 +78,18 @@ func (s *decisionScan) pointsAt(copies []*entities.Node, flows []*entities.Seque
 }
 
 // reading is what a point that reads names takes from the step: how many
-// names it reads in all, and those of them the step declares — sorted, each
-// once — told apart by whether the waiver supplies them. A value the instance
-// already holds does not count.
+// names it reads in all, and of those the step declares — sorted — the first
+// few, told apart by whether the waiver supplies them, with how many it does
+// not. A value the instance already holds does not count.
 //
-// Only the step's own fields are kept as names. They are what somebody
-// waiving the step can act on, and there are no more of them than the form
-// has fields, whatever a decision table of thousands of columns reads beside
-// them.
+// Only the step's own fields are kept as names, and only the first few of
+// them: a point is for showing, and what it shows is what a sentence would.
+// Every field found missing goes into the scan's one set of them, which is
+// what a plan refuses for.
+//
+// A process the instance calls is handed the fields and is not known to read
+// them, so for that kind nothing is missing: it is listed as not analysed
+// instead.
 func (s *decisionScan) reading(kind entities.DecisionPointKind, names []string, analysed bool) entities.DecisionPoint {
 	all := unionOfNames(names)
 	point := entities.DecisionPoint{Kind: kind, ReadsInAll: len(all), Analysed: analysed}
@@ -81,15 +97,38 @@ func (s *decisionScan) reading(kind entities.DecisionPointKind, names []string, 
 		if _, declared := s.declared[name]; !declared {
 			continue
 		}
-		point.Reads = append(point.Reads, name)
+		point.Reads = appendShown(point.Reads, name)
 		if _, given := s.outputs[name]; given {
-			point.Supplied = append(point.Supplied, name)
-		} else {
-			point.Missing = append(point.Missing, name)
+			point.Supplied = appendShown(point.Supplied, name)
+			continue
 		}
+		if kind == entities.DecisionPointCalledProcess {
+			continue
+		}
+		point.Missing = appendShown(point.Missing, name)
+		point.MissingInAll++
+		s.missing[name] = struct{}{}
 	}
 	point.Reads, point.Supplied, point.Missing = slices.Clip(point.Reads), slices.Clip(point.Supplied), slices.Clip(point.Missing)
 	return point
+}
+
+// appendShown adds a name to a list a point shows, unless the list already
+// holds as many as are shown.
+func appendShown(list []string, name string) []string {
+	if len(list) == maxNamesShown {
+		return list
+	}
+	return append(list, name)
+}
+
+// firstShown is the first few names of several sorted lists put together,
+// each once: the names a point shows of everything its parts show. The few
+// smallest of a union are among the few smallest of each part, so the parts'
+// short lists are enough.
+func firstShown(lists ...[]string) []string {
+	names := unionOfNames(slices.Concat(lists...))
+	return slices.Clip(names[:min(len(names), maxNamesShown)])
 }
 
 // conditionReads is what a condition the evaluator chain is given reads: the
@@ -247,19 +286,21 @@ func (s *decisionScan) decisionTable(copies []*entities.Node) (entities.Decision
 	case len(tables) == 1 && len(names) == 0 && analysed:
 		return tables[0], first
 	}
-	// Several things read by the nodes of one id. Each decision's reading is
-	// already cut down to the step's fields, so putting them together costs
-	// what the form is long, not what the tables are. The count is each
-	// part's added up: a name two of them read is counted for both, which is
-	// never too few.
-	inAll := len(unionOfNames(names))
-	for _, table := range tables {
-		names = append(names, table.Reads...)
-		inAll += table.ReadsInAll
-		analysed = analysed && table.Analysed
-	}
+	// Several things read by the nodes of one id: what the mappings name, and
+	// each decision's reading. They are put together from the few names each
+	// shows and from their counts, so this costs nothing that grows with the
+	// tables or with the form. The counts are each part's added up: a name
+	// two of them read is counted for both, which is never too few — and what
+	// is missing is never counted as more than the form has fields.
 	point := s.reading(entities.DecisionPointDecisionTable, names, analysed)
-	point.ReadsInAll = inAll
+	for _, table := range tables {
+		point.Reads = firstShown(point.Reads, table.Reads)
+		point.Supplied = firstShown(point.Supplied, table.Supplied)
+		point.Missing = firstShown(point.Missing, table.Missing)
+		point.ReadsInAll += table.ReadsInAll
+		point.MissingInAll = min(point.MissingInAll+table.MissingInAll, len(s.declared))
+		point.Analysed = point.Analysed && table.Analysed
+	}
 	return point, first
 }
 
@@ -356,8 +397,6 @@ func (s *decisionScan) calledProcess(copies []*entities.Node) (entities.Decision
 	if len(point.Reads) == 0 {
 		return entities.DecisionPoint{}, nil
 	}
-	// Handed over, not known to be read: nothing is known to be missing.
-	point.Missing = nil
 	return point, first
 }
 
