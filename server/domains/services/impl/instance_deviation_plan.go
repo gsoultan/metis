@@ -82,20 +82,9 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 	if instance.Definition == nil {
 		return nil, fmt.Errorf("planning for instance %s: it names no version of a process", instance.ID)
 	}
-	def, err := s.engine.GetProcessDefinition(ctx, instance.Definition.ID)
-	if errors.Is(err, apierr.ErrNotFound) {
-		// The caller may read the instance, so this is not "no such instance":
-		// an instance whose version is gone is the server's trouble, and is
-		// answered as that — not with the not-found the read of the version
-		// gave, which would say the instance is not there. The cause is kept
-		// as words and deliberately not wrapped.
-		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there (%s)", instance.ID, instance.Definition.ID, err.Error())
-	}
+	def, err := s.graphRunBy(ctx, instance.ID, instance.Definition.ID)
 	if err != nil {
-		return nil, fmt.Errorf("reading the process instance %s runs: %w", instance.ID, err)
-	}
-	if def == nil {
-		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there", instance.ID, instance.Definition.ID)
+		return nil, err
 	}
 	open, err := s.openWhereItActs(ctx, instance.ID, command)
 	if err != nil {
@@ -123,6 +112,27 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 	}
 	p.plan.VisitKey = deviationVisitKey(instance, command.Kind, command.NodeID, ids)
 	return p, nil
+}
+
+// graphRunBy reads the version of a process an instance runs: the graph a
+// plan is made over, and the one an act advances the instance along.
+func (s *instanceDeviationService) graphRunBy(ctx context.Context, instanceID, versionID uuid.UUID) (*entities.ProcessDefinition, error) {
+	def, err := s.engine.GetProcessDefinition(ctx, versionID)
+	if errors.Is(err, apierr.ErrNotFound) {
+		// The caller may read the instance, so this is not "no such instance":
+		// an instance whose version is gone is the server's trouble, and is
+		// answered as that — not with the not-found the read of the version
+		// gave, which would say the instance is not there. The cause is kept
+		// as words and deliberately not wrapped.
+		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there (%s)", instanceID, versionID, err.Error())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the process instance %s runs: %w", instanceID, err)
+	}
+	if def == nil {
+		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there", instanceID, versionID)
+	}
+	return def, nil
 }
 
 // openWhereItActs is the tasks still somebody's to do where a command acts,

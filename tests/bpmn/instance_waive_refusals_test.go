@@ -610,12 +610,9 @@ func TestAPreviewChangesNothingAndWaitsForNobody(t *testing.T) {
 }
 
 // What a preview refuses, an apply refuses: the request is answered as one the
-// caller can fix, and the instance is as it was.
-//
-// At this point every apply is refused, whatever its plan says, so this test
-// cannot fail for the reason its name gives. It is here for the apply that
-// lands next: from then on an apply of an acceptable plan acts, and this pins
-// that one of a refused plan still does not.
+// caller can fix, and the instance is as it was. An apply of a plan nothing
+// refuses acts (TestAWaivedStepIsWithdrawnItsHolderToldAndTheInstanceMovesOn);
+// this pins that one of a refused plan does not.
 func TestAnApplyOfAPlanThatRefusesIsRefusedAndChangesNothing(t *testing.T) {
 	h := newEngineHarness(t, "Waive Refused Apply Project")
 	w := newWaiver(h)
