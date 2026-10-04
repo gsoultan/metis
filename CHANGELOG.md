@@ -313,6 +313,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   They are published persistent now. Bind a bridge's exchange to a durable
   queue; the queues Metis declares already are.
 
+- **An instance that had ended could be moved on by a worker, and calls were
+  still made for it.** A step parked for an outside worker stayed on offer
+  after its instance ended — cancelled by a migration, or finished by a
+  terminate end event while that step was still waiting. When the worker
+  reported the work done, the server checked the worker's lock and not the
+  instance: the report's variables were written and the next step ran on an
+  instance that was already `cancelled` or `completed`. A service call queued
+  before the instance ended was still made to the other system afterwards, and
+  if it failed, an incident was raised on the ended instance. Now:
+  - **A worker's report on an ended instance is refused.** Nothing is written,
+    nothing moves, and the parked work is removed so it is not offered again.
+    The reply to `POST /api/v1/external-tasks/{id}/complete` and `/failure` is
+    HTTP 200 with the refusal in `error`, as every refusal on those two routes
+    is: *This work belongs to an instance that has ended (cancelled); it is no
+    longer wanted.* A worker should treat that as "stop, do not retry".
+  - **No call is made for an instance that has ended.** The job is settled
+    without calling. A call already on its way when the instance ends cannot
+    be recalled; its result is not written and a failure raises no incident.
+  - **What this does not change.** Work parked by an instance that ended on
+    its own (not by a cancel) can still be fetched by a worker, and is refused
+    only when the worker reports. A suspended instance is treated as before. A
+    queued call for a step its instance has already left, on an instance that
+    is still running, is still made.
+
 ## [0.4.0] - 2026-09-28
 
 A minor release that closes twelve security holes, so anyone running 0.3.0
