@@ -41,9 +41,10 @@ func (s *instanceDeviationService) act(
 	switch command.Kind {
 	case entities.DeviationWaive:
 		return s.waiveStep(ctx, locked, live, def, plan, command, actor)
-	case entities.DeviationCancel, entities.DeviationHold:
-		// Planned and previewed; not yet made in place.
-		return entities.Deviation{}, apierr.Invalidf("a %s cannot be applied in place yet; preview it with dry_run", command.Kind)
+	case entities.DeviationCancel:
+		return s.cancelWhereItStands(ctx, locked, plan, command, actor)
+	case entities.DeviationHold:
+		return s.holdWhereItStands(ctx, locked, plan, command, actor)
 	}
 	return entities.Deviation{}, fmt.Errorf("acting on instance %s: %q is not something done to an instance in place", live.ID, command.Kind)
 }
@@ -170,6 +171,90 @@ func effectFailed(doing string, err error) error {
 	return fmt.Errorf("%s: %s", doing, err.Error())
 }
 
+// cancelWhereItStands ends an instance as it stands: every task it has open
+// is withdrawn and whoever held it told, what it was waiting for is dropped,
+// and it is cancelled — and the ledger and the trail say who ended it, where
+// it stood and why.
+//
+// It ends the whole instance, whichever step the command names; the step is
+// where the record says the instance stood. A command that names none closes
+// an instance that waits nowhere, which is what apply asked of the locked row,
+// and its row and its entry name no step: none is invented for either.
+//
+// The record is made from the tasks the effect held and withdrew, and counts
+// them. The plan lists no more than a screenful of the instance's open work,
+// read without its rows held; who holds a task may have changed since, and
+// there may be more of them than it lists.
+func (s *instanceDeviationService) cancelWhereItStands(
+	ctx context.Context,
+	locked models.ProcessInstanceModel,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+	actor string,
+) (entities.Deviation, error) {
+	runID, err := uuid.NewV7()
+	if err != nil {
+		return entities.Deviation{}, err
+	}
+	ended, withdrawn, err := s.actions.cancel(ctx, locked)
+	if err != nil {
+		return entities.Deviation{}, effectFailed("cancelling this instance", err)
+	}
+
+	row := inPlaceDeviation(locked, plan, command, actor, runID)
+	// As a migration's cancel names it: the one task it took, when it took one.
+	if len(withdrawn) == 1 {
+		row.Task = &entities.Task{ID: uuid.UUID(withdrawn[0].ID)}
+	}
+	row.Before, row.After = withdrawnTaskValues(withdrawn)
+	row.Before["instance"] = map[string]any{"status": string(locked.Status)}
+	row.After["instance"] = map[string]any{"status": string(ended.Status)}
+	// A count, and no business value: the details of a row are not sealed.
+	row.Details = map[string]any{"withdrawn": len(withdrawn)}
+
+	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID))
+	if err != nil {
+		return entities.Deviation{}, fmt.Errorf("recording that this instance was cancelled: %w", err)
+	}
+	return recorded, nil
+}
+
+// holdWhereItStands raises an instance as an incident at the step it waits
+// at, for somebody to decide, and changes nothing else about it: its tokens,
+// its tasks and its status are as they were, and its work can still be done.
+//
+// A step that already has an incident open keeps that one — the effect raises
+// no second — and the hold is recorded all the same, naming it: a hold in
+// place is an act made for a visit, by somebody, for a reason, and that is
+// what the ledger keeps. The same hold asked for again never gets here; apply
+// answers it with its row first.
+func (s *instanceDeviationService) holdWhereItStands(
+	ctx context.Context,
+	locked models.ProcessInstanceModel,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+	actor string,
+) (entities.Deviation, error) {
+	runID, err := uuid.NewV7()
+	if err != nil {
+		return entities.Deviation{}, err
+	}
+	message := fmt.Sprintf("held at “%s” by %s: %s", plan.NodeName, actor, command.Reason)
+	incidentID, _, err := s.actions.hold(ctx, locked, plan.NodeID, message)
+	if err != nil {
+		return entities.Deviation{}, effectFailed(fmt.Sprintf("holding this instance at “%s”", plan.NodeName), err)
+	}
+
+	row := inPlaceDeviation(locked, plan, command, actor, runID)
+	row.After = map[string]any{"incident": map[string]any{"id": incidentID.String(), "status": string(models.IncidentOpen)}}
+
+	recorded, err := s.actions.record(ctx, row, holdEntry(locked, plan, command, actor, runID, incidentID))
+	if err != nil {
+		return entities.Deviation{}, fmt.Errorf("recording that this instance was held at “%s”: %w", plan.NodeName, err)
+	}
+	return recorded, nil
+}
+
 // valuesHeld is what an instance holds under the names a waive is about to
 // set: what the record keeps as how things were. A name it holds nothing
 // under is left out — the record does not say a value was nothing when there
@@ -247,6 +332,73 @@ func waiveEntry(
 			"reason":      command.Reason,
 			"actor":       actor,
 			"outputs_set": set,
+		},
+		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
+		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},
+		Node:     &entities.Node{ID: plan.NodeID, Name: plan.NodeName},
+	}
+}
+
+// cancelEntry is the trail entry of an instance ended in place. It says where
+// the instance stood when the command names a step, and that it stood nowhere
+// when it names none: the entry then carries no step and no node_id, as its
+// ledger row carries none.
+func cancelEntry(
+	locked models.ProcessInstanceModel,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+	actor string,
+	runID uuid.UUID,
+) entities.AuditEntry {
+	entry := entities.AuditEntry{
+		Type:    EventInstanceCancelled,
+		Message: "cancel in place",
+		Narrative: fmt.Sprintf("This instance was ended by %s while it was not waiting at any step. Reason: %s.",
+			actor, command.Reason),
+		Timestamp: time.Now(),
+		Data: map[string]any{
+			"run_id": runID.String(),
+			"action": string(servicecontracts.NodeActionCancel),
+			"origin": string(entities.DeviationOriginInPlace),
+			"reason": command.Reason,
+			"actor":  actor,
+		},
+		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
+		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},
+	}
+	if plan.NodeID == "" {
+		return entry
+	}
+	entry.Message = fmt.Sprintf("cancel %s in place", plan.NodeID)
+	entry.Narrative = fmt.Sprintf("This instance was ended at “%s” by %s. Reason: %s.", plan.NodeName, actor, command.Reason)
+	entry.Data["node_id"] = plan.NodeID
+	entry.Node = &entities.Node{ID: plan.NodeID, Name: plan.NodeName}
+	return entry
+}
+
+// holdEntry is the trail entry of an instance held in place: the step it was
+// held at, and the incident that holds it there.
+func holdEntry(
+	locked models.ProcessInstanceModel,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+	actor string,
+	runID, incidentID uuid.UUID,
+) entities.AuditEntry {
+	return entities.AuditEntry{
+		Type:    EventInstanceHeld,
+		Message: fmt.Sprintf("hold %s in place", plan.NodeID),
+		Narrative: fmt.Sprintf("This instance was held at “%s” by %s and raised as an incident for somebody to decide. Reason: %s.",
+			plan.NodeName, actor, command.Reason),
+		Timestamp: time.Now(),
+		Data: map[string]any{
+			"node_id":     plan.NodeID,
+			"run_id":      runID.String(),
+			"action":      string(servicecontracts.NodeActionHold),
+			"origin":      string(entities.DeviationOriginInPlace),
+			"reason":      command.Reason,
+			"actor":       actor,
+			"incident_id": incidentID.String(),
 		},
 		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},

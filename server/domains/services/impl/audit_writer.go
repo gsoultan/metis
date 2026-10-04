@@ -45,11 +45,13 @@ const (
 	// performing it. It is the entry that stops a skipped approval from reading
 	// like an approval somebody gave.
 	EventNodeSkipped = "node_skipped"
-	// EventInstanceCancelled marks an instance a migration ended rather than
-	// moved.
+	// EventInstanceCancelled marks an instance somebody ended before it
+	// finished: a migration that ended it rather than moved it, or an
+	// administrator who cancelled it where it stood.
 	EventInstanceCancelled = "instance_cancelled"
-	// EventInstanceHeld marks an instance a migration deliberately left behind
-	// for a person to decide.
+	// EventInstanceHeld marks an instance raised as an incident for a person
+	// to decide: one a migration deliberately left behind, or one an
+	// administrator held where it stood.
 	EventInstanceHeld = "instance_held"
 	// EventParkedWorkWithdrawn marks work a step inside an ad-hoc
 	// sub-process had parked for outside workers, taken back when the
@@ -132,9 +134,9 @@ func narrativeFor(eventType, subject, actor string) string {
 	case EventNodeSkipped:
 		return fmt.Sprintf("Step %q was skipped without being performed", subject)
 	case EventInstanceCancelled:
-		return "This instance was ended by a migration rather than moved"
+		return "This instance was ended before it finished"
 	case EventInstanceHeld:
-		return "This instance was held back from a migration for somebody to decide"
+		return "This instance was held for somebody to decide"
 	default:
 		if subject != "" {
 			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)

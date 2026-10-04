@@ -550,27 +550,24 @@ func TestAnApplyFromAnotherOrganizationFindsNoInstance(t *testing.T) {
 
 // Review Focus 5, at the service, for the request that changes something: an
 // apply — a real one, naming the key of a plan nothing refuses — by anybody
-// but an administrator of the instance's organization. Each is refused, and
-// every table is as it was; then the administrator sends the very same
-// command and it is applied, so what was refused was the caller and not the
-// request.
+// but an administrator of the instance's organization, for each of the three
+// acts. Each is refused, and every table is as it was; then the administrator
+// sends the very same command and it is applied, so what was refused was the
+// caller and not the request.
 func TestAnApplyByAnybodyButTheOrganizationsAdministratorChangesNothing(t *testing.T) {
 	h := newEngineHarness(t, "Waive Apply Authority Project")
 	h.recordsAsProductionDoes()
 	events := &eventLog{}
 	h.dispatcher.Register(events)
 	w := newWaiver(h)
-	id := w.start(t, opsApproval(h.projID, "ops-apply-authority"), nil)
+	h.deploy(t, opsApproval(h.projID, "ops-apply-authority"))
 	here := entities.ActingOrganization(h.Ctx())
 	elsewhere, err := h.svc.CreateOrganization(t.Context(), "Another Organization", "")
 	if err != nil {
 		t.Fatalf("create the other organization: %v", err)
 	}
 	inTheOther := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: elsewhere.ID.String()})
-	apply := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", map[string]any{"approved": true}))
-	raised := events.count()
-
-	for who, caller := range map[string]struct {
+	callers := map[string]struct {
 		ctx  context.Context
 		want error
 	}{
@@ -585,51 +582,41 @@ func TestAnApplyByAnybodyButTheOrganizationsAdministratorChangesNothing(t *testi
 			RolesByOrganization: map[uuid.UUID][]string{elsewhere.ID: {entities.RoleAdmin}}}), apierr.ErrNotFound},
 		"an operator and designer of this organization alone": {signedInAs(h.Ctx(), entities.User{Username: "odile",
 			RolesByOrganization: map[uuid.UUID][]string{here: {entities.RoleOperator, entities.RoleDesigner}}}), apierr.ErrForbidden},
+	}
+
+	for kind, outputs := range map[entities.DeviationKind]map[string]any{
+		entities.DeviationWaive: {"approved": true}, entities.DeviationCancel: nil, entities.DeviationHold: nil,
 	} {
-		before := everyRow(t, h)
-		out, err := w.svc.DeviateInstance(caller.ctx, apply)
-		if !errors.Is(err, caller.want) {
-			t.Errorf("%s applying: got %v, want %v", who, err, caller.want)
+		id, err := h.svc.StartProcess(h.Ctx(), h.projID, "ops-apply-authority", nil)
+		if err != nil {
+			t.Fatalf("start an instance to %s: %v", kind, err)
 		}
-		if out.Applied || out.Replayed || out.Deviation != nil {
-			t.Errorf("%s applying was answered as though it had been done: %+v", who, out)
-		}
-		if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
-			t.Fatalf("%s applying changed %v", who, changed)
-		}
-	}
-	if now := events.count(); now != raised {
-		t.Fatalf("refused applies raised %d event(s)", now-raised)
-	}
-	if open := theOpenTask(t, h, id, "opsApprove"); open.AssigneeUsername() != "ollie" {
-		t.Fatalf("after the refused applies the task is with %q, want ollie still", open.AssigneeUsername())
-	}
+		apply := w.previewed(t, deviationCommand(kind, id, "opsApprove", outputs))
+		raised := events.count()
 
-	out, err := w.svc.DeviateInstance(w.ctx, apply)
-	if err != nil || !out.Applied || out.Replayed {
-		t.Fatalf("the organization's administrator, sending the same command: %+v, %v; want it applied", out, err)
-	}
-}
+		for who, caller := range callers {
+			before := everyRow(t, h)
+			out, err := w.svc.DeviateInstance(caller.ctx, apply)
+			if !errors.Is(err, caller.want) {
+				t.Errorf("%s applying a %s: got %v, want %v", who, kind, err, caller.want)
+			}
+			if out.Applied || out.Replayed || out.Deviation != nil {
+				t.Errorf("%s applying a %s was answered as though it had been done: %+v", who, kind, out)
+			}
+			if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+				t.Fatalf("%s applying a %s changed %v", who, kind, changed)
+			}
+		}
+		if now := events.count(); now != raised {
+			t.Fatalf("refused applies of a %s raised %d event(s)", kind, now-raised)
+		}
+		if open := theOpenTask(t, h, id, "opsApprove"); open.AssigneeUsername() != "ollie" {
+			t.Fatalf("after the refused applies of a %s the task is with %q, want ollie still", kind, open.AssigneeUsername())
+		}
 
-// A cancel and a hold are planned and previewed, and not yet made in place:
-// an apply of either is refused as it was before a waive could be applied,
-// and changes nothing. This goes when they are made.
-func TestACancelAndAHoldAreNotYetAppliedInPlace(t *testing.T) {
-	h := newEngineHarness(t, "Waive Only Project")
-	w := newWaiver(h)
-	id := w.start(t, opsApproval(h.projID, "ops-waive-only"), nil)
-	before := everyRow(t, h)
-	for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationHold} {
-		command := deviationCommand(kind, id, "opsApprove", nil)
-		if plan := w.preview(t, command); !plan.Applicable() {
-			t.Fatalf("a %s is refused by its plan, so this proves nothing:%s", kind, lines(plan.Refusals))
+		out, err := w.svc.DeviateInstance(w.ctx, apply)
+		if err != nil || !out.Applied || out.Replayed || out.Deviation == nil || out.Deviation.Kind != kind {
+			t.Fatalf("the organization's administrator, sending the same %s: %+v, %v; want it applied", kind, out, err)
 		}
-		out, err := w.apply(t, command)
-		if !errors.Is(err, apierr.ErrInvalidArgument) || out.Applied || out.Deviation != nil {
-			t.Errorf("a %s applied: %+v, %v; want it refused", kind, out, err)
-		}
-	}
-	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
-		t.Fatalf("a cancel and a hold that are not yet made changed %v", changed)
 	}
 }
