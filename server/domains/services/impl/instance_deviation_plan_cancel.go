@@ -19,8 +19,9 @@ import (
 // that the instance waits nowhere.
 //
 // A cancel ends the whole instance, whichever step it names: the plan lists
-// every task open on it, warns of each that would be taken from somebody, and
-// says which are open on a step the instance is not waiting at.
+// every task open on it, warns of each that would be taken from somebody,
+// says which are open on a step the instance is not waiting at, and says how
+// many open incidents it would close.
 //
 // A called instance that waits somewhere is part of a larger process, and is
 // refused. One that waits nowhere will never end, so it will never resume its
@@ -59,6 +60,30 @@ func (s *instanceDeviationService) planCancel(ctx context.Context, p *planning) 
 		}
 	}
 	p.warnWhoLosesWork()
+	if running {
+		return s.warnOfIncidentsToClose(ctx, p)
+	}
+	return nil
+}
+
+// warnOfIncidentsToClose says how many incidents a cancel would close: every
+// one the instance has open, on whichever step. An incident asks somebody to
+// decide about an instance, and on a cancelled one there is nothing left to
+// decide; the cancel closes them, and its record names them.
+func (s *instanceDeviationService) warnOfIncidentsToClose(ctx context.Context, p *planning) error {
+	incidents, err := s.repo.Incident().ListByInstance(ctx, p.instance.ID)
+	if err != nil {
+		return fmt.Errorf("reading the incidents on instance %s: %w", p.instance.ID, err)
+	}
+	open := 0
+	for _, incident := range incidents {
+		if incident.Status == models.IncidentOpen {
+			open++
+		}
+	}
+	if open > 0 {
+		p.warn("%d open incident(s) on this instance will be closed.", open)
+	}
 	return nil
 }
 

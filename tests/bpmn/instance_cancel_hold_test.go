@@ -1,12 +1,14 @@
 package bpmn_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -68,19 +70,6 @@ func toldOfWithdrawal(events *eventLog) map[string]int {
 		told[event.Assignee]++
 	}
 	return told
-}
-
-// tablesChanged names the tables two readings of everyRow disagree on, in
-// order.
-func tablesChanged(before, after map[string]string) []string {
-	var changed []string
-	for table, rows := range after {
-		if before[table] != rows {
-			changed = append(changed, table)
-		}
-	}
-	slices.Sort(changed)
-	return changed
 }
 
 // statusIn is the status a ledger row says an instance had, or came to have.
@@ -182,8 +171,8 @@ func TestCancellingInPlaceEndsTheInstanceAndWithdrawsItsWork(t *testing.T) {
 	if row.Task == nil || row.Task.ID != opsTask.ID {
 		t.Fatalf("the row's task: %+v, want the one task the cancel withdrew", row.Task)
 	}
-	if !reflect.DeepEqual(row.Details, map[string]any{"withdrawn": float64(1)}) {
-		t.Fatalf("the row's details: %v, want one task withdrawn and nothing else", row.Details)
+	if want := map[string]any{"withdrawn": float64(1), "tasks_listed": float64(1), "external_tasks_withdrawn": float64(0), "incidents_closed": float64(0)}; !reflect.DeepEqual(row.Details, want) {
+		t.Fatalf("the row's details: %v, want %v", row.Details, want)
 	}
 
 	entry := theEntryOf(t, h, id, serviceimpl.EventInstanceCancelled)
@@ -260,12 +249,15 @@ func TestCancellingInPlaceStopsTheInstanceWaitingForAMessage(t *testing.T) {
 	if len(rows) != 1 || rows[0].Node == nil || rows[0].Node.Name != "Wait for the payment" || rows[0].Task != nil {
 		t.Fatalf("the cancel's ledger: %+v", rows)
 	}
-	if _, tasks := rows[0].Before["tasks"]; tasks || !reflect.DeepEqual(rows[0].Details, map[string]any{"withdrawn": float64(0)}) {
+	if _, tasks := rows[0].Before["tasks"]; tasks || !reflect.DeepEqual(rows[0].Details, map[string]any{"withdrawn": float64(0), "tasks_listed": float64(0), "external_tasks_withdrawn": float64(0), "incidents_closed": float64(0)}) {
 		t.Fatalf("the row of a cancel that withdrew nothing: before %v, details %v", rows[0].Before, rows[0].Details)
 	}
-	// The payment arrives after all. Whatever the sender is told, nothing is
-	// started for an instance that was ended.
-	_ = h.engine.SendMessage(ctx, h.projID, "PaymentReceived", "A-1", nil)
+	// The payment arrives after all. Nobody is waiting for it, which is not an
+	// error to its sender, and nothing is started for an instance that was
+	// ended.
+	if err := h.engine.SendMessage(ctx, h.projID, "PaymentReceived", "A-1", nil); err != nil {
+		t.Fatalf("a message nobody waits for was answered %v, want it taken and dropped", err)
+	}
 	requireInstanceStatus(ctx, t, h, id, entities.ProcessCancelled)
 	if seen := tasksEverOn(t, h, id, "confirm"); seen != 0 {
 		t.Fatalf("a message moved a cancelled instance on: %d task(s) at the next step", seen)
@@ -293,7 +285,11 @@ func TestHoldingInPlaceRaisesOneIncidentAndChangesNothingElse(t *testing.T) {
 		t.Fatalf("hold: %+v, %v", first, err)
 	}
 	held := everyRow(t, h)
-	if changed, want := tablesChanged(before, held), []string{"audit_logs", "incidents", "instance_deviations"}; !reflect.DeepEqual(changed, want) {
+	changed := tablesThatDiffer(before, held)
+	for i, table := range changed {
+		changed[i], _, _ = strings.Cut(table, " ")
+	}
+	if want := []string{"audit_logs", "incidents", "instance_deviations"}; !reflect.DeepEqual(changed, want) {
 		t.Fatalf("a hold changed %v, want only %v: the incident, its ledger row and its trail entry", changed, want)
 	}
 	if now := events.count(); now != raised {
@@ -328,8 +324,8 @@ func TestHoldingInPlaceRaisesOneIncidentAndChangesNothingElse(t *testing.T) {
 		t.Fatalf("the hold's row: %+v", row)
 	}
 	wantAfter := map[string]any{"incident": map[string]any{"id": incident.ID.String(), "status": "open"}}
-	if len(row.Before) != 0 || !reflect.DeepEqual(row.After, wantAfter) || len(row.Details) != 0 {
-		t.Fatalf("the hold's row says before %v, after %v, details %v; want only the incident, after", row.Before, row.After, row.Details)
+	if len(row.Before) != 0 || !reflect.DeepEqual(row.After, wantAfter) || !reflect.DeepEqual(row.Details, map[string]any{"incident_raised": true}) {
+		t.Fatalf("the hold's row says before %v, after %v, details %v; want only the incident, after, and that this hold raised it", row.Before, row.After, row.Details)
 	}
 
 	entry := theEntryOf(t, h, id, serviceimpl.EventInstanceHeld)
@@ -357,11 +353,14 @@ func TestHoldingInPlaceRaisesOneIncidentAndChangesNothingElse(t *testing.T) {
 	if changed := tablesThatDiffer(held, everyRow(t, h)); len(changed) != 0 {
 		t.Fatalf("a replayed hold changed %v", changed)
 	}
-	// The same visit asked about again is the same plan, and says it is held.
+	// Asked about again, the step is not as it was previewed: it has an open
+	// incident now. That is another visit, with another key, and the plan says
+	// a hold would use the incident.
 	again := w.preview(t, deviationCommand(entities.DeviationHold, id, "opsApprove", nil))
-	if again.VisitKey != cmd.VisitKey || !said(again.Warnings, "“Operations approve” already has an open incident; the hold will use it.") {
-		t.Errorf("a preview of a visit already held: the same key: %v, warnings:%s", again.VisitKey == cmd.VisitKey, lines(again.Warnings))
+	if again.VisitKey == cmd.VisitKey || !said(again.Warnings, "“Operations approve” already has an open incident; the hold will use it.") {
+		t.Errorf("a preview of a step now held: a new key: %v, warnings:%s", again.VisitKey != cmd.VisitKey, lines(again.Warnings))
 	}
+	// The request that was made is still the request that was made.
 	other := cmd
 	other.Reason = "a different reason, sent later"
 	if _, err := w.svc.DeviateInstance(w.ctx, other); !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "this instance was already held by ana") {
@@ -421,10 +420,168 @@ func TestAHoldOfAStepAlreadyHeldUsesItsIncidentAndIsStillRecorded(t *testing.T) 
 		if row.Kind != entities.DeviationHold || !reflect.DeepEqual(row.After, wantAfter) {
 			t.Errorf("a hold's row: %s after %v, want both holds to name the one incident", row.Kind, row.After)
 		}
+		// Which of them raised it is on the row.
+		if raised := row.ID == first.Deviation.ID; row.Details["incident_raised"] != raised {
+			t.Errorf("the row of the hold that raised the incident (%v) says incident_raised: %v", raised, row.Details["incident_raised"])
+		}
 	}
-	if held := entriesOfType(t, h, id, serviceimpl.EventInstanceHeld); len(held) != 2 ||
-		held[0].Data["incident_id"] != incidents[0].ID.String() || held[1].Data["incident_id"] != incidents[0].ID.String() {
-		t.Errorf("the trail's hold entries: %+v, want two naming the one incident", held)
+	held := entriesOfType(t, h, id, serviceimpl.EventInstanceHeld)
+	if len(held) != 2 || held[0].Data["incident_id"] != incidents[0].ID.String() || held[1].Data["incident_id"] != incidents[0].ID.String() {
+		t.Fatalf("the trail's hold entries: %+v, want two naming the one incident", held)
+	}
+	// And the trail does not say of the second that it raised one.
+	raisedIt := "This instance was held at “Approve the purchase” by ana and raised as an incident for somebody to decide. Reason: " + waiveReason + "."
+	usedIt := "This instance was held at “Approve the purchase” by ana; the incident already open on that step stands. Reason: " + waiveReason + "."
+	reads := map[string]int{}
+	for _, entry := range held {
+		reads[entry.Narrative]++
+	}
+	if reads[raisedIt] != 1 || reads[usedIt] != 1 {
+		t.Errorf("the hold entries read %v\nwant one\n  %s\nand one\n  %s", reads, raisedIt, usedIt)
+	}
+	// The incident says what the first hold said; the second hold's reason is
+	// in its ledger row and its trail entry.
+	if want := "held at “Approve the purchase” by ana: " + waiveReason; incidents[0].Error != want {
+		t.Errorf("the incident reads %q after a second hold used it, want it as the first hold left it: %q", incidents[0].Error, want)
+	}
+}
+
+// A hold is for somebody to decide, and when they have — the incident is
+// resolved — the step can be held again: that is another visit, the plan says
+// nothing of an open incident, and the hold raises a new one. Each request
+// that made a hold, sent again, is still answered with what it did.
+//
+// Three visits of one step, with nothing about its work changing: never held,
+// held with the incident open, and held with the incident resolved.
+func TestAHoldCanBeMadeAgainOnceItsIncidentIsResolved(t *testing.T) {
+	h := newEngineHarness(t, "Hold After Resolve Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, opsApproval(h.projID, "ops-hold-again"), nil)
+	hold := deviationCommand(entities.DeviationHold, id, "opsApprove", nil)
+	openIncidents := func() (open []uuid.UUID, inAll int) {
+		t.Helper()
+		incidents, err := h.svc.ListIncidents(ctx, id)
+		if err != nil {
+			t.Fatalf("read the incidents: %v", err)
+		}
+		for _, incident := range incidents {
+			if incident.Status == entities.IncidentOpen {
+				open = append(open, incident.ID)
+			}
+		}
+		return open, len(incidents)
+	}
+
+	// Never held: the hold raises the incident.
+	neverHeld := w.previewed(t, hold)
+	first, err := w.svc.DeviateInstance(w.ctx, neverHeld)
+	if err != nil || !first.Applied || first.Replayed {
+		t.Fatalf("the first hold: %+v, %v", first, err)
+	}
+	raised, _ := openIncidents()
+	if len(raised) != 1 {
+		t.Fatalf("%d incident(s) are open after the first hold, want the one it raised", len(raised))
+	}
+
+	// Held, the incident open: another visit, and a hold of it uses the
+	// incident.
+	whileOpen := w.previewed(t, hold)
+	if whileOpen.VisitKey == neverHeld.VisitKey {
+		t.Fatal("an incident opened on the step and the hold's key did not change")
+	}
+	second, err := w.svc.DeviateInstance(w.ctx, whileOpen)
+	if err != nil || !second.Applied || second.Replayed || second.Deviation.ID == first.Deviation.ID {
+		t.Fatalf("the hold while the incident was open: %+v, %v; want it made, with a row of its own", second, err)
+	}
+	if open, inAll := openIncidents(); inAll != 1 || len(open) != 1 || open[0] != raised[0] {
+		t.Fatalf("after a hold of a step already held: %d incident(s), open %v; want the one the first hold raised", inAll, open)
+	}
+
+	if err := h.svc.ResolveIncident(ctx, raised[0]); err != nil {
+		t.Fatalf("resolve the incident: %v", err)
+	}
+
+	// Held, the incident resolved: a third visit. At 4a127c0 the key was the
+	// first one, the plan said the hold could be applied, and the apply
+	// answered "applied, replayed" with no incident open.
+	plan := w.preview(t, hold)
+	if plan.VisitKey == neverHeld.VisitKey || plan.VisitKey == whileOpen.VisitKey {
+		t.Fatal("the incident was resolved and the hold's key is one it had before: an apply would be answered as already made")
+	}
+	if !plan.Applicable() || len(plan.Warnings) != 0 {
+		t.Fatalf("the plan of a hold once the incident is resolved: refusals:%s\nwarnings:%s\nwant neither", lines(plan.Refusals), lines(plan.Warnings))
+	}
+	again := hold
+	again.VisitKey, again.DryRun = plan.VisitKey, false
+	third, err := w.svc.DeviateInstance(w.ctx, again)
+	if err != nil || !third.Applied || third.Replayed || third.Deviation == nil ||
+		third.Deviation.ID == first.Deviation.ID || third.Deviation.ID == second.Deviation.ID {
+		t.Fatalf("the hold after the incident was resolved: %+v, %v; want it made, with a row of its own", third, err)
+	}
+	open, inAll := openIncidents()
+	if inAll != 2 || len(open) != 1 || open[0] == raised[0] {
+		t.Fatalf("after the hold: %d incident(s), open %v; want the resolved one and a new one open", inAll, open)
+	}
+	rows := w.ledger(t, id)
+	if len(rows) != 3 || rows[0].Details["incident_raised"] != true || rows[1].Details["incident_raised"] != false || rows[2].Details["incident_raised"] != true {
+		t.Fatalf("the ledger: %+v\nwant three holds: one that raised an incident, one that used it, one that raised another", rows)
+	}
+
+	// Each request that made a hold, sent again.
+	held := everyRow(t, h)
+	for what, sent := range map[string]struct {
+		command entities.DeviationCommand
+		made    entities.DeviationOutcome
+	}{"the first": {neverHeld, first}, "the second": {whileOpen, second}, "the third": {again, third}} {
+		retry, err := w.svc.DeviateInstance(w.ctx, sent.command)
+		if err != nil || !retry.Applied || !retry.Replayed || retry.Deviation == nil || retry.Deviation.ID != sent.made.Deviation.ID {
+			t.Fatalf("%s request sent again: %+v, %v; want a replay of its row", what, retry, err)
+		}
+	}
+	if changed := tablesThatDiffer(held, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("the replays changed %v", changed)
+	}
+}
+
+// What a hold writes into the incident is read by whoever may read the
+// instance's incidents, and is not sealed: it goes through the redaction the
+// engine's own incidents go through. And it fits: a reason as long as a reason
+// may be, at a step whose name is as long as a name is kept.
+func TestTheIncidentOfAHoldIsRedactedAndHoldsTheLongestReason(t *testing.T) {
+	h := newEngineHarness(t, "Hold Incident Text Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	longName := strings.Repeat("Approve the purchase of the thing ", 9)[:300]
+	def := opsApproval(h.projID, "ops-hold-text")
+	def.Nodes[1].Name = longName
+	id := w.start(t, def, nil)
+
+	secret := w.start(t, opsApproval(h.projID, "ops-hold-secret"), nil)
+	leaky := deviationCommand(entities.DeviationHold, secret, "opsApprove", nil)
+	leaky.Reason = "the vendor portal is down; log in with password=hunter2 to check"
+	w.mustApply(t, leaky)
+	incidents, err := h.svc.ListIncidents(ctx, secret)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incidents: %d (err %v), want the one", len(incidents), err)
+	}
+	if strings.Contains(incidents[0].Error, "hunter2") || !strings.Contains(incidents[0].Error, "held at “Operations approve” by ana: the vendor portal is down") {
+		t.Errorf("the incident reads %q; want what the hold said, without the credential", incidents[0].Error)
+	}
+
+	longest := deviationCommand(entities.DeviationHold, id, "opsApprove", nil)
+	longest.Reason = strings.Repeat("because the manager is away ", 80)[:entities.MaxDeviationReasonLength-1] + "."
+	if got := utf8.RuneCountInString(longest.Reason); got != entities.MaxDeviationReasonLength {
+		t.Fatalf("the reason is %d characters; this test needs the %d a reason may be", got, entities.MaxDeviationReasonLength)
+	}
+	w.mustApply(t, longest)
+	incidents, err = h.svc.ListIncidents(ctx, id)
+	if err != nil || len(incidents) != 1 {
+		t.Fatalf("incidents: %d (err %v), want the one", len(incidents), err)
+	}
+	if want := "held at “" + longName[:255] + "” by ana: " + longest.Reason; incidents[0].Error != want {
+		t.Errorf("the incident holds %d characters, want the %d the hold wrote: the step's name as it is kept, and the whole reason",
+			utf8.RuneCountInString(incidents[0].Error), utf8.RuneCountInString(want))
 	}
 }
 
@@ -568,6 +725,38 @@ func TestACancelOrAHoldOfAnInstanceThatMovedSinceThePreviewIsRefused(t *testing.
 	}
 }
 
+// A suspended instance has not ended: it can be made active again. A cancel
+// or a hold of one is refused, and told what to do first — not that the
+// instance can no longer be acted on — and nothing is changed.
+func TestAnApplyOnASuspendedInstanceSaysToResumeItFirst(t *testing.T) {
+	h := newEngineHarness(t, "Suspended Apply Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-suspended"), nil)
+	commands := map[entities.DeviationKind]entities.DeviationCommand{}
+	for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationHold, entities.DeviationWaive} {
+		commands[kind] = w.previewed(t, deviationCommand(kind, id, "opsApprove", nil))
+	}
+	suspend(t, h, id)
+	suspended := everyRow(t, h)
+
+	for kind, command := range commands {
+		want := "this instance is suspended; resume it before it is cancelled or held"
+		if kind == entities.DeviationWaive {
+			want = "this instance is suspended; resume it before a step of it is waived"
+		}
+		out, err := w.svc.DeviateInstance(w.ctx, command)
+		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+			t.Errorf("a %s of a suspended instance: %v, want %q", kind, err, want)
+		}
+		if out.Applied || out.Replayed || out.Deviation != nil {
+			t.Errorf("a %s of a suspended instance answered %+v", kind, out)
+		}
+	}
+	if changed := tablesThatDiffer(suspended, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("applies on a suspended instance changed %v", changed)
+	}
+}
+
 // Rulings addendum §10. An instance that is active and waiting nowhere has
 // nothing in the product that could end it. A cancel is the one act that
 // needs no step: it closes the instance, says in a warning that it was not
@@ -630,8 +819,8 @@ func TestCancellingInPlaceClosesAnInstanceThatHoldsNothing(t *testing.T) {
 		statusIn(row.Before) != "active" || statusIn(row.After) != "cancelled" {
 		t.Fatalf("the cancel's row: %+v", row)
 	}
-	if !reflect.DeepEqual(row.Details, map[string]any{"withdrawn": float64(0)}) {
-		t.Fatalf("the row's details: %v, want no task withdrawn", row.Details)
+	if want := map[string]any{"withdrawn": float64(0), "tasks_listed": float64(0), "external_tasks_withdrawn": float64(0), "incidents_closed": float64(0)}; !reflect.DeepEqual(row.Details, want) {
+		t.Fatalf("the row's details: %v, want %v", row.Details, want)
 	}
 	entry := theEntryOf(t, h, id, serviceimpl.EventInstanceCancelled)
 	requireNoStep(t, row, entry)
@@ -959,20 +1148,39 @@ func TestACancelOfMoreWorkThanAPlanListsWithdrawsAllOfIt(t *testing.T) {
 		t.Fatalf("the ledger holds %d rows, want one", len(rows))
 	}
 	row := rows[0]
+	// The row counts every task it took and names the first two hundred of
+	// them, by id: a row is read whole, and how many tasks an instance has
+	// open is the instance's to say.
+	const named = 200
 	was, is := tasksSection(t, row.Before), tasksSection(t, row.After)
-	if row.Details["withdrawn"] != float64(taken) || len(was) != taken || len(is) != taken || row.Task != nil {
-		t.Fatalf("the row counts %v withdrawn and names %d before and %d after; want %d, the tasks it took", row.Details["withdrawn"], len(was), len(is), taken)
+	if row.Details["withdrawn"] != float64(taken) || row.Details["tasks_listed"] != float64(named) ||
+		len(was) != named || len(is) != named || row.Task != nil {
+		t.Fatalf("the row counts %v withdrawn and %v listed, and names %d before and %d after; want %d withdrawn and %d named",
+			row.Details["withdrawn"], row.Details["tasks_listed"], len(was), len(is), taken, named)
 	}
+	var withdrawn []entities.Task
 	for _, task := range open {
-		recorded, has := was[task.ID.String()]
-		if task.ID == closed.ID {
-			if has {
-				t.Errorf("the row says the cancel withdrew a task that was closed before it")
-			}
-			continue
+		if task.ID != closed.ID {
+			withdrawn = append(withdrawn, task)
 		}
-		if !has || recorded["assignee"] != holderOf[task.ID] || recorded["status"] != string(entities.TaskClaimed) {
+	}
+	slices.SortFunc(withdrawn, func(a, b entities.Task) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	for i, task := range withdrawn {
+		recorded, has := was[task.ID.String()]
+		if has != (i < named) {
+			t.Fatalf("task %d in the order of their ids is named on the row: %v; the row names the first %d", i+1, has, named)
+		}
+		if has && (recorded["assignee"] != holderOf[task.ID] || recorded["status"] != string(entities.TaskClaimed)) {
 			t.Errorf("the row says of %s's task: %v", holderOf[task.ID], recorded)
 		}
+		// Named on the row or not, the task's own row says who held it when it
+		// was withdrawn: withdrawing changes its status and nothing else.
+		now, err := h.svc.GetTask(ctx, task.ID)
+		if err != nil || now.Status != entities.TaskCanceled || now.AssigneeUsername() != holderOf[task.ID] {
+			t.Fatalf("%s's task is %q with %q (%v), want it withdrawn and still theirs", holderOf[task.ID], now.Status, now.AssigneeUsername(), err)
+		}
+	}
+	if _, has := was[closed.ID.String()]; has {
+		t.Errorf("the row says the cancel withdrew a task that was closed before it")
 	}
 }

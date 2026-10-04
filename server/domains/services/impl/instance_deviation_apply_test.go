@@ -83,13 +83,24 @@ func TestAnInstanceThatHasEndedIsRefusedFromTheRowTheApplyLocked(t *testing.T) {
 		models.ProcessCompleted: entities.DeviationWaive,
 		models.ProcessCancelled: entities.DeviationCancel,
 		models.ProcessFailed:    entities.DeviationHold,
-		models.ProcessSuspended: entities.DeviationWaive,
 	} {
 		// The token is still on the step: it is the status that refuses.
 		err := refuseEnded(rowWaitingAt(status, "approve"), kind)
 		want := "this instance is " + string(status) + ", so it can no longer be " + pastTense(kind) + "; preview again"
 		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
 			t.Errorf("an instance that is %s: got %v, want %q", status, err, want)
+		}
+	}
+	// A suspended instance has not ended: it can run again, so it is not said
+	// that it can no longer be acted on. It is said what to do first.
+	for kind, want := range map[entities.DeviationKind]string{
+		entities.DeviationCancel: "this instance is suspended; resume it before it is cancelled or held",
+		entities.DeviationHold:   "this instance is suspended; resume it before it is cancelled or held",
+		entities.DeviationWaive:  "this instance is suspended; resume it before a step of it is waived",
+	} {
+		err := refuseEnded(rowWaitingAt(models.ProcessSuspended, "approve"), kind)
+		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+			t.Errorf("a %s of an instance that is suspended: got %v, want %q", kind, err, want)
 		}
 	}
 }

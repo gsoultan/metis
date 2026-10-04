@@ -1,15 +1,18 @@
 package impl
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -234,20 +237,35 @@ func effectFailed(doing string, err error) error {
 	return fmt.Errorf("%s: %s", doing, err.Error())
 }
 
+// maxRecordedOnCancel is how many withdrawn tasks, and how many closed
+// incidents, the ledger row of a cancel names one by one. A row is read whole
+// — by the ledger's own route, and by whoever asks what was done to an
+// instance — and how much an instance has open is the instance's to say: a
+// step done once for each of a thousand people has a thousand tasks. The row
+// counts them all.
+const maxRecordedOnCancel = 200
+
 // cancelWhereItStands ends an instance as it stands: every task it has open
-// is withdrawn and whoever held it told, what it was waiting for is dropped,
-// and it is cancelled — and the ledger and the trail say who ended it, where
-// it stood and why.
+// is withdrawn and whoever held it told, the work it had parked for outside
+// workers is taken back, what it was waiting for is dropped, the incidents
+// open on it are closed, and it is cancelled — and the ledger and the trail
+// say who ended it, where it stood and why.
 //
 // It ends the whole instance, whichever step the command names; the step is
 // where the record says the instance stood. A command that names none closes
 // an instance that waits nowhere, which is what apply asked of the locked row,
 // and its row and its entry name no step: none is invented for either.
 //
-// The record is made from the tasks the effect held and withdrew, and counts
-// them. The plan lists no more than a screenful of the instance's open work,
-// read without its rows held; who holds a task may have changed since, and
-// there may be more of them than it lists.
+// The record is made from what the effect did, and counts it: the tasks it
+// held and withdrew, the parked work it took back, the incidents it closed.
+// The plan lists no more than a screenful of the instance's open work, read
+// without its rows held; who holds a task may have changed since, and there
+// may be more of them than it lists.
+//
+// The row names the first maxRecordedOnCancel tasks, by id, and as many
+// incidents. Past that it does not name every holder: the holder of a task it
+// does not name is on the task's own row, which a withdrawal changes only the
+// status of, and in the notice sent to them.
 func (s *instanceDeviationService) cancelWhereItStands(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -259,27 +277,62 @@ func (s *instanceDeviationService) cancelWhereItStands(
 	if err != nil {
 		return entities.Deviation{}, err
 	}
-	ended, withdrawn, err := s.actions.cancel(ctx, locked)
+	done, err := s.actions.cancelWhole(ctx, locked)
 	if err != nil {
 		return entities.Deviation{}, effectFailed("cancelling this instance", err)
 	}
 
 	row := inPlaceDeviation(locked, plan, command, actor, runID)
 	// As a migration's cancel names it: the one task it took, when it took one.
-	if len(withdrawn) == 1 {
-		row.Task = &entities.Task{ID: uuid.UUID(withdrawn[0].ID)}
+	if len(done.withdrawn) == 1 {
+		row.Task = &entities.Task{ID: uuid.UUID(done.withdrawn[0].ID)}
 	}
-	row.Before, row.After = withdrawnTaskValues(withdrawn)
+	named := lowestByID(done.withdrawn, maxRecordedOnCancel)
+	row.Before, row.After = withdrawnTaskValues(named)
 	row.Before["instance"] = map[string]any{"status": string(locked.Status)}
-	row.After["instance"] = map[string]any{"status": string(ended.Status)}
-	// A count, and no business value: the details of a row are not sealed.
-	row.Details = map[string]any{"withdrawn": len(withdrawn)}
+	row.After["instance"] = map[string]any{"status": string(done.instance.Status)}
+	if was, is := closedIncidentValues(done.incidentsClosed, maxRecordedOnCancel); len(was) > 0 {
+		row.Before["incidents"], row.After["incidents"] = was, is
+	}
+	// Counts, and no business value: the details of a row are not sealed.
+	row.Details = map[string]any{
+		"withdrawn":                len(done.withdrawn),
+		"tasks_listed":             len(named),
+		"external_tasks_withdrawn": done.parkedWithdrawn,
+		"incidents_closed":         len(done.incidentsClosed),
+	}
 
-	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID))
+	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID, len(done.incidentsClosed)))
 	if err != nil {
 		return entities.Deviation{}, fmt.Errorf("recording that this instance was cancelled: %w", err)
 	}
 	return recorded, nil
+}
+
+// lowestByID is the first limit of tasks in the order of their ids, or all of
+// them when there are no more than that. The tasks are not reordered where
+// they are: the effect returns them newest first, and its other caller reads
+// them so.
+func lowestByID(tasks []models.TaskModel, limit int) []models.TaskModel {
+	if len(tasks) <= limit {
+		return tasks
+	}
+	byID := slices.Clone(tasks)
+	slices.SortFunc(byID, func(a, b models.TaskModel) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	return byID[:limit]
+}
+
+// closedIncidentValues is what closing incidents changed on them, as they
+// were and as they are, keyed by incident id: the first limit of them. ids are
+// in order already. No incidents gives two empty maps.
+func closedIncidentValues(ids []uuid.UUID, limit int) (was, is map[string]any) {
+	ids = ids[:min(len(ids), limit)]
+	was, is = make(map[string]any, len(ids)), make(map[string]any, len(ids))
+	for _, id := range ids {
+		was[id.String()] = map[string]any{"status": string(models.IncidentOpen)}
+		is[id.String()] = map[string]any{"status": string(models.IncidentResolved)}
+	}
+	return was, is
 }
 
 // holdWhereItStands raises an instance as an incident at the step it waits
@@ -291,6 +344,17 @@ func (s *instanceDeviationService) cancelWhereItStands(
 // place is an act made for a visit, by somebody, for a reason, and that is
 // what the ledger keeps. The same hold asked for again never gets here; apply
 // answers it with its row first.
+//
+// Whether this hold raised the incident or found one is the effect's to say,
+// and the row and the entry say what it said. The plan warned of an incident
+// it read without holding it, and somebody may have resolved that one since:
+// the hold then raised its own.
+//
+// What is written into the incident is the step, who held it and why, as
+// anybody who may read the instance's incidents will read it: it goes through
+// the redaction every incident's text goes through. When the incident was
+// already there its text is not rewritten, and this hold's reason is in the
+// ledger row and the trail entry only.
 func (s *instanceDeviationService) holdWhereItStands(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -302,16 +366,17 @@ func (s *instanceDeviationService) holdWhereItStands(
 	if err != nil {
 		return entities.Deviation{}, err
 	}
-	message := fmt.Sprintf("held at “%s” by %s: %s", plan.NodeName, actor, command.Reason)
-	incidentID, _, err := s.actions.hold(ctx, locked, plan.NodeID, message)
+	message := redaction.RedactText(fmt.Sprintf("held at “%s” by %s: %s", plan.NodeName, actor, command.Reason))
+	incidentID, raised, err := s.actions.hold(ctx, locked, plan.NodeID, message)
 	if err != nil {
 		return entities.Deviation{}, effectFailed(fmt.Sprintf("holding this instance at “%s”", plan.NodeName), err)
 	}
 
 	row := inPlaceDeviation(locked, plan, command, actor, runID)
 	row.After = map[string]any{"incident": map[string]any{"id": incidentID.String(), "status": string(models.IncidentOpen)}}
+	row.Details = map[string]any{"incident_raised": raised}
 
-	recorded, err := s.actions.record(ctx, row, holdEntry(locked, plan, command, actor, runID, incidentID))
+	recorded, err := s.actions.record(ctx, row, holdEntry(locked, plan, command, actor, runID, incidentID, raised))
 	if err != nil {
 		return entities.Deviation{}, fmt.Errorf("recording that this instance was held at “%s”: %w", plan.NodeName, err)
 	}
@@ -405,13 +470,15 @@ func waiveEntry(
 // cancelEntry is the trail entry of an instance ended in place. It says where
 // the instance stood when the command names a step, and that it stood nowhere
 // when it names none: the entry then carries no step and no node_id, as its
-// ledger row carries none.
+// ledger row carries none. It counts the incidents the cancel closed; which
+// they were is on the ledger row.
 func cancelEntry(
 	locked models.ProcessInstanceModel,
 	plan entities.DeviationPlan,
 	command entities.DeviationCommand,
 	actor string,
 	runID uuid.UUID,
+	incidentsClosed int,
 ) entities.AuditEntry {
 	entry := entities.AuditEntry{
 		Type:    EventInstanceCancelled,
@@ -420,11 +487,12 @@ func cancelEntry(
 			actor, command.Reason),
 		Timestamp: time.Now(),
 		Data: map[string]any{
-			"run_id": runID.String(),
-			"action": string(servicecontracts.NodeActionCancel),
-			"origin": string(entities.DeviationOriginInPlace),
-			"reason": command.Reason,
-			"actor":  actor,
+			"run_id":           runID.String(),
+			"action":           string(servicecontracts.NodeActionCancel),
+			"origin":           string(entities.DeviationOriginInPlace),
+			"reason":           command.Reason,
+			"actor":            actor,
+			"incidents_closed": incidentsClosed,
 		},
 		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},
@@ -440,28 +508,36 @@ func cancelEntry(
 }
 
 // holdEntry is the trail entry of an instance held in place: the step it was
-// held at, and the incident that holds it there.
+// held at, and the incident that holds it there — raised by this hold, or
+// already open on the step, which the sentence says.
 func holdEntry(
 	locked models.ProcessInstanceModel,
 	plan entities.DeviationPlan,
 	command entities.DeviationCommand,
 	actor string,
 	runID, incidentID uuid.UUID,
+	raised bool,
 ) entities.AuditEntry {
+	narrative := fmt.Sprintf("This instance was held at “%s” by %s; the incident already open on that step stands. Reason: %s.",
+		plan.NodeName, actor, command.Reason)
+	if raised {
+		narrative = fmt.Sprintf("This instance was held at “%s” by %s and raised as an incident for somebody to decide. Reason: %s.",
+			plan.NodeName, actor, command.Reason)
+	}
 	return entities.AuditEntry{
-		Type:    EventInstanceHeld,
-		Message: fmt.Sprintf("hold %s in place", plan.NodeID),
-		Narrative: fmt.Sprintf("This instance was held at “%s” by %s and raised as an incident for somebody to decide. Reason: %s.",
-			plan.NodeName, actor, command.Reason),
+		Type:      EventInstanceHeld,
+		Message:   fmt.Sprintf("hold %s in place", plan.NodeID),
+		Narrative: narrative,
 		Timestamp: time.Now(),
 		Data: map[string]any{
-			"node_id":     plan.NodeID,
-			"run_id":      runID.String(),
-			"action":      string(servicecontracts.NodeActionHold),
-			"origin":      string(entities.DeviationOriginInPlace),
-			"reason":      command.Reason,
-			"actor":       actor,
-			"incident_id": incidentID.String(),
+			"node_id":         plan.NodeID,
+			"run_id":          runID.String(),
+			"action":          string(servicecontracts.NodeActionHold),
+			"origin":          string(entities.DeviationOriginInPlace),
+			"reason":          command.Reason,
+			"actor":           actor,
+			"incident_id":     incidentID.String(),
+			"incident_raised": raised,
 		},
 		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},

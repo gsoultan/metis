@@ -42,7 +42,11 @@ type planning struct {
 	// and a hold, anywhere on the instance for a cancel — in the order of
 	// their ids.
 	open []models.TaskModel
-	plan entities.DeviationPlan
+	// stepIncidents is the incidents on the step a hold names, open and
+	// resolved. Read once, for a hold only: its key covers them, and its plan
+	// warns of one that is open.
+	stepIncidents []models.IncidentModel
+	plan          entities.DeviationPlan
 }
 
 // plan says what a command would do to an instance as it stands, and every
@@ -66,7 +70,7 @@ func (s *instanceDeviationService) plan(ctx context.Context, instance entities.P
 	case entities.DeviationCancel:
 		err = s.planCancel(ctx, p)
 	case entities.DeviationHold:
-		err = s.planHold(ctx, p)
+		p.planHold()
 	default:
 		err = fmt.Errorf("planning for instance %s: %q is not something done to an instance in place", instance.ID, command.Kind)
 	}
@@ -103,20 +107,41 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 			p.plan.NodeName = cmp.Or(shownStepName(p.node.Name), p.node.ID)
 		}
 	}
+	if command.Kind == entities.DeviationHold {
+		if p.stepIncidents, err = s.incidentsOn(ctx, instance.ID, command.NodeID); err != nil {
+			return nil, err
+		}
+	}
 	p.plan.VisitKey = p.visitKey()
 	p.listOpenWork()
 	return p, nil
 }
 
+// incidentsOn is the incidents an instance has on one step, open and resolved.
+func (s *instanceDeviationService) incidentsOn(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]models.IncidentModel, error) {
+	incidents, err := s.repo.Incident().ListByInstance(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the incidents on instance %s: %w", instanceID, err)
+	}
+	var on []models.IncidentModel
+	for _, incident := range incidents {
+		if incident.NodeID == nodeID {
+			on = append(on, incident)
+		}
+	}
+	return on, nil
+}
+
 // visitKey is the key of the work the plan is made for: every open task where
-// the command acts, whether or not the plan lists it. What is listed is for
-// reading; what is keyed is what the act would take.
+// the command acts, whether or not the plan lists it — and, for a hold, the
+// incidents on the step. What is listed is for reading; what is keyed is what
+// the act would take.
 func (p *planning) visitKey() string {
 	ids := make([]uuid.UUID, 0, len(p.open))
 	for _, task := range p.open {
 		ids = append(ids, uuid.UUID(task.ID))
 	}
-	return deviationVisitKey(p.instance, p.command.Kind, p.command.NodeID, ids)
+	return deviationVisitKey(p.instance, p.command.Kind, p.command.NodeID, ids, p.stepIncidents...)
 }
 
 // listOpenWork puts the open tasks where the command acts into the plan: the
@@ -285,22 +310,18 @@ func countOf(tasks []models.TaskModel, so func(models.TaskModel) bool) int {
 
 // planHold asks nothing further of a hold, and warns when the step is held
 // already: nodeActions.hold raises no second incident for a step that has one
-// open, and this is the same question it asks.
-func (s *instanceDeviationService) planHold(ctx context.Context, p *planning) error {
+// open, and this is the same question it asks, of the incidents the key was
+// made from.
+func (p *planning) planHold() {
 	if p.node == nil {
-		return nil
+		return
 	}
-	incidents, err := s.repo.Incident().ListByInstance(ctx, p.instance.ID)
-	if err != nil {
-		return fmt.Errorf("reading the incidents on instance %s: %w", p.instance.ID, err)
-	}
-	for _, incident := range incidents {
-		if incident.NodeID == p.node.ID && incident.Status == models.IncidentOpen {
+	for _, incident := range p.stepIncidents {
+		if incident.Status == models.IncidentOpen {
 			p.warn("“%s” already has an open incident; the hold will use it.", p.stepShown())
-			return nil
+			return
 		}
 	}
-	return nil
 }
 
 // deviationScopeOf is how much of an instance a kind of in-place act reaches:
@@ -334,13 +355,10 @@ func taskName(task models.TaskModel) string {
 
 // hasEnded reports whether an instance will not run again: it finished, it
 // failed or it was cancelled. One that is suspended has not, and neither has
-// one in a state this does not know.
+// one in a state this does not know. It is the question a worker's report and
+// a queued call ask before they act for an instance (instanceEnded).
 func hasEnded(status entities.ProcessStatus) bool {
-	switch status {
-	case entities.ProcessCompleted, entities.ProcessFailed, entities.ProcessCancelled:
-		return true
-	}
-	return false
+	return instanceEnded(status)
 }
 
 // idsAsText is ids as they are written.

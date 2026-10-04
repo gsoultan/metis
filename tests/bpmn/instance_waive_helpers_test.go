@@ -3,6 +3,7 @@ package bpmn_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -212,7 +213,8 @@ func everyRow(t *testing.T, h engineHarness) map[string]string {
 	return held
 }
 
-// tablesThatDiffer names the tables two readings of everyRow disagree on.
+// tablesThatDiffer names the tables two readings of everyRow disagree on, in
+// order, each with what it held and holds.
 func tablesThatDiffer(before, after map[string]string) []string {
 	var changed []string
 	for table, rows := range after {
@@ -220,6 +222,7 @@ func tablesThatDiffer(before, after map[string]string) []string {
 			changed = append(changed, fmt.Sprintf("%s (%s, was %s)", table, rows, before[table]))
 		}
 	}
+	slices.Sort(changed)
 	return changed
 }
 

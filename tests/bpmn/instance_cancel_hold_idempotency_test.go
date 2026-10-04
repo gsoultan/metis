@@ -234,6 +234,10 @@ func TestACancelRecordsWhoHeldTheWorkWhenItWasTaken(t *testing.T) {
 	if was[task.ID.String()]["assignee"] != "carol" || was[task.ID.String()]["status"] != string(entities.TaskClaimed) {
 		t.Errorf("the ledger says the task was %v when it was withdrawn; carol had claimed it", was[task.ID.String()])
 	}
+	// The task's own row says the same: withdrawn, and carol's.
+	if now, err := h.svc.GetTask(h.Ctx(), task.ID); err != nil || now.Status != entities.TaskCanceled || now.AssigneeUsername() != "carol" {
+		t.Errorf("the task is %q with %q (%v), want it withdrawn and carol's", now.Status, now.AssigneeUsername(), err)
+	}
 	if told := toldOfWithdrawal(events); !reflect.DeepEqual(told, map[string]int{"carol": 1}) {
 		t.Errorf("the withdrawal was announced to %v, want carol alone, once", told)
 	}

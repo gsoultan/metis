@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 // The visit key is the identity of the work a command acts on: derived, so a
@@ -182,5 +183,64 @@ func TestDeviationVisitKeyOfACancelCoversTheWholeInstance(t *testing.T) {
 		if deviationVisitKey(moved, kind, "stock", []uuid.UUID{stockTask}) != atStock {
 			t.Errorf("a token moving on another branch changed the key of a %s of this step", kind)
 		}
+	}
+}
+
+// A hold's key covers the incidents on the step it holds: which there are,
+// and whether each is open. A hold raises one, or uses the one that is open,
+// so a step with an incident open, one whose incident was resolved and one
+// that never had any are three different things to hold — and a preview of one
+// must not be applied to another. A waive and a cancel do nothing with a
+// step's incidents, and their keys do not move.
+func TestDeviationVisitKeyOfAHoldCoversTheIncidentsOnItsStep(t *testing.T) {
+	t.Parallel()
+	instance := entities.ProcessInstance{
+		ID:         uuid.Must(uuid.NewV7()),
+		Definition: &entities.ProcessDefinition{ID: uuid.Must(uuid.NewV7())},
+		Tokens:     []entities.Token{{ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "approve"}}},
+	}
+	task := []uuid.UUID{uuid.Must(uuid.NewV7())}
+	incident := func(status models.IncidentStatus) models.IncidentModel {
+		made := models.IncidentModel{NodeID: "approve", Status: status}
+		made.ID = models.UUID(uuid.Must(uuid.NewV7()))
+		return made
+	}
+	first, second := incident(models.IncidentOpen), incident(models.IncidentOpen)
+	resolved := first
+	resolved.Status = models.IncidentResolved
+
+	never := deviationVisitKey(instance, entities.DeviationHold, "approve", task)
+	held := deviationVisitKey(instance, entities.DeviationHold, "approve", task, first)
+	decided := deviationVisitKey(instance, entities.DeviationHold, "approve", task, resolved)
+	heldAgain := deviationVisitKey(instance, entities.DeviationHold, "approve", task, resolved, second)
+	keys := map[string]string{
+		"a step never held": never, "a step with an incident open": held,
+		"a step whose incident was resolved": decided, "a step held again after that": heldAgain,
+	}
+	seen := map[string]string{}
+	for what, key := range keys {
+		if other, taken := seen[key]; taken {
+			t.Errorf("%s and %s have the same key", what, other)
+		}
+		seen[key] = what
+	}
+	if deviationVisitKey(instance, entities.DeviationHold, "approve", task, second, resolved) != heldAgain {
+		t.Error("the order the incidents were listed in changed the key")
+	}
+	if deviationVisitKey(instance, entities.DeviationHold, "approve", task) != never {
+		t.Error("asking twice gave two keys")
+	}
+
+	for _, kind := range []entities.DeviationKind{entities.DeviationWaive, entities.DeviationCancel} {
+		if deviationVisitKey(instance, kind, "approve", task, first) != deviationVisitKey(instance, kind, "approve", task) {
+			t.Errorf("an incident on the step changed the key of a %s, which does nothing with it", kind)
+		}
+	}
+
+	// An incident's id is not read as a task's or a token's, nor its status as
+	// part of the next incident.
+	asTask := deviationVisitKey(instance, entities.DeviationHold, "approve", append(slices.Clone(task), uuid.UUID(first.ID)))
+	if asTask == held {
+		t.Error("an incident on the step and a task with its id gave the same key")
 	}
 }
