@@ -460,22 +460,39 @@ func (s *jobService) executeServiceTask(ctx context.Context, job entities.Job) e
 		return fmt.Errorf("node %s not found", job.Node.ID)
 	}
 
-	// A step inside an ad-hoc sub-process is withdrawn when the sub-process
-	// finishes without it, and a job is not taken off the queue when its step
-	// is: it used to charge the card or notify the supplier for a step the
-	// process had abandoned, and only then find nobody waiting. So that job
+	// A job is not taken off the queue when what queued it goes away, so it
 	// asks before the call, because the call is the part that cannot be taken
-	// back.
+	// back. Two things are asked, of one read of the instance.
 	//
-	// This read takes no lock and sits in no transaction, since the call that
+	// Whether the instance has ended: cancelled, failed, or run to an end with
+	// this call still queued. The call used to be made all the same — a carrier
+	// booked or a card charged for an instance nobody was running — and its
+	// answer then thrown away.
+	//
+	// And, for a step inside an ad-hoc sub-process, whether the step was
+	// withdrawn when the sub-process finished without it.
+	//
+	// The read takes no lock and sits in no transaction, since the call that
 	// follows may not run inside one. It narrows the window; it does not close
-	// it. A step withdrawn while the call is in flight is still called, and the
-	// locked check after the call is what decides whether the result is used.
+	// it. An instance that ends, or a step that is withdrawn, while the call is
+	// in flight is still called: closing that would mean holding the instance
+	// across a call to somebody else's API. The locked check after the call is
+	// what decides whether the result is used.
 	//
-	// Only there. A step that lost its token any other way — a deadline on it,
-	// say — is called as it always was: nothing else withdraws a step's work.
+	// Only those two. A step that lost its token any other way on an instance
+	// that is still running — a deadline on it, say — is called as it always
+	// was.
+	glimpse, err := s.engine.GetInstance(ctx, job.Instance.ID)
+	if err != nil {
+		return err
+	}
+	if instanceEnded(glimpse.Status) {
+		if dropped, err := s.completedBecauseEnded(ctx, job); err != nil || dropped {
+			return err
+		}
+	}
 	if adHoc := enclosingAdHoc(def, node); adHoc != nil {
-		if withdrawn, err := s.completedBecauseWithdrawn(ctx, job, node, adHoc); err != nil || withdrawn {
+		if withdrawn, err := s.completedBecauseWithdrawn(ctx, job, &glimpse, node, adHoc); err != nil || withdrawn {
 			return err
 		}
 	}
