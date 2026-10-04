@@ -23,28 +23,28 @@ func TestDeviationVisitKey(t *testing.T) {
 		Tokens:     []entities.Token{{ID: uuid.Must(uuid.NewV7()), Node: step}, {ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "other"}}},
 	}
 	a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	key := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b})
+	key := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b}, nil)
 
 	if !strings.HasPrefix(key, "dv1-") || len(key) != 36 {
 		t.Fatalf("key %q: want dv1- and 32 characters", key)
 	}
-	if again := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{b, a}); again != key {
+	if again := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{b, a}, nil); again != key {
 		t.Error("the order the tasks were listed in changed the key")
 	}
-	if other := deviationVisitKey(instance, entities.DeviationHold, "opsApprove", []uuid.UUID{a, b}); other == key {
+	if other := deviationVisitKey(instance, entities.DeviationHold, "opsApprove", []uuid.UUID{a, b}, nil); other == key {
 		t.Error("a hold and a waive of the same work share a key")
 	}
-	if other := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{a}); other == key {
+	if other := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{a}, nil); other == key {
 		t.Error("a task leaving the step did not change the key")
 	}
 	moved := instance
 	moved.Tokens = []entities.Token{{ID: uuid.Must(uuid.NewV7()), Node: step}}
-	if other := deviationVisitKey(moved, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b}); other == key {
+	if other := deviationVisitKey(moved, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b}, nil); other == key {
 		t.Error("a new token on the step did not change the key")
 	}
 	elsewhere := instance
 	elsewhere.Tokens = append([]entities.Token{}, instance.Tokens[0], entities.Token{ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "other"}})
-	if other := deviationVisitKey(elsewhere, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b}); other != key {
+	if other := deviationVisitKey(elsewhere, entities.DeviationWaive, "opsApprove", []uuid.UUID{a, b}, nil); other != key {
 		t.Error("a token moving somewhere else changed the key of work at this step")
 	}
 
@@ -53,14 +53,14 @@ func TestDeviationVisitKey(t *testing.T) {
 	// task makes it different work.
 	nothing := instance
 	nothing.Tokens = nil
-	closing := deviationVisitKey(nothing, entities.DeviationCancel, "", nil)
+	closing := deviationVisitKey(nothing, entities.DeviationCancel, "", nil, nil)
 	if !strings.HasPrefix(closing, "dv1-") || len(closing) != 36 {
 		t.Fatalf("key %q for an instance that holds nothing: want dv1- and 32 characters", closing)
 	}
-	if arrived := deviationVisitKey(instance, entities.DeviationCancel, "", nil); arrived == closing {
+	if arrived := deviationVisitKey(instance, entities.DeviationCancel, "", nil, nil); arrived == closing {
 		t.Error("a token arriving on an instance that held none did not change the key of a cancel that names no step")
 	}
-	if reopened := deviationVisitKey(nothing, entities.DeviationCancel, "", []uuid.UUID{a}); reopened == closing {
+	if reopened := deviationVisitKey(nothing, entities.DeviationCancel, "", []uuid.UUID{a}, nil); reopened == closing {
 		t.Error("an open task appearing did not change the key of a cancel that names no step")
 	}
 }
@@ -79,7 +79,7 @@ func TestDeviationVisitKeyCoversTheInstanceItsVersionAndTheStep(t *testing.T) {
 		Tokens:     []entities.Token{first, second},
 	}
 	task := uuid.Must(uuid.NewV7())
-	key := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{task})
+	key := deviationVisitKey(instance, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}, nil)
 
 	another := instance
 	another.ID = uuid.Must(uuid.NewV7())
@@ -88,11 +88,11 @@ func TestDeviationVisitKeyCoversTheInstanceItsVersionAndTheStep(t *testing.T) {
 	versionless := instance
 	versionless.Definition = nil
 	differs := map[string]string{
-		"another instance":                  deviationVisitKey(another, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}),
-		"another version of the process":    deviationVisitKey(migrated, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}),
-		"an instance that names no version": deviationVisitKey(versionless, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}),
-		"another step":                      deviationVisitKey(instance, entities.DeviationWaive, "salesApprove", []uuid.UUID{task}),
-		"a cancel at the same step":         deviationVisitKey(instance, entities.DeviationCancel, "opsApprove", []uuid.UUID{task}),
+		"another instance":                  deviationVisitKey(another, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}, nil),
+		"another version of the process":    deviationVisitKey(migrated, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}, nil),
+		"an instance that names no version": deviationVisitKey(versionless, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}, nil),
+		"another step":                      deviationVisitKey(instance, entities.DeviationWaive, "salesApprove", []uuid.UUID{task}, nil),
+		"a cancel at the same step":         deviationVisitKey(instance, entities.DeviationCancel, "opsApprove", []uuid.UUID{task}, nil),
 	}
 	for what, other := range differs {
 		if other == key {
@@ -105,7 +105,7 @@ func TestDeviationVisitKeyCoversTheInstanceItsVersionAndTheStep(t *testing.T) {
 	same.Status = entities.ProcessSuspended
 	same.Variables = map[string]any{"note": "left by somebody else"}
 	same.CompletedNodes = []*entities.Node{{ID: "start"}}
-	if again := deviationVisitKey(same, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}); again != key {
+	if again := deviationVisitKey(same, entities.DeviationWaive, "opsApprove", []uuid.UUID{task}, nil); again != key {
 		t.Error("the order of the tokens, the instance's variables or its status changed the key; none of them is the work at the step")
 	}
 }
@@ -120,7 +120,7 @@ func TestDeviationVisitKeyIsNotSteeredByWhatAStepIsCalled(t *testing.T) {
 
 	plain := instance
 	plain.Tokens = []entities.Token{{ID: token, Node: &entities.Node{ID: "x"}}}
-	honest := deviationVisitKey(plain, entities.DeviationWaive, "x", []uuid.UUID{task})
+	honest := deviationVisitKey(plain, entities.DeviationWaive, "x", []uuid.UUID{task}, nil)
 
 	// Step ids that spell out, after "x", what the honest command's task and
 	// token would be written as under separators.
@@ -130,14 +130,14 @@ func TestDeviationVisitKeyIsNotSteeredByWhatAStepIsCalled(t *testing.T) {
 		"x" + string(task[:]) + string(token[:]),
 		"x\x00" + string(task[:]) + "\x00" + string(token[:]),
 	} {
-		if forged := deviationVisitKey(instance, entities.DeviationWaive, spelled, nil); forged == honest {
+		if forged := deviationVisitKey(instance, entities.DeviationWaive, spelled, nil, nil); forged == honest {
 			t.Errorf("a step called %q has the key of step x with its task and token", spelled)
 		}
 	}
 	// And a task is not mistaken for a token.
 	swapped := instance
 	swapped.Tokens = []entities.Token{{ID: task, Node: &entities.Node{ID: "x"}}}
-	if deviationVisitKey(swapped, entities.DeviationWaive, "x", []uuid.UUID{token}) == honest {
+	if deviationVisitKey(swapped, entities.DeviationWaive, "x", []uuid.UUID{token}, nil) == honest {
 		t.Error("a task's id read as a token's, and the token's as a task's, gave the same key")
 	}
 }
@@ -158,29 +158,29 @@ func TestDeviationVisitKeyOfACancelCoversTheWholeInstance(t *testing.T) {
 	}
 	stockTask, creditTask := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	everyTask := []uuid.UUID{stockTask, creditTask}
-	cancel := deviationVisitKey(instance, entities.DeviationCancel, "stock", everyTask)
+	cancel := deviationVisitKey(instance, entities.DeviationCancel, "stock", everyTask, nil)
 
 	// The other branch moves on: its token is a new one, on another step.
 	moved := instance
 	moved.Tokens = []entities.Token{here, {ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "creditAgain"}}}
-	if deviationVisitKey(moved, entities.DeviationCancel, "stock", everyTask) == cancel {
+	if deviationVisitKey(moved, entities.DeviationCancel, "stock", everyTask, nil) == cancel {
 		t.Error("a token moving on another branch did not change the key of a cancel, which ends that branch too")
 	}
 	// A task opens on the other branch.
-	if deviationVisitKey(instance, entities.DeviationCancel, "stock", append(slices.Clone(everyTask), uuid.Must(uuid.NewV7()))) == cancel {
+	if deviationVisitKey(instance, entities.DeviationCancel, "stock", append(slices.Clone(everyTask), uuid.Must(uuid.NewV7())), nil) == cancel {
 		t.Error("a task opening on another branch did not change the key of a cancel, which withdraws it too")
 	}
 	// The step it names is where the record says the instance stood.
-	if deviationVisitKey(instance, entities.DeviationCancel, "credit", everyTask) == cancel {
+	if deviationVisitKey(instance, entities.DeviationCancel, "credit", everyTask, nil) == cancel {
 		t.Error("a cancel at one step and a cancel at another share a key")
 	}
-	if deviationVisitKey(instance, entities.DeviationCancel, "", everyTask) == cancel {
+	if deviationVisitKey(instance, entities.DeviationCancel, "", everyTask, nil) == cancel {
 		t.Error("a cancel that names a step and one that names none share a key")
 	}
 
 	for _, kind := range []entities.DeviationKind{entities.DeviationWaive, entities.DeviationHold} {
-		atStock := deviationVisitKey(instance, kind, "stock", []uuid.UUID{stockTask})
-		if deviationVisitKey(moved, kind, "stock", []uuid.UUID{stockTask}) != atStock {
+		atStock := deviationVisitKey(instance, kind, "stock", []uuid.UUID{stockTask}, nil)
+		if deviationVisitKey(moved, kind, "stock", []uuid.UUID{stockTask}, nil) != atStock {
 			t.Errorf("a token moving on another branch changed the key of a %s of this step", kind)
 		}
 	}
@@ -209,10 +209,10 @@ func TestDeviationVisitKeyOfAHoldCoversTheIncidentsOnItsStep(t *testing.T) {
 	resolved := first
 	resolved.Status = models.IncidentResolved
 
-	never := deviationVisitKey(instance, entities.DeviationHold, "approve", task)
-	held := deviationVisitKey(instance, entities.DeviationHold, "approve", task, first)
-	decided := deviationVisitKey(instance, entities.DeviationHold, "approve", task, resolved)
-	heldAgain := deviationVisitKey(instance, entities.DeviationHold, "approve", task, resolved, second)
+	never := deviationVisitKey(instance, entities.DeviationHold, "approve", task, nil)
+	held := deviationVisitKey(instance, entities.DeviationHold, "approve", task, []models.IncidentModel{first})
+	decided := deviationVisitKey(instance, entities.DeviationHold, "approve", task, []models.IncidentModel{resolved})
+	heldAgain := deviationVisitKey(instance, entities.DeviationHold, "approve", task, []models.IncidentModel{resolved, second})
 	keys := map[string]string{
 		"a step never held": never, "a step with an incident open": held,
 		"a step whose incident was resolved": decided, "a step held again after that": heldAgain,
@@ -224,22 +224,22 @@ func TestDeviationVisitKeyOfAHoldCoversTheIncidentsOnItsStep(t *testing.T) {
 		}
 		seen[key] = what
 	}
-	if deviationVisitKey(instance, entities.DeviationHold, "approve", task, second, resolved) != heldAgain {
+	if deviationVisitKey(instance, entities.DeviationHold, "approve", task, []models.IncidentModel{second, resolved}) != heldAgain {
 		t.Error("the order the incidents were listed in changed the key")
 	}
-	if deviationVisitKey(instance, entities.DeviationHold, "approve", task) != never {
-		t.Error("asking twice gave two keys")
+	if deviationVisitKey(instance, entities.DeviationHold, "approve", task, []models.IncidentModel{}) != never {
+		t.Error("no incidents, given as an empty list and as none, gave two keys")
 	}
 
 	for _, kind := range []entities.DeviationKind{entities.DeviationWaive, entities.DeviationCancel} {
-		if deviationVisitKey(instance, kind, "approve", task, first) != deviationVisitKey(instance, kind, "approve", task) {
+		if deviationVisitKey(instance, kind, "approve", task, []models.IncidentModel{first}) != deviationVisitKey(instance, kind, "approve", task, nil) {
 			t.Errorf("an incident on the step changed the key of a %s, which does nothing with it", kind)
 		}
 	}
 
 	// An incident's id is not read as a task's or a token's, nor its status as
 	// part of the next incident.
-	asTask := deviationVisitKey(instance, entities.DeviationHold, "approve", append(slices.Clone(task), uuid.UUID(first.ID)))
+	asTask := deviationVisitKey(instance, entities.DeviationHold, "approve", append(slices.Clone(task), uuid.UUID(first.ID)), nil)
 	if asTask == held {
 		t.Error("an incident on the step and a task with its id gave the same key")
 	}

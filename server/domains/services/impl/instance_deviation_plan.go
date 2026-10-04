@@ -141,7 +141,7 @@ func (p *planning) visitKey() string {
 	for _, task := range p.open {
 		ids = append(ids, uuid.UUID(task.ID))
 	}
-	return deviationVisitKey(p.instance, p.command.Kind, p.command.NodeID, ids, p.stepIncidents...)
+	return deviationVisitKey(p.instance, p.command.Kind, p.command.NodeID, ids, p.stepIncidents)
 }
 
 // listOpenWork puts the open tasks where the command acts into the plan: the

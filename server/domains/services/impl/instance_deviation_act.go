@@ -277,7 +277,7 @@ func (s *instanceDeviationService) cancelWhereItStands(
 	if err != nil {
 		return entities.Deviation{}, err
 	}
-	done, err := s.actions.cancelWhole(ctx, locked)
+	done, err := s.actions.cancel(ctx, locked)
 	if err != nil {
 		return entities.Deviation{}, effectFailed("cancelling this instance", err)
 	}
@@ -296,13 +296,13 @@ func (s *instanceDeviationService) cancelWhereItStands(
 	}
 	// Counts, and no business value: the details of a row are not sealed.
 	row.Details = map[string]any{
-		"withdrawn":                len(done.withdrawn),
-		"tasks_listed":             len(named),
-		"external_tasks_withdrawn": done.parkedWithdrawn,
-		"incidents_closed":         len(done.incidentsClosed),
+		"withdrawn":           len(done.withdrawn),
+		"tasks_listed":        len(named),
+		detailParkedWithdrawn: done.parkedWithdrawn,
+		detailIncidentsClosed: len(done.incidentsClosed),
 	}
 
-	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID, len(done.incidentsClosed)))
+	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID, done.parkedWithdrawn, len(done.incidentsClosed)))
 	if err != nil {
 		return entities.Deviation{}, fmt.Errorf("recording that this instance was cancelled: %w", err)
 	}
@@ -470,15 +470,16 @@ func waiveEntry(
 // cancelEntry is the trail entry of an instance ended in place. It says where
 // the instance stood when the command names a step, and that it stood nowhere
 // when it names none: the entry then carries no step and no node_id, as its
-// ledger row carries none. It counts the incidents the cancel closed; which
-// they were is on the ledger row.
+// ledger row carries none. It counts the work parked for outside workers that
+// the cancel took back and the incidents it closed, as the row's details do;
+// which incidents they were is on the row.
 func cancelEntry(
 	locked models.ProcessInstanceModel,
 	plan entities.DeviationPlan,
 	command entities.DeviationCommand,
 	actor string,
 	runID uuid.UUID,
-	incidentsClosed int,
+	parkedWithdrawn, incidentsClosed int,
 ) entities.AuditEntry {
 	entry := entities.AuditEntry{
 		Type:    EventInstanceCancelled,
@@ -487,12 +488,13 @@ func cancelEntry(
 			actor, command.Reason),
 		Timestamp: time.Now(),
 		Data: map[string]any{
-			"run_id":           runID.String(),
-			"action":           string(servicecontracts.NodeActionCancel),
-			"origin":           string(entities.DeviationOriginInPlace),
-			"reason":           command.Reason,
-			"actor":            actor,
-			"incidents_closed": incidentsClosed,
+			"run_id":              runID.String(),
+			"action":              string(servicecontracts.NodeActionCancel),
+			"origin":              string(entities.DeviationOriginInPlace),
+			"reason":              command.Reason,
+			"actor":               actor,
+			detailParkedWithdrawn: parkedWithdrawn,
+			detailIncidentsClosed: incidentsClosed,
 		},
 		Project:  &entities.Project{ID: uuid.UUID(locked.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},

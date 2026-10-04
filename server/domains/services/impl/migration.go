@@ -1716,16 +1716,17 @@ func (s *migrationService) cancelInstance(
 		if cancelled = stillWaitingAt(fresh, source, nodeID); !cancelled {
 			return nil
 		}
-		ended, withdrawn, err := s.actions.cancel(txCtx, fresh)
+		done, err := s.actions.cancel(txCtx, fresh)
 		if err != nil {
 			return err
 		}
 		// The ledger row and the trail entry go in with the change: a
 		// cancellation that cannot be recorded leaves the instance running.
 		return s.recordDecision(txCtx, decisionRecord{
-			instance: ended, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
-			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: withdrawn,
+			instance: done.instance, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
+			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: done.withdrawn,
 			instanceBefore: string(models.ProcessActive), instanceAfter: string(models.ProcessCancelled),
+			parkedWithdrawn: done.parkedWithdrawn, incidentsClosed: len(done.incidentsClosed),
 		})
 	})
 	if err != nil {
@@ -1775,21 +1776,23 @@ func decisionEntry(d decisionRecord) entities.AuditEntry {
 			"This instance was held at %q by %s rather than moved to version %d of %q, and raised as an incident for somebody to decide. Reason: %s.",
 			nodeID, actor, target.Version, target.Key, action.Reason)
 	}
+	data := map[string]any{
+		"node_id": nodeID,
+		"run_id":  d.runID.String(),
+		"action":  string(action.Kind),
+		"reason":  action.Reason,
+		"actor":   actor,
+	}
+	d.countsOfACancel(data)
 	return entities.AuditEntry{
 		Type:      eventType,
 		Message:   fmt.Sprintf("%s %s during migration", action.Kind, nodeID),
 		Narrative: narrative,
 		Timestamp: time.Now(),
-		Data: map[string]any{
-			"node_id": nodeID,
-			"run_id":  d.runID.String(),
-			"action":  string(action.Kind),
-			"reason":  action.Reason,
-			"actor":   actor,
-		},
-		Project:  &entities.Project{ID: uuid.UUID(d.instance.ProjectID)},
-		Instance: &entities.ProcessInstance{ID: uuid.UUID(d.instance.ID)},
-		Node:     &entities.Node{ID: nodeID},
+		Data:      data,
+		Project:   &entities.Project{ID: uuid.UUID(d.instance.ProjectID)},
+		Instance:  &entities.ProcessInstance{ID: uuid.UUID(d.instance.ID)},
+		Node:      &entities.Node{ID: nodeID},
 	}
 }
 

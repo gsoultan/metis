@@ -78,7 +78,7 @@ func deviationVisitKey(
 	kind entities.DeviationKind,
 	nodeID string,
 	openTaskIDs []uuid.UUID,
-	stepIncidents ...models.IncidentModel,
+	stepIncidents []models.IncidentModel,
 ) string {
 	h := sha256.New()
 	writeKeyPart(h, instance.ID[:])

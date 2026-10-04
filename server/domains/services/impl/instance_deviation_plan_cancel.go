@@ -21,7 +21,8 @@ import (
 // A cancel ends the whole instance, whichever step it names: the plan lists
 // every task open on it, warns of each that would be taken from somebody,
 // says which are open on a step the instance is not waiting at, and says how
-// many open incidents it would close.
+// much work parked for outside workers it would withdraw and how many open
+// incidents it would close.
 //
 // A called instance that waits somewhere is part of a larger process, and is
 // refused. One that waits nowhere will never end, so it will never resume its
@@ -60,8 +61,26 @@ func (s *instanceDeviationService) planCancel(ctx context.Context, p *planning) 
 		}
 	}
 	p.warnWhoLosesWork()
-	if running {
-		return s.warnOfIncidentsToClose(ctx, p)
+	if !running {
+		return nil
+	}
+	if err := s.warnOfParkedWorkToWithdraw(ctx, p); err != nil {
+		return err
+	}
+	return s.warnOfIncidentsToClose(ctx, p)
+}
+
+// warnOfParkedWorkToWithdraw says how much work parked for outside workers a
+// cancel would take back: every piece the instance has parked, on whichever
+// step. A worker is not somebody the plan can name, so the pieces are counted:
+// an administrator is shown everything the act would take before it is taken.
+func (s *instanceDeviationService) warnOfParkedWorkToWithdraw(ctx context.Context, p *planning) error {
+	parked, err := s.repo.ExternalTask().ListByProcessInstance(ctx, p.instance.ID)
+	if err != nil {
+		return fmt.Errorf("reading the work instance %s has parked for workers: %w", p.instance.ID, err)
+	}
+	if len(parked) > 0 {
+		p.warn("%d piece(s) of work parked for outside workers will be withdrawn.", len(parked))
 	}
 	return nil
 }

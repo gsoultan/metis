@@ -14,23 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// cancel ends an instance where it stands, and returns the row as it wrote it
-// and the tasks it withdrew as they were before.
-//
-// It is cancelWhole, for a caller that records the instance and its tasks and
-// nothing else of what a cancel takes or closes: the migration.
-func (a nodeActions) cancel(
-	ctx context.Context,
-	locked models.ProcessInstanceModel,
-) (ended models.ProcessInstanceModel, withdrawn []models.TaskModel, err error) {
-	done, err := a.cancelWhole(ctx, locked)
-	if err != nil {
-		return models.ProcessInstanceModel{}, nil, err
-	}
-	return done.instance, done.withdrawn, nil
-}
-
-// cancelWhole ends an instance where it stands, and returns what that did.
+// cancel ends an instance where it stands, and returns what that did.
 //
 // locked is the row its caller locked: it is the one written back, so nothing
 // that landed before the lock is undone.
@@ -54,7 +38,7 @@ func (a nodeActions) cancel(
 // has no delete. timerStillApplies refuses to fire a timer for an instance
 // that is not active, and a queued call asks whether its instance has ended
 // before it is made (jobService.executeServiceTask).
-func (a nodeActions) cancelWhole(ctx context.Context, locked models.ProcessInstanceModel) (cancellation, error) {
+func (a nodeActions) cancel(ctx context.Context, locked models.ProcessInstanceModel) (cancellation, error) {
 	instanceID := uuid.UUID(locked.ID)
 	open, err := a.heldOpen(ctx, instanceID)
 	if err != nil {

@@ -2,7 +2,6 @@ package bpmn_test
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -20,8 +19,8 @@ func failingCarrier(t *testing.T) string {
 	return api
 }
 
-// theOpenIncident is the one incident an instance has open.
-func (r *fulfilmentRun) theOpenIncident(t *testing.T) uuid.UUID {
+// theOpenIncident is the one incident an instance has open, as it reads.
+func (r *fulfilmentRun) theOpenIncident(t *testing.T) entities.Incident {
 	t.Helper()
 	incidents, err := r.h.svc.ListIncidents(r.h.Ctx(), r.id)
 	if err != nil {
@@ -36,26 +35,30 @@ func (r *fulfilmentRun) theOpenIncident(t *testing.T) uuid.UUID {
 	if len(open) != 1 {
 		t.Fatalf("the instance has %d open incident(s), want exactly one", len(open))
 	}
-	return open[0].ID
+	if open[0].Error == "" {
+		t.Fatal("the open incident says nothing of what went wrong; these tests compare what it says")
+	}
+	return open[0]
 }
 
-// requireClosed fails unless an incident is resolved, says when, and still
-// says what went wrong: what it says is evidence, and is not rewritten.
-func (r *fulfilmentRun) requireClosed(t *testing.T, id uuid.UUID, saying string) {
+// requireClosed fails unless an incident that was open is resolved, says
+// when, and says of what went wrong exactly what it said before: that is
+// evidence, and closing the incident does not rewrite it.
+func (r *fulfilmentRun) requireClosed(t *testing.T, was entities.Incident) {
 	t.Helper()
 	incidents, err := r.h.svc.ListIncidents(r.h.Ctx(), r.id)
 	if err != nil {
 		t.Fatalf("read the incidents: %v", err)
 	}
 	for _, incident := range incidents {
-		if incident.ID != id {
+		if incident.ID != was.ID {
 			continue
 		}
 		if incident.Status != entities.IncidentResolved || incident.ResolvedAt == nil {
 			t.Fatalf("the incident is %s (resolved at %v) on a cancelled instance, want it closed", incident.Status, incident.ResolvedAt)
 		}
-		if !strings.Contains(incident.Error, saying) {
-			t.Errorf("the closed incident reads %q; it no longer says %q", incident.Error, saying)
+		if incident.Error != was.Error {
+			t.Errorf("the closed incident reads\n  %q\nand before the cancel it read\n  %q", incident.Error, was.Error)
 		}
 		return
 	}
@@ -97,8 +100,9 @@ func TestACancelClosesTheIncidentsOpenOnTheInstance(t *testing.T) {
 		}
 		r.requireEndedAndStill(t, entities.ProcessCancelled)
 
-		r.requireClosed(t, incident, "500")
+		r.requireClosed(t, incident)
 		r.requireNoAttention(t)
+		r.requireCounted(t, 0, 1)
 		// Closed, not resolved: the job behind it is not put back to be tried.
 		if job := r.theCall(t); job.Status != models.JobFailed {
 			t.Errorf("the failed call's job is %s after the cancel, want it left failed", job.Status)
@@ -122,8 +126,9 @@ func TestACancelClosesTheIncidentsOpenOnTheInstance(t *testing.T) {
 		}
 		r.requireEndedAndStill(t, entities.ProcessCancelled)
 
-		r.requireClosed(t, incident, "the carrier's system is down")
+		r.requireClosed(t, incident)
 		r.requireNoAttention(t)
+		r.requireCounted(t, 1, 1)
 		if left := r.parked(t); len(left) != 0 {
 			t.Errorf("%d piece(s) of work are still parked for a cancelled instance", len(left))
 		}
@@ -141,7 +146,7 @@ func TestACancelClosesTheIncidentsOpenOnTheInstance(t *testing.T) {
 			t.Fatalf("give up: %v", err)
 		}
 		incident := r.theOpenIncident(t)
-		if err := h.svc.ResolveIncident(ctx, incident); err != nil {
+		if err := h.svc.ResolveIncident(ctx, incident.ID); err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
 		before, err := h.svc.ListIncidents(ctx, r.id)
@@ -155,5 +160,8 @@ func TestACancelClosesTheIncidentsOpenOnTheInstance(t *testing.T) {
 		if err != nil || len(after) != 1 || after[0].ResolvedAt == nil || !after[0].ResolvedAt.Equal(*before[0].ResolvedAt) {
 			t.Fatalf("the cancel rewrote an incident that was already resolved: %+v, %v", after, err)
 		}
+		// Resolving it offered the work again, and the cancel took that work
+		// back; it closed no incident, and its record counts none.
+		r.requireCounted(t, 1, 0)
 	})
 }

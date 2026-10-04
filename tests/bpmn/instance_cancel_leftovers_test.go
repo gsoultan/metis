@@ -51,7 +51,12 @@ func TestCancellingInPlaceTakesTheWorkParkedForWorkers(t *testing.T) {
 		t.Fatalf("fetch: %d task(s), %v", len(fetched), err)
 	}
 
-	w.mustApply(t, deviationCommand(entities.DeviationCancel, r.id, "work", nil))
+	cancel := deviationCommand(entities.DeviationCancel, r.id, "work", nil)
+	// An administrator is shown everything the act would take, before it is.
+	if plan, want := w.preview(t, cancel), "1 piece(s) of work parked for outside workers will be withdrawn."; !plan.Applicable() || !said(plan.Warnings, want) {
+		t.Fatalf("the plan: refusals:%s\nwarnings:%s\nwant the warning\n  %s", lines(plan.Refusals), lines(plan.Warnings), want)
+	}
+	w.mustApply(t, cancel)
 	r.requireEndedAndStill(t, entities.ProcessCancelled)
 	if left := r.parked(t); len(left) != 0 {
 		t.Errorf("%d piece(s) of work are still parked for a cancelled instance", len(left))
@@ -70,6 +75,9 @@ func TestCancellingInPlaceTakesTheWorkParkedForWorkers(t *testing.T) {
 	wantDetails := map[string]any{"withdrawn": float64(1), "tasks_listed": float64(1), "external_tasks_withdrawn": float64(1), "incidents_closed": float64(0)}
 	if !reflect.DeepEqual(row.Details, wantDetails) {
 		t.Errorf("the row's details: %v, want %v", row.Details, wantDetails)
+	}
+	if entry := theEntryOf(t, h, r.id, serviceimpl.EventInstanceCancelled); entry.Data["external_tasks_withdrawn"] != float64(1) || entry.Data["incidents_closed"] != float64(0) {
+		t.Errorf("the entry's data: %+v, want it to count the parked work withdrawn, and no incident closed", entry.Data)
 	}
 	if entries := entriesOfType(t, h, r.id, serviceimpl.EventParkedWorkWithdrawn); len(entries) != 1 || entries[0].Data["node_id"] != "work" {
 		t.Errorf("the trail's entries for parked work withdrawn: %+v, want one for the step", entries)
@@ -116,16 +124,20 @@ func TestCancellingInPlaceClosesTheIncidentsOnTheInstance(t *testing.T) {
 
 		cancel := deviationCommand(entities.DeviationCancel, r.id, "work", nil)
 		plan := w.preview(t, cancel)
-		if want := "1 open incident(s) on this instance will be closed."; !plan.Applicable() || !said(plan.Warnings, want) {
-			t.Fatalf("the plan: refusals:%s\nwarnings:%s\nwant the warning\n  %s", lines(plan.Refusals), lines(plan.Warnings), want)
+		want := []string{
+			"1 piece(s) of work parked for outside workers will be withdrawn.",
+			"1 open incident(s) on this instance will be closed.",
+		}
+		if !plan.Applicable() || !reflect.DeepEqual(plan.Warnings, want) {
+			t.Fatalf("the plan: refusals:%s\nwarnings:%s\nwant the warnings:%s", lines(plan.Refusals), lines(plan.Warnings), lines(want))
 		}
 		w.mustApply(t, cancel)
 		r.requireEndedAndStill(t, entities.ProcessCancelled)
 
-		r.requireClosed(t, incident, "held at “Ship the order” by ana")
+		r.requireClosed(t, incident)
 		r.requireNoAttention(t)
 		row := w.theCancelOf(t, r.id)
-		was, is := map[string]any{incident.String(): map[string]any{"status": "open"}}, map[string]any{incident.String(): map[string]any{"status": "resolved"}}
+		was, is := map[string]any{incident.ID.String(): map[string]any{"status": "open"}}, map[string]any{incident.ID.String(): map[string]any{"status": "resolved"}}
 		if !reflect.DeepEqual(row.Before["incidents"], any(was)) || !reflect.DeepEqual(row.After["incidents"], any(is)) {
 			t.Errorf("the row says of the incidents: before %v, after %v\nwant %v and %v", row.Before["incidents"], row.After["incidents"], was, is)
 		}
@@ -151,12 +163,12 @@ func TestCancellingInPlaceClosesTheIncidentsOnTheInstance(t *testing.T) {
 
 		w.mustApply(t, deviationCommand(entities.DeviationCancel, r.id, "work", nil))
 		r.requireEndedAndStill(t, entities.ProcessCancelled)
-		r.requireClosed(t, incident, "500")
+		r.requireClosed(t, incident)
 		r.requireNoAttention(t)
 
 		// Closed, and not to be tried again: resolving it now does nothing, and
 		// no call is made.
-		if err := h.svc.ResolveIncident(h.Ctx(), incident); err != nil {
+		if err := h.svc.ResolveIncident(h.Ctx(), incident.ID); err != nil {
 			t.Fatalf("resolve the closed incident: %v", err)
 		}
 		r.runDueJobs(t)
@@ -174,8 +186,8 @@ func TestCancellingInPlaceClosesTheIncidentsOnTheInstance(t *testing.T) {
 		id := w.start(t, opsApproval(h.projID, "in-place-no-incident"), nil)
 		cancel := deviationCommand(entities.DeviationCancel, id, "opsApprove", nil)
 		for _, warning := range w.preview(t, cancel).Warnings {
-			if strings.Contains(warning, "incident") {
-				t.Errorf("the plan warns of incidents on an instance that has none: %s", warning)
+			if strings.Contains(warning, "incident") || strings.Contains(warning, "parked") {
+				t.Errorf("the plan warns of incidents or parked work on an instance that has neither: %s", warning)
 			}
 		}
 		w.mustApply(t, cancel)
