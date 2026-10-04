@@ -1032,6 +1032,205 @@
     Task().List/ListByProject/ListByAssignee, Decision().List/ListByProject,
     deployments, forms, variable snapshots and compensatable activities by instance.
 
+- 2026-10-04 (completed): a migration rewrites only what is open, and only what it planned for
+  (P0 reliability). Branch `migration-rewrites-what-is-open`, stacked on
+  `migration-lands-or-passes-over` at `d8c6e19`; no schema migration. Driver: bpm ·
+  Challengers: go, test, arch, sec.
+  - **Problem.** Five defects in the instance-migration service, found by the review of the
+    change below and present in 0.4.0 (read from `v0.4.0`): a mapping reopened completed tasks;
+    an instance the plan never saw was moved without its control acknowledged; an instance
+    already moved was rewritten again; a decision on a boundary event was accepted and never
+    taken; a timer that had fired refused a migration. And four more that the review of this
+    change reproduced in the same functions, fixed here by the owner's ruling: after a rename
+    the submitter could approve their own request; a redirect made a control read as passed; a
+    decision on a sub-process was accepted and never taken; a boundary event mapped onto a
+    step completed the step by timer. The upgrading query this change first shipped read an
+    encrypted column and found nothing.
+  - **Root causes**, one each. (P1) The rewrite applied the mapping to every task and job of
+    the instance whatever its status, and a task that changes step is rebuilt and offered.
+    (P2) The plan and the apply each listed the instances, and the apply acted on its own
+    list. (P3) Under the lock the instance was asked whether it is running, never whether it
+    is still on the source version. (P4) The planner asked whether a decided node exists, never
+    whether an instance can wait at it, and excused whatever sits on a decided node from
+    landing. (P5) The landing check counted job rows whatever their status. (I1) Separation
+    of duties reads completed tasks by step id, and a finished task kept the id it was done
+    under when a mapping renamed the step. (I4) The completed-steps list was rewritten through
+    every mapping, a redirect included. (I2) The refusal named two kinds of node where the
+    rule is every node the engine leaves no token on. (I3) A mapped boundary event was checked
+    only when its target was one too. (C1) The query read `audit_logs.data`, which is sealed.
+  - **Acceptance criteria**, each with the test that holds it (`tests/instancemigration`):
+    1. *A mapping rebuilds only what is still open.* A completed task and a cancelled task
+       are the same row afterwards in every column but the step's id, which follows a rename;
+       a timer that fired and a resolved incident are the same row;
+       the open task is rebuilt from the step it lands on; one open task per token —
+       `TestAMappingDoesNotReopenAnApprovalThatWasGiven`, `TestAMappingChangesOnlyWhatIsStillOpen`
+       (`finished_work_test.go`).
+    2. *An apply moves only the instances its plan was made for.* One that started on the
+       source version after the apply planned is untouched and in `passed_over`, asked through
+       the endpoint; a second dry run holds on the control it had not passed; acknowledged, it
+       is moved with its `control_waived` row —
+       `TestAnInstanceThatStartedAfterThePlanIsNotMoved` (`not_planned_for_test.go`).
+    3. *An instance another run already moved is neither rewritten nor decided.* One
+       `instance_migrated` entry, where the first run put it, `passed_over` through the
+       endpoint; no skip, cancel or hold of it —
+       `TestASecondRunDoesNotMoveAgainAnInstanceTheFirstAlreadyMoved`,
+       `TestADecisionIsNotTakenOnAnInstanceAnotherRunAlreadyMoved` (`already_moved_test.go`).
+    4. *A decision that can never be taken is refused in the plan.* A skip, a cancel and a
+       hold of a boundary event on its own: the dry run names the event and the step to
+       decide, the apply is refused, nothing is written, and the message still does what the
+       version it runs says — `TestADecisionOnABoundaryEventIsRefusedInThePlan`
+       (`undecidable_test.go`); the same for an embedded sub-process, naming the steps inside
+       it, and deciding the step inside is then taken —
+       `TestADecisionOnASubProcessIsRefusedInThePlan` (`undecidable_kinds_test.go`); every node
+       type the engine has, refused or accepted by where its handler leaves the token, and a
+       type added later must be placed; and the walk that names the steps inside ends on a
+       sub-process that is its own parent, on a cycle of parents, and on a definition nested
+       5,000 deep or 20,000 wide, each under a deadline —
+       `TestTheStepsInsideASubProcessThatIsItsOwnParentAreFound`,
+       `TestTheStepsInsideSubProcessesThatAreEachOthersParentAreFound`,
+       `TestTheStepsInsideADeeplyNestedSubProcessAreFoundAtOnce`,
+       `TestTheStepsInsideAWideSubProcessAreFoundAtOnce` (`services/impl`),
+       `TestADryRunOverASubProcessThatIsItsOwnParentAnswers`;
+       `TestADecisionIsRefusedWhereNoInstanceEverWaits`,
+       `TestEveryNodeTypeIsDecidedOnPurpose`, `TestABoundaryEventsRefusalSaysToNameItWithItsStep`,
+       `TestABoundaryEventMayBeNamedWithTheStepItIsAttachedTo` (`services/impl`).
+    5. *Under the lock, work left on a decided step the new version lacks keeps the instance
+       where it is.* An open task or a waiting event with no token under it —
+       `TestWorkLeftOnADecidedStepIsNotCarriedToAVersionWithoutTheStep`. The state is made by
+       hand: the engine leaves neither behind.
+    6. *A timer that fired is not work; one still running is.*
+       `TestATimerThatAlreadyFiredDoesNotStopAMigration`,
+       `TestATimerStillRunningOnAStepTheNewVersionLacksStillStopsTheMigration`
+       (`finished_timer_test.go`),
+       `TestAWaitingMessageOnABoundaryEventTheNewVersionLacksStillStopsTheMigration`.
+    7. *Nothing is stranded.* `assertNothingIsStranded` runs in every test above in
+       `tests/instancemigration` but the one case whose premise is a stranded row (criterion 5,
+       an open task left with no token).
+    8. *The reasons are words.* `TestAPassedOverInstanceIsToldWhyInWords` (`services/impl`)
+       has the three new ones.
+    9. *Finished work follows a rename and not a redirect.* After a rename the submitter is
+       refused the approval, at claim and at completion, and the finished task differs only
+       in its step's id — `TestAfterARenameWhoeverDidOneHalfOfAFourEyesCheckMayNotDoTheOther`;
+       a redirect, of either shape, leaves a finished task untouched —
+       `TestARedirectDoesNotMoveFinishedWork` (`renamed_step_test.go`);
+       `TestOnlyAMappingToANewIdThatNothingElseMapsOntoIsARename` (`services/impl`).
+    10. *A control an instance only waited at is still held after a redirect onto it.* The
+        completed-steps list does not take the control; the plan warns; the next migration,
+        which drops the control, holds, is refused until acknowledged, and writes the
+        `control_waived` row — `TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt`,
+        `TestTheCompletedStepsFollowARenameAndNothingIsWarned` (`control_after_redirect_test.go`),
+        `TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount` (`services/impl`).
+    11. *A boundary event is mapped only to a boundary event.* Refused in the dry run and the
+        apply, nothing moved, and the deadline then does what its version says —
+        `TestABoundaryEventMayNotBeMappedOntoAStep`; boundary to boundary on another step
+        still gets the older refusal — `TestABoundaryEventIsMappedOnlyToABoundaryEventOnTheSameStep`
+        (`services/impl`); the landing refusal says what works, and it does —
+        `TestTheRefusalForABoundaryEventsWorkSaysWhatWorks`,
+        `TestAnInstanceAtAStepWhoseDeadlineWasDroppedIsHeldAndMovedOnceItHasLeftTheStep`
+        (`boundary_mapping_test.go`).
+    12. *The upgrading query finds what it is for, on rows the server wrote.* Read out of
+        `docs/upgrading.md` and run as printed over sealed rows: the reopened tasks listed with
+        step, name, person and kind of mapping, the negatives not, and each put back by the
+        page's `UPDATE` — `TestTheUpgradingQueryFindsTheTasksAnEarlierReleaseReopened`
+        (`upgrading_query_test.go`).
+  - **What it must not have changed**, pinned before each change it guards and passing
+    unedited after: the four pins of the change below (`unmoved_pins_test.go`); a pending
+    timer and a waiting event each move with their step, and a skip of a timer wait moves the
+    instance and leaves the timer to be dismissed when due (`live_rows_pins_test.go`, three
+    pins); a skip, a cancel and a hold naming an approval and the deadline on it
+    (`decided_with_its_step_pins_test.go`). The 82 tests the package had pass unedited; it
+    has 106. No existing refusal or warning text changed; the landing refusal gained a sentence
+    after its own, for a boundary event. No pin's recorded text changed: none has a finished
+    task on a renamed step.
+  - **Rulings, and one decision still this change's own.**
+    - *Finished work follows a rename and not a redirect* (the owner's ruling, on the review's
+      finding). A rename is a mapping to an id that is not a step of the source version and
+      that nothing else is mapped onto. Under it a completed or cancelled task takes the
+      step's new id — one column, by `TaskRepository.RenameFinishedStep`, guarded by the
+      status — and the completed and compensated lists follow. Under a redirect neither is
+      written. This replaces the first form of this change, which left every finished task
+      under its old id and lost the four-eyes rule across a rename.
+    - *A boundary event may still be named with the step it is attached to* (kept by the
+      review). Refused without exception, a migration that decides an approval with a deadline
+      the new version also drops could not be planned. The better design is in *Found*.
+    - *A timer left on a decided step does not keep the instance back.* A skipped timer wait
+      leaves exactly that, and the engine dismisses it when due; held back for it, the
+      instance could not move until the timer's hour. Pinned. The same exclusion covers a
+      queued service call, where it is not harmless: see *Found*.
+    - *An escalation throw is left decidable.* Its handler does not advance it itself, so it
+      is not shown that no instance ever rests there.
+  - **Lock order.** Unchanged: each decision in its own transaction (instance, then tasks),
+    then the rewrite in another (instance first). New reads, none taking a lock: one `Get` of
+    the instance after an action that did not act (`notDecided`), outside any transaction. The
+    two new questions under the rewrite's lock, and the one under each decision's, are asked
+    of the row the lock already returned.
+  - **What it costs.** Counted from the code, not measured: nothing per instance in the
+    ordinary case — the planned set is a map built once per apply; the version and the plan
+    membership are comparisons on rows already read; the landing check reads what it read.
+    One more read of the instance only when an action found it gone. For each finished task
+    on a renamed step, one scoped read and one single-column `UPDATE`, in the rewrite's
+    transaction. In the plan: the refusal for a sub-process indexes the definition's nodes by
+    parent once and visits each node once, however deep or looped the definition is; the
+    redirect warning reads each running instance's completed steps once.
+  - **Upgrade.** No migration. `docs/upgrading.md`, *A task a migration reopened*, has the
+    query for tasks 0.4.0 reopened, which reads only columns stored in the clear and is run
+    by a test over rows the server wrote, and an unsupported `UPDATE` that puts one back from
+    the trail: on its step's old id after a redirect, on the new one after a rename.
+  - **Found, not changed:**
+    - **A boundary event's work should ride with its step in the plan.** Today a migration
+      that decides a step is refused for what waits on the step's boundary events unless each
+      is named in a decision too, and that decision is a fiction: nothing is taken or recorded
+      for it. The planner should excuse a boundary event's work when the step it is attached
+      to is decided, and then refuse every decision on a boundary event.
+    - **A waiting step mapped onto a node nobody waits at is still accepted.** The planner
+      asks only that the node mapped to exists. A user task mapped onto a gateway, a script
+      task or a start event would leave its token, and its rebuilt task, on a node whose
+      handler never leaves one there. Read from `planFor` and `boundaryRefusals`, not run.
+      The table of where an instance waits (`waitsAt`) is what a refusal would be built on.
+    - **A step mapped onto a boundary event, and the start of an event sub-process mapped
+      onto a step, are still accepted.** The neighbours of the mapping refused here. Read from
+      `boundaryRefusals`, not run.
+    - **Nothing limits how deep or how wide a definition may be, and nothing reads a node's
+      parent when one is saved.** A sub-process that is its own parent deploys. This change's
+      walk is bounded against it; the definition validator should refuse it. The engine is
+      not bounded against it: `Engine.TriggerEscalation` climbs from a step to its parent in
+      a loop with no record of where it has been, so an escalation thrown inside a
+      sub-process that is its own parent, with nothing catching it, would never return. Read
+      from the code, not run.
+    - **A decision on the start of an event sub-process, and a boundary event on a
+      sub-process, have no path.** The first is refused like any start event; the second
+      cannot be named with its step, because a decision on the sub-process is itself refused.
+      Both wait for the item above.
+    - **After a redirect, a rule or a control on the step mapped to does not see work done on
+      the step mapped from.** By design, and warned of in the plan. A durable per-instance
+      record of the mappings applied would let a rule be asked across them; it needs a column.
+    - **The rewrite writes back whole job rows it read earlier.** `Job().Update` sets status,
+      lease and retries from the copy the rewrite listed. A job is settled outside the
+      instance's lock when its work changes nothing else (a retry, a failure with its
+      incident), so one settled between the rewrite's read and its write would be written
+      back as it was: a failed job running again. Read from the code, not reproduced; the
+      window is a few statements. A write of the two columns a migration means to change
+      would close it.
+    - **A skip does not take the step's queued service call off the queue.** `Proceed` leaves
+      the job of the step it advances past. When the job runs the call is still made, and its
+      result is dropped because no token waits (`executeServiceTask`); re-pointed at a version
+      without the step, it fails for want of its node and ends as an incident. Read from the
+      code, not reproduced. The landing check under the lock leaves every job on a decided
+      step out, for the timer's sake; narrowing that to timers would keep such an instance on
+      its version instead.
+    - **No supported way closes one task.** A task 0.4.0 reopened can only be put back in the
+      database (`docs/upgrading.md`). The adjustment of one instance in place, planned next,
+      should be able to withdraw a task with a reason and a ledger row.
+    - **An open incident is not re-pointed by a migration.** It keeps the version and the step
+      it was raised on; resolving it queues its job, which is re-pointed. Read from the code.
+    - **Work parked for an outside worker is neither moved nor checked.** `external_tasks` is
+      not read or written by the migration, and completing one advances from the row's own
+      step id. Read from the code, not run.
+    - The reply to an apply through the endpoint carries the plan the endpoint made for the
+      reply, not the one the apply made a moment later and acted on.
+    - `escalated` is a task status nothing in the server sets; the migration treats it, as the
+      landing check and the engine's withdrawal do, as not open.
+
 - 2026-10-04 (completed): a migration never moves an instance onto a version that cannot run
   it (P0 reliability). Branch `migration-lands-or-passes-over`, from `instance-deviation-ledger`
   at `4bfdf89`; no schema migration. Driver: bpm · Challengers: go, test, arch.
@@ -1117,49 +1316,9 @@
       `active` on its own version with tokens on the step and no open task.
     - Two skipped steps in a row are not skipped in one run: the second is found only by the
       next run, because a run decides from where the instance stood when it was read.
-    - Five defects in the same code path, none of them this change's and none the stale
-      listing. "Reproduced" means by the probes of this change's review, each at head and on the
-      service before the fix, with the same result on both; the code locations are
-      `server/domains/services/impl/migration.go` at head. The same code is in 0.4.0 for all
-      five (read from `v0.4.0`, not run there; 0.4.0 has no ledger, so for P2 it is the
-      unacknowledged loss that is the same). They are to be fixed in their own change, next,
-      P1 and P2 first.
-      - **P1, reproduced; the most serious, and nothing has to race.** A migration with a node
-        mapping rewrites every task of the instance on a mapped step, whatever the task's
-        status: the rewrite's loop over the instance's tasks has no test of status (`:458-478`),
-        and `retargetTask` sets each one `claimed` or `unclaimed` (`:838`, `:842`). A task
-        already completed becomes open work again on the step it was mapped to. An instance
-        that had completed *Operations approve* and waited at *Sales approve*, migrated with
-        `opsApprove → salesApprove`, has two open *Sales approve* tasks afterwards, and the
-        record that the operations approval was given is gone from its task. An instance
-        further on gets an open task with no token under it.
-      - **P2, reproduced.** An instance started on the source version between the plan's
-        listing (`:174`) and the apply's (`:335`) is moved without having been planned for.
-        Its landing is now checked under its lock. A control it has not passed is not: the
-        holds come from the plan's list (`:231`) and the rewrite reads only those (`:434`),
-        so when the plan found no instance pending the control is lost with no
-        acknowledgement asked and no `control_waived` row.
-      - **P3, reproduced.** The rewrite checks that the locked row is still running (`:413`),
-        not that it is still on the source version, and maps its tokens again (`:441`). A
-        second run with a chained mapping (`opsApprove → supervisorReview`,
-        `supervisorReview → salesApprove`) moved an instance the first run had put at
-        *Supervisor review* on to *Sales approve*: two `instance_migrated` entries, and a
-        review passed without being performed. A client retrying a slow apply is how two runs
-        overlap.
-      - **P4, reproduced.** A `hold` or a `cancel` naming a boundary event passes the plan
-        (`actionRefusals`, from `:1088`, asks nothing about the kind of node), is never taken
-        (`holdsWork`, `:1578`, looks for a token, and no token sits on a boundary event) and
-        writes nothing, while the plan lets the event's subscription stand without anywhere to
-        land (`:664`) and the rewrite leaves an unmapped subscription as it is (`:1633`). The
-        instance is moved with a subscription on a node the new version lacks; the message,
-        when it comes, is accepted with no error, the subscription is consumed and nothing
-        happens. The fix belongs in the plan: refuse a decision on a node that cannot hold a
-        token.
-      - **P5, read from the code.** `survey` counts every job row of an instance, finished
-        ones included (`:744`; `pg/job.go:221` returns every row), in the plan as under the
-        lock. It errs towards refusing: an instance that passed a timer or a service step the
-        new version dropped is refused in the plan, or passed over as having work there,
-        until the step is mapped.
+    - ~~Five defects in the same code path, none of them this change's and none the stale
+      listing (P1 to P5 of this change's review).~~ *Done 2026-10-04: see that date's "a migration
+      rewrites only what is open" entry, which fixes all five and says what it found in turn.*
     - No supported way exists to close an instance that is `active` with nothing left: no
       route ends an instance, and a migration's `cancel` needs a token on the step it names
       (`:1384`). `docs/upgrading.md` says so and gives a direct `UPDATE` only as an unsupported

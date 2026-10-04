@@ -33,6 +33,25 @@ func noLongerRunning(source models.ProcessDefinitionModel) string {
 		"It stays on version %d, the one it ran on.", source.Version)
 }
 
+// notPlannedFor is why an instance was not moved: it was not on the source
+// version when the migration was planned, so nothing the plan establishes was
+// established for it. It started there afterwards, or another migration moved
+// it there.
+func notPlannedFor(source models.ProcessDefinitionModel) string {
+	return fmt.Sprintf("It was not on version %d when this migration was planned: it started, or was moved there, "+
+		"after that. Nothing had been asked about it, so nothing was decided about it and it was not moved. "+
+		"It stays on version %d; plan the migration again to include it.", source.Version, source.Version)
+}
+
+// alreadyMoved is why an instance was not moved: once locked, it was no longer
+// on the source version. Only a migration changes an instance's version, so
+// another run — an earlier one whose listing this run shared, or one running
+// at the same time — had moved it.
+func alreadyMoved(source models.ProcessDefinitionModel) string {
+	return fmt.Sprintf("It was no longer on version %d when the migration reached it: another run of a migration "+
+		"had already moved it. Nothing was decided about it and it was not moved again.", source.Version)
+}
+
 // nowhereToLand is why an instance was not moved: once locked, it held work —
 // a token, a task, a timer, a waiting event or a counter — on steps the new
 // version has no step for and the mapping does not cover. The planner refuses
@@ -42,6 +61,18 @@ func nowhereToLand(source, target models.ProcessDefinitionModel, nodeIDs []strin
 	return fmt.Sprintf("When the migration came to move it, it had work at %s, and version %d has nowhere to put "+
 		"that, so it was not moved. It stays on version %d. Plan the migration again for where it now stands: "+
 		"it needs a mapping, or a decision, for that work.",
+		stepNames(source, nodeIDs), target.Version, source.Version)
+}
+
+// leftWhereNothingDecides is why an instance was not moved: once locked, it
+// had an open task or a waiting event on a step this migration decides, and no
+// token there. A decision acts on the instances waiting at its step, so
+// nothing would have settled that work, and the new version has no such step.
+func leftWhereNothingDecides(source, target models.ProcessDefinitionModel, nodeIDs []string) string {
+	return fmt.Sprintf("When the migration came to move it, it had a task or a waiting event at %s, where this "+
+		"migration decides the work of the instances waiting there, and it was not waiting there, so no decision "+
+		"reached that work and version %d has nowhere to put it. It was not moved and stays on version %d. "+
+		"Nothing in the product withdraws a single task or waiting event yet, so it stays there until that work is gone.",
 		stepNames(source, nodeIDs), target.Version, source.Version)
 }
 

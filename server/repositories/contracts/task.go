@@ -55,6 +55,11 @@ type TaskRepository interface {
 	ListPaged(ctx context.Context, p Pagination) (Page[models.TaskModel], error)
 	Update(ctx context.Context, task models.TaskModel) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.TaskStatus) error
+	// RenameFinishedStep writes a finished task's step id, and nothing else of
+	// it: only a task that is completed or canceled, and reports whether there
+	// was one to write. For a migration that renames a step, so that work
+	// already done on it is found under the id the new version calls it by.
+	RenameFinishedStep(ctx context.Context, id uuid.UUID, nodeID string) (bool, error)
 	Create(ctx context.Context, task models.TaskModel) error
 	CountByStatus(ctx context.Context, projectID uuid.UUID, status models.TaskStatus) (int64, error)
 }

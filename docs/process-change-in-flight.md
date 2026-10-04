@@ -265,6 +265,7 @@ Four questions, in order. Stop at the first that decides.
 | Engine bookkeeping with nowhere to land | Names the counter, not just the token riding on it |
 | Two counters merging onto one node | No correct way to add two arrival counts together |
 | A boundary event moved off its activity | A timer firing against work that is not running |
+| A boundary event mapped onto a node that is not a boundary event | Its timer or waiting message would act on that node: a deadline mapped onto the approval it watched completed the approval when it came due. A boundary event is mapped only to a boundary event |
 | A mapping naming a node the target lacks | A typo, wrong regardless of what is running |
 | Different process keys or projects | Not a version change |
 | **An unacknowledged control obligation** | See below |
@@ -274,6 +275,10 @@ Four questions, in order. Stop at the first that decides.
 - A downstream gateway with a **default flow**, which would route silently instead of raising
   an incident when a variable the removed step used to set is missing.
 - Tasks **claimed or delegated right now**, which go back to the queue.
+- A **redirect of a step running instances have completed, or one that carries a control**: open work
+  moves to the step mapped to, and work already done on the old step does not count as done
+  on the new one, so a control or a separation-of-duties rule there will not see it. See *A
+  rename and a redirect*, below.
 
 Warnings are kept separate from refusals deliberately: a warning dressed as an error teaches
 people to click past the list, and then a real refusal gets clicked past too.
@@ -297,7 +302,11 @@ examples on this page, moved the instances.
 Three properties make this worth having:
 
 - **Only pending instances count.** An instance that already gave the approval waived
-  nothing and must not read as though it did.
+  nothing and must not read as though it did. "Already gave" is read from the instance's own
+  record of completed steps, and that record follows a mapping only where it renames a step.
+  It used to follow every mapping: a finished step redirected onto a control the instance was
+  only waiting at made the control read as passed, and a later migration that dropped it held
+  nothing and asked nobody (`control_after_redirect_test.go`).
 - **The obligation must *land* on a node that carries one too.** Existing is not enough:
   mapping `opsApprove` onto `salesApprove` lands the token perfectly and still means nobody
   performs the check. A version that keeps the node ID but drops the marking has removed the
@@ -362,16 +371,50 @@ writes anything, with the planner's own check and the same mapping and decisions
 given. An instance is left alone — not re-pointed, nothing written, still on the version it is
 running — when, by then,
 
-- it holds a token, an open task, a job row (a timer or a queued service call, one that has
-  already run included), a waiting event or
+- it holds a token, an open task, a timer or a queued service call that can still run
+  (pending, running or failed), a waiting event or
   a join or multi-instance counter on a step the new version has no step for and the mapping
   does not cover, or counters on two steps the mapping puts onto one: what the planner
-  refuses a migration for;
+  refuses a migration for. A timer or a call that has already run is not work and is not
+  counted, in the plan or here: it cannot be deleted, so it stays behind as a row, and it used
+  to refuse the migration of an instance that had long since passed a wait the new version
+  dropped;
 - or it still has a token on a step the migration skips, cancels at or holds at. In the plan
   such work needs nowhere to land, because it is to be decided. By the time of the rewrite the
   decisions have been made, each in its own transaction before it, so a token still there is
   one no decision settled: the instance reached the step in the few statements between the
-  apply reading it again and locking it, or a skip left part of a repeating step behind.
+  apply reading it again and locking it, or a skip left part of a repeating step behind;
+- or it has an open task or a waiting event on such a step, one the new version lacks, with no
+  token under it. A decision acts on the instances waiting at its step, so nothing reaches
+  that work. The engine does not leave any behind (leaving a step lets go of what waits on it
+  and withdraws its tasks), so this is a rule for a state only a defect would produce. A
+  timer is deliberately not part of it: a skipped wait leaves its timer behind, pending,
+  because a job cannot be deleted, and the engine dismisses it when it comes due and finds no
+  token for it. The instance is moved with it and does not wait for that hour
+  (`TestPinASkipOfATimerWaitMovesTheInstanceAndItsTimerIsDismissedWhenDue`). The same
+  exclusion covers a queued service call left on a skipped step, and there it is not harmless:
+  the call is still made when its job runs, and re-pointed at a version without the step the
+  job fails for want of its node and ends as an incident (read from the job worker, not run;
+  the same before this work; in the roadmap).
+
+Two more questions are asked before those, and neither is about where the work lands:
+
+- **Was the plan made for this instance?** An apply plans first and then lists the instances
+  again to work through them. Everything a plan establishes about an instance — that its work
+  lands, which controls it loses, and that somebody accepted the loss — is established for
+  the instances of the first listing. One that arrived on the source version between the two
+  — started there, as a request does while the new version is staged and not yet live, or
+  moved there by another migration — is left alone. It used to be moved, and where every
+  planned instance had already passed a control step the new version drops, it lost that
+  control with no acknowledgement asked and no `control_waived` row.
+- **Is it still on the version being migrated from?** Asked of the locked row, first. A second
+  run of the same migration, started while the first is still working (a client retrying a
+  slow apply), lists the instance on the old version and reaches it after the first has moved
+  it. It used to apply the mapping again to wherever the instance then stood — with a mapping
+  that chains, on to the next step, the one in between passed without anybody performing it —
+  and a decision naming a step the instance now stood on, on the new version, was taken on
+  it: skipped along the old version's graph, cancelled, or held. Each decision asks the same
+  under its own lock.
 
 This also holds for an instance that never moved by itself. A skip advances an instance onto
 the step after the one skipped, and the plan was made for where it stood before: when that
@@ -417,14 +460,31 @@ reasons, each naming the step as the version it runs names it:
   stands.* Running the same migration again finds it at the step and decides it.
 - *…it was part-way through two steps that this mapping moves onto one, and their progress
   cannot be added together…*, for counters the mapping would merge.
+- *When the migration came to move it, it had a task or a waiting event at "Operations
+  approve", where this migration decides the work of the instances waiting there, and it was
+  not waiting there, so no decision reached that work and version 2 has nowhere to put it. It
+  was not moved and stays on version 1. Nothing in the product withdraws a single task or
+  waiting event yet, so it stays there until that work is gone.*
+
+Two reasons are not about where the instance stood:
+
+- *It was not on version 1 when this migration was planned: it started, or was moved there,
+  after that. Nothing had been asked about it, so nothing was decided about it and it was not
+  moved. It stays on version 1; plan the migration again to include it.* A dry run now counts
+  it, and holds on any control it has not passed.
+- *It was no longer on version 1 when the migration reached it: another run of a migration had
+  already moved it. Nothing was decided about it and it was not moved again.* There is nothing
+  to do: the run that moved it wrote its `instance_migrated` entry.
 
 `applied` keeps its meaning, whether anything was written: `true` when the run acted on at
 least one instance, whatever it passed over, and `false` when it passed instances over and
 acted on none. An instance a skip advanced and the rewrite then left alone counts as acted
 on, and is listed as well. The server log also names each instance that had left its step
-(*A migration passed over an instance that was no longer where its listing found it*) and
-each whose work would not land (*A migration passed over an instance that had moved, after
-it was listed, onto work the new version cannot take as it stands*), with the run's id.
+(*A migration passed over an instance that was no longer where its listing found it*),
+each whose work would not land (*A migration passed over an instance that holds work the new
+version cannot take as it stands*), each the plan was not
+made for (*…that was not on the source version when it was planned*) and each already moved
+(*…that another run had already moved off the source version*), with the run's id.
 
 `cancelled` is a new instance status. Reusing `completed` would have made an instance that
 was called off read, in every list and every count, exactly like one that succeeded; `failed`
@@ -440,11 +500,87 @@ Refused, because doing any of these half-way is worse than not doing them:
 | Skipping a node with no outgoing flow | Nowhere to advance to |
 | Skipping a gateway | Several outgoing flows: which branch would it have taken? |
 | A skip when no engine is wired | Refused rather than half-performed |
+| A skip, cancel or hold of a node no instance ever waits at | The decision would be made about nobody. The refusal names the node, says what kind it is, and what to decide instead. See below |
 
 Work on an actioned node is exempt from the "must land somewhere" check — refusing a
 migration for stranding the very task the caller asked it to cancel would make the feature
 unreachable. That is the plan's rule. When the instance is rewritten, a token still on an
-actioned node is no longer exempt: see *An instance is moved only if its work lands*, above.
+actioned node is no longer exempt, and neither is an open task or a waiting event left there
+with no token: see *An instance is moved only if its work lands*, above.
+
+**A decision is taken where an instance waits.** A skip, a cancel or a hold acts on the
+instances holding a token on the node it names. A decision naming a node the engine never
+leaves a token on used to pass the plan, be taken on nobody and write nothing, and the apply
+reported an instance acted on: it had been moved, and where the node was a boundary event,
+with the event's waiting message still on a node its new version does not have, because the
+exemption above excused it. The plan now refuses such a decision, and a dry run shows it. The
+rule is read off the engine, one node type at a time — when a token arrives, does the node's
+handler return with the token still there?
+
+| Node | An instance waits there | Why |
+| :-- | :-- | :-- |
+| User task, manual task | yes | A task is created and the token stays |
+| Service task | yes | A job or an external task is queued |
+| Catch event, timer event | yes | A subscription, a timer or a condition |
+| Call activity | yes | The token stays while the process it called runs |
+| Ad-hoc sub-process | yes | The token stays until its completion condition is met |
+| Parallel or inclusive gateway that joins | yes | A branch that arrives early keeps its token there |
+| Escalation throw | not refused | Its handler does not advance it; left decidable |
+| Boundary event | no | Executed with no token put on it; the token is on the step it is attached to |
+| Sub-process, embedded or event | no | The token is taken off and put on the steps inside |
+| Start event, end events | no | Passed through, or the token is removed |
+| Exclusive and event-based gateways, and a gateway that only splits | no | The token is taken off and put on what follows |
+| Script task, business rule task | no | Run and advanced at once |
+| Events the process throws (message, signal, compensation, intermediate) | no | Thrown and advanced at once |
+| Pool, lane | no | Not steps |
+
+The refusal names the node as people know it and says what to decide instead:
+
+> *hold of "Checks" cannot be taken: it is a sub-process, and an instance inside one waits at
+> the steps inside it, never at the sub-process itself, so the decision would be made about
+> nobody; decide the steps inside it instead: "Check the request"*
+
+> *hold of "The customer withdrew" cannot be taken: it is a boundary event, and no instance
+> ever waits at a boundary event, only at the step it is attached to, so on its own the
+> decision would be made about nobody; name the event together with "Approve the request",
+> deciding both, and what waits on the event ends with that step, or map the event to a
+> boundary event the new version has*
+
+One case is accepted as it always was: a boundary event named **together with the step it is
+attached to**. An approval with a deadline, both dropped by the new version, is the commonest
+shape a removed step has; a migration that decides the approval is refused for the
+deadline's timer, which has nowhere to land, unless the deadline is named in a decision too.
+Nothing is taken or recorded for the event there either. What waits on it ends with its step:
+a skip lets go of the event's waiting message (read from the engine's advance) and leaves its
+timer to be dismissed when due, a cancel ends the instance, a hold leaves it on the version
+it runs (`TestPinADecisionNamingAStepAndTheDeadlineOnIt`, which has a deadline's timer). The
+kind and the reason given for the event are not acted on and appear only in the plan's
+`actions`. The refusal for the event's work says so itself: after *map each one to a node it
+does have* it adds, for a boundary event, that it can be mapped only to a boundary event, and
+otherwise to decide its step and name the event in the same decision.
+
+**When the new version keeps a step and drops a boundary event on it.** The event cannot be
+mapped onto the step (below) and cannot be decided on its own. An instance waiting at the
+step is decided there with the event named beside it: a `hold` keeps it on the version it
+runs, with the event still armed, and raises the incident. Once it has left the step, the
+same migration run again finds nothing of it at the step and moves it; what is left of the
+event by then is at most its timer, which the plan lets stand because the event is named
+with its step, and which the engine dismisses when it comes due
+(`TestAnInstanceAtAStepWhoseDeadlineWasDroppedIsHeldAndMovedOnceItHasLeftTheStep`).
+
+Two things have no path yet, and are in the roadmap: a decision on the start of an event
+sub-process, which is refused like any start event; and a boundary event on a sub-process,
+which cannot be named with its step because a decision on the sub-process is itself refused.
+
+**A boundary event is mapped only to a boundary event.** What sits on a boundary event is a
+timer or a waiting message that acts on the node it sits on. The planner used to look at a
+mapped boundary event only when its target was one too, so a deadline mapped onto the
+approval it watched — the new version keeps the approval and drops the deadline — passed
+the plan, and when the three days were up the approval was recorded as performed and the
+instance finished with the approver's task still open. That mapping is now refused, in the
+dry run and so in the apply (`TestABoundaryEventMayNotBeMappedOntoAStep`). Still accepted,
+read and not run: a step mapped onto a boundary event, and the start of an event sub-process
+mapped onto a step; both are in the roadmap.
 
 Each decision writes its own trail entry — `node_skipped`, `instance_cancelled` or
 `instance_held` — naming the node, the authoriser and the reason, and a row in the instance's
@@ -462,10 +598,10 @@ longer writes `instance_cancelled` for an instance it found, once locked, no lon
 
 ### Re-derived assignment
 
-A task that changes node is **rebuilt from the node it lands on** — name, description, type,
-priority, due date, form, assignee, candidate users and groups — and its claim is dropped.
-A task that lands on a step naming nobody is then an administrator's or an operator's to
-take, like any task with no assignee and no candidates.
+An **open** task that changes node is **rebuilt from the node it lands on** — name,
+description, type, priority, due date, form, assignee, candidate users and groups — and its
+claim is dropped. A task that lands on a step naming nobody is then an administrator's or an
+operator's to take, like any task with no assignee and no candidates.
 
 Carrying the task across was an authorisation bug: a task mapped from `opsApprove` onto
 `salesApprove` kept the operations manager as assignee and candidate group, which let the
@@ -473,6 +609,58 @@ person whose step had just been deleted complete the step that replaced it, whil
 manager never saw it. Camunda preserves the assignee across migration, but only because it
 requires the two activities to be semantically equivalent first; nothing here can establish
 that, so the safe default is the other one.
+
+**A mapping moves only what is still open.** A mapping says where work in progress goes.
+Until this was fixed (0.4.0 has it) the rewrite applied it to every task and every job of the
+instance whatever its status, and since a task that changes node is rebuilt and offered, a
+task completed weeks before came back `claimed` or `unclaimed` on the step the mapping
+named: a quotation whose operations approval had been given, waiting for the sales manager
+and migrated with `opsApprove → salesApprove`, had two open sales approvals for one token,
+and no task said any longer that the operations approval had been given or by whom.
+[A task a migration reopened](upgrading.md#a-task-a-migration-reopened) finds them. What
+each kind of row does now:
+
+| Row | Follows the mapping | Left exactly as it is |
+| :-- | :-- | :-- |
+| The instance's tokens, and its join and multi-instance counters | All of them, under any mapping: live work, read against the graph the instance now runs | — |
+| The instance's lists of completed and compensated steps | Under a **rename** only | Under a redirect: the step stays in the record under its own id |
+| Tasks `unclaimed`, `claimed`, `delegated` — the statuses the landing check counts and the engine withdraws | Rebuilt from the step they land on, under any mapping | — |
+| Tasks in every other status, which is `completed` and `canceled` (the engine sets no other) | Under a **rename** only, and then the step's id alone: one column, written by a statement guarded by the status | Everything else always, and under a redirect the whole row |
+| Jobs (timers, queued service calls) | `pending`, `running`, and `failed` — a failed job runs again when its incident is resolved — pointed at the new version and the mapped step | `completed`: still names the version and the step it ran on |
+| Waiting events | Every one; a row exists only while the instance waits | — |
+| Incidents | None: a migration has never rewritten an incident, open or resolved | All |
+| Work parked for an outside worker (`external_tasks`) | None, and the landing check does not read it either (read, not run; in the roadmap) | All |
+
+#### A rename and a redirect
+
+A mapping has two shapes, and they mean different things for work already done.
+
+- A **rename** says *this step is that step*: the id it maps to is not a step of the version
+  being migrated from, and no other step is mapped onto it (`submit → request`, where
+  `request` is new). Whoever did the submit did the request.
+- A **redirect** says *send the open work over there*: the id it maps to is a step of the old
+  version too (`opsApprove → salesApprove`), or several steps are sent to one. It says
+  nothing of the kind about an operations approval already given.
+
+Work in progress follows either. Finished work follows only a rename, and then only by its
+step's id: a completed or cancelled task keeps its status, its assignee, its name, its form
+and its timestamps, and the instance's record of completed steps names the step by its new
+id. Under a redirect neither is written: the record must not say somebody did a step they
+did not do.
+
+This matters to two things that read the record against the version the instance now runs.
+A `separation_of_duties` rule finds who performed a step by reading the instance's completed
+tasks by step id. After a migration that only renamed the steps, the finished task had kept
+the old id, the rule named the new one, and the person who submitted a request could claim
+and complete its approval (`TestAfterARenameWhoeverDidOneHalfOfAFourEyesCheckMayNotDoTheOther`;
+0.3.0 moved the id and held the rule, 0.4.0 reopened the task). And a compliance hold asks
+the completed-steps list who has passed a control (above).
+
+After a redirect, then, a rule or a control on the step mapped *to* does not see work done on
+the step mapped *from*, and should not: it was a different step. The plan says so in a
+warning whenever a running instance it covers has completed the redirected step, or the
+step carries a control, so that it is somebody's decision and not a surprise. The number in
+the warning is of running instances: the ones the migration would move.
 
 ### Audit
 
@@ -561,6 +749,13 @@ These make that true rather than merely plausible:
   version; a cancelled one must not be cancelled twice; and a *finished* one must never be
   repointed at a graph it did not execute — that record is the only account of what it
   actually did.
+- **An instance another run already moved is not moved again.** The rewrite asks, under the
+  instance's lock, whether it is still on the source version, so two runs of the same
+  migration at once move each instance once. The one that finds it moved names it in
+  `passed_over`.
+- **An instance the plan was not made for is left for the next plan.** One that arrived on
+  the source version after the apply planned is not moved and is named in `passed_over`;
+  planning again includes it.
 - **`hold` is idempotent.** A held instance stays on the source version by design, so every
   later run finds it again. It does not collect an incident per run.
 - **An instance a decision passed over is still on the source version.** One that left the
