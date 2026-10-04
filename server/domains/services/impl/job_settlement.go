@@ -151,15 +151,19 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 // back-off when its instance ended.
 //
 // The instance is held while it is asked, in the transaction that raises the
-// incident, so a cancellation either comes first and no incident is raised,
-// or waits and finds the incident there to close. The instance first and the
-// job's row second, as every path that settles a job takes them. Raising an
-// incident already waited for whoever held its instance, so nothing waits
-// here that did not wait before.
+// incident, so whatever ends the instance while holding it either comes first,
+// and no incident is raised, or waits until the incident is there. The
+// instance first and the job's row second, as every path that settles a job
+// takes them. Raising an incident already waited for whoever held its
+// instance, so nothing waits here that did not wait before.
 //
-// When the question cannot be answered the incident is raised, as it always
-// was: one wrongly raised is closed by somebody, and one wrongly withheld is
-// a failure nobody is told of.
+// When the instance cannot be read, the answer is to go on and raise the
+// incident, as was always done: one wrongly raised is closed by somebody, and
+// one wrongly withheld is a failure nobody is told of. Whether that incident
+// is then written is the database's to say. On PostgreSQL a read that failed
+// has ended the transaction, so the incident and the job's status are not
+// written either: failJob logs that, the job stays running, and it is tried
+// again when its lease expires.
 func (s *jobService) instanceStillRuns(ctx context.Context, job entities.Job) bool {
 	if job.Instance == nil {
 		return true
@@ -167,7 +171,7 @@ func (s *jobService) instanceStillRuns(ctx context.Context, job entities.Job) bo
 	instance, err := s.engine.GetInstanceForUpdate(ctx, job.Instance.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("jobId", job.ID.String()).
-			Msg("Could not tell whether the failed job's instance is still running; raising its incident")
+			Msg("Could not tell whether the failed job's instance is still running; going on to raise its incident")
 		return true
 	}
 	if !instanceEnded(instance.Status) {

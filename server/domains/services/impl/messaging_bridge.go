@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -272,7 +273,16 @@ func (b *externalTaskBridge) releaseUnforwardedTask(ctx context.Context, task *e
 	err := b.tasks.HandleFailure(ctx, task.ID, workerID,
 		"the bridge could not publish this task to the broker",
 		cause.Error(), task.Retries, 0)
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, apierr.ErrInvalidArgument):
+		// Not a hand-back that failed: there is nothing to hand back. The one
+		// thing HandleFailure refuses as the caller's is a report on work whose
+		// instance has ended, and it takes that work off the list as it
+		// refuses, so no row is left locked. The error says how it ended.
+		b.logger.Info().Err(err).Str("taskID", task.ID.String()).
+			Msg("A task that was not forwarded was not handed back: its instance has ended and its work was taken off the list")
+	default:
 		b.logger.Error().Err(err).Str("taskID", task.ID.String()).
 			Msg("A task that was not forwarded could not be handed back either; it stays locked until its lock expires")
 	}

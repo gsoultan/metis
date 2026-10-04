@@ -138,8 +138,12 @@ func (s *externalTaskService) Complete(ctx context.Context, taskID uuid.UUID, wo
 //
 // The work is taken off the list in the transaction that finds this, so it is
 // offered to nobody again, and the refusal is made after that transaction has
-// been kept: returned from inside it, it would undo the removal. It is the
-// worker's to read and not to retry, so it is an invalid argument.
+// been kept: returned from inside it, it would undo the removal. That holds
+// only while Complete and HandleFailure open the transaction themselves. A
+// caller that wrapped either in a transaction of its own, and gave up on this
+// error, would undo the removal with everything else; none does.
+//
+// It is the worker's to read and not to retry, so it is an invalid argument.
 func refusedForEnded(status entities.ProcessStatus) error {
 	if status == "" {
 		return nil
