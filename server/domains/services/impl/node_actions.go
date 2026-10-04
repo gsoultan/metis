@@ -40,6 +40,10 @@ type nodeActions struct {
 	// is not one that can (or there is none), and a step is then advanced past
 	// as it was before there was a finisher.
 	finisher servicecontracts.ActivityFinisher
+	// parked is the same engine, asked to take back work a step has parked for
+	// outside workers. nil when the engine is not one that can (or there is
+	// none): a cancel of an instance with work parked is then refused.
+	parked parkedWorkWithdrawer
 	// audit writes the trail entry of an action. nil only in wirings with no
 	// audit repository (tests), where the ledger row is the whole record.
 	audit servicecontracts.AuditWriter
@@ -53,6 +57,9 @@ func newNodeActions(repo repositories.Repository, engine servicecontracts.Execut
 	a := nodeActions{repo: repo, engine: engine, ledger: NewDeviationLedger(repo)}
 	if finisher, ok := engine.(servicecontracts.ActivityFinisher); ok {
 		a.finisher = finisher
+	}
+	if withdrawer, ok := engine.(parkedWorkWithdrawer); ok {
+		a.parked = withdrawer
 	}
 	if repo != nil && repo.Audit() != nil {
 		a.audit = NewAuditWriter(repo.Audit())
