@@ -32,8 +32,12 @@ type decisionLookup struct {
 	load func(key string, version int) (table entities.DecisionDefinition, found bool, err error)
 	// read is what each table read so far reads, by key and version.
 	read map[[2]string]decisionTableRead
-	// left is how many more tables this plan may read.
-	left int
+	// left is how many more tables this plan may read, and refused how many
+	// it was asked for after that. pastBound is the decisions whose answer
+	// was cut short for it, by key and version.
+	left      int
+	refused   int
+	pastBound map[[2]string]struct{}
 	// err is the first failure to read a table. The answers given after it
 	// are not to be used: a store that failed is not a decision nobody stored.
 	err error
@@ -51,7 +55,8 @@ type decisionTableRead struct {
 }
 
 func newDecisionLookup(load func(key string, version int) (entities.DecisionDefinition, bool, error)) *decisionLookup {
-	return &decisionLookup{load: load, read: map[[2]string]decisionTableRead{}, left: maxDecisionTablesPerPlan}
+	return &decisionLookup{load: load, read: map[[2]string]decisionTableRead{}, left: maxDecisionTablesPerPlan,
+		pastBound: map[[2]string]struct{}{}}
 }
 
 // decisionLookup reads decisions from the store, in the project an instance
@@ -83,7 +88,18 @@ func (s *instanceDeviationService) decisionLookup(ctx context.Context, projectID
 // The answer is not vouched for (analysable false) when any table on the way
 // could not be read in full. The names that could be read are returned all
 // the same.
+//
+// It walks the requirements each time it is asked. The scan of a definition
+// asks once for each decision and version, however many steps consult it
+// (decisionScan.decision), and a plan makes one scan: that is the one place
+// that keeps this to a walk per decision per plan.
 func (l *decisionLookup) reads(key string, version int) (names []string, analysable, found bool) {
+	refusedBefore := l.refused
+	defer func() {
+		if l.refused > refusedBefore {
+			l.pastBound[[2]string{key, strconv.Itoa(version)}] = struct{}{}
+		}
+	}()
 	root := l.table(key, version)
 	if !root.found {
 		return nil, false, false
@@ -150,6 +166,13 @@ func addNames(set map[string]struct{}, names []string) {
 	}
 }
 
+// leftUnread reports whether a decision's answer was cut short because the
+// plan had read its fill of tables: it, or one it requires, was not read.
+func (l *decisionLookup) leftUnread(key string, version int) bool {
+	_, cut := l.pastBound[[2]string{key, strconv.Itoa(version)}]
+	return cut
+}
+
 // table is what one version of one decision reads by itself, read from the
 // store the first time it is asked for. Once the plan has read its fill a
 // table not yet read is answered as there and unread: whether it exists is
@@ -160,6 +183,7 @@ func (l *decisionLookup) table(key string, version int) decisionTableRead {
 		return known
 	}
 	if l.left == 0 {
+		l.refused++
 		return decisionTableRead{found: true}
 	}
 	l.left--

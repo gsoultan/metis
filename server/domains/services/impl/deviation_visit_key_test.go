@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,5 +138,49 @@ func TestDeviationVisitKeyIsNotSteeredByWhatAStepIsCalled(t *testing.T) {
 	swapped.Tokens = []entities.Token{{ID: task, Node: &entities.Node{ID: "x"}}}
 	if deviationVisitKey(swapped, entities.DeviationWaive, "x", []uuid.UUID{token}) == honest {
 		t.Error("a task's id read as a token's, and the token's as a task's, gave the same key")
+	}
+}
+
+// A cancel ends the whole instance and withdraws everything open on it,
+// whichever step it names. So its key is of the whole instance: a token
+// moving on another branch, or a task opening there, is work the preview did
+// not show, and makes it a different visit. A waive and a hold of the same
+// step act on that step alone, and their keys do not move.
+func TestDeviationVisitKeyOfACancelCoversTheWholeInstance(t *testing.T) {
+	t.Parallel()
+	here := entities.Token{ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "stock"}}
+	there := entities.Token{ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "credit"}}
+	instance := entities.ProcessInstance{
+		ID:         uuid.Must(uuid.NewV7()),
+		Definition: &entities.ProcessDefinition{ID: uuid.Must(uuid.NewV7())},
+		Tokens:     []entities.Token{here, there},
+	}
+	stockTask, creditTask := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	everyTask := []uuid.UUID{stockTask, creditTask}
+	cancel := deviationVisitKey(instance, entities.DeviationCancel, "stock", everyTask)
+
+	// The other branch moves on: its token is a new one, on another step.
+	moved := instance
+	moved.Tokens = []entities.Token{here, {ID: uuid.Must(uuid.NewV7()), Node: &entities.Node{ID: "creditAgain"}}}
+	if deviationVisitKey(moved, entities.DeviationCancel, "stock", everyTask) == cancel {
+		t.Error("a token moving on another branch did not change the key of a cancel, which ends that branch too")
+	}
+	// A task opens on the other branch.
+	if deviationVisitKey(instance, entities.DeviationCancel, "stock", append(slices.Clone(everyTask), uuid.Must(uuid.NewV7()))) == cancel {
+		t.Error("a task opening on another branch did not change the key of a cancel, which withdraws it too")
+	}
+	// The step it names is where the record says the instance stood.
+	if deviationVisitKey(instance, entities.DeviationCancel, "credit", everyTask) == cancel {
+		t.Error("a cancel at one step and a cancel at another share a key")
+	}
+	if deviationVisitKey(instance, entities.DeviationCancel, "", everyTask) == cancel {
+		t.Error("a cancel that names a step and one that names none share a key")
+	}
+
+	for _, kind := range []entities.DeviationKind{entities.DeviationWaive, entities.DeviationHold} {
+		atStock := deviationVisitKey(instance, kind, "stock", []uuid.UUID{stockTask})
+		if deviationVisitKey(moved, kind, "stock", []uuid.UUID{stockTask}) != atStock {
+			t.Errorf("a token moving on another branch changed the key of a %s of this step", kind)
+		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -192,6 +193,29 @@ func TestEveryRefusalSaysWhatIsWrongInWordsSomebodyCanActOn(t *testing.T) {
 	}, nil)
 
 	done := w.start(t, opsApproval(h.projID, "sentences-finished"), nil)
+	// A call activity the instance has not reached: nothing is running under
+	// it to point at.
+	notYetCalling := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "sentences-not-yet-calling",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "prepare", Type: entities.UserTask, Name: "Prepare the check", Assignee: "rita"},
+			{ID: "check", Type: entities.CallActivity, Name: "Check the supplier", Properties: map[string]any{"called_process_key": "sentences-called"}},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "n1", SourceRef: "start", TargetRef: "prepare"}, {ID: "n2", SourceRef: "prepare", TargetRef: "check"}, {ID: "n3", SourceRef: "check", TargetRef: "end"},
+		},
+	}, nil)
+	// A step the instance waits at with no task open on it. Nothing in the
+	// product withdraws one task and leaves its token, so the row is written
+	// through the repository; the plan must still not waive a step nobody has.
+	taskless := w.start(t, opsApproval(h.projID, "sentences-taskless"), nil)
+	if err := h.repo.Task().UpdateStatus(ctx, openIterationTasks(ctx, t, h, taskless, "opsApprove")[0].ID, models.TaskCanceled); err != nil {
+		t.Fatalf("withdraw the task: %v", err)
+	}
+	suspended := w.start(t, opsApproval(h.projID, "sentences-suspended"), nil)
+	suspend(t, h, suspended)
 
 	saying := func(reason string) func(entities.DeviationCommand) entities.DeviationCommand {
 		return func(c entities.DeviationCommand) entities.DeviationCommand {
@@ -236,7 +260,16 @@ func TestEveryRefusalSaysWhatIsWrongInWordsSomebodyCanActOn(t *testing.T) {
 			"“Wait for the board” is not work somebody does; hold the instance instead."},
 		{"values the step's form does not declare", deviationCommand(entities.DeviationWaive, parked, "opsApprove",
 			map[string]any{"zeta": 1, "approved": true, "amount": 900}), asIs,
-			"“Operations approve”'s form does not declare amount and zeta, so a waiver cannot set them."},
+			"“Operations approve”'s form does not declare amount, zeta, so a waiver cannot set them."},
+		{"one value the step's form does not declare", deviationCommand(entities.DeviationWaive, parked, "opsApprove",
+			map[string]any{"approved": true, "amount": 900}), asIs,
+			"“Operations approve”'s form does not declare amount, so a waiver cannot set it."},
+		{"a step that runs another process, before the instance reaches it", deviationCommand(entities.DeviationWaive, notYetCalling, "check", nil), asIs,
+			"“Check the supplier” runs another process; waive the step inside that process instead."},
+		{"a step the instance waits at with no task open on it", deviationCommand(entities.DeviationWaive, taskless, "opsApprove", nil), asIs,
+			"Nobody has “Operations approve” to do, so there is nothing to waive."},
+		{"a hold of an instance that is suspended", deviationCommand(entities.DeviationHold, suspended, "opsApprove", nil), asIs,
+			"This instance is suspended; only a running instance can be held."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -248,6 +281,11 @@ func TestEveryRefusalSaysWhatIsWrongInWordsSomebodyCanActOn(t *testing.T) {
 				t.Error("a refused plan has no visit key, so the apply that would be refused the same way cannot name one")
 			}
 		})
+	}
+	// The step the instance waits at with no task: waiting there is not what
+	// is wrong with it.
+	if plan := w.preview(t, deviationCommand(entities.DeviationWaive, taskless, "opsApprove", nil)); said(plan.Refusals, "This instance is not waiting at “Operations approve”.") {
+		t.Errorf("an instance waiting at a step with no task was told it is not waiting there:%s", lines(plan.Refusals))
 	}
 
 	t.Run("a reason of exactly 2000 characters, counted as characters", func(t *testing.T) {
@@ -573,6 +611,11 @@ func TestAPreviewChangesNothingAndWaitsForNobody(t *testing.T) {
 
 // What a preview refuses, an apply refuses: the request is answered as one the
 // caller can fix, and the instance is as it was.
+//
+// At this point every apply is refused, whatever its plan says, so this test
+// cannot fail for the reason its name gives. It is here for the apply that
+// lands next: from then on an apply of an acceptable plan acts, and this pins
+// that one of a refused plan still does not.
 func TestAnApplyOfAPlanThatRefusesIsRefusedAndChangesNothing(t *testing.T) {
 	h := newEngineHarness(t, "Waive Refused Apply Project")
 	w := newWaiver(h)

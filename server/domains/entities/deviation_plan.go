@@ -19,18 +19,26 @@ type DeviationPlan struct {
 	// back to the id. Both are empty for a cancel that names no step, and the
 	// name is empty for a step the process does not have.
 	NodeID, NodeName string
-	// VisitKey identifies the work the plan was made for. An apply sends it
-	// back, and is refused when the work has changed since.
+	// VisitKey identifies the work the plan was made for: the open work it
+	// lists and where the instance waits — at the step, or anywhere for a
+	// cancel. An apply sends it back, and is refused when the work has
+	// changed since.
 	VisitKey string
 
-	// OpenWork is the tasks open where the command acts: on the step, or
-	// anywhere on the instance for a cancel that names no step.
+	// OpenWork is the tasks open where the command acts: on the step for a
+	// waive and a hold, and anywhere on the instance for a cancel, which
+	// withdraws them all whichever step it names.
 	OpenWork []DeviationOpenWork
 	// Outputs is what a waive would set.
 	Outputs map[string]any
-	// DecisionPoints is every place in the process that decides from a value
-	// the waived step would have set.
-	DecisionPoints []DecisionPoint
+	// DecisionPoints is the places in the process that decide from a value
+	// the waived step would have set: those missing a value first, then those
+	// nobody could read, then the rest. A process is somebody's input, so no
+	// more than a screenful is listed, each with no more names than a
+	// sentence spells out; DecisionPointsInAll is how many there are. The
+	// refusals are worked out from all of them.
+	DecisionPoints      []DecisionPoint
+	DecisionPointsInAll int
 	// CalledInstances is the processes this instance started that are still
 	// running, which a cancel has to wait for.
 	CalledInstances []uuid.UUID

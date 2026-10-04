@@ -1,13 +1,21 @@
 package bpmn_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
@@ -28,7 +36,8 @@ func TestThePlanNamesTheWorkAndItsKeyChangesOnlyWhenTheWorkDoes(t *testing.T) {
 	want := entities.DeviationPlan{
 		InstanceID: id, Kind: entities.DeviationWaive, Scope: entities.DeviationScopeTask,
 		NodeID: "opsApprove", NodeName: "Operations approve", VisitKey: plan.VisitKey,
-		OpenWork: []entities.DeviationOpenWork{{TaskID: task.ID, Name: "Operations approve", Status: entities.TaskClaimed, Assignee: "ollie"}},
+		OpenWork: []entities.DeviationOpenWork{{TaskID: task.ID, Name: "Operations approve", NodeID: "opsApprove", NodeName: "Operations approve",
+			Status: entities.TaskClaimed, Assignee: "ollie"}},
 		Outputs:  map[string]any{"approved": true},
 		Warnings: []string{"“Operations approve” is with ollie, who will be told it was withdrawn."},
 	}
@@ -96,6 +105,25 @@ func TestThePlanNamesTheWorkAndItsKeyChangesOnlyWhenTheWorkDoes(t *testing.T) {
 	if len(claimed.OpenWork) != 1 || claimed.OpenWork[0].Status != entities.TaskClaimed || claimed.OpenWork[0].Assignee != "olga" ||
 		!said(claimed.Warnings, "“Sales approve” is with olga, who will be told it was withdrawn.") {
 		t.Errorf("the plan after the claim: open work %+v, warnings:%s", claimed.OpenWork, lines(claimed.Warnings))
+	}
+	// Nor is a hand-over: the administrator gives the task to somebody else,
+	// and the plan names them without becoming another visit.
+	if err := h.svc.CreateUser(ctx, entities.User{
+		Username: "sam", Roles: []string{entities.RoleOperator},
+		Organizations: []*entities.Organization{{ID: entities.ActingOrganization(ctx)}},
+	}, "hand-over-test-password"); err != nil {
+		t.Fatalf("create sam: %v", err)
+	}
+	if err := h.svc.AssignTask(w.ctx, claimed.OpenWork[0].TaskID, servicecontracts.HandOver{
+		Actor: "ana", Target: "sam", Reason: "Olga is away this week.",
+	}); err != nil {
+		t.Fatalf("hand the task to sam: %v", err)
+	}
+	handedOver := w.preview(t, sales)
+	if handedOver.VisitKey != unclaimed.VisitKey || len(handedOver.OpenWork) != 1 || handedOver.OpenWork[0].Assignee != "sam" ||
+		!said(handedOver.Warnings, "“Sales approve” is with sam, who will be told it was withdrawn.") {
+		t.Errorf("after a hand-over: the key is the same %v, open work %+v, warnings:%s",
+			handedOver.VisitKey == unclaimed.VisitKey, handedOver.OpenWork, lines(handedOver.Warnings))
 	}
 }
 
@@ -268,7 +296,7 @@ func TestThePlanReadsEachDecisionAtTheVersionTheStepConsults(t *testing.T) {
 			continue
 		}
 		if !reflect.DeepEqual(point.Reads, want.Reads) || !reflect.DeepEqual(point.Supplied, want.Supplied) ||
-			!reflect.DeepEqual(point.Missing, want.Missing) || point.Analysed != want.Analysed {
+			!reflect.DeepEqual(point.Missing, want.Missing) || point.Analysed != want.Analysed || point.ReadsInAll != len(want.Reads) {
 			t.Errorf("%s: reads %v, supplied %v, missing %v, analysed %v\n want reads %v, supplied %v, missing %v, analysed %v",
 				nodeID, point.Reads, point.Supplied, point.Missing, point.Analysed, want.Reads, want.Supplied, want.Missing, want.Analysed)
 		}
@@ -343,14 +371,17 @@ func TestThePlanListsWhatACalledProcessIsHandedAndTheListAStepRepeatsOver(t *tes
 		t.Fatalf("the list the next step repeats over: %+v (listed %v)", list, listed)
 	}
 	called, listed := pointOfKind(plan, "check", entities.DecisionPointCalledProcess)
-	if !listed || called.Analysed || len(called.Missing) != 0 || !reflect.DeepEqual(called.Reads, []string{"reviewers", "urgent"}) {
+	if !listed || called.Analysed || len(called.Missing) != 0 || !reflect.DeepEqual(called.Reads, []string{"reviewers", "urgent"}) ||
+		plan.DecisionPointsInAll != len(plan.DecisionPoints) {
 		t.Fatalf("the called process: %+v (listed %v)", called, listed)
 	}
-	wantRefusal := "“Ask each reviewer” decides from reviewers, which “Pick the reviewers” would have set; say what the waiver counts as by supplying reviewers."
+	// A step that repeats does not decide from the list: it takes its runs
+	// from it.
+	wantRefusal := "“Ask each reviewer” takes its list of runs from reviewers, which “Pick the reviewers” would have set; say what the waiver counts as by supplying reviewers."
 	if !reflect.DeepEqual(plan.Refusals, []string{wantRefusal}) {
 		t.Errorf("the refusals:%s\nwant only\n  %s", lines(plan.Refusals), wantRefusal)
 	}
-	wantWarning := "“Check the supplier” starts another process and hands it reviewers and urgent, which “Pick the reviewers” would have set; " +
+	wantWarning := "“Check the supplier” starts another process and hands it reviewers, urgent, which “Pick the reviewers” would have set; " +
 		"that process was not read, so check what it does with them before applying."
 	if !said(plan.Warnings, wantWarning) {
 		t.Errorf("the plan does not warn\n  %s\nits warnings:%s", wantWarning, lines(plan.Warnings))
@@ -524,7 +555,7 @@ func TestACancelThatNamesNoStepIsToldWhereTheInstanceWaits(t *testing.T) {
 		},
 	}, nil)
 	plan := w.preview(t, deviationCommand(entities.DeviationCancel, branches, "", nil))
-	want := "This instance is waiting at “Check credit” and “Check stock”; say which of those steps it is to be ended at."
+	want := "This instance is waiting at “Check credit”, “Check stock”; say which of those steps it is to be ended at."
 	if !reflect.DeepEqual(plan.Refusals, []string{want}) {
 		t.Errorf("the refusals:%s\nwant only\n  %s", lines(plan.Refusals), want)
 	}
@@ -590,7 +621,9 @@ func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
 	id := w.start(t, nothingFollows(h.projID, "plan-nothing-left"), nil)
 	finished := finishTheOnlyStep(t, h, id)
 
-	nothingLeft := "This instance has nothing left to do: it is not waiting at any step, and nothing will move it on. Cancelling it closes it."
+	// Only what was looked at is said: where it waits. Whether a timer or a
+	// message could still move it was not looked at, so it is not claimed.
+	nothingLeft := "This instance is not waiting at any step. Cancelling it closes it."
 	closing := deviationCommand(entities.DeviationCancel, id, "", nil)
 	plan := w.preview(t, closing)
 	if !plan.Applicable() || plan.NodeID != "" || plan.NodeName != "" || plan.Scope != entities.DeviationScopeInstance ||
@@ -644,5 +677,418 @@ func TestACancelThatNamesNoStepClosesAnInstanceWithNothingLeft(t *testing.T) {
 	}
 	if around := w.preview(t, deviationCommand(entities.DeviationCancel, caller, "haveItChecked", nil)); around.Applicable() {
 		t.Error("the caller was cancellable around a called instance that is still active")
+	}
+}
+
+// A cancel ends the whole instance, whichever step it names: it withdraws the
+// work on every branch. So the plan shows all of it, warns everybody who
+// would lose work, and its key is of the whole instance — the other branch
+// moving on between the preview and the apply is work the preview did not
+// show, and the preview goes stale.
+func TestACancelShowsAndKeysEverythingItWouldWithdraw(t *testing.T) {
+	h := newEngineHarness(t, "Plan Cancel Everything Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "plan-cancel-branches",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "fork", Type: entities.ParallelGateway},
+			{ID: "stock", Type: entities.UserTask, Name: "Check stock", Assignee: "sam"},
+			{ID: "credit", Type: entities.UserTask, Name: "Check credit"},
+			{ID: "limit", Type: entities.UserTask, Name: "Set the credit limit", Assignee: "cara"},
+			{ID: "join", Type: entities.ParallelGateway},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "fork"},
+			{ID: "f2", SourceRef: "fork", TargetRef: "stock"},
+			{ID: "f3", SourceRef: "fork", TargetRef: "credit"},
+			{ID: "f4", SourceRef: "credit", TargetRef: "limit"},
+			{ID: "f5", SourceRef: "stock", TargetRef: "join"},
+			{ID: "f6", SourceRef: "limit", TargetRef: "join"},
+			{ID: "f7", SourceRef: "join", TargetRef: "end"},
+		},
+	}, nil)
+	steps := func(plan entities.DeviationPlan) []string {
+		var on []string
+		for _, work := range plan.OpenWork {
+			on = append(on, work.NodeID+" “"+work.NodeName+"” "+work.Assignee)
+		}
+		slices.Sort(on)
+		return on
+	}
+	cancel := deviationCommand(entities.DeviationCancel, id, "stock", nil)
+	hold := deviationCommand(entities.DeviationHold, id, "stock", nil)
+	waive := deviationCommand(entities.DeviationWaive, id, "stock", nil)
+
+	before := w.preview(t, cancel)
+	if want := []string{"credit “Check credit” ", "stock “Check stock” sam"}; !before.Applicable() || !reflect.DeepEqual(steps(before), want) {
+		t.Fatalf("a cancel at one of two branches lists %v, want the work of both: %v\nrefusals:%s", steps(before), want, lines(before.Refusals))
+	}
+	if want := []string{"“Check stock” is with sam, who will be told it was withdrawn."}; !reflect.DeepEqual(before.Warnings, want) {
+		t.Errorf("the warnings:%s\nwant:%s", lines(before.Warnings), lines(want))
+	}
+	holdBefore, waiveBefore := w.preview(t, hold), w.preview(t, waive)
+	if want := []string{"stock “Check stock” sam"}; !reflect.DeepEqual(steps(holdBefore), want) || !reflect.DeepEqual(steps(waiveBefore), want) {
+		t.Errorf("a hold lists %v and a waive %v; each acts on the step alone: %v", steps(holdBefore), steps(waiveBefore), want)
+	}
+
+	// The other branch moves on, to work somebody holds.
+	completeTaskAt(ctx, t, h, id, "credit", nil)
+	after := w.preview(t, cancel)
+	if want := []string{"limit “Set the credit limit” cara", "stock “Check stock” sam"}; !reflect.DeepEqual(steps(after), want) {
+		t.Fatalf("after the other branch moved on the cancel lists %v, want %v", steps(after), want)
+	}
+	wantWarnings := []string{
+		"“Check stock” is with sam, who will be told it was withdrawn.",
+		"“Set the credit limit” is with cara, who will be told it was withdrawn.",
+	}
+	slices.Sort(after.Warnings)
+	if !reflect.DeepEqual(after.Warnings, wantWarnings) {
+		t.Errorf("the warnings:%s\nwant:%s", lines(after.Warnings), lines(wantWarnings))
+	}
+	if after.VisitKey == before.VisitKey {
+		t.Error("the other branch moved on and the cancel's key did not change: a preview that no longer shows what would be withdrawn must go stale")
+	}
+	// A hold and a waive of this step are the same work as before.
+	if w.preview(t, hold).VisitKey != holdBefore.VisitKey || w.preview(t, waive).VisitKey != waiveBefore.VisitKey {
+		t.Error("the other branch moving on changed the key of a hold or a waive of this step")
+	}
+}
+
+// twoFlowsIntoOneStep is start → fork → Check the order, entered by both of
+// the fork's flows → Pack the order → end.
+func twoFlowsIntoOneStep(projectID uuid.UUID, key string) *entities.ProcessDefinition {
+	return &entities.ProcessDefinition{
+		Project: &entities.Project{ID: projectID}, Key: key,
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "fork", Type: entities.ParallelGateway},
+			{ID: "check", Type: entities.UserTask, Name: "Check the order", Assignee: "rita"},
+			{ID: "pack", Type: entities.UserTask, Name: "Pack the order", Assignee: "paul"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "fork"},
+			{ID: "f2", SourceRef: "fork", TargetRef: "check"},
+			{ID: "f3", SourceRef: "fork", TargetRef: "check"},
+			{ID: "f4", SourceRef: "check", TargetRef: "pack"},
+			{ID: "f5", SourceRef: "pack", TargetRef: "end"},
+		},
+	}
+}
+
+// tokensOn counts the tokens an instance holds on a step.
+func tokensOn(t *testing.T, h engineHarness, id uuid.UUID, nodeID string) int {
+	t.Helper()
+	instance, err := h.engine.GetInstance(h.Ctx(), id)
+	if err != nil {
+		t.Fatalf("read the instance: %v", err)
+	}
+	return len(instance.GetTokensByNode(&entities.Node{ID: nodeID}))
+}
+
+// BPMN 2.0.2 §10.5.4 (Parallel Gateway): each outgoing flow of a fork gets a
+// token, so a step both flows enter is reached twice, with a token and a task
+// for each. Done by hand, each task finished sends the instance on once. A
+// waive ends the step whole and moves on once, so it would drop one of the
+// two without a word: it is refused, and a hold and a cancel are not.
+func TestAWaiveOfAStepReachedTwiceAtOnceIsRefused(t *testing.T) {
+	h := newEngineHarness(t, "Plan Reached Twice Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, twoFlowsIntoOneStep(h.projID, "plan-reached-twice"), nil)
+	open := openIterationTasks(ctx, t, h, id, "check")
+	if tokens := tokensOn(t, h, id, "check"); tokens != 2 || len(open) != 2 {
+		t.Fatalf("the step holds %d token(s) and %d open task(s); this test needs the engine to have reached it twice", tokens, len(open))
+	}
+
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, id, "check", nil))
+	want := "“Check the order” was reached 2 times at once on this instance, and a waive would move the instance on only once. " +
+		"Complete or reassign its tasks instead, or hold the instance."
+	if !reflect.DeepEqual(plan.Refusals, []string{want}) {
+		t.Fatalf("the refusals:%s\nwant only\n  %s", lines(plan.Refusals), want)
+	}
+	for _, kind := range []entities.DeviationKind{entities.DeviationHold, entities.DeviationCancel} {
+		if other := w.preview(t, deviationCommand(kind, id, "check", nil)); !other.Applicable() || len(other.OpenWork) != 2 {
+			t.Errorf("a %s of a step reached twice: %d open, refusals:%s", kind, len(other.OpenWork), lines(other.Refusals))
+		}
+	}
+
+	// What the refusal says of doing it by hand is what the engine does: both
+	// tasks finished, the instance is at the next step twice.
+	for _, task := range open {
+		if err := h.svc.CompleteTask(ctx, task.ID, "rita", nil); err != nil {
+			t.Fatalf("complete %s: %v", task.ID, err)
+		}
+	}
+	if tokens := tokensOn(t, h, id, "pack"); tokens != 2 {
+		t.Fatalf("after both tasks were finished by hand the next step holds %d token(s), want 2", tokens)
+	}
+	// A repeating approval holds a token for each run on purpose, and is
+	// waived whole.
+	approval := startApproval(t, h, approvalDefinition(h.projID, "plan-reached-runs", "parallel", ""), "ana", "budi", "citra")
+	if runs := w.preview(t, deviationCommand(entities.DeviationWaive, approval, "approve", nil)); !runs.Applicable() {
+		t.Errorf("a repeating approval with three runs open was refused:%s", lines(runs.Refusals))
+	}
+}
+
+// A cancel withdraws work the process is no longer waiting for as well as the
+// work it is, and the plan says which is which. Reached the way production
+// reaches it: a step entered twice at once gives up both its tokens when the
+// first of its two tasks is finished, and the second task stays open under an
+// instance that has moved on.
+func TestACancelSaysWhichOpenWorkTheInstanceIsNoLongerWaitingFor(t *testing.T) {
+	h := newEngineHarness(t, "Plan Left Behind Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, twoFlowsIntoOneStep(h.projID, "plan-left-behind"), nil)
+	open := openIterationTasks(ctx, t, h, id, "check")
+	if err := h.svc.CompleteTask(ctx, open[0].ID, "rita", nil); err != nil {
+		t.Fatalf("complete one of the two: %v", err)
+	}
+	if on, left := tokensOn(t, h, id, "check"), len(openIterationTasks(ctx, t, h, id, "check")); on != 0 || left != 1 {
+		t.Fatalf("after one completion the step holds %d token(s) and %d open task(s); this test needs none and one", on, left)
+	}
+
+	plan := w.preview(t, deviationCommand(entities.DeviationCancel, id, "pack", nil))
+	want := []string{
+		"“Check the order” is still open though the instance is not waiting there; it will be withdrawn.",
+		"“Check the order” is with rita, who will be told it was withdrawn.",
+		"“Pack the order” is with paul, who will be told it was withdrawn.",
+	}
+	if !plan.Applicable() || len(plan.OpenWork) != 2 || !reflect.DeepEqual(plan.Warnings, want) {
+		t.Errorf("%d open, refusals:%s\nwarnings:%s\nwant the warnings:%s", len(plan.OpenWork), lines(plan.Refusals), lines(plan.Warnings), lines(want))
+	}
+	// A hold withdraws nothing, and says nothing of it.
+	if hold := w.preview(t, deviationCommand(entities.DeviationHold, id, "pack", nil)); len(hold.Warnings) != 0 || len(hold.OpenWork) != 1 {
+		t.Errorf("a hold: %d open, warnings:%s", len(hold.OpenWork), lines(hold.Warnings))
+	}
+}
+
+// suspend puts an instance in the suspended state. Nothing in the product
+// suspends one today, so the row is written through the repository: the state
+// is one the store keeps, an instance in it can be made active again, and so
+// it has not ended.
+func suspend(t *testing.T, h engineHarness, id uuid.UUID) {
+	t.Helper()
+	row, err := h.repo.Process().Get(h.Ctx(), id)
+	if err != nil {
+		t.Fatalf("read instance %s: %v", id, err)
+	}
+	row.Status = models.ProcessSuspended
+	if err := h.repo.Process().Update(h.Ctx(), row); err != nil {
+		t.Fatalf("suspend instance %s: %v", id, err)
+	}
+}
+
+// An instance that is suspended has not ended: it can run again. So a called
+// instance that is suspended still stops its caller being cancelled, and a
+// caller that is suspended is still waiting for the instance it called.
+func TestACalledInstanceOrACallerThatIsSuspendedHasNotEnded(t *testing.T) {
+	h := newEngineHarness(t, "Plan Suspended Project")
+	w := newWaiver(h)
+
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "plan-suspended-called",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the supplier", Assignee: "rita"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{{ID: "c1", SourceRef: "start", TargetRef: "review"}, {ID: "c2", SourceRef: "review", TargetRef: "end"}},
+	})
+	caller := w.start(t, callerOf(h.projID, "plan-suspended-caller", "plan-suspended-called"), nil)
+	called := theOneCalledBy(t, h, caller)
+	suspend(t, h, called)
+	around := w.preview(t, deviationCommand(entities.DeviationCancel, caller, "haveItChecked", nil))
+	want := "This instance is waiting on 1 process(es) it started (" + called.String() + "); cancel or finish those first."
+	if !reflect.DeepEqual(around.Refusals, []string{want}) || !reflect.DeepEqual(around.CalledInstances, []uuid.UUID{called}) {
+		t.Errorf("cancelling around a suspended called instance: called %v, refusals:%s\nwant only\n  %s", around.CalledInstances, lines(around.Refusals), want)
+	}
+	waive := w.preview(t, deviationCommand(entities.DeviationWaive, caller, "haveItChecked", nil))
+	if want := "“Have it checked” runs another process; waive the step inside that process (instance " + called.String() + ") instead."; !said(waive.Refusals, want) {
+		t.Errorf("waiving a step whose called instance is suspended:%s\nwant\n  %s", lines(waive.Refusals), want)
+	}
+
+	// The other way round: the caller is suspended, and the instance it
+	// called waits nowhere.
+	h.deploy(t, nothingFollows(h.projID, "plan-suspended-stranded"))
+	waiting := w.start(t, callerOf(h.projID, "plan-suspended-waiting", "plan-suspended-stranded"), nil)
+	stranded := theOneCalledBy(t, h, waiting)
+	finishTheOnlyStep(t, h, stranded)
+	suspend(t, h, waiting)
+	alone := w.preview(t, deviationCommand(entities.DeviationCancel, stranded, "", nil))
+	wantWarning := "This instance was started by another process (instance " + waiting.String() + "), which is still waiting for it and is not resumed by this; cancel or hold that one next."
+	if !alone.Applicable() || !said(alone.Warnings, wantWarning) {
+		t.Errorf("closing an instance whose caller is suspended: refusals:%s\nwarnings:%s\nwant the warning\n  %s", lines(alone.Refusals), lines(alone.Warnings), wantWarning)
+	}
+}
+
+// watchedForms is the stored forms, counting how often one is read and
+// failing when told to.
+type watchedForms struct {
+	repocontracts.FormRepository
+	reads int
+	fail  error
+}
+
+func (f *watchedForms) GetByKey(ctx context.Context, projectID uuid.UUID, key string) (models.FormModel, error) {
+	f.reads++
+	if f.fail != nil {
+		return models.FormModel{}, f.fail
+	}
+	return f.FormRepository.GetByKey(ctx, projectID, key)
+}
+
+// repositoryWatchingForms is a repository whose stored forms are watched.
+type repositoryWatchingForms struct {
+	repositories.Repository
+	forms *watchedForms
+}
+
+func (r repositoryWatchingForms) Form() repocontracts.FormRepository { return r.forms }
+
+// Plan Ruling 8. What a waive may set is what every open run of the step
+// could have set. Runs of one step carry one form, so the forms differ here
+// only because one run's row is rewritten through the repository — a state no
+// release creates today, and one the rule must still hold in.
+//
+// The stored form the runs name is read once for all of them, and a form that
+// cannot be read is an error: it is never taken to declare nothing.
+func TestAWaiveMaySetOnlyWhatEveryOpenRunsFormDeclares(t *testing.T) {
+	h := newEngineHarness(t, "Plan Forms Project")
+	ctx := h.Ctx()
+	if err := h.repo.Form().Create(ctx, models.FormModel{
+		Base: models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))}, ProjectID: models.FromUUID(h.projID),
+		Key: "purchase-approval", Name: "Purchase approval",
+		Schema: map[string]any{"fields": []any{map[string]any{"id": "comment", "label": "Comment", "type": "text"}}},
+	}); err != nil {
+		t.Fatalf("store the form: %v", err)
+	}
+	def := approvalDefinition(h.projID, "plan-forms", "parallel", "")
+	def.Nodes[1].FormKey = "purchase-approval"
+	id := startApproval(t, h, def, "ana", "budi", "citra")
+
+	forms := &watchedForms{FormRepository: h.repo.Form()}
+	w := newWaiver(h)
+	w.svc = serviceimpl.NewInstanceDeviationService(repositoryWatchingForms{Repository: h.repo, forms: forms}, h.engine)
+
+	// Every run declares decision itself and comment through the stored form.
+	same := w.preview(t, deviationCommand(entities.DeviationWaive, id, "approve", map[string]any{"decision": "yes", "comment": "waived"}))
+	if !same.Applicable() || len(same.OpenWork) != 3 {
+		t.Fatalf("three runs with one form: %d open, refusals:%s", len(same.OpenWork), lines(same.Refusals))
+	}
+	if forms.reads != 1 {
+		t.Errorf("the stored form was read %d times for three runs that name it, want once", forms.reads)
+	}
+
+	// One run's form now declares amount as well.
+	open := openIterationTasks(ctx, t, h, id, "approve")
+	row, err := h.repo.Task().Get(ctx, open[0].ID)
+	if err != nil {
+		t.Fatalf("read a run's task: %v", err)
+	}
+	row.FormDefinition = `[{"id":"decision","label":"Decision","type":"text"},{"id":"amount","label":"Amount","type":"number"}]`
+	if err := h.repo.Task().Update(ctx, row); err != nil {
+		t.Fatalf("rewrite a run's form: %v", err)
+	}
+	some := w.preview(t, deviationCommand(entities.DeviationWaive, id, "approve", map[string]any{"decision": "yes", "amount": 900}))
+	want := "amount is not declared by every open task of “Approve the purchase”, so a waiver cannot supply it."
+	if !reflect.DeepEqual(some.Refusals, []string{want}) {
+		t.Errorf("a value only one run's form declares:%s\nwant only\n  %s", lines(some.Refusals), want)
+	}
+	if every := w.preview(t, deviationCommand(entities.DeviationWaive, id, "approve", map[string]any{"decision": "yes"})); !every.Applicable() {
+		t.Errorf("a value every run's form declares was refused:%s", lines(every.Refusals))
+	}
+
+	// A form that cannot be read fails the plan.
+	forms.fail = errors.New("the forms cannot be read just now")
+	command := deviationCommand(entities.DeviationWaive, id, "approve", map[string]any{"decision": "yes"})
+	command.DryRun = true
+	if out, err := w.svc.DeviateInstance(w.ctx, command); !errors.Is(err, forms.fail) {
+		t.Errorf("with the stored form unreadable: %v, plan %+v; want the read's error and no plan", err, out.Plan)
+	}
+}
+
+// engineThatLostTheVersion is the engine answering that the version an
+// instance runs is not there.
+type engineThatLostTheVersion struct {
+	servicecontracts.ExecutionEngine
+}
+
+func (engineThatLostTheVersion) GetProcessDefinition(context.Context, uuid.UUID) (*entities.ProcessDefinition, error) {
+	return nil, fmt.Errorf("%w: no such process definition", apierr.ErrNotFound)
+}
+
+// An administrator who may read the instance asked about an instance that is
+// there. If the version it runs cannot be found, that is the server's trouble
+// and is answered as that — not as "not found", which over the route is a 404
+// and says the instance does not exist.
+func TestAnInstanceWhoseVersionIsGoneIsNotAnsweredAsNoSuchInstance(t *testing.T) {
+	h := newEngineHarness(t, "Plan Lost Version Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "plan-lost-version"), nil)
+	w.svc = serviceimpl.NewInstanceDeviationService(h.repo, engineThatLostTheVersion{h.engine})
+
+	command := deviationCommand(entities.DeviationHold, id, "opsApprove", nil)
+	command.DryRun = true
+	_, err := w.svc.DeviateInstance(w.ctx, command)
+	if err == nil || errors.Is(err, apierr.ErrNotFound) || errors.Is(err, apierr.ErrInvalidArgument) || errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("got %v; want an error that is none of the caller's doing", err)
+	}
+	if !strings.Contains(err.Error(), "is not there") {
+		t.Errorf("the error %q does not say what is missing", err)
+	}
+}
+
+// A plan reads no more than 64 decision tables, whatever the process
+// consults. A step whose decision was left unread for that is told so in
+// words — reading it again would not help — and the steps a plan does not
+// name one by one are counted.
+func TestAPlanSaysWhichDecisionsItDidNotReadForTheirNumber(t *testing.T) {
+	h := newEngineHarness(t, "Plan Many Decisions Project")
+	w := newWaiver(h)
+	def := &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "plan-many-decisions",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita", Properties: testutils.FormDeclaring("approved")},
+		},
+		Flows: []*entities.SequenceFlow{{ID: "f0", SourceRef: "start", TargetRef: "review"}},
+	}
+	// Seventy steps, each consulting a decision of its own that nobody
+	// stored. The first sixty-four are looked for; the last six are listed
+	// first, by their ids, so that what is said of them is seen.
+	previous := "review"
+	for i := range 70 {
+		id := fmt.Sprintf("z-looked-for-%02d", i)
+		if i >= 64 {
+			id = fmt.Sprintf("a-past-the-bound-%02d", i)
+		}
+		def.Nodes = append(def.Nodes, &entities.Node{ID: id, Type: entities.BusinessRuleTask, Name: fmt.Sprintf("Rule %02d", i),
+			Properties: map[string]any{"decision_key": fmt.Sprintf("policy-%02d", i)}})
+		def.Flows = append(def.Flows, &entities.SequenceFlow{ID: fmt.Sprintf("f%02d", i+1), SourceRef: previous, TargetRef: id})
+		previous = id
+	}
+	def.Nodes = append(def.Nodes, &entities.Node{ID: "end", Type: entities.EndEvent})
+	def.Flows = append(def.Flows, &entities.SequenceFlow{ID: "f-end", SourceRef: previous, TargetRef: "end"})
+	id := w.start(t, def, nil)
+
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true}))
+	if !plan.Applicable() || plan.DecisionPointsInAll != 70 || len(plan.DecisionPoints) != 70 {
+		t.Fatalf("%d decision points listed of %d, refusals:%s", len(plan.DecisionPoints), plan.DecisionPointsInAll, lines(plan.Refusals))
+	}
+	want := []string{"“Review the claim” is with rita, who will be told it was withdrawn."}
+	for i := 64; i < 70; i++ {
+		want = append(want, fmt.Sprintf("“Rule %02d” was not read: this process consults more decision tables than one preview reads (64). Check it before applying.", i))
+	}
+	for i := range 4 {
+		want = append(want, fmt.Sprintf("“Rule %02d” could not be read to see what it decides from; check it before applying.", i))
+	}
+	want = append(want, "60 more steps could not be read either; check them before applying.")
+	if !reflect.DeepEqual(plan.Warnings, want) {
+		t.Errorf("the warnings:%s\nwant:%s", lines(plan.Warnings), lines(want))
 	}
 }

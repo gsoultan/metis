@@ -10,7 +10,10 @@ import "github.com/google/uuid"
 type DeviationOpenWork struct {
 	TaskID uuid.UUID
 	Name   string
-	Status TaskStatus
+	// NodeID and NodeName are the step the task is on, the name falling back
+	// to the id. A cancel lists the open work of every step of the instance.
+	NodeID, NodeName string
+	Status           TaskStatus
 	// Assignee is who holds the task, or empty when nobody does.
 	Assignee string
 	// IterationID names the run of a repeating step the task is for, and is

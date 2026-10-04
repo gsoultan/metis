@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,14 +12,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// maxNamesListed is how many names a sentence of a plan spells out before it
-// says how many more there are. The names come from a process somebody wrote
-// — its fields, the instances it started — and a sentence is for reading.
-const maxNamesListed = 10
+// A process is somebody's input and a plan goes back over the wire, so a plan
+// has a size whatever the process: the decision points it lists, and the
+// steps its sentences name one by one before they count the rest. The names
+// inside a sentence are cut the way a refused completion cuts them
+// (shownNames).
+const (
+	maxDecisionPointsListed = 100
+	maxPointsNamed          = 10
+)
 
 // planning is one plan being made: what was read of the instance, and the
 // plan so far.
@@ -30,9 +37,9 @@ type planning struct {
 	// node is the step the command names: nil when it names none, and when
 	// the process has no such step.
 	node *entities.Node
-	// open is the open tasks where the command acts — on the step, or
-	// anywhere on the instance for a cancel that names no step — in the order
-	// of their ids.
+	// open is the open tasks where the command acts — on the step for a waive
+	// and a hold, anywhere on the instance for a cancel — in the order of
+	// their ids.
 	open []models.TaskModel
 	plan entities.DeviationPlan
 }
@@ -76,13 +83,21 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 		return nil, fmt.Errorf("planning for instance %s: it names no version of a process", instance.ID)
 	}
 	def, err := s.engine.GetProcessDefinition(ctx, instance.Definition.ID)
+	if errors.Is(err, apierr.ErrNotFound) {
+		// The caller may read the instance, so this is not "no such instance":
+		// an instance whose version is gone is the server's trouble, and is
+		// answered as that — not with the not-found the read of the version
+		// gave, which would say the instance is not there. The cause is kept
+		// as words and deliberately not wrapped.
+		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there (%s)", instance.ID, instance.Definition.ID, err.Error())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reading the process instance %s runs: %w", instance.ID, err)
 	}
 	if def == nil {
-		return nil, fmt.Errorf("reading the process instance %s runs: there is no version %s", instance.ID, instance.Definition.ID)
+		return nil, fmt.Errorf("reading the process instance %s runs: version %s is not there", instance.ID, instance.Definition.ID)
 	}
-	open, err := s.openWhereItActs(ctx, instance.ID, command.NodeID)
+	open, err := s.openWhereItActs(ctx, instance.ID, command)
 	if err != nil {
 		return nil, err
 	}
@@ -102,17 +117,19 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 	for _, task := range open {
 		ids = append(ids, uuid.UUID(task.ID))
 		p.plan.OpenWork = append(p.plan.OpenWork, entities.DeviationOpenWork{
-			TaskID: uuid.UUID(task.ID), Name: taskName(task), Status: entities.TaskStatus(task.Status),
-			Assignee: task.Assignee, IterationID: task.IterationID,
+			TaskID: uuid.UUID(task.ID), Name: taskName(task), NodeID: task.NodeID, NodeName: p.stepName(task.NodeID),
+			Status: entities.TaskStatus(task.Status), Assignee: task.Assignee, IterationID: task.IterationID,
 		})
 	}
 	p.plan.VisitKey = deviationVisitKey(instance, command.Kind, command.NodeID, ids)
 	return p, nil
 }
 
-// openWhereItActs is the tasks still somebody's to do where a command acts:
-// on the step it names, or anywhere on the instance when it names none. They
-// are sorted by id, so the same work reads the same way twice.
+// openWhereItActs is the tasks still somebody's to do where a command acts,
+// sorted by id so the same work reads the same way twice: those on the step
+// for a waive and a hold, and every one the instance has for a cancel. A
+// cancel withdraws them all whichever step it names, and an administrator is
+// shown everything the act would take.
 //
 // The tasks are read as they stand, with no row held: a plan is a preview,
 // and a preview makes nobody wait. So what it lists can be claimed, handed
@@ -120,19 +137,29 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 // what the visit key is made from — not what was withdrawn. The record of an
 // act is written from the rows the act itself held (nodeActions.waive and
 // cancel return them), never from a plan's open work.
-func (s *instanceDeviationService) openWhereItActs(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]models.TaskModel, error) {
+func (s *instanceDeviationService) openWhereItActs(ctx context.Context, instanceID uuid.UUID, command entities.DeviationCommand) ([]models.TaskModel, error) {
 	tasks, err := s.repo.Task().ListByInstance(ctx, instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("reading the tasks of instance %s: %w", instanceID, err)
 	}
+	everywhere := command.Kind == entities.DeviationCancel || command.NodeID == ""
 	var open []models.TaskModel
 	for _, task := range tasks {
-		if openTask(task.Status) && (nodeID == "" || task.NodeID == nodeID) {
+		if openTask(task.Status) && (everywhere || task.NodeID == command.NodeID) {
 			open = append(open, task)
 		}
 	}
 	slices.SortFunc(open, func(a, b models.TaskModel) int { return bytes.Compare(a.ID[:], b.ID[:]) })
 	return open, nil
+}
+
+// stepName is what the step with an id is called: its name, or the id for a
+// step with no name and for one the process no longer has.
+func (p *planning) stepName(nodeID string) string {
+	if node := p.def.FindNode(nodeID); node != nil && node.Name != "" {
+		return node.Name
+	}
+	return nodeID
 }
 
 // refuse adds a reason the command cannot be applied.
@@ -229,6 +256,17 @@ func taskName(task models.TaskModel) string {
 	return cmp.Or(task.Name, task.NodeID)
 }
 
+// hasEnded reports whether an instance will not run again: it finished, it
+// failed or it was cancelled. One that is suspended has not, and neither has
+// one in a state this does not know.
+func hasEnded(status entities.ProcessStatus) bool {
+	switch status {
+	case entities.ProcessCompleted, entities.ProcessFailed, entities.ProcessCancelled:
+		return true
+	}
+	return false
+}
+
 // idsAsText is ids as they are written.
 func idsAsText(ids []uuid.UUID) []string {
 	text := make([]string, len(ids))
@@ -238,19 +276,38 @@ func idsAsText(ids []uuid.UUID) []string {
 	return text
 }
 
-// listed sets names out for a sentence: "a", "a and b", "a, b and c", and
-// past maxNamesListed the first of them and how many more there are.
-func listed(names []string) string {
-	switch {
-	case len(names) == 0:
-		return ""
-	case len(names) == 1:
-		return names[0]
-	case len(names) > maxNamesListed:
-		return fmt.Sprintf("%s and %d more", strings.Join(names[:maxNamesListed], ", "), len(names)-maxNamesListed)
+// namesShown words names for a sentence of a plan, as a refused completion
+// words them (shownNames): the first few, each cut to a length somebody would
+// read, and how many more. A name that is empty is shown as one — "" — and
+// never as a gap.
+func namesShown(names []string) string {
+	shown, more := shownNames(names)
+	for i, name := range shown {
+		if name == "" {
+			shown[i] = `""`
+		}
 	}
-	last := len(names) - 1
-	return strings.Join(names[:last], ", ") + " and " + names[last]
+	return joinShown(shown, more)
+}
+
+// quotedNamesShown is namesShown for the names of steps, each in the quotes a
+// step's name is shown in.
+func quotedNamesShown(names []string) string {
+	shown, more := shownNames(names)
+	for i, name := range shown {
+		shown[i] = "“" + name + "”"
+	}
+	return joinShown(shown, more)
+}
+
+// joinShown sets out names already cut for showing, and how many were left
+// out.
+func joinShown(shown []string, more int) string {
+	text := strings.Join(shown, ", ")
+	if more > 0 {
+		text = fmt.Sprintf("%s and %d more", text, more)
+	}
+	return text
 }
 
 // itOrThem is the word for one thing or for several.

@@ -24,14 +24,14 @@ const (
 
 // deviationVisitKey identifies the work a command would act on: this kind of
 // act, on this instance, at this step of this version of its process, while
-// exactly these tasks are open there and exactly these tokens rest there.
+// exactly these tasks are open and exactly these tokens rest where it acts.
 //
 // It is derived and not drawn, so asking twice gives the same key: a retry of
 // an apply finds the row the first attempt wrote, and an apply names the plan
 // it previewed by repeating its key. And it changes when the work does — a
-// task of the step completed, withdrawn or started, a token arrived or gone,
-// the instance moved to another version — so an apply made for work that has
-// since changed is told to preview again.
+// task completed, withdrawn or started, a token arrived or gone, the instance
+// moved to another version — so an apply made for work that has since changed
+// is told to preview again.
 //
 // What goes in, and why:
 //
@@ -39,16 +39,21 @@ const (
 //     is another step;
 //   - the kind: a hold and a waive of one visit are two acts;
 //   - the step, or none;
-//   - the ids of the open tasks the plan lists, which its caller hands in;
-//   - the ids of the tokens on the step. A cancel that names no step is about
-//     the whole instance, so it takes every token: one arriving anywhere is a
-//     different visit.
+//   - the ids of the open tasks the plan lists, which its caller hands in:
+//     the step's for a waive and a hold, every one the instance has for a
+//     cancel;
+//   - the ids of the tokens where the command acts: on the step for a waive
+//     and a hold, and every token for a cancel. A cancel ends the whole
+//     instance and withdraws everything open on it, whichever step it names,
+//     so a token arriving anywhere or a task opening on another branch is a
+//     different visit: what the administrator was shown is no longer what
+//     would be taken.
 //
 // What stays out is everything that changes while the work is the same: who
 // holds a task and whether they claimed it, the instance's variables, its
-// status (an apply asks that of the row it locks), a token on another step.
-// With any of those in, a preview could not be applied on an instance
-// somebody else is working on.
+// status (an apply asks that of the row it locks), and for a waive and a hold
+// a token on another step. With any of those in, a preview could not be
+// applied on an instance somebody else is working on.
 //
 // Each part is written with its length before it and each list with its
 // count, so no part can be mistaken for another: a step's id is its author's
@@ -66,16 +71,18 @@ func deviationVisitKey(instance entities.ProcessInstance, kind entities.Deviatio
 	writeKeyPart(h, []byte(kind))
 	writeKeyPart(h, []byte(nodeID))
 	writeKeyIDs(h, openTaskIDs)
-	writeKeyIDs(h, tokenIDsOn(instance, nodeID))
+	writeKeyIDs(h, tokenIDsWhere(instance, kind, nodeID))
 	return visitKeyVersion + base64.RawURLEncoding.EncodeToString(h.Sum(nil))[:visitKeyLength]
 }
 
-// tokenIDsOn is the ids of the tokens an instance holds on a step, and of all
-// it holds when no step is named.
-func tokenIDsOn(instance entities.ProcessInstance, nodeID string) []uuid.UUID {
+// tokenIDsWhere is the ids of the tokens an instance holds where a command
+// acts: on the step, or all of them for a cancel and for a command that names
+// no step.
+func tokenIDsWhere(instance entities.ProcessInstance, kind entities.DeviationKind, nodeID string) []uuid.UUID {
+	everywhere := kind == entities.DeviationCancel || nodeID == ""
 	var ids []uuid.UUID
 	for _, token := range instance.Tokens {
-		if nodeID == "" || (token.Node != nil && token.Node.ID == nodeID) {
+		if everywhere || (token.Node != nil && token.Node.ID == nodeID) {
 			ids = append(ids, token.ID)
 		}
 	}

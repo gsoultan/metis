@@ -124,5 +124,5 @@ func nullOutputs(names []string) error {
 	if len(names) == 1 {
 		return apierr.Invalidf("output %s is null: say what the waiver counts as, or leave it out", names[0])
 	}
-	return apierr.Invalidf("outputs %s are null: say what the waiver counts as, or leave them out", listed(names))
+	return apierr.Invalidf("outputs %s are null: say what the waiver counts as, or leave them out", namesShown(names))
 }
