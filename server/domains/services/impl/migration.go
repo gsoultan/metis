@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -33,6 +34,10 @@ type migrationService struct {
 	// completed on a node the instance was never started on, with nothing to
 	// explain how it got there — and the OCEL export inherits that gap.
 	audit servicecontracts.AuditWriter
+	// ledger records each skip, cancel and hold, and each acknowledged control
+	// loss, in the transaction that makes it. A ledger that cannot be written
+	// refuses the decision rather than letting it happen unrecorded.
+	ledger servicecontracts.DeviationRecorder
 }
 
 // NewMigrationService creates a new MigrationService implementation.
@@ -40,7 +45,7 @@ func NewMigrationService(
 	repo repositories.Repository,
 	engine servicecontracts.ExecutionEngine,
 ) servicecontracts.MigrationService {
-	s := &migrationService{repo: repo, engine: engine}
+	s := &migrationService{repo: repo, engine: engine, ledger: NewDeviationLedger(repo)}
 	if repo != nil && repo.Audit() != nil {
 		s.audit = NewAuditWriter(repo.Audit())
 	}
@@ -64,18 +69,26 @@ func NewMigrationService(
 // half-migrated instance is worse than a refused migration — the caller can retry
 // a refusal, and cannot un-strand a token.
 func (s *migrationService) MigrateInstances(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) error {
+	_, err := s.ApplyInstanceMigration(ctx, sourceDefID, targetDefID, nodeMapping, opts...)
+	return err
+}
+
+// ApplyInstanceMigration is MigrateInstances, and says what the run did: how
+// many instances it acted on, and which it left alone because they were no
+// longer where the plan found them.
+func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
 	// Every refusal is worked out by the planner, so what a dry run showed and
 	// what an apply does cannot disagree. Two copies of these checks is how a
 	// preview comes to say "this is fine" about something the apply rejects.
 	plan, err := s.PlanInstanceMigration(ctx, sourceDefID, targetDefID, nodeMapping, opts...)
 	if err != nil {
-		return err
+		return entities.MigrationResult{}, err
 	}
 	if !plan.Applicable() {
-		return apierr.Invalidf("%s", strings.Join(plan.Refusals, "; "))
+		return entities.MigrationResult{}, apierr.Invalidf("%s", strings.Join(plan.Refusals, "; "))
 	}
 	if plan.Instances == 0 {
-		return nil
+		return entities.MigrationResult{}, nil
 	}
 	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, servicecontracts.ApplyMigrationOptions(opts), plan)
 }
@@ -291,26 +304,31 @@ func noteSuffix(note string) string {
 
 // apply performs the migration. Every refusal has already been made by the
 // planner, so this only writes.
+//
+// It reports what it did. The instances it leaves alone are the ones that, by
+// the time it held their lock, were no longer where its listing found them;
+// they are in the result so the caller can be told, not only in the log.
 func (s *migrationService) apply(
 	ctx context.Context,
 	sourceDefID, targetDefID uuid.UUID,
 	nodeMapping map[string]string,
 	options servicecontracts.MigrationOptions,
 	plan entities.MigrationPlan,
-) error {
+) (entities.MigrationResult, error) {
+	var result entities.MigrationResult
 	source, err := s.repo.Definition().Get(ctx, sourceDefID)
 	if err != nil {
-		return fmt.Errorf("source definition: %w", err)
+		return result, fmt.Errorf("source definition: %w", err)
 	}
 	target, err := s.repo.Definition().Get(ctx, targetDefID)
 	if err != nil {
-		return fmt.Errorf("target definition: %w", err)
+		return result, fmt.Errorf("target definition: %w", err)
 	}
 	targetNodes := nodeIndex(target.Nodes)
 
 	instances, err := s.repo.Process().ListByDefinition(ctx, sourceDefID)
 	if err != nil {
-		return fmt.Errorf("failed to list instances for migration: %w", err)
+		return result, fmt.Errorf("failed to list instances for migration: %w", err)
 	}
 	instances, _ = selectInstances(instances, options.Instances)
 
@@ -334,26 +352,49 @@ func (s *migrationService) apply(
 		// an instance that was cancelled or finished by a skip is not migrated
 		// at all: it will never run again, and its record should name the
 		// version it actually ran on.
-		carryOn, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
+		made, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
-			return fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
+			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
 				"run the same migration again to carry on from here)", err, done, len(instances))
 		}
-		if !carryOn {
+		if made.wrote {
+			result.Changed++
+		}
+		switch made.outcome {
+		case outcomeDealtWith:
 			done++
 			continue
+		case outcomeMovedOn:
+			// Passed over as an instance that finished meanwhile is, further
+			// down: not counted among those dealt with, and still on the
+			// source version for the next run. Said in the result, for whoever
+			// asked for the migration, and in the log.
+			result.PassedOver = append(result.PassedOver, passedOver(instance, leftTheStep(source, made.left)))
+			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
+				Msg("A migration passed over an instance that was no longer where its listing found it. " +
+					"It stays on the version it is running; run the same migration again to plan for where it is now")
+			continue
+		case outcomeMove:
 		}
 		if len(options.Actions) > 0 {
 			// A skip moved the tokens, so the copy read before it is stale.
 			refreshed, readErr := s.repo.Process().Get(ctx, uuid.UUID(instance.ID))
 			if readErr != nil {
-				return fmt.Errorf("re-reading instance %s: %w", instance.ID, readErr)
+				return result, fmt.Errorf("re-reading instance %s: %w", instance.ID, readErr)
 			}
 			instance = refreshed
 		}
 
 		moved := map[string]string{}
 		settled := false
+		// The instance_migrated entry is written after the rewrite commits, but
+		// the control-loss rows written inside it point at that entry, so its id
+		// is chosen first.
+		entryID, err := uuid.NewV7()
+		if err != nil {
+			return result, err
+		}
+		var waived []entities.ComplianceHold
 		err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 			// Hold the instance for the whole rewrite, and work from the row the
 			// lock returns rather than the one the listing did.
@@ -372,6 +413,13 @@ func (s *migrationService) apply(
 			if fresh.Status != models.ProcessActive {
 				settled = true
 				return nil
+			}
+			// Worked out from the locked row's own completed steps, before they
+			// are re-pointed at the new graph: the ledger and the migration's
+			// narrative then name the same losses.
+			waived = controlsNotPassed(plan.ComplianceHolds, fresh.CompletedNodes)
+			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID); err != nil {
+				return err
 			}
 			instance = fresh
 			instance.DefinitionID = models.UUID(targetDefID)
@@ -431,17 +479,40 @@ func (s *migrationService) apply(
 			return s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes)
 		})
 		if err != nil {
-			return fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
+			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
 				"dealt with; run the same migration again to carry on from here)",
 				instance.ID, err, done, len(instances))
 		}
 		if settled {
+			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
 			continue
 		}
-		s.recordMigration(ctx, instance, source, target, moved, options, plan, runID)
+		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
 		done++
+		if !made.wrote {
+			result.Changed++
+		}
 	}
 
+	return result, nil
+}
+
+// recordControlLosses enters in the instance's ledger each acknowledged control
+// step it loses, in the rewrite's transaction: a loss that cannot be recorded
+// is a rewrite that does not happen.
+func (s *migrationService) recordControlLosses(
+	ctx context.Context,
+	instance models.ProcessInstanceModel,
+	sourceDefID uuid.UUID,
+	waived []entities.ComplianceHold,
+	options servicecontracts.MigrationOptions,
+	runID, entryID uuid.UUID,
+) error {
+	for _, row := range controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID) {
+		if _, err := s.ledger.Record(ctx, row); err != nil {
+			return fmt.Errorf("recording that instance %s loses %q: %w", instance.ID, row.Node.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -451,14 +522,17 @@ func (s *migrationService) apply(
 // rolled back because the audit write failed, and an audit entry for a
 // migration that did not happen is worse than a missing one. A lost entry is
 // logged loudly because the trail is what somebody will be asked for later.
+//
+// entryID is the id the instance's control-loss ledger rows already point at,
+// and waived the losses those rows record.
 func (s *migrationService) recordMigration(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
 	source, target models.ProcessDefinitionModel,
 	moved map[string]string,
 	options servicecontracts.MigrationOptions,
-	plan entities.MigrationPlan,
-	runID uuid.UUID,
+	waivedHolds []entities.ComplianceHold,
+	runID, entryID uuid.UUID,
 ) {
 	if s.audit == nil {
 		return
@@ -469,10 +543,7 @@ func (s *migrationService) recordMigration(
 	}
 	slices.Sort(pairs)
 
-	actor := options.Actor
-	if actor == "" {
-		actor = "System"
-	}
+	actor := migrationActor(options)
 	narrative := fmt.Sprintf("This instance was moved from version %d to version %d of %q by a migration, authorised by %s.",
 		source.Version, target.Version, target.Key, actor)
 	if len(pairs) > 0 {
@@ -480,13 +551,10 @@ func (s *migrationService) recordMigration(
 	}
 
 	// Which control-bearing steps this instance lost, and only the ones it had
-	// not already performed. An instance that passed the approval before the
-	// cutover did not waive anything and must not read as though it did.
+	// not already performed — worked out once, before the rewrite, so this
+	// entry and the ledger rows that point at it agree.
 	var waived []string
-	for _, hold := range plan.ComplianceHolds {
-		if slices.Contains(instance.CompletedNodes, hold.NodeID) {
-			continue
-		}
+	for _, hold := range waivedHolds {
 		waived = append(waived, hold.NodeID)
 	}
 	if len(waived) > 0 {
@@ -495,7 +563,7 @@ func (s *migrationService) recordMigration(
 	}
 
 	entry := entities.AuditEntry{
-		ID:        uuid.New(),
+		ID:        entryID,
 		Type:      EventInstanceMigrated,
 		Message:   fmt.Sprintf("migrated from version %d to version %d", source.Version, target.Version),
 		Narrative: narrative,
@@ -1012,10 +1080,20 @@ func (s *migrationService) actionRefusals(
 				action.Kind, nodeID))
 			continue
 		}
-		if strings.TrimSpace(action.Reason) == "" {
+		reason := strings.TrimSpace(action.Reason)
+		if reason == "" {
 			out = append(out, fmt.Sprintf(
 				"%s of %q needs a reason: without one the trail cannot tell a step nobody performed "+
 					"from a step somebody did", action.Kind, nodeID))
+		}
+		// Counted as the ledger counts it — characters, after the spaces around
+		// it are dropped — and refused here, where a dry run shows it. Left to
+		// the ledger, it would stop an apply at the first instance on this
+		// node, after the ones ahead of it had already been moved.
+		if utf8.RuneCountInString(reason) > entities.MaxDeviationReasonLength {
+			out = append(out, fmt.Sprintf(
+				"%s of %q has a reason longer than %d characters, which is more than its record can hold; shorten it",
+				action.Kind, nodeID, entities.MaxDeviationReasonLength))
 		}
 		if _, mapped := nodeMapping[nodeID]; mapped {
 			out = append(out, fmt.Sprintf(
@@ -1076,7 +1154,16 @@ func plannedActions(sourceNodes map[string]models.FlowNode, actions map[string]s
 // that then fails — leaves the instance past a node that was going away anyway,
 // still on the version it started on, and still correct.
 //
-// Reports whether the instance should go on to be migrated at all.
+// The copy of the instance it is given is the listing's, and as old as the run
+// has been going. It only chooses which action to try: each action asks again,
+// under the instance's lock, whether the instance is still running and still on
+// that step, and acts on nothing else. One that is not is left alone
+// altogether (outcomeMovedOn) — a holder who completed the step meanwhile gave
+// the approval, and advancing past it again would be a second advance.
+//
+// Reports what the run should do with the instance next, which step it was
+// found to have left when it is to be passed over, and whether anything was
+// written to it.
 func (s *migrationService) decide(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1084,9 +1171,9 @@ func (s *migrationService) decide(
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
 	runID uuid.UUID,
-) (carryOn bool, err error) {
+) (decision, error) {
 	if len(options.Actions) == 0 {
-		return true, nil
+		return decision{outcome: outcomeMove}, nil
 	}
 	instanceID := uuid.UUID(instance.ID)
 
@@ -1097,10 +1184,8 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionCancel || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
-			return false, err
-		}
-		return false, nil
+		cancelled, err := s.cancelInstance(ctx, instance, nodeID, action, options, source, target, runID)
+		return settledOr(cancelled, nodeID), err
 	}
 
 	for _, nodeID := range sortedKeys(options.Actions) {
@@ -1108,25 +1193,27 @@ func (s *migrationService) decide(
 		if action.Kind != servicecontracts.NodeActionHold || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID); err != nil {
-			return false, err
-		}
-		return false, nil
+		held, err := s.holdInstance(ctx, instance, nodeID, action, options, source, target, runID)
+		return settledOr(held, nodeID), err
 	}
 
-	var skipped []string
+	skips := 0
 	for _, nodeID := range sortedKeys(options.Actions) {
 		action := options.Actions[nodeID]
 		if action.Kind != servicecontracts.NodeActionSkip || !holdsWork(instance, nodeID) {
 			continue
 		}
-		if err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID); err != nil {
-			return false, err
+		skipped, err := s.skipNode(ctx, instanceID, sourceDefID, nodeID, action, instance, source, target, options, runID)
+		if err != nil || !skipped {
+			// Not on the step any more: the plan no longer describes this
+			// instance, so nothing further is decided about it in this run.
+			// A skip made before this one stands, and is said to have been.
+			return decision{outcome: outcomeMovedOn, left: nodeID, wrote: skips > 0}, err
 		}
-		skipped = append(skipped, nodeID)
+		skips++
 	}
-	if len(skipped) == 0 {
-		return true, nil
+	if skips == 0 {
+		return decision{outcome: outcomeMove}, nil
 	}
 
 	// The engine moved the instance, so anything read before this is stale. A
@@ -1134,13 +1221,30 @@ func (s *migrationService) decide(
 	// last step — and there is then nothing left to migrate.
 	refreshed, err := s.repo.Process().Get(ctx, instanceID)
 	if err != nil {
-		return false, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
+		return decision{outcome: outcomeDealtWith, wrote: true}, fmt.Errorf("re-reading instance %s after a skip: %w", instanceID, err)
 	}
-	return refreshed.Status == models.ProcessActive, nil
+	if refreshed.Status != models.ProcessActive {
+		return decision{outcome: outcomeDealtWith, wrote: true}, nil
+	}
+	return decision{outcome: outcomeMove, wrote: true}, nil
+}
+
+// settledOr is what a cancel or a hold at nodeID made of an instance: dealt
+// with when the action found it where the listing said, and moved on from that
+// step, with nothing written, when it did not.
+func settledOr(found bool, nodeID string) decision {
+	if found {
+		return decision{outcome: outcomeDealtWith, wrote: true}
+	}
+	return decision{outcome: outcomeMovedOn, left: nodeID}
 }
 
 // skipNode cancels the work parked on one node and advances the instance past
 // it as though it had been performed.
+//
+// It reports whether it did. An instance found, once locked, to have finished
+// or to hold no token on the node is not skipped: nothing is withdrawn,
+// advanced or recorded.
 func (s *migrationService) skipNode(
 	ctx context.Context,
 	instanceID, sourceDefID uuid.UUID,
@@ -1150,16 +1254,16 @@ func (s *migrationService) skipNode(
 	source, target models.ProcessDefinitionModel,
 	options servicecontracts.MigrationOptions,
 	runID uuid.UUID,
-) error {
+) (skipped bool, err error) {
 	if s.engine == nil {
-		return apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
+		return false, apierr.Invalidf("skipping %q needs the execution engine, and this deployment was wired without one", nodeID)
 	}
 	// One unit of work. Withdrawing the task and advancing past the step each
 	// committed on their own, so an advance that failed — a gateway after the
 	// step with no branch to take — left the task withdrawn and the token on
 	// the step: nobody could do the work, and nothing would move the instance
 	// on. Now a failed advance puts the task back as it was.
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// The instance first, then its task, the order CompleteTask takes
 		// them in: a completion racing the skip waits here, and then finds
 		// the task withdrawn rather than performing a step already advanced
@@ -1168,7 +1272,16 @@ func (s *migrationService) skipNode(
 		if err != nil {
 			return fmt.Errorf("reading instance %s to skip %q: %w", instanceID, nodeID, err)
 		}
-		if err := s.cancelTasksOn(txCtx, instanceID, nodeID); err != nil {
+		// And the other way round: a completion that won the race has already
+		// advanced the instance past the step. Asked of the locked row, because
+		// the copy that said "it is parked here" was read before the lock.
+		// Advancing again would put a second token after the step and record
+		// as waived an approval its holder gave.
+		if skipped = parkedOn(live, nodeID); !skipped {
+			return nil
+		}
+		withdrawn, err := s.cancelTasksOn(txCtx, instanceID, nodeID)
+		if err != nil {
 			return err
 		}
 		def, err := s.engine.GetProcessDefinition(txCtx, sourceDefID)
@@ -1181,9 +1294,20 @@ func (s *migrationService) skipNode(
 		if err := s.engine.Proceed(txCtx, &live, def, nodeID); err != nil {
 			return fmt.Errorf("advancing instance %s past %q: %w", instanceID, nodeID, err)
 		}
-		s.recordDecision(txCtx, instance, source, target, nodeID, action, options, runID)
+		// Recorded in the same unit of work: a skip the ledger cannot hold is
+		// a skip that does not happen, and the task goes back as it was.
+		if err := s.recordDecision(txCtx, decisionRecord{
+			instance: instance, definitionID: sourceDefID, source: source, target: target,
+			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: withdrawn,
+		}); err != nil {
+			return fmt.Errorf("skipping a step of instance %s: %w", instanceID, err)
+		}
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	return skipped, nil
 }
 
 // cancelInstance ends an instance where it stands.
@@ -1193,6 +1317,10 @@ func (s *migrationService) skipNode(
 // Pending timers are left alone deliberately — JobRepository has no delete, and
 // timerStillApplies already refuses to fire one for an instance that is not
 // active, which is the same thing a terminate end event relies on.
+//
+// It reports whether it did. An instance found, once locked, to have finished
+// or to have left nodeID is not one of the instances the cancel was asked to
+// end, and is left running.
 func (s *migrationService) cancelInstance(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1201,16 +1329,19 @@ func (s *migrationService) cancelInstance(
 	options servicecontracts.MigrationOptions,
 	source, target models.ProcessDefinitionModel,
 	runID uuid.UUID,
-) error {
+) (cancelled bool, err error) {
 	instanceID := uuid.UUID(instance.ID)
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// The locked row, not the listed one, for the same reason apply uses
 		// it: writing a copy read earlier would undo whatever landed in between.
 		fresh, lockErr := s.repo.Process().GetForUpdate(txCtx, instanceID)
 		if lockErr != nil {
 			return lockErr
 		}
-		if fresh.Status != models.ProcessActive {
+		// Still running, and still at the step: the cancel is of the instances
+		// waiting there, and the listing that said this was one of them is as
+		// old as the run.
+		if cancelled = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !cancelled {
 			return nil
 		}
 		instance = fresh
@@ -1218,6 +1349,7 @@ func (s *migrationService) cancelInstance(
 		if err != nil {
 			return err
 		}
+		var withdrawn []models.TaskModel
 		for _, task := range tasks {
 			if !openTask(task.Status) {
 				continue
@@ -1226,6 +1358,7 @@ func (s *migrationService) cancelInstance(
 				return err
 			}
 			s.announceWithdrawal(txCtx, task)
+			withdrawn = append(withdrawn, task)
 		}
 		// Waiting events go with it. An instance that will never run again
 		// cannot honour a subscription, and leaving one means a message arrives
@@ -1241,18 +1374,28 @@ func (s *migrationService) cancelInstance(
 		}
 		instance.Tokens = nil
 		instance.Status = models.ProcessCancelled
-		return s.repo.Process().Update(txCtx, instance)
+		if err := s.repo.Process().Update(txCtx, instance); err != nil {
+			return err
+		}
+		// The ledger row and the trail entry go in with the change: a
+		// cancellation that cannot be recorded leaves the instance running.
+		return s.recordDecision(txCtx, decisionRecord{
+			instance: instance, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
+			nodeID: nodeID, action: action, options: options, runID: runID, withdrawn: withdrawn,
+			instanceBefore: string(models.ProcessActive), instanceAfter: string(models.ProcessCancelled),
+		})
 	})
 	if err != nil {
-		return fmt.Errorf("cancelling instance %s: %w", instanceID, err)
+		return false, fmt.Errorf("cancelling instance %s: %w", instanceID, err)
 	}
-	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
-	return nil
+	return cancelled, nil
 }
 
-// cancelTasksOn cancels the open work parked on one node.
-func (s *migrationService) cancelTasksOn(ctx context.Context, instanceID uuid.UUID, nodeID string) error {
-	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+// cancelTasksOn cancels the open work parked on one node, and returns those
+// tasks as they were before it, for the record of what was withdrawn.
+func (s *migrationService) cancelTasksOn(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]models.TaskModel, error) {
+	var withdrawn []models.TaskModel
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		tasks, err := s.repo.Task().ListByInstance(txCtx, instanceID)
 		if err != nil {
 			return err
@@ -1265,9 +1408,14 @@ func (s *migrationService) cancelTasksOn(ctx context.Context, instanceID uuid.UU
 				return err
 			}
 			s.announceWithdrawal(txCtx, task)
+			withdrawn = append(withdrawn, task)
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return withdrawn, nil
 }
 
 // announceWithdrawal says that a task was taken off somebody's list.
@@ -1310,31 +1458,49 @@ func (s *migrationService) announceWithdrawal(ctx context.Context, task models.T
 	})
 }
 
-// recordDecision writes the trail entry for a step nobody performed.
+// recordDecision writes the ledger row and the trail entry for a step nobody
+// performed, in the caller's unit of work, and makes them name each other: the
+// entry is given its id here, so the row can point at it before it exists.
 //
 // Separate from the migration entry because it is a separate fact, and the one
 // an auditor actually asks about: not "this instance changed version" but "this
 // approval did not happen, and here is who said so and why".
-func (s *migrationService) recordDecision(
-	ctx context.Context,
-	instance models.ProcessInstanceModel,
-	source, target models.ProcessDefinitionModel,
-	nodeID string,
-	action servicecontracts.NodeAction,
-	options servicecontracts.MigrationOptions,
-	runID uuid.UUID,
-) {
+//
+// Its error is the decision's: a skip, cancel or hold that cannot be recorded
+// is not made. The row names its entry even in a wiring with no audit writer
+// (tests only), where no entry is written.
+func (s *migrationService) recordDecision(ctx context.Context, d decisionRecord) error {
+	auditID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	row := decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))
+	row.AuditEntryID = auditID
+	recorded, err := s.ledger.Record(ctx, row)
+	if err != nil {
+		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
+	}
 	if s.audit == nil {
-		return
+		return nil
 	}
-	actor := options.Actor
-	if actor == "" {
-		actor = "System"
+	entry := decisionEntry(d)
+	entry.ID = auditID
+	entry.Data[auditDeviationID] = recorded.ID.String()
+	if err := s.audit.RecordEvent(ctx, entry); err != nil {
+		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
 	}
+	return nil
+}
+
+// decisionEntry is the trail entry of a migration's node action, told the way
+// it always has been.
+func decisionEntry(d decisionRecord) entities.AuditEntry {
+	actor := migrationActor(d.options)
+	nodeID, action, target := d.nodeID, d.action, d.target
 	eventType := EventNodeSkipped
 	narrative := fmt.Sprintf(
 		"%q was skipped without being performed, by %s, when %q moved from version %d to version %d. Reason: %s.",
-		nodeID, actor, target.Key, source.Version, target.Version, action.Reason)
+		nodeID, actor, target.Key, d.source.Version, target.Version, action.Reason)
 	switch action.Kind {
 	case servicecontracts.NodeActionCancel:
 		eventType = EventInstanceCancelled
@@ -1347,29 +1513,21 @@ func (s *migrationService) recordDecision(
 			"This instance was held at %q by %s rather than moved to version %d of %q, and raised as an incident for somebody to decide. Reason: %s.",
 			nodeID, actor, target.Version, target.Key, action.Reason)
 	}
-
-	if err := s.audit.RecordEvent(ctx, entities.AuditEntry{
-		ID:        uuid.New(),
+	return entities.AuditEntry{
 		Type:      eventType,
 		Message:   fmt.Sprintf("%s %s during migration", action.Kind, nodeID),
 		Narrative: narrative,
 		Timestamp: time.Now(),
 		Data: map[string]any{
 			"node_id": nodeID,
-			"run_id":  runID.String(),
+			"run_id":  d.runID.String(),
 			"action":  string(action.Kind),
 			"reason":  action.Reason,
 			"actor":   actor,
 		},
-		Project:  &entities.Project{ID: uuid.UUID(instance.ProjectID)},
-		Instance: &entities.ProcessInstance{ID: uuid.UUID(instance.ID)},
+		Project:  &entities.Project{ID: uuid.UUID(d.instance.ProjectID)},
+		Instance: &entities.ProcessInstance{ID: uuid.UUID(d.instance.ID)},
 		Node:     &entities.Node{ID: nodeID},
-	}); err != nil {
-		log.Error().Err(err).
-			Str("instance", uuid.UUID(instance.ID).String()).
-			Str("node", nodeID).
-			Str("action", string(action.Kind)).
-			Msg("A migration decision was lost; the trail cannot explain why this step never happened")
 	}
 }
 
@@ -1380,6 +1538,21 @@ func (s *migrationService) recordDecision(
 func holdsWork(instance models.ProcessInstanceModel, nodeID string) bool {
 	for _, token := range instance.Tokens {
 		if token.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// parkedOn is holdsWork for the instance as the engine reads it, and asks as
+// well that it is still running: the question a skip puts to the row its lock
+// returned.
+func parkedOn(instance entities.ProcessInstance, nodeID string) bool {
+	if instance.Status != entities.ProcessActive {
+		return false
+	}
+	for _, token := range instance.Tokens {
+		if token.Node != nil && token.Node.ID == nodeID {
 			return true
 		}
 	}
@@ -1473,6 +1646,11 @@ func selectInstances(all []models.ProcessInstanceModel, wanted []uuid.UUID) (kep
 // the right answer is "a person needs to look at this one", and the worst thing
 // to do with that is guess — so this only changes where it is visible, not what
 // it is.
+//
+// It reports whether the instance is held at nodeID: true when it raised the
+// incident and when one was already open there, false for an instance found,
+// once locked, to have finished or to have left the step — nothing is raised
+// or recorded for that one.
 func (s *migrationService) holdInstance(
 	ctx context.Context,
 	instance models.ProcessInstanceModel,
@@ -1481,22 +1659,61 @@ func (s *migrationService) holdInstance(
 	options servicecontracts.MigrationOptions,
 	source, target models.ProcessDefinitionModel,
 	runID uuid.UUID,
-) error {
-	actor := options.Actor
-	if actor == "" {
-		actor = "System"
+) (held bool, err error) {
+	instanceID := uuid.UUID(instance.ID)
+	// One unit of work with the instance locked, as a cancel takes it: a hold
+	// waits behind a completion racing it, and does nothing to an instance that
+	// finished meanwhile or that the completion moved off the step. The
+	// incident, its ledger row and its trail entry go in together, so a hold
+	// that cannot be recorded raises nothing.
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		fresh, err := s.repo.Process().GetForUpdate(txCtx, instanceID)
+		if err != nil {
+			return fmt.Errorf("reading instance %s to hold it: %w", instanceID, err)
+		}
+		if held = fresh.Status == models.ProcessActive && holdsWork(fresh, nodeID); !held {
+			return nil
+		}
+		incidentID, raised, err := s.raiseHoldIncident(txCtx, fresh, nodeID, action, options, source, target)
+		if err != nil || !raised {
+			return err
+		}
+		if err := s.recordDecision(txCtx, decisionRecord{
+			instance: fresh, definitionID: uuid.UUID(fresh.DefinitionID), source: source, target: target,
+			nodeID: nodeID, action: action, options: options, runID: runID, incidentID: incidentID,
+		}); err != nil {
+			return fmt.Errorf("holding instance %s: %w", instanceID, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
+	return held, nil
+}
+
+// raiseHoldIncident raises the incident that holds an instance at nodeID, and
+// reports whether it raised one: an instance already held there keeps its one
+// open incident.
+func (s *migrationService) raiseHoldIncident(
+	ctx context.Context,
+	instance models.ProcessInstanceModel,
+	nodeID string,
+	action servicecontracts.NodeAction,
+	options servicecontracts.MigrationOptions,
+	source, target models.ProcessDefinitionModel,
+) (uuid.UUID, bool, error) {
 	// A held instance stays on the source version, so a second run of the same
 	// migration finds it again. Raising a second incident for the same node
 	// would turn one instance somebody has to look at into a growing pile of
 	// identical rows, which is the fastest way to make an inbox worth ignoring.
 	open, err := s.repo.Incident().ListByInstance(ctx, uuid.UUID(instance.ID))
 	if err != nil {
-		return fmt.Errorf("reading the incidents already on instance %s: %w", instance.ID, err)
+		return uuid.Nil, false, fmt.Errorf("reading the incidents already on instance %s: %w", instance.ID, err)
 	}
 	for _, existing := range open {
 		if existing.NodeID == nodeID && existing.Status == models.IncidentOpen {
-			return nil
+			return uuid.Nil, false, nil
 		}
 	}
 
@@ -1507,14 +1724,14 @@ func (s *migrationService) holdInstance(
 		Status:       models.IncidentOpen,
 		Error: fmt.Sprintf(
 			"held out of the migration from version %d to version %d of %q by %s: %s",
-			source.Version, target.Version, target.Key, actor, action.Reason),
+			source.Version, target.Version, target.Key, migrationActor(options), action.Reason),
 	}
 	incident.ID = models.UUID(uuid.New())
-	if _, err := s.repo.Incident().Create(ctx, incident); err != nil {
-		return fmt.Errorf("raising the incident that holds instance %s: %w", instance.ID, err)
+	created, err := s.repo.Incident().Create(ctx, incident)
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("raising the incident that holds instance %s: %w", instance.ID, err)
 	}
-	s.recordDecision(ctx, instance, source, target, nodeID, action, options, runID)
-	return nil
+	return uuid.UUID(created.ID), true, nil
 }
 
 // disarmedDutyWarnings reports separation-of-duties rules the new version has

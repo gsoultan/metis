@@ -2,7 +2,9 @@ package definition
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
@@ -327,6 +329,28 @@ func MakeCancelScheduledDefinitionEndpoint(s services.ServiceFacade) endpoint.En
 	}
 }
 
+// migrationAuthoriser is who a migration's records will name: the signed-in
+// account, or nobody when no account is signed in — the server acting for
+// itself, which the service records as "System".
+//
+// Only then. An account that is signed in and has no username is a person the
+// records cannot name. It used to be left out here without a word, because
+// asking for the caller's name fails the same way for it as for nobody, and
+// its skip of an approval then read as the server's. It is refused instead, as
+// starting a step inside an ad-hoc sub-process refuses it, and as a server
+// error for the same reason: no request can correct an account with no name.
+func migrationAuthoriser(ctx context.Context) (string, error) {
+	account, signedIn := principal.Account(ctx)
+	if !signedIn {
+		return "", nil
+	}
+	if strings.TrimSpace(account.Username) == "" {
+		return "", errors.New("the account that is signed in has no username, so the migration's records " +
+			"could not say who authorised it; nothing was planned or changed")
+	}
+	return account.Username, nil
+}
+
 // MakeMigrateInstancesEndpoint moves running instances onto another version.
 //
 // Reachable for the first time here. It was written, hardened and left
@@ -365,7 +389,11 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			servicecontracts.WithNodeActions(req.NodeActions),
 			servicecontracts.WithInstances(selected...),
 		}
-		if actor, actorErr := principal.Username(ctx); actorErr == nil {
+		actor, err := migrationAuthoriser(ctx)
+		if err != nil {
+			return MigrateInstancesResponse{Err: err}, nil
+		}
+		if actor != "" {
 			opts = append(opts, servicecontracts.WithActor(actor))
 		}
 
@@ -374,13 +402,22 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return MigrateInstancesResponse{Err: err}, nil
 		}
 		if req.dryRun() {
-			return MigrateInstancesResponse{Plan: plan}, nil
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil)}, nil
 		}
-		if err := s.MigrateInstances(ctx, source, target, req.NodeMapping, opts...); err != nil {
+		result, err := s.ApplyInstanceMigration(ctx, source, target, req.NodeMapping, opts...)
+		if err != nil {
 			// The plan comes back with the refusal so the caller sees both what
 			// they asked for and why it was declined, in one reply.
-			return MigrateInstancesResponse{Plan: plan, Err: err}, nil
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), Err: err}, nil
 		}
-		return MigrateInstancesResponse{Plan: plan, Applied: true}, nil
+		// The plan was made before the apply and says what would happen; the
+		// result says what did. An instance that left its step in between was
+		// left alone, and "applied" on its own would have said otherwise: it is
+		// true unless the run passed instances over and wrote to none.
+		return MigrateInstancesResponse{
+			Plan:       plan,
+			Applied:    result.Changed > 0 || len(result.PassedOver) == 0,
+			PassedOver: passedOverViews(result.PassedOver),
+		}, nil
 	}
 }

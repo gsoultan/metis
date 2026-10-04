@@ -62,10 +62,11 @@ func (s *taskService) UpdateTask(ctx context.Context, id uuid.UUID, edit service
 			Timestamp: time.Now().Unix(),
 			Variables: task.Variables,
 		}, task, EventTaskEdited, handOverRecord{
-			actor:   caller.username,
-			holder:  holder,
-			reason:  reason,
-			changes: changes,
+			actor:    caller.username,
+			holder:   holder,
+			reason:   reason,
+			changes:  changes,
+			byHolder: caller.holdsTask,
 		})
 	})
 }

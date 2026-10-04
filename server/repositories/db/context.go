@@ -24,6 +24,16 @@ func txFrom(ctx context.Context) (runtime.Executor, bool) {
 	return tx, ok
 }
 
+// InTransaction reports whether ctx carries an open transaction.
+//
+// TransactMain masks a transaction the caller holds on another database by
+// putting a nil one on the context, to mean there is none. This reads that as
+// none, and so does a context that never had one.
+func InTransaction(ctx context.Context) bool {
+	tx, ok := txFrom(ctx)
+	return ok && tx != nil
+}
+
 // WithEnvironment binds work to one of a project's runtimes.
 //
 // Applied by the listener a request arrived on: each environment is served on

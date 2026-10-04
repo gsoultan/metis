@@ -77,7 +77,7 @@ func startResearch(ctx context.Context, t *testing.T, repo repositories.Reposito
 	if _, err := serviceimpl.NewDefinitionService(repo).CreateDefinition(ctx, claimResearch(projID, key, topic)); err != nil {
 		t.Fatalf("create definition: %v", err)
 	}
-	activator := serviceimpl.NewAdHocActivator(engine, repo.UnitOfWork())
+	activator := serviceimpl.NewAdHocActivator(engine, repo)
 
 	runs := make([]*researchRun, 0, n)
 	byInstance := map[uuid.UUID]*researchRun{}

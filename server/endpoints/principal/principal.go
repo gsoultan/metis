@@ -49,6 +49,25 @@ func LocalUser(ctx context.Context) (entities.User, bool) {
 	return entities.User{}, false
 }
 
+// Account returns the account the request carries and whether it carries one,
+// named or not.
+//
+// LocalUser and Username answer "no" alike for nobody signed in and for an
+// account with no username. A caller that records who acted has to tell the
+// two apart: the first is the server acting for itself, the second is a person
+// its record cannot name.
+func Account(ctx context.Context) (entities.User, bool) {
+	switch u := ctx.Value(pkgauth.UserContextKey).(type) {
+	case entities.User:
+		return u, true
+	case *entities.User:
+		if u != nil {
+			return *u, true
+		}
+	}
+	return entities.User{}, false
+}
+
 // LocalUserID returns the signed-in account's ID, or uuid.Nil.
 func LocalUserID(ctx context.Context) uuid.UUID {
 	if u, ok := LocalUser(ctx); ok {

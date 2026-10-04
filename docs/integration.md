@@ -669,7 +669,32 @@ tasks it takes, so two replicas never publish one task inside its lock. See
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID        # status + variables
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/audit  # the timeline
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/path   # execution path + frequencies
+curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/deviations  # what was done outside its process
 ```
+
+`/deviations` answers `{"deviations": [...]}`, oldest first, with a row for each
+thing done to the instance that its process did not decide — a hand-over by
+somebody who did not hold the task, a migration's skip, cancel or hold, a step
+started inside an ad-hoc sub-process — saying who did it and why, and what
+changed on the task or instance where something did, to anyone signed in to the instance's organization; another organization's
+instance is a 404.
+
+Three things about a row's shape that a client can rely on:
+
+- `actor` is a username, exactly as the account has it — a space at either end
+  included, since that is a different name — and no account id is returned. The server acting with
+  nobody signed in is written as `System`, which an account may also be called,
+  so `actor_is_server` says which it was: `true` exactly when the row names no
+  account, `false` for every row a signed-in account made, whatever its name.
+  It is always present.
+- `before`, `after` and `details` are always objects, `{}` when the row has
+  nothing to put in one, so `row.before.tasks` can be read without asking
+  first whether there is a `before`.
+- A row is written once and never changed. A `hold` row says the hold was
+  placed; whether it is still open is the status of the incident it names in
+  `after.incident.id`, read from `GET /api/v1/incidents/$ID`. What writes no
+  row at all, and why, is in
+  [Changing a process that is already running](process-change-in-flight.md#audit).
 
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.

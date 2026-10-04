@@ -43,6 +43,7 @@ func (s *taskService) AssignTask(ctx context.Context, id uuid.UUID, change servi
 			target:            step.target,
 			reason:            step.reason,
 			candidateOverride: step.candidateOverride,
+			byHolder:          step.caller.holdsTask,
 		})
 	})
 }
@@ -80,6 +81,7 @@ func (s *taskService) DelegateTask(ctx context.Context, id uuid.UUID, change ser
 			target:            step.target,
 			reason:            step.reason,
 			candidateOverride: step.candidateOverride,
+			byHolder:          step.caller.holdsTask,
 		})
 	})
 }
@@ -126,6 +128,7 @@ func (s *taskService) UnclaimTask(ctx context.Context, id uuid.UUID, change serv
 			actor:          caller.username,
 			previousHolder: previous,
 			reason:         reason,
+			byHolder:       caller.holdsTask,
 		})
 	})
 }

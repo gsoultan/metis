@@ -154,6 +154,9 @@ type ActivateAdHocTaskRequest struct {
 	InstanceID       string `json:"instance_id"`
 	SubProcessNodeID string `json:"sub_process_node_id"`
 	TaskNodeID       string `json:"task_node_id"`
+	// Reason is why the step is being started. Optional: starting a step is
+	// what an ad-hoc sub-process is for. It is kept in the ledger when given.
+	Reason string `json:"reason,omitzero"`
 }
 
 type ActivateAdHocTaskResponse struct {

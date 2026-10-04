@@ -50,4 +50,9 @@ type ServiceFacade interface {
 	// because it is a first-class product surface — the Go SDK calls it, and CI
 	// gates on it — not a test affordance.
 	serviceContracts.SimulationService
+
+	// DeviationService reads what was done to one instance that its process did
+	// not decide. Writing it is not on the facade: every writer records through
+	// DeviationRecorder inside its own change.
+	serviceContracts.DeviationService
 }

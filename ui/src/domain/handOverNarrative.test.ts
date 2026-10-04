@@ -35,6 +35,9 @@ describe('a hand-over on the timeline', () => {
     ['task_edited', { actor: 'budi', changes: { priority: {}, name: {} } }, 'budi changed the name and the priority of "Approve the refund"'],
     ['task_edited', { actor: 'ana', changes: { name: {}, priority: {}, due_date: {} }, reason: 'the customer called' },
       'ana changed the name, the priority and the due date of "Approve the refund": the customer called'],
+    ['step_activated', { actor: 'olga', sub_process: 'research' }, 'olga started "Approve the refund"'],
+    ['step_activated', { actor: 'olga', sub_process: 'research', reason: 'the customer called' },
+      'olga started "Approve the refund": the customer called'],
   ])('says %s %j as a sentence', (type, data, sentence) => {
     expect(describeHandOver(type as string, data as Record<string, unknown>, TASK, english)).toBe(sentence as string);
   });
@@ -70,5 +73,12 @@ describe('a hand-over on the timeline', () => {
 
   it('has none without the task\u2019s name to put in it', () => {
     expect(describeHandOver('task_assigned', { actor: 'ana', target: 'citra' }, '', english)).toBeNull();
+  });
+});
+
+describe('a step somebody started, in Indonesian', () => {
+  it('is said through the catalogue', () => {
+    expect(describeHandOver('step_activated', { actor: 'olga' }, TASK, indonesian))
+      .toBe('olga memulai "Approve the refund"');
   });
 });

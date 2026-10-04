@@ -59,6 +59,14 @@ const (
 	// does. Without this entry nothing on the instance tells the two apart, and
 	// a worker told there is no such task has nowhere to find out why.
 	EventParkedWorkWithdrawn = "parked_work_withdrawn"
+	// EventStepActivated marks a step somebody started inside an ad-hoc
+	// sub-process.
+	//
+	// The step's own entries say that it started and that its task became
+	// available, as they do for a step the flow reached. Inside an ad-hoc
+	// sub-process no flow reaches a step: somebody chose it. This entry names
+	// who, and the reason when they gave one.
+	EventStepActivated = "step_activated"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each

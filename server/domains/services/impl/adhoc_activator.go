@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	contracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
@@ -23,7 +24,11 @@ import (
 //     enclosing activity: those govern who may complete a task, and an ad-hoc
 //     sub-process has no task of its own to hang that on. If activation should
 //     be narrower than "may act on this instance", that is a policy to add at
-//     the endpoint, where every other such rule lives.
+//     the endpoint, where every other such rule lives. Whoever it is, the
+//     activation is recorded with its actor: a row in the instance's deviation
+//     ledger and an entry on its trail name who started the step, and the
+//     server itself ("System") when nobody was signed in. An account that is
+//     signed in and has no name is refused: the ledger cannot say who it was.
 //
 //  2. When the sub-process finishes. The completion condition is re-evaluated
 //     each time a step inside finishes. Any other reading makes the condition
@@ -32,11 +37,20 @@ import (
 type adHocActivator struct {
 	engine contracts.ExecutionEngine
 	uow    repocontracts.UnitOfWork
+	// ledger and audit record who started a step, in the transaction that
+	// starts it.
+	ledger contracts.DeviationRecorder
+	audit  contracts.AuditWriter
 }
 
 // NewAdHocActivator creates the activator used to drive an ad-hoc sub-process.
-func NewAdHocActivator(engine contracts.ExecutionEngine, uow repocontracts.UnitOfWork) contracts.AdHocActivator {
-	return &adHocActivator{engine: engine, uow: uow}
+func NewAdHocActivator(engine contracts.ExecutionEngine, repo repositories.Repository) contracts.AdHocActivator {
+	return &adHocActivator{
+		engine: engine,
+		uow:    repo.UnitOfWork(),
+		ledger: NewDeviationLedger(repo),
+		audit:  NewAuditWriter(repo.Audit()),
+	}
 }
 
 // ActivateTask starts one step inside an ad-hoc sub-process.
@@ -50,13 +64,24 @@ func NewAdHocActivator(engine contracts.ExecutionEngine, uow repocontracts.UnitO
 // it would put back a list without the other's step — the step's task stays
 // offered while the instance forgets it is running. The lock makes two
 // activations take turns, and the checks below read what the previous one left.
-func (a *adHocActivator) ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string) error {
+//
+// Who started the step is recorded in that same transaction (see
+// recordActivation): an activation that cannot be recorded is not made, and a
+// step that does not start leaves no record of having been started.
+//
+// A reason the ledger would refuse is refused first, before the instance is
+// read or locked: it is the caller's to correct whatever the instance is doing.
+func (a *adHocActivator) ActivateTask(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string, opts ...contracts.ActivationOption) error {
+	options := contracts.ApplyActivationOptions(opts)
+	if err := checkActivationReason(options.Reason); err != nil {
+		return err
+	}
 	return a.uow.Do(ctx, func(txCtx context.Context) error {
-		return a.activate(txCtx, instanceID, subProcessNodeID, taskNodeID)
+		return a.activate(txCtx, instanceID, subProcessNodeID, taskNodeID, options)
 	})
 }
 
-func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string) error {
+func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, subProcessNodeID, taskNodeID string, options contracts.ActivationOptions) error {
 	instance, err := a.engine.GetInstanceForUpdate(ctx, instanceID)
 	if err != nil {
 		return fmt.Errorf("activate %q: load instance %s: %w", taskNodeID, instanceID, err)
@@ -94,12 +119,23 @@ func (a *adHocActivator) activate(ctx context.Context, instanceID uuid.UUID, sub
 		return fmt.Errorf("activate %q: it is not one of the steps inside %q", taskNodeID, subProcessNodeID)
 	}
 
+	// Recorded once every check has passed and before the step executes. The
+	// trail is read in the order its entries were written, so who started the
+	// step comes before what the step then did.
+	if err := a.recordActivation(ctx, instance, def, subProcess, target, options.Reason); err != nil {
+		return err
+	}
+	return a.start(ctx, instance, def, target)
+}
+
+// start puts a token on the step and executes it, as activate always has.
+func (a *adHocActivator) start(ctx context.Context, instance entities.ProcessInstance, def *entities.ProcessDefinition, target *entities.Node) error {
 	instance.AddToken(target)
 	if err := a.engine.UpdateInstance(ctx, instance); err != nil {
-		return fmt.Errorf("activate %q: %w", taskNodeID, err)
+		return fmt.Errorf("activate %q: %w", target.ID, err)
 	}
 	if err := a.engine.ExecuteNode(ctx, &instance, def, target.ID); err != nil {
-		return fmt.Errorf("activate %q: %w", taskNodeID, err)
+		return fmt.Errorf("activate %q: %w", target.ID, err)
 	}
 	return nil
 }

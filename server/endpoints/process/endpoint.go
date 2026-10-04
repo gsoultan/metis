@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -360,7 +361,8 @@ func activateAdHocTask(ctx context.Context, s services.ServiceFacade, req Activa
 	if err != nil {
 		return apierr.Invalidf("instance id %q is not a valid identifier: %v", req.InstanceID, err)
 	}
-	return s.ActivateTask(ctx, instanceID, req.SubProcessNodeID, req.TaskNodeID)
+	return s.ActivateTask(ctx, instanceID, req.SubProcessNodeID, req.TaskNodeID,
+		servicecontracts.WithActivationReason(req.Reason))
 }
 
 func MakeBroadcastSignalEndpoint(s services.ServiceFacade) endpoint.Endpoint {

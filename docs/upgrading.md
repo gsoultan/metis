@@ -18,6 +18,111 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Migration 33: an instance's ledger of what was done to it
+
+An instance now keeps a row for each thing done to it that its process did not
+decide, and the upgrade runs migration 33 to make the table. What writes a row,
+and who reads it, is in the changelog and in
+[Watching instances](integration.md#watching-instances); this is what the
+upgrade does and what it changes for you.
+
+**What migration 33 does.** It creates `instance_deviations` and its indexes.
+Nothing is backfilled: what was done to an instance before the upgrade is in
+its audit trail and stays there, and its entries carry no `deviation_id`.
+Every statement is `IF NOT EXISTS`, so a run that stops part-way finishes when
+the server is started again. The table has foreign keys to `projects` and to
+`process_definitions`, and none to `process_instances` or `tasks`, on purpose:
+a hand-over holds the task's row, a completion holds the instance's and then
+waits for the task's, and a reference from the ledger to either would make the
+hand-over's insert wait for a lock the completion holds. Whoever reconciles
+the storm model's own table definitions with the schema the migrations build
+must not add those two.
+
+**It can stop the upgrade, on purpose.** Creating the table needs a brief lock
+on `projects` and on `process_definitions`, and while that waits for a long
+query PostgreSQL queues every later write to either table behind it. The
+migration waits two seconds and then stops, saying
+
+```
+projects or process_definitions was held for more than 2s by a long query or
+transaction; the upgrade stopped rather than hold every writer of either
+behind it, and will finish when started again once that ends
+```
+
+followed by the database's own error. Start the server again once the query
+has ended and it finishes; nothing it had done is undone.
+
+**What is different once it has run.**
+
+- A change that must be recorded is not made if its row cannot be written. A
+  hand-over or an edit by somebody who does not hold the task is refused with
+  *the change was not recorded in the deviation ledger, so it was not made*
+  and the task stays as it was. A migration's skip, cancel or hold fails that
+  instance's step, names the instance, and says how many had been dealt with;
+  running the same migration again carries on. An ad-hoc activation is
+  refused and starts nothing. A migration's skip, cancel and hold used to be
+  made and the lost entry only logged.
+- A migration's skip, cancel or hold leaves alone an instance that left the
+  step between the migration listing its instances and locking that one — its
+  holder completed the step, or it finished. Nothing is done to it or recorded
+  about it, and it is not moved to the new version in that run; it stays on
+  the version it is running for the next run of the same migration. The reply
+  to an apply lists it in `passed_over`, with the reason — a new field, always
+  present, `[]` when nobody was left behind — and `applied` is now `false`
+  when the run passed instances over and acted on none. A
+  skip used to advance such an instance a second time, and its ledger row said
+  the approval was waived. See [Node actions](process-change-in-flight.md#node-actions--deciding-work-instead-of-moving-it).
+- A row says the act was made, and is never rewritten. A `hold` row therefore
+  says the hold was placed, not that it is still open: resolving the incident
+  the hold raised writes no row and leaves `after.incident.status` reading
+  `open`. Read the instance's incidents, `GET /api/v1/incidents/{instanceId}`,
+  for the one whose `id` is the row's `after.incident.id`. Resolving an
+  incident, sending a message or a signal, an operator claiming a task nobody
+  was named for, and the engine withdrawing tasks write no row, by decision;
+  [The ledger](process-change-in-flight.md#audit) says why for each.
+- Only `before` and `after` are sealed. `reason`, `actor`, `node_name` and
+  `details` are stored in plain text, as the audit trail's sentence, which
+  already holds the reason, is.
+- Reading an instance's ledger needs the `ENCRYPTION_KEY` its rows were
+  written under, because `before` and `after` are sealed as every other copy
+  of a process variable is. A backup without that key restores rows whose
+  `before` and `after` cannot be read, and reading such an instance's ledger
+  fails rather than return them as they are stored. `metis --reseal` takes
+  them along with the other sealed columns: it walks every text, JSON and
+  binary column of the schema, and this table's are among them. That is read from
+  the code in `internal/app/reseal.go`, not run against a ledger.
+- A reason on a migration's `skip`, `cancel` or `hold` of more than 2,000
+  characters is a refusal in the plan, so a dry run shows it.
+  `POST /api/v1/processes/adhoc/activate` takes an optional `reason`, at most
+  2,000 characters.
+
+**During a rolling upgrade** — read from the previous release's code, not
+from a rollout of two versions run side by side — a pod still on the old
+release does not know the table. A hand-over, a migration or an activation it
+serves writes no row, so the ledger of an instance touched in that window is
+missing the act, which its audit trail still shows. Finish the rollout before
+relying on the ledger being complete.
+
+**Rolling back** leaves the table and its rows where they are. From reading
+the old release's code, not from running it, its application code does not
+read or write them, but its `metis --reseal` walks every column of the schema
+from the catalogue, so it would read the ledger's sealed `before` and `after`.
+It rewrites only the values sealed under a previous key, under the current
+one; a value already under the current key is counted and left as it is. As
+with every migration, the runner only goes forward.
+
+**What it costs.** Counted from the code, not measured: a hand-over or an edit
+by somebody who does not hold the task, each decision a migration makes on an
+instance, and each ad-hoc activation do one more read, that the instance
+belongs to the project the row names, and one insert, inside the transaction
+that is already open. Each accepted control loss is the same again, one more
+read and one more insert for each control step the instance loses, and an
+ad-hoc activation also writes a `step_activated` trail entry, which it had none
+of before. The check that the project is the caller's is answered
+from what the request already looked up. A hand-over by the task's holder, and
+a migration that only moves work and waives no control, do neither. It is a person's action or an
+administrator's migration, not something the engine does for every token.
+
 ## Handing a task over is checked and recorded
 
 Assigning, delegating, releasing, handing back and editing a task are held to

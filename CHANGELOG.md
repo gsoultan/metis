@@ -157,6 +157,102 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **An instance keeps a ledger of what was done to it outside its process.**
+  A step waived by a migration, an instance a migration cancelled or held, a
+  task handed on by somebody who did not hold it, a step started inside an
+  ad-hoc sub-process: each left a line in the audit trail at most, and that
+  cannot be asked for by instance, by kind of act or by person. Each now also
+  writes a row in a new table, `instance_deviations` (migration 33): who did
+  it, to which step or task, why, what changed before and after, and the
+  audit entry that tells the same act. What writes a row today:
+  - **A hand-over or an edit by somebody who is not the task's holder.**
+    Assign, delegate, hand back, release and edit write `reassign`,
+    `delegate`, `resolve`, `release` and `task_edit`: exactly when a reason is
+    required. So does an administrator who holds a task and sends it to
+    somebody it was not offered to. A holder passing on their own task writes
+    none.
+  - **A migration's decisions.** A `skip`, a `cancel` or a `hold` of a step
+    writes `waive`, `cancel` or `hold`, carrying the migration's `run_id`, so a
+    step waived on thirty instances reads as one act with thirty rows. Each
+    control step an acknowledged migration takes from an instance that had not
+    yet performed it writes a `control_waived` row on that instance, with no
+    reason: the person who acknowledged it signed for every instance at once.
+  - **A step started inside an ad-hoc sub-process** writes `adhoc_activation`.
+    The reason is optional there; starting a step is what such a sub-process
+    is for.
+  - **The row is written in the same transaction as the change.** If it cannot
+    be written the change is not made, and a change that is rolled back takes
+    its row with it.
+
+  What writes no row, by decision — the ledger is for what somebody did to an
+  instance that its process did not decide:
+  - **Resolving an incident**, the one a migration's `hold` raised included.
+    It retries the failed work behind an incident when there is any, and
+    decides nothing about the process. It leaves no trail entry and names
+    nobody either: the incident's own `status` and `resolved_at` are all that
+    say it happened. So **a `hold` row says the hold was placed, not that it
+    is still open**. No row is rewritten once written, and its
+    `after.incident.status` reads `open` for ever; to see whether the hold is
+    still open, read the instance's incidents
+    (`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the
+    row's `after.incident.id`. Whether releasing a hold becomes a recorded act
+    is decided with the hold of one instance in place.
+  - **Sending a message or broadcasting a signal.** It is the event the
+    process was modelled to wait for. The trail shows the instance moving on
+    and not who sent it; governing that channel is its own piece of work.
+  - **An operator or administrator claiming a task nobody was named for.**
+    That is the modelled fallback for such a task, and the trail's claim entry
+    names who took it.
+  - **The engine withdrawing tasks**: approvals a met completion condition no
+    longer needs, a task a boundary event interrupts, work parked for outside
+    workers when an ad-hoc sub-process finishes. The process decided those,
+    and the trail says each was withdrawn.
+  - A holder's own hand-over or edit, and a migration that only moves work, as
+    above.
+
+  `GET /api/v1/instances/{id}/deviations` returns them, oldest first, as
+  `{"deviations": [...]}`, to anyone signed in to the instance's organization,
+  which is who may read its audit trail. An instance of another organization
+  is a 404, so the route does not say whether it exists (the audit route
+  answers 200 with an empty list there); a malformed id is a 400. The reply
+  names people by username and carries no account ids. The server acting with
+  nobody signed in is written as `System`, which an account may also be
+  called, so each row says which it was: `actor_is_server` is `true` exactly
+  when the row names no account. `before`, `after` and `details` are always
+  objects, `{}` when a row has nothing to put in one. Only `before` and
+  `after` are stored encrypted, as process variables are, and are shown to
+  those readers; `reason`, `actor`, `node_name` and `details` are stored in
+  plain text — the reason as the audit trail's sentence already keeps it — and
+  `details` is not for business values. Every row is `applied` in this
+  release, read from the code: it is the only status anything writes.
+
+  The audit entries of a hand-over that wrote a row (a holder's own writes none),
+  of a migration's skip, cancel or hold, and of an activation name their row in
+  `deviation_id`. A new `step_activated`
+  entry says who started a step inside an ad-hoc sub-process, and why when
+  they said, and the timeline tells it in English and in Indonesian. A
+  migration's own `instance_migrated` entry does not name the control-loss
+  rows; they name it.
+
+  Not in this release: waiving, cancelling or holding one instance in place,
+  without a second version of its process, and a second approver for such an
+  act. Both come in the next ones.
+
+  **Upgrading:** migration 33 creates the table and its indexes. Nothing is
+  backfilled, so what happened before stays in the audit trail where it was.
+  It waits at most two seconds for `projects` and `process_definitions` and
+  then stops, to be started again, rather than hold every writer of either
+  behind a long query. See [Migration 33: an instance's ledger of what was
+  done to it](docs/upgrading.md#migration-33-an-instances-ledger-of-what-was-done-to-it).
+  What it costs, counted from the code and not measured: a hand-over or edit
+  by somebody who does not hold the task, each migration decision and each
+  ad-hoc activation do one read, that the instance is in the project, and one
+  insert, inside the transaction already open, after a check of the project
+  that is cached for the request; each accepted control loss is one more read
+  and one more insert, and an activation also writes a `step_activated` entry,
+  which it had none of before. See [Watching
+  instances](docs/integration.md#watching-instances).
+
 - **A delegated task goes back to whoever delegated it.** Delegating was a
   reassignment under another name: the delegate could complete an approval
   that was never theirs to give, and the person it had been given to could not
@@ -216,8 +312,72 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   and must do so before the message's `lock_expiration`. See *Extending a
   lock* in `docs/integration.md`. The Go SDK does not call it yet.
 
+### Changed
+
+- **A migration's skip, cancel and hold are no longer made when they cannot be
+  recorded.** The trail entry for each was written and, if that failed, only
+  logged: the step was waived, or the instance cancelled, with nothing to say
+  who had done it. A cancel wrote its entry after its transaction had
+  committed, and a hold ran in no transaction at all. Now the ledger row and
+  the entry are written in the change's own transaction, and if either fails
+  the change is not made. The migration stops there and the error names the
+  instance and says how many had been dealt with, as it does for any other
+  failure; running the same migration again carries on. Beside that:
+  - A hold now takes the instance's lock, as a cancel does, so it waits behind
+    a completion that is running and does nothing to an instance that finished
+    meanwhile.
+  - A cancel no longer writes `instance_cancelled` for an instance found, once
+    locked, to be no longer running. It used to write the entry for an instance
+    it had not cancelled.
+  - A `skip`, `cancel` or `hold` with a reason of more than 2,000 characters is
+    refused in the plan, and so by a dry run, where it was accepted. The ledger
+    keeps that much, and a refusal at apply would have come after the
+    instances ahead of it had been moved.
+- **`POST /api/v1/processes/adhoc/activate` accepts a `reason`.** Optional, at
+  most 2,000 characters (400 beyond that, before anything is read or started),
+  and kept in the ledger and on the timeline. An activation now records who
+  started the step, in the transaction that starts it and before the step
+  runs, so the timeline reads the cause before what the step then did; a step
+  that cannot be recorded, or fails to start, leaves neither a row nor an
+  entry. The actor is the signed-in account; an account with no username is
+  refused, not recorded as the system. *System* is recorded only when nobody
+  is signed in, which the route never sees: it answers 401 to that, and 403
+  to anybody who is not an operator or an administrator.
+
 ### Fixed
 
+- **A migration could advance an instance past a step its holder had just
+  completed, and record the approval as waived.** A migration lists the
+  instances once and then takes them one at a time. Whether an instance was
+  waiting at a step being skipped, cancelled at or held at was asked of that
+  list and not again once the instance was locked. When the step's holder
+  completed it in between, a `skip` advanced the instance past it a second
+  time — two tokens and two open tasks on the step after it — and the trail,
+  and the new ledger, said the approval was waived; a `cancel` ended an
+  instance that had left the step; a `hold` raised its incident at a step the
+  instance was no longer on. Each now asks again under the instance's lock and
+  acts only on an instance that is still running and still has a token on that
+  step. One that has moved on, or finished, is left exactly as it is: nothing
+  withdrawn, advanced, cancelled or raised, no ledger row, no trail entry, and
+  it is not moved to the new version in that run, because the plan was made
+  for where it used to be. It stays on the version it is running, and running
+  the same migration again plans for where it now stands. **What a caller
+  meets:** the reply to an apply now carries `passed_over`, the instances the
+  run left alone, each as `{"instance_id", "reason"}` with the reason in plain
+  words naming the step — *It was no longer waiting at "Operations approve"
+  when the migration reached it, so nothing was decided there and it was not
+  moved…*. It is always present, `[]` when the run left nobody behind and for
+  a dry run. An instance that finished before a migration reached it, which
+  was already left unmoved, is listed there as well. `applied` still says
+  whether anything was written: it is `true` when the run acted on at least
+  one instance, whatever it passed over, and is now `false` when it passed
+  instances over and acted on none, where it used to say `true`.
+- **A migration by an account with no username was recorded as the
+  server's.** `POST /api/v1/definitions/versions/migrate` left the caller out
+  when the signed-in account had no username, and its skip, cancel or hold was
+  then recorded as made by `System`. Only nobody signed in is the server: such
+  an account is now refused, for a dry run as for an apply, with the server
+  error an ad-hoc activation answers for the same account.
 - **An approval several people give never finished its process.** A user task
   or manual task that runs once per person — in parallel or one after another —
   keeps a token for each of them, and completing a task from the inbox did not
