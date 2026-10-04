@@ -94,7 +94,7 @@ func startFulfilment(t *testing.T, h engineHarness, key string, work func() *ent
 // version cancel the instances waiting at the step under test.
 //
 // It returns its error and never fails the test itself: one case calls it from
-// the partner's side of a call.
+// a goroutine of its own, while a call to the partner is in flight.
 func (r *fulfilmentRun) cancelByMigration() error {
 	ctx := r.h.Ctx()
 	v2, err := r.h.svc.CreateDefinition(ctx, r.redeploy())
