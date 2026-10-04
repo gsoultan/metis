@@ -235,17 +235,23 @@ func TestNamesAreReadAsDeepAsTheEvaluatorEvaluatesAndNoDeeper(t *testing.T) {
 
 // A definition is somebody's input, and so is every condition in it. A
 // megabyte of `a+a+a+…` is a tree a million levels deep: reading it must not
-// descend a million calls, which is a stack no request should be given. The
-// stack is held to 64 MiB here so that descending it is fatal rather than
-// merely enormous.
+// descend a call for each level, which is a stack no request should be given.
 //
-// Only the reading of the names is timed. Parsing a megabyte takes what it
-// takes, and the engine pays that too.
+// The tests above tie the bound to the evaluator's, level for level. This one
+// only has to show that going past it is fatal, so it is as small as that
+// takes: 65,536 levels, with the stack held to 4 MiB. A descent takes about
+// 256 bytes a level, so the whole tree needs some 16 MiB — four times what it
+// is given. Measured with the bound taken out: the test dies of stack overflow
+// with the stack held to 4, 8 and 16 MiB, and descends the whole tree only
+// when it is given 32.
+//
+// Only the reading of the names is timed. Parsing takes what it takes, and
+// the engine pays that too.
 //
 // Not parallel: the stack limit is the process's.
-func TestAConditionAMillionLevelsDeepIsNotDescended(t *testing.T) {
-	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20))
-	const levels = 1 << 20
+func TestAConditionFarDeeperThanTheBoundIsNotDescended(t *testing.T) {
+	defer debug.SetMaxStack(debug.SetMaxStack(4 << 20))
+	const levels = 1 << 16
 	for shape, build := range chains {
 		expression := build(levels)
 		tree, err := feel.Parse(expression)

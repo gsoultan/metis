@@ -14,13 +14,19 @@ import (
 // what a step would have set (decisionPointsReading): what is being asked,
 // and what has been read once so that it is not read again.
 //
-// What a point reads is held as a DecisionPoint with no node yet: its Reads,
-// what of them the waiver supplies and what it does not. Many steps may read
-// the same thing, so the two that can be large — a decision, and everything a
-// call activity hands over — are worked out once and shared.
+// What a point reads is held as a DecisionPoint with no node yet: how many
+// names it reads, which of them the step declares, what of those the waiver
+// supplies and what it does not. Many steps may read the same thing, so the
+// two that can be large — a decision, and everything a call activity hands
+// over — are worked out once and shared.
 type decisionScan struct {
-	// waived is the step being waived, whose own repeating is not asked again.
+	// waived is the step being waived, whose own repeating is not asked
+	// again — when ownRepeatLeftOut says so.
 	waived string
+	// ownRepeatLeftOut is false when more than one node carries the waived
+	// step's id: which of them the instance is at cannot be told from an id,
+	// so the list and the completion condition of each are asked for.
+	ownRepeatLeftOut bool
 	// declared is the fields the step's form declares; outputs is what the
 	// waiver supplies.
 	declared map[string]struct{}
@@ -29,7 +35,8 @@ type decisionScan struct {
 	lookup decisionReads
 
 	// decisions is what each decision consulted reads, by key and version,
-	// looked up the first time a step consults it.
+	// looked up the first time a step consults it: the lookup is asked once
+	// for each, however many steps consult it.
 	decisions map[[2]string]entities.DecisionPoint
 	// everything is what a call activity with no input mapping is handed:
 	// every field the step declares. Worked out the first time one is met.
@@ -58,22 +65,30 @@ func (s *decisionScan) pointsAt(copies []*entities.Node, flows []*entities.Seque
 	return points
 }
 
-// reading is what a point that reads names takes from the step: the names,
-// sorted and each once, with those the step declares told apart by whether the
-// waiver supplies them. A value the instance already holds does not count.
+// reading is what a point that reads names takes from the step: how many
+// names it reads in all, and those of them the step declares — sorted, each
+// once — told apart by whether the waiver supplies them. A value the instance
+// already holds does not count.
+//
+// Only the step's own fields are kept as names. They are what somebody
+// waiving the step can act on, and there are no more of them than the form
+// has fields, whatever a decision table of thousands of columns reads beside
+// them.
 func (s *decisionScan) reading(kind entities.DecisionPointKind, names []string, analysed bool) entities.DecisionPoint {
-	point := entities.DecisionPoint{Kind: kind, Reads: unionOfNames(names, nil), Analysed: analysed}
-	for _, name := range point.Reads {
+	all := unionOfNames(names)
+	point := entities.DecisionPoint{Kind: kind, ReadsInAll: len(all), Analysed: analysed}
+	for _, name := range all {
 		if _, declared := s.declared[name]; !declared {
 			continue
 		}
+		point.Reads = append(point.Reads, name)
 		if _, given := s.outputs[name]; given {
 			point.Supplied = append(point.Supplied, name)
 		} else {
 			point.Missing = append(point.Missing, name)
 		}
 	}
-	point.Supplied, point.Missing = slices.Clip(point.Supplied), slices.Clip(point.Missing)
+	point.Reads, point.Supplied, point.Missing = slices.Clip(point.Reads), slices.Clip(point.Supplied), slices.Clip(point.Missing)
 	return point
 }
 
@@ -164,7 +179,7 @@ func (s *decisionScan) conditionWaitedFor(node *entities.Node) (names []string, 
 // whether it is done. On any other step the condition is never read, and the
 // waived step's own is not asked again for this visit.
 func (s *decisionScan) completionCondition(node *entities.Node) (names []string, analysable, is bool) {
-	if node.ID == s.waived || node.CompletionCondition == "" || (!node.Repeats() && !node.IsAdHoc) {
+	if s.isTheWaivedStep(node) || node.CompletionCondition == "" || (!node.Repeats() && !node.IsAdHoc) {
 		return nil, false, false
 	}
 	names, analysable = s.conditionReads(node.CompletionCondition)
@@ -176,10 +191,16 @@ func (s *decisionScan) completionCondition(node *entities.Node) (names []string,
 // (NodeHandlerTemplate.handleMultiInstance). The waived step's own list is not
 // asked again for this visit.
 func (s *decisionScan) collection(node *entities.Node) (names []string, analysable, is bool) {
-	if node.ID == s.waived || !node.Repeats() || node.Collection == "" {
+	if s.isTheWaivedStep(node) || !node.Repeats() || node.Collection == "" {
 		return nil, false, false
 	}
 	return []string{node.Collection}, true, true
+}
+
+// isTheWaivedStep reports whether node is the step being waived, and nothing
+// else is: only then is its own repeating not asked again.
+func (s *decisionScan) isTheWaivedStep(node *entities.Node) bool {
+	return s.ownRepeatLeftOut && node.ID == s.waived
 }
 
 // decisionTable is a step that consults a decision table, read as the engine
@@ -226,11 +247,20 @@ func (s *decisionScan) decisionTable(copies []*entities.Node) (entities.Decision
 	case len(tables) == 1 && len(names) == 0 && analysed:
 		return tables[0], first
 	}
+	// Several things read by the nodes of one id. Each decision's reading is
+	// already cut down to the step's fields, so putting them together costs
+	// what the form is long, not what the tables are. The count is each
+	// part's added up: a name two of them read is counted for both, which is
+	// never too few.
+	inAll := len(unionOfNames(names))
 	for _, table := range tables {
 		names = append(names, table.Reads...)
+		inAll += table.ReadsInAll
 		analysed = analysed && table.Analysed
 	}
-	return s.reading(entities.DecisionPointDecisionTable, names, analysed), first
+	point := s.reading(entities.DecisionPointDecisionTable, names, analysed)
+	point.ReadsInAll = inAll
+	return point, first
 }
 
 // decision is what one version of a decision reads, asked of the lookup the

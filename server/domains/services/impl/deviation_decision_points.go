@@ -34,8 +34,9 @@ const AssignmentDecisionVersionForTest = assignmentDecisionVersionProperty
 // takenFromStep is the fields the step's form declares — the values the
 // process expects from it — and outputs is what the waiver supplies. Each
 // point says which of those fields it reads, which the waiver supplies and
-// which it does not; a value the instance already holds does not count, since
-// on a second visit it is the previous visit's answer.
+// which it does not, and how many names it reads in all; a value the instance
+// already holds does not count, since on a second visit it is the previous
+// visit's answer.
 //
 // Nothing is followed. A walk along the flows from the step is right only
 // while it copies every way the engine moves an instance: an event
@@ -60,7 +61,10 @@ const AssignmentDecisionVersionForTest = assignmentDecisionVersionProperty
 //     runs once and says nothing.
 //
 // The step's own completion condition and list are left out: a waive ends it
-// whole, and neither is asked again for this visit.
+// whole, and neither is asked again for this visit. Unless more than one node
+// carries the step's id: then which of them the instance is at is not known
+// here, and both are listed for each — one more value asked for, and never one
+// too few.
 //
 // What does not: a condition on a flow leaving anything but those two
 // gateways, which the engine never evaluates (followOutgoingFlows takes every
@@ -84,16 +88,21 @@ const AssignmentDecisionVersionForTest = assignmentDecisionVersionProperty
 // analysed only if every one of them is, and it has a default flow only if
 // every one of them has.
 //
+// A point names only the fields the step declares, so its lists are never
+// longer than the form, and counts everything else it reads (ReadsInAll).
+//
 // Points that read the same thing — one decision, or everything a call
 // activity hands over — share the lists that say so. They are for reading:
-// nothing here writes to a list once it is in a point.
+// nothing here writes to a list once it is in a point, and a caller that
+// wants a shorter or a different list makes its own.
 func decisionPointsReading(def *entities.ProcessDefinition, nodeID string, takenFromStep map[string]struct{},
 	outputs map[string]any, reads decisionReads) []entities.DecisionPoint {
 	if def == nil {
 		return nil
 	}
-	scan := decisionScan{waived: nodeID, declared: takenFromStep, outputs: outputs, lookup: reads}
 	ids, copies, outgoing := definitionParts(def)
+	scan := decisionScan{waived: nodeID, ownRepeatLeftOut: len(copies[nodeID]) == 1,
+		declared: takenFromStep, outputs: outputs, lookup: reads}
 
 	var points []entities.DecisionPoint
 	for _, id := range ids {
@@ -149,14 +158,14 @@ func byNodeThenKind(a, b entities.DecisionPoint) int {
 	return cmp.Or(strings.Compare(a.NodeID, b.NodeID), strings.Compare(string(a.Kind), string(b.Kind)))
 }
 
-// unionOfNames is the names in either list, sorted, each once, and nil when
-// there are none. The list is its own, with no room to grow into: appending
-// to it never writes over a list that shares it.
-func unionOfNames(a, b []string) []string {
-	if len(a)+len(b) == 0 {
+// unionOfNames is the names of a list, sorted, each once, and nil when there
+// are none. The list is its own, with no room to grow into: appending to it
+// never writes over a list that shares it.
+func unionOfNames(names []string) []string {
+	if len(names) == 0 {
 		return nil
 	}
-	names := slices.Concat(a, b)
-	slices.Sort(names)
-	return slices.Clip(slices.Compact(names))
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	return slices.Clip(slices.Compact(sorted))
 }
