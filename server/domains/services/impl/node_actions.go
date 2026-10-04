@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +19,14 @@ import (
 // same thing.
 //
 // It holds effects only. Whether to act is its caller's question, asked of the
-// row its caller locked: nothing here takes a lock, opens the caller's unit of
-// work, or asks whether an instance is running, which version it runs or where
-// it waits. Handing an effect a row that was read before the lock is the
-// caller's mistake, and nothing here can catch it.
+// row its caller locked: nothing here locks an instance, opens the caller's
+// unit of work, or asks whether an instance is running, which version it runs
+// or where it waits. Handing an effect a row that was read before the lock is
+// the caller's mistake, and nothing here can catch it.
+//
+// An effect does hold the rows of the tasks it withdraws (heldOpenOn), inside
+// the caller's unit of work and after the instance, which is the order
+// everything that takes both takes them in.
 type nodeActions struct {
 	repo repositories.Repository
 	// engine advances an instance past a step and tells whoever held a task
@@ -95,6 +100,35 @@ func (a nodeActions) openOn(ctx context.Context, instanceID uuid.UUID, nodeID st
 		}
 	}
 	return open, nil
+}
+
+// heldOpenOn is openOn with each task's row held until the caller's unit of
+// work ends, and the tasks returned as they are once held.
+//
+// A claim or a hand-over takes a task's row and not its instance, so it is not
+// kept out by the lock the caller holds. Read without the row, a task claimed
+// a moment later is recorded as nobody's while it is taken from somebody.
+// Held, it is either read as the claim left it or the claim waits and finds it
+// withdrawn.
+//
+// A task that stopped being open on the step between the two reads is left
+// out: it is not withdrawn, so it is not recorded as withdrawn.
+func (a nodeActions) heldOpenOn(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]models.TaskModel, error) {
+	open, err := a.openOn(ctx, instanceID, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	var held []models.TaskModel
+	for _, task := range open {
+		locked, err := a.repo.Task().GetForUpdate(ctx, uuid.UUID(task.ID))
+		if err != nil {
+			return nil, fmt.Errorf("holding task %s of %q to withdraw it: %w", uuid.UUID(task.ID), nodeID, err)
+		}
+		if locked.NodeID == nodeID && openTask(locked.Status) {
+			held = append(held, locked)
+		}
+	}
+	return held, nil
 }
 
 // announceWithdrawal says that a task was taken off somebody's list.

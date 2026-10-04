@@ -30,16 +30,23 @@ var _ servicecontracts.ActivityFinisher = (*Engine)(nil)
 // that does not repeat the two are the same.
 //
 // Whether the step should be ended is the caller's question, and the instance
-// is the row the caller locked.
+// is the row the caller locked. Two things are refused all the same, from
+// what was handed in and before anything is read or written: a step the
+// definition does not have, and a step the instance holds no token on. The
+// second would follow what comes after the step a second time — two tokens
+// after a step performed once. Both are the caller's mistake, never the
+// client's: each caller has found the step and asked the locked row whether
+// the instance waits there before it gets here. So both are plain errors,
+// which surface as server errors and are logged.
 func (e *Engine) FinishActivity(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error {
+	node := def.FindNode(nodeID)
+	if node == nil {
+		return fmt.Errorf("finishing a step: the process that instance %s runs has no step %q", instance.ID, nodeID)
+	}
+	if len(instance.GetTokensByNode(node)) == 0 {
+		return fmt.Errorf("finishing a step: instance %s is not waiting at %q, so there is nothing there to end", instance.ID, nodeID)
+	}
 	return e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		node := def.FindNode(nodeID)
-		if node == nil {
-			// The caller's mistake, never the client's: both callers have
-			// already found the step in this definition. A plain error, so it
-			// surfaces as a server error and is logged.
-			return fmt.Errorf("finishing a step: the process that instance %s runs has no step %q", instance.ID, nodeID)
-		}
 		if err := e.endActivity(txCtx, instance, node); err != nil {
 			return err
 		}
