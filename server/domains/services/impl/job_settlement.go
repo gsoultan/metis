@@ -118,6 +118,9 @@ func (s *jobService) recordFailure(ctx context.Context, job entities.Job, jobErr
 // failJob marks a job failed and raises its incident, together: a failed job
 // with no incident is invisible, and an incident whose job still looks
 // runnable would be raised again by the next attempt.
+//
+// One failed job has no incident: one whose instance has ended
+// (instanceStillRuns). The job is still marked failed, with why.
 func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error) {
 	job.Status = entities.JobFailed
 	job.LastError = redaction.RedactText(jobErr.Error())
@@ -125,8 +128,10 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 	writeCtx, cancel := detach(ctx, statusWriteBudget)
 	defer cancel()
 	err := s.repo.UnitOfWork().Do(writeCtx, func(txCtx context.Context) error {
-		if err := s.createIncident(txCtx, &job, jobErr); err != nil {
-			return err
+		if s.instanceStillRuns(txCtx, job) {
+			if err := s.createIncident(txCtx, &job, jobErr); err != nil {
+				return err
+			}
 		}
 		return s.repo.Job().Update(txCtx, adapters.JobModelAdapter{Job: job}.ToModel())
 	})
@@ -134,6 +139,50 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 		log.Error().Err(err).Str("jobId", job.ID.String()).
 			Msg("Could not record the job as failed; it stays running and is tried again when its lease expires")
 	}
+}
+
+// instanceStillRuns reports whether a failed job's instance is one somebody
+// can still do something about: whether to raise the incident.
+//
+// An incident is a request for somebody to look at an instance and decide. On
+// an instance that was cancelled, that failed or that ran to its end there is
+// nothing left to decide, and resolving the incident would run the job again
+// for nobody: one was raised all the same, for a call still in flight or in
+// back-off when its instance ended.
+//
+// The instance is held while it is asked, in the transaction that raises the
+// incident, so whatever ends the instance while holding it either comes first,
+// and no incident is raised, or waits until the incident is there. The
+// instance first and the job's row second, as every path that settles a job
+// takes them. Raising an incident already waited for whoever held its
+// instance, so nothing waits here that did not wait before.
+//
+// When the instance cannot be read, the answer is to go on and raise the
+// incident, as was always done: one wrongly raised is closed by somebody, and
+// one wrongly withheld is a failure nobody is told of. Whether that incident
+// is then written is the database's to say. On PostgreSQL a read that failed
+// has ended the transaction, so the incident and the job's status are not
+// written either: failJob logs that, the job stays running, and it is tried
+// again when its lease expires.
+func (s *jobService) instanceStillRuns(ctx context.Context, job entities.Job) bool {
+	if job.Instance == nil {
+		return true
+	}
+	instance, err := s.engine.GetInstanceForUpdate(ctx, job.Instance.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("jobId", job.ID.String()).
+			Msg("Could not tell whether the failed job's instance is still running; going on to raise its incident")
+		return true
+	}
+	if !instanceEnded(instance.Status) {
+		return true
+	}
+	log.Info().
+		Str("jobId", job.ID.String()).
+		Str("instance_id", job.Instance.ID.String()).
+		Str("status", string(instance.Status)).
+		Msg("A job failed for an instance that had ended; it is marked failed and no incident is raised")
+	return false
 }
 
 // writeDetached records a job's status in a statement of its own, for the
@@ -235,16 +284,13 @@ func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobE
 // did.
 //
 // Two reads. The first takes no lock, and is all a job whose step is waiting
-// pays. Only when it says the step was withdrawn is the instance locked and
-// asked again, and the job completed in that transaction: what completes a job
-// without doing its work is decided on the locked row, like everything else
-// that settles one.
-func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities.Job, node, adHoc *entities.Node) (bool, error) {
-	glimpse, err := s.engine.GetInstance(ctx, job.Instance.ID)
-	if err != nil {
-		return false, err
-	}
-	if !withdrawnWithAdHoc(&glimpse, adHoc, node, job.IterationID) {
+// pays: it is the caller's, glimpse, the one read every service call makes of
+// its instance before it calls. Only when it says the step was withdrawn is
+// the instance locked and asked again, and the job completed in that
+// transaction: what completes a job without doing its work is decided on the
+// locked row, like everything else that settles one.
+func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities.Job, glimpse *entities.ProcessInstance, node, adHoc *entities.Node) (bool, error) {
+	if !withdrawnWithAdHoc(glimpse, adHoc, node, job.IterationID) {
 		return false, nil
 	}
 	withdrawn, err := s.completeIfWithdrawn(ctx, job, node, adHoc)
@@ -256,6 +302,38 @@ func (s *jobService) completedBecauseWithdrawn(ctx context.Context, job entities
 			Msg("A call queued for a step that had been withdrawn was not made")
 	}
 	return withdrawn, err
+}
+
+// completedBecauseEnded completes a service-task job whose instance has
+// ended, without making its call, and reports whether it did.
+//
+// Its caller read the instance without a lock and found it ended. It is asked
+// again here of the locked row, and the job completed in that transaction —
+// the instance first and the job's row second — as everything that settles a
+// job without doing its work decides it.
+func (s *jobService) completedBecauseEnded(ctx context.Context, job entities.Job) (bool, error) {
+	var ended entities.ProcessStatus
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		instance, err := s.engine.GetInstanceForUpdate(txCtx, job.Instance.ID)
+		if err != nil {
+			return err
+		}
+		if !instanceEnded(instance.Status) {
+			return nil
+		}
+		ended = instance.Status
+		return s.completeJob(txCtx, job)
+	})
+	if err != nil || ended == "" {
+		return false, err
+	}
+	log.Info().
+		Str("jobId", job.ID.String()).
+		Str("instance_id", job.Instance.ID.String()).
+		Str("node_id", job.Node.ID).
+		Str("status", string(ended)).
+		Msg("A call queued for an instance that had ended was not made")
+	return true, nil
 }
 
 // completeIfWithdrawn locks the instance and, if the step the job was queued
