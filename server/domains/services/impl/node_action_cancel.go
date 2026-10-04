@@ -14,6 +14,12 @@ import (
 // locked is the row its caller locked: it is the one written back, so nothing
 // that landed before the lock is undone.
 //
+// The tasks are withdrawn, announced and recorded from their rows as they are
+// once held (heldOpen), not as a read before that found them: a claim does not
+// take the instance, so it is not kept out by the caller's lock, and a task
+// claimed as the instance was cancelled was withdrawn from somebody the record
+// called nobody and nobody told.
+//
 // Tokens are cleared and the status is set rather than the rows deleted: what
 // this instance did, and how far it got, is the record somebody will ask for.
 // Pending timers are left alone deliberately — JobRepository has no delete, and
@@ -24,14 +30,11 @@ func (a nodeActions) cancel(
 	locked models.ProcessInstanceModel,
 ) (ended models.ProcessInstanceModel, withdrawn []models.TaskModel, err error) {
 	instanceID := uuid.UUID(locked.ID)
-	tasks, err := a.repo.Task().ListByInstance(ctx, instanceID)
+	open, err := a.heldOpen(ctx, instanceID)
 	if err != nil {
 		return models.ProcessInstanceModel{}, nil, err
 	}
-	for _, task := range tasks {
-		if !openTask(task.Status) {
-			continue
-		}
+	for _, task := range open {
 		if err := a.repo.Task().UpdateStatus(ctx, uuid.UUID(task.ID), models.TaskCanceled); err != nil {
 			return models.ProcessInstanceModel{}, nil, err
 		}

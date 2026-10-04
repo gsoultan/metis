@@ -57,19 +57,19 @@ func (f *fixture) waitingOnApprovals(t *testing.T, approvers ...any) (v1, v2 uui
 	return v1, v2
 }
 
-// recordedHolders is who the skip's ledger row says held each task it
+// recordedHolders is who a ledger row says held each task its action
 // withdrew, by task id: "" where it says nobody did.
 func recordedHolders(t *testing.T, row entities.Deviation) map[string]string {
 	t.Helper()
 	tasks, ok := row.Before["tasks"].(map[string]any)
 	if !ok {
-		t.Fatalf("the skip's row does not say what the tasks were before it: %v", row.Before)
+		t.Fatalf("the row does not say what the tasks were before it: %v", row.Before)
 	}
 	holders := make(map[string]string, len(tasks))
 	for id, was := range tasks {
 		values, ok := was.(map[string]any)
 		if !ok {
-			t.Fatalf("the skip's row says of task %s: %v", id, was)
+			t.Fatalf("the row says of task %s: %v", id, was)
 		}
 		holder, _ := values["assignee"].(string)
 		holders[id] = holder
@@ -77,12 +77,14 @@ func recordedHolders(t *testing.T, row entities.Deviation) map[string]string {
 	return holders
 }
 
-// assertTheRecordNamesWhoWasTold asks of a skip that has run that its ledger
-// row and its announcements agree about who held the work, and that both
-// agree with the tasks as they were left.
-func (f *fixture) assertTheRecordNamesWhoWasTold(t *testing.T, round string, told []entities.ProcessEvent) {
+// assertTheRecordNamesWhoWasTold asks of an action that withdrew the
+// approval's tasks that its ledger row and its announcements agree about who
+// held the work, and that both agree with the tasks as they were left. The
+// tasks are asked as well as the announcements, because the two can agree and
+// both be wrong: nobody recorded and nobody told, of a task somebody held.
+func (f *fixture) assertTheRecordNamesWhoWasTold(t *testing.T, round string, row entities.Deviation, told []entities.ProcessEvent) {
 	t.Helper()
-	recorded := recordedHolders(t, f.theWaiverOf(t, f.onlyInstance(t).ID, "approve"))
+	recorded := recordedHolders(t, row)
 
 	var recordedNames, toldNames []string
 	for _, holder := range recorded {
@@ -167,11 +169,12 @@ func TestAClaimRacingASkipIsRecordedAsItWasAnnounced(t *testing.T) {
 		if migrateErr != nil {
 			t.Fatalf("round %d: the skip failed: %v", round, migrateErr)
 		}
-		f.assertTheRecordNamesWhoWasTold(t, fmt.Sprintf("round %d", round), watcher.events)
+		f.assertTheRecordNamesWhoWasTold(t, fmt.Sprintf("round %d", round),
+			f.theWaiverOf(t, f.onlyInstance(t).ID, "approve"), watcher.events)
 	}
 }
 
-// raceWait is how long the skip is given to get where it is going. Far longer
+// raceWait is how long a migration is given to get where it is going. Far longer
 // than it takes; it only bounds a test that has gone wrong.
 const raceWait = 20 * time.Second
 
@@ -231,7 +234,8 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 		t.Fatal("the skip did not finish once the claim was let go")
 	}
 
-	recorded := recordedHolders(t, f.theWaiverOf(t, f.onlyInstance(t).ID, "approve"))
+	row := f.theWaiverOf(t, f.onlyInstance(t).ID, "approve")
+	recorded := recordedHolders(t, row)
 	if got := recorded[claimed.String()]; got != "carol" {
 		t.Errorf("the ledger says %q held the task carol had claimed when it was withdrawn; it holds %v", got, recorded)
 	}
@@ -241,28 +245,28 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 	if !toldCarol {
 		t.Errorf("carol held a task that was withdrawn and was not told; %d withdrawal(s) were announced", len(watcher.events))
 	}
-	f.assertTheRecordNamesWhoWasTold(t, "after the claim", watcher.events)
+	f.assertTheRecordNamesWhoWasTold(t, "after the claim", row, watcher.events)
 }
 
-// waitUntilHeldBehind waits for the skip to be waiting for something the
-// session holds. A skip that finishes instead never waited for the claim, and
+// waitUntilHeldBehind waits for the migration to be waiting for something the
+// session holds. One that finishes instead never waited for the claim, and
 // the test has not made the interleaving it is about.
 func (f *fixture) waitUntilHeldBehind(t *testing.T, session int, finished <-chan error) {
 	t.Helper()
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
 		case err := <-finished:
-			t.Fatalf("the skip finished (%v) without waiting for the claim it raced", err)
+			t.Fatalf("the migration finished (%v) without waiting for the claim it raced", err)
 		default:
 		}
 		var waiting int
 		if err := f.db.Raw(`SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))`, session).
 			Scan(&waiting).Error; err != nil {
-			t.Fatalf("look for the skip waiting behind the claim: %v", err)
+			t.Fatalf("look for the migration waiting behind the claim: %v", err)
 		}
 		if waiting > 0 {
 			return
 		}
 	}
-	t.Fatal("the skip was neither finished nor made to wait")
+	t.Fatal("the migration was neither finished nor made to wait")
 }
