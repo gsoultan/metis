@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -518,9 +519,41 @@ func TestOutputRefusals(t *testing.T) {
 	}
 }
 
+// A form may have any number of fields with names too long to list. Each of
+// the first few is refused by name, and the rest are counted: a plan is a
+// dozen sentences for a form of any size.
+func TestNamesTooLongToSetAreRefusedByNameAndThenCounted(t *testing.T) {
+	t.Parallel()
+	var names []string
+	for i := range maxPointsNamed + 2 {
+		names = append(names, fmt.Sprintf("%02d", i)+strings.Repeat("x", deviationNodeNameLength))
+	}
+	names = append(names, "short", strings.Repeat("y", deviationNodeNameLength))
+	slices.Sort(names)
+	refusals := tooLongToSet(names)
+	if len(refusals) != maxPointsNamed+1 {
+		t.Fatalf("%d refusals for %d names too long, want %d by name and one counting the rest:\n  %s",
+			len(refusals), maxPointsNamed+2, maxPointsNamed, strings.Join(refusals, "\n  "))
+	}
+	if want := "“00" + strings.Repeat("x", maxNameShown-2) + "…” is too long a name for a waive to set; complete or reassign the task instead."; refusals[0] != want {
+		t.Errorf("the first reads\n  %s\nwant\n  %s", refusals[0], want)
+	}
+	if want := "2 more of the values it would have to set have names as long."; refusals[maxPointsNamed] != want {
+		t.Errorf("the last reads %q, want %q", refusals[maxPointsNamed], want)
+	}
+	if got := tooLongToSet([]string{"short", strings.Repeat("y", deviationNodeNameLength)}); got != nil {
+		t.Errorf("names a plan lists whole are refused: %q", got)
+	}
+}
+
 // The plan's own list of what is missing is the whole of it: sorted, each
-// name cut to what somebody would read, and no more of them than one waive
-// may set, with the count of them all beside it.
+// name in full — it is there to be copied into the outputs of the next
+// request, and a name cut short names nothing — and no more of them than one
+// waive may set, with the count of them all beside it.
+//
+// A name longer than the ledger keeps of any name is the one exception: it is
+// listed cut, so the plan stays a size, and the plan refuses the waive for
+// it, because a name that cannot be shown cannot be supplied from a plan.
 func TestThePlanNamesEveryValueThatIsMissing(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("n", maxNameShown+20)
@@ -528,12 +561,45 @@ func TestThePlanNamesEveryValueThatIsMissing(t *testing.T) {
 	p := &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
 	p.takePoints(foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, twelve...)}, twelve...),
 		declares(twelve...), declares(twelve...), nil)
-	want := append([]string{strings.Repeat("n", maxNameShown) + "…"}, namesNumbered(11, "value")...)
+	want := append([]string{long}, namesNumbered(11, "value")...)
 	if !reflect.DeepEqual(p.plan.Missing, want) || p.plan.MissingInAll != 12 {
-		t.Errorf("the plan names %d of %d missing values: %q\nwant all twelve: %q", len(p.plan.Missing), p.plan.MissingInAll, p.plan.Missing, want)
+		t.Errorf("the plan names %d of %d missing values: %q\nwant all twelve, the long one in full: %q", len(p.plan.Missing), p.plan.MissingInAll, p.plan.Missing, want)
 	}
+	for _, refusal := range p.plan.Refusals {
+		if strings.Contains(refusal, "too long a name") {
+			t.Errorf("a name of %d characters, which the plan lists in full, is refused as too long: %s", len(long), refusal)
+		}
+	}
+
 	if len(p.plan.DecisionPoints) != 1 || len(p.plan.DecisionPoints[0].Missing) != maxNamesShown || p.plan.DecisionPoints[0].MissingInAll != 12 {
 		t.Errorf("the point: %+v, want it to name ten and count twelve", p.plan.DecisionPoints)
+	}
+
+	// At the length the ledger keeps a name is still listed whole; one
+	// character more and it is cut, and refused.
+	fits := strings.Repeat("é", deviationNodeNameLength)
+	tooLong := strings.Repeat("ü", deviationNodeNameLength+1)
+	both := []string{fits, tooLong}
+	p = &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
+	p.takePoints(foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, both...)}, both...),
+		declares(both...), declares(both...), nil)
+	if want := []string{fits, strings.Repeat("ü", deviationNodeNameLength)}; !reflect.DeepEqual(p.plan.Missing, want) || p.plan.MissingInAll != 2 {
+		t.Errorf("the plan lists names of %d and %d characters, want %d (whole) and %d (cut between characters)",
+			utf8.RuneCountInString(p.plan.Missing[0]), utf8.RuneCountInString(p.plan.Missing[len(p.plan.Missing)-1]),
+			deviationNodeNameLength, deviationNodeNameLength)
+	}
+	refusal := "“" + strings.Repeat("ü", maxNameShown) + "…” is too long a name for a waive to set; complete or reassign the task instead."
+	refused := 0
+	for _, said := range p.plan.Refusals {
+		if said == refusal {
+			refused++
+		}
+		if strings.Contains(said, "too long a name") && said != refusal {
+			t.Errorf("a refusal for a long name reads\n  %s\nwant\n  %s", said, refusal)
+		}
+	}
+	if refused != 1 {
+		t.Errorf("the plan refuses %d time(s) for the name too long to list, want once; its refusals:\n  %s", refused, strings.Join(p.plan.Refusals, "\n  "))
 	}
 
 	sixty := namesNumbered(60, "value")

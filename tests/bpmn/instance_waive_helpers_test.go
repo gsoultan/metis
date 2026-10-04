@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
+	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -108,6 +109,16 @@ func theOpenTask(t *testing.T, h engineHarness, instanceID uuid.UUID, nodeID str
 		t.Fatalf("%d task(s) are open on %s, want exactly one", len(open), nodeID)
 	}
 	return open[0]
+}
+
+// recordsAsProductionDoes registers the two observers that write when the
+// engine raises an event on a running server: the one that keeps the audit
+// trail and the one that leaves a notification. A test that asks what a
+// change left behind has to have them writing, or it is asking of fewer
+// tables than production writes to.
+func (h engineHarness) recordsAsProductionDoes() {
+	h.dispatcher.Register(observersimpl.NewAuditLogObserver(h.repo.Audit()))
+	h.dispatcher.Register(observersimpl.NewNotificationObserver(serviceimpl.NewNotificationService(h.repo.Notification())))
 }
 
 // eventLog records what the engine raises.

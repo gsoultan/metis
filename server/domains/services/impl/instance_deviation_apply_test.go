@@ -3,6 +3,7 @@ package impl
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -228,5 +229,108 @@ func TestTheRecordOfAWaiveKeepsOnlyValuesTheInstanceHeld(t *testing.T) {
 	}
 	if _, has := held["amount"]; has {
 		t.Error("a value the waiver does not set is recorded")
+	}
+}
+
+// What somebody who asked for a waive is told when what follows the step
+// fails. A gateway with no way out for the values given is theirs to fix, and
+// is told as that, by name. Everything else is the server's: the words are
+// kept, and whatever class the failure carried — not found, invalid,
+// forbidden — is not, since the instance exists, the request was well formed
+// and the caller may make it.
+func TestAWaiveThatFailsIsToldAsWhatItIs(t *testing.T) {
+	instance := uuid.Must(uuid.NewV7())
+	caller := uuid.Must(uuid.NewV7())
+	gateway := func(of uuid.UUID, name string) error {
+		return &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide", GatewayName: name, InstanceID: of}
+	}
+	asTheEffectWraps := func(err error) error {
+		return fmt.Errorf("advancing instance %s past %q: %w", instance, "review", err)
+	}
+	asAResumedCallerWraps := func(err error) error {
+		return asTheEffectWraps(fmt.Errorf("resume parent instance %s at call activity %q: %w", caller, "check", err))
+	}
+	const here = ", so the waive was not applied and nothing was changed. Preview again and give a value one of its branches accepts."
+	const there = ", in the process that started this one, had no way out for the result, so the waive was not applied and nothing was changed."
+	const elsewhere = ", in another process this waive would have moved on, had no way out, so the waive was not applied and nothing was changed."
+	other := uuid.Must(uuid.NewV7())
+
+	for name, tc := range map[string]struct {
+		failure error
+		want    string
+	}{
+		"a gateway of this instance": {asTheEffectWraps(gateway(instance, "Verdict?")),
+			"The values given fit no way out of “Verdict?”" + here},
+		"a gateway nobody named": {asTheEffectWraps(gateway(instance, "")),
+			"The values given fit no way out of “decide”" + here},
+		"a gateway with a very long name": {asTheEffectWraps(gateway(instance, strings.Repeat("é", 300))),
+			"The values given fit no way out of “" + strings.Repeat("é", deviationNodeNameLength) + "”" + here},
+		"a gateway of the process that called this one": {asAResumedCallerWraps(gateway(caller, "Supplier approved?")),
+			"“Supplier approved?”" + there},
+		"a caller's gateway nobody named": {asAResumedCallerWraps(gateway(caller, "")),
+			"“decide”" + there},
+		// Neither this instance nor the one that started it: a process the
+		// advance went on to start, or a caller further up. It is not said to
+		// be the caller's, and nobody is told to supply a value for it.
+		"a gateway of some other instance the advance reached": {asTheEffectWraps(gateway(other, "Stock in hand?")),
+			"“Stock in hand?”" + elsewhere},
+	} {
+		err := waiveFailed(instance, caller, "Review the claim", tc.failure)
+		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), tc.want) {
+			t.Errorf("%s: got %v\nwant it refused as the caller's to fix, saying\n  %s", name, err, tc.want)
+		}
+	}
+
+	for name, failure := range map[string]error{
+		"a decision nobody stored":  asTheEffectWraps(fmt.Errorf("%w: no live version of decision no-such-decision", apierr.ErrNotFound)),
+		"the engine refusing":       asTheEffectWraps(apierr.Invalidf("this step has already finished")),
+		"something forbidden":       asTheEffectWraps(apierr.Forbiddenf("not for you")),
+		"a definition that loops":   asTheEffectWraps(errors.New("BPMN_ERROR:execution exceeded 1000 nodes at \"again\"")),
+		"the database":              asTheEffectWraps(errors.New("could not update the process instance")),
+		"an error thrown by a step": asTheEffectWraps(errors.New("BPMN_ERROR:charge-failed")),
+	} {
+		err := waiveFailed(instance, caller, "Review the claim", failure)
+		if err == nil {
+			t.Fatalf("%s: no error", name)
+		}
+		for class, kind := range map[string]error{"not found": apierr.ErrNotFound, "an invalid argument": apierr.ErrInvalidArgument, "forbidden": apierr.ErrForbidden} {
+			if errors.Is(err, kind) {
+				t.Errorf("%s is answered as %s: %v", name, class, err)
+			}
+		}
+		if want := "waiving “Review the claim”: " + failure.Error(); err.Error() != want {
+			t.Errorf("%s: told as\n  %s\nwant the words kept:\n  %s", name, err, want)
+		}
+	}
+}
+
+// The same stripping, for an act that advances nothing: what Task 7's cancel
+// and hold are told by.
+func TestAnEffectThatFailsAnswersAsTheServers(t *testing.T) {
+	failure := fmt.Errorf("reading the incidents already on instance x: %w", apierr.ErrNotFound)
+	err := effectFailed("holding this instance", failure)
+	if errors.Is(err, apierr.ErrNotFound) || errors.Is(err, apierr.ErrInvalidArgument) || errors.Is(err, apierr.ErrForbidden) {
+		t.Errorf("a failed effect is answered with a class: %v", err)
+	}
+	if want := "holding this instance: " + failure.Error(); err.Error() != want {
+		t.Errorf("told as %q, want %q", err, want)
+	}
+}
+
+// An instance nothing started has no caller: a gateway of another instance is
+// then never said to be "in the process that started this one".
+func TestAWaiveWithNoCallerNeverBlamesOne(t *testing.T) {
+	instance, other := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	failure := &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide", InstanceID: other}
+	err := waiveFailed(instance, uuid.Nil, "Review the claim", failure)
+	if !errors.Is(err, apierr.ErrInvalidArgument) || strings.Contains(err.Error(), "started this one") ||
+		!strings.Contains(err.Error(), "in another process this waive would have moved on") {
+		t.Errorf("got %v, want it refused without naming a caller", err)
+	}
+	// And a gateway whose error names no instance is not taken for this one's.
+	unnamed := &entities.NoFlowSelectedError{GatewayKind: entities.GatewayKindExclusive, GatewayID: "decide"}
+	if err := waiveFailed(instance, uuid.Nil, "Review the claim", unnamed); strings.Contains(err.Error(), "started this one") ||
+		strings.Contains(err.Error(), "Preview again and give a value") {
+		t.Errorf("a gateway of no known instance: %v; it is neither this instance's nor its caller's", err)
 	}
 }

@@ -1,7 +1,9 @@
 package impl
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"time"
@@ -61,7 +63,7 @@ func (s *instanceDeviationService) act(
 //
 // An advance that fails — a gateway after the step with no flow for the
 // value given — fails the unit of work: nothing is set, withdrawn or
-// recorded.
+// recorded. What the caller is told of it is waiveFailed's to say.
 func (s *instanceDeviationService) waiveStep(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -82,7 +84,7 @@ func (s *instanceDeviationService) waiveStep(
 	}
 	withdrawn, err := s.actions.waive(ctx, live, def, command.NodeID)
 	if err != nil {
-		return entities.Deviation{}, fmt.Errorf("waiving “%s”: %w", plan.NodeName, err)
+		return entities.Deviation{}, waiveFailed(uuid.UUID(locked.ID), callerOf(locked), plan.NodeName, err)
 	}
 
 	row := inPlaceDeviation(locked, plan, command, actor, runID)
@@ -106,6 +108,66 @@ func (s *instanceDeviationService) waiveStep(
 		return entities.Deviation{}, fmt.Errorf("recording that “%s” was waived: %w", plan.NodeName, err)
 	}
 	return recorded, nil
+}
+
+// waiveFailed is what somebody who asked for a waive is told when the effect
+// failed: withdrawing the step's work, or moving the instance on from it.
+//
+// One failure is theirs to put right. A gateway reached by the advance found
+// no flow for the values the instance then held — the ones the waiver gave —
+// and declares no default. It is told as a refusal, naming the gateway, and
+// it says that nothing was changed: the error is returned through the unit
+// of work, which undoes the waive whole.
+//
+// The advance does not stop at the end of this instance. It runs on into the
+// process that called it, and into one a later step calls, and the gateway
+// may be there — in a definition no preview of this instance showed. Then
+// nobody is told to supply a value for it, and it is said to be the caller's
+// only when it is: callerID is the instance that started this one, or nil.
+//
+// Every other failure is the server's (effectFailed), whatever class it came
+// with.
+func waiveFailed(instanceID, callerID uuid.UUID, step string, err error) error {
+	var noFlow *entities.NoFlowSelectedError
+	if !errors.As(err, &noFlow) {
+		return effectFailed(fmt.Sprintf("waiving “%s”", step), err)
+	}
+	gateway := cmp.Or(shownStepName(noFlow.GatewayName), noFlow.GatewayID)
+	switch {
+	case noFlow.InstanceID == instanceID:
+		return apierr.Invalidf("The values given fit no way out of “%s”, so the waive was not applied and nothing was changed. "+
+			"Preview again and give a value one of its branches accepts.", gateway)
+	case callerID != uuid.Nil && noFlow.InstanceID == callerID:
+		return apierr.Invalidf("“%s”, in the process that started this one, had no way out for the result, "+
+			"so the waive was not applied and nothing was changed.", gateway)
+	}
+	return apierr.Invalidf("“%s”, in another process this waive would have moved on, had no way out, "+
+		"so the waive was not applied and nothing was changed.", gateway)
+}
+
+// callerOf is the instance that started the one a row is of, or nil for one
+// nothing started.
+func callerOf(locked models.ProcessInstanceModel) uuid.UUID {
+	if locked.ParentInstanceID == nil {
+		return uuid.Nil
+	}
+	return uuid.UUID(*locked.ParentInstanceID)
+}
+
+// effectFailed is what the caller of an in-place act is told when the act's
+// effect failed for a reason that is not theirs: what was being done, and the
+// failure in its own words — and no more than words.
+//
+// The effects run the engine, and what the engine meets on the way has
+// classes of its own: a decision with no live version is "not found", a step
+// already finished is "invalid". Passed on, those would answer the caller 404
+// for an instance that exists, or 400 for a request that was well formed and
+// that they cannot correct. By the time an effect runs the caller has been
+// let in, the instance found and the plan accepted; whatever fails after that
+// is the server's, and is answered as that. So the cause is kept as words and
+// deliberately not wrapped, as graphRunBy keeps a missing version.
+func effectFailed(doing string, err error) error {
+	return fmt.Errorf("%s: %s", doing, err.Error())
 }
 
 // valuesHeld is what an instance holds under the names a waive is about to

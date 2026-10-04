@@ -98,7 +98,9 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 	}
 	if command.NodeID != "" {
 		if p.node = def.FindNode(command.NodeID); p.node != nil {
-			p.plan.NodeName = cmp.Or(p.node.Name, p.node.ID)
+			// As the ledger keeps a step's name, so that the plan, the row
+			// and the trail entry made from the plan name it alike.
+			p.plan.NodeName = cmp.Or(shownStepName(p.node.Name), p.node.ID)
 		}
 	}
 	p.plan.VisitKey = p.visitKey()

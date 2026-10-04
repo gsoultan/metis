@@ -548,6 +548,69 @@ func TestAnApplyFromAnotherOrganizationFindsNoInstance(t *testing.T) {
 	refusedAsNoSuchInstance("after the waive, with the very request that made it")
 }
 
+// Review Focus 5, at the service, for the request that changes something: an
+// apply — a real one, naming the key of a plan nothing refuses — by anybody
+// but an administrator of the instance's organization. Each is refused, and
+// every table is as it was; then the administrator sends the very same
+// command and it is applied, so what was refused was the caller and not the
+// request.
+func TestAnApplyByAnybodyButTheOrganizationsAdministratorChangesNothing(t *testing.T) {
+	h := newEngineHarness(t, "Waive Apply Authority Project")
+	h.recordsAsProductionDoes()
+	events := &eventLog{}
+	h.dispatcher.Register(events)
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-apply-authority"), nil)
+	here := entities.ActingOrganization(h.Ctx())
+	elsewhere, err := h.svc.CreateOrganization(t.Context(), "Another Organization", "")
+	if err != nil {
+		t.Fatalf("create the other organization: %v", err)
+	}
+	inTheOther := entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: elsewhere.ID.String()})
+	apply := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", map[string]any{"approved": true}))
+	raised := events.count()
+
+	for who, caller := range map[string]struct {
+		ctx  context.Context
+		want error
+	}{
+		"nobody signed in":      {h.Ctx(), apierr.ErrForbidden},
+		"a member":              {signedInAs(h.Ctx(), entities.User{Username: "mia", Roles: []string{entities.RoleUser}}), apierr.ErrForbidden},
+		"an operator":           {testutils.AsOperator(h.Ctx(), "olga"), apierr.ErrForbidden},
+		"a designer":            {signedInAs(h.Ctx(), entities.User{Username: "dina", Roles: []string{entities.RoleDesigner}}), apierr.ErrForbidden},
+		"the task's own holder": {testutils.AsOperator(h.Ctx(), "ollie"), apierr.ErrForbidden},
+		"an administrator of another organization, asking in this one": {signedInAs(h.Ctx(), entities.User{Username: "otto",
+			RolesByOrganization: map[uuid.UUID][]string{elsewhere.ID: {entities.RoleAdmin}}}), apierr.ErrForbidden},
+		"an administrator of another organization, asking in their own": {signedInAs(inTheOther, entities.User{Username: "otto",
+			RolesByOrganization: map[uuid.UUID][]string{elsewhere.ID: {entities.RoleAdmin}}}), apierr.ErrNotFound},
+		"an operator and designer of this organization alone": {signedInAs(h.Ctx(), entities.User{Username: "odile",
+			RolesByOrganization: map[uuid.UUID][]string{here: {entities.RoleOperator, entities.RoleDesigner}}}), apierr.ErrForbidden},
+	} {
+		before := everyRow(t, h)
+		out, err := w.svc.DeviateInstance(caller.ctx, apply)
+		if !errors.Is(err, caller.want) {
+			t.Errorf("%s applying: got %v, want %v", who, err, caller.want)
+		}
+		if out.Applied || out.Replayed || out.Deviation != nil {
+			t.Errorf("%s applying was answered as though it had been done: %+v", who, out)
+		}
+		if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+			t.Fatalf("%s applying changed %v", who, changed)
+		}
+	}
+	if now := events.count(); now != raised {
+		t.Fatalf("refused applies raised %d event(s)", now-raised)
+	}
+	if open := theOpenTask(t, h, id, "opsApprove"); open.AssigneeUsername() != "ollie" {
+		t.Fatalf("after the refused applies the task is with %q, want ollie still", open.AssigneeUsername())
+	}
+
+	out, err := w.svc.DeviateInstance(w.ctx, apply)
+	if err != nil || !out.Applied || out.Replayed {
+		t.Fatalf("the organization's administrator, sending the same command: %+v, %v; want it applied", out, err)
+	}
+}
+
 // A cancel and a hold are planned and previewed, and not yet made in place:
 // an apply of either is refused as it was before a waive could be applied,
 // and changes nothing. This goes when they are made.

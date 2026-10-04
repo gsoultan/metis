@@ -1,13 +1,17 @@
 package impl
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
@@ -34,7 +38,71 @@ func (s *instanceDeviationService) planWaive(ctx context.Context, p *planning) e
 		return nil
 	}
 	p.warnWhoLosesWork()
+	if err := s.warnThatTheCallerWasNotRead(ctx, p); err != nil {
+		return err
+	}
 	return s.planOutputs(ctx, p)
+}
+
+// warnThatTheCallerWasNotRead says, of a waive in an instance another process
+// started, that what that process does with this one's results was not looked
+// at.
+//
+// When a called instance ends its values go back to its caller, which goes on
+// from the step that called it and decides from them — a gateway there may
+// read a field the waived step would have set. The caller runs another
+// definition, and a plan reads the one its instance runs: so nothing is
+// refused for the caller's sake, and the plan says what it did not read and
+// where, as it does of a process this one calls. Said only of a caller that
+// has not ended: one that has receives nothing.
+func (s *instanceDeviationService) warnThatTheCallerWasNotRead(ctx context.Context, p *planning) error {
+	started := p.instance.ParentInstance
+	if started == nil {
+		return nil
+	}
+	caller, err := s.engine.GetInstance(ctx, started.ID)
+	if errors.Is(err, apierr.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the instance that started instance %s: %w", p.instance.ID, err)
+	}
+	if hasEnded(caller.Status) {
+		return nil
+	}
+	process, step, err := s.whereItWasCalledFrom(ctx, caller, p.instance.ParentNode)
+	if err != nil {
+		return err
+	}
+	p.warn("This instance was started by “%s” at “%s”, which receives its results when it ends. "+
+		"What that process decides from them was not read; check it before applying.", process, step)
+	return nil
+}
+
+// whereItWasCalledFrom names the process a caller runs and the step of it
+// that called: each by its name, cut as a plan shows a name, falling back to
+// what identifies it — the process's key, the step's id — and, for a process
+// that cannot be named at all, the caller's own id.
+func (s *instanceDeviationService) whereItWasCalledFrom(ctx context.Context, caller entities.ProcessInstance, at *entities.Node) (process, step string, err error) {
+	process = caller.ID.String()
+	if at != nil {
+		step = at.ID
+	}
+	if caller.Definition == nil {
+		return process, step, nil
+	}
+	def, err := s.engine.GetProcessDefinition(ctx, caller.Definition.ID)
+	if errors.Is(err, apierr.ErrNotFound) || (err == nil && def == nil) {
+		return process, step, nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("reading the process instance %s runs: %w", caller.ID, err)
+	}
+	process = cmp.Or(shownStepName(def.Name), def.Key, process)
+	if node := def.FindNode(step); node != nil && node.Name != "" {
+		step = shownStepName(node.Name)
+	}
+	return process, step, nil
 }
 
 // refuseWorkNobodyDoes refuses to waive a step that is not a person's work,
@@ -153,23 +221,52 @@ func (p *planning) takePoints(found decisionPointsFound, anyRun, everyRun map[st
 	if more := len(points) - len(p.plan.DecisionPoints); more > 0 {
 		p.warn("%d more %s what “%s” would have set and %s not listed here.", more, stepsRead(more), step, isOrAre(more))
 	}
-	p.plan.Missing, p.plan.MissingInAll = missingShown(found.missing), len(found.missing)
+	missing := sortedKeys(found.missing)
+	p.plan.Refusals = append(p.plan.Refusals, tooLongToSet(missing)...)
+	p.plan.Missing, p.plan.MissingInAll = missingShown(missing), len(missing)
 }
 
-// missingShown is what a plan lists as missing: every value, in order, each
-// cut to a length somebody would read — and no more of them than one waive
-// may set, since a waive that needs more cannot be made at all and is refused
-// for that.
-func missingShown(missing map[string]struct{}) []string {
+// missingShown is what a plan lists as missing, from every missing name in
+// order: each in full, so that it can be copied from the list into the
+// outputs of the next request — a name cut short names nothing — and no more
+// of them than one waive may set, since a waive that needs more cannot be
+// made at all and is refused for that.
+//
+// In full up to the length the ledger keeps of a name. A form's field is its
+// author's to name, and a plan has a size whatever the form: a longer name is
+// listed cut, and the plan refuses the waive for it (tooLongToSet).
+func missingShown(missing []string) []string {
 	if len(missing) == 0 {
 		return nil
 	}
-	names := sortedKeys(missing)
-	names = names[:min(len(names), entities.MaxDeviationOutputs)]
-	for i, name := range names {
-		names[i] = shortened(name)
+	shown := slices.Clone(missing[:min(len(missing), entities.MaxDeviationOutputs)])
+	for i, name := range shown {
+		shown[i] = shownStepName(name)
 	}
-	return slices.Clip(names)
+	return shown
+}
+
+// tooLongToSet refuses a waive for each missing value whose name is longer
+// than a plan lists a name at: listed cut, it cannot be supplied from the
+// plan, and the waive cannot be made without it. The first few are named —
+// as a sentence names anything, by their first characters — and the rest
+// counted.
+func tooLongToSet(missing []string) []string {
+	var refusals []string
+	more := 0
+	for _, name := range missing {
+		switch {
+		case utf8.RuneCountInString(name) <= deviationNodeNameLength:
+		case len(refusals) == maxPointsNamed:
+			more++
+		default:
+			refusals = append(refusals, fmt.Sprintf("“%s” is too long a name for a waive to set; complete or reassign the task instead.", shortened(name)))
+		}
+	}
+	if more > 0 {
+		refusals = append(refusals, fmt.Sprintf("%d more of the values it would have to set have names as long.", more))
+	}
+	return refusals
 }
 
 // declaredByOpenTasks is what the forms of a step's open tasks declare: what

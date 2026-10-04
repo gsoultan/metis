@@ -1,11 +1,15 @@
 package bpmn_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -36,6 +40,7 @@ func TestAWaivedStepIsWithdrawnItsHolderToldAndTheInstanceMovesOn(t *testing.T) 
 	h := newEngineHarness(t, "Waive Project")
 	events := &eventLog{}
 	h.dispatcher.Register(events)
+	h.recordsAsProductionDoes()
 	w := newWaiver(h)
 	ctx := h.Ctx()
 	id := w.start(t, opsApproval(h.projID, "ops-waive"), nil)
@@ -113,16 +118,38 @@ func TestAWaivedStepIsWithdrawnItsHolderToldAndTheInstanceMovesOn(t *testing.T) 
 		t.Fatalf("read the trail: %v", err)
 	}
 	var skipped []entities.AuditEntry
+	withdrawals := 0
 	for _, entry := range entries {
-		if entry.Type == serviceimpl.EventTaskCompleted {
-			t.Fatalf("the trail has a task_completed entry for a waived step: %+v", entry)
+		// Neither the task service's entry for a completion nor the one the
+		// audit observer writes when a completion is announced.
+		if entry.Type == serviceimpl.EventTaskCompleted || entry.Type == entities.EventTaskCompleted {
+			t.Fatalf("the trail has a %s entry for a waived step: %+v", entry.Type, entry)
 		}
 		if entry.Type == serviceimpl.EventNodeSkipped {
 			skipped = append(skipped, entry)
 		}
+		if entry.Type == entities.EventTaskCanceled {
+			withdrawals++
+		}
 	}
 	if len(skipped) != 1 {
 		t.Fatalf("the trail has %d node_skipped entries, want one", len(skipped))
+	}
+	if withdrawals != 1 {
+		t.Errorf("the trail records %d withdrawal(s) of the step's task, want the one the audit observer writes", withdrawals)
+	}
+	notices, err := h.repo.Notification().ListByUser(ctx, "ollie")
+	if err != nil {
+		t.Fatalf("read ollie's notifications: %v", err)
+	}
+	toldWithdrawn := 0
+	for _, notice := range notices {
+		if notice.Title == "A task was withdrawn" {
+			toldWithdrawn++
+		}
+	}
+	if toldWithdrawn != 1 {
+		t.Errorf("ollie has %d notice(s) that a task was withdrawn, want one: %+v", toldWithdrawn, notices)
 	}
 	entry := skipped[0]
 	if entry.ID != row.AuditEntryID {
@@ -174,6 +201,10 @@ func TestWaivingAParallelApprovalWithdrawsEveryOpenRunAndAdvancesOnce(t *testing
 	}
 	if still := openIterationTasks(ctx, t, h, id, "approve"); len(still) != 0 {
 		t.Fatalf("the waived step still has %d open run(s)", len(still))
+	}
+	// Once, though two runs were ended: one token and one task on what follows.
+	if tokens, tasks := tokensOn(t, h, id, "record"), tasksEverOn(t, h, id, "record"); tokens != 1 || tasks != 1 {
+		t.Fatalf("after two runs were waived the next step holds %d token(s) and has had %d task(s), want one of each", tokens, tasks)
 	}
 	rows := w.ledger(t, id)
 	if len(rows) != 1 || rows[0].Details["withdrawn"] != float64(2) {
@@ -385,25 +416,15 @@ func TestAWaiveInACalledProcessResumesItsCaller(t *testing.T) {
 	requireInstanceStatus(ctx, t, h, parent, entities.ProcessCompleted)
 }
 
-// Review Focus 4. A waive whose advance cannot route — the gateway after it
-// has no branch for the value given and no default — rolls back whole: the
-// task is open again in the same hands, the value is not set, and nothing is
-// recorded. TestASkipThatCannotAdvanceLeavesTheStepToBeDone pins the same for
-// a migration skip.
-//
-// The withdrawal is announced inside the transaction, so a watcher has heard
-// of it by the time it is undone. What is asked here is what was kept: every
-// row of every table.
-func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
-	h := newEngineHarness(t, "Unroutable Waive Project")
-	w := newWaiver(h)
-	ctx := h.Ctx()
-	id := w.start(t, &entities.ProcessDefinition{
-		Project: &entities.Project{ID: h.projID}, Key: "unroutable-waive",
+// unroutable is start → Review the claim (declares verdict) → a gateway with a
+// flow for "accept" and one for "reject", and no default.
+func unroutable(h engineHarness, key string, gateway entities.NodeType, gatewayName string) *entities.ProcessDefinition {
+	return &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: key,
 		Nodes: []*entities.Node{
 			{ID: "start", Type: entities.StartEvent},
 			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita", Properties: testutils.FormDeclaring("verdict")},
-			{ID: "decide", Type: entities.ExclusiveGateway, Name: "Verdict?"},
+			{ID: "decide", Type: gateway, Name: gatewayName},
 			{ID: "accepted", Type: entities.EndEvent},
 			{ID: "rejected", Type: entities.EndEvent},
 		},
@@ -413,39 +434,344 @@ func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 			{ID: "yes", SourceRef: "decide", TargetRef: "accepted", Condition: "verdict = accept"},
 			{ID: "no", SourceRef: "decide", TargetRef: "rejected", Condition: "verdict = reject"},
 		},
+	}
+}
+
+// Review Focus 4. A waive whose advance cannot route — the gateway after it
+// has no branch for the value given and no default — rolls back whole: the
+// task is open again in the same hands, the value is not set, and nothing is
+// recorded. TestASkipThatCannotAdvanceLeavesTheStepToBeDone pins the same for
+// a migration skip.
+//
+// It is the administrator's to fix — a value was given, and it fits nothing —
+// so it is answered as that, in words that name the gateway and say that
+// nothing was changed. Not as a failure of the server, which their client
+// would send again.
+//
+// The withdrawal is announced inside the transaction, so a watcher has heard
+// of it by the time it is undone. What is asked here is what was kept: every
+// row of every table, with the observers that write in production writing.
+func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
+	for name, shape := range map[string]struct {
+		gateway     entities.NodeType
+		gatewayName string
+		called      string
+	}{
+		"an exclusive gateway":         {entities.ExclusiveGateway, "Verdict?", "Verdict?"},
+		"an inclusive gateway":         {entities.InclusiveGateway, "Verdict?", "Verdict?"},
+		"a gateway nobody gave a name": {entities.ExclusiveGateway, "", "decide"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t, "Unroutable Waive Project")
+			h.recordsAsProductionDoes()
+			w := newWaiver(h)
+			ctx := h.Ctx()
+			id := w.start(t, unroutable(h, "unroutable-waive", shape.gateway, shape.gatewayName), nil)
+			before := everyRow(t, h)
+
+			command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "maybe"})
+			if plan := w.preview(t, command); !plan.Applicable() {
+				t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
+			}
+			out, err := w.apply(t, command)
+			want := "The values given fit no way out of “" + shape.called + "”, so the waive was not applied and nothing was changed. " +
+				"Preview again and give a value one of its branches accepts."
+			if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+				t.Fatalf("a waive whose gateway could not choose: got %v\nwant it refused as the caller's to fix, saying\n  %s", err, want)
+			}
+			if out.Applied || out.Deviation != nil {
+				t.Errorf("a waive that failed answered as though it had acted: %+v", out)
+			}
+			open := openIterationTasks(ctx, t, h, id, "review")
+			if len(open) != 1 || open[0].AssigneeUsername() != "rita" {
+				t.Fatalf("after a waive that could not advance the review's open work is %+v, want rita's one task back", open)
+			}
+			if rows := w.ledger(t, id); len(rows) != 0 {
+				t.Fatalf("a rolled-back waive left %d ledger row(s)", len(rows))
+			}
+			instance := requireInstanceStatus(ctx, t, h, id, entities.ProcessActive)
+			if _, set := instance.Variables["verdict"]; set {
+				t.Errorf("a rolled-back waive left verdict set to %v", instance.Variables["verdict"])
+			}
+			if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+				t.Fatalf("a waive that could not advance changed %v", changed)
+			}
+
+			// And the step is still there to do, or to waive with a value that routes.
+			w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "accept"}))
+			requireInstanceStatus(ctx, t, h, id, entities.ProcessCompleted)
+		})
+	}
+}
+
+// What follows a waived step can fail for reasons that are nobody's request:
+// here a business-rule step consults a decision nobody stored (the plan says
+// it could not read it, and does not refuse). The read of that decision
+// answers "not found" — and an instance that exists, asked about by somebody
+// who may ask, must not be answered as not found, nor as a request they could
+// put right. It is the server's trouble: the words are kept, the class is not.
+func TestAWaiveWhoseAdvanceFailsForReasonsOfItsOwnIsNotBlamedOnTheCaller(t *testing.T) {
+	h := newEngineHarness(t, "Waive Advance Failure Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "advance-failure",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita", Properties: testutils.FormDeclaring("approved")},
+			{ID: "policy", Type: entities.BusinessRuleTask, Name: "Apply the refund policy", Properties: map[string]any{"decision_key": "no-such-decision"}},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "review"},
+			{ID: "f2", SourceRef: "review", TargetRef: "policy"},
+			{ID: "f3", SourceRef: "policy", TargetRef: "end"},
+		},
 	}, nil)
 	before := everyRow(t, h)
 
-	command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "maybe"})
+	command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true})
 	if plan := w.preview(t, command); !plan.Applicable() {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 	}
 	out, err := w.apply(t, command)
 	if err == nil {
-		t.Fatal("a waive whose gateway could not choose reported success")
+		t.Fatal("a waive whose next step could not run reported success")
 	}
-	if !strings.Contains(err.Error(), "Review the claim") {
-		t.Errorf("the error %q does not name the step it could not waive", err)
+	for class, kind := range map[string]error{"not found": apierr.ErrNotFound, "an invalid argument": apierr.ErrInvalidArgument, "forbidden": apierr.ErrForbidden} {
+		if errors.Is(err, kind) {
+			t.Errorf("the failure is answered as %s: %v", class, err)
+		}
+	}
+	for _, words := range []string{"Review the claim", "no-such-decision"} {
+		if !strings.Contains(err.Error(), words) {
+			t.Errorf("the error %q does not say %q", err, words)
+		}
 	}
 	if out.Applied || out.Deviation != nil {
 		t.Errorf("a waive that failed answered as though it had acted: %+v", out)
 	}
-	open := openIterationTasks(ctx, t, h, id, "review")
-	if len(open) != 1 || open[0].AssigneeUsername() != "rita" {
-		t.Fatalf("after a waive that could not advance the review's open work is %+v, want rita's one task back", open)
-	}
-	if rows := w.ledger(t, id); len(rows) != 0 {
-		t.Fatalf("a rolled-back waive left %d ledger row(s)", len(rows))
-	}
-	instance := requireInstanceStatus(ctx, t, h, id, entities.ProcessActive)
-	if _, set := instance.Variables["verdict"]; set {
-		t.Errorf("a rolled-back waive left verdict set to %v", instance.Variables["verdict"])
+	if open := openIterationTasks(ctx, t, h, id, "review"); len(open) != 1 {
+		t.Fatalf("after the failure the review has %d open task(s), want the one", len(open))
 	}
 	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
-		t.Fatalf("a waive that could not advance changed %v", changed)
+		t.Fatalf("a waive whose advance failed changed %v", changed)
+	}
+}
+
+// supplierCheck is the called process, start → Review the supplier (declares
+// approved) → end, and its caller, "Supplier onboarding": start → Check the
+// supplier (calls it) → Supplier approved? → sign | drop.
+func supplierCheck(t *testing.T, h engineHarness, called, caller string) {
+	t.Helper()
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: called, Name: "Supplier review",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "review", Type: entities.UserTask, Name: "Review the supplier", Assignee: "rita", Properties: testutils.FormDeclaring("approved")},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "c1", SourceRef: "start", TargetRef: "review"},
+			{ID: "c2", SourceRef: "review", TargetRef: "end"},
+		},
+	})
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: caller, Name: "Supplier onboarding",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "check", Type: entities.CallActivity, Name: "Check the supplier", Properties: map[string]any{"called_process_key": called}},
+			{ID: "decide", Type: entities.ExclusiveGateway, Name: "Supplier approved?"},
+			{ID: "sign", Type: entities.UserTask, Name: "Sign the contract"},
+			{ID: "drop", Type: entities.UserTask, Name: "Drop the supplier"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "p1", SourceRef: "start", TargetRef: "check"},
+			{ID: "p2", SourceRef: "check", TargetRef: "decide"},
+			{ID: "yes", SourceRef: "decide", TargetRef: "sign", Condition: "approved"},
+			{ID: "no", SourceRef: "decide", TargetRef: "drop", Condition: "approved = false"},
+			{ID: "p3", SourceRef: "sign", TargetRef: "end"},
+			{ID: "p4", SourceRef: "drop", TargetRef: "end"},
+		},
+	})
+}
+
+// BPMN 2.0.2 §10.2.6 (Call Activity): when the called process ends, its
+// results go back to the caller, which goes on from the call activity. The
+// caller's process is another definition: a plan for a waive in the called
+// instance reads the called instance's process and not the caller's. So what
+// the caller decides from the results is not known here, and the plan says
+// so, naming the caller and the step that waits — it does not refuse, and it
+// does not stay silent.
+//
+// When the caller then cannot decide — its gateway reads a value the waived
+// step would have set, and the waiver gave none — the waive is undone whole,
+// in both instances, and the administrator is told which gateway it was and
+// that nothing was changed. They are not told to give "a value one of its
+// branches accepts": the gateway is in a process their preview did not show.
+func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
+	h := newEngineHarness(t, "Called Waive Caller Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	supplierCheck(t, h, "supplier-review-read", "onboarding-read")
+	parent, err := h.svc.StartProcess(ctx, h.projID, "onboarding-read", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	child := theOneCalledBy(t, h, parent)
+
+	bare := deviationCommand(entities.DeviationWaive, child, "review", nil)
+	plan := w.preview(t, bare)
+	warning := "This instance was started by “Supplier onboarding” at “Check the supplier”, which receives its results when it ends. " +
+		"What that process decides from them was not read; check it before applying."
+	if !said(plan.Warnings, warning) {
+		t.Fatalf("the plan does not warn\n  %s\nits warnings:%s", warning, lines(plan.Warnings))
+	}
+	if !plan.Applicable() {
+		t.Fatalf("a waive is refused for what its caller might read:%s", lines(plan.Refusals))
+	}
+	// A hold and a cancel hand nothing to the caller, and are told nothing of it here.
+	if hold := w.preview(t, deviationCommand(entities.DeviationHold, child, "review", nil)); said(hold.Warnings, warning) {
+		t.Error("a hold, which ends nothing, is warned of what the caller decides from the results")
 	}
 
-	// And the step is still there to do, or to waive with a value that routes.
-	w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "accept"}))
-	requireInstanceStatus(ctx, t, h, id, entities.ProcessCompleted)
+	// Applied with no value: the caller's gateway has nothing to decide from.
+	before := everyRow(t, h)
+	out, err := w.apply(t, bare)
+	want := "“Supplier approved?”, in the process that started this one, had no way out for the result, " +
+		"so the waive was not applied and nothing was changed."
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("a waive whose caller could not decide: got %v\nwant it refused, saying\n  %s", err, want)
+	}
+	if out.Applied || out.Deviation != nil {
+		t.Errorf("a waive that failed answered as though it had acted: %+v", out)
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("a waive whose caller could not decide changed %v", changed)
+	}
+	requireInstanceStatus(ctx, t, h, child, entities.ProcessActive)
+	if !h.waitingAt(ctx, t, child, "review") {
+		t.Fatal("the called instance is no longer waiting at the review")
+	}
+
+	// With the value the caller reads, the caller decides from it.
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, child, "review", map[string]any{"approved": false}))
+	requireInstanceStatus(ctx, t, h, child, entities.ProcessCompleted)
+	if !h.waitingAt(ctx, t, parent, "drop") || h.waitingAt(ctx, t, parent, "sign") {
+		t.Fatal("the caller did not decide from what the waiver counted as")
+	}
+}
+
+// A caller that has ended receives nothing: the warning is for a caller that
+// is still waiting. A migration's cancel ends a caller without looking at
+// what it called; here the row is written through the repository, as suspend
+// does, because nothing in place can end a caller under a called instance.
+func TestAWaiveInACalledProcessWhoseCallerHasEndedIsNotWarnedOfIt(t *testing.T) {
+	h := newEngineHarness(t, "Called Waive Ended Caller Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	supplierCheck(t, h, "supplier-review-ended", "onboarding-ended")
+	parent, err := h.svc.StartProcess(ctx, h.projID, "onboarding-ended", nil)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	child := theOneCalledBy(t, h, parent)
+	row, err := h.repo.Process().Get(ctx, parent)
+	if err != nil {
+		t.Fatalf("read the caller: %v", err)
+	}
+	row.Status, row.Tokens = models.ProcessCancelled, nil
+	if err := h.repo.Process().Update(ctx, row); err != nil {
+		t.Fatalf("end the caller: %v", err)
+	}
+	plan := w.preview(t, deviationCommand(entities.DeviationWaive, child, "review", nil))
+	for _, warning := range plan.Warnings {
+		if strings.Contains(warning, "was started by") {
+			t.Errorf("a waive whose caller has ended is warned of it: %s", warning)
+		}
+	}
+}
+
+// BPMN 2.0.2 §10.2.5 (Ad-Hoc Sub-Process): a step inside finishing re-reads
+// the completion condition, and when it does not hold the sub-process goes on
+// waiting. A waived step is ended all the same — its task withdrawn, its
+// token gone, its value kept — and the instance stays in the sub-process.
+func TestAWaiveInsideAnAdHocSubProcessThatIsNotYetDoneLeavesItWaiting(t *testing.T) {
+	h := newEngineHarness(t, "AdHoc Unmet Waive Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	def := adHocDefinition("claim-research-unmet", "reviewsDone >= 2")
+	def.Project = &entities.Project{ID: h.projID}
+	h.deploy(t, &def)
+	id, err := h.svc.StartProcess(ctx, h.projID, "claim-research-unmet", map[string]any{"reviewsDone": 0})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := h.svc.ActivateTask(ctx, id, "research", "call-customer"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "call-customer", map[string]any{"reviewsDone": 1}))
+
+	if open := openIterationTasks(ctx, t, h, id, "call-customer"); len(open) != 0 {
+		t.Fatalf("the waived step still has %d open task(s)", len(open))
+	}
+	if tokens := tokensOn(t, h, id, "call-customer"); tokens != 0 {
+		t.Fatalf("the waived step still holds %d token(s)", tokens)
+	}
+	instance := requireInstanceStatus(ctx, t, h, id, entities.ProcessActive)
+	if instance.Variables["reviewsDone"] != float64(1) && instance.Variables["reviewsDone"] != 1 {
+		t.Errorf("the instance holds reviewsDone = %v, want what the waiver counted as", instance.Variables["reviewsDone"])
+	}
+	if tokens := tokensOn(t, h, id, "research"); tokens != 1 {
+		t.Fatalf("the sub-process holds %d token(s), want it still waiting", tokens)
+	}
+	if h.waitingAt(ctx, t, id, "decide") || tasksEverOn(t, h, id, "decide") != 0 {
+		t.Fatal("the process left the sub-process though its completion condition does not hold")
+	}
+	w.theWaive(t, id)
+
+	// The sub-process is still one somebody can work in: the next step done
+	// meets the condition, and the process moves on once.
+	if err := h.svc.ActivateTask(ctx, id, "research", "call-customer"); err != nil {
+		t.Fatalf("activate again: %v", err)
+	}
+	completeTaskAt(ctx, t, h, id, "call-customer", map[string]any{"reviewsDone": 2})
+	if !h.waitingAt(ctx, t, id, "decide") || tasksEverOn(t, h, id, "decide") != 1 {
+		t.Fatal("with the condition met the process did not move on once")
+	}
+}
+
+// A step's name is its author's to choose, and may be longer than the ledger
+// keeps. The plan, the ledger row and the trail entry name it the same way:
+// its first 255 characters, cut between characters.
+func TestAStepWithAVeryLongNameIsNamedAlikeInThePlanTheLedgerAndTheTrail(t *testing.T) {
+	h := newEngineHarness(t, "Long Name Waive Project")
+	w := newWaiver(h)
+	long := strings.Repeat("é", 300)
+	def := opsApproval(h.projID, "ops-long-name")
+	def.Nodes[1].Name = long
+	id := w.start(t, def, nil)
+
+	out := w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	want := strings.Repeat("é", 255)
+	if out.Plan.NodeName != want {
+		t.Errorf("the plan names the step with %d characters, want its first 255", utf8.RuneCountInString(out.Plan.NodeName))
+	}
+	row := w.theWaive(t, id)
+	if row.Node == nil || row.Node.Name != want {
+		t.Errorf("the ledger names the step %+v, want its first 255 characters", row.Node)
+	}
+	entries := skippedEntries(t, h, id)
+	if len(entries) != 1 {
+		t.Fatalf("the trail has %d node_skipped entries, want one", len(entries))
+	}
+	if entries[0].Node == nil || entries[0].Node.Name != want {
+		t.Errorf("the trail names the step with %d characters, want the 255 the ledger keeps", utf8.RuneCountInString(entries[0].Node.Name))
+	}
+	if !strings.Contains(entries[0].Narrative, "“"+want+"” was waived") {
+		t.Errorf("the entry's sentence does not name the step as the ledger does: %q", entries[0].Narrative)
+	}
 }
