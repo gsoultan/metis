@@ -2,9 +2,11 @@ package logic
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic/feel"
 )
 
 func column(expression string) entities.DecisionInput {
@@ -46,8 +48,16 @@ func TestDecisionTableReads(t *testing.T) {
 			// The evaluator never parses a column: it looks the text up as one
 			// variable's name, so text FEEL cannot read is still fully known.
 			name:       "a column FEEL cannot parse is the variable of that name",
-			table:      entities.DecisionDefinition{Inputs: []entities.DecisionInput{column("first name"), column("")}},
+			table:      entities.DecisionDefinition{Inputs: []entities.DecisionInput{column("first name")}},
 			names:      []string{"first name"},
+			analysable: true,
+		},
+		{
+			// The evaluator looks up whatever the column says, and a column that
+			// says nothing looks up the variable whose name is empty.
+			name:       "a column with no expression reads the variable with no name",
+			table:      entities.DecisionDefinition{Inputs: []entities.DecisionInput{column("amount"), column("")}},
+			names:      []string{"", "amount"},
 			analysable: true,
 		},
 		{
@@ -131,7 +141,9 @@ func TestMappingSourceNames(t *testing.T) {
 		{"arithmetic", map[string]any{"total": "price * quantity"}, []string{"price", "price * quantity", "quantity"}, true},
 		{"a path", map[string]any{"country": "customer.country"}, []string{"customer", "customer.country"}, true},
 		{"a constant reads nothing", map[string]any{"flag": true, "limit": 5.0}, nil, true},
-		{"an empty source reads nothing", map[string]any{"unset": "", "blank": "   "}, nil, true},
+		// mapping.Resolve looks the text up before anything else, whatever it is:
+		// a source left blank reads the variable of that name, and no more.
+		{"a blank source reads the variable of that name", map[string]any{"unset": "", "blank": "   "}, []string{"", "   "}, true},
 		{"several sources", map[string]any{"a": "approved", "b": "sum(items.price)", "c": "approved"}, []string{"approved", "items", "sum(items.price)"}, true},
 		{"a source that cannot be read", map[string]any{"ok": "approved", "broken": "price *"}, []string{"approved", "price *"}, false},
 	}
@@ -140,5 +152,29 @@ func TestMappingSourceNames(t *testing.T) {
 		if analysable != c.analysable || !reflect.DeepEqual(names, c.names) {
 			t.Errorf("%s: got %v, %v; want %v, %v", c.name, names, analysable, c.names, c.analysable)
 		}
+	}
+}
+
+// A cell is evaluated two levels down — the list of tests, then the test — so
+// its expression has two levels fewer than a condition before the evaluator
+// refuses it, and the names in it are read exactly as far.
+func TestACellIsReadAsDeepAsTheEvaluatorEvaluatesIt(t *testing.T) {
+	t.Parallel()
+	vars := map[string]any{"a": 1.0}
+	refusedSomewhere, readSomewhere := false, false
+	for terms := 120; terms <= 136; terms++ {
+		cell := "> " + strings.Repeat("a+", terms-1) + "a"
+		_, err := feel.EvaluateUnaryTests(cell, 1.0, vars, []string{"amount"})
+		refused := err != nil && strings.Contains(err.Error(), "too deeply nested")
+		_, _, analysable := DecisionTableReads(entities.DecisionDefinition{
+			Inputs: []entities.DecisionInput{column("amount")}, Rules: []entities.DecisionRule{line(cell)},
+		})
+		if analysable == refused {
+			t.Errorf("%d terms: the evaluator says %v and the table is analysable: %v", terms, err, analysable)
+		}
+		refusedSomewhere, readSomewhere = refusedSomewhere || refused, readSomewhere || !refused
+	}
+	if !refusedSomewhere || !readSomewhere {
+		t.Error("the evaluator's limit is not between 120 and 136 terms; this test no longer straddles it")
 	}
 }

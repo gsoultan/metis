@@ -8,8 +8,10 @@ const (
 	// DecisionPointGateway is an exclusive or inclusive gateway choosing among
 	// its outgoing flows by their conditions.
 	DecisionPointGateway DecisionPointKind = "gateway"
-	// DecisionPointConditionalEvent is an event that waits for a condition to
-	// become true.
+	// DecisionPointConditionalEvent is a step that waits for a condition to
+	// become true. Usually a conditional event, which gives the kind its name;
+	// but the engine re-reads the condition of any step a token rests on, so
+	// any step that carries one is a point of this kind.
 	DecisionPointConditionalEvent DecisionPointKind = "conditional_event"
 	// DecisionPointCompletionCondition is a repeating step, or an ad-hoc
 	// sub-process, deciding whether it is done.

@@ -47,7 +47,10 @@ func ReferencedNames(condition string) (names []string, analysable bool) {
 
 	read := map[string]struct{}{}
 	key, _, plain := plainEquality(condition)
-	if plain && key != "" {
+	if plain {
+		// Whatever is left of the equals sign is looked up, and with nothing
+		// there — `=done` — that is the variable whose name is empty. It is
+		// reported like any other: a field may be named anything.
 		read[key] = struct{}{}
 	}
 	parsed, analysable := feelNames(condition, read)
@@ -71,16 +74,43 @@ func feelNames(expression string, into map[string]struct{}) (parsed, analysable 
 	return true, collectNames(tree, into)
 }
 
+// maxReadDepth is how many levels of a parsed expression are read for names.
+//
+// It is the evaluator's own limit: feel refuses to evaluate an expression
+// nested deeper than this (eval.go, maxDepth*2), so a condition that deep
+// always answers false, and nothing can say what it would have read. The
+// parser's limit does not stand in for it — that one bounds brackets, and the
+// parser builds `a+a+a+…`, `a.b.b.b…` and `a[1][1]…` to the left without
+// counting them, so each is as deep as it is long.
+//
+// The evaluator's limit is not exported, and this package may not reach into
+// it; TestNamesAreReadAsDeepAsTheEvaluatorEvaluatesAndNoDeeper holds the two
+// together, level for level.
+const maxReadDepth = 128
+
 // collectNames adds the variables a parsed expression reads to into, and
-// reports whether every node in it was one it knows how to read.
+// reports whether all of it could be read: every node one it knows, and none
+// deeper than the evaluator evaluates.
+func collectNames(node feel.Node, into map[string]struct{}) bool {
+	return namesAt(node, into, 1)
+}
+
+// namesAt is collectNames for a node the evaluator would reach at depth.
 //
 // The switch names every node the parser makes. The default is what matters:
 // a node added to the language later is not analysable until it is given a
 // case here, rather than quietly read as naming nothing.
 //
-// It recurses, and is bounded by the parser, which refuses an expression
-// nested deeper than it allows.
-func collectNames(node feel.Node, into map[string]struct{}) bool {
+// It recurses, one call a level, and stops at maxReadDepth: an expression is
+// somebody's input, and one a million levels deep must cost a refusal, not a
+// million frames. Depth is counted as the evaluator counts it, which is one
+// level a node except for a range: a range is tested rather than evaluated,
+// so its ends sit at its own level.
+func namesAt(node feel.Node, into map[string]struct{}, depth int) bool {
+	if depth > maxReadDepth {
+		return false
+	}
+	below := depth + 1
 	switch n := node.(type) {
 	case *feel.Literal:
 		return true
@@ -90,40 +120,40 @@ func collectNames(node feel.Node, into map[string]struct{}) bool {
 		}
 		return true
 	case *feel.Path:
-		return n == nil || collectNames(n.Target, into)
+		return n == nil || namesAt(n.Target, into, below)
 	case *feel.Index:
-		return n == nil || collectAll(into, n.Target, n.Index)
+		return n == nil || namesOfAll(into, below, n.Target, n.Index)
 	case *feel.Binary:
-		return n == nil || collectAll(into, n.Left, n.Right)
+		return n == nil || namesOfAll(into, below, n.Left, n.Right)
 	case *feel.Unary:
-		return n == nil || collectNames(n.Operand, into)
+		return n == nil || namesAt(n.Operand, into, below)
 	case *feel.RangeNode:
-		return n == nil || collectAll(into, n.Low, n.High)
+		return n == nil || namesOfAll(into, depth, n.Low, n.High)
 	case *feel.ListNode:
-		return n == nil || collectAll(into, n.Items...)
+		return n == nil || namesOfAll(into, below, n.Items...)
 	case *feel.ContextNode:
-		return n == nil || collectAll(into, n.Values...)
+		return n == nil || namesOfAll(into, below, n.Values...)
 	case *feel.Call:
-		return n == nil || collectAll(into, n.Args...)
+		return n == nil || namesOfAll(into, below, n.Args...)
 	case *feel.If:
-		return n == nil || collectAll(into, n.Cond, n.Then, n.Else)
+		return n == nil || namesOfAll(into, below, n.Cond, n.Then, n.Else)
 	case *feel.InNode:
-		return n == nil || collectAll(into, n.Value, n.Target)
+		return n == nil || namesOfAll(into, below, n.Value, n.Target)
 	case *feel.UnaryTest:
-		return n == nil || collectNames(n.Expr, into)
+		return n == nil || namesAt(n.Expr, into, below)
 	case *feel.UnaryTests:
-		return n == nil || collectAll(into, n.Tests...)
+		return n == nil || namesOfAll(into, below, n.Tests...)
 	}
 	return false
 }
 
-// collectAll collects from every node, and reports whether all could be read.
-// It does not stop at the first that could not: the names that can be read
-// are still worth having.
-func collectAll(into map[string]struct{}, nodes ...feel.Node) bool {
+// namesOfAll collects from every node, each at depth, and reports whether all
+// could be read. It does not stop at the first that could not: the names that
+// can be read are still worth having.
+func namesOfAll(into map[string]struct{}, depth int, nodes ...feel.Node) bool {
 	readable := true
 	for _, node := range nodes {
-		readable = collectNames(node, into) && readable
+		readable = namesAt(node, into, depth) && readable
 	}
 	return readable
 }

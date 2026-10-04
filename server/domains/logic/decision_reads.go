@@ -22,7 +22,8 @@ import (
 //
 //   - A column. The evaluator looks the column's text up as one variable's
 //     name and never parses it, so the text is the name read, whatever it
-//     looks like. Where it also parses as an expression the names in that are
+//     looks like — a column that says nothing reads the variable whose name
+//     is empty. Where it also parses as an expression the names in that are
 //     added: a column written `applicant.income` is meant to read applicant,
 //     and a name too many is the safe mistake.
 //   - A cell. Every variable is in scope by name, so `> credit_limit` reads a
@@ -43,9 +44,6 @@ func DecisionTableReads(table entities.DecisionDefinition) (names, requires []st
 	columns := make([]string, len(table.Inputs))
 	for i, input := range table.Inputs {
 		columns[i] = input.Expression
-		if input.Expression == "" {
-			continue
-		}
 		read[input.Expression] = struct{}{}
 		if parsed, readable := feelNames(input.Expression, read); parsed && !readable {
 			analysable = false
@@ -63,6 +61,13 @@ func DecisionTableReads(table entities.DecisionDefinition) (names, requires []st
 
 	return sortedNames(read), requiredDecisions(table), analysable
 }
+
+// cellExpressionDepth is the depth at which the evaluator reaches the
+// expression of one test in a cell: the list of tests is the first level and
+// the test the second. A cell is refused for its depth two levels sooner than
+// a condition is, and its names are read exactly as far
+// (TestACellIsReadAsDeepAsTheEvaluatorEvaluatesIt).
+const cellExpressionDepth = 3
 
 // cellNames adds the variables one cell of a decision table reads to into,
 // and reports whether the cell could be read.
@@ -89,7 +94,7 @@ func cellNames(cell string, columns []string, into map[string]struct{}) bool {
 		if isCellText(test, columns) {
 			continue
 		}
-		readable = collectNames(test.Expr, read) && readable
+		readable = namesAt(test.Expr, read, cellExpressionDepth) && readable
 	}
 	delete(read, feel.InputName)
 	for name := range read {
@@ -131,7 +136,8 @@ func requiredDecisions(table entities.DecisionDefinition) []string {
 //
 // It follows mapping.Resolve. A source that is not text is a constant. One
 // that is text is first looked up as a variable of exactly that name, so the
-// text is always a name read; failing that it is evaluated as FEEL, so the
+// text is always a name read — a source left blank reads the variable of that
+// blank name, and no more. Failing the lookup it is evaluated as FEEL, so the
 // names in it are read too. A source FEEL cannot parse leaves its target
 // unset with a line in the log: it is reported as not analysable, with its
 // text still among the names, because a mapping nobody can read is not one to
@@ -141,10 +147,14 @@ func MappingSourceNames(mapping map[string]any) (names []string, analysable bool
 	analysable = true
 	for _, source := range mapping {
 		text, isText := source.(string)
-		if !isText || strings.TrimSpace(text) == "" {
+		if !isText {
 			continue
 		}
 		read[text] = struct{}{}
+		if strings.TrimSpace(text) == "" {
+			// Nothing to evaluate: the lookup by name is all that is read.
+			continue
+		}
 		if parsed, readable := feelNames(text, read); !parsed || !readable {
 			analysable = false
 		}

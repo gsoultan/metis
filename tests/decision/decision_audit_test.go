@@ -624,6 +624,12 @@ func TestTheAssignmentPropertyNameIsTheSameOnBothSides(t *testing.T) {
 		t.Errorf("the service says %q and the handler says %q",
 			serviceimpl.AssignmentDecisionKeyForTest, handlersimpl.AssignmentDecisionKey)
 	}
+	// The same for the version a user task pins: the plan to waive a step reads
+	// the table at the version the handler will evaluate.
+	if serviceimpl.AssignmentDecisionVersionForTest != handlersimpl.AssignmentDecisionVersion {
+		t.Errorf("for the pinned version the service says %q and the handler says %q",
+			serviceimpl.AssignmentDecisionVersionForTest, handlersimpl.AssignmentDecisionVersion)
+	}
 }
 
 // A decision table nobody can test is a spreadsheet with extra steps.

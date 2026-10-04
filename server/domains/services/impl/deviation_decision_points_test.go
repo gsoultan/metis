@@ -544,3 +544,156 @@ func TestALargeDefinitionIsReadInOnePass(t *testing.T) {
 		t.Errorf("reading %d nodes took %s", gateways+depth+1, elapsed)
 	}
 }
+
+// Each of these is read as the engine reads it, and each would go unnoticed
+// if the reading were narrowed: the engine re-reads a condition_expression on
+// any step a token rests on, takes a default flow only when the gateway has
+// the flow it names, and treats a pinned version of zero or less as none.
+func TestWhatTheEngineReadsIsListedAsItReadsIt(t *testing.T) {
+	t.Parallel()
+	rule := func(id string, version any) *entities.Node {
+		return &entities.Node{ID: id, Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": "policy", "decision_version": version}}
+	}
+	def := &entities.ProcessDefinition{
+		Nodes: []*entities.Node{
+			{ID: "task", Type: entities.UserTask, Properties: map[string]any{"condition_expression": "approved"}},
+			{ID: "service", Type: entities.ServiceTask, Properties: map[string]any{"condition_expression": "approved"}},
+			{ID: "borrowed", Type: entities.ExclusiveGateway, DefaultFlow: "own-else"},
+			{ID: "own", Type: entities.ExclusiveGateway, DefaultFlow: "own-else"},
+			{ID: "dangling", Type: entities.InclusiveGateway, DefaultFlow: "no-such-flow"},
+			{ID: "nameless", Type: entities.ExclusiveGateway},
+			rule("zero", 0.0), rule("negative", -1.0), rule("negative-int", -3),
+		},
+		Flows: []*entities.SequenceFlow{
+			flow("borrowed-yes", "borrowed", "end", "approved"),
+			flow("own-yes", "own", "end", "approved"), flow("own-else", "own", "end", ""),
+			flow("dangling-yes", "dangling", "end", "approved"),
+			flow("nameless-yes", "nameless", "end", "=done"),
+		},
+	}
+	// Only the version in force is there: a lookup by any other number finds
+	// nothing, and the point would be listed as not analysed.
+	reads := versionsOf(map[string]map[int][]string{"policy": {0: {"approved"}}})
+	points := decisionPointsReading(def, "review", declares("approved", ""), nil, reads)
+
+	missesOnly(t, points, "task", entities.DecisionPointConditionalEvent, "approved")
+	missesOnly(t, points, "service", entities.DecisionPointConditionalEvent, "approved")
+	for id, hasDefault := range map[string]bool{"borrowed": false, "own": true, "dangling": false} {
+		if p := missesOnly(t, points, id, entities.DecisionPointGateway, "approved"); p.HasDefaultFlow != hasDefault {
+			t.Errorf("%s: has a default flow %v, want %v", id, p.HasDefaultFlow, hasDefault)
+		}
+	}
+	for _, id := range []string{"zero", "negative", "negative-int"} {
+		if p := missesOnly(t, points, id, entities.DecisionPointDecisionTable, "approved"); !p.Analysed {
+			t.Errorf("%s pins no version, so the one in force is read: %+v", id, p)
+		}
+	}
+	// A form field with no name is a name all the same, and `=done` reads it.
+	missesOnly(t, points, "nameless", entities.DecisionPointGateway, "")
+	if len(points) != 9 {
+		t.Errorf("%d points listed, want 9: %+v", len(points), points)
+	}
+}
+
+// A definition's size is bounded where it is deployed, and reading it must
+// cost in proportion to that size whatever is written in it. Nothing refuses a
+// definition that uses one id many times over, or that has many steps reading
+// the same thing, so each of these is read once: the flows of a gateway id
+// once however many nodes carry the id, a decision once however many steps
+// consult it, and what every call activity is handed once.
+//
+// Nodes of one id are one point, reading what any of them reads.
+func TestADefinitionThatRepeatsItselfIsReadInProportionToItsSize(t *testing.T) {
+	t.Parallel()
+	const copies = 20_000
+	many := func(count int, name string) []string {
+		names := make([]string, count)
+		for i := range names {
+			names[i] = fmt.Sprintf("%s%05d", name, i)
+		}
+		return names
+	}
+	nodes := func(build func(i int) *entities.Node) []*entities.Node {
+		list := make([]*entities.Node, copies)
+		for i := range list {
+			list[i] = build(i)
+		}
+		return list
+	}
+	lookups := 0
+	policy := func(key string, _ int) ([]string, bool, bool) {
+		lookups++
+		return append(many(5_000, key+"-input"), "approved"), true, true
+	}
+	shapes := []struct {
+		name     string
+		def      *entities.ProcessDefinition
+		declared map[string]struct{}
+		points   int
+		reads    int
+		lookups  int
+	}{
+		{
+			name: "one gateway id on every node, with as many flows",
+			def: func() *entities.ProcessDefinition {
+				def := &entities.ProcessDefinition{Nodes: nodes(func(int) *entities.Node {
+					return &entities.Node{ID: "g", Type: entities.ExclusiveGateway}
+				})}
+				for i := range copies {
+					def.Flows = append(def.Flows, flow(fmt.Sprintf("f%d", i), "g", "end", "approved"))
+				}
+				return def
+			}(),
+			declared: declares("approved"), points: 1, reads: 1,
+		},
+		{
+			name: "one event id on every node, each with a condition of its own",
+			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
+				return &entities.Node{ID: "c", Type: entities.IntermediateCatchEvent,
+					Properties: map[string]any{"condition_expression": fmt.Sprintf("approved and v%05d", i)}}
+			})},
+			declared: declares("approved"), points: 1, reads: copies + 1,
+		},
+		{
+			name: "a call activity on every node, each handed every field of a long form",
+			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
+				return &entities.Node{ID: fmt.Sprintf("call%05d", i), Type: entities.CallActivity}
+			})},
+			declared: declares(many(2_000, "field")...), points: copies, reads: 2_000,
+		},
+		{
+			name: "every node consulting one large decision",
+			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
+				return &entities.Node{ID: fmt.Sprintf("rule%05d", i), Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": "policy"}}
+			})},
+			declared: declares("approved"), points: copies, reads: 5_001, lookups: 1,
+		},
+		{
+			name: "one rule id on every node, consulting two large decisions in turn",
+			def: &entities.ProcessDefinition{Nodes: nodes(func(i int) *entities.Node {
+				return &entities.Node{ID: "r", Type: entities.BusinessRuleTask, Properties: map[string]any{"decision_key": fmt.Sprintf("policy%d", i%2)}}
+			})},
+			declared: declares("approved"), points: 1, reads: 10_001, lookups: 2,
+		},
+	}
+	for _, shape := range shapes {
+		lookups = 0
+		started := time.Now()
+		points := decisionPointsReading(shape.def, "review", shape.declared, nil, policy)
+		elapsed := time.Since(started)
+		t.Logf("%s: %d nodes read in %s", shape.name, copies, elapsed)
+		if elapsed > 5*time.Second {
+			t.Errorf("%s: reading %d nodes took %s", shape.name, copies, elapsed)
+		}
+		if len(points) != shape.points {
+			t.Errorf("%s: %d points listed, want %d", shape.name, len(points), shape.points)
+			continue
+		}
+		if first, last := points[0], points[len(points)-1]; len(first.Reads) != shape.reads || len(last.Reads) != shape.reads {
+			t.Errorf("%s: the first point reads %d names and the last %d, want %d", shape.name, len(first.Reads), len(last.Reads), shape.reads)
+		}
+		if lookups != shape.lookups {
+			t.Errorf("%s: a decision was looked up %d times, want %d", shape.name, lookups, shape.lookups)
+		}
+	}
+}

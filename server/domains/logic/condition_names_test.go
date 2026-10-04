@@ -3,9 +3,12 @@ package logic
 import (
 	"maps"
 	"reflect"
+	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic/feel"
 )
 
@@ -41,7 +44,12 @@ func TestReferencedNames(t *testing.T) {
 		// and reads nothing more: the left side is all there is.
 		{"status=done now", []string{"status"}, true},
 		{"status=in progress", []string{"status"}, true},
-		{"=done", nil, true},
+		// The chain looks up whatever is left of the equals sign, and with
+		// nothing there it looks up the variable whose name is empty.
+		{"=done", []string{""}, true},
+		{"=", []string{""}, true},
+		// Not a template: the braces are part of the name the chain looks up.
+		{"${approved}=true", []string{"${approved}"}, true},
 
 		{"amount > 100 and approved", []string{"amount", "approved"}, true},
 		{"amount > 1 and amount < 5", []string{"amount"}, true},
@@ -94,6 +102,12 @@ func TestReferencedNames(t *testing.T) {
 		// FEEL's alone, and FEEL cannot read it.
 		{"status = in progress", nil, false},
 		{"approved ? yes : no", nil, false},
+		// Other engines' ways of writing a variable are not this one's.
+		{"${approved}", nil, false},
+		{"${approved} == true", nil, false},
+		{"#{approved}", nil, false},
+		{"`approved`", nil, false},
+		{"`first name` = \"Ann\"", nil, false},
 		{"for x in xs return x", nil, false},
 		{"some x in xs satisfies x > 1", nil, false},
 		{"x instance of number", nil, false},
@@ -174,5 +188,90 @@ func TestAnUnknownNodeIsNotAnalysable(t *testing.T) {
 	}
 	if _, read := into["approved"]; !read || len(into) != 1 {
 		t.Errorf("names collected: %v", into)
+	}
+}
+
+// tooDeep reports whether the evaluator refused an expression for its depth.
+func tooDeep(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "too deeply nested")
+}
+
+// chains are the shapes that are as deep as they are long: the parser builds
+// each to the left without counting it as nesting, so its own bound does not
+// stop them. Each is given how many levels deep its deepest name sits.
+var chains = map[string]func(levels int) string{
+	"a sum":   func(levels int) string { return strings.Repeat("a+", levels-1) + "a" },
+	"a path":  func(levels int) string { return "a" + strings.Repeat(".b", levels-1) },
+	"indexes": func(levels int) string { return "a" + strings.Repeat("[1]", levels-1) },
+	// A range under `in` is tested, not evaluated: its ends sit at the level
+	// of the value beside it, one below the test.
+	"a range at the bottom": func(levels int) string { return "(x in [low..high])" + strings.Repeat("+a", levels-2) },
+}
+
+// The evaluator refuses an expression nested deeper than it allows, so a
+// condition that deep always answers false and nobody can say what it would
+// have read. Reading the names stops at the same depth and says so — and the
+// two must agree on where that is, level for level.
+func TestNamesAreReadAsDeepAsTheEvaluatorEvaluatesAndNoDeeper(t *testing.T) {
+	t.Parallel()
+	vars := map[string]any{"a": map[string]any{}, "x": 1.0, "low": 0.0, "high": 2.0}
+	for shape, build := range chains {
+		refusedSomewhere, readSomewhere := false, false
+		for levels := 120; levels <= 136; levels++ {
+			expression := build(levels)
+			_, err := feel.Evaluate(expression, vars)
+			_, analysable := ReferencedNames(expression)
+			if analysable == tooDeep(err) {
+				t.Errorf("%s, %d levels: the evaluator says %v and the names are analysable: %v", shape, levels, err, analysable)
+			}
+			refusedSomewhere = refusedSomewhere || tooDeep(err)
+			readSomewhere = readSomewhere || !tooDeep(err)
+		}
+		if !refusedSomewhere || !readSomewhere {
+			t.Errorf("%s: the evaluator's limit is not between 120 and 136 levels; this test no longer straddles it", shape)
+		}
+	}
+}
+
+// A definition is somebody's input, and so is every condition in it. A
+// megabyte of `a+a+a+…` is a tree a million levels deep: reading it must not
+// descend a million calls, which is a stack no request should be given. The
+// stack is held to 64 MiB here so that descending it is fatal rather than
+// merely enormous.
+//
+// Only the reading of the names is timed. Parsing a megabyte takes what it
+// takes, and the engine pays that too.
+//
+// Not parallel: the stack limit is the process's.
+func TestAConditionAMillionLevelsDeepIsNotDescended(t *testing.T) {
+	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20))
+	const levels = 1 << 20
+	for shape, build := range chains {
+		expression := build(levels)
+		tree, err := feel.Parse(expression)
+		if err != nil {
+			t.Fatalf("%s: %v", shape, err)
+		}
+		started := time.Now()
+		readable := collectNames(tree, map[string]struct{}{})
+		if elapsed := time.Since(started); readable || elapsed > time.Second {
+			t.Errorf("%s, %d levels: read as analysable %v in %s; want a refusal at once", shape, levels, readable, elapsed)
+		}
+		if _, analysable := ReferencedNames(expression); analysable {
+			t.Errorf("%s, %d levels: analysable as a condition", shape, levels)
+		}
+	}
+
+	// The same reading serves a decision table's columns and cells and a
+	// mapping's sources.
+	expression := chains["a sum"](levels)
+	_, _, table := DecisionTableReads(entities.DecisionDefinition{
+		Inputs: []entities.DecisionInput{{Expression: "amount"}},
+		Rules:  []entities.DecisionRule{{Inputs: []string{"> " + expression}}},
+	})
+	_, _, column := DecisionTableReads(entities.DecisionDefinition{Inputs: []entities.DecisionInput{{Expression: expression}}})
+	_, mapping := MappingSourceNames(map[string]any{"total": expression})
+	if table || column || mapping {
+		t.Errorf("%d levels: analysable in a cell %v, as a column %v, as a mapping source %v; want none", levels, table, column, mapping)
 	}
 }
