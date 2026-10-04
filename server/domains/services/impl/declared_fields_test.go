@@ -37,8 +37,9 @@ func (f *storedForms) GetByKey(_ context.Context, projectID uuid.UUID, key strin
 	return models.FormModel{ProjectID: models.UUID(projectID), Key: key, Schema: schema}, nil
 }
 
-// approvalForms is a project that keeps one form, "approval", with the fields
-// approved and reason.
+// approvalForms is a project that keeps two forms: "approval", with the fields
+// approved and reason, and "unnamed", whose fields have no id and so name no
+// variable.
 func approvalForms(project uuid.UUID) *storedForms {
 	return &storedForms{
 		project: project,
@@ -46,6 +47,11 @@ func approvalForms(project uuid.UUID) *storedForms {
 			"approval": {"fields": []any{
 				map[string]any{"id": "approved"},
 				map[string]any{"id": "reason"},
+			}},
+			"unnamed": {"fields": []any{
+				map[string]any{"label": "Approved"},
+				map[string]any{"id": ""},
+				map[string]any{"id": 7},
 			}},
 		},
 	}
@@ -162,6 +168,54 @@ func sortedIDs(declared map[string]struct{}) []string {
 	return ids
 }
 
+// A completion and whoever asks beforehand what a step may set agree, name by
+// name: a completion may set a variable exactly when declaredFieldIDs holds its
+// name. A form source that only one of the two read would let a waive set what
+// a completion is refused, or refuse what a completion sets.
+func TestACompletionMaySetExactlyWhatTheTasksFormIsSaidToDeclare(t *testing.T) {
+	project, elsewhere := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	inline := `[{"id":"amount"},{"id":"reason"}]`
+	candidates := []string{"amount", "approved", "reason", "approver", "fields", "id", "label", ""}
+	for _, tc := range []struct {
+		name    string
+		task    models.TaskModel
+		project uuid.UUID
+	}{
+		{"an inline form only", models.TaskModel{FormDefinition: inline}, project},
+		{"a stored form only", models.TaskModel{FormKey: "approval"}, project},
+		{"both", models.TaskModel{FormDefinition: inline, FormKey: "approval"}, project},
+		{"a key that names no stored form", models.TaskModel{FormDefinition: inline, FormKey: "kept-elsewhere"}, project},
+		{"no form at all", models.TaskModel{}, project},
+		{"a stored form in another project", models.TaskModel{FormKey: "approval"}, elsewhere},
+		{"an inline form and a stored form in another project", models.TaskModel{FormDefinition: inline, FormKey: "approval"}, elsewhere},
+		{"a stored form whose fields have no id", models.TaskModel{FormKey: "unnamed"}, project},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.task.ProjectID = models.UUID(tc.project)
+			declared, err := declaredFieldIDs(context.Background(), approvalForms(project), tc.task)
+			if err != nil {
+				t.Fatalf("declaredFieldIDs: %v", err)
+			}
+			// Every candidate, and every name the form is said to declare:
+			// the second half is what catches a source only declaredFieldIDs
+			// reads, whatever it happens to name.
+			names := slices.Concat(candidates, sortedIDs(declared))
+			slices.Sort(names)
+			for _, name := range slices.Compact(names) {
+				s := &taskService{repo: &formsOnly{forms: approvalForms(project)}}
+				undeclared, err := s.undeclaredVariables(context.Background(), tc.task, map[string]any{name: true})
+				if err != nil {
+					t.Fatalf("undeclaredVariables(%q): %v", name, err)
+				}
+				_, said := declared[name]
+				if maySet := len(undeclared) == 0; maySet != said {
+					t.Errorf("a completion may set %q: %t, but the form is said to declare it: %t", name, maySet, said)
+				}
+			}
+		})
+	}
+}
+
 // What a task's form declares is the fields of the form it carries together
 // with the fields of the stored form it names. The stored form is read whenever
 // the task names one: a caller asking what a step may set has no values in hand
@@ -179,6 +233,11 @@ func TestATaskDeclaresTheFieldsOfItsInlineFormAndOfTheStoredFormItNames(t *testi
 		{"a stored form alone", models.TaskModel{FormKey: "approval"}, []string{"approved", "reason"}, 1},
 		{"both, joined", models.TaskModel{FormDefinition: `[{"id":"amount"},{"id":"reason"}]`, FormKey: "approval"}, []string{"amount", "approved", "reason"}, 1},
 		{"a key naming no stored form adds nothing", models.TaskModel{FormDefinition: `[{"id":"amount"}]`, FormKey: "kept-elsewhere"}, []string{"amount"}, 1},
+		{"a stored form whose fields have no id declares nothing", models.TaskModel{FormKey: "unnamed"}, []string{}, 1},
+		{"an inline form kept as an object", models.TaskModel{FormDefinition: `{"fields":[{"id":"amount"}]}`}, []string{"amount"}, 0},
+		{"an inline object with no list of fields declares nothing", models.TaskModel{FormDefinition: `{"amount":{"type":"number"}}`}, []string{}, 0},
+		{"inline text that is not JSON declares nothing", models.TaskModel{FormDefinition: `[{"id":"amount"`}, []string{}, 0},
+		{"inline text that is not JSON leaves what the stored form declares", models.TaskModel{FormDefinition: `[{"id":"amount"`, FormKey: "approval"}, []string{"approved", "reason"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			forms := approvalForms(project)

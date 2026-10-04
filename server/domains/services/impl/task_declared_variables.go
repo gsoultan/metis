@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -55,15 +56,16 @@ func (s *taskService) admitVariables(ctx context.Context, task models.TaskModel,
 // covers costs no read.
 func (s *taskService) undeclaredVariables(ctx context.Context, task models.TaskModel, vars map[string]any) ([]string, error) {
 	declared := make(map[string]struct{})
-	addFieldIDs(declared, inlineForm(task.FormDefinition))
-	undeclared := namesOutside(vars, declared)
-	if len(undeclared) == 0 || task.FormKey == "" {
-		return undeclared, nil
-	}
-	if err := addStoredFormFieldIDs(ctx, s.repo.Form(), declared, task); err != nil {
+	covered := func() bool { return declaresAll(declared, vars) }
+	if err := addDeclaredFieldIDs(ctx, s.storedForms, declared, task, covered); err != nil {
 		return nil, err
 	}
 	return namesOutside(vars, declared), nil
+}
+
+// storedForms is where a task's stored form is read from.
+func (s *taskService) storedForms() repocontracts.FormRepository {
+	return s.repo.Form()
 }
 
 // refuseUndeclared says which variables the task may not set, and why.
