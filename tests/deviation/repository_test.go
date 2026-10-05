@@ -323,7 +323,15 @@ func TestADeviationReadsBackExactlyAsItWasWritten(t *testing.T) {
 	d.ActorID = uuid.Must(uuid.NewV7())
 	d.AuditEntryID = uuid.Must(uuid.NewV7())
 	d.VisitKey = "dv1-exact"
+	// The ledger references the request a row names (migration 34), so the
+	// request has to be there: one as a waive waiting for approval leaves it.
 	d.RequestID = uuid.Must(uuid.NewV7())
+	if err := h.db.Exec(`INSERT INTO deviation_requests
+		(id, project_id, kind, status, requested_by, requested_by_id, reason, command, plan, fingerprint, approved_instances, expires_at, outcome)
+		VALUES (?, ?, 'instance_waive', 'pending_approval', 'boss', ?, 'alice is on leave', '{}', '{}', 'dv1-exact', '[]', now() + interval '72 hours', '{}')`,
+		d.RequestID, h.projID, uuid.Must(uuid.NewV7())).Error; err != nil {
+		t.Fatalf("write the request the row names: %v", err)
+	}
 	d.ApprovedBy = "carol"
 	d.ApprovedByID = uuid.Must(uuid.NewV7())
 	d.DecidedAt = &decided

@@ -14,4 +14,7 @@ type DeviationOutcome struct {
 	Replayed bool
 	// Deviation is the record of the change, nil for a preview.
 	Deviation *Deviation
+	// PendingApproval says the change was not made but sent to a second
+	// administrator, and which request waits. Nil when nothing waits.
+	PendingApproval *PendingApproval
 }
