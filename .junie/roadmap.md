@@ -1274,8 +1274,14 @@
       input mapping, that computes another variable from a field the waived step sets is
       not followed to the gateway that reads that variable (*read*, and
       `TestWhatTheEngineDoesNotEvaluateIsNotADecisionPoint`).
-    - **Nothing at deploy bounds a form's field count, how many nodes share an id, or a
-      name's length.** Duplicate node ids deploy. The plan is bounded against each; the
+    - **Nothing at deploy bounds a form's field count, how many nodes share an id, or the
+      length of a name or of a step's id.** A step whose id is longer than the 255
+      characters the ledger keeps cannot be waived, cancelled at or held in place: the
+      request is a 400 (*run*: `TestAStepIdOrAVisitKeyLongerThanTheRecordKeepsIsA400`;
+      before, it previewed as applicable and the apply answered 500), so an instance
+      waiting only at such a step is out of reach in place. A migration's row for a decision
+      at such a step goes into the same column (*read*, not run). Duplicate node ids
+      deploy. The plan is bounded against each; the
       definition validator should refuse them (*read*). Where nodes share an id a point's
       `reads_in_all` and `missing_in_all` are sums, and can count a name twice.
     - **Resolving an incident takes no lock on the instance, asks nothing of its status and

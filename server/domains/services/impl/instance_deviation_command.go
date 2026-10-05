@@ -13,6 +13,15 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
+const (
+	// maxDeviationStepIDLength is how many characters of a step's id the
+	// ledger keeps: its node_id column is that wide.
+	maxDeviationStepIDLength = 255
+	// maxVisitKeyGivenLength is the longest visit key a request may name. A
+	// key the server made is far shorter (visitKeyVersion and visitKeyLength).
+	maxVisitKeyGivenLength = 255
+)
+
 // requireDeviationAdministrator answers who is asking for an in-place
 // command, and refuses anybody but a signed-in administrator of the
 // organization the request is for.
@@ -46,9 +55,17 @@ func requireDeviationAdministrator(ctx context.Context) (actor string, err error
 // outputs as nil — and refuses one that is malformed.
 //
 // Malformed is what no plan could be made for: a kind that is not one of the
-// three, a waive or a hold of no step, outputs where none can be set, or too
-// many, or given as nothing, and an apply that names no plan. Each is
-// something the caller typed and can fix, so each is an invalid argument.
+// three, a waive or a hold of no step, a step id or a visit key longer than
+// the record keeps, outputs where none can be set, or too many, or given as
+// nothing, and an apply that names no plan. Each is something the caller
+// typed, so each is an invalid argument.
+//
+// The ledger keeps a step's id in maxDeviationStepIDLength characters and
+// nothing at deploy limits how long a step's id is. An act at a step with a
+// longer id cannot be recorded, so it is refused here, before anything is
+// read, where it used to preview as applicable and then fail as the server's
+// when its row would not fit. A visit key is 36 characters as the server
+// makes one; a longer one names no plan, and is not looked up.
 //
 // A reason that is missing or too long is not refused here. It is something a
 // preview should show beside everything else that is wrong, so the plan
@@ -66,6 +83,14 @@ func normalizedDeviationCommand(command entities.DeviationCommand) (entities.Dev
 	// closed. A waive and a hold act on a step.
 	if command.NodeID == "" && command.Kind != entities.DeviationCancel {
 		return entities.DeviationCommand{}, apierr.Invalidf("say which step: node_id is required for a waive and a hold")
+	}
+	if utf8.RuneCountInString(command.NodeID) > maxDeviationStepIDLength {
+		return entities.DeviationCommand{}, apierr.Invalidf("node_id is longer than %d characters, "+
+			"and a step whose id is that long cannot be waived, cancelled at or held in place", maxDeviationStepIDLength)
+	}
+	if utf8.RuneCountInString(command.VisitKey) > maxVisitKeyGivenLength {
+		return entities.DeviationCommand{}, apierr.Invalidf("visit_key is longer than %d characters; "+
+			"send the visit_key of the plan as it was answered", maxVisitKeyGivenLength)
 	}
 	if err := checkDeviationOutputs(command.Kind, command.Outputs); err != nil {
 		return entities.DeviationCommand{}, err

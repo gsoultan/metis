@@ -757,10 +757,10 @@ organizations names the instance's:
 | Field | |
 | :-- | :-- |
 | `kind` | `waive`, `cancel` or `hold`. |
-| `node_id` | The step's id. Needed for a waive and a hold. A cancel names the step the instance is to be ended at, and leaves it out only for an instance that waits at no step. |
+| `node_id` | The step's id, at most 255 characters. Needed for a waive and a hold. A cancel names the step the instance is to be ended at, and leaves it out only for an instance that waits at no step. |
 | `reason` | Why. Needed for all three, at most 2,000 characters, the spaces around it dropped. Kept with the record. |
 | `outputs` | A waive only: what the waived step counts as, as an object of values by the id of a field of the step's form. At most 50 values, at most 64 KiB as JSON, no `null`, a name of at most 255 characters. |
-| `visit_key` | The `visit_key` of the plan that was previewed. Needed to apply. |
+| `visit_key` | The `visit_key` of the plan that was previewed. Needed to apply. At most 255 characters; the server's own are 36. |
 | `dry_run` | Only the JSON boolean `false` applies. Left out, `true` or `null` is a preview. |
 
 **How the body is read.** Strictly, because how it is read decides whether an
@@ -920,7 +920,7 @@ point is read from the header's code, not run on this route):
 | Status | When | Body |
 | :-- | :-- | :-- |
 | 200 | A preview, whether or not its plan refuses. An apply. A replay. | as above |
-| 400 | The body could not be read, or is over 256 KiB. The id in the address is not an id. The command is malformed: no kind, no step for a waive or a hold, outputs on a cancel or a hold, a `null` or unnamed output, more than 50, an apply with no `visit_key`. An apply whose plan refuses: the refusals, joined by a space. An apply that comes too late: *this instance has moved since you previewed it; preview again*, *this instance is cancelled, so it can no longer be waived; preview again*, *this step was already waived by boss*. A suspended instance. A waive whose value fits no branch of a gateway. | `{"error": "invalid argument: …"}` |
+| 400 | The body could not be read, or is over 256 KiB. The id in the address is not an id. The command is malformed: no kind, no step for a waive or a hold, a `node_id` or a `visit_key` longer than 255 characters, outputs on a cancel or a hold, a `null` or unnamed output, more than 50, an apply with no `visit_key`. An apply whose plan refuses: the refusals, joined by a space. An apply that comes too late: *this instance has moved since you previewed it; preview again*, *this instance is cancelled, so it can no longer be waived; preview again*, *this step was already waived by boss*. A suspended instance. A waive whose value fits no branch of a gateway. | `{"error": "invalid argument: …"}` |
 | 401 | No token. | the plain text `Unauthorized` |
 | 403 | Signed in, and not an administrator of the organization the request is for. | `{"error": "forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it"}` |
 | 404 | The instance is not in the organization the request is for, or there is no such instance: the same words for both. | `{"error": "not found: no such process instance"}` |

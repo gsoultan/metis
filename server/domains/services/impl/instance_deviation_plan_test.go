@@ -811,6 +811,8 @@ func TestNormalizedDeviationCommand(t *testing.T) {
 	apply.DryRun = false
 	blankKey := apply
 	blankKey.VisitKey = "   "
+	longKey := apply
+	longKey.VisitKey = strings.Repeat("k", 256)
 
 	refused := []struct {
 		name    string
@@ -831,6 +833,11 @@ func TestNormalizedDeviationCommand(t *testing.T) {
 			"outputs approved, tier are null: say what the waiver counts as, or leave them out"},
 		{"an output with no name", preview(entities.DeviationWaive, "step", map[string]any{"": 1}), "an output needs the name of the field it sets"},
 		{"an output that cannot be written down", preview(entities.DeviationWaive, "step", map[string]any{"approved": func() {}}), "the outputs cannot be written as JSON"},
+		{"a step id longer than the ledger keeps", preview(entities.DeviationHold, strings.Repeat("é", 256), nil),
+			"node_id is longer than 255 characters, and a step whose id is that long cannot be waived, cancelled at or held in place"},
+		{"a cancel at a step id longer than the ledger keeps", preview(entities.DeviationCancel, " "+strings.Repeat("s", 256)+" ", nil),
+			"node_id is longer than 255 characters, and a step whose id is that long cannot be waived, cancelled at or held in place"},
+		{"an apply naming a visit key longer than any the server makes", longKey, "visit_key is longer than 255 characters; send the visit_key of the plan as it was answered"},
 		{"an apply that names no visit key", apply, "preview first: an apply names the visit_key of the plan it previewed"},
 		{"an apply whose visit key is blank", blankKey, "preview first: an apply names the visit_key of the plan it previewed"},
 	}
@@ -853,6 +860,14 @@ func TestNormalizedDeviationCommand(t *testing.T) {
 			Outputs: atTheLimit, VisitKey: "dv1-key", DryRun: false}
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Errorf("got %+v, %v; want %+v", got, err, want)
+		}
+	})
+	t.Run("a step id and a visit key of exactly 255 characters are well formed", func(t *testing.T) {
+		t.Parallel()
+		command := preview(entities.DeviationHold, strings.Repeat("é", 255), nil)
+		command.VisitKey = strings.Repeat("k", 255)
+		if _, err := normalizedDeviationCommand(command); err != nil {
+			t.Errorf("refused: %v", err)
 		}
 	})
 	t.Run("a reason is the plan's to refuse, not the request's", func(t *testing.T) {

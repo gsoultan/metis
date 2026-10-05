@@ -1,6 +1,7 @@
 package deviation_test
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 	"strings"
@@ -379,6 +380,62 @@ func TestAnOutputSaidTwiceIsA400AndDecidesNoBranch(t *testing.T) {
 	if open := h.openTasksOn(t, instanceID, "large"); open != 1 {
 		t.Fatalf("%d task(s) are open on the second approval; 250 goes there", open)
 	}
+}
+
+// The ledger keeps a step's id and a visit key in 255 characters, and nothing
+// at deploy limits how long a step's id is. A hold at a step with a longer id
+// previewed as applicable and then failed as the server's, a 500, when its row
+// would not fit. A step id or a visit key longer than the record keeps is a
+// request that cannot be made: a 400 that says so, as a preview and as an
+// apply, before anything of the instance is read.
+func TestAStepIdOrAVisitKeyLongerThanTheRecordKeepsIsA400(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	longID := strings.Repeat("s", 256)
+	instanceID := h.start(t, &entities.ProcessDefinition{
+		Key: "deviation-long-step-id", Name: "Long step id",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: longID, Type: entities.UserTask, Name: "Approve", Assignee: "alice"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{{ID: "f1", SourceRef: "start", TargetRef: longID}, {ID: "f2", SourceRef: longID, TargetRef: "end"}},
+	})
+	admin := h.signIn(t, "boss", entities.RoleAdmin)
+	before := h.everyRow(t)
+
+	tooLongAStep := invalid("node_id is longer than 255 characters, and a step whose id is that long cannot be waived, cancelled at or held in place")
+	for _, kind := range []string{"hold", "waive", "cancel"} {
+		preview := map[string]any{"kind": kind, "node_id": longID, "reason": routeReason}
+		status, planned, raw := h.deviate(t, admin, instanceID, preview)
+		if status != http.StatusBadRequest || !sameJSON(t, raw, tooLongAStep) {
+			t.Errorf("a %s at a step whose id has 256 characters, previewed: %d (%.200s), want 400 %s", kind, status, raw, tooLongAStep)
+		}
+		// Applied with the key of a plan, were one answered: the apply that
+		// used to fail as the server's.
+		apply := map[string]any{"kind": kind, "node_id": longID, "reason": routeReason, "visit_key": cmp.Or(planned.Plan.VisitKey, "dv1-anything"), "dry_run": false}
+		if status, _, raw := h.deviate(t, admin, instanceID, apply); status != http.StatusBadRequest || !sameJSON(t, raw, tooLongAStep) {
+			t.Errorf("a %s at a step whose id has 256 characters, applied: %d (%.300s), want 400 %s", kind, status, raw, tooLongAStep)
+		}
+		h.requireUnchanged(t, before, "a "+kind+" at a step whose id is longer than the record keeps")
+	}
+	tooLongAKey := invalid("visit_key is longer than 255 characters; send the visit_key of the plan as it was answered")
+	keyed := map[string]any{"kind": "cancel", "reason": routeReason, "visit_key": strings.Repeat("k", 256), "dry_run": false}
+	if status, _, raw := h.deviate(t, admin, instanceID, keyed); status != http.StatusBadRequest || !sameJSON(t, raw, tooLongAKey) {
+		t.Errorf("an apply naming a visit key of 256 characters: %d (%.300s), want 400 %s", status, raw, tooLongAKey)
+	}
+	h.requireUnchanged(t, before, "requests naming a step or a visit key longer than the record keeps")
+
+	// At 255 characters each is a request like any other: a plan, or a refusal
+	// of the plan's own.
+	atTheLimit := map[string]any{"kind": "hold", "node_id": strings.Repeat("é", 255), "reason": routeReason}
+	if status, planned, raw := h.deviate(t, admin, instanceID, atTheLimit); status != http.StatusOK || planned.Plan.Applicable {
+		t.Errorf("a hold at a step id of 255 characters the process does not have: %d (%.300s), want a 200 plan that refuses", status, raw)
+	}
+	keyed["visit_key"] = strings.Repeat("k", 255)
+	if status, _, raw := h.deviate(t, admin, instanceID, keyed); status != http.StatusBadRequest || sameJSON(t, raw, tooLongAKey) {
+		t.Errorf("an apply naming a visit key of 255 characters: %d (%.300s), want it refused for something else", status, raw)
+	}
+	h.requireUnchanged(t, before, "requests at the limit")
 }
 
 // Task 6 F6-2. What fails for reasons that are nobody's request is the
