@@ -1334,6 +1334,12 @@
       the server, and an apply waiting on a lock holds one of the 128 in-flight slots. A
       caller instance that cannot be found gives no warning and the apply then fails as a
       500. A 400 carries no machine-readable code (these three *read*).
+    - **An account with no organization is answered 500 on the route, not 403.** The
+      service refuses a request that is for no organization as forbidden (*run*:
+      `TestRequireDeviationAdministrator`), but over the route the tenant resolver stops such
+      an account first, with a plain error that answers 500, before the role gate or the
+      service (*read*, not run: `interceptors/factory.go`, `tenant/resolver.go`). True of
+      every route behind the resolver.
     - The reason ends its sentence with two full stops when it ends with one itself.
     - The migration dialog does not show `passed_over` (the ledger entry's note). Connect
       and gRPC have no deviation call. There is no approval screen (P2).

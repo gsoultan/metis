@@ -12,8 +12,9 @@ import (
 // it without asking first. A list is not the whole of what there is: a process
 // is somebody's input and a plan has a size whatever the process, so OpenWork
 // and DecisionPoints hold the first of them and OpenWorkInAll and
-// DecisionPointsInAll say how many there are; Refusals and Warnings spell out
-// the first few of a kind and count the rest. Missing is the one list that is
+// DecisionPointsInAll say how many there are; Refusals and Warnings speak of
+// the first ten decision points of a kind and of each task the plan lists,
+// and count the rest. Missing is the one list that is
 // what to supply, each name in full. Whether the plan can be applied is
 // Applicable, and nothing else: an empty list is not "nothing".
 type PlanView struct {
