@@ -1288,7 +1288,9 @@
       writes no trail entry** (*read*). So a hold's release is unrecorded, an incident a
       hold found open can be resolved a moment later, and an incident on an ended instance
       can be resolved. A hold's incident outlives its instance completing normally
-      (*read*).
+      (*read*), and stays open on a step the instance has left when the step is then
+      waived: a waive does nothing with a step's incidents (*run*:
+      `TestAHoldAndThenAWaiveOfOneVisitAreTwoActs`).
     - **The inbox words a hold as "<step> failed" with "Try again"**, and `explainIncident`
       reads a technical cause out of the administrator's reason (*read*:
       `IncidentInbox.tsx`, `domain/incidents.ts`). A hold on a service or external step may
