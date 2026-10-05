@@ -10,6 +10,12 @@
  * This is the missing half. It lists what failed, says why in words an
  * operations person can act on, and offers the retry the engine already
  * supports.
+ *
+ * It lists every open incident, and an instance an administrator held in
+ * place is one too: nothing failed there, and the hold's own words ("held at
+ * … by …: reason") arrive as the incident's error. This component still words
+ * each as a failure with "Try again"; that wording gap is recorded in the
+ * roadmap and is not closed here.
  */
 import { Alert, Badge, Button, Card, Code, Group, Loader, Stack, Text, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';

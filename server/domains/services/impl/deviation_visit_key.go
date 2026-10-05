@@ -40,9 +40,10 @@ const (
 //     is another step;
 //   - the kind: a hold and a waive of one visit are two acts;
 //   - the step, or none;
-//   - the ids of the open tasks the plan lists, which its caller hands in:
-//     the step's for a waive and a hold, every one the instance has for a
-//     cancel;
+//   - the ids of every open task where the command acts, which its caller
+//     hands in — all of them, whether or not the plan lists them (a plan
+//     lists the first maxOpenWorkListed): the step's for a waive and a hold,
+//     every one the instance has for a cancel;
 //   - the ids of the tokens where the command acts: on the step for a waive
 //     and a hold, and every token for a cancel. A cancel ends the whole
 //     instance and withdraws everything open on it, whichever step it names,

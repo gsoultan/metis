@@ -21,10 +21,11 @@ type DeviationPlan struct {
 	// cancel naming such a step that the instance holds a token on, which is
 	// accepted and shown by the step's id.
 	NodeID, NodeName string
-	// VisitKey identifies the work the plan was made for: the open work it
-	// lists and where the instance waits — at the step, or anywhere for a
-	// cancel. An apply sends it back, and is refused when the work has
-	// changed since.
+	// VisitKey identifies the work the plan was made for: every task open
+	// where the command acts, whether or not OpenWork lists it, where the
+	// instance waits — at the step, or anywhere for a cancel — and, for a
+	// hold, the incidents on the step. An apply sends it back, and is refused
+	// when the work has changed since.
 	VisitKey string
 
 	// OpenWork is the tasks open where the command acts: on the step for a
@@ -52,8 +53,8 @@ type DeviationPlan struct {
 	// MissingInAll is how many there are.
 	Missing      []string
 	MissingInAll int
-	// CalledInstances is the processes this instance started that are still
-	// running, which a cancel has to wait for.
+	// CalledInstances is the processes this instance started that have not
+	// ended — a suspended one included — which a cancel has to wait for.
 	CalledInstances []uuid.UUID
 
 	// RequiresSecondApprover reports that the act waits for somebody else to
