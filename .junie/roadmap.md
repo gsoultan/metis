@@ -1281,6 +1281,24 @@
       for a step its running instance has already left is still made; asking for the token
       too would move `TestADeadlineOnAServiceCallIsUnchanged` (*read* from the pin). The
       read decodes the whole instance row and is not benchmarked.
+    - **What the cancel's announcement costs.** Each withdrawn task's announcement reads the
+      instance again and looks its definition up, while the instance and every task row are
+      held: N reads for N tasks (*read*; the code was moved, not written, in this slice).
+      `withdrawOn` is reached only for a step that is not a person's work or where no
+      finisher is wired, so three routines that withdraw and announce remain (*read*).
+    - **A migration's record says less than an act in place does.** It names a step by its
+      id, its skip entry carries no `outcome` or `origin`, it leaves a count out when it is
+      zero, it does not list which incidents its cancel closed (they read `resolved`, as an
+      operator's would), and the text of its hold's incident is not redacted (*read*).
+    - **A hold a migration decides after one is already open writes nothing.** An incident
+      open on the step — a hold in place, or a failed job's — makes a later migration `hold`
+      record no row and no entry for that decision. The behaviour is older than this slice;
+      the hold in place is a new way into it (*read*).
+    - **A visit key covers where the instance stands, not what was asked.** An apply may
+      carry outputs or a reason its preview did not; both are checked again under the lock,
+      so nothing unchecked is applied, but that request's warnings were never shown (*read*).
+    - **Two things on the wire that nothing uses yet.** `requires_second_approver` is always
+      `false` and the `iteration` scope has no writer until the second approver is built.
     - **The worker routes answer HTTP 200 with the refusal in `error`** (*probe*, over HTTP;
       Connect and gRPC not run).
     - **A suspended instance.** A worker's report and a queued call proceed for one as
@@ -1830,8 +1848,10 @@
       therefore records that the hold was placed, not that it is still open: no row is
       rewritten, its `after.incident.status` reads `open` for ever, and whether the hold is
       still open is the status of the incident it names, read from
-      `GET /api/v1/incidents/{instanceId}`. Whether releasing a hold becomes a ledgered act is
-      decided in the next slice, which adds the hold of one instance in place.
+      `GET /api/v1/incidents/{instanceId}`. ~~Whether releasing a hold becomes a ledgered act is
+      decided in the next slice, which adds the hold of one instance in place.~~ *2026-10-05:
+      that slice shipped the hold in place and left this as it was — a hold is released by
+      resolving its incident, and the release is on neither the ledger nor the trail.*
   - **Upgrade.** Migration 33 creates `instance_deviations`, backfills nothing, and waits two
     seconds for `projects` and `process_definitions` and stops, to be started again.
     `docs/upgrading.md`, *Migration 33: an instance's ledger of what was done to it*.

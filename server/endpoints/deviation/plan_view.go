@@ -14,8 +14,9 @@ import (
 // and DecisionPoints hold the first of them and OpenWorkInAll and
 // DecisionPointsInAll say how many there are; Refusals and Warnings speak of
 // the first ten decision points of a kind and of each task the plan lists,
-// and count the rest. Missing is the one list that is
-// what to supply, each name in full. Whether the plan can be applied is
+// and count the rest. Missing is the list of what to supply: at most fifty
+// names, each in full up to 255 characters, with MissingInAll beside it; past
+// either limit the plan refuses in words. Whether the plan can be applied is
 // Applicable, and nothing else: an empty list is not "nothing".
 type PlanView struct {
 	InstanceID string `json:"instance_id,omitzero"`
@@ -35,8 +36,9 @@ type PlanView struct {
 
 	DecisionPoints      []DecisionPointView `json:"decision_points"`
 	DecisionPointsInAll int                 `json:"decision_points_in_all"`
-	// Missing is every value some decision point reads that the waive does not
-	// give, and MissingInAll how many there are.
+	// Missing names the values some decision point reads that the waive does
+	// not give — the first fifty, each cut to 255 characters — and MissingInAll
+	// says how many there are.
 	Missing      []string `json:"missing"`
 	MissingInAll int      `json:"missing_in_all"`
 

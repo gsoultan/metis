@@ -914,8 +914,9 @@ request naming a `visit_key` that has had its act is a 400 that says who
 acted: *this step was already waived by boss*.
 
 So the route is safe to retry with no `Idempotency-Key`. If a client sends one
-anyway (`TestAnIdempotencyKeyOnADeviationFollowsTheHeadersOwnRules`; the last
-point is read from the header's code, not run on this route):
+anyway (`TestAnIdempotencyKeyOnADeviationFollowsTheHeadersOwnRules` runs the 409
+and the replay of a 400 on this route; a replayed 403 or 500, and the last
+point, are read from the header's code, not run here):
 
 - A preview and its apply are different bodies. Sent under one key, the second
   is refused by the header's own check with a plain-text 409, before the

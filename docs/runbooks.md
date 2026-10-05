@@ -261,7 +261,9 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 **A reply with `error` is a refusal, and its sentence is the answer.** Every
 command here prints it when there is one: the request was malformed, the
 account may not ask, or there is no such instance in the organization the
-request is for. Nothing was read or changed beyond what the sentence says.
+request is for. Nothing was read or changed beyond what the sentence says. The
+one answer they cannot show is a missing or expired token: that is the plain
+text `Unauthorized`, not JSON, so `jq` reports a parse error — sign in again.
 
 Read it in this order:
 
