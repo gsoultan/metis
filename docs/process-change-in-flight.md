@@ -719,7 +719,9 @@ The plan refuses a waive that would have to guess:
 | A step with several ways out | *“Pick a supplier” has 2 ways out, so waiving it would choose a branch on the business's behalf.* |
 | A step with no way out, unless it is inside an ad-hoc sub-process, whose completion condition is read again instead | *…has no way out, so there is nowhere for the instance to go once it is waived.* |
 | A step that runs once and that the instance reached several times at once | *“Check the order” was reached 2 times at once on this instance, and a waive would move the instance on only once. Complete or reassign its tasks instead, or hold the instance.* |
-| No reason, or one of more than 2,000 characters | *Say why: a reason is required, and it is kept with the record.* |
+| A step the instance's version does not have | *This process has no step "archive".* |
+| No reason | *Say why: a reason is required, and it is kept with the record.* |
+| A reason of more than 2,000 characters | *The reason is longer than 2000 characters; say it more briefly.* |
 | An instance that is not running | *This instance is completed; only a running instance can be waived.* |
 
 An approval several people give is ended whole, on purpose: every open run is withdrawn and
@@ -770,10 +772,14 @@ Three rules that are easy to assume the other way:
   `has_default_flow: true` and refused for a missing value like any other.
 - **Being asked for more than the instance will meet is the accepted cost.** A place the
   instance has already passed, or will never reach, is listed too. The value asked for is
-  one the step's own form declares, so it can always be given.
+  one the step's own form declares, so it can be given — with three exceptions, each of
+  which the plan refuses for: a field only some of the step's open runs declare, a field
+  whose name is longer than 255 characters, and more than 50 values in all.
 
-`missing` on the plan is the complete list of what has still to be supplied. A place names
-only the first few fields it is missing.
+`missing` on the plan is the complete list of what has still to be supplied whenever the
+waive can be made: it holds at most 50 names, each to 255 characters, and a waive that would
+need more, or a longer name, is refused for that. A place names only the first few fields it
+is missing.
 
 **What is not read.** Each is a warning, not a refusal, and the waive can be applied past
 it. Check before applying.
@@ -873,7 +879,9 @@ step's work can still be done**. A hold makes an instance visible. It does not s
 
 - The incident's text is *held at “Operations approve” by boss:* and the reason. Anyone who
   may read the instance's incidents reads it, which is anyone signed in to its organization.
-  Put nothing in the reason that only an administrator should see.
+  Put nothing in the reason that only an administrator should see. (The incident of a
+  migration's hold begins otherwise: *held out of the migration from version 1 to version 2
+  of "quotation-approval" by boss:* and the reason.)
 - A step that already has an open incident keeps that one, and no second is raised. The
   plan warns *“Operations approve” already has an open incident; the hold will use it.* The
   hold is recorded all the same, and its entry says so: *This instance was held at

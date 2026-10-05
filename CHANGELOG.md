@@ -171,7 +171,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   call.
   - **A request is a preview unless it says `"dry_run": false`.** A preview
     writes nothing and holds no row. The reply is the plan: the open tasks
-    the act would take (`open_work`), every reason it cannot be made
+    where the act is made (`open_work`; a waive and a cancel take them, a
+    hold takes none), every reason it cannot be made
     (`refusals`), what to know first (`warnings`), and a `visit_key`. Only
     the JSON boolean `false`, in a top-level `dry_run`, applies. A request
     that leaves it out, or says `true` or `null`, is a preview; one that says
@@ -212,7 +213,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     whether or not a gateway has a default flow. A value the instance already
     holds from an earlier visit does not count. The plan lists those places
     in `decision_points`, and `missing` is the complete list of what has
-    still to be supplied. Three things are not read, and are warned of
+    still to be supplied whenever the waive can be made (a waive that needs
+    more than 50 values, or a name over 255 characters, is refused for that). Three things are not read, and are warned of
     instead of refused: a process a later step calls, a condition that could
     not be read, and, for an instance another process started, that process.
     Where the caller decides on a value this step would have set and the
@@ -482,9 +484,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   remaining run to get the instance off the step. A skip of such a step now
   ends it whole, in one run of the migration: every open run is withdrawn and
   its holder told, the tokens and the count of runs go, no further run
-  starts, and the instance moves on once and is migrated. A user or manual
-  task that runs once is skipped as before, and so is every other kind of
-  step, whatever its loop.
+  starts, and the instance moves on once and is migrated. An instance an
+  earlier release left part-skipped, with tokens on the step and no task
+  under them, is cleared by running the same migration once more. A user or
+  manual task that runs once is skipped as before, and so is every other
+  kind of step, whatever its loop.
 - **A skip or a cancel could record a task as nobody's while taking it from
   somebody.** Claiming a task takes the task's row and not its instance, so a
   claim could land while a migration's skip or cancel held the instance. The

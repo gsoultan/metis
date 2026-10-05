@@ -1045,6 +1045,27 @@
     left the rest; a skip and a cancel recorded a task as nobody's while taking it from
     somebody who had just claimed it; a cancel left parked work on offer and incidents open,
     and a worker's late report then moved the cancelled instance on.
+  - **Root causes**, one each. (An instance with nothing left) Everything that ends an
+    instance asked for a token on a step it names, and such an instance holds none. (The
+    repeating skip) The skip withdrew the step's tasks and then advanced with `Proceed`,
+    which counts one run of a repeating step and leaves the other runs' tokens. (The task
+    recorded as nobody's) A skip and a cancel recorded and announced from a read made
+    before the task's row was held, and a claim takes the task's row, not its instance.
+    (Parked work and incidents left by a cancel) The cancel's effect read the instance's
+    user tasks and subscriptions; external tasks and incidents are rows of their own that
+    it never read. (The worker's late report) `Complete` and `HandleFailure` asked who
+    holds the task's lock and never whether its instance had ended. (The call made for an
+    ended instance) The job runner made a queued call before asking anything of its
+    instance, and raising the incident for a failed one asked nothing either. And, from the
+    final fix wave of 2026-10-05: (a called instance and its caller, neither cancellable)
+    the cancel planner refused a called instance for holding a token and its caller for
+    having one, so each refusal pointed at the other; (a step the version lacks) the
+    planner looked the step up in the version before asking whether the instance holds a
+    token there; (a name twice in `outputs`) the walker that reads a request strictly
+    checked the request's own field names and left the value of `outputs` to a decoder
+    that keeps the last; (a waive's unbounded row) the waive's row took every withdrawn
+    task where the cancel's had been cut; (a 500 for a long step id) the step id a
+    request names was never measured against the column it is written to.
   - **What changed.**
     - *The command.* `POST /api/v1/instances/{id}/deviations`, `kind` `waive`, `cancel` or
       `hold`, for administrators of the organization the request is for, at the endpoint and
@@ -1553,11 +1574,19 @@
     - **No supported way closes one task.** A task 0.4.0 reopened can only be put back in the
       database (`docs/upgrading.md`). The adjustment of one instance in place, planned next,
       should be able to withdraw a task with a reason and a ledger row.
+      *Note, 2026-10-05: the adjustment in place shipped (that date's and 2026-10-04's
+      "waive, cancel or hold one instance in place" entry) and does not close one task: a
+      waive ends every open task of its step, a cancel the instance. A task left open with
+      no token under it is withdrawn by a cancel of its instance. Still open.*
     - **An open incident is not re-pointed by a migration.** It keeps the version and the step
       it was raised on; resolving it queues its job, which is re-pointed. Read from the code.
     - **Work parked for an outside worker is neither moved nor checked.** `external_tasks` is
       not read or written by the migration, and completing one advances from the row's own
       step id. Read from the code, not run.
+      *Note, 2026-10-05: a migration's `cancel` now withdraws the instance's parked work,
+      and a worker's report on an instance that has ended is refused (2026-10-04's "waive,
+      cancel or hold one instance in place" entry). A migration that moves an instance
+      still neither moves nor checks it.*
     - The reply to an apply through the endpoint carries the plan the endpoint made for the
       reply, not the one the apply made a moment later and acted on.
     - `escalated` is a task status nothing in the server sets; the migration treats it, as the
@@ -2154,6 +2183,9 @@
       its tasks stay in inboxes: nothing ends an instance from outside the migration service.
       When it ends it resumes its parent as it always did; for a step inside a finished
       ad-hoc sub-process that follows the step's outgoing flows, if it has any.
+      *Note, 2026-10-05: nothing ends it automatically still, but an administrator can: a
+      cancel in place ends a called instance where it waits, with or without a caller that
+      has ended (`TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt`).*
     - `P0-REL` — `EndEventHandler.resumeParent` reads the parent without a row lock, so two
       children of a parallel call activity returning at the same moment can lose a count or
       advance the parent twice. Pre-existing; needs its own fix and a concurrency test.

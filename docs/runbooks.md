@@ -246,7 +246,8 @@ The step's id is the `node_id` of the task that is waiting:
 
 ```sql
 SELECT node_id, name, status, assignee FROM tasks
-WHERE instance_id = '<instance-id>' AND status IN ('unclaimed', 'claimed', 'delegated');
+WHERE instance_id = '<instance-id>' AND deleted_at IS NULL
+  AND status IN ('unclaimed', 'claimed', 'delegated');
 ```
 
 ```bash
@@ -270,7 +271,8 @@ Read it in this order:
 2. **`warnings`.** Whose work would be taken, and what the preview could not
    read. A warning does not stop an apply. A warning that something *was not
    read* is yours to go and read.
-3. **`open_work`.** The tasks that would be withdrawn, and who has them. It
+3. **`open_work`.** The tasks a waive or a cancel would withdraw, and who has
+   them (a hold withdraws none, and lists what is waiting at the step). It
    lists the first 200; `open_work_in_all` is how many there are.
 4. **`visit_key`.** Keep it. The apply sends it back.
 
@@ -295,7 +297,9 @@ on as its process says.
    ```
 
    A value the instance already holds from an earlier visit to the step does
-   not count; it has to be said again. `missing` is the complete list. Only
+   not count; it has to be said again. `missing` is the complete list
+   whenever the waive can be made: a waive that would need more than 50
+   values, or one with a name over 255 characters, is refused for that. Only
    fields the step's form declares can be set.
 3. **Read the warnings about what was not read.** A process a later step
    calls, and the process that started this one, are not read. Where the
@@ -320,7 +324,7 @@ What comes back, and what to do with it:
 | 400 *this step was already waived by boss* | The visit has had its act, and this request asks for something else: another reason, other values. | Read the ledger, below. |
 | 400 *The values given fit no way out of “Large order?”…* | A gateway had no branch for the value. Nothing was changed, and the task is open again. | Preview again and give a value one of its branches accepts. |
 | 400 with the plan's refusals | The plan refuses now. | Preview again and read them. |
-| 500 | The server failed. Nothing was changed. | The sentence says what was being done; look in the log, then send the same request again. |
+| 500 | The server failed. What the act had done is rolled back, unless the failure came at the commit itself, where the reply cannot tell. | The sentence says what was being done; look in the log, then send the same request again: it acts, or it answers `replayed: true`. |
 | No answer | The apply is waiting for the instance's lock, or for a task somebody is claiming or handing over. The server sets no deadline. | Stop the request and send the same one again. It acts, or it answers `replayed: true`. |
 
 Afterwards the task reads `canceled`, never `completed`, and the ledger says
@@ -393,7 +397,7 @@ name is on the task itself and in the notice they were sent:
 
 ```sql
 SELECT id, node_id, assignee FROM tasks
-WHERE instance_id = '<instance-id>' AND status = 'canceled' ORDER BY id;
+WHERE instance_id = '<instance-id>' AND deleted_at IS NULL AND status = 'canceled' ORDER BY id;
 ```
 
 ### Closing an instance that has nothing left to do

@@ -394,7 +394,10 @@ Semantics worth knowing before production:
   the list. Both arrive with HTTP 200 and the refusal in the reply's `error`
   field, on `/complete` and on `/failure`: check `error`, not the status, then
   stop and do not retry. Work of an instance that ended that second way can
-  still be fetched until somebody reports on it.
+  still be fetched until somebody reports on it. A worker whose lock has run
+  out is refused for the lock first, whatever has become of the instance, so
+  that work stays on the list and is offered again (read from the code, not
+  run).
 
 The raw protocol, for any language that speaks HTTP:
 
@@ -832,8 +835,10 @@ instance is changed:
   **`warnings`** is what to know before applying. A plan that refuses is still
   a 200 to a preview.
 - **`visit_key`** is what an apply sends back.
-- **`open_work`** is the open tasks the act would take: the step's for a waive
-  and a hold, every open task of the instance for a cancel. A holder is named
+- **`open_work`** is the open tasks where the act is made: the step's for a
+  waive and a hold, every open task of the instance for a cancel. A waive and
+  a cancel take them; a hold takes none, and lists them to show what is
+  waiting there. A holder is named
   by username; no account id is returned.
 - **`outputs`** echoes the outputs as the server read them, in the preview and
   in the apply. It is where a client confirms what was read.
@@ -845,7 +850,9 @@ instance is changed:
   `analysed: false` means what the place reads could not be told in full: its
   lists hold what could be told, and may be short.
 - **`missing`** is the complete list of what a waive has still to supply, each
-  name in full.
+  name in full, whenever the waive can be made: at most 50 names, each to 255
+  characters. A waive that would need more, or a longer name, is refused for
+  that, and the list is then cut.
 - **`called_instances`** is, for a cancel, the ids of the processes this
   instance started that have not ended: the 200 with the lowest ids, and
   `called_instances_in_all` is how many there are. `requires_second_approver`
@@ -931,14 +938,16 @@ point is read from the header's code, not run on this route):
 | 401 | No token. | the plain text `Unauthorized` |
 | 403 | Signed in, and not an administrator of the organization the request is for. | `{"error": "forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it"}` |
 | 404 | The instance is not in the organization the request is for, or there is no such instance: the same words for both. | `{"error": "not found: no such process instance"}` |
-| 500 | The server failed after the request was accepted. Everything is rolled back. | `{"error": "waiving “Review the claim”: …"}` |
+| 500 | The server failed after the request was accepted. What the act had done is rolled back, unless the failure came at the commit itself. Send the same request again: it acts or it replays. | `{"error": "waiving “Review the claim”: …"}` |
 
 Four things about them:
 
 - **A 400 carries a sentence and no machine-readable code.** The same status
   covers a request to correct and an instance to preview again.
-- **The route never answers a conflict status.** What was already done, and
-  work that has moved, are 400s.
+- **The route itself never answers a conflict status.** What was already
+  done, and work that has moved, are 400s. A request sent with an
+  `Idempotency-Key` can still meet the header's own 409 and 408 on this
+  route, in plain text, before the route sees it.
 - **A 500's text is not a status.** It keeps the cause as words, and may
   contain `not found:`, the instance's id, step ids and a decision's key.
 - **The body is read before the caller is checked**, as on every route. A
