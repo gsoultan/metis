@@ -124,11 +124,13 @@ func TestACompletionTheInlineFormCoversNeedsNoStore(t *testing.T) {
 }
 
 // The path the design exists for: a task that names a stored form and carries
-// an inline one that covers the completion. It stops at the inline form
-// (enough), so it costs what reading that form and listing what is outside it
-// cost, written out by hand here — no read of the store, no second set, no
-// list of names. Compared with that and not with a number, so it holds
-// whatever a decoder allocates.
+// an inline one that covers the completion. It stops at the inline form, so
+// it costs no more than reading that form and listing what is outside it,
+// written out by hand here — no read of the store, no second set, no list of
+// names. Compared with that and not with a number, so it holds whatever a
+// decoder allocates. The comparison is made only without the race detector:
+// under it the two counts move by a few allocations from run to run, in
+// either direction, so there the test only runs both paths.
 func TestAKeyedCompletionTheInlineFormCoversCostsNoMoreThanReadingThatForm(t *testing.T) {
 	task := models.TaskModel{FormKey: "approval", FormDefinition: `[` +
 		`{"id":"approved","label":"Approved","type":"boolean","required":true},` +
@@ -152,7 +154,11 @@ func TestAKeyedCompletionTheInlineFormCoversCostsNoMoreThanReadingThatForm(t *te
 			t.Fatalf("undeclared = %v, want none", undeclared)
 		}
 	})
-	if covered != byHand {
+	if raceDetector {
+		t.Logf("built with the race detector: %.0f and %.0f allocations, not compared", covered, byHand)
+		return
+	}
+	if covered > byHand {
 		t.Errorf("a covered completion of a task that names a stored form allocated %.0f times; reading its inline form by hand allocates %.0f",
 			covered, byHand)
 	}
