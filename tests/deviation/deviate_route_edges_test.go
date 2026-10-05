@@ -23,7 +23,7 @@ func (h *deviationHarness) sendKeyed(t *testing.T, token string, instanceID uuid
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Idempotency-Key", key)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := routeClient.Do(req)
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}

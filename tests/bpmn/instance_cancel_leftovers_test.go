@@ -197,3 +197,81 @@ func TestCancellingInPlaceClosesTheIncidentsOnTheInstance(t *testing.T) {
 		}
 	})
 }
+
+// A cancel does not delete a pending timer: a job has no delete. Each timer of
+// a cancelled instance comes due all the same — a deadline on the step it was
+// cancelled at, and a wait on another branch — finds that the instance is not
+// waiting for it, and does nothing: the instance stays cancelled and holds no
+// token, no task opens where the deadline leads or after the wait, and no
+// incident is raised. The jobs are settled, and nothing else is written.
+func TestATimerDueAfterACancelInPlaceMovesNothingAndRaisesNoIncident(t *testing.T) {
+	h := newEngineHarness(t, "Cancel Then Timers Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	id := w.start(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID}, Key: "cancel-then-timers",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "fork", Type: entities.ParallelGateway},
+			{ID: "review", Type: entities.UserTask, Name: "Review the claim", Assignee: "rita"},
+			{ID: "deadline", Type: entities.BoundaryEvent, AttachedToRef: "review", Properties: map[string]any{"timer_duration": "P7D"}},
+			{ID: "chase", Type: entities.UserTask, Name: "Chase the reviewer"},
+			{ID: "wait", Type: entities.IntermediateCatchEvent, Name: "Wait for the cooling-off period", Properties: map[string]any{"timer_duration": "P14D"}},
+			{ID: "pay", Type: entities.UserTask, Name: "Pay the claim"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "fork"},
+			{ID: "f2", SourceRef: "fork", TargetRef: "review"},
+			{ID: "f3", SourceRef: "fork", TargetRef: "wait"},
+			{ID: "f4", SourceRef: "review", TargetRef: "end"},
+			{ID: "f5", SourceRef: "deadline", TargetRef: "chase"},
+			{ID: "f6", SourceRef: "chase", TargetRef: "end"},
+			{ID: "f7", SourceRef: "wait", TargetRef: "pay"},
+			{ID: "f8", SourceRef: "pay", TargetRef: "end"},
+		},
+	}, nil)
+	if tokensOn(t, h, id, "review") != 1 || tokensOn(t, h, id, "wait") != 1 {
+		t.Fatal("the instance is not waiting at the review and at the wait; this test needs both")
+	}
+
+	w.mustApply(t, deviationCommand(entities.DeviationCancel, id, "review", nil))
+	requireInstanceStatus(ctx, t, h, id, entities.ProcessCancelled)
+
+	// The week and the fortnight pass.
+	if moved := h.dueNow(ctx, t, id); moved != 2 {
+		t.Fatalf("%d timer(s) were waiting to come due on the cancelled instance, want the deadline and the wait", moved)
+	}
+	due := everyRow(t, h)
+	if err := h.jobSvc.ProcessPendingJobs(ctx); err != nil {
+		t.Fatalf("process pending jobs: %v", err)
+	}
+
+	if now := requireInstanceStatus(ctx, t, h, id, entities.ProcessCancelled); len(now.Tokens) != 0 {
+		t.Fatalf("a timer of a cancelled instance left it holding %d token(s)", len(now.Tokens))
+	}
+	for _, step := range []string{"review", "chase", "pay"} {
+		if open := h.openTasksOn(t, id, step); open != 0 {
+			t.Errorf("%d task(s) are open on %q after the timers of a cancelled instance came due", open, step)
+		}
+	}
+	if incidents, err := h.svc.ListIncidents(ctx, id); err != nil || len(incidents) != 0 {
+		t.Errorf("%d incident(s) on the cancelled instance after its timers came due (err %v), want none", len(incidents), err)
+	}
+	jobs, err := h.repo.Job().ListByInstance(ctx, id)
+	if err != nil || len(jobs) != 2 {
+		t.Fatalf("the instance's jobs: %d (err %v), want the two timers and no other", len(jobs), err)
+	}
+	for _, job := range jobs {
+		if job.Status != models.JobCompleted {
+			t.Errorf("the timer on %q is %s after it came due, want it settled", job.NodeID, job.Status)
+		}
+	}
+	// Settling the two jobs is all that was written.
+	for _, changed := range tablesThatDiffer(due, everyRow(t, h)) {
+		if !strings.HasPrefix(changed, "jobs ") {
+			t.Errorf("a timer of a cancelled instance coming due changed %s", changed)
+		}
+	}
+}

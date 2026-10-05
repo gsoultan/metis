@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 
@@ -94,7 +93,7 @@ func (h *deviationHarness) send(t *testing.T, token, path, body string, headers 
 	for i := 0; i+1 < len(headers); i += 2 {
 		req.Header.Set(headers[i], headers[i+1])
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := routeClient.Do(req)
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}
@@ -177,46 +176,19 @@ func (h *deviationHarness) stepIsOpen(t *testing.T, instanceID uuid.UUID) bool {
 	return h.openTasksOn(t, instanceID, "step") > 0
 }
 
-// everyRow is what the test's database holds: for each table of its schema,
-// how many rows and a hash of all of them. A test's schema is its own, so two
+// everyRow is what the test's database holds (testutils.EveryRow): two
 // readings that are equal mean nothing was written between them — to any
-// table, by any path. It is tests/bpmn's everyRow, which this package cannot
-// reach.
+// table, by any path.
 func (h *deviationHarness) everyRow(t *testing.T) map[string]string {
 	t.Helper()
-	var tables []string
-	if err := h.db.Raw(`SELECT table_name FROM information_schema.tables
-		 WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'`).Scan(&tables).Error; err != nil {
-		t.Fatalf("list the tables: %v", err)
-	}
-	if len(tables) == 0 {
-		t.Fatal("the schema lists no tables, so comparing them would prove nothing")
-	}
-	held := make(map[string]string, len(tables))
-	for _, table := range tables {
-		var rows string
-		query := fmt.Sprintf(`SELECT count(*)::text || ' rows ' || coalesce(md5(string_agg(r::text, '|' ORDER BY r::text)), '')
-			 FROM %q r`, table)
-		if err := h.db.Raw(query).Scan(&rows).Error; err != nil {
-			t.Fatalf("read %s: %v", table, err)
-		}
-		held[table] = rows
-	}
-	return held
+	return testutils.EveryRow(t, h.db)
 }
 
 // requireUnchanged fails the test when any table holds something it did not
 // hold at before.
 func (h *deviationHarness) requireUnchanged(t *testing.T, before map[string]string, after string) {
 	t.Helper()
-	var changed []string
-	for table, rows := range h.everyRow(t) {
-		if before[table] != rows {
-			changed = append(changed, fmt.Sprintf("%s (%s, was %s)", table, rows, before[table]))
-		}
-	}
-	slices.Sort(changed)
-	if len(changed) != 0 {
+	if changed := testutils.TablesThatDiffer(before, h.everyRow(t)); len(changed) != 0 {
 		t.Fatalf("%s changed %v", after, changed)
 	}
 }

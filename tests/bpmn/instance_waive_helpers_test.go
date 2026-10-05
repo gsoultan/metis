@@ -2,8 +2,6 @@ package bpmn_test
 
 import (
 	"context"
-	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -186,44 +184,17 @@ func (w waiver) start(t *testing.T, def *entities.ProcessDefinition, variables m
 	return id
 }
 
-// everyRow is what the test's database holds: for each table of its schema,
-// how many rows and a hash of all of them. A test's schema is its own, so two
-// readings that are equal mean nothing was written between them — to any
-// table, by any path.
+// everyRow is what the test's database holds (testutils.EveryRow): two
+// readings that are equal mean nothing was written between them.
 func everyRow(t *testing.T, h engineHarness) map[string]string {
 	t.Helper()
-	var tables []string
-	if err := h.db.Raw(`SELECT table_name FROM information_schema.tables
-		 WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'`).Scan(&tables).Error; err != nil {
-		t.Fatalf("list the tables: %v", err)
-	}
-	if len(tables) == 0 {
-		t.Fatal("the schema lists no tables, so comparing them would prove nothing")
-	}
-	held := make(map[string]string, len(tables))
-	for _, table := range tables {
-		var rows string
-		query := fmt.Sprintf(`SELECT count(*)::text || ' rows ' || coalesce(md5(string_agg(r::text, '|' ORDER BY r::text)), '')
-			 FROM %q r`, table)
-		if err := h.db.Raw(query).Scan(&rows).Error; err != nil {
-			t.Fatalf("read %s: %v", table, err)
-		}
-		held[table] = rows
-	}
-	return held
+	return testutils.EveryRow(t, h.db)
 }
 
-// tablesThatDiffer names the tables two readings of everyRow disagree on, in
-// order, each with what it held and holds.
+// tablesThatDiffer names the tables two readings of everyRow disagree on
+// (testutils.TablesThatDiffer).
 func tablesThatDiffer(before, after map[string]string) []string {
-	var changed []string
-	for table, rows := range after {
-		if before[table] != rows {
-			changed = append(changed, fmt.Sprintf("%s (%s, was %s)", table, rows, before[table]))
-		}
-	}
-	slices.Sort(changed)
-	return changed
+	return testutils.TablesThatDiffer(before, after)
 }
 
 // said reports whether one of the sentences is exactly want.
@@ -354,10 +325,14 @@ func (s *sent[T]) answer(t *testing.T, what string) (T, error) {
 // follows it does not depend on how long anything took.
 func (h engineHarness) waitForWaiters(t *testing.T, held *heldRows, count int, finished ...func() bool) {
 	t.Helper()
+	// Only a session that is waiting for a lock is asked who blocks it: the
+	// database is shared with every test that is running, and asking of every
+	// session costs a look at the lock table for each.
 	const waiting = `WITH RECURSIVE behind(pid) AS (
-		    SELECT pid FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))
+		    SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND ? = ANY(pg_blocking_pids(pid))
 		  UNION
-		    SELECT a.pid FROM pg_stat_activity a JOIN behind b ON b.pid = ANY(pg_blocking_pids(a.pid)))
+		    SELECT a.pid FROM pg_stat_activity a JOIN behind b
+		        ON a.wait_event_type = 'Lock' AND b.pid = ANY(pg_blocking_pids(a.pid)))
 		SELECT count(*) FROM behind`
 	seen := 0
 	for deadline := time.Now().Add(lockWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {

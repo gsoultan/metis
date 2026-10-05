@@ -85,19 +85,37 @@ func TestAWaiveIsRefusedWhereItWouldGuess(t *testing.T) {
 			c := deviationCommand(entities.DeviationWaive, parked, "opsApprove", nil)
 			c.Reason = "   "
 			return c
-		}(), []string{"reason"}},
+		}(), []string{"Say why: a reason is required, and it is kept with the record."}},
 		{"a step the instance is not waiting at", deviationCommand(entities.DeviationWaive, parked, "salesApprove", nil), []string{"not waiting at", "Sales approve"}},
 		{"a step the process does not have", deviationCommand(entities.DeviationWaive, parked, "nowhere", nil), []string{"no step"}},
 		{"a step with two ways out", deviationCommand(entities.DeviationWaive, forked, "pick", nil), []string{"2 ways out", "Pick a supplier"}},
 		{"work done by an outside worker", deviationCommand(entities.DeviationWaive, worker, "screen", nil), []string{"Screen the supplier", "retry"}},
 	}
+	before := everyRow(t, h)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			plan := w.preview(t, c.command)
 			if plan.Applicable() || !refusalMentions(plan, c.mentions...) {
 				t.Fatalf("the plan's refusals %q do not refuse it with %q", plan.Refusals, c.mentions)
 			}
+			if c.name == "no reason" && !reflect.DeepEqual(plan.Refusals, c.mentions) {
+				t.Errorf("a waive with no reason is refused with %q, want only %q", plan.Refusals, c.mentions)
+			}
+			// And the apply is refused in the preview's words, as something
+			// the caller can fix, with nothing changed.
+			out, err := w.apply(t, c.command)
+			if !errors.Is(err, apierr.ErrInvalidArgument) || out.Applied || out.Deviation != nil {
+				t.Fatalf("applied: %+v, %v; want it refused as something the caller can fix", out, err)
+			}
+			for _, refusal := range plan.Refusals {
+				if !strings.Contains(err.Error(), refusal) {
+					t.Errorf("the apply was told %q; it does not say what the preview said: %q", err, refusal)
+				}
+			}
 		})
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("refused applies changed %v", changed)
 	}
 
 	// Finished: nothing to waive, and the words say why.

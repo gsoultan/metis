@@ -866,7 +866,8 @@ What a cancel leaves, in place as in a migration:
   when its turn comes, and until then the instance's job list shows a pending call on a
   cancelled instance.
 - **Timers lapse quietly.** A pending timer is not deleted. It comes due, finds the
-  instance is not waiting for it, and does nothing.
+  instance is not waiting for it, and does nothing: no token, no task, no incident
+  (`TestATimerDueAfterACancelInPlaceMovesNothingAndRaisesNoIncident`).
 - **No event says the instance was cancelled.** Each withdrawn task raises `TaskCanceled`,
   on the event stream and to webhooks. A cancel of an instance with no open task raises no
   event at all.

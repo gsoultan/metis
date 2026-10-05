@@ -1342,7 +1342,8 @@
     - **A queued job of a cancelled instance stays `pending` until its time comes** (*read*),
       and is then completed without calling (*run*:
       `TestNoCallIsMadeForAnInstanceCancelledInPlace`). A pending timer stays too, and does
-      nothing when it comes due (*read*).
+      nothing when it comes due (*run*:
+      `TestATimerDueAfterACancelInPlaceMovesNothingAndRaisesNoIncident`).
     - **No event says an instance was cancelled or held.** Only `TaskCanceled` for each task
       withdrawn (*run*: the no-step cancel and the hold raise none).
     - **Cancelling a called instance leaves its caller waiting.** The cancel resumes nobody;

@@ -168,10 +168,10 @@ func TestAWaivedStepIsWithdrawnItsHolderToldAndTheInstanceMovesOn(t *testing.T) 
 			t.Errorf("the entry's %s is %v, want %v", key, entry.Data[key], want)
 		}
 	}
-	for _, words := range []string{"“Operations approve” was waived", "nobody performed it", "by ana", waiveReason} {
-		if !strings.Contains(entry.Narrative, words) {
-			t.Errorf("the entry reads %q; it does not say %q", entry.Narrative, words)
-		}
+	// The whole sentence: it is what the timeline shows and what the docs
+	// quote. (The reason given here ends with a full stop of its own.)
+	if want := "“Operations approve” was waived — nobody performed it — by ana. Reason: " + waiveReason + "."; entry.Narrative != want {
+		t.Errorf("the entry reads\n  %s\nwant\n  %s", entry.Narrative, want)
 	}
 	for _, words := range []string{"completed", "approved", "performed by"} {
 		if strings.Contains(strings.ToLower(entry.Narrative), words) {
@@ -849,10 +849,10 @@ func TestAWaiveInACalledProcessWhoseCallerHasEndedIsNotWarnedOfIt(t *testing.T) 
 		t.Fatalf("end the caller: %v", err)
 	}
 	plan := w.preview(t, deviationCommand(entities.DeviationWaive, child, "review", nil))
-	for _, warning := range plan.Warnings {
-		if strings.Contains(warning, "was started by") {
-			t.Errorf("a waive whose caller has ended is warned of it: %s", warning)
-		}
+	// The whole list: whose work is taken, and nothing of a caller.
+	want := []string{"“Review the supplier” is with rita, who will be told it was withdrawn."}
+	if !reflect.DeepEqual(plan.Warnings, want) {
+		t.Errorf("a waive whose caller has ended warns:%s\nwant only:%s", lines(plan.Warnings), lines(want))
 	}
 }
 
