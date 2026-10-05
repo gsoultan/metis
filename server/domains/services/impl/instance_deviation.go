@@ -32,12 +32,22 @@ type instanceDeviationService struct {
 	// actions is what a waive, a cancel and a hold do, and knows whether the
 	// engine can end a step whole.
 	actions nodeActions
+	// rules says who may approve a waive that waits for a second
+	// administrator.
+	rules approvalRules
 }
 
 // NewInstanceDeviationService builds the in-place command over a repository
 // and the engine that runs the instances it acts on.
 func NewInstanceDeviationService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) servicecontracts.InstanceDeviator {
-	return &instanceDeviationService{repo: repo, engine: engine, actions: newNodeActions(repo, engine)}
+	return newInstanceDeviationService(repo, engine)
+}
+
+// newInstanceDeviationService is NewInstanceDeviationService for what is
+// built in this package and needs more of the service than the command: the
+// request service approves a waive through it.
+func newInstanceDeviationService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) *instanceDeviationService {
+	return &instanceDeviationService{repo: repo, engine: engine, actions: newNodeActions(repo, engine), rules: approvalRules{repo: repo}}
 }
 
 // errDeviationWithoutEngine is a plain error, not one the caller can fix: it
@@ -120,8 +130,12 @@ func (s *instanceDeviationService) preview(ctx context.Context, command entities
 //  4. The plan is made again, from the locked row, and is the plan that was
 //     previewed, with nothing refusing it; and the instance still waits where
 //     the command acts (refuseUnlessAsPreviewed).
-//  5. The act (act), which writes the change, its ledger row and its trail
-//     entry together.
+//  5. A plan that needs a second administrator — a waive — is not acted on:
+//     it is recorded as asked for (request), and waits. Whoever asks is the
+//     account a second administrator will have to differ from, so an
+//     administrator with no account id is refused here.
+//  6. Otherwise the act (act), which writes the change, its ledger row and
+//     its trail entry together.
 //
 // An instance of another organization is not found by the lock, as it is not
 // by a preview's read.
@@ -147,6 +161,13 @@ func (s *instanceDeviationService) apply(ctx context.Context, command entities.D
 	}
 	if err := refuseUnlessAsPreviewed(locked, plan, command); err != nil {
 		return none, err
+	}
+	if plan.RequiresSecondApprover {
+		account, err := requireDecidingAdministrator(ctx)
+		if err != nil {
+			return none, err
+		}
+		return s.request(ctx, locked, plan, command, account)
 	}
 	def, err := s.graphRunBy(ctx, live.ID, uuid.UUID(locked.DefinitionID))
 	if err != nil {
@@ -233,20 +254,18 @@ func waitsWhereItActs(locked models.ProcessInstanceModel, command entities.Devia
 // nothing is done again. Found, and asking for something else, it is refused
 // with who acted: the visit has had its act.
 //
+// A row that waits for a second administrator is answered by replayWaiting:
+// the visit has been asked for, and has not had its act.
+//
 // Its caller holds the instance's lock, so an apply that was in flight for
 // the same visit has finished, and its row is here to find.
 func (s *instanceDeviationService) replay(ctx context.Context, command entities.DeviationCommand) (entities.DeviationOutcome, bool, error) {
-	// Read from the store the ledger writes to. The ledger's own interface has
-	// no such read, so a wiring with no store is refused here in the ledger's
-	// words, as it refuses a write: answering "no such act" would let the act
-	// be made again.
-	store := s.repo.Deviation()
-	if store == nil {
-		return entities.DeviationOutcome{}, false, errNoDeviationLedger
-	}
-	row, found, err := store.FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
+	row, waitsOn, found, err := s.recordOfVisit(ctx, command)
 	if err != nil || !found {
 		return entities.DeviationOutcome{}, false, err
+	}
+	if waitsOn != nil {
+		return replayWaiting(ctx, row, *waitsOn, command)
 	}
 	same, err := sameRequest(row, command)
 	if err != nil {
@@ -255,6 +274,13 @@ func (s *instanceDeviationService) replay(ctx context.Context, command entities.
 	if !same {
 		return entities.DeviationOutcome{}, false, alreadyActedOn(row)
 	}
+	return replayed(row, command), true, nil
+}
+
+// replayed is the answer to a request whose visit already has its row: the
+// row, and a plan that says what it was for and no more. Applied says whether
+// the row is an act that was made, or one that waits.
+func replayed(row entities.Deviation, command entities.DeviationCommand) entities.DeviationOutcome {
 	plan := entities.DeviationPlan{
 		InstanceID: command.InstanceID, Kind: row.Kind, Scope: row.Scope, NodeID: command.NodeID, VisitKey: row.VisitKey,
 	}
@@ -263,7 +289,105 @@ func (s *instanceDeviationService) replay(ctx context.Context, command entities.
 	}
 	return entities.DeviationOutcome{
 		Plan: plan, Applied: row.Status == entities.DeviationApplied, Replayed: true, Deviation: &row,
-	}, true, nil
+	}
+}
+
+// recordOfVisit reads the live row of the visit a command names and, when
+// that row waits for a second administrator, the request it waits on.
+//
+// Read from the store the ledger writes to. The ledger's own interface has no
+// such read, so a wiring with no store is refused here in the ledger's words,
+// as it refuses a write: answering "no such act" would let the act be made
+// again.
+//
+// The request is read and not held. The caller holds the instance, and a
+// request's row is taken before an instance's, never after: an approval that
+// holds the request and is waiting for this instance would otherwise wait for
+// ever, and so would this.
+//
+// Because it is not held, the request can be decided between the two reads by
+// somebody who holds its row and needs no instance — an approval that found
+// it past its deadline. Then the row just read is no longer what the ledger
+// holds: what decided the request moved the row with it, in one transaction,
+// and that is committed. So the row is read once more, and is then either
+// gone — the visit is free — or, were it still to wait on a request that is
+// over, the server's to explain.
+func (s *instanceDeviationService) recordOfVisit(
+	ctx context.Context,
+	command entities.DeviationCommand,
+) (row entities.Deviation, waitsOn *entities.DeviationRequest, found bool, err error) {
+	store := s.repo.Deviation()
+	if store == nil {
+		return entities.Deviation{}, nil, false, errNoDeviationLedger
+	}
+	var decided entities.DeviationRequestStatus
+	for range 2 {
+		row, found, err = store.FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
+		if err != nil || !found || row.Status != entities.DeviationPendingApproval {
+			return row, nil, found, err
+		}
+		request, readErr := s.requestWaitedOn(ctx, row)
+		if readErr != nil {
+			return entities.Deviation{}, nil, false, readErr
+		}
+		if request.Status == entities.DeviationRequestPending {
+			return row, &request, true, nil
+		}
+		decided = request.Status
+	}
+	return entities.Deviation{}, nil, false, fmt.Errorf(
+		"deviation %s still waits for request %s, which is %s", row.ID, row.RequestID, decided)
+}
+
+// requestWaitedOn reads the request a waiting ledger row names, without
+// holding it. A failure is the server's, whatever class it came with: the
+// caller has locked the instance the row is of, so "not found" is not an
+// answer about anything they asked for.
+func (s *instanceDeviationService) requestWaitedOn(ctx context.Context, row entities.Deviation) (entities.DeviationRequest, error) {
+	requests := s.repo.DeviationRequest()
+	if requests == nil {
+		return entities.DeviationRequest{}, errNoDeviationRequests
+	}
+	request, err := requests.Get(ctx, row.RequestID)
+	if err != nil {
+		return entities.DeviationRequest{}, effectFailed(fmt.Sprintf("reading the request deviation %s waits on", row.ID), err)
+	}
+	return request, nil
+}
+
+// replayWaiting answers a request for a visit that has been asked for and
+// waits for a second administrator.
+//
+// Whoever made the request, asking for the same thing again, is answered with
+// it: the row, not applied, and the request it waits on — a lost answer is
+// safe to ask for again, and no second request is made. They are told apart
+// by account id, not by name. Anybody else, and the requester asking for
+// something else on the visit, is pointed at the request that waits
+// (alreadyWaiting): another administrator does not get a request of their own
+// to approve by asking for the same thing.
+func replayWaiting(
+	ctx context.Context,
+	row entities.Deviation,
+	request entities.DeviationRequest,
+	command entities.DeviationCommand,
+) (entities.DeviationOutcome, bool, error) {
+	var none entities.DeviationOutcome
+	caller := signedIn(ctx)
+	if caller == nil || caller.ID == uuid.Nil || caller.ID != request.RequestedByID {
+		return none, false, alreadyWaiting(row, request)
+	}
+	same, err := sameRequest(row, command)
+	if err != nil {
+		return none, false, err
+	}
+	if !same {
+		return none, false, alreadyWaiting(row, request)
+	}
+	outcome := replayed(row, command)
+	outcome.Plan.RequiresSecondApprover = true
+	waiting := entities.PendingApprovalOf(request)
+	outcome.PendingApproval = &waiting
+	return outcome, true, nil
 }
 
 // alreadyActedOn is the refusal of a request for a visit that has had its

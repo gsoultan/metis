@@ -100,6 +100,11 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 	p.plan = entities.DeviationPlan{
 		InstanceID: instance.ID, Kind: command.Kind, Scope: deviationScopeOf(command.Kind),
 		NodeID: command.NodeID, Outputs: command.Outputs,
+		// A waive loosens a control on work that goes on, so it is one
+		// administrator's to ask for and another's to approve. A cancel ends
+		// an instance and a hold stops one: neither does, and each stays one
+		// administrator's call.
+		RequiresSecondApprover: command.Kind == entities.DeviationWaive,
 	}
 	if command.NodeID != "" {
 		if p.node = def.FindNode(command.NodeID); p.node != nil {
