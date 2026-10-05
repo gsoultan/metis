@@ -912,10 +912,10 @@ Three things about a hold that are gaps, not design:
   There is no deadline on the server: the wait ends when the lock is free or the client
   goes away.
 - **A suspended instance is refused.** A preview lists *This instance is suspended; only a
-  running instance can be held.* An apply answers *this instance is suspended; resume it
-  before it is cancelled or held* (for a waive, *…resume it before a step of it is
-  waived*). Nothing in the product suspends an instance or resumes one today, so this is
-  met only on a row changed outside it.
+  running instance can be held.* An apply answers *this instance is suspended, and a
+  suspended instance is not waived, cancelled or held in place*, for all three kinds.
+  Nothing in the product suspends an instance or resumes one today, so this is met only on
+  a row changed outside it.
 - **No second approver.** One administrator decides and applies. A second pair of eyes for
   a waiver is not in this release.
 

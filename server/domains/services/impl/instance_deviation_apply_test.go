@@ -91,15 +91,14 @@ func TestAnInstanceThatHasEndedIsRefusedFromTheRowTheApplyLocked(t *testing.T) {
 			t.Errorf("an instance that is %s: got %v, want %q", status, err, want)
 		}
 	}
-	// A suspended instance has not ended: it can run again, so it is not said
-	// that it can no longer be acted on. It is said what to do first.
-	for kind, want := range map[entities.DeviationKind]string{
-		entities.DeviationCancel: "this instance is suspended; resume it before it is cancelled or held",
-		entities.DeviationHold:   "this instance is suspended; resume it before it is cancelled or held",
-		entities.DeviationWaive:  "this instance is suspended; resume it before a step of it is waived",
-	} {
+	// A suspended instance has not ended, so it is not said that it can no
+	// longer be acted on. Nor is it said to resume it first: nothing in the
+	// product suspends an instance or resumes one. It is said what it is, and
+	// that it is refused, in one sentence for all three kinds.
+	const want = "this instance is suspended, and a suspended instance is not waived, cancelled or held in place"
+	for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationHold, entities.DeviationWaive} {
 		err := refuseEnded(rowWaitingAt(models.ProcessSuspended, "approve"), kind)
-		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != "invalid argument: "+want {
 			t.Errorf("a %s of an instance that is suspended: got %v, want %q", kind, err, want)
 		}
 	}

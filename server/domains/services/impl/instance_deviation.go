@@ -174,17 +174,17 @@ func errMovedSincePreview() error {
 // before anything else is read, so that it holds however the plan's own
 // refusal is one day worded or relaxed.
 //
-// A suspended instance has not ended: it can be made active again, so it is
-// not said that it can no longer be acted on. It is said what to do first.
+// A suspended instance has not ended, so it is not said that it can no longer
+// be acted on. Nor is it told to resume it first: no route, service or handler
+// suspends an instance or resumes one, and a refusal does not tell somebody to
+// do what the product cannot. It is said what the instance is and that it is
+// refused, in one sentence for all three kinds.
 func refuseEnded(locked models.ProcessInstanceModel, kind entities.DeviationKind) error {
 	switch locked.Status {
 	case models.ProcessActive:
 		return nil
 	case models.ProcessSuspended:
-		if kind == entities.DeviationWaive {
-			return apierr.Invalidf("this instance is suspended; resume it before a step of it is waived")
-		}
-		return apierr.Invalidf("this instance is suspended; resume it before it is cancelled or held")
+		return apierr.Invalidf("this instance is suspended, and a suspended instance is not waived, cancelled or held in place")
 	}
 	return apierr.Invalidf("this instance is %s, so it can no longer be %s; preview again", locked.Status, pastTense(kind))
 }

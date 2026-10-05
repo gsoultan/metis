@@ -305,10 +305,12 @@ func TestAnApplyThatComesTooLateIsA400ThatSaysWhatHappened(t *testing.T) {
 }
 
 // A suspended instance has not ended, so it is not said that it can no longer
-// be acted on: it is said what to do first. Nothing in the product suspends an
+// be acted on; and nothing in the product resumes one, so it is not told to
+// resume it either (final-wave ruling FW-3). It is refused as what it is, in
+// one sentence for all three kinds. Nothing in the product suspends an
 // instance today, so the row is written through the repository, as the
 // service's own test of this does.
-func TestAnApplyOnASuspendedInstanceIsA400ThatSaysToResumeIt(t *testing.T) {
+func TestAnApplyOnASuspendedInstanceIsA400ThatSaysItIsSuspended(t *testing.T) {
 	h := newDeviationRouteHarness(t)
 	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	admin := h.signIn(t, "boss", entities.RoleAdmin)
@@ -327,10 +329,7 @@ func TestAnApplyOnASuspendedInstanceIsA400ThatSaysToResumeIt(t *testing.T) {
 	before := h.everyRow(t)
 
 	for kind, body := range applies {
-		want := invalid("this instance is suspended; resume it before it is cancelled or held")
-		if kind == "waive" {
-			want = invalid("this instance is suspended; resume it before a step of it is waived")
-		}
+		want := invalid("this instance is suspended, and a suspended instance is not waived, cancelled or held in place")
 		if status, _, raw := h.deviate(t, admin, instanceID, body); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 			t.Errorf("a %s of a suspended instance: %d (%s), want 400 %s", kind, status, raw, want)
 		}

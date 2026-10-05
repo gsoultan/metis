@@ -1135,7 +1135,7 @@
         `TestAMalformedDeviationRequestIsA400ThatSaysWhatToFix`,
         `TestARefusedPlanIsA200ToPreviewAndA400ToApply`,
         `TestAnApplyThatComesTooLateIsA400ThatSaysWhatHappened`,
-        `TestAnApplyOnASuspendedInstanceIsA400ThatSaysToResumeIt`,
+        `TestAnApplyOnASuspendedInstanceIsA400ThatSaysItIsSuspended`,
         `TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`,
         `TestAFailureThatIsTheServersIsA500WhateverItsWordsSay`,
         `TestTheReplyToADeviationHasOneShapeWhateverItHolds`,
@@ -1263,8 +1263,11 @@
     - **The worker routes answer HTTP 200 with the refusal in `error`** (*probe*, over HTTP;
       Connect and gRPC not run).
     - **A suspended instance.** A worker's report and a queued call proceed for one as
-      before. The in-place refusals tell the caller to resume it, and nothing in the product
-      suspends an instance or resumes one (*read*).
+      before. Nothing in the product suspends an instance or resumes one (*read*); the
+      in-place command refuses one as suspended and no longer says to resume it (*run*:
+      `TestAnApplyOnASuspendedInstanceIsRefusedAsSuspended`). A called instance whose
+      caller is suspended is still warned to "cancel or hold that one next", which the
+      command then refuses (*run*: `TestACalledInstanceOrACallerThatIsSuspendedHasNotEnded`).
     - **Message correlation keys read process variables.** A value left by an earlier visit
       correlates silently; it is not a decision point of a waive's plan (*read*).
     - **A value derived from the step's is not traced.** A script, or a service task's

@@ -849,10 +849,11 @@ func TestACancelOrAHoldOfAnInstanceThatMovedSinceThePreviewIsRefused(t *testing.
 	}
 }
 
-// A suspended instance has not ended: it can be made active again. A cancel
-// or a hold of one is refused, and told what to do first — not that the
-// instance can no longer be acted on — and nothing is changed.
-func TestAnApplyOnASuspendedInstanceSaysToResumeItFirst(t *testing.T) {
+// A suspended instance has not ended. A waive, a cancel or a hold of one is
+// refused as what it is — not told that the instance can no longer be acted
+// on, and not told to resume it, which nothing in the product does (final-wave
+// ruling FW-3) — and nothing is changed.
+func TestAnApplyOnASuspendedInstanceIsRefusedAsSuspended(t *testing.T) {
 	h := newEngineHarness(t, "Suspended Apply Project")
 	w := newWaiver(h)
 	id := w.start(t, opsApproval(h.projID, "ops-suspended"), nil)
@@ -864,12 +865,9 @@ func TestAnApplyOnASuspendedInstanceSaysToResumeItFirst(t *testing.T) {
 	suspended := everyRow(t, h)
 
 	for kind, command := range commands {
-		want := "this instance is suspended; resume it before it is cancelled or held"
-		if kind == entities.DeviationWaive {
-			want = "this instance is suspended; resume it before a step of it is waived"
-		}
+		const want = "invalid argument: this instance is suspended, and a suspended instance is not waived, cancelled or held in place"
 		out, err := w.svc.DeviateInstance(w.ctx, command)
-		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), want) {
+		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want {
 			t.Errorf("a %s of a suspended instance: %v, want %q", kind, err, want)
 		}
 		if out.Applied || out.Replayed || out.Deviation != nil {
