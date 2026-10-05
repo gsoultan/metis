@@ -43,17 +43,6 @@ type decisionLookup struct {
 	err error
 }
 
-// decisionTableRead is what one table reads by itself, before the decisions
-// it requires are followed.
-type decisionTableRead struct {
-	names, requires []string
-	// analysable is false when part of the table could not be read, and when
-	// the table was not read at all because the plan had read its fill.
-	analysable bool
-	// found is false when there is no such decision, or no such version.
-	found bool
-}
-
 func newDecisionLookup(load func(key string, version int) (entities.DecisionDefinition, bool, error)) *decisionLookup {
 	return &decisionLookup{load: load, read: map[[2]string]decisionTableRead{}, left: maxDecisionTablesPerPlan,
 		pastBound: map[[2]string]struct{}{}}
