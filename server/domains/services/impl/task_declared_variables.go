@@ -56,8 +56,11 @@ func (s *taskService) admitVariables(ctx context.Context, task models.TaskModel,
 // covers costs no read.
 func (s *taskService) undeclaredVariables(ctx context.Context, task models.TaskModel, vars map[string]any) ([]string, error) {
 	declared := make(map[string]struct{})
-	covered := func() bool { return declaresAll(declared, vars) }
-	if err := addDeclaredFieldIDs(ctx, s.storedForms, declared, task, covered); err != nil {
+	if vars == nil {
+		// Nothing to set is covered by any form: not "tell me everything".
+		vars = map[string]any{}
+	}
+	if err := addDeclaredFieldIDs(ctx, s.storedForms, declared, task, vars); err != nil {
 		return nil, err
 	}
 	return namesOutside(vars, declared), nil

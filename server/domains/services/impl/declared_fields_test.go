@@ -16,8 +16,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// storedForms is the forms one project keeps, and how often they were read.
-type storedForms struct {
+// formsKept is the forms one project keeps, and how often they were read.
+type formsKept struct {
 	repocontracts.FormRepository
 	project uuid.UUID
 	byKey   map[string]map[string]any
@@ -25,7 +25,7 @@ type storedForms struct {
 	reads   int
 }
 
-func (f *storedForms) GetByKey(_ context.Context, projectID uuid.UUID, key string) (models.FormModel, error) {
+func (f *formsKept) GetByKey(_ context.Context, projectID uuid.UUID, key string) (models.FormModel, error) {
 	f.reads++
 	if f.fails != nil {
 		return models.FormModel{}, f.fails
@@ -40,8 +40,8 @@ func (f *storedForms) GetByKey(_ context.Context, projectID uuid.UUID, key strin
 // approvalForms is a project that keeps two forms: "approval", with the fields
 // approved and reason, and "unnamed", whose fields have no id and so name no
 // variable.
-func approvalForms(project uuid.UUID) *storedForms {
-	return &storedForms{
+func approvalForms(project uuid.UUID) *formsKept {
+	return &formsKept{
 		project: project,
 		byKey: map[string]map[string]any{
 			"approval": {"fields": []any{
@@ -61,7 +61,7 @@ func approvalForms(project uuid.UUID) *storedForms {
 // it was asked for them.
 type formsOnly struct {
 	repositories.Repository
-	forms *storedForms
+	forms *formsKept
 	asked int
 }
 
@@ -123,12 +123,47 @@ func TestACompletionTheInlineFormCoversNeedsNoStore(t *testing.T) {
 	}
 }
 
+// The path the design exists for: a task that names a stored form and carries
+// an inline one that covers the completion. It stops at the inline form
+// (enough), so it costs what reading that form and listing what is outside it
+// cost, written out by hand here — no read of the store, no second set, no
+// list of names. Compared with that and not with a number, so it holds
+// whatever a decoder allocates.
+func TestAKeyedCompletionTheInlineFormCoversCostsNoMoreThanReadingThatForm(t *testing.T) {
+	task := models.TaskModel{FormKey: "approval", FormDefinition: `[` +
+		`{"id":"approved","label":"Approved","type":"boolean","required":true},` +
+		`{"id":"reason","label":"Why not","type":"textarea","logic":{"hiddenIf":"data.approved == true"}},` +
+		`{"id":"amount_checked","label":"Amount checked","type":"boolean"},` +
+		`{"id":"notes","label":"Notes","type":"textarea"}]`}
+	vars := map[string]any{"approved": true, "reason": "", "amount_checked": true, "notes": ""}
+	// No store: a completion that asked for one would panic, not allocate.
+	s := &taskService{}
+	ctx := context.Background()
+
+	covered := testing.AllocsPerRun(50, func() {
+		if undeclared, err := s.undeclaredVariables(ctx, task, vars); err != nil || len(undeclared) != 0 {
+			t.Fatalf("undeclared = %v, err = %v, want neither", undeclared, err)
+		}
+	})
+	byHand := testing.AllocsPerRun(50, func() {
+		declared := make(map[string]struct{})
+		addFieldIDs(declared, inlineForm(task.FormDefinition))
+		if undeclared := namesOutside(vars, declared); len(undeclared) != 0 {
+			t.Fatalf("undeclared = %v, want none", undeclared)
+		}
+	})
+	if covered != byHand {
+		t.Errorf("a covered completion of a task that names a stored form allocated %.0f times; reading its inline form by hand allocates %.0f",
+			covered, byHand)
+	}
+}
+
 // A stored form that cannot be read fails the completion: "the form declares
 // nothing" would refuse what the form allows, and the caller could not tell.
 func TestACompletionWhoseStoredFormCannotBeReadIsAnError(t *testing.T) {
 	down := errors.New("connection refused")
 	task := unreadableFormTask()
-	s := &taskService{repo: &formsOnly{forms: &storedForms{fails: down}}}
+	s := &taskService{repo: &formsOnly{forms: &formsKept{fails: down}}}
 
 	undeclared, err := s.undeclaredVariables(context.Background(), task, map[string]any{"approved": true})
 	if !errors.Is(err, down) {
@@ -189,6 +224,12 @@ func TestACompletionMaySetExactlyWhatTheTasksFormIsSaidToDeclare(t *testing.T) {
 		{"a stored form in another project", models.TaskModel{FormKey: "approval"}, elsewhere},
 		{"an inline form and a stored form in another project", models.TaskModel{FormDefinition: inline, FormKey: "approval"}, elsewhere},
 		{"a stored form whose fields have no id", models.TaskModel{FormKey: "unnamed"}, project},
+		{"an inline form kept as an object", models.TaskModel{FormDefinition: `{"fields":[{"id":"amount"},{"id":"reason"}]}`}, project},
+		{"an inline object and a stored form", models.TaskModel{FormDefinition: `{"fields":[{"id":"amount"}]}`, FormKey: "approval"}, project},
+		{"an inline object with no list of fields", models.TaskModel{FormDefinition: `{"amount":{"type":"number"},"id":"id","fields":"fields"}`}, project},
+		{"inline text that is not JSON", models.TaskModel{FormDefinition: `[{"id":"amount"`}, project},
+		{"inline text that is not JSON, and a stored form", models.TaskModel{FormDefinition: `[{"id":"amount"`, FormKey: "approval"}, project},
+		{"an inline list that holds what are not fields", models.TaskModel{FormDefinition: `["amount",7,null,{"id":7},{"id":""},{"label":"Reason"}]`, FormKey: "approval"}, project},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.task.ProjectID = models.UUID(tc.project)
@@ -282,7 +323,7 @@ func TestAStoredFormThatCannotBeReadIsAnError(t *testing.T) {
 	down := errors.New("connection refused")
 	task := unreadableFormTask()
 
-	declared, err := declaredFieldIDs(context.Background(), &storedForms{fails: down}, task)
+	declared, err := declaredFieldIDs(context.Background(), &formsKept{fails: down}, task)
 	if !errors.Is(err, down) {
 		t.Fatalf("err = %v, want it to wrap %v", err, down)
 	}

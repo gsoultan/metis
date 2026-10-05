@@ -52,16 +52,34 @@ func declaredFieldIDs(ctx context.Context, forms repocontracts.FormRepository, t
 // one list of where a task's form is kept — the form the task carries, then
 // the stored form its form key names — for every caller that asks.
 //
-// enough, when given, is asked once the inline form is in: a caller that
-// answers true has all it needs, and the stored form is not read. forms is
-// called only when the stored form is read, so a caller stopped by enough
-// needs no repository at all.
+// needed, when not nil, is what the caller is about to set, by name. Once the
+// inline form is in, a caller whose every name is declared has all it needs,
+// and the stored form is not read. forms is called only when the stored form
+// is read, so a caller stopped this way needs no repository at all. A caller
+// with nothing in hand passes nil and is given the whole of what is declared.
 //
-// declared is the caller's, and is filled in place rather than returned: a
-// set handed back would be allocated for every completion.
-func addDeclaredFieldIDs(ctx context.Context, forms func() repocontracts.FormRepository, declared map[string]struct{}, task models.TaskModel, enough func() bool) error {
+// Stopping early is sound only because every source adds to declared and none
+// takes a name away: what the inline form declares is declared whatever the
+// stored form says, so a caller satisfied by the first half would be satisfied
+// by the whole. A source that could remove a name — a stored form that
+// overrode the inline one — would make this stop on a set that is not the
+// final one, and the early exit would have to go.
+//
+// The question is asked here, of the set being filled, and not by a function
+// of the caller's: a function handed in could only be right by reading this
+// same set, which nothing made it do — and a set handed to a function the
+// compiler cannot see is allocated for every completion, where this one stays
+// on the stack. declared is the caller's, and is filled in place rather than
+// returned, for the same reason.
+func addDeclaredFieldIDs(
+	ctx context.Context,
+	forms func() repocontracts.FormRepository,
+	declared map[string]struct{},
+	task models.TaskModel,
+	needed map[string]any,
+) error {
 	addFieldIDs(declared, inlineForm(task.FormDefinition))
-	if task.FormKey == "" || (enough != nil && enough()) {
+	if task.FormKey == "" || (needed != nil && declaresAll(declared, needed)) {
 		return nil
 	}
 	return addStoredFormFieldIDs(ctx, forms(), declared, task)
