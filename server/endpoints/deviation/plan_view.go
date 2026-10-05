@@ -42,8 +42,11 @@ type PlanView struct {
 
 	// CalledInstances is the processes this instance started that have not
 	// ended, by id.
-	CalledInstances        []string `json:"called_instances"`
-	RequiresSecondApprover bool     `json:"requires_second_approver"`
+	CalledInstances []string `json:"called_instances"`
+	// CalledInstancesInAll is how many there are; CalledInstances lists the
+	// first of them.
+	CalledInstancesInAll   int  `json:"called_instances_in_all"`
+	RequiresSecondApprover bool `json:"requires_second_approver"`
 
 	Refusals []string `json:"refusals"`
 	Warnings []string `json:"warnings"`
@@ -93,7 +96,7 @@ func PlanViewOf(plan entities.DeviationPlan) PlanView {
 		Outputs:        objectOf(plan.Outputs),
 		DecisionPoints: make([]DecisionPointView, 0, len(plan.DecisionPoints)), DecisionPointsInAll: plan.DecisionPointsInAll,
 		Missing: listOf(plan.Missing), MissingInAll: plan.MissingInAll,
-		CalledInstances:        make([]string, 0, len(plan.CalledInstances)),
+		CalledInstances: make([]string, 0, len(plan.CalledInstances)), CalledInstancesInAll: plan.CalledInstancesInAll,
 		RequiresSecondApprover: plan.RequiresSecondApprover,
 		Refusals:               listOf(plan.Refusals), Warnings: listOf(plan.Warnings),
 		Applicable: plan.Applicable(),

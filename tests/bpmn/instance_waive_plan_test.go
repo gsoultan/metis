@@ -1,6 +1,7 @@
 package bpmn_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1308,5 +1309,46 @@ func TestAPlanListsTwoHundredOpenTasksAndKeysThemAll(t *testing.T) {
 	if after.OpenWorkInAll != 204 || after.VisitKey == before.VisitKey {
 		t.Errorf("after a task the plan did not list was finished: %d open in all, the key changed: %v; want 204 and a different key",
 			after.OpenWorkInAll, after.VisitKey != before.VisitKey)
+	}
+}
+
+// A step that calls a process once for each line of an order starts as many
+// instances as the order has lines, and a cancel of their caller is refused
+// while any has not ended. The plan is read by a script and by a screen and
+// has a size whatever the order: it lists the two hundred with the lowest ids
+// and counts them all, and the refusal counts every one.
+func TestAPlanListsTwoHundredCalledInstancesAndCountsThemAll(t *testing.T) {
+	h := newEngineHarness(t, "Plan Many Called Project")
+	w := newWaiver(h)
+	caller := h.startWaiting(t, "calls-many")
+	const inAll, listed = 205, 200
+	// As many called instances as a repeating call of that many lines starts:
+	// recorded in one statement, as the listing's own test of scale does.
+	h.seedInstances(t, caller, &caller, inAll)
+
+	plan := w.preview(t, deviationCommand(entities.DeviationCancel, caller, "review", nil))
+	if len(plan.CalledInstances) != listed || plan.CalledInstancesInAll != inAll {
+		t.Fatalf("the plan lists %d called instances and counts %d; want %d of %d", len(plan.CalledInstances), plan.CalledInstancesInAll, listed, inAll)
+	}
+	if !slices.IsSortedFunc(plan.CalledInstances, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
+		t.Error("the called instances are not listed in the order of their ids")
+	}
+	every, err := h.engine.ListSubProcesses(h.Ctx(), caller)
+	if err != nil || len(every) != inAll {
+		t.Fatalf("the caller's called instances: %d (err %v)", len(every), err)
+	}
+	slices.SortFunc(every, func(a, b entities.ProcessInstance) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	if plan.CalledInstances[0] != every[0].ID || plan.CalledInstances[listed-1] != every[listed-1].ID {
+		t.Error("the called instances listed are not the two hundred with the lowest ids")
+	}
+	var refusal string
+	for _, said := range plan.Refusals {
+		if strings.HasPrefix(said, "This instance is waiting on ") {
+			refusal = said
+		}
+	}
+	if !strings.HasPrefix(refusal, "This instance is waiting on 205 process(es) it started ("+every[0].ID.String()+", ") ||
+		!strings.HasSuffix(refusal, " and 195 more); cancel or finish those first.") {
+		t.Errorf("the refusal reads\n  %s\nwant it to count all 205, name the first ten and count the other 195", refusal)
 	}
 }

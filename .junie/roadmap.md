@@ -1300,6 +1300,10 @@
       cancel in place name 200 tasks and count them all (*run*:
       `TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll`). `withdrawParked` fails the
       cancel when the instance's definition will not load (*read*).
+    - **Each cancel plan loads every called instance whole**, variables decoded, to list the
+      200 it shows and count the rest — and does so under the instance's lock on an apply
+      (*read*; the list is capped, *run*:
+      `TestAPlanListsTwoHundredCalledInstancesAndCountsThemAll`, the read is not).
     - **A queued job of a cancelled instance stays `pending` until its time comes** (*read*),
       and is then completed without calling (*run*:
       `TestNoCallIsMadeForAnInstanceCancelledInPlace`). A pending timer stays too, and does

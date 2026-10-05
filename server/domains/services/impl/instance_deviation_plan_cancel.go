@@ -36,7 +36,8 @@ func (s *instanceDeviationService) planCancel(ctx context.Context, p *planning) 
 	if err != nil {
 		return err
 	}
-	if p.plan.CalledInstances = called; len(called) > 0 {
+	p.plan.CalledInstances, p.plan.CalledInstancesInAll = called[:min(len(called), maxCalledInstancesListed)], len(called)
+	if len(called) > 0 {
 		p.refuse("This instance is waiting on %d process(es) it started (%s); cancel or finish those first.",
 			len(called), namesShown(idsAsText(called)))
 	}

@@ -899,10 +899,10 @@ Three things about a hold that are gaps, not design:
 
 - **The lists in a plan are the first of what there is.** A process is somebody's input, so
   a plan has a size whatever the process: at most 100 decision points (those missing a value
-  first, then those not read), 200 open tasks, 50 missing names, and ten names at a point,
-  each shown to 64 characters. The counts beside them (`open_work_in_all`,
-  `decision_points_in_all`, `missing_in_all`, and a point's `reads_in_all` and
-  `missing_in_all`) are of everything. They are exact, with one exception: where several
+  first, then those not read), 200 open tasks, 200 called instances, 50 missing names, and
+  ten names at a point, each shown to 64 characters. The counts beside them
+  (`open_work_in_all`, `decision_points_in_all`, `called_instances_in_all`,
+  `missing_in_all`, and a point's `reads_in_all` and `missing_in_all`) are of everything. They are exact, with one exception: where several
   steps of a definition share an id, a point's own two counts may count a name twice, never
   too few. The refusals are worked out from everything, not from what is listed, and
   `applicable` is the one answer to "can this be applied". An empty list does not mean

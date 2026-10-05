@@ -131,7 +131,7 @@ func TestAPlanWithNothingInItIsWrittenWithEmptyListsNotNull(t *testing.T) {
 // a client asks that, not whether a list is empty.
 func TestAPlanViewSaysWhetherItCanBeAppliedAndCountsWhatItDoesNotList(t *testing.T) {
 	t.Parallel()
-	task, instance := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	task, instance, called := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	view := PlanViewOf(entities.DeviationPlan{
 		InstanceID: instance,
 		Kind:       entities.DeviationWaive, Scope: entities.DeviationScopeTask, NodeID: "step", NodeName: "Approve", VisitKey: "dv1-k",
@@ -139,6 +139,7 @@ func TestAPlanViewSaysWhetherItCanBeAppliedAndCountsWhatItDoesNotList(t *testing
 		OpenWorkInAll: 300, DecisionPointsInAll: 120, Missing: []string{"amount"}, MissingInAll: 60,
 		DecisionPoints: []entities.DecisionPoint{{NodeID: "g", NodeName: "Large?", Kind: entities.DecisionPointGateway,
 			Reads: []string{"amount"}, ReadsInAll: 12, Missing: []string{"amount"}, MissingInAll: 11, HasDefaultFlow: true, Analysed: true}},
+		CalledInstances: []uuid.UUID{called}, CalledInstancesInAll: 300,
 		Refusals: []string{"no"}, Warnings: []string{"careful"}, RequiresSecondApprover: true,
 	})
 	body, err := json.Marshal(view)
@@ -149,7 +150,7 @@ func TestAPlanViewSaysWhetherItCanBeAppliedAndCountsWhatItDoesNotList(t *testing
 		`"open_work":[{"task_id":"` + task.String() + `","name":"Approve","node_id":"step","node_name":"Approve","status":"claimed","assignee":"alice","iteration_id":"2"}],` +
 		`"open_work_in_all":300,"outputs":{},` +
 		`"decision_points":[{"node_id":"g","node_name":"Large?","kind":"gateway","reads":["amount"],"reads_in_all":12,"supplied":[],"missing":["amount"],"missing_in_all":11,"has_default_flow":true,"analysed":true}],` +
-		`"decision_points_in_all":120,"missing":["amount"],"missing_in_all":60,"called_instances":[],"requires_second_approver":true,` +
+		`"decision_points_in_all":120,"missing":["amount"],"missing_in_all":60,"called_instances":["` + called.String() + `"],"called_instances_in_all":300,"requires_second_approver":true,` +
 		`"refusals":["no"],"warnings":["careful"],"applicable":false}`
 	if string(body) != want {
 		t.Errorf("the plan is written as\n%s\nwant\n%s", body, want)

@@ -260,7 +260,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     failure, and *Try again* on that one retries the call.
   - A hold's incident stays open when the instance goes on to finish.
   - The lists in a plan are the first of what there is: at most 100 decision
-    points, 200 open tasks, 50 missing names, ten names at a point. The
+    points, 200 open tasks, 200 called instances, 50 missing names, ten
+    names at a point. The
     counts beside them (`…_in_all`) are of everything. The ledger row of a
     cancel or a waive names the 200 tasks with the lowest ids and counts them
     all.

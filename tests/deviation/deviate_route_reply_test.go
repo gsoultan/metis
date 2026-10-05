@@ -88,7 +88,7 @@ func notSnakeCase(t *testing.T, objects map[string]any) []string {
 
 var (
 	planFields = []string{"instance_id", "kind", "scope", "node_id", "node_name", "visit_key", "open_work", "open_work_in_all",
-		"outputs", "decision_points", "decision_points_in_all", "missing", "missing_in_all", "called_instances",
+		"outputs", "decision_points", "decision_points_in_all", "missing", "missing_in_all", "called_instances", "called_instances_in_all",
 		"requires_second_approver", "refusals", "warnings", "applicable"}
 	pointFields = []string{"node_id", "node_name", "kind", "reads", "reads_in_all", "supplied", "missing", "missing_in_all",
 		"has_default_flow", "analysed"}

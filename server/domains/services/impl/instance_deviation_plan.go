@@ -18,14 +18,16 @@ import (
 )
 
 // A process is somebody's input and a plan goes back over the wire, so a plan
-// has a size whatever the process: the decision points it lists, and the
-// steps its sentences name one by one before they count the rest. The names
+// has a size whatever the process: the decision points, the open tasks and
+// the called instances it lists, and the steps its sentences name one by one
+// before they count the rest. The names
 // inside a sentence are cut the way a refused completion cuts them
 // (shownNames).
 const (
-	maxDecisionPointsListed = 100
-	maxPointsNamed          = 10
-	maxOpenWorkListed       = 200
+	maxDecisionPointsListed  = 100
+	maxPointsNamed           = 10
+	maxOpenWorkListed        = 200
+	maxCalledInstancesListed = 200
 )
 
 // planning is one plan being made: what was read of the instance, and the

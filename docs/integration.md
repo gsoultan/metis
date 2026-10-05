@@ -815,7 +815,7 @@ instance is changed:
     "decision_points_in_all": 1,
     "missing": [],
     "missing_in_all": 0,
-    "called_instances": [],
+    "called_instances": [], "called_instances_in_all": 0,
     "requires_second_approver": false,
     "refusals": [],
     "warnings": ["“Operations approve” is with ollie, who will be told it was withdrawn."],
@@ -847,8 +847,9 @@ instance is changed:
 - **`missing`** is the complete list of what a waive has still to supply, each
   name in full.
 - **`called_instances`** is, for a cancel, the ids of the processes this
-  instance started that have not ended. `requires_second_approver` is always
-  `false` in this release.
+  instance started that have not ended: the 200 with the lowest ids, and
+  `called_instances_in_all` is how many there are. `requires_second_approver`
+  is always `false` in this release.
 - `scope` is `task` for a waive and `instance` for a cancel and a hold.
 - Every list is `[]` and `outputs` is `{}` when empty; nothing is `null`. Left
   out when empty: the plan's `node_id` and `node_name` for a cancel that names
@@ -856,9 +857,10 @@ instance is changed:
 
 **The lists are the first of what there is.** A plan has a size whatever the
 process. It lists at most 100 decision points (those missing a value first,
-then those that could not be read), 200 open tasks, 50 missing names, and ten
-names in each of a point's lists, each shown to 64 characters. The counts
-beside them are of everything: `decision_points_in_all`, `open_work_in_all`,
+then those that could not be read), 200 open tasks, 200 called instances, 50
+missing names, and ten names in each of a point's lists, each shown to 64
+characters. The counts beside them are of everything:
+`decision_points_in_all`, `open_work_in_all`, `called_instances_in_all`,
 `missing_in_all`, and a point's `reads_in_all` and `missing_in_all`. They are
 exact, except that a point's own two counts may count a name twice where
 several steps of a definition share an id; never too few. `refusals` and

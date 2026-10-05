@@ -54,8 +54,13 @@ type DeviationPlan struct {
 	Missing      []string
 	MissingInAll int
 	// CalledInstances is the processes this instance started that have not
-	// ended — a suspended one included — which a cancel has to wait for.
-	CalledInstances []uuid.UUID
+	// ended — a suspended one included — which a cancel has to wait for: the
+	// first of them in the order of their ids. A step may call a process once
+	// for each line of an order, so no more than a screenful is listed;
+	// CalledInstancesInAll is how many there are, and the refusal counts them
+	// all.
+	CalledInstances      []uuid.UUID
+	CalledInstancesInAll int
 
 	// RequiresSecondApprover reports that the act waits for somebody else to
 	// agree to it before it is made.
