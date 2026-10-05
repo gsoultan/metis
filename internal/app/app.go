@@ -465,10 +465,13 @@ func requireStrongSecret(name, value string) error {
 // They would otherwise resolve on first use, and their only two uses are deep
 // in request paths — so an installation where nothing goes wrong never logs
 // what it was configured with. See features.Resolve. The settings that bring
-// back a withdrawn rule are said here too, for the same reason.
+// back a withdrawn rule are said here too, for the same reason, and so is a
+// setting of the second administrator's approval that was not usable as
+// written.
 func logFeatureConfiguration() {
 	features.Resolve()
 	logLegacySettings()
+	logControlSettings()
 }
 
 // envEncryptionKeyPrevious names a key being retired: read with, never
