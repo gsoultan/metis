@@ -431,6 +431,10 @@ func TestOutputRefusals(t *testing.T) {
 		outputs[many[i]] = i
 	}
 	sixty := namesNumbered(60, "value")
+	fiftyGiven := map[string]any{}
+	for _, name := range sixty[:50] {
+		fiftyGiven[name] = true
+	}
 	// Fourteen gateways, each missing approved; the last two miss region too.
 	var gateways []entities.DecisionPoint
 	var named []string
@@ -505,6 +509,21 @@ func TestOutputRefusals(t *testing.T) {
 				"This process decides from 58 more values “Approve” would have set, beside the 2 this waive gives, and one waive may set at most 50. " +
 					"Complete or reassign “Approve” instead, or hold the instance.",
 			}},
+		// What a waive gives counts toward the fifty only when it is something
+		// the waive may set: a name the form does not declare is refused for
+		// that, and is not also a reason to say the waive sets too many.
+		{"values the form does not declare are not counted as given", map[string]any{"zeta": 1, "amount": 2}, declares(sixty...), declares(sixty...), missing(sixty[:49]...),
+			[]string{
+				"“Approve”'s form does not declare amount, zeta, so a waiver cannot set them.",
+				"“Approved?” decides from value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 39 more, " +
+					"which “Approve” would have set; say what the waiver counts as by supplying value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 39 more.",
+			}},
+		{"one more value than one waive may set beside what it gives", fiftyGiven, declares(sixty...), declares(sixty...), missing(sixty[50]),
+			[]string{
+				"“Approved?” decides from value00050, which “Approve” would have set; say what the waiver counts as by supplying value00050.",
+				"This process decides from 1 more value “Approve” would have set, beside the 50 this waive gives, and one waive may set at most 50. " +
+					"Complete or reassign “Approve” instead, or hold the instance.",
+			}},
 		{"as many values missing as one waive may set", nil, declares(sixty...), declares(sixty...), missing(sixty[:50]...),
 			[]string{"“Approved?” decides from value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 40 more, " +
 				"which “Approve” would have set; say what the waiver counts as by supplying value00000, value00001, value00002, value00003, value00004, value00005, value00006, value00007, value00008, value00009 and 40 more."}},
@@ -543,6 +562,27 @@ func TestNamesTooLongToSetAreRefusedByNameAndThenCounted(t *testing.T) {
 	}
 	if got := tooLongToSet([]string{"short", strings.Repeat("y", deviationNodeNameLength)}); got != nil {
 		t.Errorf("names a plan lists whole are refused: %q", got)
+	}
+}
+
+// A value with no name cannot be given: the command refuses an output with no
+// name. A form's field with no id declares nothing, so the service never asks
+// for one; were it ever missing, the plan says in words that a waive cannot
+// supply it, as it does of a name too long, and does not ask for what the
+// request would be refused for.
+func TestAMissingValueWithNoNameIsRefusedInWords(t *testing.T) {
+	t.Parallel()
+	const want = "A field with no name is read by a decision, and a waive cannot set a value with no name; complete or reassign the task instead."
+	if got := namelessToSet([]string{"", "approved"}); !reflect.DeepEqual(got, []string{want}) {
+		t.Errorf("got %q, want only %q", got, want)
+	}
+	p := &planning{plan: entities.DeviationPlan{NodeName: "Approve"}}
+	if got := namelessToSet([]string{"approved"}); got != nil {
+		t.Errorf("with every missing value named: %q, want nothing", got)
+	}
+	p.takePoints(foundMissing([]entities.DecisionPoint{pointMissing("g", "Approved?", entities.DecisionPointGateway, "")}, ""), declares(""), declares(""), nil)
+	if !slices.Contains(p.plan.Refusals, want) {
+		t.Errorf("the plan's refusals:\n  %s\nwant among them\n  %s", strings.Join(p.plan.Refusals, "\n  "), want)
 	}
 }
 
@@ -674,7 +714,7 @@ func TestListedPoints(t *testing.T) {
 			Reads: shared, Supplied: shared, ReadsInAll: 4_000}
 		switch i % 50 {
 		case 7:
-			point.Supplied, point.Missing = nil, shared
+			point.Supplied, point.Missing, point.MissingInAll = nil, shared, len(shared)
 		case 3:
 			point.Analysed = false
 		}
@@ -689,7 +729,7 @@ func TestListedPoints(t *testing.T) {
 	for _, point := range listed[:14] {
 		what := "supplied"
 		switch {
-		case len(point.Missing) > 0:
+		case point.MissingInAll > 0:
 			what = "missing"
 		case !point.Analysed:
 			what = "unread"
@@ -710,6 +750,16 @@ func TestListedPoints(t *testing.T) {
 	// The points share their lists: what is listed is cut from copies.
 	if len(shared) != 40 || shared[39] != "field39" || len(points[7].Missing) != 40 {
 		t.Error("cutting the lists of the points listed wrote into the lists the points share")
+	}
+	// What is missing is told by the count, as the refusals tell it: a point
+	// that counts a missing value is listed first whatever its list holds, and
+	// one that counts none is not, whatever it holds.
+	counted := entities.DecisionPoint{NodeID: "counted", Kind: entities.DecisionPointGateway, Analysed: true, MissingInAll: 1}
+	listedOnly := entities.DecisionPoint{NodeID: "listed-only", Kind: entities.DecisionPointGateway, Analysed: true, Missing: []string{"stale"}}
+	unread := entities.DecisionPoint{NodeID: "unread", Kind: entities.DecisionPointGateway}
+	if first := listedPoints([]entities.DecisionPoint{listedOnly, unread, counted}); first[0].NodeID != "counted" || first[1].NodeID != "unread" || first[2].NodeID != "listed-only" {
+		t.Errorf("listed in the order %s, %s, %s; want the point that counts a missing value, then the unread one, then the rest",
+			first[0].NodeID, first[1].NodeID, first[2].NodeID)
 	}
 	if few := listedPoints(points[:5]); len(few) != 5 {
 		t.Errorf("%d of 5 points listed", len(few))
@@ -973,5 +1023,30 @@ func TestShownStepName(t *testing.T) {
 		if got := shownStepName(name); got != want {
 			t.Errorf("a name of %d characters is shown with %d (%d bytes), want %d", len([]rune(name)), len([]rune(got)), len(got), len([]rune(want)))
 		}
+	}
+}
+
+// A step with no name is shown by its id, and an id is its author's to choose
+// as a name is: shown in place of a name it is cut as one, wherever a plan
+// names a step. The id itself stays whole beside it.
+func TestAnIdShownInPlaceOfANameIsCutAsANameIs(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("é", 300)
+	cut := strings.Repeat("é", deviationNodeNameLength)
+	def := &entities.ProcessDefinition{Nodes: []*entities.Node{{ID: long, Type: entities.ExclusiveGateway}}, Flows: []*entities.SequenceFlow{flow("a", long, "end", "approved")}}
+	p := &planning{def: def}
+	if got := p.stepName(long); got != cut {
+		t.Errorf("a step the process has, with no name: shown with %d characters, want %d", utf8.RuneCountInString(got), deviationNodeNameLength)
+	}
+	if got := p.stepName(long + "-gone"); got != cut {
+		t.Errorf("a step the process does not have: shown with %d characters, want %d", utf8.RuneCountInString(got), deviationNodeNameLength)
+	}
+	if got := taskName(models.TaskModel{NodeID: long}); got != cut {
+		t.Errorf("a task with no name: shown with %d characters, want %d", utf8.RuneCountInString(got), deviationNodeNameLength)
+	}
+	point, listed := pointAt(decisionPointsReading(def, "review", declares("approved"), nil, nil).points, long, entities.DecisionPointGateway)
+	if !listed || point.NodeName != cut || point.NodeID != long {
+		t.Errorf("a decision point with no name (listed %v): named with %d characters and identified with %d, want %d and the whole %d",
+			listed, utf8.RuneCountInString(point.NodeName), utf8.RuneCountInString(point.NodeID), deviationNodeNameLength, 300)
 	}
 }

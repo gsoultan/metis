@@ -291,7 +291,8 @@ func (s *decisionScan) decisionTable(copies []*entities.Node) (entities.Decision
 	// shows and from their counts, so this costs nothing that grows with the
 	// tables or with the form. The counts are each part's added up: a name
 	// two of them read is counted for both, which is never too few — and what
-	// is missing is never counted as more than the form has fields.
+	// is missing is never counted as more than the form has fields, nor as
+	// more than the point names when it names them all.
 	point := s.reading(entities.DecisionPointDecisionTable, names, analysed)
 	for _, table := range tables {
 		point.Reads = firstShown(point.Reads, table.Reads)
@@ -300,6 +301,13 @@ func (s *decisionScan) decisionTable(copies []*entities.Node) (entities.Decision
 		point.ReadsInAll += table.ReadsInAll
 		point.MissingInAll = min(point.MissingInAll+table.MissingInAll, len(s.declared))
 		point.Analysed = point.Analysed && table.Analysed
+	}
+	// A point with room left in its list names every value it is missing —
+	// each part with fewer than a list holds gave all of its own — so the
+	// count is the list's, and a name two parts read is not counted twice. A
+	// full list may be short of some, and keeps the sum.
+	if len(point.Missing) < maxNamesShown {
+		point.MissingInAll = len(point.Missing)
 	}
 	return point, first
 }

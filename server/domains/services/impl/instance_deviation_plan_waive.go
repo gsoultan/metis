@@ -240,6 +240,7 @@ func (p *planning) takePoints(found decisionPointsFound, anyRun, everyRun map[st
 		p.warn("%d more %s what “%s” would have set and %s not listed here.", more, stepsRead(more), step, isOrAre(more))
 	}
 	missing := sortedKeys(found.missing)
+	p.plan.Refusals = append(p.plan.Refusals, namelessToSet(missing)...)
 	p.plan.Refusals = append(p.plan.Refusals, tooLongToSet(missing)...)
 	p.plan.Missing, p.plan.MissingInAll = missingShown(missing), len(missing)
 }
@@ -285,6 +286,20 @@ func tooLongToSet(missing []string) []string {
 		refusals = append(refusals, fmt.Sprintf("%d more of the values it would have to set have names as long.", more))
 	}
 	return refusals
+}
+
+// namelessToSet refuses a waive that is missing a value with no name. The
+// command refuses an output with no name (checkDeviationOutputs), so the plan
+// must not ask for one: it says in words that the waive cannot supply it.
+//
+// A form's field with no id declares nothing (addFieldIDs), so nothing the
+// service reads puts an empty name among what a step declares. This is for
+// whoever hands the planner a set that does.
+func namelessToSet(missing []string) []string {
+	if !slices.Contains(missing, "") {
+		return nil
+	}
+	return []string{"A field with no name is read by a decision, and a waive cannot set a value with no name; complete or reassign the task instead."}
 }
 
 // declaredByOpenTasks is what the forms of a step's open tasks declare: what
@@ -353,7 +368,7 @@ func outputRefusals(step string, outputs map[string]any, anyRun, everyRun map[st
 		refusals = append(refusals, fmt.Sprintf("%d more %s values “%s” would have set. In all, say what the waiver counts as by supplying %s.",
 			rest, stepsRead(rest), step, namesShown(sortedKeys(found.missing))))
 	}
-	if tooMany := moreThanOneWaiveSets(step, len(outputs), len(found.missing)); tooMany != "" {
+	if tooMany := moreThanOneWaiveSets(step, givenOf(outputs, everyRun), len(found.missing)); tooMany != "" {
 		refusals = append(refusals, tooMany)
 	}
 	if someRunsOnly := declaredBySomeRunsOnly(outputs, found.missing, anyRun, everyRun); len(someRunsOnly) > 0 {
@@ -363,20 +378,42 @@ func outputRefusals(step string, outputs map[string]any, anyRun, everyRun map[st
 	return refusals
 }
 
+// givenOf is how many of the values a waive gives are ones it may set: those
+// every open task's form declares. A name no form declares, or only some do,
+// is refused for that and is taken out before the waive is sent again, so it
+// is not counted toward how many values the waive would come to set.
+func givenOf(outputs map[string]any, everyRun map[string]struct{}) int {
+	given := 0
+	for name := range outputs {
+		if _, may := everyRun[name]; may {
+			given++
+		}
+	}
+	return given
+}
+
 // moreThanOneWaiveSets is the refusal of a waive that would have to give more
-// values than a waive may: what it gives already and what is still missing
-// come to more than MaxDeviationOutputs. Said at once, with the count, so
-// that nobody finds it by supplying the values ten at a time.
+// values than a waive may: what it gives already (givenOf) and what is still
+// missing come to more than MaxDeviationOutputs. Said at once, with the
+// count, so that nobody finds it by supplying the values ten at a time.
 func moreThanOneWaiveSets(step string, given, missing int) string {
 	switch {
 	case missing == 0 || given+missing <= entities.MaxDeviationOutputs:
 		return ""
 	case given == 0:
-		return fmt.Sprintf("This process decides from %d values “%s” would have set, and one waive may set at most %d. "+
-			"Complete or reassign “%s” instead, or hold the instance.", missing, step, entities.MaxDeviationOutputs, step)
+		return fmt.Sprintf("This process decides from %d %s “%s” would have set, and one waive may set at most %d. "+
+			"Complete or reassign “%s” instead, or hold the instance.", missing, valueOrValues(missing), step, entities.MaxDeviationOutputs, step)
 	}
-	return fmt.Sprintf("This process decides from %d more values “%s” would have set, beside the %d this waive gives, and one waive may set at most %d. "+
-		"Complete or reassign “%s” instead, or hold the instance.", missing, step, given, entities.MaxDeviationOutputs, step)
+	return fmt.Sprintf("This process decides from %d more %s “%s” would have set, beside the %d this waive gives, and one waive may set at most %d. "+
+		"Complete or reassign “%s” instead, or hold the instance.", missing, valueOrValues(missing), step, given, entities.MaxDeviationOutputs, step)
+}
+
+// valueOrValues words a count of values.
+func valueOrValues(count int) string {
+	if count == 1 {
+		return "value"
+	}
+	return "values"
 }
 
 // declaredBySomeRunsOnly is the values the waiver gives or is asked for that
@@ -457,7 +494,9 @@ func listedPoints(points []entities.DecisionPoint) []entities.DecisionPoint {
 	if len(points) == 0 {
 		return nil
 	}
-	missing := func(point entities.DecisionPoint) bool { return len(point.Missing) > 0 }
+	// By the count, as the refusals are worked out (outputRefusals): the list
+	// beside it is for showing.
+	missing := func(point entities.DecisionPoint) bool { return point.MissingInAll > 0 }
 	unread := func(point entities.DecisionPoint) bool { return !missing(point) && !point.Analysed }
 	rest := func(point entities.DecisionPoint) bool { return !missing(point) && point.Analysed }
 

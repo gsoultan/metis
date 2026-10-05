@@ -104,10 +104,10 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 		if p.node = def.FindNode(command.NodeID); p.node != nil {
 			// As the ledger keeps a step's name, so that the plan, the row
 			// and the trail entry made from the plan name it alike.
-			p.plan.NodeName = cmp.Or(shownStepName(p.node.Name), p.node.ID)
+			p.plan.NodeName = shownStepName(cmp.Or(p.node.Name, p.node.ID))
 		} else if p.cancelsWhereTheVersionHasNoStep() {
 			// The version has no name for it: it is shown by its id.
-			p.plan.NodeName = command.NodeID
+			p.plan.NodeName = shownStepName(command.NodeID)
 		}
 	}
 	if command.Kind == entities.DeviationHold {
@@ -176,10 +176,16 @@ func (p *planning) stepShown() string {
 	return shownStepName(p.plan.NodeName)
 }
 
-// shownStepName is a name a definition's author chose — a step's, a task's —
-// as a plan shows it: the first deviationNodeNameLength characters, cut
-// between characters, which is how the ledger keeps a step's name
-// (deviationNode). The id is never cut: a shortened id names another step.
+// shownStepName is what a step or a task is called, as a plan shows it: the
+// first deviationNodeNameLength characters, cut between characters, which is
+// how the ledger keeps a step's name (deviationNode).
+//
+// One rule, wherever a plan names a step — its own step, a task's, a decision
+// point's (decisionScan.pointsAt): the step's name, or its id where it has
+// none, and either is cut alike. A definition's author chooses both, and
+// neither has a length. The id standing in for a name is a name there; the
+// id itself is always beside it, whole, in the field that carries the id
+// (NodeID), and that is the one to act on.
 func shownStepName(name string) string {
 	if utf8.RuneCountInString(name) <= deviationNodeNameLength {
 		return name
@@ -238,12 +244,12 @@ func (s *instanceDeviationService) openWhereItActs(ctx context.Context, instance
 
 // stepName is what the step with an id is called, as a plan shows it: its
 // name, or the id for a step with no name and for one the process no longer
-// has.
+// has (shownStepName).
 func (p *planning) stepName(nodeID string) string {
 	if node := p.def.FindNode(nodeID); node != nil && node.Name != "" {
 		return shownStepName(node.Name)
 	}
-	return nodeID
+	return shownStepName(nodeID)
 }
 
 // refuse adds a reason the command cannot be applied.
@@ -370,7 +376,7 @@ func pastTense(kind entities.DeviationKind) string {
 // taskName is what a task is called, as a plan shows it: its own name, or its
 // step's id when it has none.
 func taskName(task models.TaskModel) string {
-	return cmp.Or(shownStepName(task.Name), task.NodeID)
+	return shownStepName(cmp.Or(task.Name, task.NodeID))
 }
 
 // hasEnded reports whether an instance will not run again: it finished, it

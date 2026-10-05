@@ -875,3 +875,40 @@ func TestAPointsStepIsNamedAsTheLedgerWouldKeepTheName(t *testing.T) {
 		t.Errorf("the point is named with %d characters (%d bytes), want the first 255 whole", len([]rune(point.NodeName)), len(point.NodeName))
 	}
 }
+
+// Nodes that share an id and consult different decisions are one point, and
+// what it misses is counted by adding up what each decision misses: a name
+// both read is counted twice, which is never too few. But a point that names
+// fewer than it has room for names all of them, and its sentence must not say
+// "and 1 more" of a name it has already given.
+func TestAMergedPointThatNamesEveryMissingValueCountsThemOnce(t *testing.T) {
+	t.Parallel()
+	def := &entities.ProcessDefinition{Nodes: []*entities.Node{
+		{ID: "rate", Type: entities.BusinessRuleTask, Name: "Rate the order", Properties: map[string]any{"decision_key": "tier"}},
+		{ID: "rate", Type: entities.BusinessRuleTask, Name: "Rate the order", Properties: map[string]any{"decision_key": "risk"}},
+	}}
+	lookup := versionsOf(map[string]map[int][]string{"tier": {0: {"approved"}}, "risk": {0: {"approved", "elsewhere"}}})
+	found := decisionPointsReading(def, "review", declares("approved", "amount", "region"), nil, lookup)
+
+	point := missesOnly(t, found.points, "rate", entities.DecisionPointDecisionTable, "approved")
+	if point.MissingInAll != 1 {
+		t.Errorf("the point names its one missing value and counts %d", point.MissingInAll)
+	}
+	want := "“Rate the order” decides from approved, which “Approve” would have set; say what the waiver counts as by supplying approved."
+	if got := missingAt(point, "Approve"); got != want {
+		t.Errorf("the refusal reads\n  %s\nwant\n  %s", got, want)
+	}
+
+	// A point with more missing than it names still counts each part's: over,
+	// never under.
+	many := make([]string, 2*maxNamesShown)
+	for i := range many {
+		many[i] = fmt.Sprintf("field%02d", i)
+	}
+	lookup = versionsOf(map[string]map[int][]string{"tier": {0: many}, "risk": {0: many[:3]}})
+	found = decisionPointsReading(def, "review", declares(many...), nil, lookup)
+	if crowded, _ := pointAt(found.points, "rate", entities.DecisionPointDecisionTable); len(crowded.Missing) != maxNamesShown || crowded.MissingInAll < len(many) {
+		t.Errorf("a point missing %d values names %d and counts %d; want %d named and no fewer than %d counted",
+			len(many), len(crowded.Missing), crowded.MissingInAll, maxNamesShown, len(many))
+	}
+}

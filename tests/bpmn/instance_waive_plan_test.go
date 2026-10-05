@@ -622,10 +622,10 @@ func finishTheOnlyStep(t *testing.T, h engineHarness, id uuid.UUID) uuid.UUID {
 // closing — and, when a task is still open under it or a caller is still
 // waiting for it, says that too.
 func TestACancelThatNamesNoStepClosesAnInstanceThatWaitsNowhere(t *testing.T) {
-	h := newEngineHarness(t, "Plan Nothing Left Project")
+	h := newEngineHarness(t, "Plan Waits Nowhere Project")
 	w := newWaiver(h)
 	ctx := h.Ctx()
-	id := w.start(t, nothingFollows(h.projID, "plan-nothing-left"), nil)
+	id := w.start(t, nothingFollows(h.projID, "plan-waits-nowhere"), nil)
 	finished := finishTheOnlyStep(t, h, id)
 
 	// Only what was looked at is said: where it waits. Whether a timer or a
