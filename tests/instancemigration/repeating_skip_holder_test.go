@@ -135,42 +135,47 @@ func (f *fixture) assertTheRecordNamesWhoWasTold(t *testing.T, round string, row
 // every time.
 func TestAClaimRacingASkipIsRecordedAsItWasAnnounced(t *testing.T) {
 	approvers := []any{"ana", "budi", "citra", "dewi", "eko", "fitri"}
-	for round := range 12 {
-		f := newFixture(t)
-		watcher := &withdrawalWatcher{}
-		f.dispatcher.Register(watcher)
-		v1, v2 := f.waitingOnApprovals(t, approvers...)
-		open := f.openTasks(t)
-		if len(open) != len(approvers) {
-			t.Fatalf("round %d: %d task(s) are open, want one for each of %d approvers", round, len(open), len(approvers))
-		}
+	// Each round is a test of its own, so that its fixture — a schema and its
+	// pools — is let go when the round ends and not when all of them have: twelve
+	// fixtures held at once is most of the connections a shared database gives.
+	for round := range 6 {
+		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
+			f := newFixture(t)
+			watcher := &withdrawalWatcher{}
+			f.dispatcher.Register(watcher)
+			v1, v2 := f.waitingOnApprovals(t, approvers...)
+			open := f.openTasks(t)
+			if len(open) != len(approvers) {
+				t.Fatalf("round %d: %d task(s) are open, want one for each of %d approvers", round, len(open), len(approvers))
+			}
 
-		var start, done sync.WaitGroup
-		start.Add(1)
-		var migrateErr error
-		done.Go(func() {
-			start.Wait()
-			migrateErr = f.svc.MigrateInstances(f.ctx, v1, v2, nil, skippingApprove()...)
-		})
-		for i, task := range open {
-			claimer := fmt.Sprintf("claimer-%d", i)
+			var start, done sync.WaitGroup
+			start.Add(1)
+			var migrateErr error
 			done.Go(func() {
 				start.Wait()
-				// Spread over the time the migration takes to reach the step,
-				// so some claims land before it, some after, and some as it is
-				// there. A claim that loses is refused; that is not a failure.
-				time.Sleep(time.Duration(i) * 2 * time.Millisecond)
-				_ = f.svc.ClaimTask(testutils.AsOperator(f.ctx, claimer), task.ID, claimer)
+				migrateErr = f.svc.MigrateInstances(f.ctx, v1, v2, nil, skippingApprove()...)
 			})
-		}
-		start.Done()
-		waitForAll(t, &done, fmt.Sprintf("round %d: the skip and the claims racing it", round))
+			for i, task := range open {
+				claimer := fmt.Sprintf("claimer-%d", i)
+				done.Go(func() {
+					start.Wait()
+					// Spread over the time the migration takes to reach the step,
+					// so some claims land before it, some after, and some as it is
+					// there. A claim that loses is refused; that is not a failure.
+					time.Sleep(time.Duration(i) * 2 * time.Millisecond)
+					_ = f.svc.ClaimTask(testutils.AsOperator(f.ctx, claimer), task.ID, claimer)
+				})
+			}
+			start.Done()
+			waitForAll(t, &done, fmt.Sprintf("round %d: the skip and the claims racing it", round))
 
-		if migrateErr != nil {
-			t.Fatalf("round %d: the skip failed: %v", round, migrateErr)
-		}
-		f.assertTheRecordNamesWhoWasTold(t, fmt.Sprintf("round %d", round),
-			f.theWaiverOf(t, f.onlyInstance(t).ID, "approve"), watcher.events)
+			if migrateErr != nil {
+				t.Fatalf("round %d: the skip failed: %v", round, migrateErr)
+			}
+			f.assertTheRecordNamesWhoWasTold(t, fmt.Sprintf("round %d", round),
+				f.theWaiverOf(t, f.onlyInstance(t).ID, "approve"), watcher.events)
+		})
 	}
 }
 
