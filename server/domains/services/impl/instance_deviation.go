@@ -236,7 +236,15 @@ func waitsWhereItActs(locked models.ProcessInstanceModel, command entities.Devia
 // Its caller holds the instance's lock, so an apply that was in flight for
 // the same visit has finished, and its row is here to find.
 func (s *instanceDeviationService) replay(ctx context.Context, command entities.DeviationCommand) (entities.DeviationOutcome, bool, error) {
-	row, found, err := s.repo.Deviation().FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
+	// Read from the store the ledger writes to. The ledger's own interface has
+	// no such read, so a wiring with no store is refused here in the ledger's
+	// words, as it refuses a write: answering "no such act" would let the act
+	// be made again.
+	store := s.repo.Deviation()
+	if store == nil {
+		return entities.DeviationOutcome{}, false, errNoDeviationLedger
+	}
+	row, found, err := store.FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
 	if err != nil || !found {
 		return entities.DeviationOutcome{}, false, err
 	}

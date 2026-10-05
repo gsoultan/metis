@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -412,5 +415,23 @@ func TestAnOutputWithANameTooLongToSetIsAMalformedRequest(t *testing.T) {
 	hold.Kind = entities.DeviationHold
 	if _, err := normalizedDeviationCommand(hold); err == nil || strings.Contains(err.Error(), "too long a name") {
 		t.Errorf("a hold carrying an output with a long name: %v, want it told a hold sets none", err)
+	}
+}
+
+// noLedgerStore is a repository wired with no deviation store.
+type noLedgerStore struct {
+	repositories.Repository
+}
+
+func (noLedgerStore) Deviation() repocontracts.DeviationRepository { return nil }
+
+// A wiring with no deviation store cannot say whether a request was already
+// made. It refuses, in the ledger's own words, where it used to reach through
+// a store that was not there; "no such act" would let the act be made again.
+func TestAReplayWithNoLedgerStoreIsRefusedNotAnsweredAsNoSuchAct(t *testing.T) {
+	s := &instanceDeviationService{repo: noLedgerStore{}}
+	out, found, err := s.replay(context.Background(), entities.DeviationCommand{InstanceID: uuid.New(), Kind: entities.DeviationHold, VisitKey: "dv1-k"})
+	if !errors.Is(err, errNoDeviationLedger) || found || out.Deviation != nil {
+		t.Fatalf("answered %+v, found %v, err %v; want the ledger's refusal", out, found, err)
 	}
 }

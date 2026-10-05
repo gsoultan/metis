@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -119,7 +118,7 @@ func (a nodeActions) closeIncidents(ctx context.Context, instanceID uuid.UUID) (
 		}
 		closed = append(closed, uuid.UUID(incident.ID))
 	}
-	slices.SortFunc(closed, func(x, y uuid.UUID) int { return bytes.Compare(x[:], y[:]) })
+	slices.SortFunc(closed, byID)
 	return closed, nil
 }
 

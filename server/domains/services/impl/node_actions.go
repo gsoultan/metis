@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -180,7 +179,7 @@ func (a nodeActions) holdRows(
 	for _, task := range tasks {
 		ids = append(ids, uuid.UUID(task.ID))
 	}
-	slices.SortFunc(ids, func(x, y uuid.UUID) int { return bytes.Compare(x[:], y[:]) })
+	slices.SortFunc(ids, byID)
 
 	locked := make(map[uuid.UUID]models.TaskModel, len(ids))
 	for _, id := range ids {

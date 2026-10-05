@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -112,7 +111,7 @@ func (s *instanceDeviationService) waiveStep(
 
 	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID))
 	if err != nil {
-		return entities.Deviation{}, fmt.Errorf("recording that “%s” was waived: %w", plan.NodeName, err)
+		return entities.Deviation{}, effectFailed(fmt.Sprintf("recording that “%s” was waived", plan.NodeName), err)
 	}
 	return recorded, nil
 }
@@ -237,6 +236,11 @@ func callerOf(locked models.ProcessInstanceModel) uuid.UUID {
 // let in, the instance found and the plan accepted; whatever fails after that
 // is the server's, and is answered as that. So the cause is kept as words and
 // deliberately not wrapped, as graphRunBy keeps a missing version.
+//
+// Writing the record is told the same way. The ledger refuses a reason that is
+// missing or too long as the caller's to fix, but by the time an act records
+// the plan has refused both by the same rule (refuseWhereItStands), so a
+// refusal from the ledger here is not something the caller can put right.
 func effectFailed(doing string, err error) error {
 	return fmt.Errorf("%s: %s", doing, err.Error())
 }
@@ -309,7 +313,7 @@ func (s *instanceDeviationService) cancelWhereItStands(
 
 	recorded, err := s.actions.record(ctx, row, cancelEntry(locked, plan, command, actor, runID, done.parkedWithdrawn, len(done.incidentsClosed)))
 	if err != nil {
-		return entities.Deviation{}, fmt.Errorf("recording that this instance was cancelled: %w", err)
+		return entities.Deviation{}, effectFailed("recording that this instance was cancelled", err)
 	}
 	return recorded, nil
 }
@@ -322,9 +326,9 @@ func lowestByID(tasks []models.TaskModel, limit int) []models.TaskModel {
 	if len(tasks) <= limit {
 		return tasks
 	}
-	byID := slices.Clone(tasks)
-	slices.SortFunc(byID, func(a, b models.TaskModel) int { return bytes.Compare(a.ID[:], b.ID[:]) })
-	return byID[:limit]
+	ordered := slices.Clone(tasks)
+	slices.SortFunc(ordered, func(a, b models.TaskModel) int { return byID(uuid.UUID(a.ID), uuid.UUID(b.ID)) })
+	return ordered[:limit]
 }
 
 // closedIncidentValues is what closing incidents changed on them, as they
@@ -383,7 +387,7 @@ func (s *instanceDeviationService) holdWhereItStands(
 
 	recorded, err := s.actions.record(ctx, row, holdEntry(locked, plan, command, actor, runID, incidentID, raised))
 	if err != nil {
-		return entities.Deviation{}, fmt.Errorf("recording that this instance was held at “%s”: %w", plan.NodeName, err)
+		return entities.Deviation{}, effectFailed(fmt.Sprintf("recording that this instance was held at “%s”", plan.NodeName), err)
 	}
 	return recorded, nil
 }

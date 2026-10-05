@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -240,7 +239,7 @@ func (s *instanceDeviationService) openWhereItActs(ctx context.Context, instance
 			open = append(open, task)
 		}
 	}
-	slices.SortFunc(open, func(a, b models.TaskModel) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	slices.SortFunc(open, func(a, b models.TaskModel) int { return byID(uuid.UUID(a.ID), uuid.UUID(b.ID)) })
 	return open, nil
 }
 
@@ -379,14 +378,6 @@ func pastTense(kind entities.DeviationKind) string {
 // step's id when it has none.
 func taskName(task models.TaskModel) string {
 	return shownStepName(cmp.Or(task.Name, task.NodeID))
-}
-
-// hasEnded reports whether an instance will not run again: it finished, it
-// failed or it was cancelled. One that is suspended has not, and neither has
-// one in a state this does not know. It is the question a worker's report and
-// a queued call ask before they act for an instance (instanceEnded).
-func hasEnded(status entities.ProcessStatus) bool {
-	return instanceEnded(status)
 }
 
 // idsAsText is ids as they are written.

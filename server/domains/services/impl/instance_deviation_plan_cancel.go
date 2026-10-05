@@ -1,7 +1,6 @@
 package impl
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -168,7 +167,7 @@ func (s *instanceDeviationService) warnOfTheCaller(ctx context.Context, p *plann
 	if err != nil {
 		return fmt.Errorf("reading the instance that started instance %s: %w", p.instance.ID, err)
 	}
-	if !hasEnded(parent.Status) {
+	if !instanceEnded(parent.Status) {
 		p.warn("This instance was started by another process (instance %s), which is still waiting for it and is not resumed by this; "+
 			"cancel or hold that one next.", caller.ID)
 	}
@@ -195,12 +194,12 @@ func (s *instanceDeviationService) calledFrom(ctx context.Context, instanceID uu
 		if nodeID != "" && (child.ParentNode == nil || child.ParentNode.ID != nodeID) {
 			continue
 		}
-		if hasEnded(child.Status) {
+		if instanceEnded(child.Status) {
 			ended++
 			continue
 		}
 		notEnded = append(notEnded, child.ID)
 	}
-	slices.SortFunc(notEnded, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	slices.SortFunc(notEnded, byID)
 	return notEnded, ended, nil
 }

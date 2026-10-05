@@ -104,7 +104,7 @@ func deviationVisitKey(
 // read as the start of the next incident.
 func writeKeyIncidents(h hash.Hash, incidents []models.IncidentModel) {
 	sorted := slices.Clone(incidents)
-	slices.SortFunc(sorted, func(a, b models.IncidentModel) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	slices.SortFunc(sorted, func(a, b models.IncidentModel) int { return byID(uuid.UUID(a.ID), uuid.UUID(b.ID)) })
 	var count [8]byte
 	binary.BigEndian.PutUint64(count[:], uint64(len(sorted)))
 	h.Write(count[:])
@@ -128,6 +128,14 @@ func tokenIDsWhere(instance entities.ProcessInstance, kind entities.DeviationKin
 	return ids
 }
 
+// byID orders ids as their bytes order them: the one order every list of ids
+// here is put in — the rows an effect holds, what a plan lists, what a record
+// names and what a key is made from — so that the same things read the same
+// way twice, and two transactions take the rows they share in the same order.
+func byID(a, b uuid.UUID) int {
+	return bytes.Compare(a[:], b[:])
+}
+
 // writeKeyPart writes one part of a key, preceded by how long it is. A hash
 // never fails a write.
 func writeKeyPart(h hash.Hash, part []byte) {
@@ -141,7 +149,7 @@ func writeKeyPart(h hash.Hash, part []byte) {
 // order of the ids themselves.
 func writeKeyIDs(h hash.Hash, ids []uuid.UUID) {
 	sorted := slices.Clone(ids)
-	slices.SortFunc(sorted, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	slices.SortFunc(sorted, byID)
 	part := make([]byte, 0, len(sorted)*len(uuid.UUID{}))
 	for _, id := range sorted {
 		part = append(part, id[:]...)

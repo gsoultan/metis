@@ -67,7 +67,7 @@ func (s *instanceDeviationService) warnThatTheCallerWasNotRead(ctx context.Conte
 	if err != nil {
 		return fmt.Errorf("reading the instance that started instance %s: %w", p.instance.ID, err)
 	}
-	if hasEnded(caller.Status) {
+	if instanceEnded(caller.Status) {
 		return nil
 	}
 	process, step, err := s.whereItWasCalledFrom(ctx, caller, p.instance.ParentNode)
