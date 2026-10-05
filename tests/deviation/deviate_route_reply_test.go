@@ -101,14 +101,19 @@ var (
 // and nobody's account id is in it.
 func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	h := newDeviationRouteHarness(t)
+	// The step's holder is an account, as the administrator is: both have an
+	// id that a reply could carry.
+	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.start(t, orderBySize())
 	admin := h.signIn(t, "boss", entities.RoleAdmin)
 	before := h.everyRow(t)
+	var replies []string
 
 	// A plan that refuses: the gateway after the step reads amount, and the
 	// request says nothing of it.
 	preview := map[string]any{"kind": "waive", "node_id": "step", "reason": routeReason}
 	reply, raw := h.deviateObject(t, admin, instanceID, preview)
+	replies = append(replies, raw)
 	requireFields(t, reply, "a preview", "plan", "applied", "replayed")
 	plan := reply["plan"].(map[string]any)
 	requireFields(t, plan, "the plan", planFields...)
@@ -154,7 +159,11 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	preview["outputs"] = map[string]any{"amount": 250}
 	apply, _ := h.previewed(t, admin, instanceID, preview)
 	reply, raw = h.deviateObject(t, admin, instanceID, preview)
+	replies = append(replies, raw)
 	plan = reply["plan"].(map[string]any)
+	if work := plan["open_work"].([]any); len(work) != 1 || work[0].(map[string]any)["assignee"] != "alice" {
+		t.Fatalf("the plan does not name the step's holder: %s", raw)
+	}
 	point, _ := json.Marshal(plan["decision_points"].([]any)[0])
 	if plan["applicable"] != true || plan["missing_in_all"] != float64(0) || !strings.Contains(raw, `"missing":[]`) ||
 		!strings.Contains(raw, `"refusals":[]`) || !strings.Contains(raw, `"outputs":{"amount":250}`) ||
@@ -166,6 +175,7 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	// Applied: the plan it was applied with, and the record as the ledger's
 	// own route reads it.
 	reply, raw = h.deviateObject(t, admin, instanceID, apply)
+	replies = append(replies, raw)
 	requireFields(t, reply, "an apply", "plan", "applied", "replayed", "deviation")
 	requireFields(t, reply["plan"], "an applied plan", planFields...)
 	if reply["applied"] != true || reply["replayed"] != false {
@@ -183,7 +193,8 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	if details, _ := record["details"].(map[string]any); details["decision_points"] != float64(1) {
 		t.Errorf("the record's details %v, want the number of decision points", record["details"])
 	}
-	_, ledger, _ := h.readDeviations(t, admin, instanceID.String())
+	_, ledger, ledgerRaw := h.readDeviations(t, admin, instanceID.String())
+	replies = append(replies, ledgerRaw)
 	if len(ledger.Deviations) != 1 {
 		t.Fatalf("the ledger holds %d rows, want the waive", len(ledger.Deviations))
 	}
@@ -222,10 +233,19 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	}
 	h.requireUnchanged(t, applied, "the same apply again")
 
-	// Nobody's account id, in any of it.
-	for _, account := range []string{h.accountID(t, "boss").String()} {
-		if strings.Contains(raw, account) {
-			t.Errorf("the reply carries an account id: %s", raw)
+	// Nobody's account id, in any of it: not the administrator's, who acted,
+	// and not the holder's, whose task was taken — in the preview that refused,
+	// the preview that did not, the apply, the row as the ledger's route reads
+	// it, and the replay.
+	replies = append(replies, raw)
+	if len(replies) != 5 {
+		t.Fatalf("%d replies were kept to look through, want five", len(replies))
+	}
+	for who, account := range map[string]string{"the administrator": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
+		for i, said := range replies {
+			if strings.Contains(said, account) {
+				t.Errorf("reply %d carries the account id of %s: %s", i+1, who, said)
+			}
 		}
 	}
 }

@@ -17,7 +17,7 @@ import (
 // what to supply, each name in full. Whether the plan can be applied is
 // Applicable, and nothing else: an empty list is not "nothing".
 type PlanView struct {
-	InstanceID string `json:"instance_id"`
+	InstanceID string `json:"instance_id,omitzero"`
 	Kind       string `json:"kind"`
 	Scope      string `json:"scope"`
 	// NodeID and NodeName are left out of a cancel that names no step.

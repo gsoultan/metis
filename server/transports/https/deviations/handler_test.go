@@ -125,6 +125,13 @@ func TestABodyThatIsNotExactlyARequestIsRefused(t *testing.T) {
 		"a name twice inside a list an output holds": `{"kind":"waive","outputs":{"lines":[{"sku":"a"},{"sku":"b","sku":"c"}]}}`,
 		"an output named twice, far apart":           `{"kind":"waive","outputs":{"approved":true,"amount":1,"note":{"a":[1,2,{"b":null}]},"approved":false}}`,
 		"outputs cut short inside a name said twice": `{"kind":"waive","outputs":{"approved":true,"approved":`,
+		// A name written with an escape is the name it spells: it is no way
+		// round "once".
+		"dry_run, and dry_run spelt with an escape": `{"kind":"cancel","dry_run":true,"dry\u005frun":false}`,
+		// A byte-order mark is not JSON, whatever wrote it.
+		"a byte-order mark before the object": "\ufeff" + `{"kind":"cancel","dry_run":false}`,
+		// Deeper than the decoder reads a value.
+		"outputs nested past what a decoder reads": `{"kind":"waive","outputs":{"a":` + strings.Repeat("[", 20_000) + strings.Repeat("]", 20_000) + `}}`,
 	} {
 		_, err := decode(t, body)
 		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != unreadable {
@@ -166,5 +173,36 @@ func TestARequestLargerThanOneNeedsToBeIsRefusedForItsSize(t *testing.T) {
 	}
 	if _, err := decode(t, atTheLimit+" "); !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != tooLarge {
 		t.Errorf("a request one byte over the limit: %v, want %q", err, tooLarge)
+	}
+}
+
+// Near the edges of "exactly a request", on the side that is read.
+//
+// A field's name written with an escape is that field: JSON says the two
+// spellings are one string, so it is read as the field and counted as it. And
+// outputs may nest as deep as a decoder reads a value; the walk that looks for
+// a name said twice keeps its place in a slice, not on the stack.
+func TestWhatIsNearlyNotARequestIsStillReadAsOne(t *testing.T) {
+	t.Parallel()
+	req, err := decode(t, `{"kind":"cancel","dry\u005frun":false,"visit\u005Fkey":"dv1-k"}`)
+	if err != nil || req.DryRun == nil || *req.DryRun || req.VisitKey != "dv1-k" {
+		t.Errorf("a name spelt with an escape: %+v, %v; want it read as the field it spells", req, err)
+	}
+	const deep = 2_000
+	req, err = decode(t, `{"kind":"waive","outputs":{"a":`+strings.Repeat(`{"a":[`, deep)+`1`+strings.Repeat(`]}`, deep)+`}}`)
+	if err != nil {
+		t.Fatalf("outputs nested %d deep: %v, want them read", 2*deep, err)
+	}
+	inner := req.Outputs["a"]
+	for range deep {
+		object, isObject := inner.(map[string]any)
+		list, isList := object["a"].([]any)
+		if !isObject || !isList || len(list) != 1 {
+			t.Fatalf("the nested outputs were not read as they were written: %T", inner)
+		}
+		inner = list[0]
+	}
+	if inner != float64(1) {
+		t.Errorf("the value at the bottom is %v, want 1", inner)
 	}
 }

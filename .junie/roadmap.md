@@ -1322,13 +1322,18 @@
       `TestCancellingInPlaceClosesAnInstanceThatHoldsNothing`).
     - **No supported way closes one task** (the entry below's item): a waive ends every
       open task of its step, a cancel the instance.
-    - **The route.** `Idempotency-Key` on it is not tested: read from the interceptor, a
-      preview and its apply under one key get a 409, and the first answer of any status
-      is replayed for 15 minutes. Whole
-      numbers past 2^53 lose precision, as on the completion route. No route has a deadline
-      on the server, and an apply waiting on a lock holds one of the 128 in-flight slots.
-      A caller instance that cannot be found gives no warning and the apply then fails as
-      a 500. A 400 carries no machine-readable code (all *read*).
+    - **The route.** Under an `Idempotency-Key` a preview and its apply get the header's
+      409, and the first answer of any status is replayed for 15 minutes with its
+      `replayed` field as it first read (*run*:
+      `TestAnIdempotencyKeyOnADeviationFollowsTheHeadersOwnRules`; the wait of a retry
+      behind a request still in flight is *read*). Whole numbers past 2^53 lose precision,
+      as on the completion route (*run*:
+      `TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest`). The body is read as JSON
+      whatever its `Content-Type` says (*run*:
+      `TestADeviationIsReadAsJSONWhateverItsContentTypeSays`). No route has a deadline on
+      the server, and an apply waiting on a lock holds one of the 128 in-flight slots. A
+      caller instance that cannot be found gives no warning and the apply then fails as a
+      500. A 400 carries no machine-readable code (these three *read*).
     - The reason ends its sentence with two full stops when it ends with one itself.
     - The migration dialog does not show `passed_over` (the ledger entry's note). Connect
       and gRPC have no deviation call. There is no approval screen (P2).

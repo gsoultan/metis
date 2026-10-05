@@ -750,7 +750,7 @@ organizations names the instance's:
 | the instance's organization, where the account is an administrator | the plan, or the apply |
 | the instance's organization, where the account is not an administrator | 403 |
 | another organization the account administers | 404: the instance is not in it |
-| an organization the account does not belong to | 401 (read from the code, not run on this route) |
+| an organization the account does not belong to | 401 |
 
 **The request.**
 
@@ -898,7 +898,8 @@ request naming a `visit_key` that has had its act is a 400 that says who
 acted: *this step was already waived by boss*.
 
 So the route is safe to retry with no `Idempotency-Key`. If a client sends one
-anyway (read from the header's code, not run on this route):
+anyway (`TestAnIdempotencyKeyOnADeviationFollowsTheHeadersOwnRules`; the last
+point is read from the header's code, not run on this route):
 
 - A preview and its apply are different bodies. Sent under one key, the second
   is refused by the header's own check with a plain-text 409, before the
@@ -944,8 +945,9 @@ flight (read from the code, not run on this route).
 **Numbers.** `outputs` is decoded as a task completion's variables are: every
 number is a float. Two spellings of one number (`250`, `250.0`, `2.5e2`) are
 the same request, and replay. `"250"` is not `250`. Two whole numbers past
-2^53 that round to the same float are the same request too (read from the
-code, not run): send a large identifier as a string.
+2^53 that round to the same float are the same request too
+(`TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest`): send a large
+identifier as a string.
 
 **No deadline on the server.** An apply waits for the instance's lock, and for
 the rows of the tasks it withdraws, for as long as the client stays. While it

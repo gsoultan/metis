@@ -289,13 +289,18 @@ func TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance(t *testing.T) {
 	// An administrator elsewhere who also belongs here is no administrator
 	// here: the role counts where it is held.
 	both, elsewhere := h.signInToBoth(t, "boss-elsewhere")
+	outsider := h.signInElsewhere(t, "outsider-boss", entities.RoleAdmin)
 	callers = append(callers,
 		caller{name: "an administrator of another organization, acting in this one", token: both,
 			headers: []string{"X-Organization-ID", h.orgID.String()}, status: http.StatusForbidden, reply: forbidden},
 		caller{name: "the same account, acting in its own organization", token: both,
 			headers: []string{"X-Organization-ID", elsewhere.String()}, status: http.StatusNotFound, reply: refusal("not found", noSuchInstance)},
-		caller{name: "another organization's administrator", token: h.signInElsewhere(t, "outsider-boss", entities.RoleAdmin),
+		caller{name: "another organization's administrator", token: outsider,
 			status: http.StatusNotFound, reply: refusal("not found", noSuchInstance)},
+		// Naming an organization in the header does not put an account in it:
+		// the header chooses among the caller's own.
+		caller{name: "another organization's administrator, naming this organization in the header", token: outsider,
+			headers: []string{"X-Organization-ID", h.orgID.String()}, status: http.StatusUnauthorized},
 		caller{name: "nobody", status: http.StatusUnauthorized},
 	)
 

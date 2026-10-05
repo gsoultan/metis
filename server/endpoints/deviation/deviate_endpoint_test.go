@@ -119,7 +119,8 @@ func TestAPlanWithNothingInItIsWrittenWithEmptyListsNotNull(t *testing.T) {
 	}
 	// The plan names no step, so it carries neither field for one: the only
 	// step named is the decision point's.
-	for _, absent := range []string{`"deviation"`, `"node_id":""`, `"node_name":""`, `"err"`, `"instance_id":"0000`, `"scope":"instance","node_id"`} {
+	// Nor an instance it was not made for: no id is left out, as every id is.
+	for _, absent := range []string{`"deviation"`, `"node_id":""`, `"node_name":""`, `"err"`, `"instance_id"`, `"scope":"instance","node_id"`} {
 		if strings.Contains(string(body), absent) {
 			t.Errorf("the reply carries %s: %s", absent, body)
 		}
@@ -130,9 +131,10 @@ func TestAPlanWithNothingInItIsWrittenWithEmptyListsNotNull(t *testing.T) {
 // a client asks that, not whether a list is empty.
 func TestAPlanViewSaysWhetherItCanBeAppliedAndCountsWhatItDoesNotList(t *testing.T) {
 	t.Parallel()
-	task := uuid.Must(uuid.NewV7())
+	task, instance := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	view := PlanViewOf(entities.DeviationPlan{
-		Kind: entities.DeviationWaive, Scope: entities.DeviationScopeTask, NodeID: "step", NodeName: "Approve", VisitKey: "dv1-k",
+		InstanceID: instance,
+		Kind:       entities.DeviationWaive, Scope: entities.DeviationScopeTask, NodeID: "step", NodeName: "Approve", VisitKey: "dv1-k",
 		OpenWork:      []entities.DeviationOpenWork{{TaskID: task, Name: "Approve", NodeID: "step", NodeName: "Approve", Status: entities.TaskClaimed, Assignee: "alice", IterationID: "2"}},
 		OpenWorkInAll: 300, DecisionPointsInAll: 120, Missing: []string{"amount"}, MissingInAll: 60,
 		DecisionPoints: []entities.DecisionPoint{{NodeID: "g", NodeName: "Large?", Kind: entities.DecisionPointGateway,
@@ -143,7 +145,7 @@ func TestAPlanViewSaysWhetherItCanBeAppliedAndCountsWhatItDoesNotList(t *testing
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	want := `{"instance_id":"","kind":"waive","scope":"task","node_id":"step","node_name":"Approve","visit_key":"dv1-k",` +
+	want := `{"instance_id":"` + instance.String() + `","kind":"waive","scope":"task","node_id":"step","node_name":"Approve","visit_key":"dv1-k",` +
 		`"open_work":[{"task_id":"` + task.String() + `","name":"Approve","node_id":"step","node_name":"Approve","status":"claimed","assignee":"alice","iteration_id":"2"}],` +
 		`"open_work_in_all":300,"outputs":{},` +
 		`"decision_points":[{"node_id":"g","node_name":"Large?","kind":"gateway","reads":["amount"],"reads_in_all":12,"supplied":[],"missing":["amount"],"missing_in_all":11,"has_default_flow":true,"analysed":true}],` +
