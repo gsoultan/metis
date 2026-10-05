@@ -643,3 +643,58 @@ func TestAnApplyOfAPlanThatRefusesIsRefusedAndChangesNothing(t *testing.T) {
 		t.Fatalf("refused applies wrote %d ledger row(s)", len(rows))
 	}
 }
+
+// A refusal does not send an administrator to something that cannot be done.
+// A call step whose called process has ended without resuming it — cancelled
+// in place, or ended at a terminate end event, which resumes nobody — has no
+// step inside it left to waive. The waive is refused in words that say so,
+// and say what can be done: the instance can be cancelled or held, and the
+// plan of each agrees.
+func TestAWaiveOfACallStepWhoseCalledProcessHasEndedSaysWhatCanBeDone(t *testing.T) {
+	h := newEngineHarness(t, "Waive Call Ended Project")
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	reviewThenEnd := func(key string, end entities.NodeType) *entities.ProcessDefinition {
+		return &entities.ProcessDefinition{
+			Project: &entities.Project{ID: h.projID}, Key: key,
+			Nodes: []*entities.Node{
+				{ID: "start", Type: entities.StartEvent},
+				{ID: "review", Type: entities.UserTask, Name: "Review the supplier", Assignee: "rita"},
+				{ID: "end", Type: end},
+			},
+			Flows: []*entities.SequenceFlow{{ID: "c1", SourceRef: "start", TargetRef: "review"}, {ID: "c2", SourceRef: "review", TargetRef: "end"}},
+		}
+	}
+	const want = "“Have it checked” is waiting for a process that has ended and will not resume it; this instance can be cancelled or held instead."
+	const sendsInside = "waive the step inside that process"
+
+	h.deploy(t, reviewThenEnd("call-ended-cancelled", entities.EndEvent))
+	cancelled := w.start(t, callerOf(h.projID, "call-ended-caller-a", "call-ended-cancelled"), nil)
+	w.mustApply(t, deviationCommand(entities.DeviationCancel, theOneCalledBy(t, h, cancelled), "review", nil))
+
+	h.deploy(t, reviewThenEnd("call-ended-terminated", entities.TerminateEndEvent))
+	terminated := w.start(t, callerOf(h.projID, "call-ended-caller-b", "call-ended-terminated"), nil)
+	called := theOneCalledBy(t, h, terminated)
+	if err := completeAs(ctx, h, theOpenTask(t, h, called, "review"), "rita", nil); err != nil {
+		t.Fatalf("rita completes the review: %v", err)
+	}
+	requireInstanceStatus(ctx, t, h, called, entities.ProcessCompleted)
+
+	for what, caller := range map[string]uuid.UUID{"cancelled in place": cancelled, "ended at a terminate end event": terminated} {
+		if waiting := requireInstanceStatus(ctx, t, h, caller, entities.ProcessActive); tokensOn(t, h, caller, "haveItChecked") != 1 || len(waiting.Tokens) != 1 {
+			t.Fatalf("called process %s: its caller holds %d token(s); this test needs it still waiting at the call", what, len(waiting.Tokens))
+		}
+		plan := w.preview(t, deviationCommand(entities.DeviationWaive, caller, "haveItChecked", nil))
+		if !reflect.DeepEqual(plan.Refusals, []string{want}) {
+			t.Errorf("called process %s: the waive's refusals:%s\nwant only\n  %s", what, lines(plan.Refusals), want)
+		}
+		if strings.Contains(strings.Join(plan.Refusals, " "), sendsInside) {
+			t.Errorf("called process %s: the refusal sends the administrator inside a process that has ended:%s", what, lines(plan.Refusals))
+		}
+		for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationHold} {
+			if can := w.preview(t, deviationCommand(kind, caller, "haveItChecked", nil)); !can.Applicable() {
+				t.Errorf("called process %s: a %s of its caller, which the refusal points to, is refused:%s", what, kind, lines(can.Refusals))
+			}
+		}
+	}
+}

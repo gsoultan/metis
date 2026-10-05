@@ -125,21 +125,35 @@ func (s *instanceDeviationService) whereItWasCalledFrom(ctx context.Context, cal
 
 // refuseWorkNobodyDoes refuses to waive a step that is not a person's work,
 // and says what to do with that kind of step instead.
+//
+// What it says can be done. A call step points at the process it called
+// while one is running. When the instance waits at the step and none is —
+// the called instance was cancelled in place, or ended at a terminate end
+// event, neither of which resumes its caller — there is no step inside it
+// left to waive, and the refusal says what is left: the instance can be
+// cancelled or held. An instance that has not reached the step is told of the
+// process in general, beside being told it is not waiting there.
 func (s *instanceDeviationService) refuseWorkNobodyDoes(ctx context.Context, p *planning) error {
 	name := p.stepShown()
 	switch p.node.Type {
 	case entities.ServiceTask:
 		p.refuse("“%s” is work for a system, not a person; retry it or resolve its incident instead of waiving it.", name)
 	case entities.CallActivity:
-		called, err := s.calledAndNotEnded(ctx, p.instance.ID, p.node.ID)
+		called, ended, err := s.calledFrom(ctx, p.instance.ID, p.node.ID)
 		if err != nil {
 			return err
 		}
-		if len(called) == 0 {
+		waitsThere := len(p.instance.GetTokensByNode(p.node)) > 0
+		switch {
+		case len(called) > 0:
+			p.refuse("“%s” runs another process; waive the step inside that process (instance %s) instead.", name, namesShown(idsAsText(called)))
+		case waitsThere && ended > 0:
+			p.refuse("“%s” is waiting for a process that has ended and will not resume it; this instance can be cancelled or held instead.", name)
+		case waitsThere:
+			p.refuse("“%s” runs another process, and none it started is running; this instance can be cancelled or held instead.", name)
+		default:
 			p.refuse("“%s” runs another process; waive the step inside that process instead.", name)
-			return nil
 		}
-		p.refuse("“%s” runs another process; waive the step inside that process (instance %s) instead.", name, namesShown(idsAsText(called)))
 	default:
 		p.refuse("“%s” is not work somebody does; hold the instance instead.", name)
 	}

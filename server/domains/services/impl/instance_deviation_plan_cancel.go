@@ -180,20 +180,27 @@ func (s *instanceDeviationService) warnOfTheCaller(ctx context.Context, p *plann
 // is suspended has not ended: it can be resumed, and would then be running
 // under an instance that is gone.
 func (s *instanceDeviationService) calledAndNotEnded(ctx context.Context, instanceID uuid.UUID, nodeID string) ([]uuid.UUID, error) {
+	notEnded, _, err := s.calledFrom(ctx, instanceID, nodeID)
+	return notEnded, err
+}
+
+// calledFrom is calledAndNotEnded, and beside it how many of the processes
+// the instance started — from that step, when one is named — have ended.
+func (s *instanceDeviationService) calledFrom(ctx context.Context, instanceID uuid.UUID, nodeID string) (notEnded []uuid.UUID, ended int, err error) {
 	called, err := s.engine.ListSubProcesses(ctx, instanceID)
 	if err != nil {
-		return nil, fmt.Errorf("reading the processes instance %s started: %w", instanceID, err)
+		return nil, 0, fmt.Errorf("reading the processes instance %s started: %w", instanceID, err)
 	}
-	var notEnded []uuid.UUID
 	for _, child := range called {
-		if hasEnded(child.Status) {
+		if nodeID != "" && (child.ParentNode == nil || child.ParentNode.ID != nodeID) {
 			continue
 		}
-		if nodeID != "" && (child.ParentNode == nil || child.ParentNode.ID != nodeID) {
+		if hasEnded(child.Status) {
+			ended++
 			continue
 		}
 		notEnded = append(notEnded, child.ID)
 	}
 	slices.SortFunc(notEnded, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
-	return notEnded, nil
+	return notEnded, ended, nil
 }

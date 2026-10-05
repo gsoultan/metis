@@ -703,7 +703,7 @@ The plan refuses a waive that would have to guess:
 
 | Refused | In the plan's words |
 | :-- | :-- |
-| A step that is not a person's work | *“Screen the supplier” is work for a system, not a person; retry it or resolve its incident instead of waiving it.* For a call activity: *…runs another process; waive the step inside that process instead.* For anything else: *…is not work somebody does; hold the instance instead.* |
+| A step that is not a person's work | *“Screen the supplier” is work for a system, not a person; retry it or resolve its incident instead of waiving it.* For a call activity whose called process is running: *“Have it checked” runs another process; waive the step inside that process (instance 0199…) instead.* For one whose called process has ended without resuming it (cancelled in place, or ended at a terminate end event): *“Have it checked” is waiting for a process that has ended and will not resume it; this instance can be cancelled or held instead.* For anything else: *…is not work somebody does; hold the instance instead.* |
 | A step the instance is not waiting at | *This instance is not waiting at “Sales approve”.* |
 | A step nobody has a task for | *Nobody has “Operations approve” to do, so there is nothing to waive.* |
 | A step with several ways out | *“Pick a supplier” has 2 ways out, so waiving it would choose a branch on the business's behalf.* |
