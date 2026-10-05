@@ -16,6 +16,7 @@ import (
 	deviationendpoint "github.com/gsoultan/metis/server/endpoints/deviation"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"gorm.io/gorm"
 )
 
 // requestCount is how many requests for a second administrator the test's
@@ -273,6 +274,42 @@ func TestAskingAgainNeverWaitsForTheRequestsRow(t *testing.T) {
 	held.letGo(t, false)
 	if out, err := approval.answer(t, "budi's approval"); err != nil || !out.Applied {
 		t.Fatalf("the approval that waited for the request's row: %+v, %v", out, err)
+	}
+}
+
+// An approval takes its request's row before it asks for the instance, and
+// holds it while it waits: that is what a second decision of the same request
+// queues behind, and the first half of the order every decision keeps. Here
+// the instance is held by somebody part-way through something, as a
+// completion holds it; the approval is stopped waiting for it, and the
+// request's row is by then taken — asking for it without waiting is refused.
+func TestAnApprovalHoldsItsRequestWhileItWaitsForTheInstance(t *testing.T) {
+	h := newEngineHarness(t, "Request First Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-request-first"), nil)
+	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	request := asked.PendingApproval.RequestID
+	free := func() error {
+		return h.db.Transaction(func(tx *gorm.DB) error {
+			return tx.Exec(`SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE NOWAIT`, request).Error
+		})
+	}
+	if err := free(); err != nil {
+		t.Fatalf("with nobody deciding it the request's row is held: %v", err)
+	}
+
+	held := h.holding(t, `UPDATE process_instances SET status = status WHERE id = ?`, id)
+	approval := w.sendApproval("budi", request)
+	h.waitForWaiters(t, held, 1, approval.answered)
+	if err := free(); err == nil || !strings.Contains(err.Error(), "55P03") && !strings.Contains(err.Error(), "could not obtain lock") {
+		t.Fatalf("while the approval waits for the instance the request's row answers %v, want it held", err)
+	}
+	held.letGo(t, false)
+	if out, err := approval.answer(t, "budi's approval"); err != nil || !out.Applied {
+		t.Fatalf("the approval, once the instance was let go: %+v, %v", out, err)
+	}
+	if err := free(); err != nil {
+		t.Fatalf("after the approval the request's row is still held: %v", err)
 	}
 }
 

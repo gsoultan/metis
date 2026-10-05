@@ -46,6 +46,12 @@ const movedSinceAsked = "the instance has moved since it was asked for"
 // recorded as expired or stale and then refused: that record is kept
 // (runDecision). Any other failure undoes everything, and the request waits
 // as it did.
+//
+// Holding the request's row is what makes a second decision read the first.
+// The repositories refuse a second decision as well, whoever holds what; that
+// refusal is answered as the request's own state (decidedFirst), so that the
+// order of the locks is never the only thing between a double click and a
+// server error.
 func (s *instanceDeviationService) approveWaive(
 	ctx context.Context,
 	id uuid.UUID,
@@ -62,7 +68,12 @@ func (s *instanceDeviationService) approveWaive(
 	err := runDecision(ctx, s.repo.UnitOfWork(), func(txCtx context.Context) error {
 		var err error
 		outcome, err = s.approveLocked(txCtx, id, caller, reason)
-		return err
+		// Whatever part of the approval a repository refused as decided
+		// first — the waive's record, or the note that the request was stale
+		// or expired — is somebody else's decision, told as that.
+		return decidedFirst(err, func() (entities.DeviationRequest, error) {
+			return s.repo.DeviationRequest().Get(txCtx, id)
+		})
 	})
 	if err != nil {
 		return entities.DeviationRequestOutcome{}, err
@@ -219,9 +230,7 @@ func (s *instanceDeviationService) applyApproved(
 	decided, applied, err := s.recordApproved(ctx, request, decision, pending, row,
 		waiveEntry(locked, plan, command, request.RequestedBy, pending.RunID, control))
 	if err != nil {
-		return none, decidedFirst(err, func() (entities.DeviationRequest, error) {
-			return s.repo.DeviationRequest().Get(ctx, request.ID)
-		})
+		return none, err
 	}
 	return entities.DeviationRequestOutcome{Request: applied, Applied: true, Deviation: &decided, WaivePlan: &plan}, nil
 }
