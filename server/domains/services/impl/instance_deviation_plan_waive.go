@@ -156,7 +156,9 @@ func (s *instanceDeviationService) whereItWasCalledFrom(ctx context.Context, cal
 // event, neither of which resumes its caller — there is no step inside it
 // left to waive, and the refusal says what is left: the instance can be
 // cancelled or held. An instance that has not reached the step is told of the
-// process in general, beside being told it is not waiting there.
+// process in general, beside being told it is not waiting there; so is one
+// that waits at a call step under which no process was ever started, a state
+// nothing here has been able to produce.
 func (s *instanceDeviationService) refuseWorkNobodyDoes(ctx context.Context, p *planning) error {
 	name := p.stepShown()
 	switch p.node.Type {
@@ -173,8 +175,6 @@ func (s *instanceDeviationService) refuseWorkNobodyDoes(ctx context.Context, p *
 			p.refuse("“%s” runs another process; waive the step inside that process (instance %s) instead.", name, namesShown(idsAsText(called)))
 		case waitsThere && ended > 0:
 			p.refuse("“%s” is waiting for a process that has ended and will not resume it; this instance can be cancelled or held instead.", name)
-		case waitsThere:
-			p.refuse("“%s” runs another process, and none it started is running; this instance can be cancelled or held instead.", name)
 		default:
 			p.refuse("“%s” runs another process; waive the step inside that process instead.", name)
 		}
