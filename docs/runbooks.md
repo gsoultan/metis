@@ -253,9 +253,14 @@ WHERE instance_id = '<instance-id>' AND status IN ('unclaimed', 'claimed', 'dele
 curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>"}' \
   "$METIS/api/v1/instances/<instance-id>/deviations" \
-  | jq '.plan | {applicable, refusals, warnings, missing, visit_key, open_work_in_all,
-                 open_work: [.open_work[] | {name, node_name, status, assignee}]}'
+  | jq 'if .error then {error} else (.plan | {applicable, refusals, warnings, missing, visit_key, open_work_in_all,
+                 open_work: [.open_work[] | {name, node_name, status, assignee}]}) end'
 ```
+
+**A reply with `error` is a refusal, and its sentence is the answer.** Every
+command here prints it when there is one: the request was malformed, the
+account may not ask, or there is no such instance in the organization the
+request is for. Nothing was read or changed beyond what the sentence says.
 
 Read it in this order:
 
@@ -285,7 +290,8 @@ on as its process says.
    ```bash
    curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>", "outputs": {"approved": true}}' \
-     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, missing, visit_key}'
+     "$METIS/api/v1/instances/<instance-id>/deviations" \
+     | jq 'if .error then {error} else (.plan | {applicable, refusals, warnings, missing, visit_key}) end'
    ```
 
    A value the instance already holds from an earlier visit to the step does
@@ -301,7 +307,7 @@ on as its process says.
    curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>", "outputs": {"approved": true},
           "visit_key": "<visit_key>", "dry_run": false}' \
-     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '{applied, replayed, deviation}'
+     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '{applied, replayed, deviation, error}'
    ```
 
 What comes back, and what to do with it:
@@ -322,7 +328,7 @@ Afterwards the task reads `canceled`, never `completed`, and the ledger says
 
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/instances/<instance-id>/deviations" \
-  | jq '.deviations[] | {kind, origin, node_name, actor, reason, created_at}'
+  | jq 'if .error then {error} else (.deviations[] | {kind, origin, node_name, actor, reason, created_at}) end'
 ```
 
 Do not read the instance's list of completed steps to tell a waived step from
@@ -343,7 +349,8 @@ waits at:
 curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"kind": "cancel", "node_id": "<step-id>", "reason": "<why>"}' \
   "$METIS/api/v1/instances/<instance-id>/deviations" \
-  | jq '.plan | {applicable, refusals, warnings, visit_key, open_work_in_all, called_instances}'
+  | jq 'if .error then {error} else (.plan | {applicable, refusals, warnings, visit_key, open_work_in_all,
+                 called_instances, called_instances_in_all}) end'
 ```
 
 The preview lists every open task of the instance, on every branch, and its
@@ -398,7 +405,8 @@ A cancel that names **no step** is the supported way to close one:
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"kind": "cancel", "reason": "<why>"}' \
-  "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, visit_key}'
+  "$METIS/api/v1/instances/<instance-id>/deviations" \
+  | jq 'if .error then {error} else (.plan | {applicable, refusals, warnings, visit_key}) end'
 ```
 
 - The plan warns *This instance is not waiting at any step. Cancelling it
@@ -435,7 +443,8 @@ incident still open.
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"kind": "hold", "node_id": "<step-id>", "reason": "<why>"}' \
-  "$METIS/api/v1/instances/<instance-id>/deviations" | jq '.plan | {applicable, refusals, warnings, visit_key}'
+  "$METIS/api/v1/instances/<instance-id>/deviations" \
+  | jq 'if .error then {error} else (.plan | {applicable, refusals, warnings, visit_key}) end'
 ```
 
 Apply with the `visit_key` and `"dry_run": false`.
@@ -457,7 +466,8 @@ it is what **Try again** does:
 
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" \
-  "$METIS/api/v1/incidents/<instance-id>" | jq '.incidents[] | {id, step: .node.id, error, status}'
+  "$METIS/api/v1/incidents/<instance-id>" \
+  | jq 'if .error then {error} else (.incidents[]? | {id, step: .node.id, error, status}) end'
 curl -sX POST -H "Authorization: Bearer $TOKEN" "$METIS/api/v1/incidents/<incident-id>/resolve"
 ```
 
