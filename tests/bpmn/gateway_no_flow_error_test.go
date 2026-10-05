@@ -76,7 +76,12 @@ func noWayOutInside(h engineHarness, key string, gateway entities.NodeType, catc
 // catching exactly this code is routed to by comparing them. This pins them,
 // for both gateways that can fail this way, and that a boundary event catches
 // the failure — by its code, and as anything.
+//
+// One harness serves every case: each deploys a process under a key of its own
+// and asks only about the instance it started.
 func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T) {
+	h := newEngineHarness(t, "No Way Out")
+	slug := map[string]string{"by its code": "code", "as anything": "any"}
 	for kind, gateway := range map[string]entities.NodeType{
 		"exclusive": entities.ExclusiveGateway,
 		"inclusive": entities.InclusiveGateway,
@@ -85,7 +90,6 @@ func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T
 			"no condition evaluated true and no default flow is declared"
 
 		t.Run(kind+", with nothing to catch it", func(t *testing.T) {
-			h := newEngineHarness(t, "No Way Out "+kind)
 			h.deploy(t, noWayOut(h, "no-way-out-"+kind, gateway, nil))
 			_, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-"+kind, map[string]any{"verdict": "maybe"})
 			if err == nil || !strings.HasSuffix(err.Error(), "BPMN_ERROR:"+code) {
@@ -94,9 +98,8 @@ func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T
 		})
 		for caught, errorCode := range map[string]string{"by its code": code, "as anything": "*"} {
 			t.Run(kind+", caught "+caught, func(t *testing.T) {
-				h := newEngineHarness(t, "No Way Out Caught "+kind)
-				h.deploy(t, noWayOut(h, "no-way-out-caught-"+kind, gateway, map[string]any{"error_code": errorCode}))
-				id, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-caught-"+kind, map[string]any{"verdict": "maybe"})
+				h.deploy(t, noWayOut(h, "no-way-out-caught-"+slug[caught]+"-"+kind, gateway, map[string]any{"error_code": errorCode}))
+				id, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-caught-"+slug[caught]+"-"+kind, map[string]any{"verdict": "maybe"})
 				if err != nil {
 					t.Fatalf("the error boundary did not catch the gateway's failure: %v", err)
 				}
@@ -110,9 +113,8 @@ func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T
 		// sub-process in the same words.
 		for caught, errorCode := range map[string]string{"by its code": code, "as anything": "*"} {
 			t.Run(kind+", inside a sub-process, caught on it "+caught, func(t *testing.T) {
-				h := newEngineHarness(t, "No Way Out Inside "+kind)
-				h.deploy(t, noWayOutInside(h, "no-way-out-inside-"+kind, gateway, map[string]any{"error_code": errorCode}))
-				id, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-inside-"+kind, map[string]any{"verdict": "maybe"})
+				h.deploy(t, noWayOutInside(h, "no-way-out-inside-"+slug[caught]+"-"+kind, gateway, map[string]any{"error_code": errorCode}))
+				id, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-inside-"+slug[caught]+"-"+kind, map[string]any{"verdict": "maybe"})
 				if err != nil {
 					t.Fatalf("the error boundary on the sub-process did not catch the gateway's failure: %v", err)
 				}
@@ -122,7 +124,6 @@ func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T
 			})
 		}
 		t.Run(kind+", inside a sub-process with a boundary for another code", func(t *testing.T) {
-			h := newEngineHarness(t, "No Way Out Inside Other "+kind)
 			h.deploy(t, noWayOutInside(h, "no-way-out-inside-other-"+kind, gateway, map[string]any{"error_code": "charge-failed"}))
 			if _, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-inside-other-"+kind, map[string]any{"verdict": "maybe"}); err == nil ||
 				!strings.HasSuffix(err.Error(), "BPMN_ERROR:"+code) {
@@ -130,7 +131,6 @@ func TestAGatewayThatCannotChooseFailsInWordsAnErrorBoundaryCatches(t *testing.T
 			}
 		})
 		t.Run(kind+", with a boundary for another code", func(t *testing.T) {
-			h := newEngineHarness(t, "No Way Out Other "+kind)
 			h.deploy(t, noWayOut(h, "no-way-out-other-"+kind, gateway, map[string]any{"error_code": "charge-failed"}))
 			if _, err := h.svc.StartProcess(h.Ctx(), h.projID, "no-way-out-other-"+kind, map[string]any{"verdict": "maybe"}); err == nil ||
 				!strings.HasSuffix(err.Error(), "BPMN_ERROR:"+code) {
