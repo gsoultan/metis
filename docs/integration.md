@@ -771,6 +771,9 @@ instance is changed:
   `"DRY_RUN": false`, `"dryRun": false` and `dry_run` given twice are refused,
   not read as a preview. `instance_id` in the body is refused: the instance
   comes from the address.
+- Inside `outputs`, a name given twice in one object is refused too, at any
+  depth: `"outputs": {"amount": 250, "amount": 10}` is not read as 10. An
+  output decides which branch a gateway takes.
 - Each field holds the kind of value it takes. `"dry_run": "false"` and
   `"dry_run": 0` are refused.
 - Anything else is a 400 with one sentence: *this request could not be read:

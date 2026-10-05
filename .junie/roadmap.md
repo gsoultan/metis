@@ -1324,7 +1324,7 @@
       open task of its step, a cancel the instance.
     - **The route.** `Idempotency-Key` on it is not tested: read from the interceptor, a
       preview and its apply under one key get a 409, and the first answer of any status
-      is replayed for 15 minutes. Duplicate names inside `outputs` keep the last. Whole
+      is replayed for 15 minutes. Whole
       numbers past 2^53 lose precision, as on the completion route. No route has a deadline
       on the server, and an apply waiting on a lock holds one of the 128 in-flight slots.
       A caller instance that cannot be found gives no warning and the apply then fails as

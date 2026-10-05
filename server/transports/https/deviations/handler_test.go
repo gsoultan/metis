@@ -116,10 +116,38 @@ func TestABodyThatIsNotExactlyARequestIsRefused(t *testing.T) {
 		"outputs that are a list":          `{"kind":"waive","outputs":["approved"]}`,
 		"a visit key that is a number":     `{"kind":"cancel","visit_key":7}`,
 		"a name that is not a JSON string": `{kind:"cancel"}`,
+		// An output decides which branch a gateway takes: said twice, which of
+		// the two was meant is not the decoder's to choose.
+		"an output named twice":                      `{"kind":"waive","outputs":{"approved":true,"approved":false}}`,
+		"an output named twice, alike":               `{"kind":"waive","outputs":{"approved":true,"approved":true}}`,
+		"an output named twice, once in other marks": `{"kind":"waive","outputs":{"approved":true,"\u0061pproved":false}}`,
+		"a name twice inside what an output holds":   `{"kind":"waive","outputs":{"address":{"city":"Bandung","city":"Jakarta"}}}`,
+		"a name twice inside a list an output holds": `{"kind":"waive","outputs":{"lines":[{"sku":"a"},{"sku":"b","sku":"c"}]}}`,
+		"an output named twice, far apart":           `{"kind":"waive","outputs":{"approved":true,"amount":1,"note":{"a":[1,2,{"b":null}]},"approved":false}}`,
+		"outputs cut short inside a name said twice": `{"kind":"waive","outputs":{"approved":true,"approved":`,
 	} {
 		_, err := decode(t, body)
 		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != unreadable {
 			t.Errorf("%s: %v, want it refused as %q", name, err, unreadable)
+		}
+	}
+}
+
+// A name may be used again where it names something else: in another object.
+// Only a name said twice in one object is refused.
+func TestANameUsedAgainInAnotherObjectOfTheOutputsIsRead(t *testing.T) {
+	t.Parallel()
+	for name, body := range map[string]string{
+		"a field's name inside the outputs":     `{"kind":"waive","outputs":{"kind":"x","reason":"y","outputs":{"outputs":1}}}`,
+		"an output's name inside what it holds": `{"kind":"waive","outputs":{"approved":{"approved":true}}}`,
+		"one name in two objects of a list":     `{"kind":"waive","outputs":{"lines":[{"sku":"a"},{"sku":"b"}],"more":[{"sku":"c"}]}}`,
+		"one name in two outputs' own objects":  `{"kind":"waive","outputs":{"from":{"city":"Bandung"},"to":{"city":"Jakarta"}}}`,
+		"a name that is a value somewhere else": `{"kind":"waive","outputs":{"approved":"approved","list":["approved","approved"]}}`,
+		"no outputs":                            `{"kind":"waive","outputs":{}}`,
+		"outputs said to be nothing":            `{"kind":"waive","outputs":null}`,
+	} {
+		if _, err := decode(t, body); err != nil {
+			t.Errorf("%s: %v, want it read", name, err)
 		}
 	}
 }

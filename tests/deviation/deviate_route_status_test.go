@@ -337,6 +337,50 @@ func TestAnApplyOnASuspendedInstanceIsA400ThatSaysItIsSuspended(t *testing.T) {
 	h.requireUnchanged(t, before, "applies on a suspended instance")
 }
 
+// Final-wave ruling FW-4. An output decides which branch a gateway takes. Said
+// twice, the decoder would keep the last without a word — here 10, and "Book
+// it" — where whoever reads the first sees 250 and a second approval. It is a
+// request that cannot be read: a 400, as a preview and as an apply, wherever
+// inside outputs the name is said twice, and the instance is where it was.
+func TestAnOutputSaidTwiceIsA400AndDecidesNoBranch(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	instanceID := h.start(t, orderBySize())
+	admin := h.signIn(t, "boss", entities.RoleAdmin)
+	apply, planned := h.previewed(t, admin, instanceID, map[string]any{"kind": "waive", "node_id": "step", "reason": routeReason,
+		"outputs": map[string]any{"amount": 250}})
+	if !planned.Plan.Applicable {
+		t.Fatalf("the plan refuses, so an apply proves nothing: %q", planned.Plan.Refusals)
+	}
+	before := h.everyRow(t)
+	unreadable := invalid(requestCouldNotBeRead)
+	rest := fmt.Sprintf(`"kind":"waive","node_id":"step","reason":%q`, routeReason)
+	applying := fmt.Sprintf(`,"visit_key":%q,"dry_run":false`, planned.Plan.VisitKey)
+	for name, body := range map[string]string{
+		"a preview":                         `{` + rest + `,"outputs":{"amount":250,"amount":10}}`,
+		"an apply":                          `{` + rest + `,"outputs":{"amount":250,"amount":10}` + applying + `}`,
+		"an apply, the same value twice":    `{` + rest + `,"outputs":{"amount":250,"amount":250}` + applying + `}`,
+		"an apply, twice inside the value":  `{` + rest + `,"outputs":{"amount":{"value":250,"value":10}}` + applying + `}`,
+		"an apply, the name in other marks": `{` + rest + `,"outputs":{"amount":250,"\u0061mount":10}` + applying + `}`,
+	} {
+		status, raw := h.send(t, admin, deviationsPath(instanceID), body)
+		if status != http.StatusBadRequest || !sameJSON(t, raw, unreadable) {
+			t.Errorf("%s: %d (%s), want 400 %s", name, status, raw, unreadable)
+		}
+		h.requireUnchanged(t, before, name)
+	}
+	if !h.stepIsOpen(t, instanceID) {
+		t.Fatal("a request that said an output twice closed the step")
+	}
+
+	// Said once, it is the request that was previewed, and it acts.
+	if status, applied, raw := h.deviate(t, admin, instanceID, apply); status != http.StatusOK || !applied.Applied {
+		t.Fatalf("the output said once: %d (%s), want it applied", status, raw)
+	}
+	if open := h.openTasksOn(t, instanceID, "large"); open != 1 {
+		t.Fatalf("%d task(s) are open on the second approval; 250 goes there", open)
+	}
+}
+
 // Task 6 F6-2. What fails for reasons that are nobody's request is the
 // server's, and is answered as that: a 500. Here the step after the waived one
 // consults a decision nobody stored; reading it answers "not found", and an

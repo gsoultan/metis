@@ -66,6 +66,11 @@ var deviateFields = map[string]struct{}{
 // last, so "dry_run": true, "dry_run": false is an apply to it and a preview
 // to whoever reads the first — and anything written after the object.
 //
+// The same holds inside outputs: a name said twice there is refused too
+// (namedOnceThroughout). What a waived step counts as decides which branch a
+// gateway takes, and the decoder would keep the last of two values without a
+// word.
+//
 // A body that cannot be read is the caller's mistake and is answered as one,
 // never as a preview: a client that meant to apply and wrote "dry_run":
 // "false" must not be told its request went well. The answer is a sentence
@@ -107,7 +112,9 @@ func unreadableDeviateRequest(r *http.Request, why error) error {
 // are each one a request has, written exactly as it is named and given once,
 // with nothing after the object; nil when it is.
 //
-// It looks at the names only. What each field holds is the decoder's to read.
+// It looks at the names only — the request's own, and those inside outputs,
+// which are a caller's to choose and so are asked only to be said once. What
+// each field holds is the decoder's to read.
 func namedExactlyAndOnce(body []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	opening, err := decoder.Token()
@@ -142,6 +149,11 @@ func namedExactlyAndOnce(body []byte) error {
 		if err := decoder.Decode(&value); err != nil {
 			return err
 		}
+		if name == "outputs" {
+			if err := namedOnceThroughout(value); err != nil {
+				return fmt.Errorf("in outputs, %w", err)
+			}
+		}
 	}
 	if _, err := decoder.Token(); err != nil {
 		return err
@@ -153,4 +165,65 @@ func namedExactlyAndOnce(body []byte) error {
 		return fmt.Errorf("the body goes on after the object: %w", err)
 	}
 	return nil
+}
+
+// namedOnceThroughout reports why a JSON value says a name twice in one
+// object, at whatever depth; nil when no object in it does. The same name in
+// two different objects is two names.
+//
+// value is one whole JSON value, already read as such, so it is well formed
+// and no deeper than the decoder lets a value be. It is walked token by token
+// with the open objects and lists kept in a slice, not on the stack, and the
+// names it keeps are a part of a body that has a size.
+func namedOnceThroughout(value []byte) error {
+	// One entry for each object or list that is open: the names said so far
+	// in an object (nil for a list), and whether its next token is a name.
+	type container struct {
+		names     map[string]struct{}
+		nameNext  bool
+		isAnArray bool
+	}
+	var open []container
+	// valueRead notes, in the object a value belongs to, that a name comes next.
+	valueRead := func() {
+		if last := len(open) - 1; last >= 0 && !open[last].isAnArray {
+			open[last].nameNext = true
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch token := token.(type) {
+		case json.Delim:
+			switch token {
+			case '{':
+				valueRead()
+				open = append(open, container{names: map[string]struct{}{}, nameNext: true})
+			case '[':
+				valueRead()
+				open = append(open, container{isAnArray: true})
+			default:
+				open = open[:len(open)-1]
+			}
+		case string:
+			last := len(open) - 1
+			if last < 0 || !open[last].nameNext {
+				valueRead()
+				continue
+			}
+			if _, twice := open[last].names[token]; twice {
+				return fmt.Errorf("an object says %.64q twice", token)
+			}
+			open[last].names[token] = struct{}{}
+			open[last].nameNext = false
+		default:
+			valueRead()
+		}
+	}
 }

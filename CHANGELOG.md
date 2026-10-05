@@ -176,7 +176,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     the JSON boolean `false`, in a top-level `dry_run`, applies. A request
     that leaves it out, or says `true` or `null`, is a preview; one that says
     it any other way (`"false"`, `0`, `"DRY_RUN": false`, the field twice) is
-    a 400 and changes nothing. An apply sends the plan's `visit_key` back and
+    a 400 and changes nothing. So is one that gives a name twice inside
+    `outputs`. An apply sends the plan's `visit_key` back and
     is made only while the work is what the preview showed. A task opened,
     completed or withdrawn where the act would be made, or a token arrived or
     gone, and it is refused: *this instance has moved since you previewed it;
