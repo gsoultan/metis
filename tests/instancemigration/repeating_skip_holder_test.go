@@ -164,7 +164,7 @@ func TestAClaimRacingASkipIsRecordedAsItWasAnnounced(t *testing.T) {
 			})
 		}
 		start.Done()
-		done.Wait()
+		waitForAll(t, &done, fmt.Sprintf("round %d: the skip and the claims racing it", round))
 
 		if migrateErr != nil {
 			t.Fatalf("round %d: the skip failed: %v", round, migrateErr)
@@ -177,6 +177,23 @@ func TestAClaimRacingASkipIsRecordedAsItWasAnnounced(t *testing.T) {
 // raceWait is how long a migration is given to get where it is going. Far longer
 // than it takes; it only bounds a test that has gone wrong.
 const raceWait = 20 * time.Second
+
+// waitForAll waits for everything a race started to finish, for no longer
+// than raceWait. A race that deadlocks would otherwise hold the whole package
+// until its own timeout, and say nothing of which test it was.
+func waitForAll(t *testing.T, racing *sync.WaitGroup, what string) {
+	t.Helper()
+	finished := make(chan struct{})
+	go func() {
+		racing.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(raceWait):
+		t.Fatalf("%s did not finish within %s", what, raceWait)
+	}
+}
 
 // TestASkipRecordsTheHolderItWaitedFor makes the interleaving happen every
 // time: carol's claim of one run is held open, uncommitted, the skip is sent,
@@ -248,11 +265,24 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 	f.assertTheRecordNamesWhoWasTold(t, "after the claim", row, watcher.events)
 }
 
-// waitUntilHeldBehind waits for the migration to be waiting for something the
+// waitUntilHeldBehind waits for the migration to be waiting for the task the
 // session holds. One that finishes instead never waited for the claim, and
 // the test has not made the interleaving it is about.
+//
+// What is looked for is the migration's own backend and no other: one the
+// session is blocking that is queued for a row of this test's tasks table.
+// The database is shared with every other test that is running, and anything
+// that happened to be blocked by the session for another reason would
+// otherwise be taken for the migration, and the claim let go too early.
 func (f *fixture) waitUntilHeldBehind(t *testing.T, session int, finished <-chan error) {
 	t.Helper()
+	const queuedForATask = `SELECT count(*) FROM pg_stat_activity a
+		 WHERE ? = ANY(pg_blocking_pids(a.pid))
+		   AND EXISTS (SELECT 1 FROM pg_locks l
+		                 JOIN pg_class c ON c.oid = l.relation
+		                 JOIN pg_namespace n ON n.oid = c.relnamespace
+		                WHERE l.pid = a.pid AND l.locktype = 'tuple'
+		                  AND c.relname = 'tasks' AND n.nspname = current_schema())`
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
 		case err := <-finished:
@@ -260,13 +290,12 @@ func (f *fixture) waitUntilHeldBehind(t *testing.T, session int, finished <-chan
 		default:
 		}
 		var waiting int
-		if err := f.db.Raw(`SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))`, session).
-			Scan(&waiting).Error; err != nil {
+		if err := f.db.Raw(queuedForATask, session).Scan(&waiting).Error; err != nil {
 			t.Fatalf("look for the migration waiting behind the claim: %v", err)
 		}
 		if waiting > 0 {
 			return
 		}
 	}
-	t.Fatal("the migration was neither finished nor made to wait")
+	t.Fatal("the migration was neither finished nor made to wait for the task")
 }

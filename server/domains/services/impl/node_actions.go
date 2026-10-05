@@ -3,6 +3,7 @@ package impl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
@@ -37,8 +39,9 @@ type nodeActions struct {
 	engine servicecontracts.ExecutionEngine
 	// finisher is the same engine, asked for the one thing an advance cannot
 	// do: end a step whole, every run of one that repeats. nil when the engine
-	// is not one that can (or there is none), and a step is then advanced past
-	// as it was before there was a finisher.
+	// is not one that can (or there is none). Work somebody does that runs once
+	// is then advanced past, which comes to the same thing; a repeating
+	// approval is refused (endsWhole).
 	finisher servicecontracts.ActivityFinisher
 	// parked is the same engine, asked to take back work a step has parked for
 	// outside workers. nil when the engine is not one that can (or there is
@@ -157,6 +160,17 @@ func (a nodeActions) heldOpen(ctx context.Context, instanceID uuid.UUID) ([]mode
 // The rows are taken in the order of their ids, whatever order they were
 // listed in, so that two transactions holding tasks of the same instance take
 // the ones they share in the same order.
+//
+// It has to be called inside a unit of work, and cannot tell whether it is: a
+// row is held until the transaction that took it ends, and with none open
+// each read takes its row and lets it go at once. The tasks would come back
+// as they were at that moment and nothing would be held. Both effects that
+// use it run in the unit of work their caller opened (cancel, finishWhole).
+//
+// A task that is gone when its row is asked for is the server's failure, not
+// a "not found" for whoever asked for the action: they named an instance,
+// which is there. The cause is kept as words and deliberately not wrapped, as
+// graphRunBy keeps a missing version.
 func (a nodeActions) holdRows(
 	ctx context.Context,
 	tasks []models.TaskModel,
@@ -171,6 +185,9 @@ func (a nodeActions) holdRows(
 	locked := make(map[uuid.UUID]models.TaskModel, len(ids))
 	for _, id := range ids {
 		row, err := a.repo.Task().GetForUpdate(ctx, id)
+		if errors.Is(err, apierr.ErrNotFound) {
+			return nil, fmt.Errorf("holding task %s to withdraw it: it is no longer there (%s)", id, err.Error())
+		}
 		if err != nil {
 			return nil, fmt.Errorf("holding task %s to withdraw it: %w", id, err)
 		}

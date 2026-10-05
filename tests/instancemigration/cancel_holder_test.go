@@ -92,7 +92,7 @@ func TestAClaimRacingACancellationIsRecordedAsItWasAnnounced(t *testing.T) {
 			})
 		}
 		start.Done()
-		done.Wait()
+		waitForAll(t, &done, fmt.Sprintf("round %d: the cancellation and the claims racing it", round))
 
 		if migrateErr != nil {
 			t.Fatalf("round %d: the cancellation failed: %v", round, migrateErr)

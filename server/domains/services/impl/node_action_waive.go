@@ -1,8 +1,11 @@
 package impl
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+
+	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -28,7 +31,7 @@ func (a nodeActions) waive(
 	def *entities.ProcessDefinition,
 	nodeID string,
 ) ([]models.TaskModel, error) {
-	whole, err := a.endsWhole(def.FindNode(nodeID), nodeID)
+	whole, err := a.endsWhole(live.ID, def.FindNode(nodeID), nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +59,10 @@ func (a nodeActions) waive(
 // They are read with their rows held (heldOpenOn), so the engine's own read
 // finds them as they are recorded here: the record and the announcement name
 // the same holder, and it is whoever held the task when it was withdrawn.
+//
+// That holds only inside the unit of work the caller opened: the rows are
+// held until a transaction ends, and nothing here can tell whether one is
+// open (holdRows).
 func (a nodeActions) finishWhole(
 	ctx context.Context,
 	live *entities.ProcessInstance,
@@ -91,7 +98,9 @@ func isWorkSomebodyDoes(node *entities.Node) bool {
 //
 // The refusal is a plain error: it is how the server was put together, and
 // nothing the person who asked for the skip can change by asking differently.
-func (a nodeActions) endsWhole(node *entities.Node, nodeID string) (bool, error) {
+// It is read in a log by whoever runs the server, so it says which instance
+// and which step, by name as well as by id.
+func (a nodeActions) endsWhole(instanceID uuid.UUID, node *entities.Node, nodeID string) (bool, error) {
 	if !isWorkSomebodyDoes(node) {
 		return false, nil
 	}
@@ -99,8 +108,9 @@ func (a nodeActions) endsWhole(node *entities.Node, nodeID string) (bool, error)
 		return true, nil
 	}
 	if node.IsRepeatingApproval() {
-		return false, fmt.Errorf("skipping %q: the step is done once for each of several people, "+
-			"and this server's engine cannot end all of those runs together, so skipping it would end one and leave the rest", nodeID)
+		return false, fmt.Errorf("skipping “%s” (%q) of instance %s: the step is done once for each of several people, "+
+			"and this server's engine cannot end all of those runs together, so skipping it would end one and leave the rest",
+			cmp.Or(shownStepName(node.Name), nodeID), nodeID, instanceID)
 	}
 	return false, nil
 }

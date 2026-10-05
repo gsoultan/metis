@@ -19,6 +19,10 @@ import (
 // locked is the row its caller locked: it is the one written back, so nothing
 // that landed before the lock is undone.
 //
+// It runs in the unit of work its caller opened, and has to: the task rows it
+// holds (heldOpen, holdRows) are held only until a transaction ends, and
+// nothing here can tell whether one is open.
+//
 // The tasks are withdrawn, announced and recorded from their rows as they are
 // once held (heldOpen), not as a read before that found them: a claim does not
 // take the instance, so it is not kept out by the caller's lock, and a task
