@@ -1295,8 +1295,10 @@
       reads the instance's whole task history and filters it (*read*).
     - **A gateway refusal answered 400 is still logged at Error level**, once per frame, in
       `NodeHandlerTemplate.Execute` (*read* by the review).
-    - **The migration's cancel row grows with the open task count**: two entries a task, in
-      one row, with no cap (by arithmetic, not measured). `withdrawParked` fails the
+    - **The migration's skip and cancel rows grow with the open task count**: two entries a
+      task, in one row, with no cap (by arithmetic, not measured). The rows of a waive and a
+      cancel in place name 200 tasks and count them all (*run*:
+      `TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll`). `withdrawParked` fails the
       cancel when the instance's definition will not load (*read*).
     - **A queued job of a cancelled instance stays `pending` until its time comes** (*read*),
       and is then completed without calling (*run*:

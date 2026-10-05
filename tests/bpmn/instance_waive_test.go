@@ -1,11 +1,15 @@
 package bpmn_test
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
@@ -929,5 +933,78 @@ func TestAStepWithAVeryLongNameIsNamedAlikeInThePlanTheLedgerAndTheTrail(t *test
 	}
 	if !strings.Contains(entries[0].Narrative, "“"+want+"” was waived") {
 		t.Errorf("the entry's sentence does not name the step as the ledger does: %q", entries[0].Narrative)
+	}
+}
+
+// A waive ends every run of a repeating approval, and a step done once for
+// each of many people has a task for each. The act takes every one: each run
+// is withdrawn and each holder told once. Its record counts them all and names
+// the two hundred with the lowest ids, as a cancel's does — a row is read
+// whole, by the apply's reply, by every replay and by the ledger's route, and
+// how many runs a step has is the instance's to say.
+func TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll(t *testing.T) {
+	h := newEngineHarness(t, "Waive Many Runs Project")
+	events := &eventLog{}
+	h.dispatcher.Register(events)
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	ctx := h.Ctx()
+	const inAll, named = 205, 200
+	approvers := make([]any, inAll)
+	for i := range approvers {
+		approvers[i] = fmt.Sprintf("approver%03d", i)
+	}
+	id := startApproval(t, h, approvalDefinition(h.projID, "waive-many-runs", "parallel", ""), approvers...)
+	open := openIterationTasks(ctx, t, h, id, "approve")
+	if len(open) != inAll {
+		t.Fatalf("the step has %d open tasks; this test needs %d", len(open), inAll)
+	}
+	// Everybody takes their task, so every withdrawal has somebody to tell.
+	holderOf := make(map[uuid.UUID]string, inAll)
+	for i, task := range open {
+		holder := fmt.Sprintf("approver%03d", i)
+		if err := h.svc.ClaimTask(testutils.AsOperator(ctx, holder), task.ID, holder); err != nil {
+			t.Fatalf("%s claims: %v", holder, err)
+		}
+		holderOf[task.ID] = holder
+	}
+
+	out := w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "approve", nil))
+	if left := openIterationTasks(ctx, t, h, id, "approve"); len(left) != 0 || tokensOn(t, h, id, "approve") != 0 || !h.waitingAt(ctx, t, id, "record") {
+		t.Fatalf("%d run(s) are still open and %d token(s) still on the step after the waive", len(left), tokensOn(t, h, id, "approve"))
+	}
+	told := toldOfWithdrawal(events)
+	if len(told) != inAll {
+		t.Fatalf("%d holder(s) were told of a withdrawal, want each of %d", len(told), inAll)
+	}
+	for holder, times := range told {
+		if times != 1 {
+			t.Errorf("%s was told %d times, want once", holder, times)
+		}
+	}
+
+	row := w.theWaive(t, id)
+	was, is := tasksSection(t, row.Before), tasksSection(t, row.After)
+	if row.Details["withdrawn"] != float64(inAll) || row.Details["tasks_listed"] != float64(named) || len(was) != named || len(is) != named || row.Task != nil {
+		t.Fatalf("the row counts %v withdrawn and %v listed, and names %d before and %d after; want %d withdrawn and %d named",
+			row.Details["withdrawn"], row.Details["tasks_listed"], len(was), len(is), inAll, named)
+	}
+	slices.SortFunc(open, func(a, b entities.Task) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	for i, task := range open {
+		recorded, has := was[task.ID.String()]
+		if has != (i < named) {
+			t.Fatalf("task %d in the order of their ids is named on the row: %v; the row names the first %d", i+1, has, named)
+		}
+		if has && (recorded["assignee"] != holderOf[task.ID] || recorded["status"] != string(entities.TaskClaimed) || is[task.ID.String()]["status"] != string(entities.TaskCanceled)) {
+			t.Errorf("the row says of %s's task: %v, then %v", holderOf[task.ID], recorded, is[task.ID.String()])
+		}
+		// Named on the row or not, the task's own row says who held it.
+		if now, err := h.svc.GetTask(ctx, task.ID); err != nil || now.Status != entities.TaskCanceled || now.AssigneeUsername() != holderOf[task.ID] {
+			t.Fatalf("%s's task is %q with %q (%v), want it withdrawn and still theirs", holderOf[task.ID], now.Status, now.AssigneeUsername(), err)
+		}
+	}
+	// The reply carries the same row, not a longer one.
+	if replied := tasksSection(t, out.Deviation.Before); len(replied) != named {
+		t.Errorf("the apply answered a row naming %d tasks, want %d", len(replied), named)
 	}
 }

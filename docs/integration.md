@@ -883,7 +883,7 @@ row:
     "before": { "tasks": { "0199…": { "status": "claimed", "assignee": "ollie" } } },
     "after": { "tasks": { "0199…": { "status": "canceled" } },
                "variables": { "approved": true } },
-    "details": { "withdrawn": 1, "decision_points": 1 },
+    "details": { "withdrawn": 1, "tasks_listed": 1, "decision_points": 1 },
     "run_id": "0199…", "audit_entry_id": "0199…", "created_at": "2026-10-04T09:12:00Z"
   }
 }

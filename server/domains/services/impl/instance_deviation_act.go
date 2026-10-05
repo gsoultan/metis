@@ -62,7 +62,10 @@ func (s *instanceDeviationService) act(
 //
 // The record is made from the tasks the effect held and withdrew, not from
 // the plan's open work: the plan read them without their rows, and whoever
-// holds a task may have changed since.
+// holds a task may have changed since. It counts every one and names the
+// first maxRecordedInPlace of them, by id, as a cancel's does: a step done
+// once for each of five thousand people has five thousand runs, and a row is
+// read whole.
 //
 // An advance that fails — a gateway after the step with no flow for the
 // value given — fails the unit of work: nothing is set, withdrawn or
@@ -94,7 +97,8 @@ func (s *instanceDeviationService) waiveStep(
 	if len(withdrawn) == 1 {
 		row.Task = &entities.Task{ID: uuid.UUID(withdrawn[0].ID)}
 	}
-	row.Before, row.After = withdrawnTaskValues(withdrawn)
+	named := lowestByID(withdrawn, maxRecordedInPlace)
+	row.Before, row.After = withdrawnTaskValues(named)
 	if len(command.Outputs) > 0 {
 		row.After["variables"] = maps.Clone(command.Outputs)
 		if len(held) > 0 {
@@ -104,7 +108,7 @@ func (s *instanceDeviationService) waiveStep(
 	// Counts, and no business value: the details of a row are not sealed.
 	// The decision points are counted and not listed, because a plan lists
 	// no more than a screenful of them and a list here would read as all.
-	row.Details = map[string]any{"withdrawn": len(withdrawn), "decision_points": plan.DecisionPointsInAll}
+	row.Details = map[string]any{"withdrawn": len(withdrawn), "tasks_listed": len(named), "decision_points": plan.DecisionPointsInAll}
 
 	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID))
 	if err != nil {
@@ -237,13 +241,14 @@ func effectFailed(doing string, err error) error {
 	return fmt.Errorf("%s: %s", doing, err.Error())
 }
 
-// maxRecordedOnCancel is how many withdrawn tasks, and how many closed
-// incidents, the ledger row of a cancel names one by one. A row is read whole
+// maxRecordedInPlace is how many withdrawn tasks the ledger row of a waive or
+// a cancel in place names one by one, and how many closed incidents a
+// cancel's does. A row is read whole
 // — by the ledger's own route, and by whoever asks what was done to an
 // instance — and how much an instance has open is the instance's to say: a
 // step done once for each of a thousand people has a thousand tasks. The row
 // counts them all.
-const maxRecordedOnCancel = 200
+const maxRecordedInPlace = 200
 
 // cancelWhereItStands ends an instance as it stands: every task it has open
 // is withdrawn and whoever held it told, the work it had parked for outside
@@ -262,7 +267,7 @@ const maxRecordedOnCancel = 200
 // without its rows held; who holds a task may have changed since, and there
 // may be more of them than it lists.
 //
-// The row names the first maxRecordedOnCancel tasks, by id, and as many
+// The row names the first maxRecordedInPlace tasks, by id, and as many
 // incidents. Past that it does not name every holder: the holder of a task it
 // does not name is on the task's own row, which a withdrawal changes only the
 // status of, and in the notice sent to them.
@@ -287,11 +292,11 @@ func (s *instanceDeviationService) cancelWhereItStands(
 	if len(done.withdrawn) == 1 {
 		row.Task = &entities.Task{ID: uuid.UUID(done.withdrawn[0].ID)}
 	}
-	named := lowestByID(done.withdrawn, maxRecordedOnCancel)
+	named := lowestByID(done.withdrawn, maxRecordedInPlace)
 	row.Before, row.After = withdrawnTaskValues(named)
 	row.Before["instance"] = map[string]any{"status": string(locked.Status)}
 	row.After["instance"] = map[string]any{"status": string(done.instance.Status)}
-	if was, is := closedIncidentValues(done.incidentsClosed, maxRecordedOnCancel); len(was) > 0 {
+	if was, is := closedIncidentValues(done.incidentsClosed, maxRecordedInPlace); len(was) > 0 {
 		row.Before["incidents"], row.After["incidents"] = was, is
 	}
 	// Counts, and no business value: the details of a row are not sealed.

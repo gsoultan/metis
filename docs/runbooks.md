@@ -380,8 +380,9 @@ A called instance whose caller has already ended is cancelled the same way,
 and its plan has no such warning.
 
 For an instance with more than 200 open tasks, the cancel's ledger row names
-the 200 tasks with the lowest ids and counts them all. Who held a task it does
-not name is on the task itself and in the notice they were sent:
+the 200 tasks with the lowest ids and counts them all, and so does the row of
+a waive of a step with more than 200 open runs. Who held a task it does not
+name is on the task itself and in the notice they were sent:
 
 ```sql
 SELECT id, node_id, assignee FROM tasks

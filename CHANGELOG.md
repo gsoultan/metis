@@ -261,8 +261,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   - A hold's incident stays open when the instance goes on to finish.
   - The lists in a plan are the first of what there is: at most 100 decision
     points, 200 open tasks, 50 missing names, ten names at a point. The
-    counts beside them (`…_in_all`) are of everything. A cancel's ledger row
-    names the 200 tasks with the lowest ids and counts them all.
+    counts beside them (`…_in_all`) are of everything. The ledger row of a
+    cancel or a waive names the 200 tasks with the lowest ids and counts them
+    all.
   - A 400 carries a sentence and no machine-readable code.
   - An apply waits for the instance's lock, and for the rows of the tasks it
     withdraws, with no deadline on the server.

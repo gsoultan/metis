@@ -1033,7 +1033,7 @@ same kinds of row, with `origin: "in_place"` where a migration's say `migration`
 
 | Act | Row | Reaches | What it records |
 | :-- | :-- | :-- | :-- |
-| `waive` | `waive` | the task | the tasks withdrawn, as they were (status and holder) and as they are (`canceled`); the values the waive set (`after.variables`) and what the instance held under those names before (`before.variables`); in `details`, how many tasks were withdrawn and how many places decide from the step (`decision_points`, a count) |
+| `waive` | `waive` | the task | the tasks withdrawn, the 200 with the lowest ids, as they were (status and holder) and as they are (`canceled`); the values the waive set (`after.variables`) and what the instance held under those names before (`before.variables`); in `details`, how many tasks were withdrawn (`withdrawn`), how many of them the row names (`tasks_listed`) and how many places decide from the step (`decision_points`, a count) |
 | `cancel` | `cancel` | the instance | its status, `active` to `cancelled`; the tasks withdrawn, the 200 with the lowest ids; the incidents closed, `open` to `resolved`, at most 200; in `details`, always, `withdrawn`, `tasks_listed`, `external_tasks_withdrawn` and `incidents_closed` |
 | `hold` | `hold` | the instance | the incident (`after.incident`), and in `details` whether this hold raised it or found it open (`incident_raised`) |
 
@@ -1044,7 +1044,10 @@ many, and writes the two counts only when they are not zero: its rows are pinned
 were. And a migration's hold of a step that already has an open incident writes nothing
 more, where a hold in place writes its row and says the incident was already there.
 
-For an instance with more than 200 open tasks, the cancel's row does not name every holder.
+For more than 200 open tasks — on the instance for a cancel, on the step for a waive of a
+repeating approval — the row does not name every holder
+(`TestACancelOfMoreWorkThanAPlanListsWithdrawsAllOfIt`,
+`TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll`).
 The holder of a task it does not name is on the task's own row, which a withdrawal changes
 only the status of, and in the notice sent to them. The trail's entry for each withdrawal
 names the step and not the holder.
