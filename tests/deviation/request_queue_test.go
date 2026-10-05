@@ -90,8 +90,10 @@ func (h *deviationHarness) requestOfShape(t *testing.T, instanceID uuid.UUID, sh
 	r.ExpiresAt = now.Add(shape.expires)
 	request := h.mustCreateRequest(t, r)
 	for _, next := range movesTo[shape.stored] {
-		change := decisionTo(next)
-		change.DecidedAt = now.Add(shape.decided)
+		change := moveTo(request.Status, next)
+		if request.Status == entities.DeviationRequestPending {
+			change.DecidedAt = now.Add(shape.decided)
+		}
 		moved, err := h.transition(h.tenantContext(), request.ID, request.Status, change)
 		if err != nil {
 			t.Fatalf("%s: move to %s: %v", shape.name, next, err)

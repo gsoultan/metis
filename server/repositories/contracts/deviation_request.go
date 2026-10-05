@@ -49,6 +49,11 @@ var ErrDeviationRequestAlreadyWaiting = errors.New("an identical request is alre
 // run's report on an approved request (applied) gives none and keeps the
 // approval's. An expiry, a stale request and an interruption name nobody: the
 // clock, the instance or a failed run made them.
+//
+// Who approved is written once. A change that moves a request out of approved
+// or interrupted is a report — the run's, or the sweep's — and says what
+// happened: Status and Outcome. One that gives a DecidedBy, a DecidedByID, a
+// DecidedAt or a DecisionReason is refused, whatever their values.
 type DeviationRequestChange struct {
 	Status         entities.DeviationRequestStatus
 	DecidedBy      string
@@ -88,7 +93,8 @@ type DeviationRequestWriter interface {
 	// ErrDeviationRequestAlreadyWaiting. A request the caller got wrong — no
 	// project, requester, fingerprint or deadline, a status other than
 	// pending_approval, a waive of no instance, a migration between no
-	// versions — is a plain error.
+	// versions — is a plain error. An instance or a version that is not in
+	// the request's project is not found.
 	Create(ctx context.Context, request entities.DeviationRequest) (entities.DeviationRequest, error)
 
 	// GetForUpdate answers one request, whole, and holds its row until the
@@ -116,8 +122,9 @@ type DeviationRequestWriter interface {
 	// approved, applied, rejected, expired or made stale; an approved one is
 	// applied or interrupted; an interrupted one is reported on by its run
 	// (applied, or interrupted again). Any other move, a status outside the
-	// closed set, or a person's decision that does not say who and when
-	// (see DeviationRequestChange) is a plain error, and nothing is written.
+	// closed set, a person's decision that does not say who and when, or a
+	// report that names a decision (see DeviationRequestChange) is a plain
+	// error, and nothing is written.
 	Transition(ctx context.Context, id uuid.UUID, from entities.DeviationRequestStatus, change DeviationRequestChange) (entities.DeviationRequest, error)
 }
 

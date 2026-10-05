@@ -83,7 +83,8 @@ var requestMoves = map[entities.DeviationRequestStatus][]entities.DeviationReque
 	entities.DeviationRequestInterrupted: {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
 }
 
-// checkedMove refuses a change of status the product does not make.
+// checkedMove refuses a change of status the product does not make, and a
+// report that names a decision.
 func checkedMove(from entities.DeviationRequestStatus, change contracts.DeviationRequestChange) error {
 	to := change.Status
 	if !from.Valid() || !to.Valid() {
@@ -92,7 +93,21 @@ func checkedMove(from entities.DeviationRequestStatus, change contracts.Deviatio
 	if !slices.Contains(requestMoves[from], to) {
 		return fmt.Errorf("deviation request: nothing moves a request from %s to %s", from, to)
 	}
+	if from != entities.DeviationRequestPending && namesADecision(change) {
+		return fmt.Errorf("deviation request: a request that is %s was decided already; a report on it says what the run did, and this one names who decided, when or why", from)
+	}
 	return nil
+}
+
+// namesADecision reports whether a change says anything of who decided, from
+// which account, when or why.
+//
+// Who approved is written once, by the change that takes a request out of
+// waiting. Every move after that is a report — the run's, or the sweep's —
+// and a report that could write these fields could turn a self-approval into
+// one a second person gave, or move the time the run window is counted from.
+func namesADecision(change contracts.DeviationRequestChange) bool {
+	return change.DecidedBy != "" || change.DecidedByID != uuid.Nil || change.DecisionReason != "" || !change.DecidedAt.IsZero()
 }
 
 // checkedDecision refuses a move that would leave a request approved, applied
@@ -103,8 +118,8 @@ func checkedMove(from entities.DeviationRequestStatus, change contracts.Deviatio
 // with no account id reads as one a second person gave
 // (DeviationRequest.SelfApproved compares account ids), and one with no time
 // reads as a run that never reported (RunWindowClosed). A run's report on an
-// approved request names nobody again — the approval did — and passes on what
-// is stored.
+// approved request names nobody (checkedMove refuses one that does) — the
+// approval did — and passes on what is stored.
 //
 // An expiry, a stale request and an interruption are nobody's decision: the
 // clock, the instance or a run that failed made them. They are not checked,

@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -35,10 +36,11 @@ const liveRequestIndex = "ux_deviation_requests_live_key"
 // request written on its own connection survives an ask that rolled back, and
 // then holds its fingerprint against every later one.
 //
-// Scoped to the caller's organization through the project it names, and an
-// instance it names has to be in that project: instance_id has no foreign key
-// (the lock order note in the migration), so this read is what stops a
-// request pointing an approver at somebody else's case.
+// Scoped to the caller's organization through the project it names, and what
+// it names has to be in that project. instance_id has no foreign key (the
+// lock order note in the migration), and the foreign keys on the two versions
+// say only that they exist somewhere, so these reads are what stop a request
+// pointing an approver at somebody else's case or somebody else's process.
 //
 // The command and the plan hold business values and are sealed like every
 // other copy of them; the outcome and the list of instances are not, and stay
@@ -85,27 +87,60 @@ func heldByALiveRequest(err error) bool {
 }
 
 // requireOwnTarget refuses a request for a project that is not the caller's,
-// or for an instance outside that project.
+// or for an instance or a version outside that project.
+//
+// A request is a record in one project about that project's work. The project
+// is the caller's or the request is refused; what it names is then looked for
+// in that project and nowhere else, so something of another project — of the
+// same organization or of another — is answered as something that is not
+// there, which is all this caller may know of it.
 func (r *deviationRequestRepository) requireOwnTarget(ctx context.Context, request entities.DeviationRequest) error {
 	projectID := request.Project.ID
 	if err := r.requireProjectInTenant(ctx, projectID); err != nil {
 		return err
 	}
-	if request.Instance == nil || request.Instance.ID == uuid.Nil {
-		return nil
-	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return err
 	}
-	found, err := processinstance.New().
-		Where(processinstance.ID.Eq(request.Instance.ID), processinstance.ProjectID.Eq(projectID)).
+	if request.Instance != nil && request.Instance.ID != uuid.Nil {
+		found, err := processinstance.New().
+			Where(processinstance.ID.Eq(request.Instance.ID), processinstance.ProjectID.Eq(projectID)).
+			Exists(ctx, ex)
+		if err != nil {
+			return fmt.Errorf("could not check the process instance: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
+		}
+	}
+	for _, version := range []*entities.ProcessDefinition{request.SourceDefinition, request.TargetDefinition} {
+		if err := requireVersionInProject(ctx, ex, version, projectID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireVersionInProject refuses a version that is not one of the project's.
+//
+// The foreign keys on the two version columns say only that the versions
+// exist, in any project of any organization. This is the read the definition
+// repository scopes a version by — the id within the project, a deleted
+// version left out — asked as a yes or no, since a definition carries its
+// whole graph and none of it is wanted here.
+func requireVersionInProject(ctx context.Context, ex runtime.Executor, version *entities.ProcessDefinition, projectID uuid.UUID) error {
+	if version == nil || version.ID == uuid.Nil {
+		return nil
+	}
+	found, err := processdefinition.New().
+		Where(processdefinition.ID.Eq(version.ID), processdefinition.ProjectID.Eq(projectID)).
 		Exists(ctx, ex)
 	if err != nil {
-		return fmt.Errorf("could not check the process instance: %w", err)
+		return fmt.Errorf("could not check the definition: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
+		return fmt.Errorf("%w: no such definition", apierr.ErrNotFound)
 	}
 	return nil
 }

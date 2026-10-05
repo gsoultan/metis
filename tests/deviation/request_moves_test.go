@@ -40,7 +40,7 @@ func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 		for _, to := range everyRequestStatus {
 			moves++
 			request := h.requestAt(t, h.sampleRequest(instanceID, fmt.Sprintf("dv1-move-%d", moves)), from)
-			moved, err := h.transition(h.tenantContext(), request.ID, from, decisionTo(to))
+			moved, err := h.transition(h.tenantContext(), request.ID, from, moveTo(from, to))
 			if slices.Contains(allowed[from], to) {
 				if err != nil || moved.Status != to {
 					t.Errorf("%s → %s: %v (now %s); the product makes this move", from, to, err, moved.Status)
@@ -141,7 +141,7 @@ func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 		t.Errorf("a decision outside a transaction: %v, want ErrDeviationRequestOutsideTransaction", err)
 	}
 	if _, err := h.transition(h.tenantContext(), waiting.ID, entities.DeviationRequestApproved,
-		decisionTo(entities.DeviationRequestApplied)); !errors.Is(err, repocontracts.ErrDeviationRequestDecided) {
+		moveTo(entities.DeviationRequestApproved, entities.DeviationRequestApplied)); !errors.Is(err, repocontracts.ErrDeviationRequestDecided) {
 		t.Errorf("a move from a status the request is not at: %v, want ErrDeviationRequestDecided", err)
 	}
 	if _, err := h.transition(h.tenantContext(), uuid.Must(uuid.NewV7()), entities.DeviationRequestPending,
@@ -189,7 +189,7 @@ func TestALiveRequestHoldsItsFingerprintAndOneThatIsOverLetsGo(t *testing.T) {
 		request := h.mustCreateRequest(t, h.sampleRequest(instanceID, fingerprint))
 		held("waiting, on its way to "+string(status), request)
 		for _, next := range movesTo[status] {
-			moved, err := h.transition(h.tenantContext(), request.ID, request.Status, decisionTo(next))
+			moved, err := h.transition(h.tenantContext(), request.ID, request.Status, moveTo(request.Status, next))
 			if err != nil {
 				t.Fatalf("move %s to %s: %v", fingerprint, next, err)
 			}
@@ -213,7 +213,7 @@ func TestALiveRequestHoldsItsFingerprintAndOneThatIsOverLetsGo(t *testing.T) {
 	// An interrupted request the run reports on after all stays over.
 	swept := h.requestAt(t, h.sampleRequest(instanceID, "dv1-reported-late"), entities.DeviationRequestInterrupted)
 	for _, report := range []entities.DeviationRequestStatus{entities.DeviationRequestInterrupted, entities.DeviationRequestApplied} {
-		moved, err := h.transition(h.tenantContext(), swept.ID, swept.Status, decisionTo(report))
+		moved, err := h.transition(h.tenantContext(), swept.ID, swept.Status, moveTo(swept.Status, report))
 		if err != nil {
 			t.Fatalf("the run's report (%s) over the sweep's mark: %v", report, err)
 		}
@@ -290,5 +290,53 @@ func TestAChangeLeavesWhatItDoesNotNameAsStored(t *testing.T) {
 	}
 	if late.DecidedBy != "budi" || late.DecidedAt == nil || !late.DecidedAt.Equal(approvedAt) {
 		t.Errorf("the report changed who approved and when: %q at %v", late.DecidedBy, late.DecidedAt)
+	}
+}
+
+// Who approved is written once. A run's report on an approved request — or on
+// one the sweep gave up on — says what the run did, not who approved it: a
+// report that names a decider, an account, a time or a reason is refused, and
+// who approved and when stay as they were. Otherwise one stray field would
+// turn a self-approval into one a second person gave, or the other way round.
+func TestAReportNeverChangesWhoApproved(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	carol := uuid.Must(uuid.NewV7())
+	naming := map[string]func(*repocontracts.DeviationRequestChange){
+		"another decider":        func(c *repocontracts.DeviationRequestChange) { c.DecidedBy = "carol" },
+		"another account":        func(c *repocontracts.DeviationRequestChange) { c.DecidedByID = carol },
+		"another time":           func(c *repocontracts.DeviationRequestChange) { c.DecidedAt = time.Now() },
+		"another reason":         func(c *repocontracts.DeviationRequestChange) { c.DecisionReason = "the run went well" },
+		"the same decider again": func(c *repocontracts.DeviationRequestChange) { c.DecidedBy, c.DecidedByID = "budi", budi },
+	}
+	reports := 0
+	for _, from := range []entities.DeviationRequestStatus{entities.DeviationRequestApproved, entities.DeviationRequestInterrupted} {
+		for _, to := range []entities.DeviationRequestStatus{entities.DeviationRequestApplied, entities.DeviationRequestInterrupted} {
+			reports++
+			request := h.requestAt(t, h.sampleRequest(instanceID, fmt.Sprintf("dv1-report-%d", reports)), from)
+			for name, name1 := range naming {
+				report := repocontracts.DeviationRequestChange{Status: to, Outcome: map[string]any{"changed": float64(1)}}
+				name1(&report)
+				if _, err := h.transition(h.tenantContext(), request.ID, from, report); !isTheWritersMistake(err) {
+					t.Errorf("%s → %s, a report naming %s: %v; want a plain server error", from, to, name, err)
+				}
+			}
+			still := h.mustGetRequest(t, request.ID)
+			if still.Status != from || still.DecidedBy != request.DecidedBy || still.DecidedByID != request.DecidedByID ||
+				still.DecisionReason != request.DecisionReason || still.DecidedAt == nil || !still.DecidedAt.Equal(*request.DecidedAt) ||
+				len(still.Outcome) != 0 || !still.UpdatedAt.Equal(request.UpdatedAt) {
+				t.Errorf("%s → %s: the refused reports left the request %s by %q (%s) at %v with outcome %v; it was %s by %q (%s) at %v",
+					from, to, still.Status, still.DecidedBy, still.DecisionReason, still.DecidedAt, still.Outcome,
+					from, request.DecidedBy, request.DecisionReason, request.DecidedAt)
+			}
+
+			// The report that names nobody is written, and budi still approved.
+			reported, err := h.transition(h.tenantContext(), request.ID, from,
+				repocontracts.DeviationRequestChange{Status: to, Outcome: map[string]any{"changed": float64(1)}})
+			if err != nil || reported.Status != to || reported.DecidedBy != "budi" || reported.DecidedByID != budi ||
+				reported.DecidedAt == nil || !reported.DecidedAt.Equal(*request.DecidedAt) || reported.Outcome["changed"] != float64(1) {
+				t.Errorf("%s → %s, a report naming nobody: %v, %+v", from, to, err, reported)
+			}
+		}
 	}
 }

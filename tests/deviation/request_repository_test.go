@@ -67,6 +67,16 @@ func decisionTo(status entities.DeviationRequestStatus) repocontracts.DeviationR
 	}
 }
 
+// moveTo is the change that takes a request from one status to another as the
+// product does: budi's decision of a request that waits, and for an approved
+// or interrupted one a report, which says what happened and names nobody.
+func moveTo(from, to entities.DeviationRequestStatus) repocontracts.DeviationRequestChange {
+	if from == entities.DeviationRequestPending {
+		return decisionTo(to)
+	}
+	return repocontracts.DeviationRequestChange{Status: to}
+}
+
 // movesTo is the way a request reaches each status: by the moves the product
 // makes, never by a row written at that status.
 var movesTo = map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
@@ -84,7 +94,7 @@ func (h *deviationHarness) requestAt(t *testing.T, r entities.DeviationRequest, 
 	t.Helper()
 	request := h.mustCreateRequest(t, r)
 	for _, next := range movesTo[status] {
-		moved, err := h.transition(h.tenantContext(), request.ID, request.Status, decisionTo(next))
+		moved, err := h.transition(h.tenantContext(), request.ID, request.Status, moveTo(request.Status, next))
 		if err != nil {
 			t.Fatalf("move the request %s from %s to %s: %v", r.Fingerprint, request.Status, next, err)
 		}
@@ -120,6 +130,18 @@ func (h *deviationHarness) requestCountIn(t *testing.T, projectID uuid.UUID) int
 		t.Fatalf("count the requests: %v", err)
 	}
 	return n
+}
+
+// inAnotherProject is a second project of the harness's own organization.
+func (h *deviationHarness) inAnotherProject(t *testing.T, name string) *deviationHarness {
+	t.Helper()
+	project, err := h.svc.CreateProject(h.tenantContext(), h.orgID, name, "")
+	if err != nil {
+		t.Fatalf("create %s: %v", name, err)
+	}
+	sibling := *h
+	sibling.projID, sibling.deployed = project.ID, 0
+	return &sibling
 }
 
 // inAnotherOrganization is a second organization with a project of its own,
@@ -527,5 +549,57 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	rows, total, err := requests.List(h.tenantContext(), entities.DeviationRequestQuery{}, time.Now())
 	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != ours.ID {
 		t.Errorf("the organization's own list: %d row(s) of %d, %v", len(rows), total, err)
+	}
+}
+
+// A migration request is a record in one project about that project's
+// versions. One that names a version of another project — of its own
+// organization or of somebody else's — is answered as naming a version that is
+// not there, in the same words either way: the foreign keys say only that the
+// two versions exist somewhere.
+func TestAMigrationRequestNamesOnlyVersionsOfItsOwnProject(t *testing.T) {
+	h := newDeviationHarness(t)
+	step := entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"}
+	v1, v2 := h.definitionOf(t, h.startOneStep(t, step)), h.definitionOf(t, h.startOneStep(t, step))
+	sibling := h.inAnotherProject(t, "Sibling Project")
+	siblings := sibling.definitionOf(t, sibling.startOneStep(t, step))
+	other := h.inAnotherOrganization(t, "Version Other Org")
+	theirs := other.definitionOf(t, other.startOneStep(t, step))
+
+	migration := func(fingerprint string, source, target uuid.UUID) entities.DeviationRequest {
+		r := h.sampleRequest(uuid.Nil, fingerprint)
+		r.Kind, r.Instance = entities.DeviationRequestMigration, nil
+		r.SourceDefinition, r.TargetDefinition = &entities.ProcessDefinition{ID: source}, &entities.ProcessDefinition{ID: target}
+		return r
+	}
+	refusals := map[string]string{}
+	for name, versions := range map[string][2]uuid.UUID{
+		"from a version of another project of the organization": {siblings, v2},
+		"to a version of another project of the organization":   {v1, siblings},
+		"from a version of another organization":                {theirs, v2},
+		"to a version of another organization":                  {v1, theirs},
+		"from a version that does not exist":                    {uuid.Must(uuid.NewV7()), v2},
+		"to a version that does not exist":                      {v1, uuid.Must(uuid.NewV7())},
+	} {
+		_, err := h.createRequest(h.tenantContext(), migration("mf1-foreign", versions[0], versions[1]))
+		if !errors.Is(err, apierr.ErrNotFound) {
+			t.Errorf("a migration %s: %v, want not found", name, err)
+			continue
+		}
+		refusals[err.Error()] = name
+	}
+	if len(refusals) != 1 {
+		t.Errorf("the refusals differ, so they tell a version that is somebody else's from one that is not there: %v", refusals)
+	}
+	if n := h.requestCountIn(t, h.projID); n != 0 {
+		t.Fatalf("refused requests left %d row(s)", n)
+	}
+
+	written, err := h.createRequest(h.tenantContext(), migration("mf1-own", v1, v2))
+	if err != nil {
+		t.Fatalf("a migration between two versions of its own project: %v", err)
+	}
+	if written.SourceDefinition == nil || written.SourceDefinition.ID != v1 || written.TargetDefinition == nil || written.TargetDefinition.ID != v2 {
+		t.Errorf("the request names %+v and %+v; want %s and %s", written.SourceDefinition, written.TargetDefinition, v1, v2)
 	}
 }
