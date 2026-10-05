@@ -219,7 +219,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     waive gives none, it decides on the value it already holds, or the waive
     is undone if it holds none. The instance's own list of completed steps
     includes a waived step, as after a migration's skip: to tell waived from
-    performed, read the task (`canceled`), the trail or the ledger.
+    performed, read the task (`canceled`), the trail or the ledger. A waive
+    of a step marked `compliance_relevant` warns that it is a control, and
+    its ledger row and trail entry carry `control: true`.
   - **A cancel ends the whole instance, whichever step it names.** Every open
     task is withdrawn and its holder told, work parked for outside workers is
     withdrawn, what the instance was waiting for is dropped, its open

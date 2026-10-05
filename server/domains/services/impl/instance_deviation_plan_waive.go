@@ -37,11 +37,35 @@ func (s *instanceDeviationService) planWaive(ctx context.Context, p *planning) e
 		p.refuse("Nobody has “%s” to do, so there is nothing to waive.", p.stepShown())
 		return nil
 	}
+	if isControl(p.node) {
+		p.warn("“%s” is marked as a control. Waiving it is recorded as a control that was not performed.", p.stepShown())
+	}
 	p.warnWhoLosesWork()
 	if err := s.warnThatTheCallerWasNotRead(ctx, p); err != nil {
 		return err
 	}
 	return s.planOutputs(ctx, p)
+}
+
+// controlProperty is how a definition marks a step as a control, and
+// detailControl the key under which the record of a waive says the step was
+// one.
+const (
+	controlProperty = "compliance_relevant"
+	detailControl   = "control"
+)
+
+// isControl reports whether a step is marked as a control: one the business
+// has to be able to show was performed.
+//
+// A control is waived as any step is, and the instance's own list of the steps
+// it has passed then counts it — a later migration that drops the step reads
+// that list and writes no "control waived" for this instance. So the waive
+// itself says what it is: the plan warns, and the ledger row and the trail
+// entry are marked (waiveStep), where nobody has to join the row to the
+// definition to see it.
+func isControl(node *entities.Node) bool {
+	return node != nil && boolProperty(node.Properties, controlProperty)
 }
 
 // warnThatTheCallerWasNotRead says, of a waive in an instance another process

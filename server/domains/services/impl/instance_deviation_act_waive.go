@@ -77,8 +77,13 @@ func (s *instanceDeviationService) waiveStep(
 	// The decision points are counted and not listed, because a plan lists
 	// no more than a screenful of them and a list here would read as all.
 	row.Details = map[string]any{"withdrawn": len(withdrawn), "tasks_listed": len(named), "decision_points": plan.DecisionPointsInAll}
+	// Said only of a control: a row with no mark is a step that was not one.
+	control := isControl(def.FindNode(command.NodeID))
+	if control {
+		row.Details[detailControl] = true
+	}
 
-	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID))
+	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID, control))
 	if err != nil {
 		return entities.Deviation{}, effectFailed(fmt.Sprintf("recording that “%s” was waived", plan.NodeName), err)
 	}
@@ -214,18 +219,22 @@ func valuesHeld(variables, outputs map[string]any) map[string]any {
 //
 // It names the values the waiver set and does not carry them: the trail is
 // not sealed, and what they were is in the ledger row the entry points at.
+//
+// control says the step is marked as a control: the entry then carries the
+// mark, as its row does.
 func waiveEntry(
 	locked models.ProcessInstanceModel,
 	plan entities.DeviationPlan,
 	command entities.DeviationCommand,
 	actor string,
 	runID uuid.UUID,
+	control bool,
 ) entities.AuditEntry {
 	set := sortedKeys(command.Outputs)
 	if set == nil {
 		set = []string{}
 	}
-	return entities.AuditEntry{
+	entry := entities.AuditEntry{
 		Type:    EventNodeSkipped,
 		Message: fmt.Sprintf("waive %s in place", plan.NodeID),
 		Narrative: fmt.Sprintf("“%s” was waived — nobody performed it — by %s. Reason: %s.",
@@ -245,4 +254,8 @@ func waiveEntry(
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(locked.ID)},
 		Node:     &entities.Node{ID: plan.NodeID, Name: plan.NodeName},
 	}
+	if control {
+		entry.Data[detailControl] = true
+	}
+	return entry
 }

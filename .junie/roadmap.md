@@ -1268,6 +1268,12 @@
       `TestAnApplyOnASuspendedInstanceIsRefusedAsSuspended`). A called instance whose
       caller is suspended is still warned to "cancel or hold that one next", which the
       command then refuses (*run*: `TestACalledInstanceOrACallerThatIsSuspendedHasNotEnded`).
+    - **A later migration counts a waived control as passed.** A waive of a step marked
+      `compliance_relevant` warns, and marks its row and its entry `control: true` (*run*:
+      `TestAWaiveOfAControlSaysSo`), and asks for no acknowledgement in this slice. The
+      instance's completed-steps list then holds the step, and `controlsNotPassed` reads
+      that list: a migration that later drops the step writes no `control_waived` row for
+      this instance (*read*).
     - **Message correlation keys read process variables.** A value left by an earlier visit
       correlates silently; it is not a decision point of a waive's plan (*read*).
     - **A value derived from the step's is not traced.** A script, or a service task's

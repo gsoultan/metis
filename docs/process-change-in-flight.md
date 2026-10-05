@@ -699,6 +699,16 @@ waived step, as it does after a migration's skip. To tell waived from performed,
 task (`canceled`), the trail (`node_skipped`, `outcome: waived`) or the ledger, not the
 instance.
 
+**A step marked as a control is waived like any other, and says so.** A waive asks for no
+acknowledgement of a step marked `compliance_relevant`. Its plan warns *“Operations approve”
+is marked as a control. Waiving it is recorded as a control that was not performed.*, and
+the waive's ledger row and trail entry carry `control: true` (in the row's `details`, and
+in the entry's data); a waive of any other step carries neither
+(`TestAWaiveOfAControlSaysSo`). The waive's own row is the record that the control was not
+performed. The instance's list of completed steps counts the waived step all the same, so a
+later migration that drops the step treats this instance as having passed the control and
+writes no `control_waived` row for it (read from the code, not run).
+
 The plan refuses a waive that would have to guess:
 
 | Refused | In the plan's words |
@@ -1033,7 +1043,7 @@ same kinds of row, with `origin: "in_place"` where a migration's say `migration`
 
 | Act | Row | Reaches | What it records |
 | :-- | :-- | :-- | :-- |
-| `waive` | `waive` | the task | the tasks withdrawn, the 200 with the lowest ids, as they were (status and holder) and as they are (`canceled`); the values the waive set (`after.variables`) and what the instance held under those names before (`before.variables`); in `details`, how many tasks were withdrawn (`withdrawn`), how many of them the row names (`tasks_listed`) and how many places decide from the step (`decision_points`, a count) |
+| `waive` | `waive` | the task | the tasks withdrawn, the 200 with the lowest ids, as they were (status and holder) and as they are (`canceled`); the values the waive set (`after.variables`) and what the instance held under those names before (`before.variables`); in `details`, how many tasks were withdrawn (`withdrawn`), how many of them the row names (`tasks_listed`) and how many places decide from the step (`decision_points`, a count), and `control: true` when the step is marked as a control |
 | `cancel` | `cancel` | the instance | its status, `active` to `cancelled`; the tasks withdrawn, the 200 with the lowest ids; the incidents closed, `open` to `resolved`, at most 200; in `details`, always, `withdrawn`, `tasks_listed`, `external_tasks_withdrawn` and `incidents_closed` |
 | `hold` | `hold` | the instance | the incident (`after.incident`), and in `details` whether this hold raised it or found it open (`incident_raised`) |
 

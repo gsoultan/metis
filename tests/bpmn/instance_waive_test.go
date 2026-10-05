@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1006,5 +1007,54 @@ func TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll(t *testing.T) {
 	// The reply carries the same row, not a longer one.
 	if replied := tasksSection(t, out.Deviation.Before); len(replied) != named {
 		t.Errorf("the apply answered a row naming %d tasks, want %d", len(replied), named)
+	}
+}
+
+// A step marked as a control is waived like any other, and afterwards the
+// instance's own list of completed steps counts it as passed. So the waive
+// says what it is: the plan warns before the apply, and the ledger row and the
+// trail entry carry the mark, so that nobody has to join the row to the
+// definition to see that a control was not performed. A step that is not a
+// control has neither the warning nor the mark.
+func TestAWaiveOfAControlSaysSo(t *testing.T) {
+	h := newEngineHarness(t, "Waive Control Project")
+	h.recordsAsProductionDoes()
+	w := newWaiver(h)
+	const warning = "“Operations approve” is marked as a control. Waiving it is recorded as a control that was not performed."
+
+	control := opsApproval(h.projID, "ops-control")
+	control.Nodes[1].Properties["compliance_relevant"] = true
+	marked := w.start(t, control, nil)
+	plain := w.start(t, opsApproval(h.projID, "ops-no-control"), nil)
+
+	waive := func(id uuid.UUID) entities.DeviationCommand {
+		return deviationCommand(entities.DeviationWaive, id, "opsApprove", map[string]any{"approved": true})
+	}
+	wantWarnings := []string{warning, "“Operations approve” is with ollie, who will be told it was withdrawn."}
+	if plan := w.preview(t, waive(marked)); !plan.Applicable() || !reflect.DeepEqual(plan.Warnings, wantWarnings) {
+		t.Fatalf("the plan for a waive of a control: refusals:%s\nwarnings:%s\nwant the warnings:%s", lines(plan.Refusals), lines(plan.Warnings), lines(wantWarnings))
+	}
+	if plan := w.preview(t, waive(plain)); !plan.Applicable() || !reflect.DeepEqual(plan.Warnings, wantWarnings[1:]) {
+		t.Fatalf("the plan for a waive of a step that is not a control: warnings:%s\nwant only:%s", lines(plan.Warnings), lines(wantWarnings[1:]))
+	}
+	// A cancel and a hold do not skip the control: they say nothing of it.
+	for _, kind := range []entities.DeviationKind{entities.DeviationCancel, entities.DeviationHold} {
+		if plan := w.preview(t, deviationCommand(kind, marked, "opsApprove", nil)); said(plan.Warnings, warning) {
+			t.Errorf("a %s at a control warns that it is waived:%s", kind, lines(plan.Warnings))
+		}
+	}
+
+	w.mustApply(t, waive(marked))
+	w.mustApply(t, waive(plain))
+	row, entry := w.theWaive(t, marked), theEntryOf(t, h, marked, serviceimpl.EventNodeSkipped)
+	if row.Details["control"] != true || entry.Data["control"] != true {
+		t.Errorf("the waive of a control: the row's details %v and the entry's data %v; want each to carry control: true", row.Details, entry.Data)
+	}
+	row, entry = w.theWaive(t, plain), theEntryOf(t, h, plain, serviceimpl.EventNodeSkipped)
+	if _, has := row.Details["control"]; has {
+		t.Errorf("the waive of a step that is not a control carries the mark on its row: %v", row.Details)
+	}
+	if _, has := entry.Data["control"]; has {
+		t.Errorf("the waive of a step that is not a control carries the mark on its entry: %v", entry.Data)
 	}
 }
