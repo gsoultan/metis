@@ -16,8 +16,10 @@ type DeviationPlan struct {
 	Scope      DeviationScope
 
 	// NodeID and NodeName are the step the command acts on, the name falling
-	// back to the id. Both are empty for a cancel that names no step, and the
-	// name is empty for a step the process does not have.
+	// back to the id. Both are empty for a cancel that names no step. The name
+	// is empty for a step the instance's version does not have — except for a
+	// cancel naming such a step that the instance holds a token on, which is
+	// accepted and shown by the step's id.
 	NodeID, NodeName string
 	// VisitKey identifies the work the plan was made for: the open work it
 	// lists and where the instance waits — at the step, or anywhere for a

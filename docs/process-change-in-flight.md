@@ -818,7 +818,16 @@ the outcome” is still open though the instance is not waiting there; it will b
 | :-- | :-- |
 | An instance while a process it called has not ended | *This instance is waiting on 1 process(es) it started (0199…); cancel or finish those first.* |
 | A cancel naming no step, of an instance that waits somewhere | *This instance is waiting at “Operations approve”; say which of those steps it is to be ended at.* |
-| A step the instance is not waiting at, or one its process does not have | *This instance is not waiting at “Sales approve”.* |
+| A step the instance is not waiting at | *This instance is not waiting at “Sales approve”.* |
+| A step the instance's version does not have, and the instance holds no token on | *This process has no step "archive".* |
+
+A cancel may name a step the instance holds a token on **that its version does not have**:
+the state a migration of an earlier release could leave
+([upgrading.md](upgrading.md#an-instance-a-migration-left-with-nothing-to-do), case 1).
+The step is shown by its id, in the plan and in the record, because the version has no name
+for it; a waive and a hold of such a step are refused with *This process has no step "…".*
+(`TestACancelCanNameAStepTheInstancesVersionNoLongerHas`, on a row written through the
+repository).
 
 A **called instance** can be cancelled in place, where it waits or when it waits nowhere.
 Cancelling it ends that instance and resumes nobody. While its caller has not ended, its

@@ -36,7 +36,7 @@ type planning struct {
 	// def is the graph the instance runs.
 	def *entities.ProcessDefinition
 	// node is the step the command names: nil when it names none, and when
-	// the process has no such step.
+	// the version the instance runs has no such step.
 	node *entities.Node
 	// open is the open tasks where the command acts — on the step for a waive
 	// and a hold, anywhere on the instance for a cancel — in the order of
@@ -105,6 +105,9 @@ func (s *instanceDeviationService) startPlanning(ctx context.Context, instance e
 			// As the ledger keeps a step's name, so that the plan, the row
 			// and the trail entry made from the plan name it alike.
 			p.plan.NodeName = cmp.Or(shownStepName(p.node.Name), p.node.ID)
+		} else if p.cancelsWhereTheVersionHasNoStep() {
+			// The version has no name for it: it is shown by its id.
+			p.plan.NodeName = command.NodeID
 		}
 	}
 	if command.Kind == entities.DeviationHold {
@@ -253,6 +256,21 @@ func (p *planning) warn(format string, args ...any) {
 	p.plan.Warnings = append(p.plan.Warnings, fmt.Sprintf(format, args...))
 }
 
+// cancelsWhereTheVersionHasNoStep reports whether the command is a cancel
+// naming a step the instance holds a token on and its version does not have.
+//
+// A migration of an earlier release could move an instance onto a version
+// without the step it was on, token and all (docs/upgrading.md). Nothing else
+// reaches such an instance: its step cannot be completed into anything, and a
+// cancel that names no step is refused because it does wait somewhere. A
+// cancel ends the whole instance whichever step it names, and asks nothing of
+// the step but where the instance stood, so it may name this one. A waive and
+// a hold act on the step itself, and need the version to have it.
+func (p *planning) cancelsWhereTheVersionHasNoStep() bool {
+	return p.command.Kind == entities.DeviationCancel && p.node == nil && p.command.NodeID != "" &&
+		len(p.instance.GetTokensByNode(&entities.Node{ID: p.command.NodeID})) > 0
+}
+
 // refuseWhereItStands is what every kind asks: that the instance is running,
 // that it waits at the step the command names, and that somebody said why.
 func (p *planning) refuseWhereItStands() {
@@ -263,6 +281,8 @@ func (p *planning) refuseWhereItStands() {
 	case p.command.NodeID == "":
 		// A cancel that names no step: planCancel says where the instance
 		// waits, if it waits anywhere.
+	case p.cancelsWhereTheVersionHasNoStep():
+		// The instance waits there, and that is all a cancel asks of a step.
 	case p.node == nil:
 		p.refuse("This process has no step %q.", p.command.NodeID)
 	case len(p.instance.GetTokensByNode(p.node)) == 0:

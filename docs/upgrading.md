@@ -87,11 +87,20 @@ instance is on that version at the step, and completing the step advances it
 as that version says. Then run the migration you meant, with a mapping or a
 decision for the step.
 
-The waive, cancel and hold of one instance in place, new in this release, do
-not reach an instance in this state (read from the planner, not run). Naming
-the step is refused, *This process has no step "…".*, because the version it is
-on does not have it; and a cancel that names no step is refused because the
-instance does hold a token. Move it back first, as above.
+If the instance is not worth moving back, it can be closed where it is: a
+cancel in place may name the step the instance holds a token on, though the
+version it is on does not have that step
+(`POST /api/v1/instances/{id}/deviations` with
+`{"kind": "cancel", "node_id": "<the step from the query>", "reason": "…"}`,
+previewed first). The plan and the record show the step by its id, since the
+version has no name for it, and the cancel withdraws the open task and tells
+its holder (`TestACancelCanNameAStepTheInstancesVersionNoLongerHas`, on an
+instance put in this state through the repository: no release since creates
+one). A cancel that names no step is refused, because the instance does hold a
+token, and its refusal names the step by its id: *This instance is waiting at
+“<step-id>”; say which of those steps it is to be ended at.* A waive and a hold
+of that step are refused, *This process has no step "…".*: to do either, move
+the instance back first, as above.
 
 **2. With nothing left.** The step's holder completed the task. The token came
 off, nothing followed because the version has no such step, and the instance

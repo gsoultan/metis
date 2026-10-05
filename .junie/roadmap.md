@@ -1308,10 +1308,11 @@
       called from a step that has ended keeps running, is still open, and such an instance
       is now closable with the cancel in place (*run*:
       `TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt`).
-    - **An instance holding a token on a step its version lacks is out of reach in place**:
-      naming the step is refused for a step the process does not have, and naming none is
-      refused because it waits somewhere (*read* while writing the docs; not in the task
-      ledger). `docs/upgrading.md` says to migrate it back first.
+    - **An instance holding a token on a step its version lacks is closable in place, and
+      nothing more**: a cancel may name that step and shows it by its id; a waive and a hold
+      of it are still refused, and `docs/upgrading.md` says to migrate it back for those
+      (*run*: `TestACancelCanNameAStepTheInstancesVersionNoLongerHas`, on a row written
+      through the repository, since no release after 0.4.0 creates the state).
     - **A step with no way out leaves its instance `active` with nothing left once it is
       completed**, because the engine ends an instance only at an end event. Closable now
       with the cancel in place, not prevented (*run*: the fixture of

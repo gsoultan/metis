@@ -226,7 +226,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     open task of the instance, not only the step's. A cancel that names no
     step closes an instance that is `active` and waits at no step, which
     nothing could close before; a task left open on such an instance, with
-    no token under it, is withdrawn with it. A called instance can be
+    no token under it, is withdrawn with it. A cancel may also name a step
+    the instance holds a token on that its version no longer has, which an
+    earlier release's migration could leave; the step is shown by its id.
+    A called instance can be
     cancelled alone: its caller is not resumed, and the plan warns of a
     caller that is still waiting for it. Refused: an instance while a process
     it called has not ended, and a suspended instance. So a process and what
