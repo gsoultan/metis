@@ -868,6 +868,13 @@ several steps of a definition share an id; never too few. `refusals` and
 points of a kind and of each task the plan lists, and count the rest in a
 sentence.
 
+**Read `applied`, not the status alone.** When a waive needs a second
+approver, an apply will answer `applied: false` with
+`requires_second_approver: true`. In this release `requires_second_approver`
+is always `false` and an apply that is answered 200 has `applied: true`; a
+client that reads `applied` now is ready for the release that adds the second
+approver.
+
 **The reply to an apply** is the plan it was applied with, `"applied": true`,
 and the record under `deviation`, exactly as `GET …/deviations` returns that
 row:

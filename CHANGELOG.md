@@ -270,8 +270,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   - A 400 carries a sentence and no machine-readable code.
   - An apply waits for the instance's lock, and for the rows of the tasks it
     withdraws, with no deadline on the server.
-  - There is no second approver for these acts yet, and no screen: the
-    command is made through the API.
+  - A cancel and a hold are one administrator's decision and stay so. A
+    waive is too in this release; the next adds a second approver for a
+    waive. There is no screen: the command is made through the API.
 
   The command and its rules are in [Changing a process that is already
   running](docs/process-change-in-flight.md#in-place-waive-cancel-and-hold),

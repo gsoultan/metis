@@ -926,8 +926,9 @@ Three things about a hold that are gaps, not design:
   suspended instance is not waived, cancelled or held in place*, for all three kinds.
   Nothing in the product suspends an instance or resumes one today, so this is met only on
   a row changed outside it.
-- **No second approver.** One administrator decides and applies. A second pair of eyes for
-  a waiver is not in this release.
+- **No second approver.** One administrator decides and applies. A cancel and a hold are
+  one administrator's decision and stay so. A waive is too in this release; the next adds
+  a second approver for a waive.
 
 ### Re-derived assignment
 
