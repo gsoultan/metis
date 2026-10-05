@@ -2781,6 +2781,121 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
 }
 
+// QueueRow is the "Queue" projection: the same read, 19 column(s) instead of
+// the whole row. Narrower tuples, no TOAST fetch for what nobody asked,
+// and an index-only scan becomes POSSIBLE — the full-row read forecloses
+// it by construction.
+type QueueRow struct {
+	ID                 [16]byte
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ProjectID          [16]byte
+	Kind               string
+	Status             string
+	InstanceID         runtime.Null[[16]byte]
+	SourceDefinitionID runtime.Null[[16]byte]
+	TargetDefinitionID runtime.Null[[16]byte]
+	RequestedBy        string
+	RequestedByID      [16]byte
+	Reason             string
+	Fingerprint        string
+	ExpiresAt          time.Time
+	DecidedBy          runtime.Null[string]
+	DecidedByID        runtime.Null[[16]byte]
+	DecisionReason     runtime.Null[string]
+	DecidedAt          runtime.Null[time.Time]
+	Outcome            runtime.JSON
+}
+
+const queuePrefix = `SELECT "id", "created_at", "updated_at", "project_id", "kind", "status", "instance_id", "source_definition_id", "target_definition_id", "requested_by", "requested_by_id", "reason", "fingerprint", "expires_at", "decided_by", "decided_by_id", "decision_reason", "decided_at", "outcome" FROM "deviation_requests"`
+
+var (
+	queueCache       = runtime.NewTreeCache()
+	queueOffsetCache = runtime.NewTreeCache()
+)
+
+func queueStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := queueCache, limitSuffix
+	if withOffset {
+		c, suffix = queueOffsetCache, limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(queuePrefix, toks, lowering, suffix))
+}
+
+func scanQueue(rv [][]byte, r *QueueRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	r.CreatedAt = runtime.Timestamptz(rv[1])
+	r.UpdatedAt = runtime.Timestamptz(rv[2])
+	copy(r.ProjectID[:], rv[3])
+	r.Kind = sl.Str(rv[4])
+	r.Status = sl.Str(rv[5])
+	r.InstanceID = runtime.Nullable(rv[6], runtime.UUID)
+	r.SourceDefinitionID = runtime.Nullable(rv[7], runtime.UUID)
+	r.TargetDefinitionID = runtime.Nullable(rv[8], runtime.UUID)
+	r.RequestedBy = sl.Str(rv[9])
+	copy(r.RequestedByID[:], rv[10])
+	r.Reason = sl.Str(rv[11])
+	r.Fingerprint = sl.Str(rv[12])
+	r.ExpiresAt = runtime.Timestamptz(rv[13])
+	r.DecidedBy = runtime.NullText(rv[14], sl)
+	r.DecidedByID = runtime.Nullable(rv[15], runtime.UUID)
+	r.DecisionReason = runtime.NullText(rv[16], sl)
+	r.DecidedAt = runtime.Nullable(rv[17], runtime.Timestamptz)
+	r.Outcome = runtime.JSON(runtime.JSONB(rv[18], sl))
+	return nil
+}
+
+// AllQueue runs the query projected to QueueRow. Predicates, ordering, limit,
+// offset and keyset all apply exactly as on All — a projection changes
+// what a row CARRIES, never which rows qualify. (After takes the full Row;
+// populate its ordering columns and the cursor works unchanged.)
+func (q Query) AllQueue(ctx context.Context, ex runtime.Executor) ([]QueueRow, error) {
+	var sl runtime.Slab
+	return q.AllQueueInto(ctx, ex, nil, &sl)
+}
+
+// AllQueueInto lets the caller own the output slice and the arena, exactly
+// as AllInto does — a projection's terminals mirror the full read's, so a
+// hot loop reuses both and a benchmark compares like with like.
+func (q Query) AllQueueInto(ctx context.Context, ex runtime.Executor, dst []QueueRow, sl *runtime.Slab) ([]QueueRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	var buf [21]runtime.Tok
+	st := queueStmtFor(q.stream(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, QueueRow{})
+		if err := scanQueue(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// OneQueue is AllQueue stopped at one row.
+func (q Query) OneQueue(ctx context.Context, ex runtime.Executor) (QueueRow, bool, error) {
+	out, err := q.Limit(1).AllQueue(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return QueueRow{}, false, err
+	}
+	return out[0], true, nil
+}
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "deviation_requests" ("id", "created_at", "updated_at", "project_id", "kind", "status", "instance_id", "source_definition_id", "target_definition_id", "requested_by", "requested_by_id", "reason", "command", "plan", "fingerprint", "live_key", "approved_instances", "expires_at", "decided_by", "decided_by_id", "decision_reason", "decided_at", "outcome") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING "id", "created_at", "updated_at", "project_id", "kind", "status", "instance_id", "source_definition_id", "target_definition_id", "requested_by", "requested_by_id", "reason", "command", "plan", "fingerprint", "live_key", "approved_instances", "expires_at", "decided_by", "decided_by_id", "decision_reason", "decided_at", "outcome"`

@@ -60,3 +60,19 @@ func (r *DeviationRequest) Schema(t *storm.Table) {
 	t.Index(&r.InstanceID).Named("ix_deviation_requests_instance")
 	t.Index(&r.Project, &r.LiveKey).Unique().Named("ux_deviation_requests_live_key")
 }
+
+// Projections declares the queue's read: a request without its command, its
+// plan and the instances it covers.
+//
+// Those three are the heavy part of the row — the instance list has no bound
+// (every running instance of a version), and the other two are sealed — and
+// the queue shows none of them. Read whole, a page would cost what its largest
+// requests weigh, on demand, for anyone who may list. They are read one
+// request at a time instead.
+func (r *DeviationRequest) Projections(p *storm.Projections) {
+	p.Named("Queue",
+		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.Project, &r.Kind, &r.Status,
+		&r.InstanceID, &r.SourceDefinition, &r.TargetDefinition,
+		&r.RequestedBy, &r.RequestedByID, &r.Reason, &r.Fingerprint, &r.ExpiresAt,
+		&r.DecidedBy, &r.DecidedByID, &r.DecisionReason, &r.DecidedAt, &r.Outcome)
+}
