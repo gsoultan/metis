@@ -128,9 +128,10 @@ type enrolled struct {
 	rolesElsewhere []string
 }
 
-// enrol creates the account name as spec says, through the account service
-// and the grants an administrator makes, signs it in and answers its id and
-// its token. Everything is granted before the account's first request, so no
+// enrol creates the account name as spec says — written as the harness
+// writes every account (createAccount), with the grants an administrator
+// makes made through the account service — signs it in and answers its id
+// and its token. Everything is granted before the account's first request, so no
 // request is ever answered from what the account used to be.
 func (h *deviationHarness) enrol(t *testing.T, name string, spec enrolled) (uuid.UUID, string) {
 	t.Helper()
@@ -152,9 +153,7 @@ func (h *deviationHarness) enrol(t *testing.T, name string, spec enrolled) (uuid
 		account.Organizations = append(account.Organizations, &entities.Organization{ID: org.ID})
 		grants[org.ID] = spec.rolesElsewhere
 	}
-	if err := h.svc.CreateUser(system, account, harnessPassword); err != nil {
-		t.Fatalf("create %s: %v", name, err)
-	}
+	h.createAccount(t, account)
 	for organization, roles := range grants {
 		if len(roles) == 0 {
 			continue

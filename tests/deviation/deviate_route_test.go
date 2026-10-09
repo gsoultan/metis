@@ -210,9 +210,7 @@ func (h *deviationHarness) signInToBoth(t *testing.T, name string) (token string
 		ID: uuid.Must(uuid.NewV7()), Username: name,
 		Organizations: []*entities.Organization{{ID: h.orgID}, {ID: org.ID}},
 	}
-	if err := h.svc.CreateUser(entities.WithSystemContext(context.Background()), account, harnessPassword); err != nil {
-		t.Fatalf("create %s: %v", name, err)
-	}
+	h.createAccount(t, account)
 	there := entities.WithTenantContext(entities.WithSystemContext(context.Background()), entities.TenantContext{TenantID: org.ID.String()})
 	if err := h.svc.SetOrganizationRoles(there, account.ID, []string{entities.RoleAdmin}); err != nil {
 		t.Fatalf("make %s an administrator of the other organization: %v", name, err)
