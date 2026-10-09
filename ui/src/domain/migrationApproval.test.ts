@@ -30,21 +30,37 @@ describe('a plan that needs a second administrator', () => {
     const needed = approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: reasons }), inEnglish);
     expect(needed).toEqual({
       title: 'A second administrator has to approve this',
-      message: 'Nothing moves until a different administrator approves it.',
+      message:
+        'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
+        'has been set up as having one administrator.',
       reasons,
     });
+  });
+
+  it('does not say who else approves: that is the organization’s to have set up', () => {
+    for (const t of [inEnglish, inIndonesian]) {
+      expect(approvalNeeded(plan({ requires_second_approver: true }), t)?.message).not.toMatch(/different administrator|administrator lain/);
+    }
   });
 
   it('says so in Indonesian', () => {
     const needed = approvalNeeded(plan({ requires_second_approver: true }), inIndonesian);
     expect(needed?.title).toBe('Administrator kedua harus menyetujui ini');
-    expect(needed?.message).toBe('Tidak ada yang dipindahkan sampai administrator lain menyetujuinya.');
+    expect(needed?.message).toBe(
+      'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, ' +
+        'kecuali organisasi ini telah diatur memiliki satu administrator.',
+    );
   });
 
   it('says so with no reasons when the server sends none, or sends an empty list', () => {
     expect(approvalNeeded(plan({ requires_second_approver: true }), inEnglish)?.reasons).toEqual([]);
     expect(approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: [] }), inEnglish)?.reasons).toEqual([]);
     expect(approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: ['', ' '] }), inEnglish)?.reasons).toEqual([]);
+    // Not as the server writes it: read as no reasons, not thrown on.
+    const odd = plan({ requires_second_approver: true, second_approver_reasons: 'a reason' as unknown as string[] });
+    expect(approvalNeeded(odd, inEnglish)?.reasons).toEqual([]);
+    const mixed = plan({ requires_second_approver: true, second_approver_reasons: [null, 'a reason', 4] as unknown as string[] });
+    expect(approvalNeeded(mixed, inEnglish)?.reasons).toEqual(['a reason']);
   });
 
   it('says nothing for a plan one administrator can apply, or for no plan', () => {

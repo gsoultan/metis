@@ -157,13 +157,24 @@ const en: Catalogue = {
     'It had work at {steps}, which the new version has nowhere to put. It stays on v{version}; plan again with a mapping or a decision for that work.',
   'migration.passedOver.waiting_to_be_decided':
     'It was waiting at {steps}, where this migration decides the work rather than moving it, and no decision had settled it. It stays on v{version}; apply the same migration again.',
-  // The migration dialog's own words for two answers to an apply: a run that
-  // left instances where they were, and an apply that was not made but sent
-  // to a second administrator. None of these keys begins
-  // "migration.passedOver." — what follows that is a cause. {reference} is an
-  // instance's short reference, as the instance list shows it; {name} is who
-  // asked; {date} is when the request stops waiting, in the reader's language.
-  'migration.passedOverAllTitle': 'No instance was moved',
+  // The migration dialog's own words for the answers to an apply that are
+  // kept on screen rather than said in a toast: a run that left instances
+  // where they were, an apply that was not made but sent to a second
+  // administrator, and an answer that could not be read. None of these keys
+  // begins "migration.passedOver." — what follows that is a cause.
+  // {reference} is an instance's short reference, as the instance list shows
+  // it — or, in pendingReference, the request's id, which is all there is to
+  // name a request by; {name} is who asked; {date} is when the request stops
+  // waiting, in the reader's language and naming its time zone.
+  //
+  // What is said of a request is a sentence a key, so that a reply lacking a
+  // part leaves that sentence out. passedOverSummary is said above the list
+  // and passedOverToast where there is none: a toast never says "below".
+  // pendingMessage and secondApproverMessage are one rule, said after the
+  // press and before it, and do not say who else approves: an organization
+  // set up as having one administrator approves its own.
+  'migration.failedTitle': 'The migration ended with an error',
+  'migration.passedOverAllTitle': 'This run moved no instance',
   'migration.passedOverInstance': 'Instance {reference}',
   'migration.passedOverListTitle': 'Instances that were not moved',
   'migration.passedOverMore': '{count, plural, one {and # more instance} other {and # more instances}}',
@@ -171,14 +182,22 @@ const en: Catalogue = {
   'migration.passedOverStepsMore': '{count, plural, one {and # more} other {and # more}}',
   'migration.passedOverSummary':
     '{count, plural, one {# instance was not moved. The list below says why.} other {# instances were not moved. The list below says why.}}',
+  'migration.passedOverToast': '{count, plural, one {# instance was not moved.} other {# instances were not moved.}}',
   'migration.pendingAskedBy': 'Asked for by {name}.',
+  'migration.pendingExpires': 'The request expires on {date}.',
+  'migration.pendingHow': 'There is no screen for this yet: an administrator approves or rejects it through the API.',
   'migration.pendingMessage':
-    'Nothing moves until a different administrator approves it. The request expires on {date}.',
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
+  'migration.pendingReference': "The request's reference is {reference}.",
   'migration.pendingTitle': 'Sent for approval',
   'migration.pendingWhy': 'Why a second administrator is asked',
-  'migration.secondApproverMessage': 'Nothing moves until a different administrator approves it.',
+  'migration.secondApproverMessage':
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
   'migration.secondApproverTitle': 'A second administrator has to approve this',
   'migration.sendForApproval': 'Send for approval',
+  'migration.unreadableMessage':
+    'The server answered, but its answer could not be read. The migration may have been applied, or sent for approval: check the instances before trying again.',
+  'migration.unreadableTitle': "The server's answer could not be read",
 
   // Offline and updates
   'offline.title': 'You are offline',

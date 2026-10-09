@@ -34,7 +34,8 @@ import type { ActionRow, MigrationRequest } from '../domain/instanceMigration';
 import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
 import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
 import { applyLabel, approvalNeeded } from '../domain/migrationApproval';
-import { afterApply, answeredApply, formatExpiry, migrationOutcome, outcomeOnScreen } from '../domain/migrationOutcome';
+import { afterApply, answeredApply, failureToast, formatExpiry, migrationOutcome, outcomeOnScreen } from '../domain/migrationOutcome';
+import type { MigrationNotice } from '../domain/migrationOutcome';
 import { compareLoaded, comparisonFailure, diffOf, diffSummary, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances } from '../hooks/useDefinitions';
 import { useMigrationPlan } from '../hooks/useMigrationPlan';
@@ -146,12 +147,36 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // run re-read as still running got a second "migrated" entry on its trail.
   const applying = useRef(false);
   // Whether the dialog was closed since the last press. An answer that
-  // arrives after that has no dialog to be shown in.
+  // arrives after that has no dialog to be shown in — and the dialog it finds
+  // open may be another: opened again since, perhaps for another version.
   const abandoned = useRef(false);
+
+  const open = source !== null && target !== null;
+  const ready = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: apply.isPending });
+  // What the last apply answered, when the answer is one to read rather than
+  // a toast: a request sent to a second administrator, instances the run did
+  // not move, an answer nobody could read. Read from the apply itself, and
+  // said only for as long as it is true of what is on screen (outcomeOnScreen).
+  const requestKey = request ? migrationRequestKey(request) : null;
+  const answered = answeredApply(apply.variables, apply.data, target?.version ?? 0);
+  const outcome = outcomeOnScreen(answered, pair, requestKey, t, expiry);
+
+  const say = (notice: MigrationNotice) =>
+    notifications.show({
+      title: notice.title,
+      message: notice.message,
+      color: notice.color,
+      ...(notice.stays ? { autoClose: false as const } : {}),
+    });
 
   // Closing is abandoning the plan: the next opening, of this pair or another,
   // starts from nothing.
   const close = () => {
+    // A request that waits is said here and nowhere else, and the press that
+    // sent it can be what closes the dialog: a second click, a key still
+    // held. So the confirmation leaves with the dialog, as a toast — however
+    // it is closed: this is the "×", Escape and a click outside as well.
+    if (outcome?.waits) say(outcome.toast);
     abandoned.current = true;
     setWritten(null);
     setApplyError(null);
@@ -163,15 +188,20 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     onClose();
   };
 
-  const open = source !== null && target !== null;
-  const ready = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: apply.isPending });
-  // What the last apply answered, when the answer is one to read rather than
-  // a toast: a request sent to a second administrator, or instances the run
-  // did not move. Read from the apply itself, and said only for as long as it
-  // is true of what is on screen (outcomeOnScreen).
-  const requestKey = request ? migrationRequestKey(request) : null;
-  const answered = answeredApply(apply.variables, apply.data, target?.version ?? 0);
-  const outcome = outcomeOnScreen(answered, pair, requestKey, t, expiry);
+  // An apply that was refused, or did not finish. In the dialog, with a plan
+  // of what is left — unless the dialog has closed since, when an alert left
+  // for its next opening would be about a press nobody remembers.
+  const failed = (message: string) => {
+    if (abandoned.current) {
+      say(failureToast(message, t));
+      return;
+    }
+    setApplyError(message);
+    // Whatever it moved has left the source version, so the plan in hand
+    // counts instances that are no longer there. Running the same move again
+    // carries on from where it stopped, and that needs a plan of what is left.
+    planned.replan();
+  };
 
   const handleApply = async () => {
     const pressable = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: applying.current });
@@ -182,28 +212,29 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
     try {
       const reply = await apply.mutateAsync(request);
       if (reply.err) {
-        setApplyError(errorMessage(reply.err));
-        planned.replan();
+        failed(errorMessage(reply.err));
         return;
       }
       // Said from the server's reply, not from the preview on screen: see
       // migrationOutcome. `applied: false` is not "nothing was moved" when the
-      // reply carries a request that waits for a second administrator. An
-      // answer that is kept is shown at the foot of the dialog, from the
-      // apply's own data; any other is the toast it always was.
+      // reply carries a request that waits for a second administrator.
       const said = migrationOutcome(reply, target.version, t, expiry);
-      const next = afterApply(said, !abandoned.current);
-      if (!next.keep) notifications.show({ title: said.notice.title, message: said.notice.message, color: said.notice.color });
+      // An answer that is kept is shown at the foot of the dialog, from the
+      // apply's own data — if the dialog is still open, and still shows what
+      // the answer is to. That is asked of the screen as it is now, with the
+      // screen's own test: the form may have been edited since the press.
+      const stillOpen = !abandoned.current;
+      const now = planned.onScreen();
+      const shown = stillOpen
+        && outcomeOnScreen(answeredApply(request, reply, target.version), now.pair, now.requestKey, t, expiry) !== null;
+      const next = afterApply(said, shown, stillOpen);
+      if (next.toast) say(next.toast);
       if (next.replan) planned.replan();
       if (next.close) close();
     } catch (error: unknown) {
       // Not "could not be moved": the server moves instances one at a time,
       // and one that stops part-way has moved some. Its message says how many.
-      setApplyError(errorMessage(error, 'The server did not confirm the move.'));
-      // Whatever it moved has left the source version, so the plan in hand
-      // counts instances that are no longer there. Running the same move again
-      // carries on from where it stopped, and that needs a plan of what is left.
-      planned.replan();
+      failed(errorMessage(error, 'The server did not confirm the move.'));
     } finally {
       applying.current = false;
       if (abandoned.current) apply.reset();

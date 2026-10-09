@@ -86,10 +86,15 @@ function render({ reply, plan: planned = plan(), ready = true, catalogue = en }:
 }
 
 const textOf = (html: string) =>
-  html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
+  html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/\s+/g, ' ');
 const count = (html: string, part: string) => html.split(part).length - 1;
-/** The text on each button, in order. */
-const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((match) => textOf(match[1]).trim());
+const allButtons = (html: string) => [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)];
+/** The text on each button somebody can see and press, in order. */
+const buttons = (html: string) => allButtons(html).filter((match) => !match[1].includes('visibility:hidden')).map((match) => textOf(match[2]).trim());
+/** The opening tags of buttons kept in the row for their place, and hidden. */
+const hiddenButtons = (html: string) => allButtons(html).filter((match) => match[1].includes('visibility:hidden')).map((match) => match[1]);
+/** Where a button's left edge is decided: how many buttons are laid out before it. */
+const placeOf = (html: string, label: string) => allButtons(html).findIndex((match) => textOf(match[2]).trim() === label);
 
 /**
  * What the element that announces itself holds: from its opening tag to the
@@ -119,10 +124,12 @@ describe('before an apply', () => {
     const html = render({ plan: asks });
     const text = textOf(html);
     expect(text).toContain('A second administrator has to approve this');
-    expect(text).toContain('Nothing moves until a different administrator approves it.');
+    expect(text).toContain('Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.');
+    expect(text).not.toContain('different administrator');
     for (const reason of why) expect(text).toContain(reason);
     expect(count(html, '<li')).toBe(why.length);
     expect(buttons(html)).toEqual(['Cancel', 'Send for approval']);
+    expect(hiddenButtons(html)).toEqual([]);
     expect(text).not.toContain('Move 3 instances');
     // Announced, as the dialog's refusals and warnings are.
     expect(count(html, 'role="alert"')).toBe(1);
@@ -138,13 +145,27 @@ describe('after an apply that was sent for approval', () => {
   const html = render({ reply: sentForApproval, plan: asks });
   const text = textOf(html);
 
-  it('says it was sent, who asked, until when and why', () => {
+  it('says it was sent, who asked, the rule, until when and why', () => {
     expect(text).toContain('Sent for approval');
     expect(text).toContain('Asked for by Dita Larasati.');
-    expect(text).toContain('Nothing moves until a different administrator approves it. The request expires on 6 Oct 2026, 09:12.');
+    expect(text).toContain(
+      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator. ' +
+        'The request expires on 6 Oct 2026, 09:12.',
+    );
+    expect(text).not.toContain('different administrator');
     expect(text).toContain('Why a second administrator is asked');
     for (const reason of why) expect(text).toContain(reason);
     expect(count(html, '<li')).toBe(why.length);
+  });
+
+  it('says how it is approved, there being no screen, and the request’s reference — which one click selects', () => {
+    expect(text).toContain('There is no screen for this yet: an administrator approves or rejects it through the API.');
+    expect(text).toMatch(/The request's reference is\s+0199c0de-0000-7000-8000-00000000aaaa\s*\./);
+    // The reference is an element of its own, so it can be selected without
+    // the sentence round it.
+    const own = /<span[^>]*style="([^"]*)"[^>]*>0199c0de-0000-7000-8000-00000000aaaa<\/span>/.exec(html)?.[1] ?? '';
+    expect(own).toContain('user-select:all');
+    expect(count(html, '0199c0de-0000-7000-8000-00000000aaaa')).toBe(1);
   });
 
   it('does not say that nothing was moved, or show an error, or anything a developer would say', () => {
@@ -152,7 +173,6 @@ describe('after an apply that was sent for approval', () => {
     expect(text).not.toContain('did not apply');
     expect(text).not.toContain('pending_approval');
     expect(text).not.toMatch(/\b202\b/);
-    expect(text).not.toContain('0199c0de');
     expect(html).not.toContain('mantine-color-red');
   });
 
@@ -162,25 +182,83 @@ describe('after an apply that was sent for approval', () => {
     expect(buttons(html)).toEqual(['Close']);
   });
 
+  it('keeps Close where Cancel was, so a second click of the press lands on nothing', () => {
+    // The press that sent the request is often a double click. With the apply
+    // button gone and Close moved into its place, the second click closed the
+    // dialog — and with it the only place the request was said. The apply
+    // button keeps its place in the row, unseen and unpressable.
+    const before = render({ plan: asks });
+    expect(placeOf(html, 'Close')).toBe(placeOf(before, 'Cancel'));
+    expect(placeOf(html, 'Send for approval')).toBe(placeOf(before, 'Send for approval'));
+    const kept = hiddenButtons(html);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toContain('disabled=""');
+    expect(kept[0]).toContain('aria-hidden="true"');
+    expect(kept[0]).toContain('tabindex="-1"');
+  });
+
+  it('puts focus on the message, which a held key cannot press', () => {
+    // Focus has to go somewhere when the pressed button goes. On Close, a key
+    // still held from the press would close the dialog. The message can take
+    // focus and does nothing when a key is pressed on it.
+    const alert = /<div[^>]*role="alert"[^>]*>/.exec(html)?.[0] ?? '';
+    expect(alert).toContain('tabindex="-1"');
+    expect(html).not.toContain('autofocus');
+    expect(html).not.toContain('data-autofocus');
+  });
+
   it('says it once: the plan’s own notice gives way to the request', () => {
     expect(count(text, 'A second administrator has to approve this')).toBe(0);
     expect(count(html, 'role="alert"')).toBe(1);
-    expect(count(text, 'Nothing moves until a different administrator approves it.')).toBe(1);
+    expect(count(text, 'Nothing moves until it is approved.')).toBe(1);
   });
 
-  it('announces the sentence, and leaves the reasons to be read as a list', () => {
+  it('announces the sentences, and leaves the reasons to be read as a list', () => {
     const announced = theAlert(html);
     expect(textOf(announced)).toContain('Sent for approval');
     expect(textOf(announced)).toContain('The request expires on 6 Oct 2026, 09:12.');
+    expect(textOf(announced)).toContain('through the API');
+    expect(announced).toContain('0199c0de-0000-7000-8000-00000000aaaa');
     expect(announced).not.toContain('<li');
+  });
+
+  it('says only what the request said: no deadline, no reference, no reasons, and no holes', () => {
+    const bare = { ...sentForApproval, pending_approval: { status: 'pending_approval' } } as unknown as MigrationReply;
+    const shown = textOf(render({ reply: bare, plan: asks }));
+    expect(shown).toContain('Sent for approval');
+    expect(shown).toContain('through the API');
+    expect(shown).not.toContain('expires');
+    expect(shown).not.toContain('reference');
+    expect(shown).not.toContain('Why a second administrator is asked');
+    expect(shown).not.toMatch(/[{}]|undefined/);
   });
 
   it('reads in Indonesian', () => {
     const indonesian = render({ reply: sentForApproval, plan: asks, catalogue: id });
     expect(textOf(indonesian)).toContain('Dikirim untuk persetujuan');
     expect(textOf(indonesian)).toContain('Diminta oleh Dita Larasati.');
+    expect(textOf(indonesian)).toContain('Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API.');
+    expect(textOf(indonesian)).toMatch(/Referensi permintaan ini adalah\s+0199c0de-0000-7000-8000-00000000aaaa/);
     expect(textOf(indonesian)).toContain('Mengapa administrator kedua diminta');
     expect(buttons(indonesian)).toEqual(['Tutup']);
+  });
+});
+
+describe('after an answer that could not be read', () => {
+  const html = render({ reply: { applied: false, passed_over: [], passed_over_in_all: 0 } });
+  const text = textOf(html);
+
+  it('says so, and does not say that nothing was moved', () => {
+    expect(text).toContain("The server's answer could not be read");
+    expect(text).toContain('The migration may have been applied, or sent for approval: check the instances before trying again.');
+    expect(text).not.toContain('Nothing was moved');
+    expect(count(html, 'role="alert"')).toBe(1);
+    expect(count(html, '<li')).toBe(0);
+  });
+
+  it('leaves the plan to be applied again once it has been looked at', () => {
+    expect(buttons(html)).toEqual(['Close', 'Move 3 instances']);
+    expect(hiddenButtons(html)).toEqual([]);
   });
 });
 
@@ -209,14 +287,36 @@ describe('after an apply that passed instances over', () => {
     expect(text).toContain('and 338 more instances');
   });
 
-  it('scrolls the list inside the dialog, by keyboard too, under a name', () => {
-    // A region that scrolls and cannot be focused cannot be scrolled without a
-    // pointer; one that can be focused and has no name is announced as nothing.
-    const region = /<div[^>]*tabindex="0"[^>]*>/.exec(html)?.[0] ?? '';
+  it('holds the list in a named region that can scroll inside the dialog', () => {
+    const region = /<div[^>]*data-scrollarea-viewport[^>]*>/.exec(html)?.[0] ?? '';
     expect(region).toContain('role="group"');
     const named = /aria-labelledby="([^"]+)"/.exec(region)?.[1] ?? 'no name';
     expect(html).toMatch(new RegExp(`<p[^>]*id="${named}"[^>]*>Instances that were not moved</p>`));
     expect(html).toContain('max-height');
+  });
+
+  it('is not a tab stop until it is known to scroll', () => {
+    // Two lines that fit are not something to stop at on the way to Close.
+    // Whether it scrolls is measured once it is laid out, which static markup
+    // is not: the stop is added then (seen in a browser, not here).
+    const region = /<div[^>]*data-scrollarea-viewport[^>]*>/.exec(html)?.[0] ?? '';
+    expect(region).not.toContain('tabindex');
+  });
+
+  it('wraps a name with no break in it rather than cut it off', () => {
+    const long = `Step${'x'.repeat(300)}`;
+    const reply: MigrationReply = {
+      plan: plan(),
+      applied: true,
+      passed_over_in_all: 1,
+      passed_over: [{ ...left(1), cause: 'nowhere_to_land', steps: [{ node_id: long, name: long }] }],
+    };
+    const wide = render({ reply });
+    const row = new RegExp(`<span[^>]*style="([^"]*)"[^>]*>[^<]*${long}`).exec(wide)?.[1] ?? '';
+    expect(row).toContain('overflow-wrap:anywhere');
+    // And the server's own sentences, which name steps too.
+    const reasons = render({ reply: { ...sentForApproval, pending_approval: { ...sentForApproval.pending_approval, because: [long] } } as MigrationReply, plan: asks });
+    expect(new RegExp(`<li[^>]*style="([^"]*)"[^>]*>(?:(?!</li>)[\\s\\S])*${long}`).exec(reasons)?.[1] ?? '').toContain('overflow-wrap:anywhere');
   });
 
   it('is markup a browser will not rearrange: no paragraph inside a list item’s label', () => {
@@ -250,6 +350,7 @@ describe('after an apply that passed instances over', () => {
 
   it('reads in Indonesian', () => {
     const indonesian = textOf(render({ reply: passedOver, catalogue: id }));
+    expect(textOf(render({ reply: { ...passedOver, applied: false }, catalogue: id }))).toContain('Migrasi ini tidak memindahkan instansi mana pun');
     expect(indonesian).toContain('Diterapkan, tetapi tidak pada semua instansi');
     expect(indonesian).toContain('340 instansi tidak dipindahkan.');
     expect(indonesian).toContain('Instansi #000001');

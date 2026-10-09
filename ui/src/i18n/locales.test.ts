@@ -211,19 +211,26 @@ describe('why a migration passed an instance over', () => {
  */
 describe('the migration dialog’s own words', () => {
   const OWN = [
+    'migration.failedTitle',
     'migration.passedOverAllTitle',
     'migration.passedOverInstance',
     'migration.passedOverListTitle',
     'migration.passedOverMore',
     'migration.passedOverSomeTitle',
     'migration.passedOverSummary',
+    'migration.passedOverToast',
     'migration.pendingAskedBy',
+    'migration.pendingExpires',
+    'migration.pendingHow',
     'migration.pendingMessage',
+    'migration.pendingReference',
     'migration.pendingTitle',
     'migration.pendingWhy',
     'migration.secondApproverMessage',
     'migration.secondApproverTitle',
     'migration.sendForApproval',
+    'migration.unreadableMessage',
+    'migration.unreadableTitle',
   ];
 
   it('are in both languages, every one, and not copied', async () => {
@@ -255,7 +262,14 @@ describe('the migration dialog’s own words', () => {
       );
     }
     expect(placeholders(english['migration.passedOverSummary'])).toEqual(['count']);
-    expect(placeholders(english['migration.pendingMessage'])).toEqual(['date']);
+    expect(placeholders(english['migration.passedOverToast'])).toEqual(['count']);
+    expect(placeholders(english['migration.pendingExpires'])).toEqual(['date']);
+    expect(placeholders(english['migration.pendingReference'])).toEqual(['reference']);
+    // Each part of what is said of a request is a sentence of its own, so a
+    // reply that lacks one — no deadline, no reference — leaves that sentence
+    // out and not a hole in another.
+    expect(placeholders(english['migration.pendingMessage'])).toEqual([]);
+    expect(placeholders(english['migration.pendingHow'])).toEqual([]);
   });
 
   it('count in words that fit one and many', async () => {
@@ -266,8 +280,27 @@ describe('the migration dialog’s own words', () => {
     expect(format(indonesian, 'migration.passedOverSummary', { count: 12 })).toBe(
       '12 instansi tidak dipindahkan. Daftar di bawah menjelaskan alasannya.',
     );
+    expect(format(english, 'migration.passedOverToast', { count: 1 })).toBe('1 instance was not moved.');
+    expect(format(english, 'migration.passedOverToast', { count: 12 })).toBe('12 instances were not moved.');
+    expect(format(indonesian, 'migration.passedOverToast', { count: 12 })).toBe('12 instansi tidak dipindahkan.');
     expect(format(english, 'migration.passedOverMore', { count: 1 })).toBe('and 1 more instance');
     expect(format(english, 'migration.passedOverMore', { count: 140 })).toBe('and 140 more instances');
     expect(format(indonesian, 'migration.passedOverMore', { count: 140 })).toBe('dan 140 instansi lainnya');
+  });
+
+  it('say who approves in words that are true however the organization is set up', async () => {
+    // The same rule before the press and after it. "A different
+    // administrator" was untrue where an organization is set up as having one.
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const rule =
+      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.';
+    expect(english['migration.secondApproverMessage']).toBe(rule);
+    expect(english['migration.pendingMessage']).toBe(rule);
+    expect(indonesian['migration.secondApproverMessage']).toBe(indonesian['migration.pendingMessage']);
+    expect(english['migration.pendingHow']).toBe('There is no screen for this yet: an administrator approves or rejects it through the API.');
+    expect(format(english, 'migration.pendingReference', { reference: 'r-1' })).toBe("The request's reference is r-1.");
+    expect(format(english, 'migration.pendingExpires', { date: 'Oct 6' })).toBe('The request expires on Oct 6.');
+    expect(english['migration.passedOverAllTitle']).toBe('This run moved no instance');
   });
 });

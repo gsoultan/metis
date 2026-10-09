@@ -9,6 +9,8 @@ import { notifications, notificationsStore } from '@mantine/notifications';
 import { createElement, type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { migrationRequestKey } from '../domain/instanceMigration';
+import { versionPair } from '../domain/migrationDraft';
 import type { MigrationReply } from '../domain/migrationOutcome';
 import type { ApiDefinition, ApiMigrationPlan } from '../services/types';
 
@@ -63,6 +65,15 @@ mock.module('../hooks/useDefinitions', () => ({
     },
   }),
 }));
+// The request the dialog sends for these two versions with nothing edited,
+// and how the dialog names it and its pair.
+const untouched = { source: 'def-2', target: 'def-5', mapping: {}, acknowledge: [], actions: {} };
+const asRendered = { pair: versionPair('def-2', 'def-5'), requestKey: migrationRequestKey(untouched) };
+// What is on screen when an answer comes. A static render cannot be edited
+// after the press, so an edit made while the apply was on its way is stood in
+// for here: each test says what the screen shows by then.
+let screen: { pair: string | null; requestKey: string | null } = asRendered;
+
 mock.module('../hooks/useMigrationPlan', () => ({
   useMigrationPlan: () => ({
     plan: planned,
@@ -72,8 +83,22 @@ mock.module('../hooks/useMigrationPlan', () => ({
       did.replans += 1;
     },
     reset: () => {},
+    onScreen: () => screen,
   }),
 }));
+
+// Mantine's Modal as it is, with what it was handed kept. Escape, a click on
+// the overlay and the "×" all end in the one `onClose` the dialog gives it,
+// and static markup has none of the three to press.
+const core = await import('@mantine/core');
+const RealModal = core.Modal;
+type ModalProps = ComponentProps<typeof RealModal>;
+let modalHanded: ModalProps | null = null;
+const WatchedModal = Object.assign((props: ModalProps) => {
+  modalHanded = props;
+  return createElement(RealModal, props);
+}, RealModal);
+mock.module('@mantine/core', () => ({ ...core, Modal: WatchedModal }));
 
 // The foot of the dialog as it is, with what it was handed kept: static markup
 // has no button to press, so the press is made by calling what the button
@@ -125,8 +150,18 @@ function toasts(): string[] {
   return [...state.notifications, ...state.queue].map((toast) => `${String(toast.title)}: ${String(toast.message)}`);
 }
 
+/** Whether each toast stays until somebody dismisses it. */
+function staying(): boolean[] {
+  const state = notificationsStore.getState();
+  return [...state.notifications, ...state.queue].map((toast) => toast.autoClose === false);
+}
+
+const RULE =
+  'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.';
+const HOW = 'There is no screen for this yet: an administrator approves or rejects it through the API.';
+
 const textOf = (html: string) =>
-  html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
+  html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/\s+/g, ' ');
 
 describe('the migration dialog, before an apply', () => {
   it('offers to move the instances of a plan one administrator can apply', () => {
@@ -143,7 +178,7 @@ describe('the migration dialog, before an apply', () => {
     planned = { ...basePlan, requires_second_approver: true, second_approver_reasons: [reason] };
     const text = textOf(render());
     expect(text).toContain('A second administrator has to approve this');
-    expect(text).toContain('Nothing moves until a different administrator approves it.');
+    expect(text).toContain(RULE);
     expect(text).toContain(reason);
     expect(text).toContain('Send for approval');
     // The button no longer promises a move the press would not make. The
@@ -162,15 +197,106 @@ describe('the migration dialog, once an apply has answered', () => {
     reason: 'It was no longer waiting at "Operations approve" when the migration reached it.',
   };
 
+  const pendingApproval = {
+    request_id: '0199c0de-0000-7000-8000-00000000aaaa',
+    status: 'pending_approval',
+    requested_by: 'Dita Larasati',
+    expires_at: '2026-10-06T09:12:00Z',
+    because: ['“Operations approve” would be skipped'],
+  };
+  const sent = async () => ({ plan: planned ?? basePlan, applied: false, passed_over: [], passed_over_in_all: 0, pending_approval: pendingApproval });
+
   beforeEach(() => {
     planned = basePlan;
     last = {};
+    screen = asRendered;
     did.replans = 0;
     did.closes = 0;
     did.applies = 0;
     did.forgets = 0;
     notifications.clean();
     notifications.cleanQueue();
+  });
+
+  it('says a request was sent in a toast when the form was edited while the apply was on its way', async () => {
+    // The answer is to the request that was sent; the screen shows another by
+    // now, so it will not show "Sent for approval" — it offers "Send for
+    // approval" for the edited plan. Kept for a screen that will not show it,
+    // the answer was said nowhere while a request waited on the server.
+    planned = { ...basePlan, requires_second_approver: true };
+    screen = { pair: asRendered.pair, requestKey: migrationRequestKey({ ...untouched, mapping: { opsApprove: 'salesApprove' } }) };
+    await apply(sent);
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE} The request expires on `);
+    expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
+    expect(staying()).toEqual([true]);
+    expect(did.closes).toBe(0);
+    expect(did.replans).toBe(0);
+  });
+
+  it('says it in a toast when the dialog shows another pair of versions by the time it answers', async () => {
+    screen = { pair: versionPair('def-3', 'def-5'), requestKey: asRendered.requestKey };
+    await apply(sent);
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]).toStartWith('Sent for approval: ');
+  });
+
+  it('keeps instances passed over on screen through an edit: they are what it is edited for', async () => {
+    screen = { pair: asRendered.pair, requestKey: 'an edited request' };
+    await apply(async () => ({ plan: basePlan, applied: true, passed_over: [left], passed_over_in_all: 1 }));
+    expect(toasts()).toEqual([]);
+    expect(did.replans).toBe(1);
+  });
+
+  it('says in a toast how many were not moved, and never "the list below", when the dialog had closed', async () => {
+    await apply(async () => {
+      (handed as FooterProps | null)?.onClose();
+      return { plan: basePlan, applied: true, passed_over: [left], passed_over_in_all: 340 };
+    });
+    expect(toasts()).toEqual(['Applied, but not to every instance: 340 instances were not moved.']);
+    expect(did.replans).toBe(0);
+    notifications.clean();
+    await apply(async () => {
+      (handed as FooterProps | null)?.onClose();
+      return { plan: basePlan, applied: false, passed_over: [left], passed_over_in_all: 1 };
+    });
+    expect(toasts()).toEqual(['This run moved no instance: 1 instance was not moved.']);
+  });
+
+  it('does not close a dialog a second time for an answer that came after it was closed', async () => {
+    // Closed while the apply was on its way, the dialog may have been opened
+    // again since — for another version. A late "Moved" is said, and closes
+    // nothing.
+    await apply(async () => {
+      (handed as FooterProps | null)?.onClose();
+      return { plan: basePlan, applied: true, passed_over: [], passed_over_in_all: 0 };
+    });
+    expect(toasts()).toEqual(['Moved to v5: 3 instances that were running on v2 now run on v5.']);
+    expect(did.closes).toBe(1);
+  });
+
+  it('says a refusal that came after the dialog was closed, rather than leave it for the next opening', async () => {
+    await apply(async () => {
+      (handed as FooterProps | null)?.onClose();
+      throw new Error('forbidden: only an administrator may migrate running instances');
+    });
+    expect(toasts()).toEqual(['The migration ended with an error: only an administrator may migrate running instances']);
+    expect(staying()).toEqual([true]);
+    expect(did.replans).toBe(0);
+    notifications.clean();
+    await apply(async () => {
+      (handed as FooterProps | null)?.onClose();
+      return { plan: basePlan, applied: false, err: 'invalid argument: the plan no longer holds' };
+    });
+    expect(toasts()).toEqual(['The migration ended with an error: the plan no longer holds']);
+  });
+
+  it('keeps an answer nobody could read on screen, and plans again', async () => {
+    // What the service hands on of a 200 whose body was not the route's.
+    await apply(async () => ({ plan: undefined, applied: false, passed_over: [], passed_over_in_all: 0 }));
+    expect(toasts()).toEqual([]);
+    expect(did.closes).toBe(0);
+    expect(did.replans).toBe(1);
   });
 
   it('says a move in a toast and closes, as it always did', async () => {
@@ -246,7 +372,9 @@ describe('the migration dialog, once an apply has answered', () => {
     });
     expect(did.closes).toBe(1);
     expect(toasts()).toHaveLength(1);
-    expect(toasts()[0]).toStartWith('Sent for approval: Asked for by Dita Larasati. Nothing moves until a different administrator approves it.');
+    expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE}`);
+    expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
+    expect(staying()).toEqual([true]);
     expect(did.replans).toBe(0);
     // The apply is not let go of while it is on its way — opened again, the
     // dialog still shows it as under way — and is forgotten once it answers,
@@ -303,11 +431,73 @@ describe('the migration dialog, with the last apply’s answer in hand', () => {
       reason: 'It was no longer waiting at "Operations approve" when the migration reached it.',
     }],
   };
-  const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((match) => textOf(match[1]).trim());
+  /** The buttons somebody can see and press. */
+  const buttons = (html: string) =>
+    [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)]
+      .filter((match) => !match[1].includes('visibility:hidden'))
+      .map((match) => textOf(match[2]).trim());
 
   beforeEach(() => {
     planned = basePlan;
     last = {};
+    screen = asRendered;
+    did.closes = 0;
+    did.forgets = 0;
+    notifications.clean();
+    notifications.cleanQueue();
+  });
+
+  // The ways a dialog is closed. The button is the footer's; Escape, a click
+  // outside and the "×" are Mantine's, and all three call the `onClose` it was
+  // handed.
+  const waysToClose: [string, () => void][] = [
+    ['the Close button', () => (handed as FooterProps | null)?.onClose()],
+    ['Escape, a click outside, or the "×"', () => (modalHanded as ModalProps | null)?.onClose()],
+  ];
+
+  for (const [way, closeIt] of waysToClose) {
+    it(`says "Sent for approval" in a toast when a dialog showing a waiting request is closed by ${way}`, () => {
+      // The panel is the only place the request is said, and the press that
+      // sent it can also be what closes it — a second click, a held key. So
+      // the confirmation leaves the dialog with it.
+      planned = asks;
+      last = { variables: onScreen, data: sentForApproval };
+      handed = null;
+      modalHanded = null;
+      expect(textOf(render())).toContain('Sent for approval');
+      closeIt();
+      expect(did.closes).toBe(1);
+      expect(toasts()).toHaveLength(1);
+      expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE} The request expires on `);
+      expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
+      expect(staying()).toEqual([true]);
+      expect(did.forgets).toBe(1);
+    });
+
+    it(`raises nothing when a dialog showing no waiting request is closed by ${way}`, () => {
+      for (const kept of [{}, { variables: onScreen, data: passedOver }, { variables: { ...onScreen, mapping: { a: 'b' } }, data: sentForApproval }]) {
+        last = kept;
+        handed = null;
+        modalHanded = null;
+        render();
+        closeIt();
+        expect(toasts()).toEqual([]);
+      }
+    });
+  }
+
+  it('gives the dialog and its Close button the same way out', () => {
+    render();
+    expect((modalHanded as ModalProps | null)?.onClose).toBe((handed as FooterProps | null)?.onClose as ModalProps['onClose']);
+  });
+
+  it('says an answer could not be read, and offers the plan again', () => {
+    last = { variables: onScreen, data: { applied: false, passed_over: [], passed_over_in_all: 0 } };
+    const html = render();
+    expect(textOf(html)).toContain("The server's answer could not be read");
+    expect(textOf(html)).not.toContain('Nothing was moved');
+    expect(buttons(html)).toContain('Close');
+    expect(buttons(html)).toContain('Move 3 instances');
   });
 
   it('says a request was sent for approval, and offers nothing more to send', () => {

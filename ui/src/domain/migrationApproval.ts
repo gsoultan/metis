@@ -1,4 +1,4 @@
-import type { Translate } from './migrationOutcome';
+import { sentences, type Translate } from './migrationOutcome';
 import type { ApiMigrationPlan } from '../services/types';
 
 /**
@@ -32,7 +32,7 @@ export function approvalNeeded(plan: ApiMigrationPlan | null, t: Translate): App
   return {
     title: t('migration.secondApproverTitle'),
     message: t('migration.secondApproverMessage'),
-    reasons: (plan.second_approver_reasons ?? []).filter((reason) => reason.trim() !== ''),
+    reasons: sentences(plan.second_approver_reasons),
   };
 }
 

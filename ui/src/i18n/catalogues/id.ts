@@ -143,9 +143,11 @@ const id: Catalogue = {
     'Instansi ini punya pekerjaan di {steps}, yang tidak punya tempat di versi baru. Instansi tetap di v{version}; rencanakan lagi dengan pemetaan atau keputusan untuk pekerjaan itu.',
   'migration.passedOver.waiting_to_be_decided':
     'Instansi ini menunggu di {steps}, tempat migrasi ini memutuskan pekerjaan alih-alih memindahkannya, dan belum ada keputusan yang menyelesaikannya. Instansi tetap di v{version}; terapkan migrasi yang sama lagi.',
-  // Kata-kata dialog migrasi sendiri: instansi yang tidak dipindahkan, dan
-  // migrasi yang dikirim kepada administrator kedua. See the English catalogue.
-  'migration.passedOverAllTitle': 'Tidak ada instansi yang dipindahkan',
+  // Kata-kata dialog migrasi sendiri: instansi yang tidak dipindahkan, migrasi
+  // yang dikirim kepada administrator kedua, dan jawaban yang tidak terbaca.
+  // See the English catalogue.
+  'migration.failedTitle': 'Migrasi berakhir dengan kesalahan',
+  'migration.passedOverAllTitle': 'Migrasi ini tidak memindahkan instansi mana pun',
   'migration.passedOverInstance': 'Instansi {reference}',
   'migration.passedOverListTitle': 'Instansi yang tidak dipindahkan',
   'migration.passedOverMore': '{count, plural, other {dan # instansi lainnya}}',
@@ -153,14 +155,22 @@ const id: Catalogue = {
   'migration.passedOverStepsMore': '{count, plural, other {dan # lainnya}}',
   'migration.passedOverSummary':
     '{count, plural, other {# instansi tidak dipindahkan. Daftar di bawah menjelaskan alasannya.}}',
+  'migration.passedOverToast': '{count, plural, other {# instansi tidak dipindahkan.}}',
   'migration.pendingAskedBy': 'Diminta oleh {name}.',
+  'migration.pendingExpires': 'Permintaan ini kedaluwarsa pada {date}.',
+  'migration.pendingHow': 'Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API.',
   'migration.pendingMessage':
-    'Tidak ada yang dipindahkan sampai administrator lain menyetujuinya. Permintaan ini kedaluwarsa pada {date}.',
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator.',
+  'migration.pendingReference': 'Referensi permintaan ini adalah {reference}.',
   'migration.pendingTitle': 'Dikirim untuk persetujuan',
   'migration.pendingWhy': 'Mengapa administrator kedua diminta',
-  'migration.secondApproverMessage': 'Tidak ada yang dipindahkan sampai administrator lain menyetujuinya.',
+  'migration.secondApproverMessage':
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator.',
   'migration.secondApproverTitle': 'Administrator kedua harus menyetujui ini',
   'migration.sendForApproval': 'Kirim untuk persetujuan',
+  'migration.unreadableMessage':
+    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi.',
+  'migration.unreadableTitle': 'Jawaban server tidak dapat dibaca',
 
   'offline.title': 'Anda sedang luring',
   'offline.body':
