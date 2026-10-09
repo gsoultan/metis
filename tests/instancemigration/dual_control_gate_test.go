@@ -11,6 +11,8 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // The gate is in the service: no skip, and no migration that drops a control,
@@ -585,4 +587,49 @@ func (f *fixture) requireNoTraceOf(t *testing.T, name string) {
 			t.Fatalf("a %s entry names %s: %q %v", entry.Type, name, entry.Narrative, entry.Data)
 		}
 	}
+}
+
+// requestsUnwired is a repository with no store of requests for a second
+// administrator: how a server put together without one looks to the services.
+type requestsUnwired struct{ repositories.Repository }
+
+func (requestsUnwired) DeviationRequest() repocontracts.DeviationRequestRepository { return nil }
+
+// A server wired without the store of requests cannot ask, approve or verify.
+// That is the server's fault and is answered as that everywhere — never as
+// something the caller may not do — and nothing is moved: what needs a second
+// administrator is still refused, and an apply that names a request does not
+// run on the strength of a store that is not there.
+func TestAServerWithNoStoreOfRequestsFailsAsTheServersFaultAndMovesNothing(t *testing.T) {
+	f := newFixtureOver(t, func(repo repositories.Repository) repositories.Repository { return requestsUnwired{Repository: repo} })
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	opts := skipOps("the role was eliminated")
+	theServers := func(what string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s on a server with no store of requests went through", what)
+		}
+		for _, class := range []error{apierr.ErrInvalidArgument, apierr.ErrNotFound, apierr.ErrForbidden} {
+			if errors.Is(err, class) {
+				t.Fatalf("%s is answered as %v: %v; the wiring is the server's fault", what, class, err)
+			}
+		}
+		if !strings.Contains(err.Error(), "wired without the store of requests") {
+			t.Fatalf("%s does not say what is missing: %v", what, err)
+		}
+		f.assertNothingMoved(t, v1)
+	}
+	_, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, opts...)
+	theServers("asking for a migration", err)
+	under := append(slices.Clip(opts), servicecontracts.WithApprovedRequest(uuid.Must(uuid.NewV7())))
+	_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+	theServers("an apply that names a request", err)
+	_, err = f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), uuid.Must(uuid.NewV7()), "")
+	theServers("approving a request", err)
+	// With nothing offered, the gate needs no store to refuse.
+	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...); !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("a skip on one administrator's call, on a server with no store of requests: %v, want it forbidden", err)
+	}
+	f.assertNothingMoved(t, v1)
 }

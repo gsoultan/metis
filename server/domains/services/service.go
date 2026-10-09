@@ -66,6 +66,13 @@ type ServiceParams struct {
 }
 
 func NewService(p ServiceParams) ServiceFacade {
+	// The facade embeds each service as an interface, and a call through one
+	// that was not given is a nil dereference. The deviation service decides
+	// who may loosen a rule: built without it, the facade answers every one
+	// of its methods with a plain error that says so.
+	if p.DeviationService == nil {
+		p.DeviationService = serviceimpl.NewDeviationService(nil, nil, nil)
+	}
 	return &service{
 		OrganizationService:    p.OrganizationService,
 		ProjectService:         p.ProjectService,

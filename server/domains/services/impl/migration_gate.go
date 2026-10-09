@@ -117,8 +117,9 @@ func (s *migrationService) requestOffered(ctx context.Context, requestID uuid.UU
 	var request entities.DeviationRequest
 	requests := s.repo.DeviationRequest()
 	if requests == nil {
-		return request, refusedAtTheGate("this deployment has no store of requests",
-			"this deployment was wired without the store of requests for a second administrator; nothing was moved")
+		// The server's fault, as it is to whoever asks or approves: a plain
+		// error, not something this caller may not do. Nothing was moved.
+		return request, errNoDeviationRequests
 	}
 	if db.InTransaction(ctx) {
 		return request, errApprovedRunInsideTransaction
