@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
+import { migrationRequestKey } from './instanceMigration';
+import { versionPair } from './migrationDraft';
 import {
+  afterApply,
+  answeredApply,
   formatExpiry,
   MAX_PASSED_OVER_SHOWN,
   migrationNotice,
@@ -371,6 +375,39 @@ describe('what an apply did, case by case', () => {
     });
   }
 
+  it('is kept on screen or said in a toast, never both, and the dialog closes only on a toast', () => {
+    for (const c of cases) {
+      const outcome = migrationOutcome(c.reply, 5, inEnglish, at);
+      const next = afterApply(outcome);
+      expect(next.keep, c.name).toBe(c.inDialog);
+      expect(next.close, c.name).toBe(!c.inDialog && c.closes);
+      expect(next.keep && next.close, c.name).toBe(false);
+    }
+  });
+
+  it('says it in a toast after all when the dialog was closed before the answer came', () => {
+    // Nothing is left to keep it in. Said nowhere, a request that was sent
+    // would be a press that did nothing anybody could see.
+    for (const c of cases) {
+      const next = afterApply(migrationOutcome(c.reply, 5, inEnglish, at), false);
+      expect(next.keep, c.name).toBe(false);
+      expect(next.replan, c.name).toBe(false);
+    }
+  });
+
+  it('plans again after a run that left instances behind, and not after a request that changed nothing', () => {
+    // The plan in hand counts instances the run has since dealt with; what is
+    // left is what the next apply is for. A request that waits moved nothing,
+    // and the plan on screen is the one that was sent.
+    const plansAgain = (reply: MigrationReply) => afterApply(migrationOutcome(reply, 5, inEnglish, at)).replan;
+    expect(plansAgain({ plan: plan(), applied: true, passed_over: some, passed_over_in_all: 1 })).toBe(true);
+    expect(plansAgain({ plan: plan(), applied: false, passed_over: some, passed_over_in_all: 1 })).toBe(true);
+    expect(plansAgain(sentForApproval)).toBe(false);
+    // As before: a toast, and the dialog as it was.
+    expect(plansAgain({ plan: plan(), applied: true })).toBe(false);
+    expect(plansAgain({ plan: plan(), applied: false })).toBe(false);
+  });
+
   it('leaves every reply that waits on nobody and passed nobody over to migrationNotice', () => {
     for (const reply of [
       { plan: plan(), applied: true },
@@ -412,5 +449,36 @@ describe('what stays on screen after an apply', () => {
     expect(outcomeOnScreen(answered(passedOver), 'def-3→def-5', 'the request', inEnglish, at)).toBeNull();
     expect(outcomeOnScreen(answered(sentForApproval), 'def-3→def-5', 'the request', inEnglish, at)).toBeNull();
     expect(outcomeOnScreen(answered(passedOver), null, null, inEnglish, at)).toBeNull();
+  });
+});
+
+describe('the last apply, from what was sent and what came back', () => {
+  const sent = { source: 'def-2', target: 'def-5', mapping: { opsApprove: 'salesApprove' } };
+  const reply: MigrationReply = { plan: plan(), applied: true, passed_over: [left], passed_over_in_all: 1 };
+
+  it('is nothing until something was sent and answered', () => {
+    expect(answeredApply(undefined, undefined, 5)).toBeNull();
+    // On its way, or thrown: what was sent, and no answer.
+    expect(answeredApply(sent, undefined, 5)).toBeNull();
+    expect(answeredApply(undefined, reply, 5)).toBeNull();
+  });
+
+  it('is nothing for a refusal the reply carries: that is an error, shown as one', () => {
+    expect(answeredApply(sent, { ...reply, err: 'invalid argument: the plan no longer holds' }, 5)).toBeNull();
+  });
+
+  it('is kept with the pair and the request it answered, named as the dialog names them', () => {
+    const answered = answeredApply(sent, reply, 5);
+    expect(answered?.pair).toBe(versionPair('def-2', 'def-5'));
+    expect(answered?.requestKey).toBe(migrationRequestKey({ ...sent, acknowledge: [], actions: {} }));
+    expect(answered?.reply).toBe(reply);
+    const decided = { ...sent, acknowledge: ['legalReview'], actions: { creditCheck: { kind: 'skip' as const, reason: 'waived' } } };
+    expect(answeredApply(decided, reply, 5)?.requestKey).toBe(migrationRequestKey(decided));
+    expect(answeredApply(decided, reply, 5)?.requestKey).not.toBe(answered?.requestKey);
+  });
+
+  it('names the version the server says it moved to, and the one on screen when it says none', () => {
+    expect(answeredApply(sent, { ...reply, plan: plan({ target_version: 6 }) }, 5)?.target).toBe(6);
+    expect(answeredApply(sent, { ...reply, plan: undefined }, 5)?.target).toBe(5);
   });
 });

@@ -1,7 +1,8 @@
 import type { Values } from '../i18n/translate';
-import type { ApiMigrationPlan, ApiPassedOver, ApiPendingApproval, ApiPlannedNodeAction } from '../services/types';
+import type { ApiMigrationPlan, ApiNodeAction, ApiPassedOver, ApiPendingApproval, ApiPlannedNodeAction } from '../services/types';
 import { instanceReference } from './instanceList';
-import { heldTasksAffected } from './instanceMigration';
+import { heldTasksAffected, migrationRequestKey } from './instanceMigration';
+import { versionPair } from './migrationDraft';
 
 /**
  * What an apply did, in words, from the server's own answer.
@@ -278,6 +279,33 @@ export function saidInDialog(outcome: MigrationOutcome): boolean {
   return outcome.waits || outcome.passedOver.length > 0 || outcome.more !== null;
 }
 
+/** What the dialog does once an apply has answered. */
+export interface AfterApply {
+  /** Keep the answer on screen, in the dialog. Otherwise it is said in a toast. */
+  keep: boolean;
+  /** Work the plan out again for the same request. */
+  replan: boolean;
+  /** Close the dialog. */
+  close: boolean;
+}
+
+/**
+ * An answer is kept on screen or said in a toast, never both, and only a
+ * toast can close the dialog. A run that left instances behind is planned
+ * again, as an apply that stopped part-way is: the plan in hand counts
+ * instances the run has since dealt with, and what is left is what the next
+ * apply is for. A request that waits changed nothing, so the plan that was
+ * sent stays as it is.
+ *
+ * `open` is whether the dialog is still there to keep it in. One closed while
+ * the apply was on its way has nowhere to show the answer, so it is a toast
+ * after all: a request that was sent must not go unsaid.
+ */
+export function afterApply(outcome: MigrationOutcome, open = true): AfterApply {
+  const keep = open && saidInDialog(outcome);
+  return { keep, replan: keep && !outcome.waits, close: !keep && outcome.notice.closes };
+}
+
 /** An apply's answer, kept with what it answered. */
 export interface AnsweredApply {
   /** The source and target it was for. See versionPair. */
@@ -287,6 +315,41 @@ export interface AnsweredApply {
   reply: MigrationReply;
   /** The target version's number. */
   target: number;
+}
+
+/** What an apply sent, as the mutation that sent it keeps it. */
+export interface SentApply {
+  source: string;
+  target: string;
+  mapping: Record<string, string>;
+  acknowledge?: string[];
+  actions?: Record<string, ApiNodeAction>;
+}
+
+/**
+ * The last apply's answer, from what was sent and what came back.
+ *
+ * Read from the apply itself rather than copied into the dialog's state: the
+ * mutation already keeps what it sent and what it was answered, drops the
+ * answer when the next apply starts, and is reset when the dialog closes — so
+ * there is no second copy to fall out of step with it. Null while nothing has
+ * answered, and for a refusal the reply carries: that is an error, and is
+ * shown as one.
+ *
+ * `target` is the version number on screen, used when the reply names none.
+ */
+export function answeredApply(
+  sent: SentApply | undefined,
+  reply: (MigrationReply & { err?: string }) | undefined,
+  target: number,
+): AnsweredApply | null {
+  if (!sent || !reply || reply.err) return null;
+  return {
+    pair: versionPair(sent.source, sent.target),
+    requestKey: migrationRequestKey({ ...sent, acknowledge: sent.acknowledge ?? [], actions: sent.actions ?? {} }),
+    reply,
+    target: reply.plan?.target_version ?? target,
+  };
 }
 
 /**

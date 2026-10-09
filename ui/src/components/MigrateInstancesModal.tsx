@@ -23,6 +23,7 @@ import {
   canApply,
   carriedNodes,
   heldTasksAffected,
+  migrationRequestKey,
   movedNodes,
   planSummary,
   removedNodesSummary,
@@ -32,10 +33,13 @@ import {
 import type { ActionRow, MigrationRequest } from '../domain/instanceMigration';
 import { draftFor, editDraft, mappingOf, proposedRows, versionPair } from '../domain/migrationDraft';
 import type { DraftEdit, MigrationDraft } from '../domain/migrationDraft';
-import { migrationNotice } from '../domain/migrationOutcome';
+import { applyLabel, approvalNeeded } from '../domain/migrationApproval';
+import { afterApply, answeredApply, formatExpiry, migrationOutcome, outcomeOnScreen } from '../domain/migrationOutcome';
 import { compareLoaded, comparisonFailure, diffOf, diffSummary, landingChoices, proposeMapping, removedNodes } from '../domain/versionDiff';
 import { useDefinition, useMigrateInstances } from '../hooks/useDefinitions';
 import { useMigrationPlan } from '../hooks/useMigrationPlan';
+import { useTranslation } from '../i18n/context';
+import { MigrationApplyFooter } from './MigrationApplyFooter';
 import { VersionChangesTable } from './VersionChangesTable';
 import { errorMessage } from '../services/shared/errors';
 import type { NodeActionKind } from '../services/types';
@@ -71,6 +75,8 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // Why the last apply did not finish, kept apart from the plan's own refusal:
   // the plan is worked out again afterwards, and must not wipe the reason.
   const [applyError, setApplyError] = useState<string | null>(null);
+  const { t, locale } = useTranslation();
+  const expiry = (iso: string) => formatExpiry(iso, locale);
   // What somebody has said here — the mapping, the holds they accepted, the
   // nodes they decided rather than moved — and the pair of versions they said
   // it about. Mapping and decisions stay separate instructions: the server
@@ -139,23 +145,39 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
   // lands in between: the move was sent twice, and every instance the second
   // run re-read as still running got a second "migrated" entry on its trail.
   const applying = useRef(false);
+  // Whether the dialog was closed since the last press. An answer that
+  // arrives after that has no dialog to be shown in.
+  const abandoned = useRef(false);
 
   // Closing is abandoning the plan: the next opening, of this pair or another,
   // starts from nothing.
   const close = () => {
+    abandoned.current = true;
     setWritten(null);
     setApplyError(null);
+    // And forgets the last apply's answer, which is otherwise still the
+    // mutation's when the dialog opens again for the same two versions. Not
+    // while an apply is on its way: that one is forgotten when it answers.
+    if (!applying.current) apply.reset();
     planned.reset();
     onClose();
   };
 
   const open = source !== null && target !== null;
   const ready = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: apply.isPending });
+  // What the last apply answered, when the answer is one to read rather than
+  // a toast: a request sent to a second administrator, or instances the run
+  // did not move. Read from the apply itself, and said only for as long as it
+  // is true of what is on screen (outcomeOnScreen).
+  const requestKey = request ? migrationRequestKey(request) : null;
+  const answered = answeredApply(apply.variables, apply.data, target?.version ?? 0);
+  const outcome = outcomeOnScreen(answered, pair, requestKey, t, expiry);
 
   const handleApply = async () => {
     const pressable = canApply({ plan, fresh: planned.fresh, error: planned.error, applying: applying.current });
     if (!request || !target || !pressable) return;
     applying.current = true;
+    abandoned.current = false;
     setApplyError(null);
     try {
       const reply = await apply.mutateAsync(request);
@@ -165,10 +187,15 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
         return;
       }
       // Said from the server's reply, not from the preview on screen: see
-      // migrationNotice.
-      const notice = migrationNotice(reply, target.version);
-      notifications.show({ title: notice.title, message: notice.message, color: notice.color });
-      if (notice.closes) close();
+      // migrationOutcome. `applied: false` is not "nothing was moved" when the
+      // reply carries a request that waits for a second administrator. An
+      // answer that is kept is shown at the foot of the dialog, from the
+      // apply's own data; any other is the toast it always was.
+      const said = migrationOutcome(reply, target.version, t, expiry);
+      const next = afterApply(said, !abandoned.current);
+      if (!next.keep) notifications.show({ title: said.notice.title, message: said.notice.message, color: said.notice.color });
+      if (next.replan) planned.replan();
+      if (next.close) close();
     } catch (error: unknown) {
       // Not "could not be moved": the server moves instances one at a time,
       // and one that stops part-way has moved some. Its message says how many.
@@ -179,6 +206,7 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
       planned.replan();
     } finally {
       applying.current = false;
+      if (abandoned.current) apply.reset();
     }
   };
 
@@ -518,23 +546,16 @@ export function MigrateInstancesModal({ source, target, processKey, onClose }: M
           ))}
         </Stack>
 
-        <Group justify="flex-end">
-          {!planned.fresh && plan !== null && (
-            <Group gap={6} mr="auto">
-              <Loader size="xs" />
-              <Text size="xs" c="dimmed">Working out the plan for this change…</Text>
-            </Group>
-          )}
-          <Button variant="subtle" color="gray" onClick={close}>Cancel</Button>
-          <Button
-            color="orange"
-            disabled={!ready}
-            loading={apply.isPending}
-            onClick={handleApply}
-          >
-            Move {plan?.instances ?? 0} {plan?.instances === 1 ? 'instance' : 'instances'}
-          </Button>
-        </Group>
+        <MigrationApplyFooter
+          outcome={outcome}
+          needed={approvalNeeded(plan, t)}
+          label={applyLabel(plan, t)}
+          ready={ready}
+          applying={apply.isPending}
+          planning={!planned.fresh && plan !== null}
+          onApply={handleApply}
+          onClose={close}
+        />
       </Stack>
     </Modal>
   );
