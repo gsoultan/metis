@@ -31,6 +31,11 @@ type fixture struct {
 	dispatcher observercontracts.EventDispatcher
 	// db is the schema's GORM handle, for seeding rows in bulk.
 	db *gorm.DB
+	// listing is the hook on the listing of instances, in a fixture that has
+	// one: the helpers that ask for an approval take it off while they ask.
+	listing *hookedProcess
+	// underApproval is the request the fixture's last approved run was under.
+	underApproval uuid.UUID
 }
 
 func newFixture(t *testing.T) *fixture {

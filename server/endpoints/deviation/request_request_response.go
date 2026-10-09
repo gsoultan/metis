@@ -197,9 +197,22 @@ type ApproveDeviationRequestResponse struct {
 	Applied bool                 `json:"applied"`
 	// Deviation is the record of an approved waive.
 	Deviation *DeviationView `json:"deviation,omitzero"`
-	// Plan is the plan the approval acted on: a PlanView for a waive.
-	Plan any   `json:"plan,omitzero"`
-	Err  error `json:"err,omitzero"`
+	// Plan is the plan the approval acted on: a PlanView for a waive, and the
+	// migration's plan for a migration.
+	Plan any `json:"plan,omitzero"`
+	// PassedOver are the instances an approved migration's run left as they
+	// were, each with why: a list for a migration, empty when the run left
+	// nobody behind, and absent for a waive.
+	PassedOver []PassedOverView `json:"passed_over,omitzero"`
+	Err        error            `json:"err,omitzero"`
+}
+
+// PassedOverView is one instance an approved migration's run left alone, as
+// the approval's reply carries it.
+type PassedOverView struct {
+	InstanceID string `json:"instance_id"`
+	// Reason is why, in plain words; it names a step by its name, not its id.
+	Reason string `json:"reason"`
 }
 
 func (r ApproveDeviationRequestResponse) Failed() error { return r.Err }

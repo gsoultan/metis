@@ -7,6 +7,9 @@ import (
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/endpoints/definition"
+	"github.com/gsoultan/metis/server/endpoints/deviation"
 )
 
 // accountOf is the account id of the test administrator called name: derived
@@ -76,4 +79,131 @@ func (f *fixture) letTimePass(t *testing.T, requestID uuid.UUID, minutes int) {
 	if err := f.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, minutes, requestID).Error; err != nil {
 		t.Fatalf("move the deadline of request %s: %v", requestID, err)
 	}
+}
+
+// A test that hooks "the apply's listing" counts listings from the moment it
+// arms the hook: the plan lists, then the apply. Asking for an approval lists
+// too. So the helpers below take a test's hook off while they ask, and put it
+// back counting from the call that runs the migration.
+
+// unhook takes off the listing hook a test armed, and answers what it was to
+// run and how many listings ahead of now.
+func (f *fixture) unhook() (fire func(), ahead int) {
+	p := f.listing
+	if p == nil {
+		return nil, 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fire, ahead = p.fire, p.on-p.calls
+	p.fire = nil
+	return fire, ahead
+}
+
+// rehook arms it again, to run at the listing `ahead` from now.
+func (f *fixture) rehook(fire func(), ahead int) {
+	p := f.listing
+	if p == nil || fire == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.on, p.fire = p.calls+ahead, fire
+}
+
+// applyWithApproval applies a migration the way it is done since a second
+// administrator approves a skip: a plan that needs one is asked for by dita
+// and approved by omar; any other plan — and any refused one — goes to
+// ApplyInstanceMigration as before. It answers what the run did either way.
+func (f *fixture) applyWithApproval(t *testing.T, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
+	t.Helper()
+	fire, ahead := f.unhook()
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, source, target, mapping, opts...)
+	if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover {
+		f.rehook(fire, ahead)
+		return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
+	}
+	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), source, target, mapping, opts...)
+	if err != nil {
+		return entities.MigrationResult{}, err
+	}
+	f.underApproval = pending.RequestID
+	// One listing more than a direct apply: the approval's own plan.
+	f.rehook(fire, ahead+1)
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+	if out.MigrationResult == nil {
+		return entities.MigrationResult{}, err
+	}
+	return *out.MigrationResult, err
+}
+
+// migrateWithApproval is applyWithApproval for a test that asks only whether
+// the migration went through.
+func (f *fixture) migrateWithApproval(t *testing.T, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) error {
+	t.Helper()
+	_, err := f.applyWithApproval(t, source, target, mapping, opts...)
+	return err
+}
+
+// sameApproval carries the approval the fixture's last approved run is under,
+// for a hook that runs the same migration again inside it. Nothing when that
+// run needed nobody else.
+func (f *fixture) sameApproval() []servicecontracts.MigrationOption {
+	if f.underApproval == uuid.Nil {
+		return nil
+	}
+	return []servicecontracts.MigrationOption{servicecontracts.WithApprovedRequest(f.underApproval)}
+}
+
+// asked is the migrate endpoint's answer to ctx, refused or not.
+func (f *fixture) asked(t *testing.T, ctx context.Context, request definition.MigrateInstancesRequest) definition.MigrateInstancesResponse {
+	t.Helper()
+	reply, err := definition.MakeMigrateInstancesEndpoint(f.svc)(ctx, request)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return reply.(definition.MigrateInstancesResponse)
+}
+
+// answerOf is what the migrate endpoint answers — or, for an apply the endpoint
+// sent for approval, what omar's approval of it answers: the reply that then
+// says what the run did, under the same `applied` and `passed_over`.
+func (f *fixture) answerOf(t *testing.T, request definition.MigrateInstancesRequest) any {
+	t.Helper()
+	answered := func(ctx context.Context, request definition.MigrateInstancesRequest) definition.MigrateInstancesResponse {
+		t.Helper()
+		reply := f.asked(t, ctx, request)
+		if reply.Err != nil {
+			t.Fatalf("the migration was refused: %v", reply.Err)
+		}
+		return reply
+	}
+	if request.DryRun == nil || *request.DryRun {
+		return answered(f.ctx, request)
+	}
+	fire, ahead := f.unhook()
+	preview := request
+	preview.DryRun = nil
+	if plan := answered(f.ctx, preview).Plan; !plan.Applicable() || !plan.RequiresSecondApprover {
+		f.rehook(fire, ahead)
+		return answered(f.ctx, request)
+	}
+	sent := answered(adminAs(f.ctx, "dita"), request)
+	if sent.PendingApproval == nil || sent.Applied || len(sent.PassedOver) != 0 {
+		t.Fatalf("an apply that needs a second administrator was not sent for approval: %+v", sent)
+	}
+	f.underApproval = sent.PendingApproval.RequestID
+	// The approval's own plan stands where the endpoint's did.
+	f.rehook(fire, ahead)
+	approved, err := deviation.MakeApproveDeviationRequestEndpoint(f.svc)(adminAs(f.ctx, "omar"),
+		deviation.DecideDeviationRequestRequest{ID: sent.PendingApproval.RequestID.String()})
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if failed := approved.(deviation.ApproveDeviationRequestResponse).Err; failed != nil {
+		t.Fatalf("the approval was refused: %v", failed)
+	}
+	return approved
 }

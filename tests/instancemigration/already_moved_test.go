@@ -1,6 +1,7 @@
 package instancemigration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,11 +118,11 @@ func TestADecisionIsNotTakenOnAnInstanceAnotherRunAlreadyMoved(t *testing.T) {
 				servicecontracts.WithActor("dita"),
 			}
 			listing.atApplysListing(func() {
-				if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, mapping, opts...); err != nil {
+				if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, mapping, append(slices.Clip(opts), f.sameApproval()...)...); err != nil {
 					t.Errorf("the first run: %v", err)
 				}
 			})
-			result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, mapping, opts...)
+			result, err := f.applyWithApproval(t, v1, v2, mapping, opts...)
 			if err != nil {
 				t.Fatalf("the second run: %v", err)
 			}

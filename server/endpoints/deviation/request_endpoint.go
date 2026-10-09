@@ -113,7 +113,24 @@ func approvalOf(outcome entities.DeviationRequestOutcome) ApproveDeviationReques
 	case outcome.MigrationPlan != nil:
 		response.Plan = *outcome.MigrationPlan
 	}
+	if outcome.MigrationResult != nil {
+		response.PassedOver = passedOverViews(outcome.MigrationResult.PassedOver)
+	}
 	return response
+}
+
+// passedOverViews is the instances an approved run left alone as the reply
+// lists them: an empty list, never null, when there are none.
+func passedOverViews(passed []entities.PassedOverInstance) []PassedOverView {
+	views := make([]PassedOverView, 0, len(passed))
+	for _, one := range passed {
+		view := PassedOverView{Reason: one.Reason}
+		if one.Instance != nil {
+			view.InstanceID = one.Instance.ID.String()
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 // MakeRejectDeviationRequestEndpoint ends a request without carrying it out.

@@ -54,7 +54,7 @@ func TestASkipIsLedgeredWithItsRunAndItsEntry(t *testing.T) {
 	f := newFixture(t)
 	v1, v2 := f.parkedOnOpsApprove(t)
 	opsTask := f.openTasks(t)[0]
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, skipOps("the operations manager role was eliminated")...); err != nil {
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, skipOps("the operations manager role was eliminated")...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	instance := f.onlyInstance(t)
@@ -166,7 +166,7 @@ func TestAnAcknowledgedControlLossIsLedgeredPerInstance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, map[string]string{"opsApprove": "salesApprove"},
+	if err := f.migrateWithApproval(t, v1, v2, map[string]string{"opsApprove": "salesApprove"},
 		servicecontracts.WithAcknowledgedHolds("opsApprove"), servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestOnlyTheInstanceThatHadNotPassedTheControlLosesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, map[string]string{"opsApprove": "salesApprove"},
+	if err := f.migrateWithApproval(t, v1, v2, map[string]string{"opsApprove": "salesApprove"},
 		servicecontracts.WithAcknowledgedHolds("opsApprove"), servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestADecisionThatCannotBeLedgeredIsNotMade(t *testing.T) {
 		t.Run(string(kind), func(t *testing.T) {
 			f := newUnledgeredFixture(t)
 			v1, v2 := f.parkedOnOpsApprove(t)
-			err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil,
+			err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil,
 				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{"opsApprove": {Kind: kind, Reason: "policy"}}),
 				servicecontracts.WithActor("dita"))
 			if err == nil {

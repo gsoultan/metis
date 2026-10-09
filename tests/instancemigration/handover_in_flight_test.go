@@ -64,7 +64,7 @@ func TestAWithdrawalRecordsTheDelegationItWaitedFor(t *testing.T) {
 			}
 
 			acted := make(chan error, 1)
-			go func() { acted <- f.svc.MigrateInstances(f.ctx, v1, v2, nil, action.options()...) }()
+			go func() { acted <- f.migrateWithApproval(t, v1, v2, nil, action.options()...) }()
 
 			f.waitUntilHeldBehind(t, session, acted)
 			if err := delegation.Commit().Error; err != nil {

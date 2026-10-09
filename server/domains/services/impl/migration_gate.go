@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,7 +79,12 @@ func (s *migrationService) approvedRequestFor(
 	var none servicecontracts.MigrationApproval
 	requestID := options.Approval.RequestID
 	if requestID == uuid.Nil {
-		return none, nil
+		if !plan.RequiresSecondApprover {
+			return none, nil
+		}
+		return none, refusedAtTheGate("nobody else had approved it",
+			"This migration skips a step or drops a control (%s), so a second administrator has to approve it first; nothing was moved.",
+			strings.Join(plan.SecondApproverReasons, "; "))
 	}
 	request, err := s.requestOffered(ctx, requestID)
 	if err != nil {

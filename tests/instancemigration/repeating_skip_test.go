@@ -171,7 +171,7 @@ func skipARepeatingApproval(t *testing.T, kind entities.NodeType, loop string, k
 		t.Fatalf("deploy v2: %v", err)
 	}
 
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, nil,
+	if err := f.migrateWithApproval(t, v1, v2, nil,
 		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
 			"approve": {Kind: servicecontracts.NodeActionSkip, Reason: "the purchase was approved by the board instead"},
 		}),

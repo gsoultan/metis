@@ -135,7 +135,7 @@ func (f *fixture) planAndApply(t *testing.T, v1, v2 uuid.UUID, mapping map[strin
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, mapping, opts...)
+	result, err := f.applyWithApproval(t, v1, v2, mapping, opts...)
 	return f.toldWithItsRows(t, v1, v2, plan, result, err)
 }
 

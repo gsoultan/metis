@@ -102,7 +102,7 @@ func TestSkippingAWaitDoesNotLeaveItListening(t *testing.T) {
 		}),
 		servicecontracts.WithActor("dita"),
 	}
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, nil, opts...); err != nil {
+	if err := f.migrateWithApproval(t, v1, v2, nil, opts...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 

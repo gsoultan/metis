@@ -261,7 +261,11 @@ type MigrateInstancesResponse struct {
 	// apply left nobody behind and for a dry run, so a client need not ask
 	// whether the field is there.
 	PassedOver []PassedOverView `json:"passed_over"`
-	Err        error            `json:"err,omitzero"`
+	// PendingApproval says the apply was not made but sent to a second
+	// administrator: which request waits, who asked, until when and why it
+	// needs somebody else. Left out of every reply that waits on nobody.
+	PendingApproval *entities.PendingApproval `json:"pending_approval,omitzero"`
+	Err             error                     `json:"err,omitzero"`
 }
 
 // PassedOverView is one instance an apply left alone, as the reply carries it.

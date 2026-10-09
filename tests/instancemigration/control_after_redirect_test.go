@@ -119,7 +119,7 @@ func TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt(t *testin
 	}
 
 	// Accepted by name, it goes through, and the loss is in the ledger.
-	if err := f.svc.MigrateInstances(f.ctx, v2, v3, drop,
+	if err := f.migrateWithApproval(t, v2, v3, drop,
 		servicecontracts.WithAcknowledgedHolds("control"), servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("an acknowledged hold was still refused: %v", err)
 	}

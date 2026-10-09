@@ -154,7 +154,7 @@ func TestAClaimRacingASkipIsRecordedAsItWasAnnounced(t *testing.T) {
 			var migrateErr error
 			done.Go(func() {
 				start.Wait()
-				migrateErr = f.svc.MigrateInstances(f.ctx, v1, v2, nil, skippingApprove()...)
+				migrateErr = f.migrateWithApproval(t, v1, v2, nil, skippingApprove()...)
 			})
 			for i, task := range open {
 				claimer := fmt.Sprintf("claimer-%d", i)
@@ -239,7 +239,7 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 	}
 
 	skipped := make(chan error, 1)
-	go func() { skipped <- f.svc.MigrateInstances(f.ctx, v1, v2, nil, skippingApprove()...) }()
+	go func() { skipped <- f.migrateWithApproval(t, v1, v2, nil, skippingApprove()...) }()
 
 	f.waitUntilHeldBehind(t, session, skipped)
 	if err := claim.Commit().Error; err != nil {

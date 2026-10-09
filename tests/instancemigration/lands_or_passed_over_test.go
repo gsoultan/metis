@@ -61,6 +61,7 @@ func newLockRacedFixture(t *testing.T) (*fixture, *hookedProcess, *lockHooked) {
 		listing.ProcessRepository = locks
 		return &hookedRepository{Repository: repo, process: listing}
 	})
+	f.listing = listing
 	return f, listing, locks
 }
 
@@ -254,7 +255,7 @@ func arrivesAtOpsApproveAfterTheListing(t *testing.T, kind servicecontracts.Node
 	f, listing := newRacedFixture(t)
 	v1, v2 = f.waitingAtSupervisorReview(t)
 	listing.atApplysListing(func() { f.completeTaskOn(t, "supervisorReview", "sam") })
-	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+	result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -353,7 +354,7 @@ func TestTheStrandingReproducedInReviewNoLongerHappens(t *testing.T) {
 			f, listing := newRacedFixture(t)
 			v1, v2 := f.waitingAtSupervisorReview(t)
 			listing.atApplysListing(func() { f.completeTaskOn(t, "supervisorReview", "sam") })
-			if err := f.svc.MigrateInstances(f.ctx, v1, v2, nil, opts...); err != nil {
+			if err := f.migrateWithApproval(t, v1, v2, nil, opts...); err != nil {
 				t.Fatalf("apply: %v", err)
 			}
 			reached(t, listing)
@@ -394,7 +395,7 @@ func TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun(t
 			v1, v2 := f.waitingAtSupervisorReview(t)
 			beforeTheRewriteLocks(listing, locks, func() { f.completeTaskOn(t, "supervisorReview", "sam") })
 
-			result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			if err != nil {
 				t.Fatalf("apply: %v", err)
 			}
@@ -414,7 +415,7 @@ func TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun(t
 			assertPassedOver(t, result, instance, "Operations approve", "opsApprove")
 
 			// The same migration again finds it at the step, and decides it.
-			again, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			again, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			if err != nil {
 				t.Fatalf("the second run: %v", err)
 			}
@@ -569,7 +570,7 @@ func TestAnInstanceWithOneOfTwoTokensOnAStepTheNewVersionLacksIsNotMoved(t *test
 // past it, and the instance is then moved whole.
 func TestAnInstanceWithOneOfTwoTokensOnASkippedStepIsSkippedThereAndMoved(t *testing.T) {
 	f, v1, v2 := forkedAndListed(t)
-	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil,
+	result, err := f.applyWithApproval(t, v1, v2, nil,
 		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
 			"extraCheck": {Kind: servicecontracts.NodeActionSkip, Reason: "the check was dropped"},
 		}), servicecontracts.WithActor("dita"))
@@ -659,7 +660,7 @@ func TestASkipThatLandsOnAStepTheNewVersionLacksLeavesTheInstanceOnItsVersion(t 
 		return []servicecontracts.MigrationOption{servicecontracts.WithNodeActions(actions), servicecontracts.WithActor("dita")}
 	}
 
-	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, skip("firstApprove")...)
+	result, err := f.applyWithApproval(t, v1, v2, nil, skip("firstApprove")...)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -679,7 +680,7 @@ func TestASkipThatLandsOnAStepTheNewVersionLacksLeavesTheInstanceOnItsVersion(t 
 	assertPassedOver(t, result, instance, "Second approval", "secondApprove")
 
 	// Deciding the second step as well is what moves it.
-	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, skip("firstApprove", "secondApprove")...); err != nil {
+	if _, err := f.applyWithApproval(t, v1, v2, nil, skip("firstApprove", "secondApprove")...); err != nil {
 		t.Fatalf("the second run: %v", err)
 	}
 	f.assertWaitingAt(t, v2, "sign")
@@ -773,7 +774,7 @@ func TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithout
 
 	moved := false
 	for run := 1; run <= 5 && !moved; run++ {
-		result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...)
+		result, err := f.applyWithApproval(t, v1, v2, nil, opts...)
 		if err != nil {
 			t.Fatalf("run %d: %v", run, err)
 		}

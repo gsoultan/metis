@@ -359,6 +359,11 @@ func migrationAuthoriser(ctx context.Context) (string, error) {
 // all. It is administrative and it defaults to a dry run: this rewrites durable
 // business commitments, so seeing the plan is the default and committing is the
 // thing you ask for.
+//
+// An apply whose plan needs a second administrator — it skips a step, or
+// drops a control instances have not passed — is not applied: it is recorded
+// as a request that waits, and the reply carries pending_approval beside the
+// plan. Applying it is the approval of that request, by somebody else.
 func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req, ok := request.(MigrateInstancesRequest)
@@ -403,6 +408,19 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		if req.dryRun() {
 			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil)}, nil
+		}
+		// A plan that skips a step, or drops a control instances have not
+		// passed, is not applied on this caller's say: it is asked for, and
+		// the reply says which request now waits for a second administrator.
+		// Nothing is moved. Only an apply asks — a dry run returned above —
+		// and the service refuses such an apply itself, should anything reach
+		// it without having asked.
+		if plan.Applicable() && plan.RequiresSecondApprover {
+			pending, err := s.RequestMigrationApproval(ctx, source, target, req.NodeMapping, opts...)
+			if err != nil {
+				return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), Err: err}, nil
+			}
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), PendingApproval: &pending}, nil
 		}
 		result, err := s.ApplyInstanceMigration(ctx, source, target, req.NodeMapping, opts...)
 		if err != nil {
