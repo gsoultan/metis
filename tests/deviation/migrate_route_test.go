@@ -694,11 +694,17 @@ func TestARunThatStoppedPartWayIsAnsweredAsAFailureAndTheRequestSaysHowFarItGot(
 	}
 	requireFields(t, object(t, raw), "the reply to an approval whose run stopped", "error")
 	said, _ := object(t, raw)["error"].(string)
-	if !strings.HasPrefix(said, `advancing instance `+undecided.String()+` past "review": `) ||
-		!strings.Contains(said, " (1 of 2 instances had already been dealt with; ") ||
-		!strings.HasSuffix(said, " — the migration had been approved and its run stopped here: request "+requestID+
-			" now reads interrupted, what the run had done stands, and what remains has to be asked for again") {
+	if !strings.HasPrefix(said, `the approved migration did not finish: advancing instance `+undecided.String()+` past "review": `) ||
+		!strings.Contains(said, " (1 of 2 instances had already been dealt with). ") ||
+		!strings.HasSuffix(said, "Request "+requestID+
+			" now reads interrupted; what its run had done stands, and what remains has to be asked for again") {
 		t.Fatalf("the failure says %q, want which instance it stopped at, how many it had dealt with, and what became of the request", said)
+	}
+	// One thing to do, and the true one: the request is spent, so the run's
+	// own "run the same migration again" is not said. Nor is the engine's
+	// marker for an error a process may catch, which is no word.
+	if strings.Contains(said, "run the same migration again") || strings.Contains(said, "BPMN_ERROR") {
+		t.Fatalf("the failure tells the approver to run the migration again, or carries the engine's marker: %q", said)
 	}
 
 	// How far it got, from the request.
