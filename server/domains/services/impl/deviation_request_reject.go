@@ -27,7 +27,9 @@ import (
 //     why a waive somebody asked for was not made.
 //  3. The request, read inside the caller's organization and held (another
 //     organization's is not found, as one that never existed), in a unit of
-//     work of its own.
+//     work of its own. It is read without what it asked for and what its
+//     requester was shown: ending a request needs neither, so one whose
+//     stored plan no longer opens can still be rejected or withdrawn.
 //  4. Its status as stored on that row: one already decided says what became
 //     of it.
 //  5. The clock: one past its deadline expired before this rejection came.
@@ -57,7 +59,7 @@ func (s *deviationRequestService) RejectDeviationRequest(ctx context.Context, id
 		rejected, err = s.rejectLocked(txCtx, id, caller, reason)
 		// A decision a repository refused as made first is somebody else's,
 		// told as that (decidedFirst), as an approval tells it.
-		return decidedFirst(err, func() (entities.DeviationRequest, error) { return requests.Get(txCtx, id) })
+		return decidedFirst(err, func() (entities.DeviationRequest, error) { return requests.GetReadable(txCtx, id) })
 	})
 	if err != nil {
 		return none, err
@@ -84,7 +86,7 @@ func rejectionReason(reason string) (string, error) {
 // that waited for the row is judged against the deadline as it then stands.
 func (s *deviationRequestService) rejectLocked(ctx context.Context, id uuid.UUID, caller entities.User, reason string) (entities.DeviationRequest, error) {
 	var none entities.DeviationRequest
-	request, err := s.repo.DeviationRequest().GetForUpdate(ctx, id)
+	request, err := s.repo.DeviationRequest().GetForUpdateWithoutDocuments(ctx, id)
 	if err != nil {
 		return none, err
 	}

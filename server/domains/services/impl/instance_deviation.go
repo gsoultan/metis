@@ -410,7 +410,9 @@ func (s *instanceDeviationService) recordOfVisit(
 }
 
 // requestWaitedOn reads the request a waiting ledger row names, without
-// holding it. A failure is the server's, whatever class it came with: the
+// holding it, and without needing its sealed documents to open: whether it
+// still waits, who asked and until when are all this is read for, and a
+// request whose stored plan is damaged must not make its step unaskable. A failure is the server's, whatever class it came with: the
 // caller has locked the instance the row is of, so "not found" is not an
 // answer about anything they asked for.
 func (s *instanceDeviationService) requestWaitedOn(ctx context.Context, row entities.Deviation) (entities.DeviationRequest, error) {
@@ -418,7 +420,7 @@ func (s *instanceDeviationService) requestWaitedOn(ctx context.Context, row enti
 	if requests == nil {
 		return entities.DeviationRequest{}, errNoDeviationRequests
 	}
-	request, err := requests.Get(ctx, row.RequestID)
+	request, err := requests.GetReadable(ctx, row.RequestID)
 	if err != nil {
 		return entities.DeviationRequest{}, effectFailed(fmt.Sprintf("reading the request deviation %s waits on", row.ID), err)
 	}
@@ -442,15 +444,11 @@ func replayWaiting(
 	command entities.DeviationCommand,
 ) (entities.DeviationOutcome, bool, error) {
 	var none entities.DeviationOutcome
-	caller := signedIn(ctx)
-	if caller == nil || caller.ID == uuid.Nil || caller.ID != request.RequestedByID {
-		return none, false, alreadyWaiting(row, request)
-	}
-	same, err := sameRequest(row, command)
+	again, err := sameAskByItsRequester(ctx, row, request, command)
 	if err != nil {
 		return none, false, err
 	}
-	if !same {
+	if !again {
 		return none, false, alreadyWaiting(row, request)
 	}
 	outcome := replayed(row, command)
@@ -458,6 +456,22 @@ func replayWaiting(
 	waiting := entities.PendingApprovalOf(request)
 	outcome.PendingApproval = &waiting
 	return outcome, true, nil
+}
+
+// sameAskByItsRequester reports whether a command is the waiting request
+// made again by whoever made it: the same account — by id, never by name —
+// asking for the same thing (sameRequest).
+//
+// It is the one place that is decided. An apply answers such a command with
+// the request that waits and anything else with a refusal (replayWaiting); a
+// preview warns of the first and refuses the second (withWhatWaits). Were the
+// two to ask it differently, a preview would promise what its apply refuses.
+func sameAskByItsRequester(ctx context.Context, row entities.Deviation, request entities.DeviationRequest, command entities.DeviationCommand) (bool, error) {
+	caller := signedIn(ctx)
+	if caller == nil || caller.ID == uuid.Nil || caller.ID != request.RequestedByID {
+		return false, nil
+	}
+	return sameRequest(row, command)
 }
 
 // alreadyActedOn is the refusal of a request for a visit that has had its

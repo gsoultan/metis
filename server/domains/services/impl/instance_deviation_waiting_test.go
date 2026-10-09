@@ -42,6 +42,11 @@ func (r requestsRead) Get(context.Context, uuid.UUID) (entities.DeviationRequest
 	return r.request, r.err
 }
 
+// GetReadable is the read a replay makes: it needs no document of the request.
+func (r requestsRead) GetReadable(context.Context, uuid.UUID) (entities.DeviationRequest, error) {
+	return r.request, r.err
+}
+
 // ledgerAndRequests is a repository with a ledger and a store of requests
 // and nothing else.
 type ledgerAndRequests struct {

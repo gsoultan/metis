@@ -71,6 +71,16 @@ type DeviationRequestReader interface {
 	// one; what it reads as at a given moment is EffectiveStatus.
 	Get(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error)
 
+	// GetReadable answers one request as stored, with each of its sealed
+	// documents that opens. A document that does not open is left nil —
+	// Command, Plan or ApprovedInstances, which a whole request never has
+	// nil — where Get would fail. It is for whoever has to see a request, or
+	// find out whether it still waits, without needing all of what it asked:
+	// a request whose plan no longer opens is still one somebody has to be
+	// able to read, reject and close. Whoever acts on what a request asked
+	// for reads it whole.
+	GetReadable(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error)
+
 	// List answers one page of the caller's requests, newest first, and how
 	// many there are in all. A status in the query is the status a request
 	// reads as at now (EffectiveStatus): a waiting request past its deadline
@@ -84,8 +94,8 @@ type DeviationRequestReader interface {
 	List(ctx context.Context, query entities.DeviationRequestQuery, now time.Time) ([]entities.DeviationRequest, int64, error)
 }
 
-// DeviationRequestWriter writes requests and moves them. Create, GetForUpdate
-// and Transition are refused outside a transaction
+// DeviationRequestWriter writes requests and moves them. Create, both locking
+// reads and Transition are refused outside a transaction
 // (ErrDeviationRequestOutsideTransaction).
 type DeviationRequestWriter interface {
 	// Create writes a request that waits for approval. A second live request
@@ -101,6 +111,16 @@ type DeviationRequestWriter interface {
 	// transaction ends. A request's row is locked before the instance's,
 	// everywhere: request, then instance, then task rows.
 	GetForUpdate(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error)
+
+	// GetForUpdateWithoutDocuments holds one request's row as GetForUpdate
+	// does — the same lock, the same scope, the same place in the order — and
+	// answers it as the queue reads it: no Command, no Plan, no
+	// ApprovedInstances. It is the read of whoever ends a request without
+	// carrying it out — a rejection, a withdrawal, the closing of an overdue
+	// one — none of which needs what the request asked, so none of which
+	// fails because a sealed document no longer opens. An approval reads
+	// with GetForUpdate: what it is about to do is in those documents.
+	GetForUpdateWithoutDocuments(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error)
 
 	// FindLive answers the project's live request with this fingerprint, if
 	// there is one, whole and as stored. It locks nothing.
@@ -134,30 +154,64 @@ type DeviationRequestWriter interface {
 	Transition(ctx context.Context, id uuid.UUID, from entities.DeviationRequestStatus, change DeviationRequestChange) (entities.DeviationRequest, error)
 }
 
-// DeviationRequestSweeper reads what the clock has closed and nobody has
-// written down yet. Both reads are refused outside a transaction
-// (ErrDeviationRequestOutsideTransaction): they hold the rows they answer
-// until it ends, and pass by a row somebody else holds — that one is being
-// decided, or reported on, right now. So a batch can be shorter than limit
-// while more remain; and a row is moved with Transition, which writes only if
-// the status is still the one read.
+// SweepCursor is how far a sweep has read: the deadline and the id of the last
+// request it was answered. The sweep's reads are ordered by deadline and then
+// by id, and answer only what comes strictly after the cursor. The zero
+// cursor is the start.
 //
-// They answer requests as List does — no Command, no Plan, no
+// It is what lets a sweep get past a request it could not close. Read from
+// the start each time, such a request would be answered again and again —
+// requests that cannot be closed only get older, and the oldest is read
+// first — and nothing behind it would ever be reached.
+type SweepCursor struct {
+	ExpiresAt time.Time
+	ID        uuid.UUID
+}
+
+// SweepCursorAt is the cursor that stands at a request: a read after it
+// answers what follows that request.
+func SweepCursorAt(request entities.DeviationRequest) SweepCursor {
+	return SweepCursor{ExpiresAt: request.ExpiresAt, ID: request.ID}
+}
+
+// AtStart reports whether the cursor is the zero one, before every request.
+func (c SweepCursor) AtStart() bool {
+	return c.ID == uuid.Nil && c.ExpiresAt.IsZero()
+}
+
+// DeviationRequestSweeper reads what the clock has closed and nobody has
+// written down yet. All of it is refused outside a transaction
+// (ErrDeviationRequestOutsideTransaction): the reads hold the rows they
+// answer until it ends, and pass by a row somebody else holds — that one is
+// being decided, or reported on, right now. So a read can answer fewer than
+// limit while more remain, and what it passed by is simply not answered: the
+// cursor moves beyond it, and the next pass meets it. A row is moved with
+// Transition, which writes only if the status is still the one read.
+//
+// The reads answer requests as List does — no Command, no Plan, no
 // ApprovedInstances — because a sweep closes requests and has no use for what
 // they asked, and one request whose sealed plan no longer opens must not fail
-// the batch it is in. Whoever needs a swept request's documents reads it with
+// the read it is in. Whoever needs a swept request's documents reads it with
 // GetForUpdate. Run as system work they see every organization's requests, a
 // deleted project's among them; run for one organization, only its own.
 type DeviationRequestSweeper interface {
 	// ListOverdue answers up to limit requests that still wait at or after
-	// their deadline, the longest overdue first.
-	ListOverdue(ctx context.Context, now time.Time, limit int) ([]entities.DeviationRequest, error)
+	// their deadline, the longest overdue first, strictly after the cursor.
+	ListOverdue(ctx context.Context, now time.Time, after SweepCursor, limit int) ([]entities.DeviationRequest, error)
 
 	// ListUnreported answers up to limit approved requests whose run window
-	// has closed at now, as RunWindowClosed says: the deadline has come, the
+	// has closed at now, as RunWindowClosed says — the deadline has come, the
 	// report window has passed since the approval, or the approval has no
-	// time at all.
-	ListUnreported(ctx context.Context, now time.Time, limit int) ([]entities.DeviationRequest, error)
+	// time at all — in the same order, strictly after the cursor.
+	ListUnreported(ctx context.Context, now time.Time, after SweepCursor, limit int) ([]entities.DeviationRequest, error)
+
+	// BoundLockWait makes the transaction it is called in give up on a row
+	// lock it has waited that long for (SET LOCAL lock_timeout): the
+	// statement that was waiting fails, and with it the transaction. It is how a sweep
+	// closes one request without standing behind whoever holds a row that
+	// request needs, with the rest of its pass behind it. A wait that is not
+	// longer than nothing is a plain error.
+	BoundLockWait(ctx context.Context, wait time.Duration) error
 }
 
 // DeviationRequestRepository stores the requests that wait for a second

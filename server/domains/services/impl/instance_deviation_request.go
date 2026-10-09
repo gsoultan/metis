@@ -199,8 +199,8 @@ func alreadyWaitingSentence(row entities.Deviation, request entities.DeviationRe
 // an apply would answer with the request that waits, and the plan still
 // applies. To anybody else, and for anything else asked of the visit, it is a
 // refusal, in the words the apply would refuse with (alreadyWaiting). The two
-// are told apart exactly as the apply tells them (replayWaiting): by account
-// id, and by what is asked.
+// are told apart by the function the apply tells them apart with
+// (sameAskByItsRequester): by account id, and by what is asked.
 //
 // A request past its deadline, or over, says nothing here: it does not hold
 // the visit, and an apply closes it and makes a fresh one. Only a waive is
@@ -234,12 +234,9 @@ func (s *instanceDeviationService) withWhatWaits(
 	if request.EffectiveStatus(time.Now()) != entities.DeviationRequestPending {
 		return plan, nil
 	}
-	caller := signedIn(ctx)
-	mine := caller != nil && caller.ID != uuid.Nil && caller.ID == request.RequestedByID
-	if mine {
-		if mine, err = sameRequest(row, command); err != nil {
-			return plan, err
-		}
+	mine, err := sameAskByItsRequester(ctx, row, request, command)
+	if err != nil {
+		return plan, err
 	}
 	if !mine {
 		plan.Refusals = append(plan.Refusals, alreadyWaitingSentence(row, request))

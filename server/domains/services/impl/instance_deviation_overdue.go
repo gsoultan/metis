@@ -38,6 +38,10 @@ func (o overdueRequest) Error() string {
 // function (expireWaive), under the same row. So the two can meet: whichever
 // has the row closes the request, and the other finds it closed.
 //
+// The request is read without its sealed documents: closing it needs none of
+// them, so one whose stored plan no longer opens does not hold its step for
+// ever.
+//
 // A request that is no longer waiting, or — read again under its row — not
 // past its deadline, is left alone: somebody decided it meanwhile, and the
 // apply that follows finds what they left. A failure is the server's,
@@ -49,7 +53,7 @@ func (s *instanceDeviationService) closeOverdue(ctx context.Context, id uuid.UUI
 		return errNoDeviationRequests
 	}
 	return runDecision(ctx, s.repo.UnitOfWork(), func(txCtx context.Context) error {
-		request, err := requests.GetForUpdate(txCtx, id)
+		request, err := requests.GetForUpdateWithoutDocuments(txCtx, id)
 		if err != nil {
 			return effectFailed(fmt.Sprintf("reading request %s, which is past its deadline", id), err)
 		}

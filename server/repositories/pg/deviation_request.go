@@ -154,6 +154,32 @@ func (r *deviationRequestRepository) Get(ctx context.Context, id uuid.UUID) (ent
 	return requestFrom(row)
 }
 
+// GetReadable answers one request with each of its documents that opens
+// (readableRequestFrom): the read of whoever has to see a request, or learn
+// whether it still waits, whatever has become of what it stored.
+func (r *deviationRequestRepository) GetReadable(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error) {
+	row, err := r.one(ctx, id, false)
+	if err != nil {
+		return entities.DeviationRequest{}, err
+	}
+	return readableRequestFrom(row)
+}
+
+// GetForUpdateWithoutDocuments holds one request's row exactly as
+// GetForUpdate does and answers it as the queue reads it, opening none of its
+// sealed documents: whoever ends a request without carrying it out needs none
+// of them, and must not be stopped by one that no longer opens.
+func (r *deviationRequestRepository) GetForUpdateWithoutDocuments(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error) {
+	if !db.InTransaction(ctx) {
+		return entities.DeviationRequest{}, contracts.ErrDeviationRequestOutsideTransaction
+	}
+	row, err := r.one(ctx, id, true)
+	if err != nil {
+		return entities.DeviationRequest{}, err
+	}
+	return queuedRequestFrom(queueRowOf(row))
+}
+
 // GetForUpdate answers one request and holds its row (FOR UPDATE) until the
 // transaction ends.
 //

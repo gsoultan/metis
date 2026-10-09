@@ -121,28 +121,52 @@ func readingAs(q deviationrequest.Query, status entities.DeviationRequestStatus,
 }
 
 // ListOverdue answers the requests that still wait at or after their
-// deadline, locked, the longest overdue first.
-func (r *deviationRequestRepository) ListOverdue(ctx context.Context, now time.Time, limit int) ([]entities.DeviationRequest, error) {
-	return r.sweep(ctx, limit, deviationrequest.New().Where(
+// deadline, locked, the longest overdue first, strictly after the cursor.
+func (r *deviationRequestRepository) ListOverdue(ctx context.Context, now time.Time, after contracts.SweepCursor, limit int) ([]entities.DeviationRequest, error) {
+	return r.sweep(ctx, after, limit, deviationrequest.New().Where(
 		deviationrequest.Status.Eq(string(entities.DeviationRequestPending)),
 		deviationrequest.ExpiresAt.Lte(now)))
 }
 
 // ListUnreported answers the approved requests whose run window has closed,
-// locked: DeviationRequest.RunWindowClosed as a predicate. An approval with
-// no time is among them — its window cannot be said to be open — so the sweep
-// closes it at once rather than at its deadline. The null test comes last, as
-// a guard (see readingAs).
-func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now time.Time, limit int) ([]entities.DeviationRequest, error) {
-	return r.sweep(ctx, limit, deviationrequest.New().
+// locked, strictly after the cursor: DeviationRequest.RunWindowClosed as a
+// predicate. An approval with no time is among them — its window cannot be
+// said to be open — so the sweep closes it at once rather than at its
+// deadline. The null test comes last, as a guard (see readingAs).
+func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now time.Time, after contracts.SweepCursor, limit int) ([]entities.DeviationRequest, error) {
+	return r.sweep(ctx, after, limit, deviationrequest.New().
 		Where(deviationrequest.Status.Eq(string(entities.DeviationRequestApproved))).
 		Any(deviationrequest.ExpiresAt.Lte(now),
 			deviationrequest.DecidedAt.Lte(now.Add(-entities.ApprovedRunReportWindow)),
 			deviationrequest.DecidedAt.IsNull()))
 }
 
-// sweep reads up to limit of the rows q matches and holds them, FOR UPDATE
-// SKIP LOCKED, until the transaction ends.
+// BoundLockWait bounds, for the rest of the caller's transaction, how long a
+// statement waits for a row lock somebody else holds.
+//
+// The setting is local to the transaction (SET LOCAL), so it ends with it and
+// touches no other user of the connection. It takes no parameter the server
+// can bind, so the wait is written into the statement — as a whole number of
+// milliseconds, which is all a duration can become.
+func (r *deviationRequestRepository) BoundLockWait(ctx context.Context, wait time.Duration) error {
+	if !db.InTransaction(ctx) {
+		return contracts.ErrDeviationRequestOutsideTransaction
+	}
+	if wait < time.Millisecond {
+		return fmt.Errorf("deviation request: a sweep bounds its wait for a lock at a millisecond or more (got %s)", wait)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := ex.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", wait.Milliseconds()), nil); err != nil {
+		return fmt.Errorf("could not bound the sweep's wait for a lock: %w", err)
+	}
+	return nil
+}
+
+// sweep reads up to limit of the rows q matches that come after the cursor,
+// and holds them, FOR UPDATE SKIP LOCKED, until the transaction ends.
 //
 // SKIP LOCKED because a row somebody holds is being decided or reported on
 // right now, and what they write wins: the sweep passes it by instead of
@@ -151,19 +175,23 @@ func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now tim
 // whatever the caller does next. A row read here is moved with Transition,
 // which writes only while the stored status is still the one read.
 //
+// After the cursor, in the order of the read — deadline, then id — as one
+// row comparison, so the index is walked from where the last read stopped.
+// It is what carries a pass beyond a request it could not close: such a
+// request stays where it is in the order, and read from the start it would be
+// answered first every time.
+//
 // The rows are answered as the queue answers them — no command, no plan, no
 // list of instances — though the statement reads them whole, because a read
 // that locks cannot be the projection (its statement carries no lock). The
 // sweep has no use for the three, and opening them here would let one request
-// whose sealed plan no longer opens fail the batch it is in: read longest
-// overdue first, it would head every pass, and nothing behind it would ever be
-// closed, in any organization.
+// whose sealed plan no longer opens fail the read it is in.
 //
 // No project is joined and no deleted project is left out: run as system
 // work this reaches every request there is, which it has to — a request
 // whose project was deleted still has a ledger row holding its visit. Run for
 // one organization it reads only that organization's.
-func (r *deviationRequestRepository) sweep(ctx context.Context, limit int, q deviationrequest.Query) ([]entities.DeviationRequest, error) {
+func (r *deviationRequestRepository) sweep(ctx context.Context, after contracts.SweepCursor, limit int, q deviationrequest.Query) ([]entities.DeviationRequest, error) {
 	if !db.InTransaction(ctx) {
 		return nil, contracts.ErrDeviationRequestOutsideTransaction
 	}
@@ -181,8 +209,11 @@ func (r *deviationRequestRepository) sweep(ctx context.Context, limit int, q dev
 	if err != nil {
 		return nil, err
 	}
+	q = q.Order(deviationrequest.ExpiresAt.Asc(), deviationrequest.ID.Asc())
+	if !after.AtStart() {
+		q = q.After(deviationrequest.Row{ExpiresAt: after.ExpiresAt, ID: after.ID})
+	}
 	rows, err := q.
-		Order(deviationrequest.ExpiresAt.Asc(), deviationrequest.ID.Asc()).
 		Limit(int64(min(limit, maxSweepBatch))).
 		ForUpdateSkipLocked().
 		All(ctx, ex, nil)

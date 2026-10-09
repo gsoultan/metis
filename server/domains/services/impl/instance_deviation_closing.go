@@ -43,7 +43,9 @@ func (s *instanceDeviationService) expireWaive(ctx context.Context, request enti
 //
 // Whoever asked may end their own request: that is a withdrawal, and the
 // trail says so in those words, and marks it. Anybody else rejected it. Both
-// are a rejection on the request and on the row, which name who did it.
+// are a rejection on the request, which names who did it, and on the ledger
+// row, which names nobody: the row says that it was rejected and when, and
+// who rejected it is read from the request and from the trail.
 //
 // Its caller holds the request's row, and has found it still waiting and
 // within its deadline.

@@ -27,13 +27,34 @@ type deviationRequestService struct {
 	waives *instanceDeviationService
 	// rules says who may decide a request.
 	rules approvalRules
+	// sweepLockWait is how long the sweep's closing of one request waits for
+	// a row somebody else holds (defaultSweepLockWait unless an option says
+	// otherwise).
+	sweepLockWait time.Duration
+}
+
+// DeviationRequestOption changes how the service of requests is built.
+type DeviationRequestOption func(*deviationRequestService)
+
+// WithSweepLockWait sets how long the sweep's closing of one request waits
+// for a row somebody else holds before it leaves that request for the next
+// pass. The server uses the default; a test that stops a sweep on a row it
+// holds itself, to put two decisions in an order, gives it longer than the
+// test will need.
+func WithSweepLockWait(wait time.Duration) DeviationRequestOption {
+	return func(s *deviationRequestService) { s.sweepLockWait = wait }
 }
 
 // NewDeviationRequestService builds the service of requests for a second
 // administrator over a repository and the engine that runs the instances a
 // waive acts on.
-func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) servicecontracts.DeviationRequestService {
-	return &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine), rules: approvalRules{repo: repo}}
+func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine, options ...DeviationRequestOption) servicecontracts.DeviationRequestService {
+	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine), rules: approvalRules{repo: repo},
+		sweepLockWait: defaultSweepLockWait}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // ApproveDeviationRequest approves a request and carries out what it asked
@@ -102,6 +123,12 @@ func (s *deviationRequestService) ListDeviationRequests(ctx context.Context, que
 
 // GetDeviationRequest answers one request, whole, with the status it has now.
 // Another organization's request is not found.
+//
+// Whole, when what it stored still opens. A request whose sealed command,
+// plan or list of instances no longer opens is answered all the same, with
+// that document absent (nil, never empty): it still waits, or was decided,
+// and somebody has to be able to see it to reject it. Only an approval needs
+// every document, and reads them itself.
 func (s *deviationRequestService) GetDeviationRequest(ctx context.Context, id uuid.UUID) (entities.DeviationRequest, error) {
 	if _, err := requireDecidingAdministrator(ctx); err != nil {
 		return entities.DeviationRequest{}, err
@@ -110,7 +137,7 @@ func (s *deviationRequestService) GetDeviationRequest(ctx context.Context, id uu
 	if requests == nil {
 		return entities.DeviationRequest{}, errNoDeviationRequests
 	}
-	request, err := requests.Get(ctx, id)
+	request, err := requests.GetReadable(ctx, id)
 	if err != nil {
 		return entities.DeviationRequest{}, err
 	}

@@ -598,10 +598,10 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	}
 	for name, read := range map[string]func(tx context.Context) ([]entities.DeviationRequest, error){
 		"overdue": func(tx context.Context) ([]entities.DeviationRequest, error) {
-			return requests.ListOverdue(tx, time.Now().Add(100*time.Hour), 10)
+			return requests.ListOverdue(tx, time.Now().Add(100*time.Hour), repocontracts.SweepCursor{}, 10)
 		},
 		"unreported": func(tx context.Context) ([]entities.DeviationRequest, error) {
-			return requests.ListUnreported(tx, time.Now().Add(100*time.Hour), 10)
+			return requests.ListUnreported(tx, time.Now().Add(100*time.Hour), repocontracts.SweepCursor{}, 10)
 		},
 	} {
 		var rows []entities.DeviationRequest
@@ -636,7 +636,7 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	var swept []entities.DeviationRequest
 	if err := h.repo.UnitOfWork().Do(h.tenantContext(), func(tx context.Context) error {
 		var err error
-		swept, err = requests.ListUnreported(tx, time.Now(), 10)
+		swept, err = requests.ListUnreported(tx, time.Now(), repocontracts.SweepCursor{}, 10)
 		return err
 	}); err != nil || len(swept) != 1 || swept[0].ID != unreported.ID {
 		t.Errorf("the organization's own unreported requests: %v, %v; want the one", requestIDs(swept), err)

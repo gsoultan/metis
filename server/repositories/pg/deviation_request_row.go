@@ -175,6 +175,31 @@ func requestFrom(row deviationrequest.Row) (entities.DeviationRequest, error) {
 	return request, nil
 }
 
+// readableRequestFrom decodes a request with each of its sealed documents
+// that opens, and leaves one that does not nil — absent, not empty: a plan
+// that could not be read is not a plan that said nothing.
+//
+// It is requestFrom for a reader who is not about to act on what the request
+// asked. A request whose plan no longer opens still has a status, a
+// requester and a deadline, and those are what reading, rejecting and closing
+// it need. Anything else that cannot be decoded is still an error.
+func readableRequestFrom(row deviationrequest.Row) (entities.DeviationRequest, error) {
+	request, err := queuedRequestFrom(queueRowOf(row))
+	if err != nil {
+		return entities.DeviationRequest{}, err
+	}
+	if command, err := sealedMapOf(row.Command); err == nil {
+		request.Command = orEmpty(command)
+	}
+	if plan, err := sealedMapOf(row.Plan); err == nil {
+		request.Plan = orEmpty(plan)
+	}
+	if instances, err := instancesOf(row.ApprovedInstances); err == nil {
+		request.ApprovedInstances = instances
+	}
+	return request, nil
+}
+
 // queueRowOf is the part of a whole row the queue reads.
 func queueRowOf(row deviationrequest.Row) deviationrequest.QueueRow {
 	return deviationrequest.QueueRow{

@@ -421,7 +421,7 @@ func TestTheSweepPassesByARequestSomebodyHolds(t *testing.T) {
 		go func() {
 			var ids []uuid.UUID
 			err := h.repo.UnitOfWork().Do(entities.WithSystemContext(t.Context()), func(tx context.Context) error {
-				rows, err := h.repo.DeviationRequest().ListOverdue(tx, time.Now(), 100)
+				rows, err := h.repo.DeviationRequest().ListOverdue(tx, time.Now(), repocontracts.SweepCursor{}, 100)
 				ids = requestIDs(rows)
 				return err
 			})

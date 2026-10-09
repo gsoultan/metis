@@ -232,7 +232,7 @@ func TestTheSweepReadsWhatIsOverdueAndWhatNeverReported(t *testing.T) {
 		return rows, err
 	}
 
-	got, err := read(requests.ListOverdue, 100)
+	got, err := read(fromTheStart(requests.ListOverdue), 100)
 	if err != nil || !sameIDs(requestIDs(got), overdue) {
 		t.Errorf("overdue: %q (%v); want the %d waiting at or past their deadline", named(got), err, len(overdue))
 	}
@@ -241,7 +241,7 @@ func TestTheSweepReadsWhatIsOverdueAndWhatNeverReported(t *testing.T) {
 			t.Errorf("overdue lists %q, which is %s and reads as %s", names[row.ID], row.Status, row.EffectiveStatus(now))
 		}
 	}
-	got, err = read(requests.ListUnreported, 100)
+	got, err = read(fromTheStart(requests.ListUnreported), 100)
 	if err != nil || !sameIDs(requestIDs(got), unreported) {
 		t.Errorf("unreported: %q (%v); want the %d approved requests whose run window has closed", named(got), err, len(unreported))
 	}
@@ -252,15 +252,15 @@ func TestTheSweepReadsWhatIsOverdueAndWhatNeverReported(t *testing.T) {
 	}
 
 	// A batch is bounded, and takes the longest overdue first.
-	got, err = read(requests.ListOverdue, 1)
+	got, err = read(fromTheStart(requests.ListOverdue), 1)
 	if err != nil || len(got) != 1 || names[got[0].ID] != "waiting past its deadline" {
 		t.Errorf("a batch of one: %q (%v); want the request longest past its deadline", named(got), err)
 	}
-	if got, err = read(requests.ListUnreported, 2); err != nil || len(got) != 2 {
+	if got, err = read(fromTheStart(requests.ListUnreported), 2); err != nil || len(got) != 2 {
 		t.Errorf("a batch of two unreported: %q (%v)", named(got), err)
 	}
 	for name, list := range map[string]func(context.Context, time.Time, int) ([]entities.DeviationRequest, error){
-		"overdue": requests.ListOverdue, "unreported": requests.ListUnreported,
+		"overdue": fromTheStart(requests.ListOverdue), "unreported": fromTheStart(requests.ListUnreported),
 	} {
 		if _, err := read(list, 0); !isTheWritersMistake(err) {
 			t.Errorf("%s with no batch size: %v; want a plain server error", name, err)
@@ -461,14 +461,14 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	now := time.Now()
 	err := h.repo.UnitOfWork().Do(sweep, func(tx context.Context) error {
 		requests := h.repo.DeviationRequest()
-		late, err := requests.ListOverdue(tx, now, 100)
+		late, err := requests.ListOverdue(tx, now, repocontracts.SweepCursor{}, 100)
 		if err != nil {
 			return err
 		}
 		if !sameIDs(requestIDs(late), []uuid.UUID{overdue.ID}) {
 			t.Errorf("overdue, the project deleted: %v; want the one request", requestIDs(late))
 		}
-		unreported, err := requests.ListUnreported(tx, now, 100)
+		unreported, err := requests.ListUnreported(tx, now, repocontracts.SweepCursor{}, 100)
 		if err != nil {
 			return err
 		}
@@ -569,9 +569,9 @@ func TestARequestThatNoLongerOpensDoesNotStopTheSweep(t *testing.T) {
 			}
 		}
 	}
-	closeAll("overdue", requests.ListOverdue, entities.DeviationRequestPending, entities.DeviationRequestExpired,
+	closeAll("overdue", fromTheStart(requests.ListOverdue), entities.DeviationRequestPending, entities.DeviationRequestExpired,
 		brokenWaiting.ID, healthyWaiting.ID)
-	closeAll("unreported", requests.ListUnreported, entities.DeviationRequestApproved, entities.DeviationRequestInterrupted,
+	closeAll("unreported", fromTheStart(requests.ListUnreported), entities.DeviationRequestApproved, entities.DeviationRequestInterrupted,
 		brokenApproved.ID, healthyApproved.ID)
 
 	// What a move answers: the request whole when it opens, and without its
