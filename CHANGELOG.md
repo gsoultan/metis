@@ -316,11 +316,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instances an apply passed over.** A plan that needs a second administrator
   says so before the press, with its reasons, and the button reads *Send for
   approval*. Afterwards the dialog stays open under *Sent for approval*, with
-  who asked, the deadline and why. It used to answer a 202 with *Nothing was
-  moved*, as for a failure. An apply that passed instances over lists them
-  under *Instances that were not moved*, each with its cause, in English and
-  in Indonesian; it used to show none of them. Approving, rejecting and
-  listing requests are not in the dialog.
+  who asked, the deadline and why. Without this change it read a request that
+  had been sent as *Nothing was moved*. An apply that passed instances over
+  lists them under *Instances that were not moved*, each with its cause, in
+  English and in Indonesian; it used to show none of them. Approving,
+  rejecting and listing requests are not in the dialog.
 
 - **A reply says why each instance was passed over as a code.** Each entry
   of `passed_over`, on the migrate route and on the approval of a migration,
@@ -756,11 +756,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the person for a step they had not done. Finished work now follows such a
   mapping only where the step is renamed in place
   (`TestFinishedWorkDoesNotFollowARenameOntoAControlThatStandsElsewhere`).
-- **A reply naming a status could be written under that status and then fail
-  to encode.** The shared encoder now encodes a reply before it writes the
-  status, so a reply that cannot be encoded is a 500 and not a 202 over an
-  error body. No reply's bytes changed.
-
 - **A migration's skip of an approval several people give ended one run and
   left the rest.** A user task or a manual task that runs once per person
   keeps a token for each run. A `skip` withdrew every open task of the step
