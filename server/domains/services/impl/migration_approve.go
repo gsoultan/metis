@@ -146,7 +146,7 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 func (s *migrationService) reportOfAPanic(ctx context.Context, request entities.DeviationRequest, result entities.MigrationResult, began time.Time) {
 	defer func() {
 		if failed := recover(); failed != nil {
-			log.Error().Str("request", request.ID.String()).Str("panic", fmt.Sprint(failed)).
+			log.Error().Str("request", request.ID.String()).Str("panic", redaction.RedactText(fmt.Sprint(failed))).
 				Msg("An approved migration's run panicked, and the report of that on its request panicked too. " +
 					"The request still says approved, and will read interrupted once the time a run is given has passed.")
 		}
@@ -253,8 +253,9 @@ func (s *migrationService) admit(ctx context.Context, id uuid.UUID, caller entit
 //  4. Whoever asked still administers the request's organization
 //     (requesterNoLongerAdministers), or the request is stale: the run is
 //     authorised by whoever asked, and nobody who could still ask stands
-//     behind it. Asked after the deadline and before anything of the request
-//     is read, as a waive's approval asks it.
+//     behind it. Asked after the deadline and before anything the request
+//     stored is used — its documents were opened with the row, at step 1 —
+//     as a waive's approval asks it.
 //  5. The migration is read from the request's stored command, authorised by
 //     whoever asked.
 //  6. It is planned again. A plan that can no longer be made, one that now
@@ -364,7 +365,7 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 	plan, covered, err := s.planFor(ctx, run.source, run.target, run.mapping, options)
 	switch {
 	case errors.Is(err, apierr.ErrInvalidArgument), errors.Is(err, apierr.ErrNotFound):
-		why := "the migration can no longer be planned: " + withoutClass(err)
+		why := becauseItCannotBePlanned(err)
 		return why, []string{why}, nil
 	case err != nil:
 		return "", nil, fmt.Errorf("planning the migration request %s asks for: %w", request.ID, err)
@@ -378,6 +379,42 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 		return why, []string{why}, nil
 	}
 	return "", nil, nil
+}
+
+// instancesNotRunning is the planner's refusal of a migration that names
+// instances the version is not running. It reads as it always did — an
+// invalid argument, naming every one of them: somebody who listed twelve
+// instances and had eleven moved has to be told which one did not — and it
+// keeps the list, for the one reader who must not repeat all of it
+// (becauseItCannotBePlanned).
+type instancesNotRunning struct {
+	version int
+	key     string
+	missing []string
+}
+
+func (e instancesNotRunning) Error() string {
+	return fmt.Sprintf("%s: version %d of %q is not running instance(s) %s",
+		apierr.ErrInvalidArgument.Error(), e.version, e.key, strings.Join(e.missing, ", "))
+}
+
+func (e instancesNotRunning) Unwrap() error { return apierr.ErrInvalidArgument }
+
+// becauseItCannotBePlanned is why a request is stale when the migration it
+// stored can no longer be planned: the planner's refusal, in its own words —
+// except that instances which no longer run on the version are named as the
+// instances that arrived are (whyNoLongerHolds): the first newcomersNamed,
+// and a count of the rest. A request names as many instances as whoever
+// asked did, and this is stored with the request, listed in the queue and
+// said in the refusal.
+func becauseItCannotBePlanned(err error) string {
+	const cannot = "the migration can no longer be planned: "
+	var gone instancesNotRunning
+	if !errors.As(err, &gone) || len(gone.missing) <= newcomersNamed {
+		return cannot + withoutClass(err)
+	}
+	return fmt.Sprintf("%sversion %d of %q is not running %d instance(s) the request names (%s, and %d more)", cannot,
+		gone.version, gone.key, len(gone.missing), strings.Join(gone.missing[:newcomersNamed], ", "), len(gone.missing)-newcomersNamed)
 }
 
 // becausePlanRefuses is why a request is stale when the plan made at approval

@@ -151,7 +151,7 @@ func TestADecidedRequestSaysWhatBecameOfIt(t *testing.T) {
 		entities.DeviationRequestApplied:  "budi approved this on " + when + ", and it was applied.",
 		entities.DeviationRequestRejected: "budi rejected this on " + when + ".",
 		entities.DeviationRequestExpired:  "This request expired on 8 October 2026 02:30 UTC.",
-		entities.DeviationRequestStale:    "This request went stale on " + when + ": what it asked for no longer held.",
+		entities.DeviationRequestStale:    "This request went stale on " + when + ": it no longer held when somebody came to approve it.",
 	} {
 		// Judged a minute after the approval: its run window is open.
 		err := decidedRefusalAt(decided(status, nil), at.Add(time.Minute))

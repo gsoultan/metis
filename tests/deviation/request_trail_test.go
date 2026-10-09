@@ -17,9 +17,19 @@ import (
 // organization has been set up as having one administrator — in the words the
 // migration dialog uses for the same rule.
 func TestTheTrailSaysARequestWaitsInWordsTrueOfEveryOrganization(t *testing.T) {
+	// Three configurations, and the sentence has to be true of each: not
+	// named; named, with one administrator; and named, though it has a second
+	// — where the administrator who asked still cannot approve, so "unless it
+	// has been set up as having one" alone would promise what is refused.
+	withASecond := func(t *testing.T) *deviationHarness {
+		h := withOrganizationNamed(t)
+		h.signIn(t, "deputy", entities.RoleAdmin)
+		return h
+	}
 	for name, harness := range map[string]func(*testing.T) *deviationHarness{
-		"an organization with a second administrator":       newDeviationRouteHarness,
-		"an organization named as having one administrator": withOrganizationNamed,
+		"an organization with a second administrator":             newDeviationRouteHarness,
+		"an organization named as having one administrator":       withOrganizationNamed,
+		"an organization named as having one, which has a second": withASecond,
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := harness(t)
@@ -32,11 +42,18 @@ func TestTheTrailSaysARequestWaitsInWordsTrueOfEveryOrganization(t *testing.T) {
 			}
 			want := "boss asked for “Approve” to be waived — nobody would perform it. " +
 				"Nothing changes until it is approved. The administrator who asked cannot approve it, " +
-				"unless this organization has been set up as having one administrator. " +
+				"unless this organization has been set up as having one administrator and nobody else administers it. " +
 				"The request expires on " + read.Request.ExpiresAt.UTC().Format(decidedOn) + ". Reason: " + routeReason
 			entries := h.entriesOf(t, instanceID, serviceimpl.EventDeviationRequested)
 			if len(entries) != 1 || entries[0].Narrative != want {
 				t.Fatalf("the trail: %+v\nwant one entry that says\n  %s", entries, want)
+			}
+			// And where it has a second, the administrator who asked is in
+			// fact refused, named or not: what the sentence must not promise.
+			if strings.Contains(name, "which has a second") {
+				if status, _, raw := h.decide(t, boss, requestID, "approve", "nobody else is here"); status != http.StatusForbidden {
+					t.Fatalf("the requester's own approval in a named organization that has a second administrator: %d (%s), want 403", status, raw)
+				}
 			}
 			if strings.Contains(entries[0].Narrative, "different administrator") {
 				t.Fatalf("the entry promises a different administrator, which is not true of every organization: %s", entries[0].Narrative)

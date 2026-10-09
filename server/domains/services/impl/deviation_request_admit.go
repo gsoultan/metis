@@ -341,7 +341,15 @@ func decidedRefusalAt(request entities.DeviationRequest, now time.Time) error {
 	case entities.DeviationRequestExpired:
 		return apierr.Invalidf("This request expired on %s.", request.ExpiresAt.UTC().Format(decidedOnLayout))
 	case entities.DeviationRequestStale:
-		return apierr.Invalidf("This request went stale on %s: what it asked for no longer held.", on)
+		// Why it was closed, as the request keeps it: a request can go stale
+		// because the instance moved, because the plan came to refuse, or
+		// because whoever asked no longer administers — and "what it asked
+		// for no longer held" is untrue of the last. One with no reason kept
+		// is said in words true of every cause.
+		if why, kept := request.Outcome["why"].(string); kept && why != "" {
+			return apierr.Invalidf("This request went stale on %s: %s.", on, strings.TrimSuffix(why, "."))
+		}
+		return apierr.Invalidf("This request went stale on %s: it no longer held when somebody came to approve it.", on)
 	}
 	return fmt.Errorf("request %s is %q, which is not a decision anybody made", request.ID, request.Status)
 }

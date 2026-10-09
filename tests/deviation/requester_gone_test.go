@@ -145,10 +145,12 @@ func TestAWaiveIsNotApprovedOnceItsRequesterNoLongerAdministers(t *testing.T) {
 				t.Fatalf("the trail: %+v\nwant one entry that says\n  %s", entries, wantNarrative)
 			}
 
-			// Closed, it is told as any stale request is, and the same waive
-			// can be asked for again by somebody who administers.
+			// Closed, a later decision is told why it was closed — not that
+			// "what it asked for no longer held", which is untrue of this
+			// cause — and the same waive can be asked for again by somebody
+			// who administers.
 			closed := h.everyRow(t)
-			want = invalid("This request went stale on " + read.Request.DecidedAt.UTC().Format(decidedOn) + ": what it asked for no longer held.")
+			want = invalid("This request went stale on " + read.Request.DecidedAt.UTC().Format(decidedOn) + ": " + gone.why + ".")
 			if status, _, raw := h.decide(t, deputy, requestID, "approve", ""); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 				t.Fatalf("deputy's second approval: %d (%s), want 400 %s", status, raw, want)
 			}

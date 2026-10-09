@@ -247,8 +247,7 @@ func (s *migrationService) planFor(
 		// Named and not there is a refusal, not a silent omission: somebody who
 		// listed twelve instances and had eleven moved would have no way to
 		// find out which one did not.
-		return plan, nil, apierr.Invalidf("version %d of %q is not running instance(s) %s",
-			source.Version, source.Key, strings.Join(missing, ", "))
+		return plan, nil, instancesNotRunning{version: source.Version, key: source.Key, missing: missing}
 	}
 	plan.Instances = len(instances)
 	if len(instances) == 0 {

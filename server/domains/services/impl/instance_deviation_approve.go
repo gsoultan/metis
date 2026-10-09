@@ -102,8 +102,9 @@ func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUI
 //     (requesterNoLongerAdministers). Otherwise the request is stale: nobody
 //     who could still ask for it stands behind it. It is asked after the
 //     deadline, because a request past its deadline is expired whoever finds
-//     it and whatever else is true of it, and before anything of the request
-//     is read or of the instance decided.
+//     it and whatever else is true of it, and before anything the request
+//     stored is used or anything of the instance is decided. (The request's
+//     documents were opened with its row, at step 1.)
 //  4. The command is read from the request, and is the request's own: it
 //     names the request's instance, and the visit the request holds.
 //  5. The instance's row is taken, once, and held to the end — as apply takes

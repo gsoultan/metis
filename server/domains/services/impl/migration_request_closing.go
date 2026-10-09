@@ -25,7 +25,7 @@ func expireMigrationRequest(ctx context.Context, requests repocontracts.Deviatio
 	_, err := requests.Transition(ctx, request.ID, entities.DeviationRequestPending,
 		repocontracts.DeviationRequestChange{Status: entities.DeviationRequestExpired})
 	if err != nil {
-		return fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestExpired, err)
+		return writeFailed(fmt.Sprintf("closing request %s as %s", request.ID, entities.DeviationRequestExpired), err)
 	}
 	return nil
 }

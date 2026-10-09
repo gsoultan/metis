@@ -105,7 +105,8 @@ func TestADecidedOrExpiredRequestIsRefusedOverTheAPI(t *testing.T) {
 		t.Fatal("the instance is not at the step its holder moved it to")
 	}
 	closed = h.everyRow(t)
-	want = invalid("This request went stale on " + read.Request.DecidedAt.UTC().Format(decidedOn) + ": what it asked for no longer held.")
+	// It says why it was closed, as the request keeps it.
+	want = invalid("This request went stale on " + read.Request.DecidedAt.UTC().Format(decidedOn) + ": the instance has moved since it was asked for.")
 	for _, verb := range []string{"approve", "reject"} {
 		if status, _, raw := h.decide(t, deputy, requestID, verb, decisionReason); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 			t.Fatalf("deputy's %s of a stale request: %d (%s), want 400 %s", verb, status, raw, want)

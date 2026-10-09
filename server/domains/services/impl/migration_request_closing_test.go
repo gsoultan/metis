@@ -2,12 +2,14 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
@@ -124,5 +126,38 @@ func TestAStaleRequestKeepsTenOfThePlansRefusalsAndCountsTheRest(t *testing.T) {
 	why, shown = becausePlanRefuses(refusals[:3])
 	if len(shown) != 3 || why != "the plan now refuses it: refusal 00; refusal 01; refusal 02" {
 		t.Fatalf("three refusals are kept as %v and said as %q; want all three, as before", shown, why)
+	}
+}
+
+// The other way a request goes stale at the planner: the migration can no
+// longer be planned, because instances it names no longer run on the version.
+// The planner names every one of them — to whoever applies, who has to know
+// which — and a request names as many instances as whoever asked did. What
+// the request keeps of it, and what its approver is told, names the first
+// five and counts the rest, as the instances that arrived are named.
+func TestAStaleRequestNamesFiveOfTheInstancesThatNoLongerRunAndCountsTheRest(t *testing.T) {
+	var gone []string
+	for i := range 9 {
+		gone = append(gone, fmt.Sprintf("0199eeee-0000-7000-8000-%012d", i))
+	}
+	planned := instancesNotRunning{version: 3, key: "quotation", missing: gone}
+	if !errors.Is(planned, apierr.ErrInvalidArgument) ||
+		planned.Error() != `invalid argument: version 3 of "quotation" is not running instance(s) `+strings.Join(gone, ", ") {
+		t.Fatalf("the planner's refusal reads %q; want it as it always was, naming every instance, and an invalid argument", planned.Error())
+	}
+	why := becauseItCannotBePlanned(fmt.Errorf("planning: %w", planned))
+	want := `the migration can no longer be planned: version 3 of "quotation" is not running 9 instance(s) the request names (` +
+		strings.Join(gone[:5], ", ") + ", and 4 more)"
+	if why != want {
+		t.Fatalf("the request keeps\n  %s\nwant\n  %s", why, want)
+	}
+	// Five or fewer are all named, in the planner's own words.
+	few := instancesNotRunning{version: 3, key: "quotation", missing: gone[:2]}
+	if got := becauseItCannotBePlanned(few); got != `the migration can no longer be planned: version 3 of "quotation" is not running instance(s) `+strings.Join(gone[:2], ", ") {
+		t.Fatalf("two instances are said as %q", got)
+	}
+	// Any other reason it cannot be planned is said as it is.
+	if got := becauseItCannotBePlanned(apierr.Invalidf("version 3 has no step %q", "review")); got != `the migration can no longer be planned: version 3 has no step "review"` {
+		t.Fatalf("another refusal is said as %q", got)
 	}
 }
