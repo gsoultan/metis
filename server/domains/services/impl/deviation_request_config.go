@@ -88,9 +88,10 @@ func hoursOf(d time.Duration) string {
 // confines the exception to the organizations an operator has said have one
 // administrator. It does not close that door in a named organization: an
 // administrator there who can change roles can still make themselves the
-// only one, approve their own request and give the role back — and a change
-// of roles is not recorded with who made it. An organization belongs on the
-// list only while it truly has one administrator.
+// only one, approve their own request and give the role back. Each of those
+// changes of roles is in the server's log with who made it
+// (traceAccountChange), and on no trail. An organization belongs on the list
+// only while it truly has one administrator.
 //
 // By id, as METIS_PLATFORM_ADMINS names accounts by id: an organization's
 // name is neither unique nor permanent.

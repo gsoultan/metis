@@ -85,8 +85,8 @@ func (c controlSettings) announce() {
 			"administrator while nobody else administers that organization. Each such approval needs a reason and is " +
 			"recorded as approved by nobody else. It does not stop an administrator of a named organization who can " +
 			"change roles from taking another administrator's role away, approving their own request and giving the " +
-			"role back, and a change of roles is not recorded with who made it. Name an organization only while it " +
-			"has one administrator, and take it off the list once it has a second.")
+			"role back; each change of roles is recorded in the server's log, with who made it, and nowhere else. " +
+			"Name an organization only while it has one administrator, and take it off the list once it has a second.")
 }
 
 // listed is the ids a line of the startup log lists: the first

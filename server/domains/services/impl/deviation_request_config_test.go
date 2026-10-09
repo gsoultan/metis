@@ -2,6 +2,7 @@ package impl
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,7 +114,13 @@ func TestTheSoleAdministratorOrganizationsHaveOneName(t *testing.T) {
 	for _, other := range []string{"GOBPM_SOLE_ADMINISTRATOR_ORGANIZATIONS", "METIS_SOLE_ADMINISTRATOR_ORGANIZATION",
 		"SOLE_ADMINISTRATOR_ORGANIZATIONS", "metis_sole_administrator_organizations"} {
 		for _, value := range []string{organization, "true"} {
+			// Not set at all — set to nothing would hide a fallback, which
+			// is taken only for a name that is absent. (Setenv first, so
+			// that the test puts back what was there.)
 			t.Setenv(EnvSoleAdministratorOrganizations, "")
+			if err := os.Unsetenv(EnvSoleAdministratorOrganizations); err != nil {
+				t.Fatalf("unset the setting: %v", err)
+			}
 			t.Setenv(other, value)
 			if named, problems := SoleAdministratorOrganizations(); len(named) != 0 || len(problems) != 0 {
 				t.Errorf("%s=%s: named %v, said %q; want nothing named and nothing said — it is not this setting", other, value, named, problems)
