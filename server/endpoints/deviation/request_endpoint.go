@@ -111,22 +111,27 @@ func approvalOf(outcome entities.DeviationRequestOutcome) ApproveDeviationReques
 	case outcome.WaivePlan != nil:
 		response.Plan = PlanViewOf(*outcome.WaivePlan)
 	case outcome.MigrationPlan != nil:
-		response.Plan = *outcome.MigrationPlan
+		response.Plan = MigrationPlanViewOf(*outcome.MigrationPlan)
 	}
 	if outcome.MigrationResult != nil {
-		response.PassedOver = passedOverViews(outcome.MigrationResult.PassedOver)
+		response.PassedOver = PassedOverViewsOf(outcome.MigrationResult.PassedOver)
 	}
 	return response
 }
 
-// passedOverViews is the instances an approved run left alone as the reply
-// lists them: an empty list, never null, when there are none.
-func passedOverViews(passed []entities.PassedOverInstance) []PassedOverView {
+// PassedOverViewsOf is the instances a run left alone as a reply lists them:
+// an empty list, never null, when there are none, and each entry's steps a
+// list likewise. The migrate route and the approval of a migration both list
+// them through this, so a client reads one shape from either.
+func PassedOverViewsOf(passed []entities.PassedOverInstance) []PassedOverView {
 	views := make([]PassedOverView, 0, len(passed))
 	for _, one := range passed {
-		view := PassedOverView{Reason: one.Reason}
+		view := PassedOverView{Cause: string(one.Cause), Steps: make([]PassedOverStepView, 0, len(one.Steps)), Reason: one.Reason}
 		if one.Instance != nil {
 			view.InstanceID = one.Instance.ID.String()
+		}
+		for _, step := range one.Steps {
+			view.Steps = append(view.Steps, PassedOverStepView{NodeID: step.NodeID, Name: step.Name})
 		}
 		views = append(views, view)
 	}

@@ -197,8 +197,9 @@ type ApproveDeviationRequestResponse struct {
 	Applied bool                 `json:"applied"`
 	// Deviation is the record of an approved waive.
 	Deviation *DeviationView `json:"deviation,omitzero"`
-	// Plan is the plan the approval acted on: a PlanView for a waive, and the
-	// migration's plan for a migration.
+	// Plan is the plan the approval acted on: a PlanView for a waive, and a
+	// MigrationPlanView — the plan as the migrate route writes it — for a
+	// migration.
 	Plan any `json:"plan,omitzero"`
 	// PassedOver are the instances an approved migration's run left as they
 	// were, each with why: a list for a migration, empty when the run left
@@ -207,12 +208,29 @@ type ApproveDeviationRequestResponse struct {
 	Err        error            `json:"err,omitzero"`
 }
 
-// PassedOverView is one instance an approved migration's run left alone, as
-// the approval's reply carries it.
+// PassedOverView is one instance a migration's run left alone, as a reply
+// carries it: the migrate route's, for an apply one administrator could
+// make, and the approval's, for a run a second administrator approved.
 type PassedOverView struct {
 	InstanceID string `json:"instance_id"`
-	// Reason is why, in plain words; it names a step by its name, not its id.
+	// Cause is why, as a code: one of the closed set entities.PassedOverCauses
+	// names. It is for a client that says it in its own language, or acts on
+	// it; a cause a client does not know is said with Reason.
+	Cause string `json:"cause"`
+	// Steps are the steps the cause is about, in the order Reason names
+	// them. A list always, empty for a cause that is about no step.
+	Steps []PassedOverStepView `json:"steps"`
+	// Reason is why, in plain English words; it names a step by its name, not
+	// its id.
 	Reason string `json:"reason"`
+}
+
+// PassedOverStepView is a step the cause of passing an instance over is
+// about: its id in the version the instance runs, and the name that version
+// gives it — the id again where it gives none.
+type PassedOverStepView struct {
+	NodeID string `json:"node_id"`
+	Name   string `json:"name"`
 }
 
 func (r ApproveDeviationRequestResponse) Failed() error { return r.Err }
