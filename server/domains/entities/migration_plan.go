@@ -66,9 +66,11 @@ type MigrationPlan struct {
 	RemovedNodes []string `json:"removed_nodes,omitzero"`
 
 	// RequiresSecondApprover says that applying this plan is not one
-	// administrator's call: it skips a step, or drops a control that
-	// instances still running have not passed. An apply of such a plan is
-	// sent to a second administrator instead of being made.
+	// administrator's call: over instances that have not ended, it skips a
+	// step, takes a control from one that has not passed it, redirects a
+	// step while one has a control it has not passed, or loosens a
+	// separation-of-duties rule on a step one has still to pass. An apply of
+	// such a plan is sent to a second administrator instead of being made.
 	RequiresSecondApprover bool `json:"requires_second_approver"`
 
 	// SecondApproverReasons are why, one sentence for each skip and each

@@ -384,6 +384,9 @@ func TestTheQueueReadsARequestWithoutItsHeavyDocuments(t *testing.T) {
 	h := newDeviationHarness(t)
 	first := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	second := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	// Twenty thousand ids of instances that exist nowhere: no production path
+	// makes a request for instances that are not there, and none is needed
+	// here — the list is stored, not looked up, and its size is the subject.
 	const covered = 20_000
 	instances := make([]uuid.UUID, 0, covered)
 	for range covered {
@@ -450,6 +453,9 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 		t.Fatalf("approve: %v", err)
 	}
 
+	// Soft-deleted by SQL: the state deleting a project leaves in its row,
+	// written here without the service, which would refuse or cascade for
+	// reasons that are not this test's.
 	if err := h.db.Exec(`UPDATE projects SET deleted_at = now() WHERE id = ?`, h.projID).Error; err != nil {
 		t.Fatalf("delete the project: %v", err)
 	}

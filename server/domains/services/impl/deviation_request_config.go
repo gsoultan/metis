@@ -35,7 +35,7 @@ const (
 // A value that cannot be read, or is not a length of time at all, falls back
 // to the default; one outside the limits is brought to the nearer limit.
 // Neither is silent: the sentence is logged when the server starts
-// (logControlSettings), because a deadline nobody chose is still a deadline
+// (internal/app, controlSettings.announce), because a deadline nobody chose is still a deadline
 // somebody's request expires at.
 //
 // Read on each request, as every METIS_* setting is: the environment does not
@@ -71,8 +71,8 @@ func hoursOf(d time.Duration) string {
 // comma-separated, of the organizations whose only administrator may approve
 // a request they asked for themselves.
 //
-// It reopens what the control closes — a waive, or a migration that skips a
-// step or drops a control, made on one person's say — so it is narrow. Unset or empty, it applies nowhere. It applies only in an
+// It reopens what the control closes — a waive, or a migration that loosens
+// a rule on running work, made on one person's say — so it is narrow. Unset or empty, it applies nowhere. It applies only in an
 // organization named here, and there only while no other account that is not
 // deleted, belongs to the organization and holds the administrator role
 // there — on the account, or in that organization alone — exists; the moment
@@ -116,7 +116,7 @@ const EnvSoleAdministratorOrganizations = "METIS_SOLE_ADMINISTRATOR_ORGANIZATION
 // name every request that is for none. Such an entry is not silent: whoever
 // wrote it believes it names somebody, so each gets a sentence that says
 // which entry it was and quotes it, cut at 64 characters, for the server to
-// say when it starts (logControlSettings). "true" is such an entry: nothing
+// say when it starts (internal/app, controlSettings.announce). "true" is such an entry: nothing
 // switches the exception on for every organization.
 //
 // It reads and says nothing: it logs nothing and keeps nothing, and answers

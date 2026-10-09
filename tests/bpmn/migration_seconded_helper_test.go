@@ -13,7 +13,8 @@ import (
 
 // migrateSeconded applies a migration as an organization with two
 // administrators gets one done: a plan that needs a second administrator — it
-// skips a step, or drops a control — is asked for by dita and approved by
+// skips a step, takes a control, redirects past one or loosens a rule — is
+// asked for by dita and approved by
 // budi, and any other plan is applied on the one call, as it always was. It
 // requires that such a plan really waited: applied on one call, it fails the
 // test.

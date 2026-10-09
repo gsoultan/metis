@@ -17,8 +17,10 @@ const ApprovedRunReportWindow = time.Hour
 const planBecause = "because"
 
 // DeviationRequest is a deviation one administrator asked for and a second has
-// to approve: a step of an instance waived in place, or a migration that skips
-// a step or drops a control.
+// to approve: a step of an instance waived in place, or a migration that
+// loosens a rule on work still running — it skips a step, takes a control
+// from instances that have not passed it, redirects a step past such a
+// control, or loosens a separation-of-duties rule.
 //
 // It records what was asked (Command), what the person asking was shown
 // (Plan), who decided and what became of it (Outcome). Plan is for reading: an

@@ -409,8 +409,9 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if req.dryRun() {
 			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil)}, nil
 		}
-		// A plan that skips a step, or drops a control instances have not
-		// passed, is not applied on this caller's say: it is asked for, and
+		// A plan that needs a second administrator (RequiresSecondApprover:
+		// a skip, a control taken, a redirect past one, a loosened rule) is
+		// not applied on this caller's say: it is asked for, and
 		// the reply says which request now waits for a second administrator.
 		// Nothing is moved. Only an apply asks — a dry run returned above —
 		// and the service refuses such an apply itself, should anything reach

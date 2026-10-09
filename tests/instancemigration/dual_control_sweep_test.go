@@ -12,6 +12,14 @@ import (
 
 // leftApproved writes what a stop between an approval and its run's report
 // leaves: the request approved by omar, so long ago.
+//
+// It is written by SQL, onto a request that was asked for through the
+// service. The state is one production makes — a request is approved (step A
+// of an approval, committed) before its run begins and stays so until the
+// run reports (step C) — and the moment it stands for is a server that
+// stopped between the two. It is not made here by stopping a real approval
+// part-way: nothing in the service lets a test stop it there, and what the
+// row then holds is these four columns.
 func (f *fixture) leftApproved(t *testing.T, requestID uuid.UUID, ago string) {
 	t.Helper()
 	if err := f.db.Exec(`UPDATE deviation_requests SET status = 'approved', decided_by = 'omar', decided_by_id = ?,

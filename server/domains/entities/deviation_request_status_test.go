@@ -201,3 +201,72 @@ func TestASelfApprovalIsReadAtEveryStatusAnApprovalLeaves(t *testing.T) {
 		t.Error("a request that names neither a requester nor a decider reads as a self-approval")
 	}
 }
+
+// A clock that goes backwards — a server whose time was corrected, or one
+// replica behind another — is not guarded against, and this pins what it
+// does rather than changing it: both windows are asked of the moment given,
+// so read at an earlier moment a request waits, or runs, for longer by
+// exactly the step back, and never past its deadline. Nothing a request
+// stores is rewritten by a reading, so a later reading at the right time
+// says what it should.
+func TestAClockThatGoesBackLengthensBothWindowsByTheStepAndNeverPastTheDeadline(t *testing.T) {
+	t.Parallel()
+	asked := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	deadline := asked.Add(72 * time.Hour)
+	waiting := DeviationRequest{Status: DeviationRequestPending, ExpiresAt: deadline}
+	if got := waiting.EffectiveStatus(deadline); got != DeviationRequestExpired {
+		t.Fatalf("at its deadline a waiting request reads %s, want expired", got)
+	}
+	// The clock is put back an hour: the request waits again, until the
+	// deadline comes round on that clock — and not a moment after it.
+	if got := waiting.EffectiveStatus(deadline.Add(-time.Hour)); got != DeviationRequestPending {
+		t.Fatalf("read an hour before its deadline, after having read as expired, it reads %s; want it waiting again", got)
+	}
+	if got := waiting.EffectiveStatus(deadline.Add(time.Nanosecond)); got != DeviationRequestExpired {
+		t.Fatalf("past its deadline on any clock it reads %s, want expired", got)
+	}
+
+	approvedAt := asked.Add(time.Hour)
+	running := DeviationRequest{Status: DeviationRequestApproved, ExpiresAt: deadline, DecidedAt: &approvedAt}
+	closes := approvedAt.Add(ApprovedRunReportWindow)
+	if !running.RunWindowClosed(closes) || running.RunWindowClosed(closes.Add(-time.Minute)) {
+		t.Fatalf("the run window is closed at %v and a minute before it: %v, %v; want closed, then open again on a clock put back",
+			closes, running.RunWindowClosed(closes), running.RunWindowClosed(closes.Add(-time.Minute)))
+	}
+	// A reading from before the approval itself: the window is open, as it is
+	// at the approval — the step back is all it gains.
+	if running.RunWindowClosed(approvedAt.Add(-24 * time.Hour)) {
+		t.Fatal("read a day before it was approved, an approved request's run window is closed")
+	}
+	// Approved near its deadline, the deadline closes the window first, on
+	// whatever clock: a run is never given longer than the request had.
+	late := deadline.Add(-10 * time.Minute)
+	nearly := DeviationRequest{Status: DeviationRequestApproved, ExpiresAt: deadline, DecidedAt: &late}
+	if !nearly.RunWindowClosed(deadline) || nearly.RunWindowClosed(deadline.Add(-time.Second)) {
+		t.Fatal("a request approved ten minutes before its deadline does not close its run window at the deadline")
+	}
+}
+
+// A deadline that was never set is no deadline to wait for: the zero time is
+// before every moment, so a request that waits with one reads expired, and an
+// approved one — whenever it was approved — is out of use. Nothing in the
+// product writes one; absent constraint means deny.
+func TestARequestWithNoDeadlineIsOverAtOnce(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	if got := (DeviationRequest{Status: DeviationRequestPending}).EffectiveStatus(now); got != DeviationRequestExpired {
+		t.Fatalf("a waiting request with no deadline reads %s, want expired", got)
+	}
+	justNow := now.Add(-time.Second)
+	approved := DeviationRequest{Status: DeviationRequestApproved, DecidedAt: &justNow}
+	if !approved.RunWindowClosed(now) || approved.EffectiveStatus(now) != DeviationRequestInterrupted {
+		t.Fatalf("a request approved a second ago with no deadline: window closed = %v, reads %s; want it out of use and interrupted",
+			approved.RunWindowClosed(now), approved.EffectiveStatus(now))
+	}
+	// A decided request is as stored, deadline or none.
+	for _, status := range []DeviationRequestStatus{DeviationRequestApplied, DeviationRequestRejected, DeviationRequestStale, DeviationRequestExpired, DeviationRequestInterrupted} {
+		if got := (DeviationRequest{Status: status}).EffectiveStatus(now); got != status {
+			t.Errorf("a request stored as %s with no deadline reads %s", status, got)
+		}
+	}
+}

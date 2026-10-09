@@ -7,7 +7,9 @@ import (
 )
 
 // DeviationRequest is a deviation waiting for a second administrator (D9):
-// an in-place waive, or a migration that skips a step or drops a control.
+// an in-place waive, or a migration that loosens a rule on work still
+// running (a skip, a control taken, a redirect past one, a loosened
+// separation-of-duties rule).
 // A compliance record: no deleted_at, no retention sweep.
 type DeviationRequest struct {
 	storm.Model

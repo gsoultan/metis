@@ -477,6 +477,9 @@ func TestAMalformedRequestIsTheWritersMistakeAndLeavesNoRow(t *testing.T) {
 			r.Kind, r.Instance = entities.DeviationRequestMigration, nil
 			r.TargetDefinition = &entities.ProcessDefinition{ID: h.definitionOf(t, instanceID)}
 		},
+		// A migration's request that still names an instance: no production
+		// path makes one — a migration is for a version — and the repository
+		// is not asked to refuse it; what is under test is the versions.
 		"a migration between versions with no id": func(r *entities.DeviationRequest) {
 			r.Kind = entities.DeviationRequestMigration
 			r.SourceDefinition, r.TargetDefinition = &entities.ProcessDefinition{}, &entities.ProcessDefinition{}

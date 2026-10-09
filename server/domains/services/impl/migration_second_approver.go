@@ -62,10 +62,15 @@ func activeInstanceIDs(covered []models.ProcessInstanceModel) []uuid.UUID {
 // secondApproverReasons is why a migration is not one administrator's call,
 // one sentence for each reason, sorted; none when it is.
 //
-// Exactly two things are: a step skipped — nobody performs it — and a control
-// the migration takes from instances that have not passed it. A cancel ends
-// an instance and a hold stops one; neither loosens a rule on work that goes
-// on, and neither is here.
+// Two of the four things that make it so are counted here: a step skipped —
+// nobody performs it — and a control the migration takes from instances that
+// have not passed it. The other two have functions of their own, and planFor
+// adds their sentences to these: a step redirected while some instance has a
+// control it has not passed (redirectsPastControls), and a
+// separation-of-duties rule loosened on a step some instance has still to
+// pass (dutiesLoosened). A cancel ends an instance and a hold stops one;
+// neither loosens a rule on work that goes on, and neither is anywhere among
+// them.
 //
 // Both are counted over running, the instances that have not ended, and over
 // nothing else: with nothing running there is nothing a skip could skip or a

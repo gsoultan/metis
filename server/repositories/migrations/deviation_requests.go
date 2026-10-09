@@ -103,8 +103,8 @@ END $$`,
 
 // deviationRequests is migration 34.
 //
-// A waive, and a migration that skips a step or drops a control, were one
-// administrator's call. They now wait as a request a second administrator
+// A waive, and a migration that loosens a rule on work still running, were
+// one administrator's call. They now wait as a request a second administrator
 // approves, and the ledger's rule of one live row per visit moves off the
 // visit key — under which a waive somebody rejected could never be asked for
 // again — onto a key a row holds only while it is applied or waiting.

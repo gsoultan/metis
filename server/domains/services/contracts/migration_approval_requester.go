@@ -8,8 +8,10 @@ import (
 )
 
 // MigrationApprovalRequester asks a second administrator to approve a
-// migration that skips a step or drops a control running instances have not
-// passed.
+// migration whose plan says it needs one (MigrationPlan.RequiresSecondApprover):
+// it skips a step, takes a control from instances that have not passed it,
+// redirects a step past such a control, or loosens a separation-of-duties
+// rule on a step some instance has still to pass.
 type MigrationApprovalRequester interface {
 	// RequestMigrationApproval records the migration as a request that waits,
 	// and moves nothing. Asked again by whoever asked, for the same
