@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
@@ -86,6 +88,10 @@ func runOutcome(result entities.MigrationResult, runErr error) map[string]any {
 	case runErr == nil:
 	case errors.As(runErr, &refused):
 		outcome[outcomeError] = "the run was refused before it moved anything: " + refused.why
+	case refusedBeforeItActed(runErr):
+		// The plan's refusal, in a sentence of the server's own: the plan's
+		// words name steps, and go to the log.
+		outcome[outcomeError] = "the run was refused before it moved anything: the plan made when it came to start refused the migration"
 	default:
 		outcome[outcomeError] = fmt.Sprintf("the run stopped on a failure after it had acted on %d instance(s); what it had done by then stands", result.Changed)
 	}
@@ -181,18 +187,45 @@ func (s *migrationService) reportRun(
 	return reported
 }
 
+// refusedBeforeItActed reports whether an approved run was refused before it
+// began — by the plan it runs from, or by the gate — rather than stopping
+// once it had begun. It is the test the answer to the approver makes
+// (approvedRunFailed): not a failure of the run itself, and of a class that
+// is a refusal.
+func refusedBeforeItActed(runErr error) bool {
+	var inTheRun failedInTheRun
+	if runErr == nil || errors.As(runErr, &inTheRun) {
+		return false
+	}
+	return slices.ContainsFunc(refusalClasses, func(class error) bool { return errors.Is(runErr, class) })
+}
+
 // traceApprovedRunStopped says in the server's log that a migration a second
-// administrator approved was run and failed, with the failure in its own
-// words — which the request's outcome does not keep.
+// administrator approved did not finish, with the failure in its own words —
+// which the request's outcome does not keep.
 //
 // The line names the request, who asked and who approved, by account as well
 // as by name, and how far the run got. It is the only place the failure's
-// own words are written.
+// own words are written, and they are written with what looks like a secret
+// taken out (redaction.RedactText): what a run fails on can carry a
+// connection string or a token, and a log is read by more people than the
+// database is.
+//
+// A run refused before it acted — by its plan, or at the gate — is said as
+// that, as a warning: nothing was moved and nothing is wrong with the
+// server. A run that began and stopped is an error.
 func traceApprovedRunStopped(request entities.DeviationRequest, result entities.MigrationResult, runErr error) {
-	log.Error().Err(runErr).Str("request", request.ID.String()).
+	line := log.Error()
+	said := "An approved migration stopped part-way. Its request reads interrupted; what it had done stands, " +
+		"and what remains has to be asked for again."
+	if refusedBeforeItActed(runErr) {
+		line = log.Warn()
+		said = "An approved migration was refused before it moved anything: the plan made when it came to start, or the check " +
+			"of its request, refused it. Its request reads interrupted; nothing was moved, and it has to be asked for again."
+	}
+	line.Str("error", redaction.RedactText(runErr.Error())).Str("request", request.ID.String()).
 		Str("requested_by", request.RequestedBy).Str("requested_by_id", request.RequestedByID.String()).
 		Str("approved_by", request.DecidedBy).Str("approved_by_id", request.DecidedByID.String()).
 		Int("changed", result.Changed).Int("passed_over", len(result.PassedOver)).
-		Msg("An approved migration stopped part-way. Its request reads interrupted; what it had done stands, " +
-			"and what remains has to be asked for again.")
+		Msg(said)
 }

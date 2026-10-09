@@ -2,7 +2,9 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +100,28 @@ func TestTheSweepsMarkKeepsWhatASelfApprovalRestedOn(t *testing.T) {
 	}
 	if plain := unreportedOutcome(map[string]any{}); len(plain) != 1 || plain[outcomeError] != "the run did not report back" {
 		t.Fatalf("the mark over a request somebody else approved: %v", plain)
+	}
+}
+
+// What a stale request keeps, and what its approver is told, has a size. A
+// plan refuses once for each thing wrong with a migration, and a migration
+// is as large as its two graphs: the request keeps the first ten refusals
+// and a count of the rest — as a plan lists its reasons — and the sentence
+// said to the approver is made from those, not from all of them.
+func TestAStaleRequestKeepsTenOfThePlansRefusalsAndCountsTheRest(t *testing.T) {
+	var refusals []string
+	for i := range 25 {
+		refusals = append(refusals, fmt.Sprintf("refusal %02d", i))
+	}
+	why, shown := becausePlanRefuses(refusals)
+	if len(shown) != 11 || shown[9] != "refusal 09" || shown[10] != "and 15 more refusal(s), not listed here" {
+		t.Fatalf("25 refusals are kept as %d: %v; want the first ten and a count of the rest", len(shown), shown)
+	}
+	if why != "the plan now refuses it: "+strings.Join(shown, "; ") || strings.Contains(why, "refusal 10") {
+		t.Fatalf("the sentence is %q; want it made from the ten that are kept", why)
+	}
+	why, shown = becausePlanRefuses(refusals[:3])
+	if len(shown) != 3 || why != "the plan now refuses it: refusal 00; refusal 01; refusal 02" {
+		t.Fatalf("three refusals are kept as %v and said as %q; want all three, as before", shown, why)
 	}
 }

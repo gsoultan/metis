@@ -54,6 +54,12 @@ func TestAnApprovedRunItsPlanRefusesIsARefusalAndNotAServerFailure(t *testing.T)
 	if err != nil || read.Status != entities.DeviationRequestInterrupted || read.DecidedBy != "omar" || read.Outcome["changed"] != float64(0) {
 		t.Fatalf("the request reads %q with %v (err %v), want interrupted with nothing changed", read.Status, read.Outcome, err)
 	}
+	// The request says the run was refused before it moved anything — not
+	// that it stopped on a failure after acting on no instance, which is what
+	// is said of a run that began and broke.
+	if said, _ := read.Outcome["error"].(string); said != "the run was refused before it moved anything: the plan made when it came to start refused the migration" {
+		t.Fatalf("the request's outcome says %q; want it to say the run was refused before it moved anything, by its plan", said)
+	}
 	instance := f.assertWaitingAt(t, v1, "control")
 	f.assertNoMigrationEntries(t, instance.ID)
 }

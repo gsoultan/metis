@@ -69,3 +69,40 @@ func TestOnlyARefusalBeforeTheRunKeepsItsClassWhenAnApprovedRunDoesNotFinish(t *
 		t.Errorf("the mark changed the failure: %v", marked)
 	}
 }
+
+// A run that was refused before it acted is recorded and logged as that; one
+// that began and broke, as stopping part-way; and the two are told apart the
+// way the answer to the approver tells them apart. The plan's own words are
+// not stored with the request — they name steps — and the gate's are.
+func TestARunRefusedBeforeItActedIsRecordedAsRefusedAndNotAsStoppedPartWay(t *testing.T) {
+	t.Parallel()
+	const refusedByPlan = "the run was refused before it moved anything: the plan made when it came to start refused the migration"
+	partWay := func(acted int) string {
+		return fmt.Sprintf("the run stopped on a failure after it had acted on %d instance(s); what it had done by then stands", acted)
+	}
+	gate := refusedAtTheGate("a newcomer", "request %s does not cover this migration", uuid.Must(uuid.NewV7()))
+	for name, c := range map[string]struct {
+		runErr  error
+		acted   int
+		want    string
+		refused bool
+	}{
+		"the plan's refusal":               {apierr.Invalidf("version 2 has nowhere to put the work parked on control"), 0, refusedByPlan, true},
+		"the gate's refusal":               {gate, 0, "the run was refused before it moved anything: a newcomer", true},
+		"part-way, on an invalid argument": {failedInTheRun{err: apierr.Invalidf("no outgoing flow matches")}, 0, partWay(0), false},
+		"part-way, after two instances":    {failedInTheRun{err: errors.New("the ledger lost its connection")}, 2, partWay(2), false},
+		"a failure before the run":         {errors.New("the database is away"), 0, partWay(0), false},
+		"a version gone before the run":    {fmt.Errorf("source definition: %w", apierr.ErrNotFound), 0, partWay(0), false},
+	} {
+		outcome := runOutcome(entities.MigrationResult{Changed: c.acted}, c.runErr)
+		if outcome[outcomeError] != c.want {
+			t.Errorf("%s: the request keeps %q, want %q", name, outcome[outcomeError], c.want)
+		}
+		if got := refusedBeforeItActed(c.runErr); got != c.refused {
+			t.Errorf("%s: told as refused before it acted = %v, want %v", name, got, c.refused)
+		}
+		if strings.Contains(fmt.Sprint(outcome), "nowhere to put the work") {
+			t.Errorf("%s: the request keeps the plan's own words: %v", name, outcome)
+		}
+	}
+}

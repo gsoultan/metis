@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
@@ -112,6 +115,13 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 			return
 		}
 		recovered := recover()
+		if recovered != nil {
+			// Where it panicked, said here: the panic goes on its way, and
+			// whatever recovers it further up may say only that one happened.
+			log.Error().Str("request", run.request.ID.String()).Str("panic", redaction.RedactText(fmt.Sprint(recovered))).
+				Str("stack", string(debug.Stack())).
+				Msg("An approved migration's run panicked. Its request is being closed as interrupted, and the panic is passed on.")
+		}
 		s.reportOfAPanic(ctx, run.request, result, began)
 		if recovered != nil {
 			panic(recovered)
@@ -358,7 +368,8 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 	case err != nil:
 		return "", nil, fmt.Errorf("planning the migration request %s asks for: %w", request.ID, err)
 	case !plan.Applicable():
-		return "the plan now refuses it: " + strings.Join(plan.Refusals, "; "), plan.Refusals, nil
+		why, shown := becausePlanRefuses(plan.Refusals)
+		return why, shown, nil
 	}
 	run.plan = plan
 	fingerprint := migrationFingerprint(run.source, run.target, run.mapping, options, plan.ComplianceHolds)
@@ -366,6 +377,23 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 		return why, []string{why}, nil
 	}
 	return "", nil, nil
+}
+
+// becausePlanRefuses is why a request is stale when the plan made at approval
+// refuses the migration, and the refusals the request keeps of it.
+//
+// Both have a size: the first reasonsListed refusals and a count of the
+// rest, as a plan lists its reasons (listedReasons), and the sentence is made
+// from those. A plan refuses once for each thing wrong with a migration, and
+// what is kept is stored with the request, listed in the queue and said in a
+// refusal.
+func becausePlanRefuses(refusals []string) (why string, shown []string) {
+	shown = refusals
+	if len(refusals) > reasonsListed {
+		shown = append(slices.Clone(refusals[:reasonsListed]),
+			fmt.Sprintf("and %d more refusal(s), not listed here", len(refusals)-reasonsListed))
+	}
+	return "the plan now refuses it: " + strings.Join(shown, "; "), shown
 }
 
 // withoutClass is an error in its own words, without the class it was
