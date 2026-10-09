@@ -135,12 +135,18 @@ const en: Catalogue = {
   // steps the cause is about, as the server names them; {version} is the
   // version the instance stays on. A cause this catalogue does not know is
   // said with the server's own English sentence.
+  //
+  // The server lists ten of the steps a cause is about and says how many
+  // there were (steps_in_all). When there were more, {steps} ends with
+  // passedOverStepsMore: "A", "B" and 15 more. An instance that left its step
+  // may have finished since, which is why that sentence says "if it is still
+  // running".
   'migration.passedOver.already_moved':
     'Another run of a migration had already moved it, so it was not moved again.',
   'migration.passedOver.counters_would_merge':
     'It was part-way through two steps that this mapping moves onto one, and their progress cannot be added together. It stays on v{version}; map those steps apart and plan again.',
   'migration.passedOver.left_the_step':
-    'It was no longer waiting at {steps} when the migration reached it, so nothing was decided there. It stays on v{version}; apply the same migration again to plan for where it is now.',
+    'It was no longer waiting at {steps} when the migration reached it, so nothing was decided there. It stays on v{version}; if it is still running, apply the same migration again to plan for where it is now.',
   'migration.passedOver.left_where_nothing_decides':
     'It has a task or a waiting event at {steps} but is not waiting there, so no decision reached that work and the new version has nowhere to put it. It stays on v{version}.',
   'migration.passedOver.no_longer_running':
@@ -151,6 +157,7 @@ const en: Catalogue = {
     'It had work at {steps}, which the new version has nowhere to put. It stays on v{version}; plan again with a mapping or a decision for that work.',
   'migration.passedOver.waiting_to_be_decided':
     'It was waiting at {steps}, where this migration decides the work rather than moving it, and no decision had settled it. It stays on v{version}; apply the same migration again.',
+  'migration.passedOverStepsMore': '{count, plural, one {and # more} other {and # more}}',
 
   // Offline and updates
   'offline.title': 'You are offline',

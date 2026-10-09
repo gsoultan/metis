@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { DEFAULT_LOCALE, LOCALES, localeFor, resolveLocale, type Locale } from './locales';
+import { format } from './translate';
 
 const available: Locale[] = [
   { tag: 'en', endonym: 'English', load: async () => ({}) },
@@ -158,6 +159,37 @@ describe('why a migration passed an instance over', () => {
       expect(indonesian[key], `id has no "${key}"`).toBeDefined();
       expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
     }
+  });
+
+  /*
+   * An instance that left its step may have gone on to finish. The sentence
+   * for it must not tell the reader to apply the migration again whatever
+   * became of the instance: for one that is no longer running there is
+   * nothing to apply it to.
+   */
+  it('tells the reader to apply again only if the instance is still running', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    expect(english['migration.passedOver.left_the_step']).toContain('if it is still running, apply the same migration again');
+    expect(indonesian['migration.passedOver.left_the_step']).toContain('jika masih berjalan, terapkan migrasi yang sama lagi');
+  });
+
+  /*
+   * The server lists ten of the steps a cause is about, beside how many there
+   * were. The rest are said as every other cut list in the catalogue says
+   * what it leaves out: a plural of its own, which the dialog puts at the end
+   * of the names it has.
+   */
+  it('has words for the steps a list leaves out, in both languages', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    expect(format(english, 'migration.passedOverStepsMore', { count: 1 })).toBe('and 1 more');
+    expect(format(english, 'migration.passedOverStepsMore', { count: 15 })).toBe('and 15 more');
+    expect(format(indonesian, 'migration.passedOverStepsMore', { count: 15 })).toBe('dan 15 lainnya');
+    const steps = `"Legal review", "Credit check" ${format(english, 'migration.passedOverStepsMore', { count: 15 })}`;
+    expect(format(english, 'migration.passedOver.nowhere_to_land', { steps, version: 2 })).toBe(
+      'It had work at "Legal review", "Credit check" and 15 more, which the new version has nowhere to put. It stays on v2; plan again with a mapping or a decision for that work.',
+    );
   });
 
   it('names the same things in both languages', async () => {

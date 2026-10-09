@@ -19,11 +19,52 @@ import (
 // every language the interface ships, and no catalogue has words for a cause
 // the server never gives.
 
-// passedOverKey is the catalogue key of a cause.
-const passedOverKey = "migration.passedOver."
+const (
+	// passedOverKey is what the catalogue key of a cause begins with.
+	passedOverKey = "migration.passedOver."
+	// passedOverStepsMoreKey is the words for the steps a cause is about that
+	// its list leaves out: a cause lists ten of them beside how many there
+	// were, and the interface ends its list with these.
+	passedOverStepsMoreKey = "migration.passedOverStepsMore"
+)
 
-// keyedCause finds the causes a catalogue has words for.
-var keyedCause = regexp.MustCompile(`'migration\.passedOver\.([a-z_]+)':`)
+// catalogueEntry finds an entry of a catalogue: a quoted key at the start of
+// a line, and the words after its colon, in either kind of quote, on that
+// line or the next.
+var catalogueEntry = regexp.MustCompile(`(?m)^\s*'([^'\n]+)':\s*\n?\s*(?:'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"),?\s*$`)
+
+// entriesOf is the entries a catalogue defines, by key: what the interface
+// would find there. A key in a comment — one commented out, or one a comment
+// mentions — defines nothing and is not among them.
+func entriesOf(t *testing.T, path string) map[string]string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("could not read %s: %v", path, err)
+	}
+	var code []string
+	inBlock := false
+	for line := range strings.SplitSeq(string(source), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case inBlock:
+			inBlock = !strings.Contains(trimmed, "*/")
+		case strings.HasPrefix(trimmed, "/*"):
+			inBlock = !strings.Contains(trimmed, "*/")
+		case strings.HasPrefix(trimmed, "//"):
+		default:
+			code = append(code, line)
+		}
+	}
+	entries := map[string]string{}
+	for _, found := range catalogueEntry.FindAllStringSubmatch(strings.Join(code, "\n"), -1) {
+		entries[found[1]] = found[2] + found[3]
+	}
+	if len(entries) < 100 {
+		t.Fatalf("%s was read as %d entries; the catalogue is not being read as it is written", path, len(entries))
+	}
+	return entries
+}
 
 func TestEveryPassedOverCauseHasWordsInEveryCatalogue(t *testing.T) {
 	causes := entities.PassedOverCauses()
@@ -39,18 +80,17 @@ func TestEveryPassedOverCauseHasWordsInEveryCatalogue(t *testing.T) {
 		}
 	}
 	for _, path := range catalogues {
-		source, err := os.ReadFile(filepath.Clean(path))
-		if err != nil {
-			t.Fatalf("could not read %s: %v", path, err)
-		}
+		entries := entriesOf(t, path)
 		for _, cause := range causes {
-			if key := "'" + passedOverKey + string(cause) + "':"; !strings.Contains(string(source), key) {
+			if words := entries[passedOverKey+string(cause)]; strings.TrimSpace(words) == "" {
 				t.Errorf("%s has no words for the cause %q; the dialog would fall back to the server's English", path, cause)
 			}
 		}
-		for _, found := range keyedCause.FindAllStringSubmatch(string(source), -1) {
-			if !entities.PassedOverCause(found[1]).Valid() {
-				t.Errorf("%s has words for %q, a cause the server never gives", path, found[1])
+		// Whatever follows the prefix has to be a cause, to the letter: a key
+		// written another way (leftTheStep) is words nothing asks for.
+		for key := range entries {
+			if after, isCause := strings.CutPrefix(key, passedOverKey); isCause && !entities.PassedOverCause(after).Valid() {
+				t.Errorf("%s has words under %q, and %q is no cause the server gives", path, key, after)
 			}
 		}
 	}
@@ -58,51 +98,29 @@ func TestEveryPassedOverCauseHasWordsInEveryCatalogue(t *testing.T) {
 
 // A cause that names steps is worded with them, and one that names none is
 // not: a sentence that says "at {steps}" for a cause that carries no step
-// would show the placeholder.
+// would show the placeholder. Which causes name steps is the cause's own to
+// say (PassedOverCause.NamesSteps), and the service's constructors are held
+// to the same answer (TestEveryWayOfBeingPassedOverHasACauseAndNamesItsSteps).
+//
+// A cause lists ten of its steps beside how many there were, so the
+// interface needs words for the rest: "and 15 more", a plural of its own, as
+// the catalogue words what any other cut list leaves out.
 func TestACausesWordsNameItsStepsOnlyWhenItHasAny(t *testing.T) {
-	namesSteps := map[entities.PassedOverCause]bool{
-		entities.PassedOverLeftTheStep:             true,
-		entities.PassedOverNowhereToLand:           true,
-		entities.PassedOverLeftWhereNothingDecides: true,
-		entities.PassedOverWaitingToBeDecided:      true,
-		entities.PassedOverNoLongerRunning:         false,
-		entities.PassedOverNotPlannedFor:           false,
-		entities.PassedOverAlreadyMoved:            false,
-		entities.PassedOverCountersWouldMerge:      false,
-	}
-	for _, cause := range entities.PassedOverCauses() {
-		if _, known := namesSteps[cause]; !known {
-			t.Fatalf("this test does not know whether the cause %q names steps", cause)
-		}
-	}
 	for _, path := range catalogues {
-		source, err := os.ReadFile(filepath.Clean(path))
-		if err != nil {
-			t.Fatalf("could not read %s: %v", path, err)
-		}
-		for cause, named := range namesSteps {
-			line := lineOf(string(source), "'"+passedOverKey+string(cause)+"':")
-			if line == "" {
+		entries := entriesOf(t, path)
+		for _, cause := range entities.PassedOverCauses() {
+			words, has := entries[passedOverKey+string(cause)]
+			if !has {
 				continue // the test above says so
 			}
-			if strings.Contains(line, "{steps}") != named {
-				t.Errorf("%s words %q with {steps}: %v, and the server names steps for it: %v", path, cause, !named, named)
+			if strings.Contains(words, "{steps}") != cause.NamesSteps() {
+				t.Errorf("%s words %q with {steps}: %v, and the server names steps for it: %v",
+					path, cause, strings.Contains(words, "{steps}"), cause.NamesSteps())
 			}
 		}
+		more, has := entries[passedOverStepsMoreKey]
+		if !has || !strings.HasPrefix(more, "{count, plural,") || !strings.Contains(more, "#") {
+			t.Errorf("%s has no words for the steps a cause leaves out of its list (%s, a plural of {count}): %q", path, passedOverStepsMoreKey, more)
+		}
 	}
-}
-
-// lineOf is the entry of a catalogue that starts with key: the key's line
-// and, where the words are on the next, that one too.
-func lineOf(source, key string) string {
-	at := strings.Index(source, key)
-	if at < 0 {
-		return ""
-	}
-	rest := source[at:]
-	end := strings.Index(rest, "',\n")
-	if end < 0 {
-		return rest
-	}
-	return rest[:end]
 }
