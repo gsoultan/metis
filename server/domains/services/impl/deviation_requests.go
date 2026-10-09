@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -114,7 +115,8 @@ func (s *deviationRequestService) ApproveDeviationRequest(ctx context.Context, i
 	case entities.DeviationRequestMigration:
 		return s.migrations.approveRequest(ctx, id, reason)
 	}
-	return none, apierr.Invalidf("request %s is of a kind nothing here approves", id)
+	// The server's own state, not something the caller sent: a plain error.
+	return none, fmt.Errorf("request %s is a %q, which nothing here approves", id, request.Kind)
 }
 
 // ListDeviationRequests answers one page of the organization's requests,

@@ -23,9 +23,17 @@ func TestARequestWhoseStoredPlanNoLongerOpensIsReadAndRejectedOverTheAPI(t *test
 			requestID := h.askToWaive(t, boss, h.oneStep(t))
 			h.breakThePlanOf(t, uuid.MustParse(requestID))
 
+			logs := captureLogs(t)
 			status, read, raw := h.readRequest(t, deputy, requestID)
 			if status != http.StatusOK || read.Request.ID != requestID || read.Request.Status != "pending_approval" || read.Request.RequestedBy != "boss" {
 				t.Fatalf("reading a request whose plan no longer opens: %d (%s), want 200 and the request", status, raw)
+			}
+			// Why it did not open is said in the server's log, where whoever
+			// operates the installation reads it: to the client the plan is
+			// only "unavailable", and a lost key would show as nothing else.
+			lines := logs.said("could not be opened")
+			if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["request"] != requestID || lines[0]["document"] != "plan" || lines[0]["error"] == "" {
+				t.Fatalf("the read of a request whose plan no longer opens logged %v; want one warning naming the request, the plan, and why", lines)
 			}
 			written := object(t, raw)["request"].(map[string]any)
 			if unavailable, _ := written["unavailable"].([]any); len(unavailable) != 1 || unavailable[0] != "plan" {
@@ -54,6 +62,15 @@ func TestARequestWhoseStoredPlanNoLongerOpensIsReadAndRejectedOverTheAPI(t *test
 			}
 			if stored := h.requestStatus(t, requestID); stored != "rejected" {
 				t.Fatalf("the request is stored as %q, want rejected", stored)
+			}
+			// The rejection's answer names what the single read names: the
+			// one document that does not open, and no other.
+			answered := object(t, raw)["request"].(map[string]any)
+			if unavailable, _ := answered["unavailable"].([]any); len(unavailable) != 1 || unavailable[0] != "plan" {
+				t.Fatalf("the rejection says %v is unavailable, want the plan and nothing else: %s", answered["unavailable"], raw)
+			}
+			if _, has := answered["command"]; !has {
+				t.Fatalf("the rejection leaves out the command, which opens: %s", raw)
 			}
 		})
 	}

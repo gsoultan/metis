@@ -313,7 +313,7 @@ func (s *instanceDeviationService) recordApproved(
 		AuditEntryID: skippedID, Task: row.Task, Before: row.Before, After: row.After, Details: details,
 	})
 	if err != nil {
-		return entities.Deviation{}, entities.DeviationRequest{}, fmt.Errorf("recording that “%s” was waived: %w", stepOf(pending), err)
+		return entities.Deviation{}, entities.DeviationRequest{}, writeFailed(fmt.Sprintf("recording that “%s” was waived", stepOf(pending)), err)
 	}
 	skipped = approvalNote(skipped, request, decision)
 	skipped.ID = skippedID
@@ -326,7 +326,7 @@ func (s *instanceDeviationService) recordApproved(
 		DecisionReason: decision.Reason, DecidedAt: decision.At, Outcome: approvedOutcome(decided, decision),
 	})
 	if err != nil {
-		return entities.Deviation{}, entities.DeviationRequest{}, fmt.Errorf("recording the approval of request %s: %w", request.ID, err)
+		return entities.Deviation{}, entities.DeviationRequest{}, writeFailed(fmt.Sprintf("recording the approval of request %s", request.ID), err)
 	}
 	return decided, applied, nil
 }
@@ -493,7 +493,7 @@ func (s *instanceDeviationService) settleWaiveRequest(
 	}
 	settled, err := s.repo.DeviationRequest().Transition(ctx, request.ID, entities.DeviationRequestPending, change)
 	if err != nil {
-		return none, fmt.Errorf("closing request %s as %s: %w", request.ID, requestStatus, err)
+		return none, writeFailed(fmt.Sprintf("closing request %s as %s", request.ID, requestStatus), err)
 	}
 	pending, err := s.rowWaitingOn(ctx, request)
 	if err != nil {
@@ -501,7 +501,7 @@ func (s *instanceDeviationService) settleWaiveRequest(
 	}
 	row, err := s.repo.DeviationDecider().Decide(ctx, pending.ID, repocontracts.LedgerRowDecision{Status: rowStatus, DecidedAt: at})
 	if err != nil {
-		return none, fmt.Errorf("closing the ledger row of request %s as %s: %w", request.ID, rowStatus, err)
+		return none, writeFailed(fmt.Sprintf("closing the ledger row of request %s as %s", request.ID, rowStatus), err)
 	}
 	entry := requestEntry(eventType, settled, row, narrative(stepOf(row)))
 	switch requestStatus {

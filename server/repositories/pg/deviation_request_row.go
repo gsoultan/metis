@@ -9,6 +9,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 	"github.com/gsoultan/storm/runtime"
+	"github.com/rs/zerolog/log"
 )
 
 // emptyList is what a request stores for a list of instances with none in it.
@@ -188,16 +189,42 @@ func readableRequestFrom(row deviationrequest.Row) (entities.DeviationRequest, e
 	if err != nil {
 		return entities.DeviationRequest{}, err
 	}
-	if command, err := sealedMapOf(row.Command); err == nil {
+	command, err := sealedMapOf(row.Command)
+	if err == nil {
 		request.Command = orEmpty(command)
 	}
-	if plan, err := sealedMapOf(row.Plan); err == nil {
+	sayUnopened(request.ID, "command", err)
+	plan, err := sealedMapOf(row.Plan)
+	if err == nil {
 		request.Plan = orEmpty(plan)
 	}
-	if instances, err := instancesOf(row.ApprovedInstances); err == nil {
+	sayUnopened(request.ID, "plan", err)
+	instances, err := instancesOf(row.ApprovedInstances)
+	if err == nil {
 		request.ApprovedInstances = instances
 	}
+	sayUnopened(request.ID, "instances", err)
 	return request, nil
+}
+
+// sayUnopened says in the server's log why a stored document of a request
+// did not open, when it did not.
+//
+// The reader is answered the request without it, and told only that the
+// document is unavailable. Why — a key that was lost or rotated away, a row
+// restored from somewhere else, a value damaged in place — is for whoever
+// operates the installation, and is said nowhere else: without this line a
+// lost key would show as nothing but requests nobody can approve. It is said
+// each time such a request is read, and names the request, the document and
+// the failure; nothing of what the document held can be in it, since it did
+// not open.
+func sayUnopened(request uuid.UUID, document string, err error) {
+	if err == nil {
+		return
+	}
+	log.Warn().Str("request", request.String()).Str("document", document).Str("error", err.Error()).
+		Msg("A stored document of a request for a second administrator could not be opened. The request is answered " +
+			"without it and can still be rejected or expire; it cannot be approved.")
 }
 
 // queueRowOf is the part of a whole row the queue reads.

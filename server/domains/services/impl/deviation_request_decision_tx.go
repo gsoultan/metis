@@ -3,6 +3,9 @@ package impl
 import (
 	"context"
 	"errors"
+	"fmt"
+
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
@@ -67,4 +70,22 @@ func runDecision(ctx context.Context, uow repocontracts.UnitOfWork, work func(tx
 		return err
 	}
 	return refusal
+}
+
+// writeFailed is the failure of a write a decision makes on a request it
+// already holds, or on what waits on that request, told with what it was
+// doing.
+//
+// The cause stays under it, so that a repository's "somebody decided this
+// first" is still found for what it is (decidedFirst) — unless the cause is
+// "not found". The request was found: its row is held. A row that then
+// cannot be found under it is the server's trouble, and carried out as it
+// came it would answer the approver that the request they are looking at
+// does not exist. So that one is kept as words only, as a missing version is
+// (graphRunBy).
+func writeFailed(doing string, err error) error {
+	if errors.Is(err, apierr.ErrNotFound) {
+		return effectFailed(doing, err)
+	}
+	return fmt.Errorf("%s: %w", doing, err)
 }

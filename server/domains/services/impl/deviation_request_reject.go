@@ -64,6 +64,14 @@ func (s *deviationRequestService) RejectDeviationRequest(ctx context.Context, id
 	if err != nil {
 		return none, err
 	}
+	// The rejection held the request without its documents, which it had no
+	// use for; what it answers is the request as a single read answers it —
+	// each document that opens, and only one that does not left out. A read
+	// that fails here changes nothing about the rejection, which is made:
+	// the request is then answered as the rejection held it.
+	if whole, err := requests.GetReadable(ctx, id); err == nil {
+		return whole, nil
+	}
 	return rejected, nil
 }
 
@@ -112,7 +120,7 @@ func (s *deviationRequestService) rejectLocked(ctx context.Context, id uuid.UUID
 			DecisionReason: decision.Reason, DecidedAt: decision.At,
 		})
 		if err != nil {
-			return none, fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestRejected, err)
+			return none, writeFailed(fmt.Sprintf("closing request %s as %s", request.ID, entities.DeviationRequestRejected), err)
 		}
 		return rejected, nil
 	}

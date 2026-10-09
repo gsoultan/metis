@@ -317,7 +317,7 @@ func (s *migrationService) admitLocked(ctx context.Context, id uuid.UUID, caller
 	}
 	run.request, err = requests.Transition(ctx, request.ID, entities.DeviationRequestPending, change)
 	if err != nil {
-		return none, fmt.Errorf("recording the approval of request %s: %w", request.ID, err)
+		return none, writeFailed(fmt.Sprintf("recording the approval of request %s", request.ID), err)
 	}
 	return run, nil
 }
@@ -445,7 +445,7 @@ func closeMigrationRequestStale(
 		Outcome: staleFinding(decision, why, refusals),
 	})
 	if err != nil {
-		return fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestStale, err)
+		return writeFailed(fmt.Sprintf("closing request %s as %s", request.ID, entities.DeviationRequestStale), err)
 	}
 	return nil
 }
