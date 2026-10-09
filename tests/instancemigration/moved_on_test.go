@@ -59,7 +59,7 @@ func migrateWhileOpsApproves(t *testing.T, kind servicecontracts.NodeActionKind)
 	f, listing := newRacedFixture(t)
 	v1, v2 = f.parkedOnOpsApprove(t)
 	listing.atApplysListing(func() { f.completeTaskOn(t, "opsApprove", "ollie") })
-	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(kind, "the role was eliminated")...); err != nil {
+	if err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(kind, "the role was eliminated")...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if listing.calls < listing.on {

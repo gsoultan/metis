@@ -22,14 +22,17 @@ import (
 // read the task before it.
 func TestAWithdrawalRecordsTheDelegationItWaitedFor(t *testing.T) {
 	for _, action := range []struct {
-		name    string
+		name string
+		// kind is what the options decide the step by: a skip waits for a
+		// second administrator, a cancellation is one administrator's call.
+		kind    servicecontracts.NodeActionKind
 		options func() []servicecontracts.MigrationOption
 		row     func(f *fixture, t *testing.T, instanceID uuid.UUID) entities.Deviation
 	}{
-		{"a skip", skippingApprove, func(f *fixture, t *testing.T, id uuid.UUID) entities.Deviation {
+		{"a skip", servicecontracts.NodeActionSkip, skippingApprove, func(f *fixture, t *testing.T, id uuid.UUID) entities.Deviation {
 			return f.theWaiverOf(t, id, "approve")
 		}},
-		{"a cancellation", cancellingAtApprove, func(f *fixture, t *testing.T, id uuid.UUID) entities.Deviation { return f.theCancellationOf(t, id) }},
+		{"a cancellation", servicecontracts.NodeActionCancel, cancellingAtApprove, func(f *fixture, t *testing.T, id uuid.UUID) entities.Deviation { return f.theCancellationOf(t, id) }},
 	} {
 		t.Run(action.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -64,7 +67,7 @@ func TestAWithdrawalRecordsTheDelegationItWaitedFor(t *testing.T) {
 			}
 
 			acted := make(chan error, 1)
-			go func() { acted <- f.migrateWithApproval(t, v1, v2, nil, action.options()...) }()
+			go func() { acted <- f.migrateDecided(t, action.kind, v1, v2, nil, action.options()...) }()
 
 			f.waitUntilHeldBehind(t, session, acted)
 			if err := delegation.Commit().Error; err != nil {

@@ -11,13 +11,18 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
-// migrateSeconded applies a migration as an organization with two
-// administrators gets one done: a plan that needs a second administrator — it
-// skips a step, takes a control, redirects past one or loosens a rule — is
-// asked for by dita and approved by
-// budi, and any other plan is applied on the one call, as it always was. It
-// requires that such a plan really waited: applied on one call, it fails the
-// test.
+// migrateSeconded applies a migration that has to wait for a second
+// administrator — it skips a step, takes a control, redirects past one or
+// loosens a rule — as an organization with two administrators gets one done:
+// asked for by dita and approved by budi. It requires that the plan really
+// waited: applied on one call, it fails the test.
+//
+// It is the test that says the migration has to wait, by calling this, and
+// not the plan: a plan that can be applied and does not ask for a second
+// administrator fails the test here. Were the plan's word taken for it, a
+// planner that stopped asking would send every test that comes through here
+// down the one-call path, and each would pass. A migration one administrator
+// applies is applied with MigrateInstances, by the test itself.
 //
 // It is for a test that needs a migration to have happened and is about what
 // follows. That a skip waits for a second administrator, and what an approved
@@ -26,8 +31,14 @@ func migrateSeconded(t *testing.T, h engineHarness, v1, v2 uuid.UUID, mapping ma
 	t.Helper()
 	ctx := h.Ctx()
 	plan, err := h.svc.PlanInstanceMigration(ctx, v1, v2, mapping, opts...)
-	if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover {
+	if err != nil || !plan.Applicable() {
+		// A plan that cannot be made, or that refuses, asks nobody: the
+		// apply's own refusal is what the test reads.
 		return h.svc.MigrateInstances(ctx, v1, v2, mapping, opts...)
+	}
+	if !plan.RequiresSecondApprover {
+		t.Fatalf("this test applies its migration as one a second administrator has to approve, and the plan does not ask for one: "+
+			"the planner no longer asks, or the test should apply it on one call (%+v)", plan)
 	}
 	// What needs a second administrator must not go through on one call: the
 	// apply itself has to refuse it, having moved nothing, or every test that

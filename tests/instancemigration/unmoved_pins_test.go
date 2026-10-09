@@ -226,7 +226,7 @@ func TestPinADecisionAboutAnUnmovedInstance(t *testing.T) {
 			first, second := f.parkedOnOpsApprove(t)
 			v1, v2 := uuidOf(t, first), uuidOf(t, second)
 			before := f.beforeMigrating(t)
-			result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			result, err := f.applyDecided(t, kind, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			assertToldAs(t, before.told(t, v1, v2, result, err), want[kind])
 		})
 	}

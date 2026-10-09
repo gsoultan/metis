@@ -255,7 +255,7 @@ func arrivesAtOpsApproveAfterTheListing(t *testing.T, kind servicecontracts.Node
 	f, listing := newRacedFixture(t)
 	v1, v2 = f.waitingAtSupervisorReview(t)
 	listing.atApplysListing(func() { f.completeTaskOn(t, "supervisorReview", "sam") })
-	result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+	result, err := f.applyDecided(t, kind, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -345,16 +345,26 @@ func TestAnInstanceThatReachesAStepBeingHeldAtAfterTheListingIsHeld(t *testing.T
 // version 2 does not have; and once its holder completed that task the
 // instance stayed active with no token and no task.
 func TestTheStrandingReproducedInReviewNoLongerHappens(t *testing.T) {
-	runs := map[string][]servicecontracts.MigrationOption{
-		"a skip of the operations approval": skipOps("the role was eliminated"),
-		"a migration that only moves":       {servicecontracts.WithActor("dita")},
+	// A skip waits for a second administrator; a migration that only moves is
+	// one administrator's call. The test says which, not the plan.
+	type run struct {
+		opts  []servicecontracts.MigrationOption
+		waits bool
 	}
-	for name, opts := range runs {
+	runs := map[string]run{
+		"a skip of the operations approval": {skipOps("the role was eliminated"), true},
+		"a migration that only moves":       {[]servicecontracts.MigrationOption{servicecontracts.WithActor("dita")}, false},
+	}
+	for name, run := range runs {
+		opts, migrate := run.opts, (*fixture).migrateOnOneCall
+		if run.waits {
+			migrate = (*fixture).migrateWithApproval
+		}
 		t.Run(name, func(t *testing.T) {
 			f, listing := newRacedFixture(t)
 			v1, v2 := f.waitingAtSupervisorReview(t)
 			listing.atApplysListing(func() { f.completeTaskOn(t, "supervisorReview", "sam") })
-			if err := f.migrateWithApproval(t, v1, v2, nil, opts...); err != nil {
+			if err := migrate(f, t, v1, v2, nil, opts...); err != nil {
 				t.Fatalf("apply: %v", err)
 			}
 			reached(t, listing)
@@ -395,7 +405,7 @@ func TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun(t
 			v1, v2 := f.waitingAtSupervisorReview(t)
 			beforeTheRewriteLocks(listing, locks, func() { f.completeTaskOn(t, "supervisorReview", "sam") })
 
-			result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			result, err := f.applyDecided(t, kind, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			if err != nil {
 				t.Fatalf("apply: %v", err)
 			}
@@ -415,7 +425,7 @@ func TestAnInstanceThatReachesADecidedStepJustBeforeItsLockIsLeftForTheNextRun(t
 			assertPassedOver(t, result, instance, "Operations approve", "opsApprove")
 
 			// The same migration again finds it at the step, and decides it.
-			again, err := f.applyWithApproval(t, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			again, err := f.applyDecided(t, kind, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			if err != nil {
 				t.Fatalf("the second run: %v", err)
 			}

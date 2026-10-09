@@ -128,7 +128,8 @@ func (f *fixture) startedOn(t *testing.T, first, second *entities.ProcessDefinit
 	return v1, v2
 }
 
-// planAndApply is the plan of a migration and then its apply.
+// planAndApply is the plan of a migration that waits for a second
+// administrator, and then its approved apply.
 func (f *fixture) planAndApply(t *testing.T, v1, v2 uuid.UUID, mapping map[string]string, opts ...servicecontracts.MigrationOption) string {
 	t.Helper()
 	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, mapping, opts...)
@@ -139,12 +140,24 @@ func (f *fixture) planAndApply(t *testing.T, v1, v2 uuid.UUID, mapping map[strin
 	return f.toldWithItsRows(t, v1, v2, plan, result, err)
 }
 
+// planAndApplyOnOneCall is the plan of a migration one administrator applies,
+// and then its apply.
+func (f *fixture) planAndApplyOnOneCall(t *testing.T, v1, v2 uuid.UUID, mapping map[string]string, opts ...servicecontracts.MigrationOption) string {
+	t.Helper()
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, mapping, opts...)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	result, err := f.applyOnOneCall(t, v1, v2, mapping, opts...)
+	return f.toldWithItsRows(t, v1, v2, plan, result, err)
+}
+
 // A timer that is still waiting moves with its step: the row names the new
 // version and the step's new id, and is still pending.
 func TestPinAMappingMovesATimerThatIsStillWaiting(t *testing.T) {
 	f := newFixture(t)
 	v1, v2 := f.startedOn(t, coolingOff(f.project, "wait", "oldWork", true), coolingOff(f.project, "pause", "newWork", true))
-	told := f.planAndApply(t, v1, v2, map[string]string{"wait": "pause", "oldWork": "newWork"}, servicecontracts.WithActor("dita"))
+	told := f.planAndApplyOnOneCall(t, v1, v2, map[string]string{"wait": "pause", "oldWork": "newWork"}, servicecontracts.WithActor("dita"))
 	assertToldAs(t, told, pinLiveTimer)
 }
 
@@ -152,7 +165,7 @@ func TestPinAMappingMovesATimerThatIsStillWaiting(t *testing.T) {
 func TestPinAMappingMovesAWaitingEvent(t *testing.T) {
 	f := newFixture(t)
 	v1, v2 := f.startedOn(t, waitingOnMessage(f.project, "wait"), waitingOnMessage(f.project, "awaitErp"))
-	told := f.planAndApply(t, v1, v2, map[string]string{"wait": "awaitErp"}, servicecontracts.WithActor("dita"))
+	told := f.planAndApplyOnOneCall(t, v1, v2, map[string]string{"wait": "awaitErp"}, servicecontracts.WithActor("dita"))
 	assertToldAs(t, told, pinWaitingEvent)
 }
 

@@ -211,7 +211,7 @@ func TestAPassedOverInstanceCarriesItsCauseAndItsStepsName(t *testing.T) {
 		f, listing, locks := newLockRacedFixture(t)
 		v1, v2 := f.waitingAtSupervisorReview(t)
 		beforeTheRewriteLocks(listing, locks, func() { f.completeTaskOn(t, "supervisorReview", "sam") })
-		result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(servicecontracts.NodeActionHold, "ask the account manager")...)
+		result, err := f.applyOnOneCall(t, v1, v2, nil, decideOps(servicecontracts.NodeActionHold, "ask the account manager")...)
 		if err != nil {
 			t.Fatalf("apply: %v", err)
 		}

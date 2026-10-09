@@ -49,7 +49,7 @@ func TestFinishedWorkDoesNotFollowARenameOntoAControlThatStandsElsewhere(t *test
 	}) {
 		t.Errorf("the plan does not warn that work done on the preparation is not the audit done: %v", plan.Warnings)
 	}
-	if _, err := f.applyWithApproval(t, v1, v2, mapping, actor); err != nil {
+	if _, err := f.applyOnOneCall(t, v1, v2, mapping, actor); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	moved := f.assertWaitingAt(t, v2, "sign")

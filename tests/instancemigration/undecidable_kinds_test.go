@@ -106,7 +106,7 @@ func TestADecisionOnASubProcessIsRefusedInThePlan(t *testing.T) {
 			f.assertNothingIsStranded(t)
 
 			// Deciding the step inside, as the refusal says, is taken.
-			result, err := f.applyWithApproval(t, v1, v2, nil,
+			result, err := f.applyDecided(t, kind, v1, v2, nil,
 				servicecontracts.WithNodeActions(request(false, "check").NodeActions), servicecontracts.WithActor("dita"))
 			if err != nil {
 				t.Fatalf("decide the step inside: %v", err)

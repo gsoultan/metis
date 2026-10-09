@@ -133,18 +133,34 @@ func (f *fixture) rehook(fire func(), ahead int) {
 	p.on, p.fire = p.calls+ahead, fire
 }
 
-// applyWithApproval applies a migration the way it is done since a second
-// administrator approves a skip: a plan that needs one is asked for by dita
-// and approved by omar; any other plan — and any refused one — goes to
-// ApplyInstanceMigration as before. It answers what the run did either way.
+// applyWithApproval applies a migration that has to wait for a second
+// administrator: it is asked for by dita and approved by omar, and what the
+// run did is answered.
+//
+// It is the test that says the migration has to wait, by calling this — not
+// the plan. A plan that can be applied and does not ask for a second
+// administrator fails the test here: were the plan's own word taken for it,
+// a planner that stopped asking would send every test that comes through
+// here down the one-call path, and each would pass. A migration that one
+// administrator applies goes through applyOnOneCall, which fails the other
+// way; one decided by a kind that a test loops over goes through
+// applyDecided, which says which of the two each kind is.
+//
+// A plan that cannot be made, or that refuses, asks nobody: it goes to
+// ApplyInstanceMigration, for the test to read the refusal.
 func (f *fixture) applyWithApproval(t *testing.T, source, target uuid.UUID, mapping map[string]string,
 	opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
 	t.Helper()
 	fire, ahead := f.unhook()
 	plan, err := f.svc.PlanInstanceMigration(f.ctx, source, target, mapping, opts...)
-	if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover {
+	if err != nil || !plan.Applicable() {
 		f.rehook(fire, ahead)
 		return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
+	}
+	if !plan.RequiresSecondApprover {
+		f.rehook(fire, ahead)
+		t.Fatalf("this test applies its migration as one a second administrator has to approve, and the plan does not ask for one "+
+			"(reasons %v): the planner no longer asks, or the test should apply it on one call (applyOnOneCall)", plan.SecondApproverReasons)
 	}
 	// What needs a second administrator must not go through on one call: the
 	// apply itself has to refuse it, having moved nothing, or every test that
@@ -169,6 +185,52 @@ func (f *fixture) applyWithApproval(t *testing.T, source, target uuid.UUID, mapp
 		return entities.MigrationResult{}, err
 	}
 	return *out.MigrationResult, err
+}
+
+// applyOnOneCall applies a migration one administrator applies, and answers
+// what the run did. It is the test that says so, by calling this: a plan that
+// asks for a second administrator fails the test here.
+func (f *fixture) applyOnOneCall(t *testing.T, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
+	t.Helper()
+	fire, ahead := f.unhook()
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, source, target, mapping, opts...)
+	f.rehook(fire, ahead)
+	if err == nil && plan.Applicable() && plan.RequiresSecondApprover {
+		t.Fatalf("this test applies its migration on one administrator's call, and the plan asks for a second (%v)", plan.SecondApproverReasons)
+	}
+	return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
+}
+
+// migrateOnOneCall is applyOnOneCall for a test that asks only whether the
+// migration went through.
+func (f *fixture) migrateOnOneCall(t *testing.T, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) error {
+	t.Helper()
+	_, err := f.applyOnOneCall(t, source, target, mapping, opts...)
+	return err
+}
+
+// applyDecided applies a migration whose one decision is of kind, for a test
+// that runs the same thing for each kind: a skip waits for a second
+// administrator, and a cancel and a hold are one administrator's call. That
+// is the rule, said here by the test and not read from the plan.
+func (f *fixture) applyDecided(t *testing.T, kind servicecontracts.NodeActionKind, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error) {
+	t.Helper()
+	if kind == servicecontracts.NodeActionSkip {
+		return f.applyWithApproval(t, source, target, mapping, opts...)
+	}
+	return f.applyOnOneCall(t, source, target, mapping, opts...)
+}
+
+// migrateDecided is applyDecided for a test that asks only whether the
+// migration went through.
+func (f *fixture) migrateDecided(t *testing.T, kind servicecontracts.NodeActionKind, source, target uuid.UUID, mapping map[string]string,
+	opts ...servicecontracts.MigrationOption) error {
+	t.Helper()
+	_, err := f.applyDecided(t, kind, source, target, mapping, opts...)
+	return err
 }
 
 // migrateWithApproval is applyWithApproval for a test that asks only whether
@@ -219,7 +281,18 @@ func (f *fixture) answerOf(t *testing.T, request definition.MigrateInstancesRequ
 	fire, ahead := f.unhook()
 	preview := request
 	preview.DryRun = nil
-	if plan := answered(f.ctx, preview).Plan; !plan.Applicable() || !plan.RequiresSecondApprover {
+	plan := answered(f.ctx, preview).Plan
+	// A request that skips a step has to wait, whatever its plan says of
+	// itself: that much is read from what was asked, so that a planner which
+	// stopped asking fails here and does not send the test down the one-call
+	// path. For what is asked with no skip — an acknowledged control, a
+	// redirect — whether it waits depends on where the instances stand, and
+	// the plan is what says.
+	if skips(request) && plan.Applicable() && plan.Instances > 0 && !plan.RequiresSecondApprover {
+		f.rehook(fire, ahead)
+		t.Fatalf("an apply that skips a step does not ask for a second administrator: the planner no longer asks (%+v)", plan)
+	}
+	if !plan.Applicable() || !plan.RequiresSecondApprover {
 		f.rehook(fire, ahead)
 		return answered(f.ctx, request)
 	}
@@ -239,4 +312,14 @@ func (f *fixture) answerOf(t *testing.T, request definition.MigrateInstancesRequ
 		t.Fatalf("the approval was refused: %v", failed)
 	}
 	return approved
+}
+
+// skips reports whether a request to migrate decides a step by skipping it.
+func skips(request definition.MigrateInstancesRequest) bool {
+	for _, action := range request.NodeActions {
+		if action.Kind == servicecontracts.NodeActionSkip {
+			return true
+		}
+	}
+	return false
 }

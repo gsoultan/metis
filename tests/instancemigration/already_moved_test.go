@@ -122,7 +122,7 @@ func TestADecisionIsNotTakenOnAnInstanceAnotherRunAlreadyMoved(t *testing.T) {
 					t.Errorf("the first run: %v", err)
 				}
 			})
-			result, err := f.applyWithApproval(t, v1, v2, mapping, opts...)
+			result, err := f.applyDecided(t, kind, v1, v2, mapping, opts...)
 			if err != nil {
 				t.Fatalf("the second run: %v", err)
 			}

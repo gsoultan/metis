@@ -232,7 +232,7 @@ func TestADecisionWhoseTrailEntryCannotBeWrittenIsNotMade(t *testing.T) {
 				return trailRefusingRepository{Repository: repo, refused: migrationEntries[:3]}
 			})
 			v1, v2 := f.parkedOnOpsApprove(t)
-			err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil,
+			err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil,
 				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{"opsApprove": {Kind: kind, Reason: "policy"}}),
 				servicecontracts.WithActor("dita"))
 			if err == nil {
