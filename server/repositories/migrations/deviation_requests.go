@@ -220,6 +220,33 @@ func giveTheLedgerItsLiveKeyAndRequest(ctx context.Context, db *gorm.DB) error {
 // cannot make a batch sit on the locks it already took; the migration is
 // restartable and says so.
 func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
+	filled, err := GiveLiveRowsTheirKey(ctx, db)
+	if lockNotAvailable(err) {
+		return fmt.Errorf("a row of instance_deviations was held for more than %s by a long transaction; "+
+			"the upgrade stopped rather than wait on it with row locks held, and will finish when started again once that ends: %w",
+			deviationRequestsLockWait, err)
+	}
+	if err != nil {
+		return fmt.Errorf("give the ledger's live rows their live key: %w", err)
+	}
+	log.Info().Int("filled", filled).
+		Msg("Ledger rows that hold a visit were given the key that holds it")
+	return nil
+}
+
+// GiveLiveRowsTheirKey is the work of FillLiveVisitKeys — every batch of it,
+// as described there — answering how many rows it filled and saying nothing:
+// its errors are as they came, and it logs no line.
+//
+// It is apart from the migration's step because the migration is not its
+// only caller. A pod of the previous release writes a live row with no live
+// key, and such a pod runs beside this release during a rolling upgrade and
+// after a rollback — after the migration has made its one pass. So the
+// server's retention pass calls this on every database, every time: it
+// touches only rows with no key, costs one short read when there are none,
+// and is safe to run from every replica at once. What to say of the result
+// is the caller's.
+func GiveLiveRowsTheirKey(ctx context.Context, db *gorm.DB) (int, error) {
 	filled := 0
 	for {
 		var ids []string
@@ -244,18 +271,11 @@ func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
 			n = res.RowsAffected
 			return res.Error
 		})
-		if lockNotAvailable(err) {
-			return fmt.Errorf("a row of instance_deviations was held for more than %s by a long transaction; "+
-				"the upgrade stopped rather than wait on it with row locks held, and will finish when started again once that ends: %w",
-				deviationRequestsLockWait, err)
-		}
 		if err != nil {
-			return fmt.Errorf("give the ledger's live rows their live key: %w", err)
+			return filled, err
 		}
 		if len(ids) == 0 {
-			log.Info().Int("filled", filled).
-				Msg("Ledger rows that hold a visit were given the key that holds it")
-			return nil
+			return filled, nil
 		}
 		filled += int(n)
 	}
