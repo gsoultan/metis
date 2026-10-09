@@ -27,9 +27,6 @@ const (
 	// outcomeReportedAfterSweep marks a report written over the sweep's
 	// "interrupted": the run outlived the time it was given, and finished.
 	outcomeReportedAfterSweep = "reported_after_sweep"
-	// runNeverReported is the sweep's word for an approved request whose run
-	// said nothing by the time its window closed.
-	runNeverReported = "the run did not report back"
 )
 
 // runOutcome is what a run's report writes as its request's outcome: how

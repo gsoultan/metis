@@ -158,9 +158,9 @@ func verifiedApproval(request entities.DeviationRequest) (servicecontracts.Migra
 	if !approval.SelfApproved {
 		return approval, nil
 	}
-	said, _ := request.Outcome[auditOrganizationID].(string)
+	said, isText := request.Outcome[auditOrganizationID].(string)
 	organization, err := uuid.Parse(said)
-	if err != nil || organization == uuid.Nil {
+	if !isText || err != nil || organization == uuid.Nil {
 		return none, refusedAtTheGate("the request did not say which organization its requester's own approval was allowed in",
 			"request %s was approved by whoever asked for it, and does not say in which organization that was allowed; nothing was moved", request.ID)
 	}
