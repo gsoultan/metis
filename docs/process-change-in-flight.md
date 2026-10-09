@@ -1587,7 +1587,7 @@ migration share its `run_id`:
 | `skip` | `waive` | the task | the tasks withdrawn, as they were and as they are (status and assignee), and how many |
 | `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, the tasks withdrawn, and in `details`, when there were any, how much parked work it withdrew (`external_tasks_withdrawn`) and how many incidents it closed (`incidents_closed`) |
 | `hold` | `hold` | the instance | the incident raised |
-| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, and its `compliance_note` when it has one |
+| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, its `compliance_note` when it has one, and `details.mapped_to` when the instance was moved off it onto another control (below) |
 
 A `control_waived` row has no reason, because whoever acknowledged the loss signed for every
 instance at once; it is written once per lost step, in the same transaction as the rewrite and
@@ -1600,6 +1600,24 @@ that instance's rewrite and stops the run there, naming the instance, as a ledge
 cannot be written does (`TestAnInstanceIsNotMovedWhenItsMigrationEntryCannotBeWritten`). It
 used to be written after the rewrite had committed, and a lost entry was only logged. A
 migration that only moves work and waives no control writes no row.
+
+**A `control_waived` row with `details.mapped_to` is not a control lost.** A control that a
+mapping sends onto a step that is not the same step in place is a hold, and its loss has to
+be acknowledged and approved: the planner cannot tell a control renamed with its neighbours
+changed from one redirected onto a different control, so it counts neither as carried
+across. An instance waiting at such a control is then moved onto the step the mapping names.
+When that step is itself marked as a control, the row says which (`mapped_to`), and the
+`instance_migrated` entry says *It had not yet passed c1, which was not carried across as
+the same step: it was moved from there onto c2, and dita accepted that.* and carries
+`controls_mapped_to`. Neither says the instance will never perform it: it may go on to
+perform exactly that step, or a different control — read the two versions to know which.
+A control the new version drops or unmarks keeps the row and the sentence it always had,
+*…accepted that it never will*, whatever the mapping does with the work that waited there
+(`TestAControlMappedOntoAnotherStepIsRecordedAsMovedOntoItNotAsLost`,
+`TestAControlTheNewVersionDropsKeepsItsRowAndItsSentence`). To rename a control and change
+what stands round it without anybody being asked or any such row being written, do it in
+two versions: rename it with its neighbours unchanged in one, and change the neighbours in
+the next.
 
 **A `hold` row says the hold was placed, not that it is still open.** A hold is an incident
 raised at the step, and resolving that incident (`POST /api/v1/incidents/{id}/resolve`, an

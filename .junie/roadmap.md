@@ -1311,13 +1311,16 @@
       counts as a rename so far opened a way to carry finished work somewhere it was not
       done. The clean route: do not reuse a step's id for another step in the next version
       (*read*).
-    - **A `control_waived` row can say a loss that did not happen.** A control that is a
-      hold only because it was renamed with changed neighbours has its waiting instances
-      moved onto the new id, where they go on to perform it; the row still says the
-      instance will never perform it. Giving the row `details.mapped_to` and a true
-      sentence needs the rewrite's call in `apply` to carry the mapping, which the final
-      wave was not allowed to touch (*read*; ruled, not built). The clean route: rename with
-      the neighbours unchanged in one version, change the neighbours in the next.
+    - ~~**A `control_waived` row can say a loss that did not happen.**~~ *Done: where an
+      instance waiting at a control is moved by the mapping onto another control, the row
+      carries `details.mapped_to` and the trail says it was moved there, not that it never
+      will pass it; a control dropped keeps its row and sentence* (*run*:
+      `TestAControlMappedOntoAnotherStepIsRecordedAsMovedOntoItNotAsLost`). What is left:
+      the row cannot say whether the step it was moved onto is the same control renamed or
+      a different one, and an instance that had not reached such a control when it was
+      migrated still gets the row of a control lost, though the new version may keep a
+      control it will come to (*read*). The clean route: rename with the neighbours
+      unchanged in one version, change the neighbours in the next.
     - **An apply that meets a plan which came to need a second administrator between the
       route's reading and the service's answers "needs a second administrator" to an
       apply** (403). The sentence is true and the same call sent again is a 202 (*read*).
