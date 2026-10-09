@@ -45,15 +45,26 @@ var errExpiryInsideTransaction = errors.New(
 // takes the row of the request it is closing, and is not answered a row
 // somebody else holds.
 func (s *deviationRequestService) ExpireDeviationRequests(ctx context.Context, now time.Time) (int64, error) {
+	swept, err := s.SweepDeviationRequests(ctx, now)
+	return swept.Closed(), err
+}
+
+// SweepDeviationRequests is ExpireDeviationRequests with its two counts kept
+// apart: how many requests it closed as expired, and how many approved ones
+// it closed as interrupted. They are different facts — nobody decided the
+// first; somebody approved the second and its run never reported — and
+// whoever logs the pass says each in words that are true of it.
+func (s *deviationRequestService) SweepDeviationRequests(ctx context.Context, now time.Time) (entities.SweptRequests, error) {
+	var none entities.SweptRequests
 	if !entities.IsSystemContext(ctx) {
-		return 0, errExpiryIsTheServers
+		return none, errExpiryIsTheServers
 	}
 	if db.InTransaction(ctx) {
-		return 0, errExpiryInsideTransaction
+		return none, errExpiryInsideTransaction
 	}
 	requests := s.repo.DeviationRequest()
 	if requests == nil || s.repo.DeviationDecider() == nil {
-		return 0, errNoDeviationRequests
+		return none, errNoDeviationRequests
 	}
 	// Approved requests whose run never reported, first. There are few of
 	// them, each holds a migration nobody can ask for again until it is
@@ -66,7 +77,7 @@ func (s *deviationRequestService) ExpireDeviationRequests(ctx context.Context, n
 	overdue := s.sweep(ctx, func(txCtx context.Context, after repocontracts.SweepCursor, limit int) ([]entities.DeviationRequest, error) {
 		return requests.ListOverdue(txCtx, now, after, limit)
 	}, s.expire)
-	return int64(unreported.closed + overdue.closed),
+	return entities.SweptRequests{Expired: int64(overdue.closed), Interrupted: int64(unreported.closed)},
 		errors.Join(tallied(unreportedRuns, unreported), tallied("past their deadline", overdue))
 }
 

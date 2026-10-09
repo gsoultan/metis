@@ -3,8 +3,10 @@ package instancemigration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
 )
 
 // A migration that skips a step is asked for, not made: the ask writes one
@@ -243,7 +246,7 @@ func TestASkipOrAnAcknowledgedHoldWaitsForASecondAdministrator(t *testing.T) {
 				}
 				if entry.Data["approved_by"] != "omar" || entry.Data["request_id"] != pending.RequestID.String() ||
 					!strings.Contains(entry.Narrative, "dita") ||
-					!strings.HasSuffix(entry.Narrative, " A second administrator, omar, approved it (request "+pending.RequestID.String()+").") {
+					!strings.HasSuffix(entry.Narrative, " A second administrator, omar, approved this migration (request "+pending.RequestID.String()+").") {
 					t.Fatalf("an entry of the approved run: %q %v", entry.Narrative, entry.Data)
 				}
 				if _, said := entry.Data["self_approved"]; said {
@@ -546,5 +549,114 @@ func TestAMigrationRequestIsApprovedOnce(t *testing.T) {
 	}
 	if rows != 2 || after != rows {
 		t.Fatalf("the ledger held %d row(s) after the run and %d after the second attempts, want two both times", rows, after)
+	}
+}
+
+// B6, with something done before the failure. A run that fails after acting
+// on one instance leaves the request interrupted, saying it had acted on one;
+// what it did stands and names that request; and what remains is asked for
+// again and finished under the second request — never under the first.
+func TestARunThatFailsAfterActingOnOneInstanceIsFinishedUnderAnotherRequest(t *testing.T) {
+	writes := &atomic.Int32{}
+	f := newFixtureOver(t, func(repo repositories.Repository) repositories.Repository {
+		return ledgerFailingOnceRepository{Repository: repo, writes: writes, failOn: 2}
+	})
+	v1, v2 := f.severalParkedOnOpsApprove(t, 3)
+	opts := skipOps("the role was eliminated")
+	dita := adminAs(f.ctx, "dita")
+	first, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), first.RequestID, "")
+	if err == nil || out.Applied || out.Request.Status != entities.DeviationRequestInterrupted || out.MigrationResult == nil || out.MigrationResult.Changed != 1 {
+		t.Fatalf("a run whose second skip could not be recorded: %+v %v, want it to stop having acted on one", out, err)
+	}
+	// One thing to do about it is said, and it is the true one: ask again.
+	if said := err.Error(); !strings.Contains(said, "what remains has to be asked for again") || strings.Contains(said, "run the same migration again") ||
+		!strings.Contains(said, "1 of 3 instances had already been dealt with") || !strings.Contains(said, "the ledger lost its connection") {
+		t.Fatalf("the failure says %q; want how far the run got, why it stopped, and only that what remains has to be asked for again", said)
+	}
+	read, err := f.svc.GetDeviationRequest(dita, first.RequestID)
+	if err != nil || read.Status != entities.DeviationRequestInterrupted || read.Outcome["changed"] != float64(1) || read.Outcome["passed_over"] != float64(0) ||
+		read.Outcome["error"] != "the run stopped on a failure after it had acted on 1 instance(s); what it had done by then stands" {
+		t.Fatalf("the first request reads %q with %v (err %v), want interrupted, saying one instance had been acted on", read.Status, read.Outcome, err)
+	}
+	if strings.Contains(fmt.Sprint(read.Outcome), "the ledger lost its connection") {
+		t.Fatalf("the request's outcome carries the failure's own words: %v", read.Outcome)
+	}
+	done := f.stillOn(t, v2.String())
+	if len(done) != 1 || len(f.stillOn(t, v1.String())) != 2 {
+		t.Fatalf("%d instance(s) moved, want the one the run reached before it failed", len(done))
+	}
+	if rows := f.ledger(t, done[0].ID); len(rows) != 1 || rows[0].RequestID != first.RequestID || rows[0].ApprovedBy != "omar" {
+		t.Fatalf("the first instance's ledger: %+v, want its skip under the first request", rows)
+	}
+	for _, left := range f.stillOn(t, v1.String()) {
+		f.assertUntouched(t, left, v1)
+	}
+
+	// Asked again, it is another request, for the two that remain.
+	second, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...)
+	if err != nil || second.RequestID == first.RequestID {
+		t.Fatalf("asking again for what remains: %+v %v, want a second request", second, err)
+	}
+	rest, err := f.svc.GetDeviationRequest(dita, second.RequestID)
+	if err != nil || len(rest.ApprovedInstances) != 2 || slices.Contains(rest.ApprovedInstances, done[0].ID) {
+		t.Fatalf("the second request covers %v (err %v), want the two instances the first run did not reach", rest.ApprovedInstances, err)
+	}
+	out, err = f.svc.ApproveDeviationRequest(adminAs(f.ctx, "pia"), second.RequestID, "")
+	if err != nil || !out.Applied || out.MigrationResult.Changed != 2 || out.Request.Status != entities.DeviationRequestApplied {
+		t.Fatalf("the second request's run: %+v %v, want it to finish the two that remained", out, err)
+	}
+	for _, instance := range f.stillOn(t, v2.String()) {
+		rows := f.ledger(t, instance.ID)
+		want, approver := second.RequestID, "pia"
+		if instance.ID == done[0].ID {
+			want, approver = first.RequestID, "omar"
+		}
+		if len(rows) != 1 || rows[0].RequestID != want || rows[0].ApprovedBy != approver {
+			t.Fatalf("instance %s: %+v, want one skip under request %s approved by %s", instance.ID, rows, want, approver)
+		}
+	}
+	if got := f.storedStatus(t, first.RequestID); got != "interrupted" {
+		t.Fatalf("the first request is %s after the second ran, want it left interrupted", got)
+	}
+}
+
+// A run that panics does not leave its request approved for an hour. The
+// request is closed as interrupted before the panic goes on its way, saying
+// that the server failed and that how far the run got is not known — nothing
+// is claimed about a count nobody has.
+func TestARunThatPanicsLeavesItsRequestInterruptedAndNotApproved(t *testing.T) {
+	f, listing := newRacedFixture(t)
+	dita, v1, v2, requestID := f.askToSkipOps(t)
+	listing.atTheApprovedApplysListing(func() { panic("the listing fell over") })
+
+	var panicked any
+	func() {
+		defer func() { panicked = recover() }()
+		_, _ = f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), requestID, "")
+	}()
+	if panicked == nil || !strings.Contains(fmt.Sprint(panicked), "the listing fell over") {
+		t.Fatalf("the approval recovered from the run's panic and went on as if nothing had happened: %v", panicked)
+	}
+	read, err := f.svc.GetDeviationRequest(dita, requestID)
+	if err != nil || f.storedStatus(t, requestID) != "interrupted" || read.DecidedBy != "omar" {
+		t.Fatalf("the request is stored %s (err %v), want it interrupted and not left approved", f.storedStatus(t, requestID), err)
+	}
+	if read.Outcome["error"] != "the run stopped on a failure of the server's own, and how far it had got is not known; what it had done by then stands" {
+		t.Fatalf("its outcome %v, want it to say the server failed and that the count is not known", read.Outcome)
+	}
+	if _, counted := read.Outcome["changed"]; counted {
+		t.Fatalf("its outcome claims a count nobody has: %v", read.Outcome)
+	}
+	if strings.Contains(fmt.Sprint(read.Outcome), "the listing fell over") {
+		t.Fatalf("the outcome carries the panic's own words: %v", read.Outcome)
+	}
+	f.assertNothingMoved(t, v1)
+	// It holds nothing: the same migration is asked for again at once.
+	if again, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...); err != nil || again.RequestID == requestID {
+		t.Fatalf("asking again after a run that panicked: %+v %v, want a fresh request", again, err)
 	}
 }

@@ -357,6 +357,10 @@ func TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep(t *testing.
 				if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "no longer in use; nothing was moved") {
 					t.Fatalf("an apply under an approved request whose window has closed: %v, want it refused", err)
 				}
+				// Nothing is said of a run that may never have started.
+				if strings.Contains(err.Error(), "its run did not report back") {
+					t.Fatalf("the refusal says a run did not report back, of a request no run may ever have started under: %v", err)
+				}
 				f.assertNothingMoved(t, v1)
 			}
 			if stored := f.storedStatus(t, pending.RequestID); stored != "approved" {
@@ -415,6 +419,15 @@ func TestASkipOverAVersionWhoseOnlyInstanceIsSuspendedStillAsks(t *testing.T) {
 	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
 	if err != nil || out.MigrationResult == nil || out.MigrationResult.Changed != 0 || out.Request.Status != entities.DeviationRequestApplied {
 		t.Fatalf("the approved run over a suspended instance: %+v %v, want it to change nothing and be spent", out, err)
+	}
+	// Applied, of a run that changed nothing, means only that the request is
+	// spent: its outcome says so, and why.
+	if out.Request.Outcome["note"] != "no instance was active on the version when it ran" {
+		t.Fatalf("the spent request's outcome %v, want it to say nothing was active", out.Request.Outcome)
+	}
+	if _, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "pia"), pending.RequestID, ""); err == nil ||
+		!strings.Contains(err.Error(), "and its run changed nothing: no instance was active on the version when it ran. Ask again for what remains.") {
+		t.Fatalf("deciding the spent request again: %v, want to be told its run changed nothing", err)
 	}
 	after := f.onlyInstance(t)
 	if after.Definition == nil || after.Definition.ID != v1 || after.Status != entities.ProcessSuspended || len(f.ledger(t, instance.ID)) != 0 {

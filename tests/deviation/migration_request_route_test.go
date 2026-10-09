@@ -160,7 +160,7 @@ func (h *deviationHarness) requireSelfApprovedRun(t *testing.T, instanceID uuid.
 		t.Fatalf("the ledger row: %+v, want it applied, asked for and approved by one account, marked self_approved, "+
 			"and saying which organization it was and that it had no other administrator", row)
 	}
-	sentence := " No second administrator approved it: boss approved their own request (request " + requestID + ")."
+	sentence := " No second administrator approved this migration: boss approved their own request (request " + requestID + ")."
 	for _, eventType := range []string{serviceimpl.EventNodeSkipped, serviceimpl.EventInstanceMigrated} {
 		entries := h.entriesOf(t, instanceID, eventType)
 		if len(entries) != 1 || !strings.HasSuffix(entries[0].Narrative, sentence) {

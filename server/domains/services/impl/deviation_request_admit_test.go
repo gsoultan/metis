@@ -153,9 +153,36 @@ func TestADecidedRequestSaysWhatBecameOfIt(t *testing.T) {
 		entities.DeviationRequestExpired:  "This request expired on 8 October 2026 02:30 UTC.",
 		entities.DeviationRequestStale:    "This request went stale on " + when + ": what it asked for no longer held.",
 	} {
-		err := decidedRefusal(decided(status, nil))
+		// Judged a minute after the approval: its run window is open.
+		err := decidedRefusalAt(decided(status, nil), at.Add(time.Minute))
 		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf("%s", want).Error() {
 			t.Errorf("%s: %v, want a refusal saying exactly %q", status, err, want)
+		}
+	}
+	// A request stored as approved is being applied only while its run window
+	// is open. Once it has closed — an hour after the approval, or at the
+	// request's own deadline — it is not, whatever the table still says.
+	closed := "budi approved this on " + when + ", and no run of it reported back in the time one is given; it is no longer in use. Ask again."
+	if err := decidedRefusalAt(decided(entities.DeviationRequestApproved, nil), at.Add(time.Hour)); !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf("%s", closed).Error() {
+		t.Errorf("approved, an hour after the approval: %v, want %q", err, closed)
+	}
+	nearly := deadline.Add(-time.Minute)
+	late := decided(entities.DeviationRequestApproved, nil)
+	late.DecidedAt = &nearly
+	if err := decidedRefusalAt(late, deadline); !errors.Is(err, apierr.ErrInvalidArgument) || !strings.HasSuffix(err.Error(), "it is no longer in use. Ask again.") {
+		t.Errorf("approved a minute before its deadline, read at the deadline: %v, want it no longer in use", err)
+	}
+	if err := decidedRefusalAt(late, nearly.Add(time.Second)); !strings.HasSuffix(err.Error(), "; it is being applied.") {
+		t.Errorf("approved a minute before its deadline, read a second later: %v, want it being applied", err)
+	}
+	// An applied request whose run changed nothing says so, and which way.
+	for note, want := range map[string]string{
+		"every instance the run reached was passed over":    "budi approved this on " + when + ", and its run changed nothing: every instance the run reached was passed over. Ask again for what remains.",
+		"no instance was active on the version when it ran": "budi approved this on " + when + ", and its run changed nothing: no instance was active on the version when it ran. Ask again for what remains.",
+	} {
+		spent := decided(entities.DeviationRequestApplied, map[string]any{"changed": float64(0), "note": note})
+		if err := decidedRefusalAt(spent, at.Add(time.Minute)); !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf("%s", want).Error() {
+			t.Errorf("applied, having changed nothing: %v, want %q", err, want)
 		}
 	}
 	interrupted := decidedRefusal(decided(entities.DeviationRequestInterrupted, map[string]any{"error": "the run did not report back"}))
@@ -195,7 +222,8 @@ func TestADecidedRequestSaysWhenItsRequesterApprovedIt(t *testing.T) {
 		entities.DeviationRequestInterrupted: approved + ", and the run stopped part-way: the run did not report back. Ask again for what remains.",
 		entities.DeviationRequestRejected:    "ana rejected this on 5 October 2026 02:30 UTC.",
 	} {
-		err := decidedRefusal(own(status, map[string]any{"error": "the run did not report back"}))
+		// Judged a minute after the approval: its run window is open.
+		err := decidedRefusalAt(own(status, map[string]any{"error": "the run did not report back"}), at.Add(time.Minute))
 		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf("%s", want).Error() {
 			t.Errorf("%s: %v, want a refusal saying exactly %q", status, err, want)
 		}

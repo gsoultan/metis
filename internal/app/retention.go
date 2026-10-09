@@ -47,10 +47,12 @@ const sharedCountKept = 5 * time.Minute
 // two of them keyed by whatever callers chose to send.
 //
 // The same pass re-offers external tasks stranded at zero retries (see
-// reoffer), records the expiry of requests for a second administrator that
-// nobody decided in time (see expire), and — for the first hour after it
-// starts — gives a ledger row written by a pod of the previous release the
-// key that holds its visit (see fillLiveKeys, liveKeyFillFor).
+// reoffer), records what the clock has decided about requests for a second
+// administrator (see expire: those nobody decided in time have expired, and
+// approved ones whose run never reported were interrupted), and — for the
+// first hour after it starts — gives a ledger row written by a pod of the
+// previous release the key that holds its visit (see fillLiveKeys,
+// liveKeyFillFor).
 //
 // It sweeps once at start-up, because an installation that is redeployed more
 // often than the interval would otherwise never sweep, and then on a timer.
@@ -114,31 +116,43 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time) 
 			return security.ForgetIdempotencyRecords(ctx, a.storm, defaultHTTPIdempotencyTTL, now)
 		})
 	}
-	expire(ctx, database, func(ctx context.Context) (int64, error) {
-		return a.svc.ExpireDeviationRequests(ctx, now)
+	expire(ctx, database, func(ctx context.Context) (entities.SweptRequests, error) {
+		return a.svc.SweepDeviationRequests(ctx, now)
 	})
 }
 
-// expire records the expiry of requests for a second administrator that
-// nobody decided before their deadline. Not retention, but the same shape as
-// reoffer: every replica, every database, safe to run twice.
+// expire writes down what the clock has decided about the requests for a
+// second administrator. Not retention, but the same shape as reoffer: every
+// replica, every database, safe to run twice.
 //
-// The clock has already decided those requests: each reads as expired and
-// cannot be approved whether or not this has run. What the pass adds is the
-// record — the request and its ledger row say expired, the trail says so, and
-// the step the request held can be asked for again without anybody having to
-// ask. A pass can close some requests and fail on another, so it says what it
-// closed and, separately, that it could not finish.
-func expire(ctx context.Context, database string, run func(context.Context) (int64, error)) {
-	expired, err := run(ctx)
-	if expired > 0 {
-		log.Info().Str("database", database).Int64("expired", expired).
+// Two things, said apart because they are different facts. A request that
+// still waited past its deadline has expired: nobody decided it. An approved
+// request whose run did not report back in the time a run is given was
+// interrupted: somebody did decide, and the run then stopped — a server that
+// went down mid-run leaves exactly this, so it is worth a warning.
+//
+// The clock has already decided each of them: it reads as expired, or as
+// interrupted, and cannot be approved or run under whether or not this has
+// run. What the pass adds is the record — the request says so, a waive's
+// ledger row and trail say so, and what the request held can be asked for
+// again without anybody having to ask. A pass can close some requests and
+// fail on another, so it says what it closed and, separately, that it could
+// not finish.
+func expire(ctx context.Context, database string, run func(context.Context) (entities.SweptRequests, error)) {
+	swept, err := run(ctx)
+	if swept.Expired > 0 {
+		log.Info().Str("database", database).Int64("expired", swept.Expired).
 			Msg("Recorded the expiry of requests waiting for a second administrator that nobody decided in time")
+	}
+	if swept.Interrupted > 0 {
+		log.Warn().Str("database", database).Int64("interrupted", swept.Interrupted).
+			Msg("Recorded that approved requests for a second administrator were interrupted: each had been approved, and no run of it " +
+				"reported back in the time one is given. What such a run had done stands; what remains has to be asked for again.")
 	}
 	if err != nil {
 		log.Warn().Err(err).Str("database", database).
-			Msg("Could not record the expiry of requests waiting for a second administrator; they read as expired and none can be approved, " +
-				"but the table says pending until a sweep succeeds.")
+			Msg("Could not record everything the clock has decided about requests for a second administrator; each reads as expired " +
+				"or interrupted and none can be approved or run under, but its row says otherwise until a sweep succeeds.")
 	}
 }
 

@@ -236,27 +236,48 @@ func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
 // says when it could not, and says nothing when there was nothing to do.
 func TestAnExpiryPassSaysWhatItClosedAndWhenItCouldNot(t *testing.T) {
 	logs := captureLogs(t)
-	about := "waiting for a second administrator"
-	expire(t.Context(), "main", func(context.Context) (int64, error) { return 0, nil })
+	about := "a second administrator"
+	expire(t.Context(), "main", func(context.Context) (entities.SweptRequests, error) { return entities.SweptRequests{}, nil })
 	if lines := logs.said(about); len(lines) != 0 {
 		t.Fatalf("a pass with nothing to expire said %v", lines)
 	}
-	expire(t.Context(), "staging", func(context.Context) (int64, error) { return 3, nil })
+	expire(t.Context(), "staging", func(context.Context) (entities.SweptRequests, error) {
+		return entities.SweptRequests{Expired: 3}, nil
+	})
 	lines := logs.said(about)
 	if len(lines) != 1 || lines[0]["level"] != "info" || lines[0]["expired"] != float64(3) || lines[0]["database"] != "staging" {
 		t.Fatalf("a pass that expired three said %v", lines)
 	}
 	// A pass that closed some and failed on another says both.
-	expire(t.Context(), "main", func(context.Context) (int64, error) { return 2, errors.New("request 0193 could not be closed") })
+	expire(t.Context(), "main", func(context.Context) (entities.SweptRequests, error) {
+		return entities.SweptRequests{Expired: 2}, errors.New("request 0193 could not be closed")
+	})
 	lines = logs.said(about)
 	if len(lines) != 3 || lines[1]["level"] != "info" || lines[1]["expired"] != float64(2) || lines[2]["level"] != "warn" ||
 		lines[2]["error"] != "request 0193 could not be closed" || lines[2]["database"] != "main" {
 		t.Fatalf("a pass that closed two and failed on one said %v, want what it closed and then a warning", lines)
 	}
-	want := "Could not record the expiry of requests waiting for a second administrator; they read as expired and none can be approved, " +
-		"but the table says pending until a sweep succeeds."
+	want := "Could not record everything the clock has decided about requests for a second administrator; each reads as expired " +
+		"or interrupted and none can be approved or run under, but its row says otherwise until a sweep succeeds."
 	if lines[2]["message"] != want {
 		t.Fatalf("the warning reads\n  %v\nwant\n  %s", lines[2]["message"], want)
+	}
+	// An approved request whose run never reported is not an expiry, and is
+	// not said as one: it is counted apart, in words that are true of it,
+	// and as a warning — a server that stopped mid-run leaves exactly this.
+	about = "requests for a second administrator were interrupted"
+	expire(t.Context(), "main", func(context.Context) (entities.SweptRequests, error) {
+		return entities.SweptRequests{Expired: 1, Interrupted: 2}, nil
+	})
+	interrupted := logs.said(about)
+	if len(interrupted) != 1 || interrupted[0]["level"] != "warn" || interrupted[0]["interrupted"] != float64(2) || interrupted[0]["database"] != "main" {
+		t.Fatalf("a pass that interrupted two said %v, want one warning counting the two", interrupted)
+	}
+	if _, said := interrupted[0]["expired"]; said {
+		t.Fatalf("the line about interrupted requests counts expired ones too: %v", interrupted[0])
+	}
+	if expired := logs.said("Recorded the expiry of requests"); len(expired) != 3 || expired[2]["expired"] != float64(1) {
+		t.Fatalf("the same pass said %v of what expired, want the one, counted by itself", expired)
 	}
 }
 
@@ -372,7 +393,7 @@ func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t 
 	if each := logs.said("could not be written down as closed"); len(each) != 5 || each[0]["request"] != requests[0].String() {
 		t.Fatalf("%d requests were named one by one (%v); want the first five, the oldest first, and the rest counted", len(each), each)
 	}
-	loop := logs.said("Could not record the expiry of requests")
+	loop := logs.said("Could not record everything the clock has decided")
 	if text, _ := loop[0]["error"].(string); len(loop) != 1 || !strings.Contains(text, "25 requests past their deadline could not be closed (1 closed)") ||
 		!strings.Contains(text, requests[0].String()) {
 		t.Fatalf("the retention loop said %v; want it to say 25 could not be closed and 1 was, naming the first", loop)

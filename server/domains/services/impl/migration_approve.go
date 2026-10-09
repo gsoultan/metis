@@ -70,11 +70,7 @@ func (s *migrationService) approveRequest(ctx context.Context, id uuid.UUID, rea
 		traceSelfApproval(run.request, run.decision.Organization)
 	}
 
-	began := time.Now()
-	result, runErr := s.ApplyInstanceMigration(ctx, run.source, run.target, run.mapping,
-		append(run.options, servicecontracts.WithApprovedRequest(id))...)
-
-	reported := s.reportRun(ctx, run.request, result, runErr, began)
+	result, reported, runErr := s.runAndReport(ctx, run, id)
 	outcome := entities.DeviationRequestOutcome{
 		Request: reported,
 		// The migrate route's own rule: applied unless the run passed
@@ -85,10 +81,68 @@ func (s *migrationService) approveRequest(ctx context.Context, id uuid.UUID, rea
 	}
 	if runErr != nil {
 		traceApprovedRunStopped(run.request, result, runErr)
-		return outcome, fmt.Errorf("%w — the migration had been approved and its run stopped here: request %s now reads %s, "+
-			"what the run had done stands, and what remains has to be asked for again", runErr, id, reported.Status)
+		return outcome, approvedRunFailed(id, reported.Status, runErr)
 	}
 	return outcome, nil
+}
+
+// errRunPanicked stands for a run that did not return: it panicked. What it
+// had done by then is not known to the report made of it.
+var errRunPanicked = errors.New("the run panicked")
+
+// runAndReport is steps B and C: the run, and the report of it on the
+// request — which is made whatever became of the run.
+//
+// A run that panics does not come back to be reported on. Left at that, its
+// request would stay approved until its window closed, holding the migration
+// against anybody asking again. So the report is owed from a deferred call:
+// the request is closed as interrupted, saying the server failed and that how
+// far the run got is not known, and the panic then goes on its way — as a
+// transaction that panics is rolled back and the panic passed on
+// (repositories/db). Nothing here recovers from it.
+func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id uuid.UUID) (result entities.MigrationResult, reported entities.DeviationRequest, runErr error) {
+	began := time.Now()
+	returned := false
+	defer func() {
+		if returned {
+			return
+		}
+		recovered := recover()
+		s.reportRun(ctx, run.request, result, errRunPanicked, began)
+		traceApprovedRunStopped(run.request, result, errRunPanicked)
+		if recovered != nil {
+			panic(recovered)
+		}
+	}()
+	result, runErr = s.ApplyInstanceMigration(ctx, run.source, run.target, run.mapping,
+		append(run.options, servicecontracts.WithApprovedRequest(id))...)
+	returned = true
+	return result, s.reportRun(ctx, run.request, result, runErr, began), runErr
+}
+
+// approvedRunFailed is what whoever approved a migration is told when its run
+// did not finish: why, in the failure's words, what became of the request,
+// and the one thing there is to do — ask again for what remains.
+//
+// The failure's own text is a run's, written for a migration one
+// administrator applied: it says to run the same migration again, which
+// under an approval is not true — the request is spent — so that instruction
+// is taken out, and so is the engine's marker for an error a process may
+// catch, which is no word. The failure is the server's, whatever class it
+// came with: by the time a run starts the approver has been let in and the
+// plan accepted, and nothing they sent can put it right. Only the gate's
+// refusal keeps its class: it is a refusal, of something that may not be
+// done, and says so.
+func approvedRunFailed(id uuid.UUID, status entities.DeviationRequestStatus, runErr error) error {
+	cause := strings.ReplaceAll(withoutClass(runErr), resumeByRunningAgain, "")
+	cause = strings.ReplaceAll(cause, "BPMN_ERROR:", "")
+	said := fmt.Sprintf("the approved migration did not finish: %s. Request %s now reads %s; what its run had done stands, "+
+		"and what remains has to be asked for again", cause, id, status)
+	var refused gateRefusal
+	if errors.As(runErr, &refused) {
+		return gateRefusal{err: apierr.Forbiddenf("%s", said), why: refused.why}
+	}
+	return errors.New(said)
 }
 
 // admit is step A: the approval, in a unit of work of its own (runDecision),

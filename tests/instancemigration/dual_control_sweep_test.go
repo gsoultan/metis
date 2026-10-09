@@ -90,8 +90,10 @@ func TestOneSweepClosesWhatExpiredAndWhatNeverReported(t *testing.T) {
 	}
 	f.letTimePass(t, overdue.RequestID, 1)
 
-	if n := f.sweep(t, time.Now()); n != 2 {
-		t.Fatalf("the sweep closed %d, want both requests", n)
+	// Counted apart: nobody decided the one, and somebody approved the other.
+	swept, err := f.svc.SweepDeviationRequests(entities.WithSystemContext(f.ctx), time.Now())
+	if err != nil || swept != (entities.SweptRequests{Expired: 1, Interrupted: 1}) || swept.Closed() != 2 {
+		t.Fatalf("the sweep closed %+v (err %v), want one expired and one interrupted", swept, err)
 	}
 	if got := f.storedStatus(t, unreported); got != "interrupted" {
 		t.Fatalf("the request whose run never reported is %s, want interrupted", got)

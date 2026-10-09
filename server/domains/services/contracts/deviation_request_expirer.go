@@ -3,13 +3,23 @@ package contracts
 import (
 	"context"
 	"time"
+
+	"github.com/gsoultan/metis/server/domains/entities"
 )
 
-// DeviationRequestExpirer writes down what the clock has decided: requests
-// nobody decided before their deadline. It is the server's own work, run on a
-// schedule, not something a request asks for.
+// DeviationRequestExpirer writes down what the clock has decided about the
+// requests for a second administrator: those nobody decided before their
+// deadline have expired, and approved ones whose run did not report back in
+// the time a run is given were interrupted. It is the server's own work, run
+// on a schedule, not something a request asks for.
 type DeviationRequestExpirer interface {
-	// ExpireDeviationRequests closes every request that is overdue at now,
-	// and answers how many it closed.
+	// SweepDeviationRequests closes every request the clock has closed at
+	// now, and answers how many of each kind it closed. Beside an error it
+	// still answers what it did close.
+	SweepDeviationRequests(ctx context.Context, now time.Time) (entities.SweptRequests, error)
+
+	// ExpireDeviationRequests is SweepDeviationRequests, and answers the two
+	// counts as one: how many requests it closed, expired and interrupted
+	// together.
 	ExpireDeviationRequests(ctx context.Context, now time.Time) (int64, error)
 }

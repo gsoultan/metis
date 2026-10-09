@@ -90,10 +90,13 @@ func approvalNote(entry entities.AuditEntry, request entities.DeviationRequest, 
 // migration it let through: who the second administrator was, or that there
 // was none. It begins with a space, to follow the sentence it is added to.
 //
+// It says what was approved: the migration. "Approved it", after the
+// sentence of a step that was skipped, read as the approval the step was for.
+//
 // Nothing adds it to a waived step's entry (approvalNote).
 func approvalSentence(request entities.DeviationRequest, decision entities.DeviationDecision) string {
 	if decision.SelfApproved {
-		return fmt.Sprintf(" No second administrator approved it: %s approved their own request (request %s).", decision.Decider, request.ID)
+		return fmt.Sprintf(" No second administrator approved this migration: %s approved their own request (request %s).", decision.Decider, request.ID)
 	}
-	return fmt.Sprintf(" A second administrator, %s, approved it (request %s).", decision.Decider, request.ID)
+	return fmt.Sprintf(" A second administrator, %s, approved this migration (request %s).", decision.Decider, request.ID)
 }

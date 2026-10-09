@@ -470,7 +470,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 		// spent request is TestAnApplyRefusesASkipWithoutAnApprovedRequest's;
 		// here no instance is left on the old version for one to be about.)
 		if got := f.storedStatus(t, pending.RequestID); got != "applied" || out.Request.Outcome["changed"] != float64(0) ||
-			out.Request.Outcome["passed_over"] != float64(instances) {
+			out.Request.Outcome["passed_over"] != float64(instances) || out.Request.Outcome["note"] != "every instance the run reached was passed over" {
 			t.Fatalf("the request is %s with %v, want applied, saying the reporting run changed none and passed %d over", got, out.Request.Outcome, instances)
 		}
 	})

@@ -48,6 +48,10 @@ func (unavailableDeviationRequests) ExpireDeviationRequests(context.Context, tim
 	return 0, errNoDeviationRequestService
 }
 
+func (unavailableDeviationRequests) SweepDeviationRequests(context.Context, time.Time) (entities.SweptRequests, error) {
+	return entities.SweptRequests{}, errNoDeviationRequestService
+}
+
 // unavailableDeviator is the in-place command of a wiring that has none.
 type unavailableDeviator struct{}
 

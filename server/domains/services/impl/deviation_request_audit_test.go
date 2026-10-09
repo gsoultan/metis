@@ -64,10 +64,10 @@ func TestWhoApprovedIsSaidInWords(t *testing.T) {
 	second := entities.DeviationDecision{Decider: "budi", Reason: "checked with finance"}
 	alone := entities.DeviationDecision{Decider: "ana", Reason: "the board agreed", SelfApproved: true}
 
-	if got, want := approvalSentence(request, second), " A second administrator, budi, approved it (request "+request.ID.String()+")."; got != want {
+	if got, want := approvalSentence(request, second), " A second administrator, budi, approved this migration (request "+request.ID.String()+")."; got != want {
 		t.Errorf("a second administrator's approval adds %q, want %q", got, want)
 	}
-	if got, want := approvalSentence(request, alone), " No second administrator approved it: ana approved their own request (request "+request.ID.String()+")."; got != want {
+	if got, want := approvalSentence(request, alone), " No second administrator approved this migration: ana approved their own request (request "+request.ID.String()+")."; got != want {
 		t.Errorf("a self-approval adds %q, want %q", got, want)
 	}
 

@@ -96,7 +96,7 @@ func (s *migrationService) approvedRequestFor(
 	}
 	if request.RunWindowClosed(time.Now()) {
 		return none, refusedAtTheGate("the time an approved run is given had passed before the run started",
-			"request %s was approved on %s and its run did not report back, so it is no longer in use; nothing was moved — ask again",
+			"request %s was approved on %s and no run of it reported back in the time one is given, so it is no longer in use; nothing was moved — ask again",
 			requestID, decidedOn(request).UTC().Format(decidedOnLayout))
 	}
 	if options.Actor != request.RequestedBy {

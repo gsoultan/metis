@@ -358,6 +358,13 @@ func noteSuffix(note string) string {
 	return fmt.Sprintf(" (%s)", note)
 }
 
+// resumeByRunningAgain is what a run that stops part-way tells whoever asked
+// for it to do next. It is true of a migration one administrator applied, and
+// not of one that ran under a second administrator's approval — that request
+// is spent, and what remains is asked for again — so the approval takes it
+// out of what it tells its caller (approvedRunFailed).
+const resumeByRunningAgain = "; run the same migration again to carry on from here"
+
 // apply performs the migration. Every refusal has already been made by the
 // planner, so this only writes.
 //
@@ -435,8 +442,7 @@ func (s *migrationService) apply(
 		// version it actually ran on.
 		made, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
-			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
-				"run the same migration again to carry on from here)", err, done, len(instances))
+			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with"+resumeByRunningAgain+")", err, done, len(instances))
 		}
 		if made.wrote {
 			result.Changed++
@@ -617,7 +623,7 @@ func (s *migrationService) apply(
 		})
 		if err != nil {
 			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
-				"dealt with; run the same migration again to carry on from here)",
+				"dealt with"+resumeByRunningAgain+")",
 				instance.ID, err, done, len(instances))
 		}
 		if elsewhere {

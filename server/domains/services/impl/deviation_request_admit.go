@@ -295,6 +295,14 @@ func errDecisionReasonTooLong() error {
 // Asked of a request that still waits, it is the caller's mistake and a plain
 // error: nothing was decided, and saying so to a client would be untrue.
 func decidedRefusal(request entities.DeviationRequest) error {
+	return decidedRefusalAt(request, time.Now())
+}
+
+// decidedRefusalAt is decidedRefusal at a given moment. The moment matters to
+// one answer only: a request stored as approved is being applied while its
+// run window is open, and is not once it has closed — its run never reported,
+// or never started — whether or not anything has written that down.
+func decidedRefusalAt(request entities.DeviationRequest, now time.Time) error {
 	on := decidedOn(request).UTC().Format(decidedOnLayout)
 	// "X approved this" alone reads as a second administrator's approval, so
 	// a request its own requester approved says that it was.
@@ -304,8 +312,16 @@ func decidedRefusal(request entities.DeviationRequest) error {
 	}
 	switch request.Status {
 	case entities.DeviationRequestApproved:
+		if request.RunWindowClosed(now) {
+			return apierr.Invalidf("%s, and no run of it reported back in the time one is given; it is no longer in use. Ask again.", approved)
+		}
 		return apierr.Invalidf("%s; it is being applied.", approved)
 	case entities.DeviationRequestApplied:
+		// A run that ended well and changed nothing says so: "it was
+		// applied" would read as something having been done.
+		if note, said := request.Outcome[outcomeNote].(string); said && note != "" {
+			return apierr.Invalidf("%s, and its run changed nothing: %s. Ask again for what remains.", approved, note)
+		}
 		return apierr.Invalidf("%s, and it was applied.", approved)
 	case entities.DeviationRequestInterrupted:
 		return apierr.Invalidf("%s, and the run stopped part-way: %v. Ask again for what remains.", approved, request.Outcome["error"])
