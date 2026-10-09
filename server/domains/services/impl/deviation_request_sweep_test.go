@@ -3,12 +3,14 @@ package impl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	stormruntime "github.com/gsoultan/storm/runtime"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -175,5 +177,79 @@ func TestAPassStopsAtItsBudgetAndAtWhatItCannotRead(t *testing.T) {
 	}
 	if err := tallied("past their deadline", sweepTally{closed: 9}); err != nil {
 		t.Fatalf("a pass that closed everything it read answers %v", err)
+	}
+}
+
+// A request left because somebody held a row its closing needs is counted
+// apart from one that could not be closed, and a pass that has waited out as
+// many of them as it waits for ends: each cost it the whole lock wait, and
+// ten thousand of them would be hours. What it answers says held, and says
+// that the pass ended there.
+func TestAPassCountsHeldRequestsApartAndEndsOnceItHasWaitedForEnough(t *testing.T) {
+	heldRow := fmt.Errorf("closing the ledger row: %w", stormruntime.ErrLockNotAvailable)
+	requests, read, cursors := overdueInOrder(9)
+	service := &deviationRequestService{repo: sweptStore{bounds: &boundsCounted{}}, sweepLockWait: time.Second, sweepBudget: 100, sweepHeldLimit: 3}
+	tally := service.sweep(context.Background(), read, func(_ context.Context, request entities.DeviationRequest) error {
+		switch request.ID {
+		case requests[0].ID:
+			return errors.New("its ledger row no longer waits")
+		case requests[1].ID:
+			return nil
+		}
+		return heldRow
+	})
+	// One broken, one closed, then three held: the pass ends at the fifth of
+	// nine, having read no further.
+	if tally.closed != 1 || tally.failed != 1 || tally.held != 3 || !tally.waitedOut || tally.spent || tally.stopped != nil || len(*cursors) != 5 {
+		t.Fatalf("the pass tallied %+v after %d reads; want 1 closed, 1 failed, 3 held, ended by the held limit after five", tally, len(*cursors))
+	}
+	if tally.first == nil || !strings.Contains(tally.first.Error(), requests[0].ID.String()) ||
+		tally.firstHeld == nil || !strings.Contains(tally.firstHeld.Error(), requests[2].ID.String()) {
+		t.Fatalf("the first failure is %v and the first held %v; want the broken request and the first held one, each its own", tally.first, tally.firstHeld)
+	}
+	err := tallied("past their deadline", tally)
+	want := "1 request past their deadline could not be closed (1 closed); the first: request " + requests[0].ID.String() + ": its ledger row no longer waits" +
+		"; and 3 requests past their deadline were held by another transaction and left for the next pass (1 closed); the first: request " + requests[2].ID.String() +
+		": closing the ledger row: " + stormruntime.ErrLockNotAvailable.Error() + "; the pass ended there, having waited for as many as one pass waits for"
+	if err == nil || err.Error() != want {
+		t.Fatalf("the pass answers\n  %v\nwant\n  %s", err, want)
+	}
+
+	// Under the limit the pass reads on to the end, and held alone is said
+	// as held: nothing "could not be closed".
+	requests, read, _ = overdueInOrder(4)
+	tally = service.sweep(context.Background(), read, func(_ context.Context, request entities.DeviationRequest) error {
+		if request.ID == requests[1].ID {
+			return heldRow
+		}
+		return nil
+	})
+	if tally.closed != 3 || tally.held != 1 || tally.failed != 0 || tally.waitedOut || tally.first != nil {
+		t.Fatalf("a pass beside one held request tallied %+v; want three closed, one held and no failure", tally)
+	}
+	err = tallied("past their deadline", tally)
+	if err == nil || strings.Contains(err.Error(), "could not be closed") ||
+		!strings.HasPrefix(err.Error(), "1 request past their deadline was held by another transaction and left for the next pass (3 closed); the first: request "+requests[1].ID.String()) {
+		t.Fatalf("it answers %v; want the one held request, said as held", err)
+	}
+}
+
+// The end-of-pass line says a pass left requests as they were only when it
+// did. A pass stopped by the server shutting down, or by its budget, with
+// nothing failed and nothing held, says that instead.
+func TestTheEndOfAPassSaysWhatIsTrueOfIt(t *testing.T) {
+	for name, c := range map[string]struct {
+		tally sweepTally
+		want  string
+	}{
+		"some could not be closed": {sweepTally{closed: 1, failed: 2}, " left some as they were; the next pass meets them again"},
+		"some were held":           {sweepTally{closed: 1, held: 2}, " left some as they were; the next pass meets them again"},
+		"stopped with some left":   {sweepTally{failed: 1, stopped: context.Canceled}, " left some as they were; the next pass meets them again"},
+		"stopped with none left":   {sweepTally{closed: 4, stopped: context.Canceled}, " was stopped before it had read them all; the next pass starts again from the oldest"},
+		"its budget spent":         {sweepTally{closed: 10_000, spent: true}, " made as many attempts as one pass makes and stopped; the next pass goes on"},
+	} {
+		if got := howItEnded(c.tally); got != c.want {
+			t.Errorf("%s: the line ends %q, want %q", name, got, c.want)
+		}
 	}
 }

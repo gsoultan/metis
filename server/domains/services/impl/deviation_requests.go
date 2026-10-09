@@ -40,6 +40,9 @@ type deviationRequestService struct {
 	// sweepBudget is how many closings one pass of the sweep attempts
 	// (defaultSweepBudget).
 	sweepBudget int
+	// sweepHeldLimit is how many requests one pass of the sweep gives up on
+	// because a row was held, before the pass ends (defaultSweepHeldLimit).
+	sweepHeldLimit int
 }
 
 // DeviationRequestOption changes how the service of requests is built.
@@ -74,7 +77,7 @@ func WithSoleAdministratorOrganizations(organizations []uuid.UUID) DeviationRequ
 func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine, options ...DeviationRequestOption) servicecontracts.DeviationRequestService {
 	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine),
 		migrations: newMigrationService(repo, engine), rules: approvalRules{repo: repo},
-		sweepLockWait: defaultSweepLockWait, sweepBudget: defaultSweepBudget}
+		sweepLockWait: defaultSweepLockWait, sweepBudget: defaultSweepBudget, sweepHeldLimit: defaultSweepHeldLimit}
 	for _, option := range options {
 		option(service)
 	}

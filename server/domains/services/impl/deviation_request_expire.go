@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -98,32 +99,79 @@ func (s *deviationRequestService) interrupt(ctx context.Context, request entitie
 // tallied says what a pass left behind, and answers it as the pass's error:
 // nil when it closed everything it read and read everything there was.
 //
-// A pass that left something says so in one line of the server's log — how
-// many it closed, how many it could not, and whether it stopped short — so
-// that a pass which did not finish never looks like one with nothing to do.
-// what names the requests the pass was over, for the words.
+// A pass that did not finish says so in one line of the server's log — how
+// many it closed, how many it could not, how many it left because somebody
+// held them, and what stopped it short — so that a pass which did not finish
+// never looks like one with nothing to do. The line says "left some as they
+// were" only of a pass that did leave some: one stopped by its budget, or by
+// the server shutting down, with nothing failed and nothing held, says that
+// instead. what names the requests the pass was over, for the words.
 //
 // A pass that used its budget and failed on nothing is not an error: it did
 // what it was allowed, and the next pass goes on. It is still said.
 func tallied(what string, tally sweepTally) error {
-	if tally.failed == 0 && !tally.spent && tally.stopped == nil {
+	if tally.failed == 0 && tally.held == 0 && !tally.spent && tally.stopped == nil {
 		return nil
 	}
-	line := log.Warn().Int("closed", tally.closed).Int("not_closed", tally.failed).Bool("budget_spent", tally.spent)
+	line := log.Warn().Int("closed", tally.closed).Int("not_closed", tally.failed).Int("held", tally.held).
+		Bool("budget_spent", tally.spent).Bool("held_limit_reached", tally.waitedOut)
 	if tally.stopped != nil {
 		line = line.Str("stopped_by", tally.stopped.Error())
 	}
-	line.Msg("A pass over the requests " + what + " left some as they were; the next pass meets them again")
+	line.Msg("A pass over the requests " + what + howItEnded(tally))
+	left := leftBehind(what, tally)
 	switch {
-	case tally.stopped != nil && tally.failed == 0:
+	case tally.stopped != nil && left == "":
 		return tally.stopped
 	case tally.stopped != nil:
-		return fmt.Errorf("%s (and before that, %s %s could not be closed; the first: %s)",
-			tally.stopped.Error(), counted(tally.failed), what, tally.first.Error())
-	case tally.failed == 0:
+		return fmt.Errorf("%s (and before that, %s)", tally.stopped.Error(), left)
+	case left == "":
 		return nil
 	}
-	return fmt.Errorf("%s %s could not be closed (%d closed); the first: %s", counted(tally.failed), what, tally.closed, tally.first.Error())
+	return errors.New(left)
+}
+
+// howItEnded finishes the end-of-pass line, in words that are true of the
+// pass: that it left requests as they were only when it did.
+func howItEnded(tally sweepTally) string {
+	switch {
+	case tally.failed > 0 || tally.held > 0:
+		return " left some as they were; the next pass meets them again"
+	case tally.stopped != nil:
+		return " was stopped before it had read them all; the next pass starts again from the oldest"
+	}
+	return " made as many attempts as one pass makes and stopped; the next pass goes on"
+}
+
+// leftBehind says which requests a pass left and why — those it could not
+// close, and apart from them those somebody held — each with its first, or
+// nothing when it left none.
+//
+// A pass stopped before its end says how many it had left by then, without
+// how many it had closed: what stopped it is the answer, and this is beside
+// it.
+func leftBehind(what string, tally sweepTally) string {
+	closed := fmt.Sprintf(" (%d closed)", tally.closed)
+	if tally.stopped != nil {
+		closed = ""
+	}
+	var parts []string
+	if tally.failed > 0 {
+		parts = append(parts, fmt.Sprintf("%s %s could not be closed%s; the first: %s", counted(tally.failed), what, closed, tally.first.Error()))
+	}
+	if tally.held > 0 {
+		verb := "were"
+		if tally.held == 1 {
+			verb = "was"
+		}
+		held := fmt.Sprintf("%s %s %s held by another transaction and left for the next pass%s; the first: %s",
+			counted(tally.held), what, verb, closed, tally.firstHeld.Error())
+		if tally.waitedOut {
+			held += "; the pass ended there, having waited for as many as one pass waits for"
+		}
+		parts = append(parts, held)
+	}
+	return strings.Join(parts, "; and ")
 }
 
 // counted is so many requests, in words a sentence can use.

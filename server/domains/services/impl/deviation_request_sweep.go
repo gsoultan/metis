@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	stormruntime "github.com/gsoultan/storm/runtime"
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -23,11 +24,31 @@ const defaultSweepLockWait = 2 * time.Second
 // and leaves the rest to the next. It is a count of attempts and not of seconds:
 // the next pass starts again from the oldest request, and meets first every
 // one that could not be closed — so a budget those could use up by being slow
-// would be a pass that never gets beyond them. An attempt is one short
-// transaction; ten thousand of them is a backlog no installation should see
-// and still well under a pass's ten minutes, so in practice a pass ends
-// because it has read everything.
+// would be a pass that never gets beyond them. An attempt that waits for
+// nothing is one short transaction, and ten thousand of them is a backlog no
+// installation should see. An attempt that waits for a row somebody holds
+// takes the whole lock wait, and is bounded apart (defaultSweepHeldLimit):
+// without that bound ten thousand held rows would be five and a half hours.
 const defaultSweepBudget = 10_000
+
+// defaultSweepHeldLimit is how many requests one pass gives up on because a
+// row their closing needs is held by another transaction, before the pass
+// itself ends. Each of them cost the pass the whole lock wait, so this is
+// the bound on how long a pass can stand waiting: thirty waits of two
+// seconds is a minute for each of the sweep's two reads, against the ten
+// minutes between passes — and behind the sweep, in the same loop, stands
+// the rest of the server's retention work.
+//
+// Thirty, and not a few: one held row is somebody deciding that request now,
+// and the requests behind it are still due. Thirty in one pass is not thirty
+// people deciding at once — it is one transaction holding many rows, or the
+// database short of something — and waiting out the rest of ten thousand
+// would not help either.
+//
+// Ending the pass on these cannot starve what is behind them, as stopping at
+// requests that cannot be closed did: a hold ends when its transaction does,
+// so the next pass, ten minutes on, does not meet the same thirty.
+const defaultSweepHeldLimit = 30
 
 // sweepLogsEach is how many of a pass's failures are logged one by one. The
 // rest are counted: a store with a thousand requests that cannot be closed
@@ -44,11 +65,20 @@ type sweepTally struct {
 	// it tried to close and could not. A request somebody else decided first
 	// is neither.
 	closed, failed int
-	// first is the first failure, with the request it was of.
-	first error
+	// held counts the requests the pass left because a row their closing
+	// needs was held by another transaction for longer than the pass waits.
+	// They are not failures: nothing is wrong with them, and the next pass
+	// finds them free.
+	held int
+	// first is the first failure, with the request it was of, and firstHeld
+	// the first request left because it was held.
+	first, firstHeld error
 	// spent says the pass stopped because it had made as many attempts as a
 	// pass may. Whether anything was left it did not read on to find out.
 	spent bool
+	// waitedOut says the pass stopped because it had given up on as many
+	// held requests as a pass waits for (defaultSweepHeldLimit).
+	waitedOut bool
 	// stopped is what ended the pass early: a failure to read, or its context.
 	stopped error
 }
@@ -60,13 +90,20 @@ type sweepTally struct {
 // after it (sweepNext), so a request that could not be closed is passed and
 // not met again in this pass — however many such requests there are, and
 // wherever they stand. The pass ends when a read answers nothing, when it has
-// made as many attempts as a pass may (defaultSweepBudget), or when it cannot
-// read at all.
+// made as many attempts as a pass may (defaultSweepBudget), when it has
+// waited out as many held requests as a pass waits for
+// (defaultSweepHeldLimit), or when it cannot read at all.
 //
 // No lock is held from one request to the next, and a request that fails
 // undoes nothing but its own closing. A request another transaction holds is
 // not answered by the read at all — it is being decided now — and the cursor
 // moves beyond it with the rest; the next pass meets it.
+//
+// A request whose own row is free while a row its closing needs is held — the
+// ledger row that waits on a waive's request — costs the pass its whole lock
+// wait and is left as it was. It is counted apart from a failure (held): it
+// is not logged as a request that could not be written down, and is not the
+// tally's first failure.
 //
 // The first sweepLogsEach failures are logged as they happen, each naming its
 // request; all are counted, for the caller to say at the end.
@@ -91,17 +128,38 @@ func (s *deviationRequestService) sweep(ctx context.Context, read sweepRead, clo
 		switch {
 		case closed:
 			tally.closed++
+		case errors.Is(err, stormruntime.ErrLockNotAvailable):
+			if tally.noteHeld(request, err) == s.sweepHeldLimit {
+				tally.waitedOut = true
+				return tally
+			}
 		case err != nil:
-			tally.failed++
-			if tally.first == nil {
-				tally.first = fmt.Errorf("request %s: %s", request.ID, err.Error())
-			}
-			if tally.failed <= sweepLogsEach {
-				log.Warn().Str("request", request.ID.String()).Str("error", err.Error()).
-					Msg("A request the clock has closed could not be written down as closed, and was left as it was. " +
-						"It reads as closed and nobody can act on it, but its row still says otherwise and it still holds what it was asked for.")
-			}
+			tally.noteFailed(request, err)
 		}
+	}
+}
+
+// noteHeld counts a request left because a row its closing needs was held,
+// and answers how many the pass has left so.
+func (t *sweepTally) noteHeld(request entities.DeviationRequest, err error) int {
+	t.held++
+	if t.firstHeld == nil {
+		t.firstHeld = fmt.Errorf("request %s: %s", request.ID, err.Error())
+	}
+	return t.held
+}
+
+// noteFailed counts a request that could not be closed, and says so in the
+// server's log for the first sweepLogsEach of a pass.
+func (t *sweepTally) noteFailed(request entities.DeviationRequest, err error) {
+	t.failed++
+	if t.first == nil {
+		t.first = fmt.Errorf("request %s: %s", request.ID, err.Error())
+	}
+	if t.failed <= sweepLogsEach {
+		log.Warn().Str("request", request.ID.String()).Str("error", err.Error()).
+			Msg("A request the clock has closed could not be written down as closed, and was left as it was. " +
+				"It reads as closed and nobody can act on it, but its row still says otherwise and it still holds what it was asked for.")
 	}
 }
 

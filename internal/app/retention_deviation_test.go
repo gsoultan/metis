@@ -402,11 +402,73 @@ func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t 
 		t.Fatalf("%d requests were named one by one (%v); want the first five, the oldest first, and the rest counted", len(each), each)
 	}
 	loop := logs.said("Could not record everything the clock has decided")
-	if text, _ := loop[0]["error"].(string); len(loop) != 1 || !strings.Contains(text, "25 requests past their deadline could not be closed (1 closed)") ||
+	if len(loop) != 1 {
+		t.Fatalf("the retention loop said %v; want one line", loop)
+	}
+	if text, _ := loop[0]["error"].(string); !strings.Contains(text, "25 requests past their deadline could not be closed (1 closed)") ||
 		!strings.Contains(text, requests[0].String()) {
 		t.Fatalf("the retention loop said %v; want it to say 25 could not be closed and 1 was, naming the first", loop)
 	}
 	if told := logs.said("Recorded the expiry of requests"); len(told) != 1 || told[0]["expired"] != float64(1) {
 		t.Fatalf("the retention loop said %v of what was closed; want the one", told)
+	}
+}
+
+// A request whose ledger row another transaction holds is not a request that
+// cannot be closed: whoever holds the row is deciding it, or about to, and the
+// next pass finds it free. The pass counts it apart — `held`, not
+// `not_closed` — does not name it among the requests that could not be
+// written down, and what it answers says held, not broken.
+func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T) {
+	w := askForAWaive(t, map[string]any{"verdict": "accept"})
+	_, free := w.another(t, map[string]any{"verdict": "accept"})
+	for i, request := range []uuid.UUID{w.request, free} {
+		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, 10-i, request).Error; err != nil {
+			t.Fatalf("let time pass: %v", err)
+		}
+	}
+	holder := w.db.Begin()
+	if err := holder.Exec(`SELECT 1 FROM instance_deviations WHERE request_id = ? FOR UPDATE`, w.request).Error; err != nil {
+		t.Fatalf("hold the ledger row of the first request: %v", err)
+	}
+	t.Cleanup(func() { holder.Rollback() })
+
+	logs := captureLogs(t)
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+
+	stored := func(request uuid.UUID) (status string) {
+		t.Helper()
+		if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, request).Scan(&status).Error; err != nil {
+			t.Fatalf("read request %s: %v", request, err)
+		}
+		return status
+	}
+	if stored(w.request) != "pending_approval" || stored(free) != "expired" {
+		t.Fatalf("the held request is stored as %q and the free one as %q; want the first as it was and the second expired", stored(w.request), stored(free))
+	}
+	end := logs.said("left some as they were")
+	if len(end) != 1 || end[0]["closed"] != float64(1) || end[0]["held"] != float64(1) || end[0]["not_closed"] != float64(0) {
+		t.Fatalf("the end of the pass said %v; want one line with closed = 1, held = 1 and not_closed = 0", end)
+	}
+	if each := logs.said("could not be written down as closed"); len(each) != 0 {
+		t.Fatalf("a held request was named as one that could not be written down: %v", each)
+	}
+	loop := logs.said("Could not record everything the clock has decided")
+	if len(loop) != 1 {
+		t.Fatalf("the retention loop said %v; want one line", loop)
+	}
+	if text, _ := loop[0]["error"].(string); !strings.Contains(text, "1 request past their deadline was held by another transaction and left for the next pass (1 closed)") ||
+		!strings.Contains(text, w.request.String()) || strings.Contains(text, "could not be closed") {
+		t.Fatalf("the retention loop said %q; want the held request named as held, and nothing called broken", text)
+	}
+
+	// Let go, the next pass closes it and has nothing to say.
+	if err := holder.Rollback().Error; err != nil {
+		t.Fatalf("let go of the ledger row: %v", err)
+	}
+	logs = captureLogs(t)
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	if stored(w.request) != "expired" || len(logs.said("left some as they were")) != 0 {
+		t.Fatalf("after the row was let go the request is stored as %q and the pass said %v; want it expired and nothing said", stored(w.request), logs.said("left some as they were"))
 	}
 }
