@@ -105,7 +105,7 @@ func TestAnApplyOfAPlanPreviewedBeforeAMigrationDealtWithTheInstanceDoesNothing(
 			if err != nil {
 				t.Fatalf("deploy the next version: %v", err)
 			}
-			if err := h.svc.MigrateInstances(ctx, v1, v2, nil, migration.options...); err != nil {
+			if err := migrateSeconded(t, h, v1, v2, nil, migration.options...); err != nil {
 				t.Fatalf("migrate: %v", err)
 			}
 			now := requireInstanceStatus(ctx, t, h, id, migration.status)

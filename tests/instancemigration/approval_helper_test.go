@@ -2,9 +2,11 @@ package instancemigration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -124,9 +126,20 @@ func (f *fixture) applyWithApproval(t *testing.T, source, target uuid.UUID, mapp
 		f.rehook(fire, ahead)
 		return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
 	}
+	// What needs a second administrator must not go through on one call: the
+	// apply itself has to refuse it, having moved nothing, or every test that
+	// comes through here would pass over a gate that was not there. Made
+	// while the test's hook is off, so it is not counted among its listings.
+	if _, err := f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...); !errors.Is(err, apierr.ErrForbidden) {
+		t.Errorf("a migration that needs a second administrator was answered %v on one administrator's call, want it forbidden", err)
+		return entities.MigrationResult{}, err
+	}
 	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), source, target, mapping, opts...)
 	if err != nil {
 		return entities.MigrationResult{}, err
+	}
+	if pending.Status != entities.DeviationRequestPending {
+		t.Errorf("asking for the migration answered %+v, want a request waiting for approval", pending)
 	}
 	f.underApproval = pending.RequestID
 	// One listing more than a direct apply: the approval's own plan.
