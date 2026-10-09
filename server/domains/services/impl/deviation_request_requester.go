@@ -27,6 +27,18 @@ const (
 // comes to approve (requesterNoLongerAdministers). No organization is
 // administered by nobody.
 //
+// Four places have to agree on what "administers this organization" means,
+// and this is two of them: the service's check of whoever asks or decides,
+// and its check of whoever asked. The other two stay where they are and are
+// kept in step with it by hand and by test: the routes' gate (adminOnly, in
+// server/endpoints), which reads the same roles of the same principal before
+// a request reaches a service; and the count of other administrators
+// (pg.userRepository.HasAnotherAdministrator), which asks the database with
+// the same comparison of roles (entities.HasRole) and adds, in SQL, what is
+// asked beside this function of an account read from the directory — not
+// deleted, and a member. TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove
+// (tests/deviation) holds the count to what the gate and this let through.
+//
 // It does not ask whether the account belongs to the organization. For a
 // signed-in caller the tenant resolver has: a request is only ever for an
 // organization its account is in. For an account read from the directory the

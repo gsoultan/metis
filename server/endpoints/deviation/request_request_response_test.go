@@ -398,3 +398,38 @@ func TestAnApprovalAnswersTheRequestTheRecordAndThePlan(t *testing.T) {
 		t.Errorf("a rejection has the fields %v (%v): %s", fieldsOf(fields), err, raw)
 	}
 }
+
+// The command a request stores names the instances its migration was asked
+// for, and that list is as long as whoever asked made it. It is shown as the
+// list of instances beside it is: the first two hundred, and how many there
+// were. The request's own command is not cut — an approval runs it whole.
+func TestARequestsCommandListsAtMostTwoHundredInstancesBesideHowManyThereWere(t *testing.T) {
+	var named []any
+	for range 250 {
+		named = append(named, uuid.Must(uuid.NewV7()).String())
+	}
+	command := map[string]any{"node_mapping": map[string]any{"approve": "review"}, "instances": named}
+	view := RequestViewOf(entities.DeviationRequest{
+		ID: uuid.Must(uuid.NewV7()), Kind: entities.DeviationRequestMigration,
+		Command: command, Plan: map[string]any{}, ApprovedInstances: []uuid.UUID{},
+	})
+	shown, _ := view.Command["instances"].([]any)
+	if len(shown) != 200 || shown[0] != named[0] || shown[199] != named[199] || view.Command["instances_in_all"] != 250 {
+		t.Fatalf("the command is written with %d instances and instances_in_all = %v; want the first 200 of 250", len(shown), view.Command["instances_in_all"])
+	}
+	if stored, _ := command["instances"].([]any); len(stored) != 250 {
+		t.Fatalf("writing the view cut the request's own command to %d instances", len(stored))
+	}
+	if _, cut := command["instances_in_all"]; cut || view.Command["node_mapping"] == nil {
+		t.Fatalf("the view changed the request's own command, or lost the rest of it: %v", view.Command)
+	}
+	// A command that names few, or none, is written as it is, with its count.
+	few := RequestViewOf(entities.DeviationRequest{Command: map[string]any{"instances": named[:3]}, Plan: map[string]any{}, ApprovedInstances: []uuid.UUID{}})
+	if got, _ := few.Command["instances"].([]any); len(got) != 3 || few.Command["instances_in_all"] != 3 {
+		t.Fatalf("a command naming three is written with %d and instances_in_all = %v", len(got), few.Command["instances_in_all"])
+	}
+	waive := RequestViewOf(entities.DeviationRequest{Command: map[string]any{"node_id": "step"}, Plan: map[string]any{}, ApprovedInstances: []uuid.UUID{}})
+	if _, counted := waive.Command["instances_in_all"]; counted {
+		t.Fatalf("a command that names no instances is given a count of them: %v", waive.Command)
+	}
+}

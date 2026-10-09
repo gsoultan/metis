@@ -1,6 +1,7 @@
 package deviation
 
 import (
+	"maps"
 	"time"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -130,7 +131,7 @@ func ListedRequestViewOf(r entities.DeviationRequest) DeviationRequestView {
 func RequestViewOf(r entities.DeviationRequest) DeviationRequestView {
 	view := ListedRequestViewOf(r)
 	if r.Command != nil {
-		view.Command = r.Command
+		view.Command = commandShown(r.Command)
 	} else {
 		view.Unavailable = append(view.Unavailable, "command")
 	}
@@ -145,6 +146,24 @@ func RequestViewOf(r entities.DeviationRequest) DeviationRequestView {
 		view.Unavailable = append(view.Unavailable, "instances")
 	}
 	return view
+}
+
+// commandShown is a request's stored command as a route writes it: whole,
+// but for the instances it names, which are written as the instances beside
+// it are — the first maxRequestInstancesShown, and how many there were
+// (instances_in_all). A migration can be asked for as many instances as its
+// caller names; a command that names none is written as it is.
+//
+// The request's own command is not changed: an approval runs it whole.
+func commandShown(command map[string]any) map[string]any {
+	named, lists := command["instances"].([]any)
+	if !lists {
+		return command
+	}
+	shown := maps.Clone(command)
+	shown["instances"] = named[:min(len(named), maxRequestInstancesShown)]
+	shown["instances_in_all"] = len(named)
+	return shown
 }
 
 // instancesShown is the first ids a request covers, at most
