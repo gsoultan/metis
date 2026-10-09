@@ -87,8 +87,14 @@ func (s *instanceDeviationService) request(
 	if err != nil {
 		return none, err
 	}
+	// Who may approve is said in words that are true of every organization,
+	// the ones the migration dialog uses: the entry is permanent, and "a
+	// different administrator" is untrue where an organization is named as
+	// having one. Entries written before this was reworded keep their text.
 	narrative := fmt.Sprintf("%s asked for “%s” to be waived — nobody would perform it. "+
-		"Nothing changes until a different administrator approves; the request expires on %s. Reason: %s",
+		"Nothing changes until it is approved. The administrator who asked cannot approve it, "+
+		"unless this organization has been set up as having one administrator. "+
+		"The request expires on %s. Reason: %s",
 		asked.RequestedBy, plan.NodeName, asked.ExpiresAt.UTC().Format(decidedOnLayout), command.Reason)
 	recorded, err := s.actions.record(ctx, row, requestEntry(EventDeviationRequested, asked, row, narrative))
 	if err != nil {
