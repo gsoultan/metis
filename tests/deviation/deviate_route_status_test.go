@@ -240,7 +240,10 @@ func TestAnApplyThatComesTooLateIsA400ThatSaysWhatHappened(t *testing.T) {
 		h.requireUnchanged(t, before, what)
 	}
 	// A hold and a cancel are applied by the request that asks; a waive waits,
-	// and is applied when the second administrator approves it (seconded).
+	// and is applied when the second administrator approves it (seconded,
+	// which fails the test unless the waive's apply was the 202 of a first
+	// ask). "Not replayed" is said by a hold's and a cancel's own reply; an
+	// approval's reply has no such field, and seconded has asked it of the 202.
 	appliedOnce := func(what string, instanceID uuid.UUID, body map[string]any) {
 		t.Helper()
 		if status, first, raw := h.seconded(t, admin, instanceID, body); status != http.StatusOK || !first.Applied || first.Replayed {

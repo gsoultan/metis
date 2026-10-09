@@ -214,8 +214,15 @@ func readEndpointsSource(t *testing.T) string {
 // Recording that a request for a second administrator has expired is the
 // server's own work, done on its clock by the retention pass. No endpoint and
 // no transport asks for it: a caller who could would choose the moment a
-// request is closed at. The service refuses any context that is not the
-// server's as well; this is the half that keeps it off every listener.
+// request is closed at.
+//
+// What stops a caller is the service: it refuses any context that is not the
+// server's own, whoever calls and by whatever road. This is not that guard.
+// It is a tripwire — a search of the endpoints' and the transports' source
+// for the method's name — so that somebody who wires it to a listener is told
+// here, by name, before they find out from the service at run time. It proves
+// nothing about a call made through a value, an interface or another package;
+// the service's check is what covers those.
 func TestNoRouteAsksForRequestsToBeExpired(t *testing.T) {
 	const expiry = "ExpireDeviationRequests"
 	read := 0

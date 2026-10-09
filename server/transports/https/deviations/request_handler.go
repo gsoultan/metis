@@ -90,11 +90,18 @@ func decodeListDeviationRequestsRequest(_ context.Context, r *http.Request) (any
 
 // maxQueuePage bounds a page number and a page size as they are asked for.
 //
-// Where a page starts is the one multiplied by the other. The size is cut to
-// the largest page the server gives before that; the page number is not, and
-// one near the largest whole number wraps the product round to before the
-// first row — the first page, answered as the page asked for. Nobody has a
-// millionth page of decisions to read.
+// Where a page starts is the page number, less one, multiplied by the page
+// size. The size is cut to the largest page the server gives (200) before
+// that; the page number is cut by nothing. So a page number within a factor
+// of 200 of the largest whole number makes a product that does not fit, and
+// what it wraps round to is the row the page starts at: some other row than
+// the one asked for, or — when it comes out below zero — none, and the first
+// page is answered as the page asked for (page=9223372036854775807 did,
+// before this bound).
+//
+// The bound is not where that begins, which is about 4.6e16. It is a round
+// number far below it and far above any page of decisions somebody reads, so
+// that nothing has to be right about the arithmetic for the bound to hold.
 const maxQueuePage = 1_000_000
 
 // wholeNumber reads a page or a page size: 0 for one that was not said.

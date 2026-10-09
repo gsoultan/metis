@@ -66,6 +66,8 @@ func TestADecisionIsReadExactlyOrRefused(t *testing.T) {
 		"a kind":                     `{"reason":"x","kind":"waive"}`,
 		"dry_run":                    `{"reason":"x","dry_run":false}`,
 		"who decided":                `{"reason":"x","decided_by":"boss"}`,
+		"the request, in the body":   `{"reason":"x","request_id":"` + aRequestID + `"}`,
+		"self_approved":              `{"reason":"x","self_approved":true}`,
 	} {
 		_, err := decodeDecision(t, body)
 		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf(sentence).Error() {
@@ -124,8 +126,9 @@ func TestTheQueueIsAskedForByItsAddress(t *testing.T) {
 			t.Errorf("%q: %v, want the refusal %q", query, err, sentence)
 		}
 	}
-	// A page is found by multiplying the two. Past a million of either the
-	// product no longer fits, and the page read would be another one.
+	// Where a page starts is the one multiplied by the other, and a product
+	// that no longer fits in a number starts somewhere else. A million is far
+	// below where that begins, and far above any page somebody reads.
 	if got, err := decodeQueue(t, "page=1000000&page_size=1000000"); err != nil || got.Page != 1000000 || got.PageSize != 1000000 {
 		t.Errorf("a millionth page: %+v, %v; want it read", got, err)
 	}

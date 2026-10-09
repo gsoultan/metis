@@ -152,6 +152,8 @@ func TestOnlyAnOrganizationsAdministratorsSeeAndDecideItsRequests(t *testing.T) 
 // it, and the step moves on.
 func TestASecondAdministratorApprovesAWaiveOverTheAPI(t *testing.T) {
 	h := newDeviationHarness(t)
+	// The step's holder is an account too: hers is an id a reply could carry.
+	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.oneStep(t)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	requestID := h.askToWaive(t, boss, instanceID)
@@ -193,11 +195,16 @@ func TestASecondAdministratorApprovesAWaiveOverTheAPI(t *testing.T) {
 	if odd := notSnakeCase(t, map[string]any{"request": written["request"]}); len(odd) != 0 {
 		t.Errorf("fields not written as the other routes write theirs: %v", odd)
 	}
-	accounts := []string{"requested_by_id", "decided_by_id", "approved_by_id", "actor_id", h.accountID(t, "boss").String(), h.accountID(t, "deputy").String()}
+	accounts := []string{"requested_by_id", "decided_by_id", "approved_by_id", "actor_id", "assignee_id",
+		h.accountID(t, "boss").String(), h.accountID(t, "deputy").String(), h.accountID(t, "alice").String()}
 	for _, account := range accounts {
 		if strings.Contains(raw, account) {
 			t.Fatalf("the reply carries an account id (%s): %s", account, raw)
 		}
+	}
+	// The holder is named, as the preview named her: by name.
+	if work := read.Request.Plan["open_work"].([]any); work[0].(map[string]any)["assignee"] != "alice" {
+		t.Fatalf("the plan of the request does not name the step's holder: %s", raw)
 	}
 
 	status, approved, raw := h.decide(t, deputy, requestID, "approve", "")
@@ -271,6 +278,7 @@ func TestACancelAndAHoldStillApplyOnOneAdministratorsCall(t *testing.T) {
 // pointed at the waiting one. A preview says so before an apply would.
 func TestAWaiveAskedTwiceAnswersWithTheSameRequest(t *testing.T) {
 	h := newDeviationRouteHarness(t)
+	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.oneStep(t)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	apply, _ := h.previewed(t, boss, instanceID, map[string]any{"kind": "waive", "node_id": "step", "reason": routeReason})
@@ -290,6 +298,11 @@ func TestAWaiveAskedTwiceAnswersWithTheSameRequest(t *testing.T) {
 	}
 	if nulls := nullsIn(written, "reply"); len(nulls) != 0 {
 		t.Errorf("the replayed 202 holds null at %v: %s", nulls, raw)
+	}
+	for who, account := range map[string]string{"the requester": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
+		if strings.Contains(raw, account) {
+			t.Errorf("the replayed 202 carries the account id of %s: %s", who, raw)
+		}
 	}
 	if again := h.askToWaive(t, boss, instanceID); again != first {
 		t.Fatalf("a retry made request %s beside %s", again, first)
@@ -376,6 +389,8 @@ func TestADecisionThatCannotBeReadIsRefusedInPlainWords(t *testing.T) {
 		"the request it is for":       `{"reason":"x","id":"` + requestID + `"}`,
 		"the plan it would have":      `{"reason":"x","plan":{"requires_second_approver":false}}`,
 		"an approver named in a body": `{"reason":"x","approved_by":"deputy"}`,
+		"a request named in a body":   `{"reason":"x","request_id":"` + requestID + `"}`,
+		"self_approved":               `{"reason":"x","self_approved":true}`,
 	}
 	for _, path := range []string{requestPath(requestID) + "/approve", requestPath(requestID) + "/reject", requestPath("not-an-id") + "/approve"} {
 		for name, body := range bodies {
@@ -598,6 +613,7 @@ func (h *deviationHarness) requireOnlyTheClosing(t *testing.T, before map[string
 // anybody.
 func TestTheRequesterIsRefusedTheirOwnRequestOverTheAPIAndMayWithdrawIt(t *testing.T) {
 	h := newDeviationRouteHarness(t)
+	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.oneStep(t)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	requestID := h.askToWaive(t, boss, instanceID)
@@ -622,6 +638,11 @@ func TestTheRequesterIsRefusedTheirOwnRequestOverTheAPIAndMayWithdrawIt(t *testi
 	if !h.stepIsOpen(t, instanceID) {
 		t.Fatal("a withdrawal closed the step")
 	}
+	for who, account := range map[string]string{"the requester": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
+		if strings.Contains(raw, account) || strings.Contains(raw, "_by_id") {
+			t.Errorf("the withdrawal carries the account id of %s: %s", who, raw)
+		}
+	}
 	want = invalid("boss rejected this on " + withdrawn.Request.DecidedAt.UTC().Format(decidedOn) + ".")
 	if status, _, raw := h.decide(t, deputy, requestID, "approve", ""); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 		t.Fatalf("deputy approving a withdrawn request: %d (%s), want 400 %s", status, raw, want)
@@ -635,6 +656,7 @@ func TestTheRequesterIsRefusedTheirOwnRequestOverTheAPIAndMayWithdrawIt(t *testi
 // record keeps.
 func TestARejectionSaysWhyAndTheWaiveCanBeAskedAgain(t *testing.T) {
 	h := newDeviationRouteHarness(t)
+	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.oneStep(t)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	first := h.askToWaive(t, boss, instanceID)
@@ -666,7 +688,8 @@ func TestARejectionSaysWhyAndTheWaiveCanBeAskedAgain(t *testing.T) {
 	if nulls := nullsIn(written, "reply"); len(nulls) != 0 {
 		t.Fatalf("the rejection holds null at %v: %s", nulls, raw)
 	}
-	for _, account := range []string{"requested_by_id", "decided_by_id", h.accountID(t, "boss").String(), h.accountID(t, "deputy").String()} {
+	for _, account := range []string{"requested_by_id", "decided_by_id", h.accountID(t, "boss").String(), h.accountID(t, "deputy").String(),
+		h.accountID(t, "alice").String()} {
 		if strings.Contains(raw, account) {
 			t.Fatalf("the rejection carries an account id (%s): %s", account, raw)
 		}
@@ -700,6 +723,7 @@ func TestARejectionSaysWhyAndTheWaiveCanBeAskedAgain(t *testing.T) {
 // "asked for nothing" — and the single read has them.
 func TestARequestIsListedWithoutWhatOnlyTheSingleReadHas(t *testing.T) {
 	h := newDeviationRouteHarness(t)
+	h.signIn(t, "alice", entities.RoleUser)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	older, newer, turnedDown, overdue := h.oneStep(t), h.oneStep(t), h.oneStep(t), h.oneStep(t)
 	olderID, newerID := h.askToWaive(t, boss, older), h.askToWaive(t, boss, newer)
@@ -716,7 +740,8 @@ func TestARequestIsListedWithoutWhatOnlyTheSingleReadHas(t *testing.T) {
 		}
 		return listed
 	}
-	accounts := []string{"requested_by_id", "decided_by_id", h.accountID(t, "boss").String(), h.accountID(t, "deputy").String()}
+	accounts := []string{"requested_by_id", "decided_by_id", h.accountID(t, "boss").String(), h.accountID(t, "deputy").String(),
+		h.accountID(t, "alice").String()}
 
 	// With nothing said it lists what still waits, newest first.
 	status, waiting, raw := h.queue(t, deputy, "")
@@ -969,5 +994,60 @@ func TestTheServiceRefusesWhoeverTheGateWouldHaveBehindEachRequestRoute(t *testi
 	}
 	if h.requestStatus(t, requestID) != "pending_approval" || !h.stepIsOpen(t, instanceID) {
 		t.Fatal("refused calls changed the request or the instance")
+	}
+}
+
+// A refusal that first records what it found is safe to retry as well. An
+// approval that finds its request expired closes it and answers 400; sent
+// again under the same Idempotency-Key, that 400 is returned whole — the
+// same bytes, the header saying it is a repeat — and nothing is written a
+// second time. Under no key the route answers for itself: the request is
+// recorded as expired, in the words that says so, and nothing is written
+// either.
+func TestARefusalThatRecordedSomethingIsAnsweredOnceUnderAKey(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	instanceID := h.oneStep(t)
+	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+	requestID := h.askToWaive(t, boss, instanceID)
+	h.letTheDeadlinePass(t, requestID)
+	_, read, _ := h.readRequest(t, deputy, requestID)
+	deadline := read.Request.ExpiresAt.UTC().Format(decidedOn)
+	approve := requestPath(requestID) + "/approve"
+	waited := h.everyRow(t)
+
+	want := invalid("This request expired on " + deadline + " before anybody approved it, so nothing was applied. Ask again if it is still needed.")
+	status, first, replayed := h.call(t, http.MethodPost, deputy, approve, `{}`, "Idempotency-Key", "late")
+	if status != http.StatusBadRequest || replayed || !sameJSON(t, first, want) {
+		t.Fatalf("an approval of an expired request, under a key: %d, replayed by the header %v (%s), want 400 %s", status, replayed, first, want)
+	}
+	if h.requestStatus(t, requestID) != "expired" {
+		t.Fatalf("after the 400 the request is stored as %s, want expired", h.requestStatus(t, requestID))
+	}
+	// The closing, and the answer the header's check keeps.
+	closed := h.everyRow(t)
+	var changed []string
+	for table, rows := range closed {
+		if waited[table] != rows {
+			changed = append(changed, table)
+		}
+	}
+	slices.Sort(changed)
+	if !slices.Equal(changed, []string{"audit_logs", "deviation_requests", "idempotency_records", "instance_deviations"}) {
+		t.Fatalf("the approval that found its request expired changed %v, want the closing and the kept answer", changed)
+	}
+
+	status, again, replayed := h.call(t, http.MethodPost, deputy, approve, `{}`, "Idempotency-Key", "late")
+	if status != http.StatusBadRequest || !replayed || again != first {
+		t.Fatalf("the same approval under the same key: %d, replayed by the header %v\n%s\nwant the first answer again\n%s", status, replayed, again, first)
+	}
+	h.requireUnchanged(t, closed, "the same approval under the same key")
+
+	recorded := invalid("This request expired on " + deadline + ".")
+	if status, raw, _ := h.call(t, http.MethodPost, deputy, approve, `{}`); status != http.StatusBadRequest || !sameJSON(t, raw, recorded) {
+		t.Fatalf("the same approval with no key: %d (%s), want 400 %s", status, raw, recorded)
+	}
+	h.requireUnchanged(t, closed, "the same approval with no key")
+	if !h.stepIsOpen(t, instanceID) {
+		t.Fatal("an approval of an expired request closed the step")
 	}
 }

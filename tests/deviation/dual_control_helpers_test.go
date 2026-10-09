@@ -95,10 +95,18 @@ func (h *deviationHarness) secondAdministrator(t *testing.T) string {
 }
 
 // seconded sends an apply as an organization with two administrators gets one
-// done. What the route answers is what it answers, unless it is the 202 of a
-// request that waits: then the second administrator approves it over the
-// approve route, and that route's answer is given — its status, its plan,
-// whether it applied, its record. A cancel and a hold are never a 202.
+// done.
+//
+// A waive has to have waited: its apply must be the 202 of a first ask —
+// nothing applied, not a replay, naming the request — or the test fails
+// here. A waive the route applied on one administrator's call would otherwise
+// pass every assertion a test goes on to make of "the applied waive". The
+// second administrator then approves over the approve route, and that
+// route's answer is given: its status, its plan, whether it applied, its
+// record.
+//
+// A cancel and a hold are one administrator's call: what the route answers is
+// given as it is, and a 202 for one of them fails the test here.
 func (h *deviationHarness) seconded(t *testing.T, admin string, instanceID uuid.UUID, body map[string]any) (int, deviateReply, string) {
 	t.Helper()
 	encoded, err := json.Marshal(body)
@@ -111,12 +119,21 @@ func (h *deviationHarness) seconded(t *testing.T, admin string, instanceID uuid.
 // secondedWith is seconded for a body already written.
 func (h *deviationHarness) secondedWith(t *testing.T, admin string, instanceID uuid.UUID, body string) (int, deviateReply, string) {
 	t.Helper()
+	var sent struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal([]byte(body), &sent); err != nil {
+		t.Fatalf("an apply that is to be seconded has to be readable: %v (%s)", err, body)
+	}
 	status, asked, raw := h.deviateWith(t, admin, instanceID, body)
-	if status != http.StatusAccepted {
+	if sent.Kind != "waive" {
+		if status == http.StatusAccepted {
+			t.Fatalf("a %s answered 202: only a waive waits for a second administrator (%s)", sent.Kind, raw)
+		}
 		return status, asked, raw
 	}
-	if asked.Applied || asked.PendingApproval == nil || asked.PendingApproval.RequestID == "" {
-		t.Fatalf("a 202 that names no request to approve: %s", raw)
+	if status != http.StatusAccepted || asked.Applied || asked.Replayed || asked.PendingApproval == nil || asked.PendingApproval.RequestID == "" {
+		t.Fatalf("the apply of a waive: %d (%s), want the 202 of a first ask — nothing applied, and the request it waits on", status, raw)
 	}
 	status, raw = h.send(t, h.secondAdministrator(t), requestPath(asked.PendingApproval.RequestID)+"/approve", "")
 	var approved deviateReply

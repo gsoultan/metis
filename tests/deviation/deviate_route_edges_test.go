@@ -160,7 +160,7 @@ func TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest(t *testing.T) {
 		t.Fatalf("the preview: %d (%s)", status, raw)
 	}
 	status, applied, raw := h.secondedWith(t, admin, instanceID, request(pastPrecision, planned.Plan.VisitKey))
-	if status != http.StatusOK || !applied.Applied || applied.Replayed {
+	if status != http.StatusOK || !applied.Applied {
 		t.Fatalf("the waive, approved by a second administrator: %d (%s), want it applied", status, raw)
 	}
 	before := h.everyRow(t)

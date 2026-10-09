@@ -320,7 +320,7 @@ func TestANumberAWaiveCountsAsIsTheNumberTheGatewayCompares(t *testing.T) {
 		}
 		apply := request(c.amount, planned.Plan.VisitKey)
 		status, applied, raw := h.secondedWith(t, admin, instanceID, apply)
-		if status != http.StatusOK || !applied.Applied || applied.Replayed {
+		if status != http.StatusOK || !applied.Applied {
 			t.Fatalf("the waive counted as amount %s, approved by a second administrator: %d (%s), want it applied", c.amount, status, raw)
 		}
 		if h.openTasksOn(t, instanceID, c.taken) != 1 || h.openTasksOn(t, instanceID, c.notTaken) != 0 {

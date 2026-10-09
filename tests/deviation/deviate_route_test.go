@@ -320,7 +320,7 @@ func TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance(t *testing.T) {
 	// administrator approves it, and it is applied. The reply names them both
 	// and carries no account id.
 	status, applied, raw := h.secondedWith(t, admin, instanceID, requests["waive apply"])
-	if status != http.StatusOK || !applied.Applied || applied.Replayed || applied.Deviation["kind"] != "waive" || applied.Deviation["actor"] != "boss" {
+	if status != http.StatusOK || !applied.Applied || applied.Deviation["kind"] != "waive" || applied.Deviation["actor"] != "boss" {
 		t.Fatalf("the administrator's apply, approved by a second: %d (%s)", status, raw)
 	}
 	if applied.Deviation["approved_by"] != seconderName {
