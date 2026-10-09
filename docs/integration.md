@@ -716,6 +716,12 @@ Three things about a row's shape that a client can rely on:
   decided: to `applied`, with `approved_by` and `decided_at`, or to `rejected`,
   `expired` or `stale`, which say the waive was asked for and not made. Every
   other row is `applied`.
+- **A waive that waits can be read before it is decided.** Anyone signed in to
+  the instance's organization reads its row here: the reason, the values it
+  asks for (`after.variables`), who asked and the request's id. Only an
+  administrator can read or decide the request itself
+  (`GET /api/v1/deviation-requests/{id}`). The rows of requests that were
+  never carried out — rejected, expired, stale — stay in this answer too.
 
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.
@@ -1144,14 +1150,14 @@ requester can reject their own request while it waits, which is a withdrawal
 | `requested_by` | A username. No view carries an account id. |
 | `reason` | A waive's reason as typed. For a migration: the reasons its decisions gave, in the order of their steps' ids; then `acknowledged the loss of …`; then `redirected “a” to “b”, …`. Each part lists ten and counts the rest. A migration that types, acknowledges and redirects nothing says what its plan said. |
 | `because` | Why it needs a second administrator, one sentence each. For a migration, the plan's `second_approver_reasons`. Always a list. |
-| `command` | What an approval carries out. For a waive: `instance_id`, `kind`, `node_id`, `reason`, `visit_key`, and `outputs` when there were any. For a migration: `source_definition_id`, `target_definition_id`, `node_mapping`, `node_actions`, `instances`, `acknowledge`. |
+| `command` | What an approval carries out. For a waive: `instance_id`, `kind`, `node_id`, `reason`, `visit_key`, and `outputs` when there were any. For a migration: `source_definition_id`, `target_definition_id`, `node_mapping`, `node_actions`, `instances`, `acknowledge` — and `instances_in_all` beside `instances`, which lists the first 200 the migration named, as the field of the same name below does. |
 | `plan` | The plan **as the requester was shown it** when they asked, under the names the preview used, with `because` added. Every list it cuts short has its count beside it: for a waive, at most 100 decision points, ten names at a point, 200 open tasks and 50 missing names, as in any [plan](#waiving-cancelling-or-holding-one-instance). An approval does not act on it: it plans again. |
 | `instances`, `instances_in_all` | A migration: the instances that had not ended when it was asked for, which are the only ones a run under this request may act on. The list holds the first 200; the count is of all. A waive: `[]` and `0`. |
 | `expires_at` | Its deadline, fixed when it was made. |
-| `decided_by`, `decided_at`, `decision_reason` | Left out until somebody decides. An expired request has none of them: the clock decided it. A stale request has `decided_at` alone; who found it stale is `outcome.attempted_by`. |
+| `decided_by`, `decided_at`, `decision_reason` | Left out until somebody decides. An expired request has none of them: the clock decided it. A stale request has `decided_at` alone; who found it stale is `outcome.attempted_by`, for a waive and for a migration (a waive says it on the instance's `deviation_stale` entry as well). |
 | `self_approved` | Always present. `true` only for a request its own requester approved. |
 | `outcome` | An object always, `{}` while it waits. See below. |
-| `unavailable` | Only when a stored document can no longer be read. It names which of `command`, `plan` and `instances`; those fields, with `because` and `instances_in_all`, are then left out, not written empty. Such a request can still be read, rejected and withdrawn. Approving it is a 500. |
+| `unavailable` | Only when a stored document can no longer be read. It names which of `command`, `plan` and `instances`; those fields, with `because` and `instances_in_all`, are then left out, not written empty. Such a request can still be read, rejected and withdrawn, and a rejection's answer names what the read names. Approving it is a 500. Why the document did not open is in the server's log, as a warning naming the request and the document. |
 
 Nothing is `null`. The waive's `visit_key` is in `command` and `plan`. Nothing
 else the server tells requests apart by is returned.
@@ -1163,9 +1169,9 @@ else the server tells requests apart by is returned.
 | `applied`, a waive | `deviation_id`: the ledger row. |
 | `applied`, a migration | `changed` and `passed_over`: how many instances the run acted on and how many it left alone. `note` when it changed nothing: *every instance the run reached was passed over* or *no instance was active on the version when it ran*. |
 | `interrupted` | `changed`, `passed_over` and `error`: one sentence of the server's own. The failure's own words are not kept here; they are in the server's log. After a panic, `count_unknown: true` in place of the two counts: do not print zeros for it. For a run that never reported, `error` alone: *the run did not report back*. `reported_after_sweep: true` on a report a run wrote after it had been marked interrupted (an `applied` request can carry it too). |
-| `stale` | `why`, `refusals` (what the plan made at the approval refused) and `attempted_by`. |
+| `stale` | `why`, `refusals` (what the plan made at the approval refused: the first ten, and a count of the rest) and `attempted_by`, for both kinds. `why` is one of: the instance moved or ended; the plan now refuses; the migration is no longer the one asked for, or an instance arrived; or *boss, who asked for it, no longer administers this organization: their account has been deleted* / *no longer belongs to it* / *no longer holds the administrator role in it*. |
 | `rejected`, `expired` | `{}`. |
-| any, when `self_approved` | also `self_approved: true`, `other_administrators: 0` and `organization_id` on a migration's request. |
+| any, when `self_approved` | also `self_approved: true`, `other_administrators: 0` and `organization_id`, on a waive's request and on a migration's. |
 
 `passed_over` in an outcome is a count. Which instances they were is in the
 reply to the approval and nowhere else.
@@ -1220,9 +1226,9 @@ The request reads `applied` all the same, because it is spent.
 | 200 | Approved and carried out. |
 | 400 | The body could not be read, or is over 16 KiB. The id is not an id. The note is over 2,000 characters. |
 | 400 | Already decided, nothing written: *deputy approved this on 4 October 2026 11:40 UTC, and it was applied.*, *… rejected this on ….*, *This request expired on ….*, *This request went stale on …: what it asked for no longer held.*, *…; it is being applied.*, *…, and the run stopped part-way: … Ask again for what remains.* |
-| 400 | **Recorded first, then refused.** The request is closed and the 400 follows: *This request expired on … before anybody approved it, so nothing was applied. Ask again if it is still needed.* (it now reads `expired`); for a waive *This request no longer holds — … — so nothing was applied. Preview again and ask afresh.*, for a migration *This request no longer holds, so nothing was applied: …. Ask again.* (it now reads `stale`). For a waive the closing is the request, its ledger row and one trail entry; for a migration the request alone. |
+| 400 | **Recorded first, then refused.** The request is closed and the 400 follows: *This request expired on … before anybody approved it, so nothing was applied. Ask again if it is still needed.* (it now reads `expired`); for a waive *This request no longer holds — … — so nothing was applied. Preview again and ask afresh.*, for a migration *This request no longer holds, so nothing was applied: …. Ask again.* (it now reads `stale`). For a waive the closing is the request, its ledger row and one trail entry; for a migration the request alone. | Also recorded first, for both kinds: *The administrator who asked for this, boss, no longer administers this organization, so nothing was applied. It has to be asked for afresh by somebody who does.* (it now reads `stale`).
 | 400 | A waive, nothing written, the request still waits: a gateway with no way out for the values, its sentence followed by *The request is still waiting: reject it, and the waive can be asked for again.*; a suspended instance. |
-| 400 | A migration that was approved, whose run its own plan then refused: *invalid argument: the approved migration did not finish: …*. Nothing was moved. The request reads `interrupted`. |
+| 400 | A migration that was approved, whose run its own plan then refused: *invalid argument: the approved migration did not finish: …*. Nothing was moved. The request reads `interrupted`, with `outcome.error`: *the run was refused before it moved anything: the plan made when it came to start refused the migration*. |
 | 400 | A self-approval with no reason, where one is allowed: *Say why you are approving your own request: with nobody else to approve it, the reason is the record.* |
 | 401 | No token, or an `X-Organization-ID` naming an organization the caller does not belong to. |
 | 403 | Not an administrator of the organization. The requester: *You asked for this. A different administrator has to approve it.*, or the longer sentence for an organization with nobody else. A token that names no account. |
@@ -1297,6 +1303,9 @@ Two fields of its plan say whether an apply will be made or asked for:
 | **202** | An apply whose plan needs a second administrator: the first ask, and the same apply sent again by whoever asked while it waits. | `plan`, `"applied": false`, `"passed_over": []`, `"passed_over_in_all": 0`, and `pending_approval` |
 | 400 | The same apply by a different administrator while it waits: *The same migration is already waiting for approval (request …, asked by boss); approve or reject that one.* While its approved run is going: *The same migration was approved by deputy and is being applied now (request …); nothing new was asked for.* | `error` |
 | 400 | An apply whose plan refuses: the refusals, joined by `; `. A plan that refuses is not sent for approval, and asks nobody. | `error` |
+| 400 | Two asks that met: *The same migration was asked for at the same moment and is already waiting for approval; send this again to be answered with that request.*, or *The same migration has a request that is past its time and could not be closed just now (request …); ask again.* Sending it again answers it. | `error` |
+| 403 | An apply whose plan came to need a second administrator between the route's reading of it and the service's — an instance reached a step meanwhile: *This migration is not one administrator's to apply (…), so a second administrator has to approve it first; nothing was moved.* Sent again, it is a 202. | `error` |
+| 500 | The server failed. An apply that stops part-way names the instance it stopped at and how many had been dealt with; what it had done stands. | `error` |
 | 401, 403, 404 | No token; not an administrator of the organization; a version of another organization. The same answer whether or not a request waits. | |
 
 `pending_approval` is the same object as on a waive:

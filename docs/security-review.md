@@ -177,9 +177,11 @@ is part of the review.
 4. **A change to who administers has no durable record.** Creating an
    account, changing its roles and deleting it write one line each to the
    server's log, naming who did it, and nothing else: no trail, no table, and
-   a membership carries no dates. A sign-in through the identity provider that
-   changes an account's organizations, and a password reset from the command
-   line, are not logged at all. So an administrator who creates a second
+   a membership carries no dates. The first administrator that set-up creates
+   and a password reset from the command line each write a line of the same
+   shape, naming no actor. A sign-in through the identity provider that
+   changes an account's organizations, and a rename of an account, are not
+   logged at all. So an administrator who creates a second
    administrator account, approves their own request as it and deletes it
    leaves an ordinary second approval in the ledger, and the only evidence is
    in the log. A durable trail of account changes, with a refusal of a
@@ -187,8 +189,10 @@ is part of the review.
 5. **The second administrator does not see everything a migration loosens.**
    Wider candidate groups, a lower completion condition, a changed gateway
    condition, the same step ids rearranged with a control moved behind an
-   instance, and an unmarked step that carries a rule removed outright are not
-   detected, and such a migration applies on one administrator's call.
+   instance or bypassed, a redirect of a step a separation-of-duties rule
+   names (in a process that marks no control), and an unmarked step that
+   carries a rule removed outright are not detected, and such a migration
+   applies on one administrator's call.
 6. **A waive that waits is found stale only when somebody tries to approve
    it**, and the plan an approver reads is the one the requester was shown.
    An approver who does not preview the instance again approves on what was

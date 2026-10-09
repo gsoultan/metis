@@ -20,8 +20,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     (`POST /api/v1/instances/{id}/deviations`, `kind: waive`). And a migration
     (`POST /api/v1/definitions/versions/migrate`) that, over at least one
     instance that has not ended: skips a step; takes a step marked
-    `compliance_relevant` from an instance that has not passed it, the loss
-    acknowledged; sends a step's work to a different step while some instance
+    `compliance_relevant` from an instance that has not passed it (the apply
+    is refused until the loss is acknowledged, and then waits); sends a
+    step's work to a different step while some instance
     has not passed some step marked as a control; or moves instances onto a
     version that takes away part of a `separation_of_duties` rule on a step
     some instance has still to pass. The plan says so before the apply:
@@ -37,6 +38,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     approval is a 403: *You asked for this. A different administrator has to
     approve it.* Any administrator may reject, with a reason; the requester
     rejecting their own request is a withdrawal.
+  - **Only while whoever asked still administers the organization.** An
+    approval asks whether the account that made the request is still there,
+    still belongs to the organization and still holds the administrator role
+    in it. If not, the request is recorded `stale` and the approval is a 400:
+    *The administrator who asked for this, boss, no longer administers this
+    organization, so nothing was applied. It has to be asked for afresh by
+    somebody who does.* A second administrator does not carry out a request
+    on behalf of somebody since removed. A rejection does not ask.
   - **An approval carries out what was asked, as things stand when it is
     given.** It carries a note and nothing else. A waive is made under the
     instance's lock, only if the instance is still running, still waits at
@@ -66,12 +75,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   were used, not that two people used them. Each change to who holds which
   role is now written to the server's log with who made it — creating an
   account, changing its roles, changing its roles in one organization,
-  deleting it — and that log is the only record of such a change. Keep it.
+  deleting it, and, naming no actor, the first administrator set-up creates
+  and a password set with `--reset-password` — and that log is the only
+  record of such a change. Keep it.
   **Nor does anybody review the whole difference between two versions**: wider
   candidate groups, a lower completion condition, a changed gateway condition,
-  the same step ids rearranged, and an unmarked step that carries a rule
-  removed outright are not detected, and such a migration still applies on
-  one call. And one administrator can still, alone, cancel or hold an
+  the same step ids rearranged or a control bypassed, a redirect of a step a
+  `separation_of_duties` rule names (in a process that marks no control), and
+  an unmarked step that carries a rule removed outright are not detected, and
+  such a migration still applies on one call. And one administrator can still, alone, cancel or hold an
   instance, or hand a task to somebody else with a reason. Both lists are in
   [A second administrator](docs/process-change-in-flight.md#a-second-administrator).
 
@@ -313,14 +325,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   [A second administrator approves waivers and skips](docs/upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34).
 
 - **The migration dialog says when an apply was sent for approval, and which
-  instances an apply passed over.** A plan that needs a second administrator
-  says so before the press, with its reasons, and the button reads *Send for
-  approval*. Afterwards the dialog stays open under *Sent for approval*, with
-  who asked, the deadline and why. Without this change it read a request that
-  had been sent as *Nothing was moved*. An apply that passed instances over
-  lists them under *Instances that were not moved*, each with its cause, in
-  English and in Indonesian; it used to show none of them. Approving,
-  rejecting and listing requests are not in the dialog.
+  instances an apply passed over.** A plan that needs an approval says so
+  before the press, under *This has to be approved before anything moves*,
+  with the rule — the administrator who asked cannot approve it, unless the
+  organization has been set up as having one administrator — and its
+  reasons, and the button reads *Send for approval*. Afterwards the dialog
+  stays open under *Sent for approval*, with who asked, the rule, the
+  deadline (which names its time zone), that it is approved or rejected
+  through the API, the request's reference, and why; its button reads
+  *Close*. Closing it over a waiting request raises a toast that says the
+  same and stays until dismissed, naming the two versions the request was
+  for; so does an answer that arrives after the form was edited. Without
+  this change the dialog read a request that had been sent as *Nothing was
+  moved*. An apply that passed instances over lists them under *Instances
+  that were not moved* — or *This run moved no instance* — each with its
+  cause, in English and in Indonesian; it used to show none of them. An
+  answer that cannot be read is said as *The server's answer could not be
+  read*, never as nothing moved. *Cancel* and *Move N instances* are in both
+  languages. Approving, rejecting and listing requests are not in the
+  dialog.
 
 - **A reply says why each instance was passed over as a code.** Each entry
   of `passed_over`, on the migrate route and on the approval of a migration,
@@ -334,8 +357,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   created.*, *An account's roles were changed.*, *An account's roles in an
   organization were changed.* and *An account was deleted.*, at info level,
   each with `actor`, `actor_id`, `target`, `target_id`, the organization the
-  request was for, and the roles before and after. Nothing else records
-  these changes.
+  request was for, and the roles before and after; the lines of an account
+  created and deleted also say where it belongs (`member_of`). The first
+  administrator that set-up creates is logged as an account created, and
+  `--reset-password` as *An account's password was set from the server's
+  command line.*: each names no actor and says what made it
+  (`made_through`). A change that changes nothing writes no line. Nothing
+  else records these changes.
 
 - **An administrator can waive a step of one instance, cancel the instance or
   hold it, where it stands.** Dealing with one running instance outside what
@@ -633,9 +661,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   202 again, with `replayed: true`; once approved it is a 200 with
   `applied: true, replayed: true`. Anybody else asking for the same waive is
   refused (400) with the request that waits. A waive's plan says
-  `requires_second_approver: true`. A gateway with no way out for the values
+  `requires_second_approver: true`, and so does the plan beside a replay of
+  one that was applied. A gateway with no way out for the values
   given, and the wait for the rows of the tasks withdrawn, are now met by
   the approval, not the apply. **Do:** read `applied`, not the status class.
+- **A preview of a waive says when a request already waits for the same
+  step.** To whoever made that request, previewing the same waive, the plan
+  carries a warning — *A request to waive “…” is already waiting for approval
+  (request …, asked by …, until …). Applying this again answers with that
+  request and makes no second one.* — and still applies. To anybody else, and
+  for anything else asked of that visit, the plan carries a refusal in the
+  words the apply would give — *…; approve or reject that one.* — and
+  `applicable: false`.
+- **A waive's apply needs an account.** An administrator's token that names
+  no account id is refused (403): *asking for and giving a second
+  administrator's approval needs an account, and this request carries none*.
+  The requester and the approver are told apart by account id, so a caller
+  with none cannot be shown to be somebody else. A preview, a cancel and a
+  hold do not ask. Against the in-place waive as it was first built this is
+  a change — its apply accepted such a token — but that command is itself in
+  this release, so nothing that shipped behaves differently.
+- **`GET /api/v1/roles` lists four more actions under Administrator**, in
+  the instances area: `ApproveDeviationRequest`, `GetDeviationRequest`,
+  `ListDeviationRequests` and `RejectDeviationRequest`. In the built-in
+  legend they read *Approve / Read / List / Reject a request(s) waiting for a
+  second administrator* — what is approved, not whose it is — in English
+  and in Indonesian. A client that renders every action the route lists
+  shows four new rows.
 - **An apply of a migration may answer 202.**
   `POST /api/v1/definitions/versions/migrate` with `"dry_run": false` answers
   202, with `applied: false` and `pending_approval`, for a plan that needs a
@@ -694,10 +746,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   in time*. Warnings: *Recorded that approved requests for a second
   administrator were interrupted: …*; *Could not record everything the clock
   has decided about requests for a second administrator; …*; *A pass over
-  the requests … left some as they were; the next pass meets them again*;
+  the requests … left some as they were; the next pass meets them again*,
+  which counts apart the requests it could not close (`not_closed`) and
+  those it left because another transaction held a row (`held`), and ends
+  once it has waited out thirty of the second kind;
   and *Gave ledger rows written without it the key that holds their visit;
   a pod of an earlier release is, or was, writing to this database*. The
   last means two releases are sharing the database.
+
+- **An instance is no longer migrated when its trail entry cannot be
+  written.** This changes behaviour that shipped. The `instance_migrated`
+  entry was written after an instance's rewrite had committed, and an entry
+  that could not be written was logged and the instance left on the new
+  version with nothing on its trail to say how. It is now the last write of
+  the rewrite's own transaction, for every migrated instance, approved or
+  not. While the trail cannot be written, a migration stops at the first
+  instance it would move, names it and says how many had been dealt with,
+  and that instance and the ones behind it stay on the version they were
+  running; running the same migration again carries on. For a redirect, or
+  a loosened `separation_of_duties` rule, that a second administrator
+  approved — neither writes a ledger row — that entry is the only record on
+  the instance of what was approved, so a lost one was a gap in the
+  control's evidence.
+
+- **A mapping no longer hides a loosened `separation_of_duties` rule.** A
+  step that carries a rule was compared only with the step the mapping lands
+  on. Where the new version keeps a step under the same id with no rule, and
+  the mapping sends the step onto another that has the rule, an instance that
+  had not reached the step yet came to the one under the old id, and whoever
+  had performed the named step could then perform it; the migration applied
+  on one call. The rule is now compared on every step such an instance can
+  come to perform in its place, and the migration waits for a second
+  administrator. Without the mapping the same migration already waited.
 
 - **A migration's skip, cancel and hold are no longer made when they cannot be
   recorded.** The trail entry for each was written and, if that failed, only

@@ -618,13 +618,14 @@ what it had moved stays moved, and the request reads `interrupted`.
 | 200, `"applied": false`, request `applied` | A migration's run ended without failing and changed nothing: every instance was passed over, or none was active. The request is spent. | Read `passed_over`. The requester asks again if it is still needed. |
 | 403 *You asked for this. A different administrator has to approve it.* | It is your own request. | Somebody else approves it, or you withdraw it. |
 | 403 *You asked for this, and nobody else administers this organization, so it waits. …* | It is your own request and you are the organization's only administrator. | See [An organization with one administrator](#an-organization-with-one-administrator). |
+| 400 *The administrator who asked for this, boss, no longer administers this organization, so nothing was applied. It has to be asked for afresh by somebody who does.* | Whoever asked has since been deleted, taken out of the organization or lost the administrator role in it. A waive or a migration. The request now reads `stale`, and `outcome.why` says which of the three. | Somebody who administers the organization previews and asks again. If the role was taken away by mistake, give it back first; the old request stays closed either way. |
 | 400 *This request no longer holds — the instance has moved since it was asked for — so nothing was applied. Preview again and ask afresh.* | A waive: the step was completed, a task of it changed, or the instance left the step or ended. The request now reads `stale`. | Tell the requester. If the step still needs waiving, they preview and ask again. |
 | 400 *This request no longer holds, so nothing was applied: … Ask again.* | A migration: the plan now refuses, an instance reached the version after it was asked for, or the migration can no longer be planned. The sentence says which. The request now reads `stale`. | Tell the requester. They preview and apply again, which asks afresh. |
 | 400 *This request expired on … before anybody approved it, so nothing was applied. Ask again if it is still needed.* | Its deadline passed. The request now reads `expired`. | The requester asks again. |
 | 400 *boss approved this on …, and it was applied.* and its neighbours | Somebody decided it first. The sentence says who, when and what became of it. | Nothing. |
 | 400 *this instance is suspended, and a suspended instance is not waived, cancelled or held in place* | A waive of a suspended instance. Nothing changed and the request still waits. Nothing in the product suspends an instance or resumes one, so this is a row changed outside it. | Reject the request, or leave it to expire. |
 | 400 *The values given fit no way out of “Large order?”… The request is still waiting: reject it, and the waive can be asked for again.* | A waive: a gateway has no branch for the value the requester gave. Nothing changed and the request still waits. You cannot change the values. | Reject it with that as the reason. The requester previews again and gives a value a branch accepts. |
-| 400 *invalid argument: the approved migration did not finish: …* | A migration: the request was approved, and the run's own plan then refused, because an instance moved on in between to where the migration cannot take it. Nothing was moved. The request reads `interrupted`. | The requester previews again; the plan now says what it needs. |
+| 400 *invalid argument: the approved migration did not finish: …* | A migration: the request was approved, and the run's own plan then refused, because an instance moved on in between to where the migration cannot take it. Nothing was moved. The request reads `interrupted`, and its `outcome.error` says *the run was refused before it moved anything: the plan made when it came to start refused the migration*. The log says it as a warning, *An approved migration was refused before it moved anything…*, with the plan's own words. | The requester previews again; the plan now says what it needs. |
 | 403 *forbidden: the approved migration did not finish: …* | A migration: approved, and refused at the gate before anything was moved, most often because an instance reached the version between the approval and the run. The request reads `interrupted`. | The requester asks again. |
 | 500 *the approved migration did not finish: … what its run had done stands, and what remains has to be asked for again* | A migration's run stopped part-way. Some instances were moved. The request reads `interrupted`. | Read the request: `outcome.changed` is how many it acted on, and `outcome.error` one sentence. The cause in its own words is in the server's log, under *An approved migration stopped part-way.* Then the requester previews again and asks for what remains. |
 | 500, anything else | The server failed before or while approving. For a waive nothing changed and the request still waits. | Look in the log, then approve again. |
@@ -677,7 +678,7 @@ any instance's timeline**: the request itself is the record.
 | `interrupted` | A migration, approved, whose run stopped part-way, was refused before it began, or did not report back within its window (its deadline, or an hour after the approval, whichever came first). What it had done stands. | Plan again and ask for what remains. A request narrowed with `instances` must leave out the ones already moved. |
 | `rejected` | Somebody said no, or its requester withdrew it. `decided_by` and `decision_reason` say who and why. | Ask again if it is still needed. |
 | `expired` | Nobody decided it in time. | Ask again if it is still needed. |
-| `stale` | Somebody tried to approve it and it no longer held. `outcome.why` says why. | Preview again and ask afresh. |
+| `stale` | Somebody tried to approve it and it no longer held, or whoever asked for it no longer administers the organization. `outcome.why` says why and `outcome.attempted_by` who found it. | Preview again and ask afresh — by somebody who administers the organization. |
 
 A request past its deadline reads `expired` at once. A pass every ten minutes,
 on every replica, writes that down, and the server's log then says *Recorded
@@ -732,9 +733,9 @@ truly has one administrator, and take it off the list once it has a second.**
 
 | Line | Means |
 | :-- | :-- |
-| *In each organization this setting names, an administrator may approve their own request for a second administrator while nobody else administers that organization. …* with `count` and `organizations` | The exception is on for those organizations. Said at every start while any is named. `organizations` lists the first 50. |
+| *In each organization this setting names, an administrator may approve their own request for a second administrator while nobody else administers that organization. …* with `count` and `organizations` | The exception is on for those organizations. Said at every start while any is named. Every organization is listed: a line lists fifty, and a list longer than that goes on in further warnings, *More of the organizations this setting names: …*, each with `count` (of them all) and `listed_from` (where in the list it goes on from). |
 | *entry 2 of METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS, "…", is not an organization id, so it names no organization and is ignored* | That entry does nothing. The entries beside it still apply. |
-| *These ids name no organization of this installation, so naming them does nothing. Check them against the organizations' ids and take them off the list.* | An id that is well formed and is nobody's: mistyped, or another installation's. |
+| *These ids name no organization of this installation, so naming them does nothing. Check them against the organizations' ids and take them off the list.* | An id that is well formed and is nobody's: mistyped, or another installation's. Every such id is listed, fifty to a line, the rest under *More ids this setting lists that name no organization of this installation.* |
 | *Could not check that the ids this setting lists name organizations of this installation.* | The check failed. The list means what it meant. |
 
 With the setting unset or empty the server says nothing about it.
@@ -759,23 +760,33 @@ With the setting unset or empty the server says nothing about it.
 ### Who changed who administers
 
 The second approver rests on two administrators being two people, and an
-administrator can change who the administrators are. These four lines in the
+administrator can change who the administrators are. These five lines in the
 server's log, at info level, are the only record of that, so keep the log:
 
 | Line | Written when |
 | :-- | :-- |
-| *An account was created.* | an account is created, whatever roles it holds |
+| *An account was created.* | an account is created, whatever roles it holds — by the account service, or by set-up, which creates the installation's first administrator |
 | *An account's roles were changed.* | the roles an account holds in every organization change |
-| *An account's roles in an organization were changed.* | the roles it holds in one organization are set |
+| *An account's roles in an organization were changed.* | the roles it holds in one organization change |
 | *An account was deleted.* | an account is deleted |
+| *An account's password was set from the server's command line.* | `--reset-password` sets a local account's password. It changes no role: it is here because it is the one way into an account that needs no session |
 
-Each carries `actor` and `actor_id` (who did it; both empty for the server
-itself, such as the first account at set-up), `target` and `target_id` (whose
-account), `organization` (the organization the request was for, when it was
-for one), `roles_before` and `roles_after` (held in every organization), and
-`organization_roles_before` and `organization_roles_after` (held in one
-organization each, by organization id). A change that was refused writes no
-line.
+Each carries `actor` and `actor_id` (who did it; both empty where nobody was
+signed in), `target` and `target_id` (whose account), `organization` (the
+organization the request was for, when it was for one), `roles_before` and
+`roles_after` (held in every organization), and `organization_roles_before`
+and `organization_roles_after` (held in one organization each, by organization
+id). The lines of an account created and of one deleted also carry
+`member_of`, the organizations the account belongs to: a role held on the
+account is held in each of them. The two changes nobody signed in can have
+made carry `made_through` — `set-up` for the first administrator, and
+`--reset-password, run on the server` for a password — in place of an actor.
+`actor` and `target` are usernames, and a username can be an email address:
+an account an identity provider signs in is named by the address when the
+provider gives no other name.
+
+A change that was refused writes no line, and nor does one that changes
+nothing: roles set to what they already are, in whatever order or case.
 
 To see who administered an organization around an approval, search for the
 organization's id and the approver's and the requester's account ids in the
@@ -783,13 +794,15 @@ hour either side of the request's `decided_at`:
 
 ```bash
 kubectl -n metis logs deploy/metis --since=24h \
-  | grep -E 'An account was (created|deleted)|An account.s roles' \
+  | grep -E 'An account was (created|deleted)|An account.s (roles|password)' \
   | grep -E '<organization-id>|<account-id>'
 ```
 
 What these lines do not cover: a sign-in through the identity provider that
-changes which organizations an account belongs to, and a password reset from
-the command line. There is no table to query for any of it.
+changes which organizations an account belongs to, and a rename of an account
+that changes no role (a rename made together with a change of roles is said
+under the new name and the same `target_id`). There is no table to query for
+any of it.
 
 ### A request the pass cannot close
 
@@ -802,7 +815,9 @@ corruption. You find out from the log, on every pass, on every replica:
   act on it, but its row still says otherwise and it still holds what it was
   asked for.* (`request`, `error`; the first five of a pass);
 - a warning counting them: *A pass over the requests past their deadline left
-  some as they were; the next pass meets them again* (`closed`, `not_closed`);
+  some as they were; the next pass meets them again* (`closed`, `not_closed`,
+  `held`, `budget_spent`, `held_limit_reached`, and `stopped_by` when
+  something stopped the pass);
 - and *Could not record everything the clock has decided about requests for a
   second administrator; …*.
 
@@ -812,7 +827,16 @@ visit, so that step of that instance cannot be asked to be waived again. The
 step's work can still be done by whoever holds it, and the instance can still
 be cancelled or held. The requests behind it are closed in the same pass. A
 request left only because another transaction held its ledger row is closed
-by the next pass, and is not this case.
+by the next pass, and is not this case: the pass counts it as `held`, not as
+`not_closed`, and does not name it in the first warning above.
+
+**How long a pass can take.** A pass makes at most ten thousand attempts, each
+a short transaction, and waits at most two seconds for a row somebody holds.
+It ends once it has waited out thirty such rows — a minute for each of its two
+reads, so two minutes at the worst — and says so (`held_limit_reached`); the
+next pass, ten minutes on, goes on. The rest of the retention pass, the
+re-offer of external tasks in each environment's database among it, waits
+behind the sweep for no longer than that.
 
 Rejecting it over the API does not help: a rejection closes the same ledger
 row and fails the same way. (A request whose own stored plan no longer opens
