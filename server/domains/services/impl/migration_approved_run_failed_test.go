@@ -35,7 +35,8 @@ func TestOnlyARefusalBeforeTheRunKeepsItsClassWhenAnApprovedRunDoesNotFinish(t *
 	} {
 		err := approvedRunFailed(id, entities.DeviationRequestInterrupted, c.runErr)
 		for _, class := range answeredClasses {
-			if errors.Is(err, class) != (class == c.class) {
+			kept := c.class != nil && errors.Is(c.class, class)
+			if errors.Is(err, class) != kept {
 				t.Errorf("%s: answered as %v = %v, want its class to be %v: %v", name, class, errors.Is(err, class), c.class, err)
 			}
 		}
