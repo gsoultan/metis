@@ -1,0 +1,75 @@
+import { describe, expect, it } from 'bun:test';
+
+import { applyLabel, approvalNeeded } from './migrationApproval';
+import en from '../i18n/catalogues/en';
+import id from '../i18n/catalogues/id';
+import { format, type Values } from '../i18n/translate';
+import type { ApiMigrationPlan } from '../services/types';
+
+const inEnglish = (key: string, values?: Values) => format(en, key, values);
+const inIndonesian = (key: string, values?: Values) => format(id, key, values);
+
+const plan = (over: Partial<ApiMigrationPlan> = {}): ApiMigrationPlan => ({
+  source_key: 'quotation',
+  source_version: 2,
+  target_version: 5,
+  target_id: 'def-5',
+  instances: 3,
+  moves: [{ from: 'opsApprove', to: 'salesApprove', tokens: 3, tasks: 3, jobs: 0, mapped: true }],
+  requires_second_approver: false,
+  ...over,
+});
+
+const reasons = [
+  '“Operations approve” would be skipped for every listed instance waiting at it when the migration runs — not only those waiting there when this was asked for — and nobody would perform it',
+  'and 2 more reasons',
+];
+
+describe('a plan that needs a second administrator', () => {
+  it('says so before anything is sent, with the server’s reasons as it gave them', () => {
+    const needed = approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: reasons }), inEnglish);
+    expect(needed).toEqual({
+      title: 'A second administrator has to approve this',
+      message: 'Nothing moves until a different administrator approves it.',
+      reasons,
+    });
+  });
+
+  it('says so in Indonesian', () => {
+    const needed = approvalNeeded(plan({ requires_second_approver: true }), inIndonesian);
+    expect(needed?.title).toBe('Administrator kedua harus menyetujui ini');
+    expect(needed?.message).toBe('Tidak ada yang dipindahkan sampai administrator lain menyetujuinya.');
+  });
+
+  it('says so with no reasons when the server sends none, or sends an empty list', () => {
+    expect(approvalNeeded(plan({ requires_second_approver: true }), inEnglish)?.reasons).toEqual([]);
+    expect(approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: [] }), inEnglish)?.reasons).toEqual([]);
+    expect(approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: ['', ' '] }), inEnglish)?.reasons).toEqual([]);
+  });
+
+  it('says nothing for a plan one administrator can apply, or for no plan', () => {
+    expect(approvalNeeded(plan(), inEnglish)).toBeNull();
+    // A server older than the second approver sends no such field.
+    expect(approvalNeeded(plan({ requires_second_approver: undefined }), inEnglish)).toBeNull();
+    // Reasons with no flag ask nobody: the flag is the server's decision.
+    expect(approvalNeeded(plan({ second_approver_reasons: reasons }), inEnglish)).toBeNull();
+    expect(approvalNeeded(null, inEnglish)).toBeNull();
+  });
+});
+
+describe('what the apply button says it will do', () => {
+  it('says it will ask, not that it will move, when a second administrator is needed', () => {
+    const asks = plan({ requires_second_approver: true });
+    expect(applyLabel(asks, inEnglish)).toBe('Send for approval');
+    expect(applyLabel(asks, inIndonesian)).toBe('Kirim untuk persetujuan');
+  });
+
+  it('says what it always said for a plan one administrator can apply', () => {
+    expect(applyLabel(plan(), inEnglish)).toBe('Move 3 instances');
+    expect(applyLabel(plan({ instances: 1 }), inEnglish)).toBe('Move 1 instance');
+    expect(applyLabel(plan({ instances: 0 }), inEnglish)).toBe('Move 0 instances');
+    expect(applyLabel(null, inEnglish)).toBe('Move 0 instances');
+    // The rest of the dialog is English still, and so is this.
+    expect(applyLabel(plan(), inIndonesian)).toBe('Move 3 instances');
+  });
+});

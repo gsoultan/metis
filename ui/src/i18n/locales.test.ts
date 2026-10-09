@@ -203,3 +203,71 @@ describe('why a migration passed an instance over', () => {
     }
   });
 });
+
+/*
+ * What the migration dialog says of an apply that was sent to a second
+ * administrator, and of one that passed instances over. The rest of the dialog
+ * is English still; these were written with their words in the catalogues.
+ */
+describe('the migration dialog’s own words', () => {
+  const OWN = [
+    'migration.passedOverAllTitle',
+    'migration.passedOverInstance',
+    'migration.passedOverListTitle',
+    'migration.passedOverMore',
+    'migration.passedOverSomeTitle',
+    'migration.passedOverSummary',
+    'migration.pendingAskedBy',
+    'migration.pendingMessage',
+    'migration.pendingTitle',
+    'migration.pendingWhy',
+    'migration.secondApproverMessage',
+    'migration.secondApproverTitle',
+    'migration.sendForApproval',
+  ];
+
+  it('are in both languages, every one, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    for (const key of OWN) {
+      expect(english[key], `en has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+
+  it('are every migration key there is, beside the causes', async () => {
+    // A key added for the dialog and left out of the list above would be in
+    // one language only and pass. And none may begin "migration.passedOver.":
+    // what follows that is a cause the server gives (tests/roledrift).
+    const english = (await import('./catalogues/en')).default;
+    const own = Object.keys(english).filter((key) => key.startsWith('migration.') && !key.startsWith('migration.passedOver.'));
+    expect(own.sort()).toEqual([...OWN, 'migration.passedOverStepsMore'].sort());
+  });
+
+  it('fill in the same things in both languages', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const placeholders = (message: string) => [...message.matchAll(/\{(\w+)[,}]/g)].map((match) => match[1]).sort();
+    for (const key of OWN) {
+      expect(placeholders(indonesian[key] ?? ''), `id fills in other things than English for "${key}"`).toEqual(
+        placeholders(english[key] ?? ''),
+      );
+    }
+    expect(placeholders(english['migration.passedOverSummary'])).toEqual(['count']);
+    expect(placeholders(english['migration.pendingMessage'])).toEqual(['date']);
+  });
+
+  it('count in words that fit one and many', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    expect(format(english, 'migration.passedOverSummary', { count: 1 })).toBe('1 instance was not moved. The list below says why.');
+    expect(format(english, 'migration.passedOverSummary', { count: 12 })).toBe('12 instances were not moved. The list below says why.');
+    expect(format(indonesian, 'migration.passedOverSummary', { count: 12 })).toBe(
+      '12 instansi tidak dipindahkan. Daftar di bawah menjelaskan alasannya.',
+    );
+    expect(format(english, 'migration.passedOverMore', { count: 1 })).toBe('and 1 more instance');
+    expect(format(english, 'migration.passedOverMore', { count: 140 })).toBe('and 140 more instances');
+    expect(format(indonesian, 'migration.passedOverMore', { count: 140 })).toBe('dan 140 instansi lainnya');
+  });
+});

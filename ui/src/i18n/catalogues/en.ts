@@ -157,7 +157,28 @@ const en: Catalogue = {
     'It had work at {steps}, which the new version has nowhere to put. It stays on v{version}; plan again with a mapping or a decision for that work.',
   'migration.passedOver.waiting_to_be_decided':
     'It was waiting at {steps}, where this migration decides the work rather than moving it, and no decision had settled it. It stays on v{version}; apply the same migration again.',
+  // The migration dialog's own words for two answers to an apply: a run that
+  // left instances where they were, and an apply that was not made but sent
+  // to a second administrator. None of these keys begins
+  // "migration.passedOver." — what follows that is a cause. {reference} is an
+  // instance's short reference, as the instance list shows it; {name} is who
+  // asked; {date} is when the request stops waiting, in the reader's language.
+  'migration.passedOverAllTitle': 'No instance was moved',
+  'migration.passedOverInstance': 'Instance {reference}',
+  'migration.passedOverListTitle': 'Instances that were not moved',
+  'migration.passedOverMore': '{count, plural, one {and # more instance} other {and # more instances}}',
+  'migration.passedOverSomeTitle': 'Applied, but not to every instance',
   'migration.passedOverStepsMore': '{count, plural, one {and # more} other {and # more}}',
+  'migration.passedOverSummary':
+    '{count, plural, one {# instance was not moved. The list below says why.} other {# instances were not moved. The list below says why.}}',
+  'migration.pendingAskedBy': 'Asked for by {name}.',
+  'migration.pendingMessage':
+    'Nothing moves until a different administrator approves it. The request expires on {date}.',
+  'migration.pendingTitle': 'Sent for approval',
+  'migration.pendingWhy': 'Why a second administrator is asked',
+  'migration.secondApproverMessage': 'Nothing moves until a different administrator approves it.',
+  'migration.secondApproverTitle': 'A second administrator has to approve this',
+  'migration.sendForApproval': 'Send for approval',
 
   // Offline and updates
   'offline.title': 'You are offline',
