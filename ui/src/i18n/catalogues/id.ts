@@ -269,7 +269,7 @@ const id: Catalogue = {
   'access.action.BroadcastSignal': 'Siarkan sinyal',
   'access.action.MigrateInstances': 'Migrasikan instansi',
   'access.action.DeviateInstance': 'Abaikan, batalkan, atau tahan instansi',
-  'access.action.ApproveDeviationRequest': 'Setujui permintaan administrator lain',
+  'access.action.ApproveDeviationRequest': 'Setujui permintaan yang menunggu administrator kedua',
   'access.action.GetDeviationRequest': 'Baca permintaan yang menunggu administrator kedua',
   'access.action.ListDeviationRequests': 'Daftar permintaan yang menunggu administrator kedua',
   'access.action.RejectDeviationRequest': 'Tolak permintaan yang menunggu administrator kedua',

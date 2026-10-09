@@ -286,7 +286,7 @@ const en: Catalogue = {
   'access.action.BroadcastSignal': 'Broadcast signal',
   'access.action.MigrateInstances': 'Migrate instances',
   'access.action.DeviateInstance': 'Waive, cancel or hold an instance',
-  'access.action.ApproveDeviationRequest': "Approve another administrator's request",
+  'access.action.ApproveDeviationRequest': 'Approve a request waiting for a second administrator',
   'access.action.GetDeviationRequest': 'Read a request waiting for a second administrator',
   'access.action.ListDeviationRequests': 'List requests waiting for a second administrator',
   'access.action.RejectDeviationRequest': 'Reject a request waiting for a second administrator',
