@@ -62,7 +62,7 @@ const (
 // it has passed then counts it — a later migration that drops the step reads
 // that list and writes no "control waived" for this instance. So the waive
 // itself says what it is: the plan warns, and the ledger row and the trail
-// entry are marked (waiveStep), where nobody has to join the row to the
+// entry are marked (waived), where nobody has to join the row to the
 // definition to see it.
 func isControl(node *entities.Node) bool {
 	return node != nil && boolProperty(node.Properties, controlProperty)

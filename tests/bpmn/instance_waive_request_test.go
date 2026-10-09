@@ -516,16 +516,31 @@ func TestTheRequestsAnAdministratorReadsAreTheOnesThatStillWait(t *testing.T) {
 	if _, err := w.approvals.ApproveDeviationRequest(w.as("budi"), uuid.Must(uuid.NewV7()), ""); !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("approving a request that does not exist: %v, want not found", err)
 	}
-	// Rejecting and the sweep are the next change's; until then they say so
-	// and do nothing.
-	before := everyRow(t, h)
-	if _, err := w.approvals.RejectDeviationRequest(w.as("budi"), waits, "no"); !errors.Is(err, apierr.ErrInvalidArgument) {
+	// Rejected, the first leaves the queue and is read as rejected; swept, the
+	// third is written down as what it already read as.
+	if _, err := w.approvals.RejectDeviationRequest(w.as("budi"), waits, "no"); err != nil {
 		t.Fatalf("rejecting: %v", err)
 	}
-	if n, err := w.approvals.ExpireDeviationRequests(entities.WithSystemContext(h.Ctx()), time.Now()); !errors.Is(err, apierr.ErrInvalidArgument) || n != 0 {
-		t.Fatalf("the sweep: %d, %v", n, err)
+	if n, err := w.approvals.ExpireDeviationRequests(entities.WithSystemContext(h.Ctx()), time.Now()); err != nil || n != 1 {
+		t.Fatalf("the sweep closed %d (%v), want the one that is overdue", n, err)
 	}
-	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
-		t.Fatalf("what is not built yet changed %v", changed)
+	for status, want := range map[entities.DeviationRequestStatus]map[uuid.UUID]entities.DeviationRequestStatus{
+		"":                                {},
+		entities.DeviationRequestRejected: {waits: entities.DeviationRequestRejected},
+		entities.DeviationRequestApplied:  {approved: entities.DeviationRequestApplied},
+		entities.DeviationRequestExpired:  {overdue: entities.DeviationRequestExpired},
+	} {
+		if got := listed(status); !reflect.DeepEqual(got, want) {
+			t.Errorf("once one is rejected and one swept, the requests listed as %q are %v, want %v", status, got, want)
+		}
+	}
+	// A listed request is not whole: what was asked and shown is read one
+	// request at a time.
+	page, _, err := w.approvals.ListDeviationRequests(w.as("budi"), entities.DeviationRequestQuery{Status: entities.DeviationRequestApplied})
+	if err != nil || len(page) != 1 || page[0].Command != nil || page[0].Plan != nil || page[0].ApprovedInstances != nil {
+		t.Fatalf("a listed request carries its command, its plan or its instances: %+v, %v", page, err)
+	}
+	if whole, err := w.approvals.GetDeviationRequest(w.as("budi"), approved); err != nil || whole.Command == nil || whole.Plan == nil {
+		t.Fatalf("a request read alone is not whole: %+v, %v", whole, err)
 	}
 }

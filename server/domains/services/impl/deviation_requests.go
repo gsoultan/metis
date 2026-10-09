@@ -43,11 +43,11 @@ func NewDeviationRequestService(repo repositories.Repository, engine servicecont
 // decide. The request is then read inside the caller's organization — another
 // organization's is not found, as one that never existed — only to learn what
 // kind it is; whether it still waits, who may approve it and whether it still
-// holds are asked again of the row the approval locks.
+// holds are asked again of the row the approval locks — and who is approving
+// is asked again by the approval itself.
 func (s *deviationRequestService) ApproveDeviationRequest(ctx context.Context, id uuid.UUID, reason string) (entities.DeviationRequestOutcome, error) {
 	var none entities.DeviationRequestOutcome
-	caller, err := requireDecidingAdministrator(ctx)
-	if err != nil {
+	if _, err := requireDecidingAdministrator(ctx); err != nil {
 		return none, err
 	}
 	requests := s.repo.DeviationRequest()
@@ -60,31 +60,11 @@ func (s *deviationRequestService) ApproveDeviationRequest(ctx context.Context, i
 	}
 	switch request.Kind {
 	case entities.DeviationRequestInstanceWaive:
-		return s.waives.approveWaive(ctx, id, caller, reason)
+		return s.waives.approveWaive(ctx, id, reason)
 	case entities.DeviationRequestMigration:
 		return none, apierr.Invalidf("approving a migration arrives with the migration's second approver")
 	}
 	return none, apierr.Invalidf("request %s is of a kind nothing here approves", id)
-}
-
-// RejectDeviationRequest is not built yet: rejecting arrives with the queue
-// and the expiry, in the next change.
-func (s *deviationRequestService) RejectDeviationRequest(context.Context, uuid.UUID, string) (entities.DeviationRequest, error) {
-	return entities.DeviationRequest{}, errArrivesNext()
-}
-
-// ExpireDeviationRequests is not built yet: the sweep arrives with rejecting,
-// in the next change. Until then an overdue request is closed by the approval
-// that finds it so, and reads as expired meanwhile.
-func (s *deviationRequestService) ExpireDeviationRequests(context.Context, time.Time) (int64, error) {
-	return 0, errArrivesNext()
-}
-
-// errArrivesNext is what the two parts of the service that are not built yet
-// answer. It does nothing and says so, rather than answer as though a request
-// had been rejected or swept.
-func errArrivesNext() error {
-	return apierr.Invalidf("rejecting and expiry arrive in the next change")
 }
 
 // ListDeviationRequests answers one page of the organization's requests,

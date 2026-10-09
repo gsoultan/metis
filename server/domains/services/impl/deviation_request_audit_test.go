@@ -115,20 +115,6 @@ func TestWhyARequestNoLongerHolds(t *testing.T) {
 	}
 }
 
-// The step a request names in a sentence is the one its requester was shown,
-// or failing that its id — never nothing.
-func TestTheStepARequestAsksToWaiveIsNamedAsItWasShown(t *testing.T) {
-	for want, request := range map[string]entities.DeviationRequest{
-		"Approve": {Plan: map[string]any{"node_name": "Approve"}, Command: map[string]any{"node_id": "approve"}},
-		"approve": {Plan: map[string]any{"node_name": ""}, Command: map[string]any{"node_id": "approve"}},
-		"a step":  {},
-	} {
-		if got := stepAskedFor(request); got != want {
-			t.Errorf("%q, want %q", got, want)
-		}
-	}
-}
-
 // uowThatCommits is a unit of work that runs its work and reports what
 // became of it.
 type uowThatCommits struct {

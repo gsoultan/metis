@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -73,6 +74,17 @@ var errDeviationWithoutEngine = errors.New(
 // together or not at all. Nothing about the instance is read before that unit
 // of work opens — the command is what the caller sent, and the actor is who
 // is signed in.
+//
+// One apply may be made twice. A waive whose visit is held by a request that
+// is past its deadline — or that somebody decided while it was being read —
+// is not refused and is not left for the sweep to free: the apply ends with
+// which request that is (overdueRequest), having written nothing; its unit of
+// work has then ended and let go of the instance; the request is closed under
+// its own row (closeOverdue); and the apply is made once more, from the
+// start. At most once more: a second such answer means the ledger and the
+// request disagree, which is the server's to explain. The two units of work
+// run one after the other and never one inside the other, so a request's row
+// is still never taken while an instance is held.
 func (s *instanceDeviationService) DeviateInstance(ctx context.Context, command entities.DeviationCommand) (entities.DeviationOutcome, error) {
 	actor, err := requireDeviationAdministrator(ctx)
 	if err != nil {
@@ -88,8 +100,26 @@ func (s *instanceDeviationService) DeviateInstance(ctx context.Context, command 
 	if command.DryRun {
 		return s.preview(ctx, command)
 	}
+	outcome, err := s.applyInItsOwnUnit(ctx, command, actor)
+	var overdue overdueRequest
+	if !errors.As(err, &overdue) {
+		return outcome, err
+	}
+	if err := s.closeOverdue(ctx, overdue.id); err != nil {
+		return entities.DeviationOutcome{}, err
+	}
+	outcome, err = s.applyInItsOwnUnit(ctx, command, actor)
+	if errors.As(err, &overdue) {
+		return entities.DeviationOutcome{}, fmt.Errorf("request %s is over, and the ledger still holds a row that waits on it", overdue.id)
+	}
+	return outcome, err
+}
+
+// applyInItsOwnUnit makes one apply in one unit of work, and answers nothing
+// of it when it failed.
+func (s *instanceDeviationService) applyInItsOwnUnit(ctx context.Context, command entities.DeviationCommand, actor string) (entities.DeviationOutcome, error) {
 	var outcome entities.DeviationOutcome
-	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		var applyErr error
 		outcome, applyErr = s.apply(txCtx, command, actor)
 		return applyErr
@@ -101,13 +131,20 @@ func (s *instanceDeviationService) DeviateInstance(ctx context.Context, command 
 }
 
 // preview answers the plan for the instance as it is read now, without a
-// lock, and changes nothing.
+// lock, and changes nothing. A waive's says as well when a request already
+// waits for the visit (withWhatWaits): that is found by an apply under the
+// instance's lock, and nothing that stops an apply is left to be found only
+// by making one.
 func (s *instanceDeviationService) preview(ctx context.Context, command entities.DeviationCommand) (entities.DeviationOutcome, error) {
 	instance, err := s.engine.GetInstance(ctx, command.InstanceID)
 	if err != nil {
 		return entities.DeviationOutcome{}, err
 	}
 	plan, err := s.plan(ctx, instance, command)
+	if err != nil {
+		return entities.DeviationOutcome{}, err
+	}
+	plan, err = s.withWhatWaits(ctx, plan, command)
 	if err != nil {
 		return entities.DeviationOutcome{}, err
 	}
@@ -130,12 +167,9 @@ func (s *instanceDeviationService) preview(ctx context.Context, command entities
 //  4. The plan is made again, from the locked row, and is the plan that was
 //     previewed, with nothing refusing it; and the instance still waits where
 //     the command acts (refuseUnlessAsPreviewed).
-//  5. A plan that needs a second administrator — a waive — is not acted on:
-//     it is recorded as asked for (request), and waits. Whoever asks is the
-//     account a second administrator will have to differ from, so an
-//     administrator with no account id is refused here.
-//  6. Otherwise the act (act), which writes the change, its ledger row and
-//     its trail entry together.
+//  5. What passed is carried out (carryOut): a waive is recorded as asked
+//     for, and waits for a second administrator; a cancel and a hold are
+//     acted on.
 //
 // An instance of another organization is not found by the lock, as it is not
 // by a preview's read.
@@ -162,7 +196,44 @@ func (s *instanceDeviationService) apply(ctx context.Context, command entities.D
 	if err := refuseUnlessAsPreviewed(locked, plan, command); err != nil {
 		return none, err
 	}
-	if plan.RequiresSecondApprover {
+	return s.carryOut(ctx, locked, &live, plan, command, actor)
+}
+
+// needsSecondAdministrator reports whether what a command asks for is not
+// one administrator's to do.
+//
+// A waive never is, whatever its plan says: the plan's flag is what a person
+// is shown, and the planner sets it — but were it one day not to, a waive
+// would otherwise be made on the word of whoever asked. So the kind decides,
+// and the flag can only add to it.
+func needsSecondAdministrator(command entities.DeviationCommand, plan entities.DeviationPlan) bool {
+	return command.Kind == entities.DeviationWaive || plan.RequiresSecondApprover
+}
+
+// carryOut does what an apply was let through to do, on the row it locked.
+//
+// What needs a second administrator is not acted on: it is recorded as asked
+// for (request), and waits. Whoever asks is the account a second
+// administrator will have to differ from, so an administrator with no account
+// id is refused here. Only a waive has a request to be made for it; anything
+// else that a plan said needed somebody else is refused as the server's
+// mistake rather than acted on or asked for as though it were a waive.
+//
+// Everything else is the act (act), which writes the change, its ledger row
+// and its trail entry together — and has no waive in it.
+func (s *instanceDeviationService) carryOut(
+	ctx context.Context,
+	locked models.ProcessInstanceModel,
+	live *entities.ProcessInstance,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+	actor string,
+) (entities.DeviationOutcome, error) {
+	var none entities.DeviationOutcome
+	if needsSecondAdministrator(command, plan) {
+		if command.Kind != entities.DeviationWaive {
+			return none, fmt.Errorf("a %s was planned as needing a second administrator, and only a waive has a request to make for one", command.Kind)
+		}
 		account, err := requireDecidingAdministrator(ctx)
 		if err != nil {
 			return none, err
@@ -173,7 +244,7 @@ func (s *instanceDeviationService) apply(ctx context.Context, command entities.D
 	if err != nil {
 		return none, err
 	}
-	deviation, err := s.act(ctx, locked, &live, def, plan, command, actor)
+	deviation, err := s.act(ctx, locked, live, def, plan, command, actor)
 	if err != nil {
 		return none, err
 	}
@@ -255,7 +326,9 @@ func waitsWhereItActs(locked models.ProcessInstanceModel, command entities.Devia
 // with who acted: the visit has had its act.
 //
 // A row that waits for a second administrator is answered by replayWaiting:
-// the visit has been asked for, and has not had its act.
+// the visit has been asked for, and has not had its act. One that waits on a
+// request that is past its deadline, or over, is not answered at all: the
+// error says which request (overdueRequest), and nothing is written.
 //
 // Its caller holds the instance's lock, so an apply that was in flight for
 // the same visit has finished, and its row is here to find.
@@ -305,13 +378,15 @@ func replayed(row entities.Deviation, command entities.DeviationCommand) entitie
 // holds the request and is waiting for this instance would otherwise wait for
 // ever, and so would this.
 //
-// Because it is not held, the request can be decided between the two reads by
-// somebody who holds its row and needs no instance — an approval that found
-// it past its deadline. Then the row just read is no longer what the ledger
-// holds: what decided the request moved the row with it, in one transaction,
-// and that is committed. So the row is read once more, and is then either
-// gone — the visit is free — or, were it still to wait on a request that is
-// over, the server's to explain.
+// A request that no longer holds the visit is not answered as waiting. That
+// is one past its deadline which nothing has yet written down — the clock
+// decides, and the sweep only records — and one that was decided between the
+// two reads, by somebody who holds its row and needs no instance. Neither can
+// be put right here: recording an expiry takes the request's row, and that is
+// never taken while an instance is held. So this answers which request it is
+// (overdueRequest) and writes nothing, whoever asks and whatever they ask;
+// the caller of the apply lets go of the instance, closes the request, and
+// applies once more.
 func (s *instanceDeviationService) recordOfVisit(
 	ctx context.Context,
 	command entities.DeviationCommand,
@@ -320,23 +395,18 @@ func (s *instanceDeviationService) recordOfVisit(
 	if store == nil {
 		return entities.Deviation{}, nil, false, errNoDeviationLedger
 	}
-	var decided entities.DeviationRequestStatus
-	for range 2 {
-		row, found, err = store.FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
-		if err != nil || !found || row.Status != entities.DeviationPendingApproval {
-			return row, nil, found, err
-		}
-		request, readErr := s.requestWaitedOn(ctx, row)
-		if readErr != nil {
-			return entities.Deviation{}, nil, false, readErr
-		}
-		if request.Status == entities.DeviationRequestPending {
-			return row, &request, true, nil
-		}
-		decided = request.Status
+	row, found, err = store.FindLiveByVisit(ctx, command.InstanceID, command.VisitKey)
+	if err != nil || !found || row.Status != entities.DeviationPendingApproval {
+		return row, nil, found, err
 	}
-	return entities.Deviation{}, nil, false, fmt.Errorf(
-		"deviation %s still waits for request %s, which is %s", row.ID, row.RequestID, decided)
+	request, err := s.requestWaitedOn(ctx, row)
+	if err != nil {
+		return entities.Deviation{}, nil, false, err
+	}
+	if request.EffectiveStatus(time.Now()) != entities.DeviationRequestPending {
+		return entities.Deviation{}, nil, false, overdueRequest{id: request.ID}
+	}
+	return row, &request, true, nil
 }
 
 // requestWaitedOn reads the request a waiting ledger row names, without

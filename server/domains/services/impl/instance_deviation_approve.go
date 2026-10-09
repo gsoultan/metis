@@ -52,12 +52,15 @@ const movedSinceAsked = "the instance has moved since it was asked for"
 // refusal is answered as the request's own state (decidedFirst), so that the
 // order of the locks is never the only thing between a double click and a
 // server error.
-func (s *instanceDeviationService) approveWaive(
-	ctx context.Context,
-	id uuid.UUID,
-	caller entities.User,
-	reason string,
-) (entities.DeviationRequestOutcome, error) {
+//
+// Who is approving is asked here, of whoever is signed in, whoever calls this
+// and whatever they checked first: the approval is what acts, and a caller
+// handed in as a value is a caller somebody could hand in.
+func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUID, reason string) (entities.DeviationRequestOutcome, error) {
+	caller, err := requireDecidingAdministrator(ctx)
+	if err != nil {
+		return entities.DeviationRequestOutcome{}, err
+	}
 	if s.engine == nil {
 		return entities.DeviationRequestOutcome{}, errDeviationWithoutEngine
 	}
@@ -65,7 +68,7 @@ func (s *instanceDeviationService) approveWaive(
 		return entities.DeviationRequestOutcome{}, errNoDeviationRequests
 	}
 	var outcome entities.DeviationRequestOutcome
-	err := runDecision(ctx, s.repo.UnitOfWork(), func(txCtx context.Context) error {
+	err = runDecision(ctx, s.repo.UnitOfWork(), func(txCtx context.Context) error {
 		var err error
 		outcome, err = s.approveLocked(txCtx, id, caller, reason)
 		// Whatever part of the approval a repository refused as decided
@@ -90,7 +93,8 @@ func (s *instanceDeviationService) approveWaive(
 //
 //  1. The request's row is taken and held. Whether it still waits, and who
 //     may decide it, are asked of that row (approvalRules.admit): the
-//     requester is refused here, having changed nothing.
+//     requester is refused here, having changed nothing — which is why the
+//     attempt is said in the server's log, where alone it leaves a mark.
 //  2. A request past its deadline is recorded as expired and refused. The
 //     repository does not look at the clock; this does.
 //  3. The command is read from the request, and is the request's own: it
@@ -122,6 +126,9 @@ func (s *instanceDeviationService) approveLocked(
 	}
 	decision, err := s.rules.admit(ctx, request, caller, reason)
 	if err != nil {
+		if caller.ID == request.RequestedByID && errors.Is(err, apierr.ErrForbidden) {
+			traceRefusedSelfApproval(request, caller)
+		}
 		return none, err
 	}
 	if request.EffectiveStatus(decision.At) == entities.DeviationRequestExpired {
@@ -193,7 +200,9 @@ func whyStale(plan entities.DeviationPlan, command entities.DeviationCommand) st
 // failure is told the same way (waiveFailed): a gateway with no way out is a
 // refusal in the same sentence — with what to do about a request that then
 // still waits — and anything else is the server's, in the same words. Either
-// way everything is undone and the request waits as it did.
+// way everything is undone and the request waits as it did; that an approval
+// was given and came to nothing is said in the server's log, since nothing
+// else keeps it.
 //
 // The row that waited becomes the row the effect made, whole: who held the
 // work when it was withdrawn, cut and counted as a waive's row is, marked
@@ -221,6 +230,9 @@ func (s *instanceDeviationService) applyApproved(
 		return none, err
 	}
 	row, control, err := s.waived(ctx, locked, live, def, plan, command, request.RequestedBy, pending.RunID)
+	if err != nil {
+		traceApprovalNotApplied(request, decision, errors.Is(err, apierr.ErrInvalidArgument))
+	}
 	if errors.Is(err, apierr.ErrInvalidArgument) {
 		return none, fmt.Errorf("%w %s", err, requestStillWaits)
 	}
@@ -348,19 +360,15 @@ func (s *instanceDeviationService) writeEntries(ctx context.Context, row entitie
 }
 
 // expiredAtApproval records that a request reached its deadline with nobody
-// having decided it, and refuses the approval that found it so. The record is
-// kept: the refusal is given after the commit.
+// having decided it (expireWaive), and refuses the approval that found it so.
+// The record is kept: the refusal is given after the commit.
 func (s *instanceDeviationService) expiredAtApproval(ctx context.Context, request entities.DeviationRequest) error {
-	deadline := request.ExpiresAt.UTC().Format(decidedOnLayout)
-	narrative := fmt.Sprintf("Nobody decided the request to waive “%s” that %s made before it expired on %s, so nothing changed.",
-		stepAskedFor(request), request.RequestedBy, deadline)
-	err := s.settleWaiveRequest(ctx, request, entities.DeviationExpired, entities.DeviationRequestExpired,
-		EventDeviationExpired, narrative, entities.DeviationDecision{}, nil)
-	if err != nil {
+	if err := s.expireWaive(ctx, request); err != nil {
 		return err
 	}
 	return refuseAfterCommit(apierr.Invalidf(
-		"This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.", deadline))
+		"This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.",
+		request.ExpiresAt.UTC().Format(decidedOnLayout)))
 }
 
 // staleAtApproval records that a request no longer held when somebody came to
@@ -378,9 +386,11 @@ func (s *instanceDeviationService) staleAtApproval(
 	why string,
 	refusals []string,
 ) error {
-	narrative := fmt.Sprintf("The request to waive “%s” that %s made no longer held when %s tried to approve it, so nothing changed: %s",
-		stepAskedFor(request), request.RequestedBy, decision.Decider, why)
-	err := s.settleWaiveRequest(ctx, request, entities.DeviationStale, entities.DeviationRequestStale,
+	narrative := func(step string) string {
+		return fmt.Sprintf("The request to waive “%s” that %s made no longer held when %s tried to approve it, so nothing changed: %s",
+			step, request.RequestedBy, decision.Decider, why)
+	}
+	_, err := s.settleWaiveRequest(ctx, request, entities.DeviationStale, entities.DeviationRequestStale,
 		EventDeviationStale, narrative, decision, map[string]any{"why": why, "refusals": listed(refusals)})
 	if err != nil {
 		return err
@@ -388,50 +398,44 @@ func (s *instanceDeviationService) staleAtApproval(
 	return refuseAfterCommit(apierr.Invalidf("This request no longer holds — %s — so nothing was applied. Preview again and ask afresh.", why))
 }
 
-// stepAskedFor is the step a request asks to waive, as a sentence names it:
-// by the name the requester was shown, or failing that its id. It is read
-// from what the request stores, and only ever to be said — a request is
-// closed without its instance being read at all.
-func stepAskedFor(request entities.DeviationRequest) string {
-	if name, ok := request.Plan["node_name"].(string); ok && name != "" {
-		return name
-	}
-	if id, ok := request.Command["node_id"].(string); ok && id != "" {
-		return id
-	}
-	return "a step"
-}
-
 // settleWaiveRequest ends a request for a waive that will not be applied —
-// stale, expired or rejected — and its ledger row with it, and says so on the
-// trail. Nothing about the instance changes, and no instance is locked: its
-// caller holds the request's row, and that is the only lock this needs before
-// the ledger row's own.
+// stale, expired or rejected — and its ledger row with it, says so on the
+// trail, and answers the request as it then is. Nothing about the instance
+// changes, and no instance is locked: its caller holds the request's row, and
+// that is the only lock this needs before the ledger row's own.
 //
 // The request is moved first: the repository refuses the move unless the
-// request still waits (ErrDeviationRequestDecided, returned as it is for a
-// sweep to tell), and nothing else has been written by then. Then the row
+// request still waits (ErrDeviationRequestDecided, returned as it is for the
+// caller to tell), and nothing else has been written by then. Then the row
 // that waited on it, which lets go of its visit — the same waive can be asked
 // for again — and names nobody as having approved. Then the entry, when there
 // is a trail to write to.
+//
+// narrative makes the entry's sentence from the step's name, which is read
+// off the ledger row: the row is in hand here, and a request read by the
+// sweep carries no plan to take a name from. So a request is needed only for
+// its id, its instance, the visit it holds, who asked and its deadline.
 //
 // decision is who rejected the request, or who found it stale; it is zero for
 // an expiry, which nobody made. Only a rejection names its decider on the
 // request: an expiry and a stale request are the clock's and the instance's
 // doing, and say so by naming nobody. A stale request and a rejected one are
-// dated by when that happened; an expired one by its deadline, which it
-// already holds.
+// dated by when that happened. An expired one is dated by its deadline, on
+// the ledger row as on the request, whenever it was found: the clock decided
+// it then, and whoever writes it down only records that.
 func (s *instanceDeviationService) settleWaiveRequest(
 	ctx context.Context,
 	request entities.DeviationRequest,
 	rowStatus entities.DeviationStatus,
 	requestStatus entities.DeviationRequestStatus,
-	eventType, narrative string,
+	eventType string,
+	narrative func(step string) string,
 	decision entities.DeviationDecision,
 	outcome map[string]any,
-) error {
+) (entities.DeviationRequest, error) {
+	var none entities.DeviationRequest
 	if s.repo.DeviationRequest() == nil || s.repo.DeviationDecider() == nil {
-		return errNoDeviationRequests
+		return none, errNoDeviationRequests
 	}
 	at := decision.At
 	if at.IsZero() {
@@ -443,25 +447,34 @@ func (s *instanceDeviationService) settleWaiveRequest(
 		change.DecidedBy, change.DecidedByID, change.DecisionReason, change.DecidedAt = decision.Decider, decision.DeciderID, decision.Reason, at
 	case entities.DeviationRequestStale:
 		change.DecidedAt = at
+	case entities.DeviationRequestExpired:
+		at = request.ExpiresAt
 	}
 	settled, err := s.repo.DeviationRequest().Transition(ctx, request.ID, entities.DeviationRequestPending, change)
 	if err != nil {
-		return fmt.Errorf("closing request %s as %s: %w", request.ID, requestStatus, err)
+		return none, fmt.Errorf("closing request %s as %s: %w", request.ID, requestStatus, err)
 	}
 	pending, err := s.rowWaitingOn(ctx, request)
 	if err != nil {
-		return err
+		return none, err
 	}
 	row, err := s.repo.DeviationDecider().Decide(ctx, pending.ID, repocontracts.LedgerRowDecision{Status: rowStatus, DecidedAt: at})
 	if err != nil {
-		return fmt.Errorf("closing the ledger row of request %s as %s: %w", request.ID, rowStatus, err)
+		return none, fmt.Errorf("closing the ledger row of request %s as %s: %w", request.ID, rowStatus, err)
 	}
-	entry := requestEntry(eventType, settled, row, narrative)
+	entry := requestEntry(eventType, settled, row, narrative(stepOf(row)))
 	switch requestStatus {
 	case entities.DeviationRequestRejected:
 		entry.Data["rejected_by"] = decision.Decider
+		// Said only when it is so, as every mark on an entry is.
+		if decision.DeciderID == request.RequestedByID {
+			entry.Data["withdrawn"] = true
+		}
 	case entities.DeviationRequestStale:
 		entry.Data["attempted_by"] = decision.Decider
 	}
-	return s.writeEntries(ctx, row, entry)
+	if err := s.writeEntries(ctx, row, entry); err != nil {
+		return none, err
+	}
+	return settled, nil
 }

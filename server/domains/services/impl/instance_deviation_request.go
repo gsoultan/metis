@@ -181,8 +181,75 @@ func storeRequest(
 // A state they met, not a mistake: there is no class for a conflict, so it is
 // an invalid argument, as "already waived by …" is.
 func alreadyWaiting(row entities.Deviation, request entities.DeviationRequest) error {
-	return apierr.Invalidf("A request to waive “%s” is already waiting for approval (request %s, asked by %s); approve or reject that one.",
+	return apierr.Invalidf("%s", alreadyWaitingSentence(row, request))
+}
+
+// alreadyWaitingSentence is alreadyWaiting's words, for a preview to say
+// before an apply would.
+func alreadyWaitingSentence(row entities.Deviation, request entities.DeviationRequest) string {
+	return fmt.Sprintf("A request to waive “%s” is already waiting for approval (request %s, asked by %s); approve or reject that one.",
 		stepOf(row), request.ID, request.RequestedBy)
+}
+
+// withWhatWaits adds to a preview's plan what an apply of it would meet when
+// a request already waits for the visit — so that it is read in the preview
+// and not found by applying.
+//
+// To whoever made that request, previewing the same thing, it is a warning:
+// an apply would answer with the request that waits, and the plan still
+// applies. To anybody else, and for anything else asked of the visit, it is a
+// refusal, in the words the apply would refuse with (alreadyWaiting). The two
+// are told apart exactly as the apply tells them (replayWaiting): by account
+// id, and by what is asked.
+//
+// A request past its deadline, or over, says nothing here: it does not hold
+// the visit, and an apply closes it and makes a fresh one. Only a waive is
+// looked at — nothing else waits for anybody — and only a plan that names a
+// visit.
+//
+// It reads the visit's live row and its request, takes no lock and writes
+// nothing, as a preview does. It is added to a preview's plan only: the plan
+// an apply or an approval makes under the instance's lock is judged without
+// it, or a request would refuse its own approval.
+func (s *instanceDeviationService) withWhatWaits(
+	ctx context.Context,
+	plan entities.DeviationPlan,
+	command entities.DeviationCommand,
+) (entities.DeviationPlan, error) {
+	if plan.Kind != entities.DeviationWaive || plan.VisitKey == "" {
+		return plan, nil
+	}
+	store := s.repo.Deviation()
+	if store == nil {
+		return plan, errNoDeviationLedger
+	}
+	row, found, err := store.FindLiveByVisit(ctx, command.InstanceID, plan.VisitKey)
+	if err != nil || !found || row.Status != entities.DeviationPendingApproval {
+		return plan, err
+	}
+	request, err := s.requestWaitedOn(ctx, row)
+	if err != nil {
+		return plan, err
+	}
+	if request.EffectiveStatus(time.Now()) != entities.DeviationRequestPending {
+		return plan, nil
+	}
+	caller := signedIn(ctx)
+	mine := caller != nil && caller.ID != uuid.Nil && caller.ID == request.RequestedByID
+	if mine {
+		if mine, err = sameRequest(row, command); err != nil {
+			return plan, err
+		}
+	}
+	if !mine {
+		plan.Refusals = append(plan.Refusals, alreadyWaitingSentence(row, request))
+		return plan, nil
+	}
+	plan.Warnings = append(plan.Warnings, fmt.Sprintf(
+		"A request to waive “%s” is already waiting for approval (request %s, asked by %s, until %s). "+
+			"Applying this again answers with that request and makes no second one.",
+		stepOf(row), request.ID, request.RequestedBy, request.ExpiresAt.UTC().Format(decidedOnLayout)))
+	return plan, nil
 }
 
 // stepOf is the step a ledger row names, by its name or failing that its id.

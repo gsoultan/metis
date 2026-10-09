@@ -734,3 +734,231 @@ func TestAnApprovalAndACompletionTakeTurnsAtTheInstance(t *testing.T) {
 		}
 	})
 }
+
+// B3: the requester may withdraw their own request, and any administrator may
+// reject; a rejection needs a reason; the step stays where it was.
+func TestARequesterMayWithdrawTheirRequestAndAnyAdministratorMayReject(t *testing.T) {
+	h := newEngineHarness(t, "Reject Project")
+	w := newWaiver(h)
+	for _, who := range []string{"ana", "budi"} {
+		id := w.start(t, opsApproval(h.projID, "ops-reject-"+who), nil)
+		asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+		if _, err := w.approvals.RejectDeviationRequest(w.as(who), asked.PendingApproval.RequestID, "  "); !errors.Is(err, apierr.ErrInvalidArgument) {
+			t.Fatalf("%s rejecting without a reason: %v", who, err)
+		}
+		got, err := w.approvals.RejectDeviationRequest(w.as(who), asked.PendingApproval.RequestID, "not needed after all")
+		if err != nil || got.Status != entities.DeviationRequestRejected || got.DecidedBy != who {
+			t.Fatalf("%s rejects: %+v %v", who, got, err)
+		}
+		if rows := w.ledger(t, id); rows[0].Status != entities.DeviationRejected || len(openIterationTasks(h.Ctx(), t, h, id, "opsApprove")) != 1 {
+			t.Fatalf("after %s's rejection: row %q", who, rows[0].Status)
+		}
+		if rejections := entriesOfType(t, h, id, serviceimpl.EventDeviationRejected); len(rejections) != 1 {
+			t.Fatalf("the trail records %d rejections, want the one", len(rejections))
+		}
+	}
+}
+
+// Design §9.4, and "nothing that blocks an act is findable only by trying
+// again": an approval that could not advance leaves the request waiting and
+// says so. The requester withdraws it and asks again with a value that routes.
+func TestAWaiveWhoseApprovalCouldNotAdvanceIsWithdrawnAndAskedAgain(t *testing.T) {
+	h := newEngineHarness(t, "Withdraw And Ask Again Project")
+	w := newWaiver(h)
+	id := w.start(t, unroutable(h, "unroutable-withdrawn", entities.ExclusiveGateway, "Verdict?"), nil)
+	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "maybe"}))
+	_, err := w.approve(asked)
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "fit no way out of “Verdict?”") ||
+		!strings.HasSuffix(err.Error(), "The request is still waiting: reject it, and the waive can be asked for again.") {
+		t.Fatalf("approving a waive its gateway cannot follow: %v, want it refused saying the request still waits", err)
+	}
+	if got, _ := w.approvals.GetDeviationRequest(w.ctx, asked.PendingApproval.RequestID); got.Status != entities.DeviationRequestPending {
+		t.Fatalf("the request reads %q after an approval that changed nothing, want it still pending", got.Status)
+	}
+	if _, err := w.approvals.RejectDeviationRequest(w.ctx, asked.PendingApproval.RequestID, "the value fits no branch"); err != nil {
+		t.Fatalf("ana withdraws her request: %v", err)
+	}
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "accept"}))
+	requireInstanceStatus(h.Ctx(), t, h, id, entities.ProcessCompleted)
+	if rows := w.ledger(t, id); len(rows) != 2 || rows[0].Status != entities.DeviationRejected || rows[1].Status != entities.DeviationApplied {
+		t.Fatalf("the ledger holds %+v, want the withdrawn request and then the waive", rows)
+	}
+}
+
+// B7: approve against reject — both lock the request; one decision.
+func TestApproveAndRejectAtOnceEndInOneDecision(t *testing.T) {
+	h := newEngineHarness(t, "Approve Reject Race Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-approve-reject"), nil)
+	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	var wg sync.WaitGroup
+	var approveErr, rejectErr error
+	wg.Go(func() {
+		_, approveErr = w.approvals.ApproveDeviationRequest(w.as("budi"), asked.PendingApproval.RequestID, "")
+	})
+	wg.Go(func() {
+		_, rejectErr = w.approvals.RejectDeviationRequest(w.as("citra"), asked.PendingApproval.RequestID, "not needed")
+	})
+	wg.Wait()
+	if (approveErr == nil) == (rejectErr == nil) {
+		t.Fatalf("approve %v, reject %v: want exactly one to win", approveErr, rejectErr)
+	}
+	got, _ := w.approvals.GetDeviationRequest(w.ctx, asked.PendingApproval.RequestID)
+	waived := !h.waitingAt(h.Ctx(), t, id, "opsApprove")
+	if (approveErr == nil) != (got.Status == entities.DeviationRequestApplied && waived) {
+		t.Fatalf("approve won %v but request %q, step waived %v", approveErr == nil, got.Status, waived)
+	}
+	// Whoever lost is told what the other did, in words, and the record is of
+	// one decision: a waive and no rejection, or a rejection and no waive.
+	lost, told := approveErr, "citra rejected this on "
+	if approveErr == nil {
+		lost, told = rejectErr, "budi approved this on "
+	}
+	if !errors.Is(lost, apierr.ErrInvalidArgument) || !strings.Contains(lost.Error(), told) {
+		t.Fatalf("the decision that lost answered %v, want it told %q…", lost, told)
+	}
+	rejections, waives := len(entriesOfType(t, h, id, serviceimpl.EventDeviationRejected)), len(skippedEntries(t, h, id))
+	if rows := w.ledger(t, id); len(rows) != 1 || rejections+waives != 1 || (waives == 1) != (approveErr == nil) ||
+		(rows[0].Status == entities.DeviationApplied) != (approveErr == nil) {
+		t.Fatalf("the record holds %d row(s), %d rejection(s) and %d waive(s); want the one decision that won", len(rows), rejections, waives)
+	}
+	if !waived && got.Status != entities.DeviationRequestRejected {
+		t.Fatalf("reject won but the request reads %q", got.Status)
+	}
+}
+
+// Review Focus 1: a decided request is history, not a lock.
+func TestAWaiveCanBeAskedAgainAfterARejection(t *testing.T) {
+	h := newEngineHarness(t, "Ask Again Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-ask-again"), nil)
+	first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	if _, err := w.approvals.RejectDeviationRequest(w.as("budi"), first.PendingApproval.RequestID, "ask me again tomorrow"); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	second := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	if second.PendingApproval.RequestID == first.PendingApproval.RequestID || second.Replayed {
+		t.Fatal("asking again after a rejection answered with the rejected request")
+	}
+}
+
+// Review Focus 1, before any sweep: a request past its deadline does not hold
+// its step. Asking again closes it as expired and makes a fresh one — nobody
+// is left to find out by trying again in ten minutes.
+func TestAWaiveCanBeAskedAgainOnceItsRequestHasExpired(t *testing.T) {
+	h := newEngineHarness(t, "Ask Again After Expiry Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-ask-after-expiry"), nil)
+	first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
+		t.Fatalf("let time pass: %v", err)
+	}
+	second := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	if second.PendingApproval.RequestID == first.PendingApproval.RequestID || second.Replayed {
+		t.Fatal("asking again after the deadline answered with the expired request")
+	}
+	got, _ := w.approvals.GetDeviationRequest(w.ctx, first.PendingApproval.RequestID)
+	rows := w.ledger(t, id)
+	if got.Status != entities.DeviationRequestExpired || len(rows) != 2 || rows[0].Status != entities.DeviationExpired ||
+		rows[1].Status != entities.DeviationPendingApproval {
+		t.Fatalf("the first request reads %q and the ledger holds %+v, want it expired and the new one waiting", got.Status, rows)
+	}
+	if expiries := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expiries) != 1 {
+		t.Fatalf("the trail says a request expired %d times, want once", len(expiries))
+	}
+	if _, err := w.approve(second); err != nil {
+		t.Fatalf("budi approves the new request: %v", err)
+	}
+}
+
+// Rulings §16 (Ruling 43). The sweep and an ask-again may meet at one overdue
+// request. Whichever takes its row first closes it and the other finds it
+// closed: it expires once, and the ask-again is answered with a fresh request.
+// One harness for every round, so no round holds a pool of its own.
+func TestTheSweepAndAnAskAgainCloseAnOverdueRequestOnce(t *testing.T) {
+	h := newEngineHarness(t, "Sweep And Ask Again Project")
+	w := newWaiver(h)
+	h.deploy(t, opsApproval(h.projID, "ops-sweep-race"))
+	system := entities.WithSystemContext(h.Ctx())
+	const rounds = 6
+	for round := range rounds {
+		id, err := h.svc.StartProcess(h.Ctx(), h.projID, "ops-sweep-race", nil)
+		if err != nil {
+			t.Fatalf("round %d: start: %v", round, err)
+		}
+		first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+		if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
+			t.Fatalf("round %d: let time pass: %v", round, err)
+		}
+		again := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+
+		var start sync.WaitGroup
+		start.Add(1)
+		asked := send(func() (entities.DeviationOutcome, error) {
+			start.Wait()
+			inTime, stop := context.WithTimeout(w.ctx, lockWait)
+			defer stop()
+			return w.asking.DeviateInstance(inTime, again)
+		})
+		swept := send(func() (int64, error) {
+			start.Wait()
+			return w.approvals.ExpireDeviationRequests(system, time.Now())
+		})
+		start.Done()
+
+		second, err := asked.answer(t, "the ask-again")
+		if err != nil || second.PendingApproval == nil || second.PendingApproval.RequestID == first.PendingApproval.RequestID {
+			t.Fatalf("round %d: asking again beside the sweep: %+v, %v; want a fresh request", round, second, err)
+		}
+		if _, err := swept.answer(t, "the sweep"); err != nil {
+			t.Fatalf("round %d: the sweep: %v", round, err)
+		}
+		rows := w.ledger(t, id)
+		if len(rows) != 2 || rows[0].Status != entities.DeviationExpired || rows[1].Status != entities.DeviationPendingApproval {
+			t.Fatalf("round %d: the ledger holds %+v, want the expired request and then the new one", round, rows)
+		}
+		if expiries := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expiries) != 1 {
+			t.Fatalf("round %d: the trail says a request expired %d times, want once", round, len(expiries))
+		}
+	}
+}
+
+// B5: the sweep records what the clock already decided, once.
+func TestTheSweepExpiresWhatNobodyDecided(t *testing.T) {
+	h := newEngineHarness(t, "Sweep Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-sweep"), nil)
+	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	system := entities.WithSystemContext(h.Ctx())
+	later := time.Now().Add(73 * time.Hour)
+	if n, err := w.approvals.ExpireDeviationRequests(system, later); err != nil || n != 1 {
+		t.Fatalf("the sweep expired %d (err %v), want 1", n, err)
+	}
+	if n, _ := w.approvals.ExpireDeviationRequests(system, later); n != 0 {
+		t.Fatalf("a second sweep expired %d more", n)
+	}
+	got, _ := w.approvals.GetDeviationRequest(w.ctx, asked.PendingApproval.RequestID)
+	if got.Status != entities.DeviationRequestExpired || w.ledger(t, id)[0].Status != entities.DeviationExpired {
+		t.Fatalf("after the sweep: request %q", got.Status)
+	}
+	if expiries := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expiries) != 1 {
+		t.Fatalf("the trail says the request expired %d times, want once", len(expiries))
+	}
+}
+
+// Review Focus 5: overdue reads as expired before any sweep, and is not offered as pending.
+func TestAnOverdueRequestReadsAsExpiredBeforeTheSweep(t *testing.T) {
+	h := newEngineHarness(t, "Overdue Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-overdue"), nil)
+	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, asked.PendingApproval.RequestID)
+	pending, total, err := w.approvals.ListDeviationRequests(w.ctx, entities.DeviationRequestQuery{Status: entities.DeviationRequestPending})
+	if err != nil || total != 0 || len(pending) != 0 {
+		t.Fatalf("the pending queue lists %d overdue request(s) (err %v)", total, err)
+	}
+	got, _ := w.approvals.GetDeviationRequest(w.ctx, asked.PendingApproval.RequestID)
+	if got.Status != entities.DeviationRequestExpired {
+		t.Fatalf("an overdue request reads %q", got.Status)
+	}
+}

@@ -19,47 +19,17 @@ import (
 // word that keeps it from reading as a step somebody performed.
 const outcomeWaived = "waived"
 
-// waiveStep ends the step an instance waits at as waived, and records it:
-// the effect and its row (waived), then the ledger and the trail, which say
-// it was waived, by whom and why.
-//
-// An advance that fails — a gateway after the step with no flow for the
-// value given — fails the unit of work: nothing is set, withdrawn or
-// recorded. What the caller is told of it is waiveFailed's to say.
-func (s *instanceDeviationService) waiveStep(
-	ctx context.Context,
-	locked models.ProcessInstanceModel,
-	live *entities.ProcessInstance,
-	def *entities.ProcessDefinition,
-	plan entities.DeviationPlan,
-	command entities.DeviationCommand,
-	actor string,
-) (entities.Deviation, error) {
-	runID, err := uuid.NewV7()
-	if err != nil {
-		return entities.Deviation{}, err
-	}
-	row, control, err := s.waived(ctx, locked, live, def, plan, command, actor, runID)
-	if err != nil {
-		return entities.Deviation{}, err
-	}
-	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID, control))
-	if err != nil {
-		return entities.Deviation{}, effectFailed(fmt.Sprintf("recording that “%s” was waived", plan.NodeName), err)
-	}
-	return recorded, nil
-}
-
 // waived ends the step an instance waits at as waived and answers the ledger
 // row that says so — made, and not yet recorded: what the waiver counts as is
 // set, the work open on the step is withdrawn and whoever held it told, and
 // the step is ended whole and the instance moved on from it once.
 //
-// The row is its caller's to write. An apply records it as a new row
-// (waiveStep); an approval writes it over the row that waited for it, so that
-// an approved waive leaves exactly the row a waive always left. control says
-// the step is marked as a control, for the trail entry the caller writes
-// beside the row.
+// The row is its caller's to write, and its one caller is the approval of a
+// second administrator (applyApproved), which writes it over the row that
+// waited for it — so that an approved waive leaves exactly the row a waive
+// left when one administrator could make it. Nothing else calls this: the
+// request that asks for a waive makes none. control says the step is marked
+// as a control, for the trail entry the caller writes beside the row.
 //
 // The values are set before the instance moves on, so what follows the step
 // decides from what the waiver counts as and not from what an earlier visit

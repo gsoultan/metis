@@ -20,6 +20,11 @@ import (
 // graph it runs and plan the plan made from it. The change, the row and the
 // trail entry are written in the caller's unit of work, so they are kept
 // together or not at all.
+//
+// It cancels and it holds. It does not waive: a waive is asked for (request)
+// and made by the approval of a second administrator (approveWaive), and
+// there is no path by which the request that asks for one makes it. Handed a
+// waive all the same, it refuses as the server's own mistake.
 func (s *instanceDeviationService) act(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
@@ -31,7 +36,8 @@ func (s *instanceDeviationService) act(
 ) (entities.Deviation, error) {
 	switch command.Kind {
 	case entities.DeviationWaive:
-		return s.waiveStep(ctx, locked, live, def, plan, command, actor)
+		return entities.Deviation{}, fmt.Errorf(
+			"acting on instance %s: a waive is never made on one administrator's call; it waits for a second administrator, and only an approval makes it", live.ID)
 	case entities.DeviationCancel:
 		return s.cancelWhereItStands(ctx, locked, plan, command, actor)
 	case entities.DeviationHold:
