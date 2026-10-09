@@ -38,8 +38,7 @@ const decidedOnLayout = "2 January 2006 15:04 MST"
 func requireDecidingAdministrator(ctx context.Context) (entities.User, error) {
 	caller := signedIn(ctx)
 	organization := entities.ActingOrganization(ctx)
-	if caller == nil || caller.Username == "" || organization == uuid.Nil ||
-		!caller.HoldsRoleIn(organization, entities.RoleAdmin) {
+	if caller == nil || caller.Username == "" || !administers(*caller, organization) {
 		return entities.User{}, apierr.Forbiddenf("only an administrator can ask for or decide a request for a second administrator")
 	}
 	if caller.ID == uuid.Nil {

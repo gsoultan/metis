@@ -240,12 +240,17 @@ func (s *migrationService) admit(ctx context.Context, id uuid.UUID, caller entit
 //     is refused here, having changed nothing, and the attempt is said in the
 //     server's log.
 //  3. A request past its deadline is recorded as expired and refused.
-//  4. The migration is read from the request's stored command, authorised by
+//  4. Whoever asked still administers the request's organization
+//     (requesterNoLongerAdministers), or the request is stale: the run is
+//     authorised by whoever asked, and nobody who could still ask stands
+//     behind it. Asked after the deadline and before anything of the request
+//     is read, as a waive's approval asks it.
+//  5. The migration is read from the request's stored command, authorised by
 //     whoever asked.
-//  5. It is planned again. A plan that can no longer be made, one that now
+//  6. It is planned again. A plan that can no longer be made, one that now
 //     refuses, another policy than the one asked for, or an instance the
 //     request did not show makes the request stale: recorded, and refused.
-//  6. The request is approved: who, from which account, why and when — and,
+//  7. The request is approved: who, from which account, why and when — and,
 //     for an approval by whoever asked, what that exception rested on.
 //
 // No instance is locked at any step: the plan only reads.
@@ -273,6 +278,16 @@ func (s *migrationService) admitLocked(ctx context.Context, id uuid.UUID, caller
 		return none, refuseAfterCommit(apierr.Invalidf(
 			"This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.",
 			request.ExpiresAt.UTC().Format(decidedOnLayout)))
+	}
+	gone, err := s.rules.requesterNoLongerAdministers(ctx, request)
+	if err != nil {
+		return none, err
+	}
+	if gone != "" {
+		if err := closeMigrationRequestStale(ctx, requests, request, decision, gone, nil); err != nil {
+			return none, err
+		}
+		return none, refuseAfterCommit(errRequesterGone(request))
 	}
 	run, err := storedRun(request)
 	if err != nil {
@@ -379,6 +394,24 @@ func staleMigrationRequest(
 	why string,
 	refusals []string,
 ) error {
+	if err := closeMigrationRequestStale(ctx, requests, request, decision, why, refusals); err != nil {
+		return err
+	}
+	return refuseAfterCommit(apierr.Invalidf("This request no longer holds, so nothing was applied: %s. Ask again.", why))
+}
+
+// closeMigrationRequestStale writes that a request for a migration no longer
+// held when decision's administrator came to approve it: stale, saying why
+// and who found it. It refuses nothing; its caller does, after the commit, in
+// the words that fit why.
+func closeMigrationRequestStale(
+	ctx context.Context,
+	requests repocontracts.DeviationRequestRepository,
+	request entities.DeviationRequest,
+	decision entities.DeviationDecision,
+	why string,
+	refusals []string,
+) error {
 	_, err := requests.Transition(ctx, request.ID, entities.DeviationRequestPending, repocontracts.DeviationRequestChange{
 		Status: entities.DeviationRequestStale, DecidedAt: decision.At,
 		Outcome: map[string]any{"why": why, "refusals": listed(refusals), "attempted_by": decision.Decider},
@@ -386,5 +419,5 @@ func staleMigrationRequest(
 	if err != nil {
 		return fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestStale, err)
 	}
-	return refuseAfterCommit(apierr.Invalidf("This request no longer holds, so nothing was applied: %s. Ask again.", why))
+	return nil
 }

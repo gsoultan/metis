@@ -97,19 +97,25 @@ func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUI
 //     attempt is said in the server's log, where alone it leaves a mark.
 //  2. A request past its deadline is recorded as expired and refused. The
 //     repository does not look at the clock; this does.
-//  3. The command is read from the request, and is the request's own: it
+//  3. Whoever asked still administers the request's organization
+//     (requesterNoLongerAdministers). Otherwise the request is stale: nobody
+//     who could still ask for it stands behind it. It is asked after the
+//     deadline, because a request past its deadline is expired whoever finds
+//     it and whatever else is true of it, and before anything of the request
+//     is read or of the instance decided.
+//  4. The command is read from the request, and is the request's own: it
 //     names the request's instance, and the visit the request holds.
-//  4. The instance's row is taken, once, and held to the end — as apply takes
+//  5. The instance's row is taken, once, and held to the end — as apply takes
 //     it, and nowhere else here.
-//  5. The instance is still running (refuseEnded). One that has ended makes
+//  6. The instance is still running (refuseEnded). One that has ended makes
 //     the request stale. One that is suspended is refused in refuseEnded's
 //     own words and the request left waiting: it has not ended or moved, and
 //     nothing asked for has changed.
-//  6. The plan is made again from the locked row and is the plan the request
+//  7. The plan is made again from the locked row and is the plan the request
 //     pinned, with nothing refusing it, and the instance still waits at the
 //     step (refuseUnlessAsPreviewed). Otherwise the request is stale. The
 //     plan the request stores is not read: it is what somebody was shown.
-//  7. The waive (applyApproved).
+//  8. The waive (applyApproved).
 func (s *instanceDeviationService) approveLocked(
 	ctx context.Context,
 	id uuid.UUID,
@@ -133,6 +139,16 @@ func (s *instanceDeviationService) approveLocked(
 	}
 	if request.EffectiveStatus(decision.At) == entities.DeviationRequestExpired {
 		return none, s.expiredAtApproval(ctx, request)
+	}
+	gone, err := s.rules.requesterNoLongerAdministers(ctx, request)
+	if err != nil {
+		return none, err
+	}
+	if gone != "" {
+		if err := s.closeStale(ctx, request, decision, gone, nil); err != nil {
+			return none, err
+		}
+		return none, refuseAfterCommit(errRequesterGone(request))
 	}
 	command, err := commandOf(request)
 	if err != nil {
@@ -393,16 +409,30 @@ func (s *instanceDeviationService) staleAtApproval(
 	why string,
 	refusals []string,
 ) error {
+	if err := s.closeStale(ctx, request, decision, why, refusals); err != nil {
+		return err
+	}
+	return refuseAfterCommit(apierr.Invalidf("This request no longer holds — %s — so nothing was applied. Preview again and ask afresh.", why))
+}
+
+// closeStale records that a request no longer held when decision's
+// administrator came to approve it: the request and its ledger row stale,
+// saying why, and an entry on the trail that says who tried. It refuses
+// nothing; its caller does, after the commit, in the words that fit why.
+func (s *instanceDeviationService) closeStale(
+	ctx context.Context,
+	request entities.DeviationRequest,
+	decision entities.DeviationDecision,
+	why string,
+	refusals []string,
+) error {
 	narrative := func(step string) string {
 		return fmt.Sprintf("The request to waive “%s” that %s made no longer held when %s tried to approve it, so nothing changed: %s",
 			step, request.RequestedBy, decision.Decider, why)
 	}
 	_, err := s.settleWaiveRequest(ctx, request, entities.DeviationStale, entities.DeviationRequestStale,
 		EventDeviationStale, narrative, decision, map[string]any{"why": why, "refusals": listed(refusals)})
-	if err != nil {
-		return err
-	}
-	return refuseAfterCommit(apierr.Invalidf("This request no longer holds — %s — so nothing was applied. Preview again and ask afresh.", why))
+	return err
 }
 
 // settleWaiveRequest ends a request for a waive that will not be applied —
