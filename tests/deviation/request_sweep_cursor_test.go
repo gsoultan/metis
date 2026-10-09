@@ -70,6 +70,22 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 		}
 	}
 
+	// Two the clock has not closed, each standing after every request above
+	// in a read's order: one that waits and is not yet due, and an approved
+	// one whose run window is open. A cursor says where a read goes on from
+	// and nothing else — the predicate on time still holds beside it — so
+	// neither read may answer them, from the start or from any cursor. Every
+	// comparison below is with exactly the requests above: each is also a
+	// check that these two are left out.
+	notDue := h.mustCreateRequest(t, h.sampleRequest(
+		h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"}), "dv1-cursor-not-due"))
+	running := h.requestAt(t, h.sampleMigration(t, "mf1-cursor-running"), entities.DeviationRequestApproved)
+	if !notDue.ExpiresAt.After(now.Add(time.Hour)) || running.DecidedAt == nil || running.DecidedAt.Before(now.Add(-time.Minute)) ||
+		!running.ExpiresAt.After(now.Add(time.Hour)) {
+		t.Fatalf("the fixtures are not what they are meant to be: a request due at %s, and one approved at %v and due at %s",
+			notDue.ExpiresAt, running.DecidedAt, running.ExpiresAt)
+	}
+
 	// paged reads everything a read answers, a page at a time, each page in a
 	// transaction of its own, the cursor at the last request of the page before.
 	paged := func(ctx context.Context, list sweepRead, size int) (pages [][]uuid.UUID) {
@@ -138,6 +154,18 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 		t.Errorf("after a moment later than every deadline: %v, want nothing", got)
 	}
 
+	// The same of the other read, from the last request whose run never
+	// reported: the approved request whose window is open stands after it,
+	// and is not answered.
+	var beyond []entities.DeviationRequest
+	if err := h.repo.UnitOfWork().Do(system, func(tx context.Context) error {
+		var err error
+		beyond, err = requests.ListUnreported(tx, now, repocontracts.SweepCursor{ExpiresAt: base.Add(11 * time.Minute), ID: unreported[1]}, 100)
+		return err
+	}); err != nil || len(beyond) != 0 {
+		t.Errorf("after the last request whose run never reported: %v (%v), want nothing — the one whose window is open is not due", requestIDs(beyond), err)
+	}
+
 	// A row somebody holds is not answered; the pass reads the rest.
 	held := h.holdOpen(t, `SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE`, overdue[1])
 	want := []uuid.UUID{overdue[0], overdue[2], overdue[3], overdue[4]}
@@ -158,6 +186,20 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 	}
 	if got := flat(paged(h.tenantContext(), requests.ListUnreported, 1)); !slices.Equal(got, unreported) {
 		t.Errorf("the organization's own sweep of what never reported, paged: %v, want %v", got, unreported)
+	}
+
+	// And the sweep itself, over all of it, closes neither. (What it answers
+	// is not looked at: the requests above were written through the
+	// repository and have no ledger row to close with them.)
+	_, _ = h.svc.SweepDeviationRequests(system, now)
+	if got := h.requestStatus(t, notDue.ID.String()); got != string(entities.DeviationRequestPending) {
+		t.Errorf("after a sweep the request that is not yet due is stored as %s, want it still waiting", got)
+	}
+	if got := h.requestStatus(t, running.ID.String()); got != string(entities.DeviationRequestApproved) {
+		t.Errorf("after a sweep the approved request whose window is open is stored as %s, want it still approved", got)
+	}
+	if got := h.requestStatus(t, unreported[0].String()); got != string(entities.DeviationRequestInterrupted) {
+		t.Errorf("after a sweep the approved request whose run never reported is stored as %s, want interrupted — the sweep did run", got)
 	}
 }
 
