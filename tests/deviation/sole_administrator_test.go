@@ -112,6 +112,14 @@ func (h *deviationHarness) enrol(t *testing.T, name string, spec enrolled) (uuid
 	return account.ID, h.login(t, name)
 }
 
+// remove deletes an account, as the account service deletes one.
+func (h *deviationHarness) remove(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	if err := h.svc.DeleteUser(entities.WithSystemContext(context.Background()), id); err != nil {
+		t.Fatalf("delete account %s: %v", id, err)
+	}
+}
+
 func (h *deviationHarness) login(t *testing.T, name string) string {
 	t.Helper()
 	status, body := h.do(t, http.MethodPost, "", "/api/v1/login", map[string]string{"username": name, "password": harnessPassword})
@@ -191,8 +199,12 @@ func (h *deviationHarness) entriesOf(t *testing.T, instanceID uuid.UUID, eventTy
 // zero, or written so that it cannot be read, an administrator's approval of
 // their own request is refused exactly as it was before the setting existed —
 // alone in the organization or not — and changes nothing.
+//
+// Every spelling is read by one function, and its own test goes through them
+// all (TestOnlyAValueThatReadsAsTrueTurnsOnSoleAdministratorSelfApproval);
+// here a server is started for each kind of "not true", and asked.
 func TestASoleAdministratorsOwnApprovalWaitsUnlessTheSettingSaysTrue(t *testing.T) {
-	for _, raw := range []string{"absent", "", "false", "0", "FALSE", "yes please", "on", "yes", "enabled", "2", " true", "true ", "TrUe"} {
+	for _, raw := range []string{"absent", "", "false", "0", "yes please", "true "} {
 		t.Run("the setting is "+raw, func(t *testing.T) {
 			var h *deviationHarness
 			if raw == "absent" {
@@ -499,7 +511,6 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 	}
 	t.Setenv(platformadmins.Env, strings.Join(listed, ","))
 	installation := soleSetting(t, "true")
-	system := entities.WithSystemContext(context.Background())
 
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -507,9 +518,7 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 			boss := h.signIn(t, fmt.Sprintf("boss-%d", i), entities.RoleAdmin)
 			id, token := h.enrol(t, fmt.Sprintf("candidate-%d", i), c.spec)
 			if c.deleted {
-				if err := h.svc.DeleteUser(system, id); err != nil {
-					t.Fatalf("delete the candidate: %v", err)
-				}
+				h.remove(t, id)
 			}
 			instanceID := h.oneStep(t)
 			requestID := h.askToWaive(t, boss, instanceID)
