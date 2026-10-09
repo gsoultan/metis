@@ -71,16 +71,18 @@ func hoursOf(d time.Duration) string {
 // comma-separated, of the organizations whose only administrator may approve
 // a request they asked for themselves.
 //
-// It reopens what the control closes — a waive made on one person's say — so
-// it is narrow. Unset or empty, it applies nowhere. It applies only in an
+// It reopens what the control closes — a waive, or a migration that skips a
+// step or drops a control, made on one person's say — so it is narrow. Unset or empty, it applies nowhere. It applies only in an
 // organization named here, and there only while no other account that is not
 // deleted, belongs to the organization and holds the administrator role
 // there — on the account, or in that organization alone — exists; the moment
 // one does, the requester is refused as anywhere else. Each use needs a
-// reason, and is recorded as nobody else's approval: a
+// reason, and is recorded as nobody else's approval: for a waive, a
 // deviation_self_approved entry on the trail; self_approved, the
 // organization and other_administrators on it and on the ledger row; and a
-// line in the server's log.
+// line in the server's log. A migration's request has no instance and so no
+// entry of its own: the entries and the ledger rows its run writes carry the
+// same three, and so does the request's outcome.
 //
 // Organizations are named, rather than the exception switched on for the
 // installation, because in an organization with two administrators either
