@@ -54,9 +54,15 @@ func errNoAccountToDecideWith() error {
 
 // approvalRules decides who may approve a request. It is one value so that
 // the in-place approval and the migration's ask the same rule, and so that
-// the one setting that relaxes it has one place to be read.
+// the one setting that relaxes it is held in one place.
 type approvalRules struct {
 	repo repositories.Repository
+	// allowSole says this installation lets the administrator who asked for
+	// a request approve it while nobody else administers the organization
+	// (EnvAllowSoleAdministratorSelfApproval). False unless whoever built
+	// the service said otherwise: nothing here reads the environment, and
+	// nothing a request carries reaches it.
+	allowSole bool
 }
 
 // admit answers the decision caller may make on request, or why not: a
@@ -70,22 +76,45 @@ type approvalRules struct {
 // is put — the repository answers "nobody else" for an organization outside
 // the caller's scope, which here would read as leave to approve alone.
 //
-// request is the row its caller holds; caller is who requireDecidingAdministrator
+// It is asked whether or not this installation lets a sole administrator
+// approve (allowSole), because the two refusals differ: with somebody else
+// to ask, the requester is told to ask them; with nobody, that the request
+// waits. Only the second is ever relaxed.
+//
+// request is the row its caller holds — locked, by an approval — and ctx the
+// unit of work that holds it; caller is who requireDecidingAdministrator
 // answered.
 func (r approvalRules) admit(ctx context.Context, request entities.DeviationRequest, caller entities.User, reason string) (entities.DeviationDecision, error) {
 	if request.Status != entities.DeviationRequestPending {
 		return entities.DeviationDecision{}, decidedRefusal(request)
 	}
-	// Nothing in this change lets a requester approve alone; the setting
-	// that does is read here when it arrives.
-	const allowSole = false
-	return admitDecider(caller, request, reason, allowSole, func() (bool, error) {
+	return admitDecider(caller, request, reason, r.allowSole, func() (bool, error) {
 		return r.anotherAdministrator(ctx, request, caller)
 	})
 }
 
 // anotherAdministrator reports whether somebody other than caller
 // administers the organization request belongs to.
+//
+// "Administers" is what the approval's own checks ask of whoever approves
+// (the routes' role gate, and requireDecidingAdministrator): an account that
+// is not deleted, belongs to the organization, and holds the administrator
+// role on the account or in that organization alone — compared by
+// entities.HasRole, the comparison those checks make. So somebody counts
+// here exactly when their own approval of this request would be let through.
+// The administrator role held in every organization by an account that does
+// not belong to this one does not count: that account cannot act here. Nor
+// does being named a platform administrator, which grants no role.
+//
+// It is one read of the accounts as committed when it is made, after the
+// approval has taken the request's row: on the approval's own transaction
+// when the request is for the main database, and on the main database's pool
+// when it is for an environment's, where the accounts are not. Nothing holds
+// the accounts still while the approval finishes, so an administrator
+// appointed a moment later is not seen — the approval is then one made just
+// before a second administrator appeared, and says "nobody else" of the
+// moment it asked. One appointed, and committed, before this read is always
+// seen.
 func (r approvalRules) anotherAdministrator(ctx context.Context, request entities.DeviationRequest, caller entities.User) (bool, error) {
 	if request.Project == nil {
 		return false, fmt.Errorf("request %s names no project, so its organization cannot be told", request.ID)

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
@@ -82,9 +81,7 @@ func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUI
 		return entities.DeviationRequestOutcome{}, err
 	}
 	if outcome.Request.SelfApproved() {
-		log.Warn().Str("request", outcome.Request.ID.String()).Str("actor", outcome.Request.DecidedBy).
-			Msg("An administrator approved their own request; nobody else administers the organization. " +
-				"The ledger records that no second person approved it.")
+		traceSelfApproval(outcome.Request)
 	}
 	return outcome, nil
 }

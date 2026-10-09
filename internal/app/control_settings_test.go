@@ -29,3 +29,47 @@ func TestAnApprovalWindowThatIsNotUsedAsWrittenIsSaidAtBoot(t *testing.T) {
 		})
 	}
 }
+
+// A setting that lets an administrator approve their own request is a control
+// switched off for the organizations it applies to. Whoever inherits the
+// installation reads the startup log, so it says so there — once, as a
+// warning that names the setting and what it permits — and says nothing when
+// it is off. Written so that it cannot be read it is off, and that is said
+// too: whoever wrote it believes it is on.
+func TestTheSoleAdministratorSettingIsAnnouncedAtBoot(t *testing.T) {
+	const setting = "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL"
+	if serviceimpl.EnvAllowSoleAdministratorSelfApproval != setting {
+		t.Fatalf("the setting is named %s", serviceimpl.EnvAllowSoleAdministratorSelfApproval)
+	}
+	const on = "An administrator may approve their own request for a second administrator when nobody else administers " +
+		"the organization, because this setting is on. Each such approval needs a reason and is recorded as approved by " +
+		"nobody else. Appoint a second administrator, then turn it off."
+	for raw, want := range map[string]string{
+		"": "", "false": "", "0": "",
+		"true": on, "1": on,
+		"maybe":      setting + `="maybe" cannot be read as true or false; it is off`,
+		"yes please": setting + `="yes please" cannot be read as true or false; it is off`,
+		"true ":      setting + `="true " cannot be read as true or false; it is off`,
+	} {
+		t.Run("set to "+raw, func(t *testing.T) {
+			logs := captureLogs(t)
+			t.Setenv(setting, raw)
+			logFeatureConfiguration()
+			var said []map[string]any
+			for _, line := range logs.said("") {
+				if line["setting"] == setting {
+					said = append(said, line)
+				}
+			}
+			if want == "" {
+				if len(said) != 0 {
+					t.Fatalf("with %s=%q the startup log named it: %v", setting, raw, said)
+				}
+				return
+			}
+			if len(said) != 1 || said[0]["level"] != "warn" || said[0]["message"] != want {
+				t.Fatalf("with %s=%q the startup log said %v; want one warning that reads\n  %s", setting, raw, said, want)
+			}
+		})
+	}
+}

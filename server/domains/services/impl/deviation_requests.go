@@ -48,15 +48,29 @@ func WithSweepLockWait(wait time.Duration) DeviationRequestOption {
 	return func(s *deviationRequestService) { s.sweepLockWait = wait }
 }
 
+// WithSoleAdministratorSelfApproval says whether the administrator who asked
+// for a request may approve it while nobody else administers the
+// organization (EnvAllowSoleAdministratorSelfApproval). It is the only way
+// the service is told: built without it, the service refuses, whatever the
+// environment says. The server passes what it read when it started.
+func WithSoleAdministratorSelfApproval(allowed bool) DeviationRequestOption {
+	return func(s *deviationRequestService) { s.rules.allowSole = allowed }
+}
+
 // NewDeviationRequestService builds the service of requests for a second
 // administrator over a repository and the engine that runs the instances a
 // waive acts on.
+//
+// The approval of a waive is given the rules the service was built with,
+// once the options have been read: there is one rule for who may approve,
+// whichever kind of request it is.
 func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine, options ...DeviationRequestOption) servicecontracts.DeviationRequestService {
 	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine), rules: approvalRules{repo: repo},
 		sweepLockWait: defaultSweepLockWait, sweepBudget: defaultSweepBudget}
 	for _, option := range options {
 		option(service)
 	}
+	service.waives.rules = service.rules
 	return service
 }
 
