@@ -741,18 +741,90 @@ func (f *fixture) assertEveryTokenHasAStep(t *testing.T) {
 	}
 }
 
+// repeatingWork is repeating with its step parked for an outside worker once
+// for each item, in place of a task somebody does: a repeating step whose
+// runs the engine counts as it always has.
+func repeatingWork(projectID uuid.UUID) *entities.ProcessDefinition {
+	def := repeating(projectID, true)
+	for _, node := range def.Nodes {
+		if node.ID == "eachReviewer" {
+			node.Type, node.Assignee, node.ExternalTopic = entities.ServiceTask, "", "reviews"
+		}
+	}
+	return def
+}
+
 // TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithoutTheStep.
 //
 // Nothing races here either. A skip of a step that runs once per item counts
 // one of them and leaves the others' tokens on the step (recorded in the
 // roadmap, and not this change's to mend). The rewrite then moved the instance,
 // those tokens with it, onto a version that has no such step. It is left on
-// the version it runs instead, where the same migration, run again, finds the
-// rest of the step and skips it; once nothing of the step is left, it moves.
+// the version it runs instead, and told why by the name its step goes by.
 //
-// Asserted as what must hold however many runs the step takes, so that a skip
-// which one day ends the whole step at once still passes.
+// The step is one parked for an outside worker, not one somebody does. A
+// repeating approval was what this used: since a skip ends such a step whole
+// (TestASkipOfARepeatingApprovalEndsTheStepWholeAndMovesTheInstanceInOneRun,
+// below), nothing of it is left behind, and the test passed without meeting
+// what it was written for. So it now fails if the skip leaves nothing behind.
+//
+// It asserts the first run and no further. What running the same migration
+// again does to such a step — it does not finish it — is the engine's
+// counting of a repeating step nobody does by hand, which is as it has
+// always been and is not changed here.
 func TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithoutTheStep(t *testing.T) {
+	f := newFixture(t)
+	v1, err := f.svc.CreateDefinition(f.ctx, repeatingWork(f.project))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	if _, err := f.svc.StartProcess(f.ctx, f.project, "repeating-review", map[string]any{"reviewers": []any{"x", "y", "z"}}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	v2, err := f.svc.CreateDefinition(f.ctx, repeating(f.project, false))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+	opts := []servicecontracts.MigrationOption{
+		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
+			"eachReviewer": {Kind: servicecontracts.NodeActionSkip, Reason: "the reviews were dropped"},
+		}),
+		servicecontracts.WithActor("dita"),
+	}
+
+	result, err := f.applyWithApproval(t, v1, v2, nil, opts...)
+	if err != nil {
+		t.Fatalf("the run: %v", err)
+	}
+	instance := f.onlyInstance(t)
+	left := 0
+	for _, token := range instance.Tokens {
+		if token.Node != nil && token.Node.ID == "eachReviewer" {
+			left++
+		}
+	}
+	if left == 0 {
+		t.Fatal("the skip left nothing of the step behind: this test no longer meets what it is about")
+	}
+	if instance.Definition == nil || instance.Definition.ID != v1 {
+		t.Fatalf("the instance was moved to a version without the step, with %d token(s) still on it", left)
+	}
+	f.assertEveryTokenHasAStep(t)
+	// Left behind, and said to be, by the name its step goes by. The skip it
+	// did make stands and is counted.
+	assertPassedOver(t, result, instance, "Review by each", "eachReviewer")
+	if result.Changed != 1 {
+		t.Errorf("the run says it acted on %d instance(s), want the one whose step it skipped a run of", result.Changed)
+	}
+}
+
+// TestASkipOfARepeatingApprovalEndsTheStepWholeAndMovesTheInstanceInOneRun.
+//
+// What the test above used to be run on: a step somebody does, once for each
+// of several people. A skip ends every run of such a step together (it used
+// to count one and leave the rest), so one run of the migration skips the
+// step, leaves no token behind, passes nobody over and moves the instance.
+func TestASkipOfARepeatingApprovalEndsTheStepWholeAndMovesTheInstanceInOneRun(t *testing.T) {
 	f := newFixture(t)
 	v1, err := f.svc.CreateDefinition(f.ctx, repeating(f.project, true))
 	if err != nil {
@@ -772,23 +844,14 @@ func TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithout
 		servicecontracts.WithActor("dita"),
 	}
 
-	moved := false
-	for run := 1; run <= 5 && !moved; run++ {
-		result, err := f.applyWithApproval(t, v1, v2, nil, opts...)
-		if err != nil {
-			t.Fatalf("run %d: %v", run, err)
-		}
-		f.assertEveryTokenHasAStep(t)
-		instance := f.onlyInstance(t)
-		moved = instance.Definition != nil && instance.Definition.ID == v2
-		if !moved {
-			// Left behind, and said to be, by the name its step goes by.
-			assertPassedOver(t, result, instance, "Review by each", "eachReviewer")
-		}
+	result, err := f.applyWithApproval(t, v1, v2, nil, opts...)
+	if err != nil {
+		t.Fatalf("the run: %v", err)
 	}
-	if !moved {
-		t.Fatal("five runs of the same migration did not move the instance; it can never leave the old version")
+	if result.Changed != 1 || len(result.PassedOver) != 0 {
+		t.Fatalf("the run acted on %d and passed over %d, want the one instance skipped and moved, and nobody left behind", result.Changed, len(result.PassedOver))
 	}
+	f.assertEveryTokenHasAStep(t)
 	f.assertWaitingAt(t, v2, "sign")
 	f.runsToItsEnd(t)
 }
