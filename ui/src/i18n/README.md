@@ -50,6 +50,13 @@ on the server is listed before any catalogue has words for it, so the legend
 shows the server's words for a method the catalogue does not know yet rather
 than the bare key; `tests/roledrift` fails on a key that names no gate.
 
+Why a migration did not move an instance is said the same way. The server
+sends the cause as a code beside its own English sentence, and the catalogues
+word each cause (`migration.passedOver.<cause>`). A cause the catalogue does
+not know — a newer server's — is said with the server's sentence, and so is
+one whose sentence here could not be said whole; `tests/roledrift` holds the
+keys to the server's set of causes.
+
 ## What is translated so far
 
 The shell: navigation, the language menu itself, and the offline and update
@@ -58,7 +65,11 @@ and Help's checklist and glossary. The glossary's steps keep the palette's
 names, which are still English, so a step can be looked up by the name seen on
 it. The Roles view on the Platform access page and the actions each role is
 required for, except the role names and their sentences, which come from
-`domain/roles.ts` and are still English. **Everything else is still hardcoded
+`domain/roles.ts` and are still English. In the dialog that migrates running
+instances: what it says of an apply that was sent to a second administrator,
+and of the instances a run did not move and why — the rest of that dialog is
+English, and so are the reasons the server gives for asking a second
+administrator, which are its sentences. **Everything else is still hardcoded
 English** — the rest of the pages, forms, designer and decision editor, which is
 the large majority of the strings.
 
