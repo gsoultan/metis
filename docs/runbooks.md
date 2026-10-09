@@ -829,20 +829,32 @@ FROM instance_deviations WHERE request_id = '<request-id>';
 ```
 
 Only for a request that reads `pending_approval` there and is past its
-`expires_at`, close both in one transaction, the ledger row dated by the
-deadline as the pass would have dated it:
+`expires_at`, close both in one transaction: the request first, as every
+decision takes it first, and then the ledger row that waits on it, dated by
+the deadline as the pass would have dated it.
 
 ```sql
 BEGIN;
-UPDATE instance_deviations
-   SET status = 'expired', live_visit_key = NULL,
-       decided_at = (SELECT expires_at FROM deviation_requests WHERE id = '<request-id>')
- WHERE request_id = '<request-id>' AND status = 'pending_approval';
 UPDATE deviation_requests
    SET status = 'expired', live_key = NULL, updated_at = now()
  WHERE id = '<request-id>' AND status = 'pending_approval' AND expires_at <= now();
+-- must report UPDATE 1; on UPDATE 0, ROLLBACK and stop
+UPDATE instance_deviations d
+   SET status = 'expired', live_visit_key = NULL, decided_at = r.expires_at
+  FROM deviation_requests r
+ WHERE r.id = '<request-id>' AND r.status = 'expired'
+   AND d.request_id = r.id AND d.status = 'pending_approval';
 COMMIT;
 ```
+
+The first statement is the guard. It reports `UPDATE 1` only for a request
+that still waits and is past its deadline; for one that is not yet due, or
+that somebody decided meanwhile, it reports `UPDATE 0` — then `ROLLBACK` and
+stop, because there is nothing to repair. The second statement closes the
+ledger row only of a request the first has just closed, so run alone, or
+after an `UPDATE 0`, it changes nothing either. A request for a migration has
+no ledger row: for one, the second statement reports `UPDATE 0`, which is
+right.
 
 This writes no entry on the instance's timeline, which the pass would have
 written. Record what you did somewhere that is kept.
