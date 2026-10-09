@@ -83,7 +83,7 @@ func (s *migrationService) approvedRequestFor(
 			return none, nil
 		}
 		return none, refusedAtTheGate("nobody else had approved it",
-			"This migration skips a step or drops a control (%s), so a second administrator has to approve it first; nothing was moved.",
+			"This migration is not one administrator's to apply (%s), so a second administrator has to approve it first; nothing was moved.",
 			strings.Join(plan.SecondApproverReasons, "; "))
 	}
 	request, err := s.requestOffered(ctx, requestID)

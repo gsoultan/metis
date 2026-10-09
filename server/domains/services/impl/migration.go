@@ -292,7 +292,14 @@ func (s *migrationService) planFor(
 	// instances still running, the only ones a run acts on: plan.Instances and
 	// each hold's count above include the ones that have ended, as they always
 	// have, and are not what decides it.
-	plan.SecondApproverReasons = secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, runningOf(instances))
+	//
+	// Three things need somebody else: a skip, a control not carried across
+	// (both secondApproverReasons), and a redirect in a version with a control
+	// some instance has not passed (redirectsPastControls).
+	running := runningOf(instances)
+	plan.SecondApproverReasons = append(secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, running),
+		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, running)...)
+	slices.Sort(plan.SecondApproverReasons)
 	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
 
 	slices.Sort(plan.Refusals)
@@ -542,7 +549,16 @@ func (s *migrationService) apply(
 			instance = fresh
 			instance.DefinitionID = models.UUID(targetDefID)
 			for i := range instance.Tokens {
-				instance.Tokens[i].NodeID = mapNode(nodeMapping, instance.Tokens[i].NodeID)
+				from := instance.Tokens[i].NodeID
+				instance.Tokens[i].NodeID = mapNode(nodeMapping, from)
+				// A run a second administrator approved says where it moved
+				// each instance from and to, whether or not anybody held a
+				// task there: a wait for a timer or a message has no task, and
+				// its redirect would otherwise leave no trace of which step it
+				// was. Any other run's entry lists what it always listed.
+				if to := instance.Tokens[i].NodeID; to != from && options.Approval.Granted() {
+					moved[from] = to
+				}
 			}
 			// Everything else on the instance that is keyed by node id. The
 			// counters are live work and follow the mapping like the tokens

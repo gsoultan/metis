@@ -112,6 +112,100 @@ func secondApproverReasons(
 	return reasons
 }
 
+// controlsNamed is how many controls a reason names one by one. All of them
+// count; the rest are said as a number.
+const controlsNamed = 5
+
+// redirectsPastControls is why a mapping that sends a step's work to a
+// different step is not one administrator's call, one sentence for each such
+// redirect, sorted; none when no control is at stake.
+//
+// A redirect drops nothing and skips nothing: the control is still in the
+// new version. But an instance moved from "prepare" to "sign" lands beyond a
+// control that stood between them, and nobody performs it. Whether a control
+// still lies ahead of where an instance lands is a question about the graph
+// that this does not try to answer — a wrong answer would be an instance past
+// a control with nobody asked. So it asks whenever there is anything to lose:
+// the mapping redirects a step, and some instance that has not ended has not
+// passed some control of the version it runs. The sentence says what is
+// known — which step is sent where, how many wait there now, and which
+// controls somebody has still to pass — and that such a control may no
+// longer be ahead of them, not that it is lost.
+//
+// A redirect is a mapping that is not a pure rename (renamedSteps). A rename
+// moves nobody past anything.
+//
+// It counts over running, the instances that have not ended, and not only
+// those waiting at the step now: what is approved is the redirect, over the
+// instances the request lists, and one of them that reaches the step before
+// the migration reaches it is redirected under it — as a skip is.
+//
+// It is not a control known to be dropped: nothing is held, nothing is
+// acknowledged, and the run writes no row saying a control was waived. That
+// row could be false.
+func redirectsPastControls(
+	sourceNodes, targetNodes map[string]models.FlowNode,
+	nodeMapping map[string]string,
+	running []models.ProcessInstanceModel,
+) []string {
+	controls := controlsNotPassedByAll(sourceNodes, running)
+	if len(controls) == 0 {
+		return nil
+	}
+	renames := renamedSteps(sourceNodes, nodeMapping)
+	var reasons []string
+	for _, from := range sortedKeys(nodeMapping) {
+		to := nodeMapping[from]
+		if _, renamed := renames[from]; renamed || to == from {
+			continue
+		}
+		step, isStep := sourceNodes[from]
+		if !isStep {
+			// Nothing waits at a step the version does not have.
+			continue
+		}
+		waiting := 0
+		for _, instance := range running {
+			if holdsWork(instance, from) {
+				waiting++
+			}
+		}
+		reasons = append(reasons, fmt.Sprintf(
+			"“%s” would be redirected to “%s” for every listed instance waiting at it when the migration runs — %d wait(s) there now — "+
+				"and a control such an instance has not passed may no longer be ahead of it: %s",
+			cmp.Or(step.Name, from), cmp.Or(targetNodes[to].Name, to), waiting, controls))
+	}
+	slices.Sort(reasons)
+	return reasons
+}
+
+// controlsNotPassedByAll names the steps of a version marked as controls
+// that some instance of running has not performed: by name, in the order of
+// their ids, the first few one by one and the rest as a number. Empty when
+// every running instance has passed every control, or there is none.
+func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []models.ProcessInstanceModel) string {
+	var names []string
+	for _, id := range sortedKeys(sourceNodes) {
+		if !boolProperty(sourceNodes[id].Properties, "compliance_relevant") {
+			continue
+		}
+		notPassed := slices.ContainsFunc(running, func(instance models.ProcessInstanceModel) bool {
+			return !slices.Contains(instance.CompletedNodes, id)
+		})
+		if notPassed {
+			names = append(names, "“"+cmp.Or(sourceNodes[id].Name, id)+"”")
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	named := strings.Join(names[:min(len(names), controlsNamed)], ", ")
+	if more := len(names) - controlsNamed; more > 0 {
+		named += fmt.Sprintf(", and %d more", more)
+	}
+	return named
+}
+
 // whyNoLongerHolds says why a request does not cover a migration, and says
 // nothing when it does.
 //

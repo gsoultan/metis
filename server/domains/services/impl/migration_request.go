@@ -1,6 +1,7 @@
 package impl
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -102,6 +103,10 @@ func (s *migrationService) migrationRequest(
 	if err != nil {
 		return entities.DeviationRequest{}, fmt.Errorf("source definition: %w", err)
 	}
+	target, err := s.repo.Definition().Get(ctx, targetDefID)
+	if err != nil {
+		return entities.DeviationRequest{}, fmt.Errorf("target definition: %w", err)
+	}
 	shown, err := migrationPlanDocument(plan, plan.SecondApproverReasons)
 	if err != nil {
 		return entities.DeviationRequest{}, err
@@ -116,7 +121,7 @@ func (s *migrationService) migrationRequest(
 		TargetDefinition:  &entities.ProcessDefinition{ID: targetDefID},
 		RequestedBy:       account.Username,
 		RequestedByID:     account.ID,
-		Reason:            migrationReason(options),
+		Reason:            migrationReason(options, redirectedSteps(nodeIndex(source.Nodes), nodeIndex(target.Nodes), nodeMapping)),
 		Command:           migrationCommandDocument(sourceDefID, targetDefID, nodeMapping, options),
 		Plan:              shown,
 		Fingerprint:       migrationFingerprint(sourceDefID, targetDefID, nodeMapping, options, plan.ComplianceHolds),
@@ -127,20 +132,42 @@ func (s *migrationService) migrationRequest(
 
 // migrationReason is what a request for a migration says of why, for whoever
 // reads the queue: the reasons its decisions gave, in the order of their
-// steps, or — for one that decides nothing and only accepts the loss of a
-// control — which controls.
-func migrationReason(options servicecontracts.MigrationOptions) string {
-	reasons := make([]string, 0, len(options.Actions))
+// steps; then which controls' loss was acknowledged; then which steps the
+// mapping redirects. Each part is there only when the migration has it, so a
+// request that only skips a step reads as the reason somebody typed.
+//
+// A request always says something: one that decides nothing and acknowledges
+// nothing waits because of what its mapping redirects, and says that.
+func migrationReason(options servicecontracts.MigrationOptions, redirected []string) string {
+	var parts []string
 	for _, nodeID := range sortedKeys(options.Actions) {
 		if reason := strings.TrimSpace(options.Actions[nodeID].Reason); reason != "" {
-			reasons = append(reasons, reason)
+			parts = append(parts, reason)
 		}
 	}
-	if len(reasons) > 0 {
-		return strings.Join(reasons, "; ")
+	if acknowledged := fingerprintNames(options.Acknowledged); len(acknowledged) > 0 {
+		parts = append(parts, "acknowledged the loss of "+strings.Join(acknowledged, ", "))
 	}
-	names := fingerprintNames(options.Acknowledged)
-	return "acknowledged the loss of " + strings.Join(names, ", ")
+	if len(redirected) > 0 {
+		parts = append(parts, "redirected "+strings.Join(redirected, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// redirectedSteps is the steps a mapping sends to a different step, each as
+// "“from” to “to”" by name, in the order of the ids they are sent from. A
+// rename is not one (renamedSteps).
+func redirectedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) []string {
+	renames := renamedSteps(sourceNodes, nodeMapping)
+	var redirected []string
+	for _, from := range sortedKeys(nodeMapping) {
+		to := nodeMapping[from]
+		if _, renamed := renames[from]; renamed || to == from {
+			continue
+		}
+		redirected = append(redirected, fmt.Sprintf("“%s” to “%s”", cmp.Or(sourceNodes[from].Name, from), cmp.Or(targetNodes[to].Name, to)))
+	}
+	return redirected
 }
 
 // errAskedAtTheSameMoment is how one attempt to ask says that the database

@@ -87,7 +87,7 @@ func TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt(t *testin
 	if !first.Applicable() {
 		t.Fatalf("a warning must not refuse: %v", first.Refusals)
 	}
-	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, redirect, servicecontracts.WithActor("dita")); err != nil {
+	if _, err := f.applyWithApproval(t, v1, v2, redirect, servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("apply the first: %v", err)
 	}
 	moved := f.assertWaitingAt(t, v2, "control")

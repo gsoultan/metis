@@ -281,6 +281,36 @@ func TestCancelHoldAndMappingOnlyMigrationsStillApplyOnOneCall(t *testing.T) {
 	})
 }
 
+// The twin of "a mapping alone" above: the same kind of migration — a mapping
+// and nothing else — in a process with a control the instance has not passed,
+// where the mapping sends a step's work to a different step. It asks.
+func TestAMappingAloneThatRedirectsPastAControlAsks(t *testing.T) {
+	f := newFixture(t)
+	v1, v2 := f.startedOn(t, prepared(f.project, true, true), prepared(f.project, true, true))
+	mapping := map[string]string{"prepare": "sign"}
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, mapping)
+	if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover || len(plan.Actions) != 0 || len(plan.ComplianceHolds) != 0 {
+		t.Fatalf("the plan of a mapping alone that redirects past a control: %+v %v, want it to need a second administrator with no decision and no hold", plan, err)
+	}
+	if err := f.svc.MigrateInstances(f.ctx, v1, v2, mapping); !errors.Is(err, apierr.ErrForbidden) ||
+		!strings.Contains(err.Error(), "a second administrator has to approve it first; nothing was moved") {
+		t.Fatalf("the mapping on one administrator's call: %v, want it forbidden", err)
+	}
+	f.assertWaitingAt(t, v1, "prepare")
+	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, mapping)
+	if err != nil || len(pending.Because) != 1 || !strings.Contains(pending.Because[0], "“Prepare” would be redirected to “Sign”") {
+		t.Fatalf("asking for it: %+v %v", pending, err)
+	}
+	if n := f.requestCount(t); n != 1 {
+		t.Fatalf("%d request(s) wait, want the one", n)
+	}
+	// Its reason is the whole of the stored request's: no step was decided.
+	stored, err := f.svc.GetDeviationRequest(adminAs(f.ctx, "dita"), pending.RequestID)
+	if err != nil || stored.Reason != "redirected “Prepare” to “Sign”" {
+		t.Fatalf("the request's reason is %q (err %v), want it to say what the mapping does", stored.Reason, err)
+	}
+}
+
 // Rulings §16. Who needs a second administrator is counted from the instances
 // that are still running — the only ones a run acts on. A skip over a version
 // on which nothing runs asks nobody, though the plan still counts the instance
