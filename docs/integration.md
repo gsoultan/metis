@@ -705,11 +705,17 @@ Three things about a row's shape that a client can rely on:
 - `before`, `after` and `details` are always objects, `{}` when the row has
   nothing to put in one, so `row.before.tasks` can be read without asking
   first whether there is a `before`.
-- A row is written once and never changed. A `hold` row says the hold was
-  placed; whether it is still open is the status of the incident it names in
-  `after.incident.id`, read from `GET /api/v1/incidents/$ID`. What writes no
-  row at all, and why, is in
+- The row of an act is written once and never changed. A `hold` row says the
+  hold was placed; whether it is still open is the status of the incident it
+  names in `after.incident.id`, read from `GET /api/v1/incidents/$ID`. What
+  writes no row at all, and why, is in
   [Changing a process that is already running](process-change-in-flight.md#audit).
+- **Read `status` before counting a row as something done.** A waive that
+  waits for a second administrator has a row with `status: "pending_approval"`
+  and a `request_id`. That one row is changed once, when its request is
+  decided: to `applied`, with `approved_by` and `decided_at`, or to `rejected`,
+  `expired` or `stale`, which say the waive was asked for and not made. Every
+  other row is `applied`.
 
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.
@@ -819,7 +825,7 @@ instance is changed:
     "missing": [],
     "missing_in_all": 0,
     "called_instances": [], "called_instances_in_all": 0,
-    "requires_second_approver": false,
+    "requires_second_approver": true,
     "refusals": [],
     "warnings": ["“Operations approve” is with ollie, who will be told it was withdrawn."],
     "applicable": true
@@ -855,8 +861,10 @@ instance is changed:
   that, and the list is then cut.
 - **`called_instances`** is, for a cancel, the ids of the processes this
   instance started that have not ended: the 200 with the lowest ids, and
-  `called_instances_in_all` is how many there are. `requires_second_approver`
-  is always `false` in this release.
+  `called_instances_in_all` is how many there are.
+- **`requires_second_approver`** is `true` on every plan of a waive and
+  `false` on a cancel's and a hold's. `true` means an apply will not make the
+  act: it will ask for it, and answer 202.
 - `scope` is `task` for a waive and `instance` for a cancel and a hold.
 - Every list is `[]` and `outputs` is `{}` when empty; nothing is `null`. Left
   out when empty: the plan's `node_id` and `node_name` for a cancel that names
@@ -875,39 +883,86 @@ several steps of a definition share an id; never too few. `refusals` and
 points of a kind and of each task the plan lists, and count the rest in a
 sentence.
 
-**Read `applied`, not the status alone.** When a waive needs a second
-approver, an apply will answer `applied: false` with
-`requires_second_approver: true`. In this release `requires_second_approver`
-is always `false` and an apply that is answered 200 has `applied: true`; a
-client that reads `applied` now is ready for the release that adds the second
-approver.
+**Read `applied`, not the status alone.** A waive needs a second
+administrator. Its apply is answered **202**, with `applied: false` and
+`pending_approval`, and nothing about the instance has changed. A client that
+treats every 2xx as "done" will take a waive for made when it was only asked
+for; one that treats only 200 as success will take the 202 for a failure. Read
+`applied`. Until this release the field `requires_second_approver` was always
+`false` and an apply of a waive answered 200 with `applied: true`.
 
-**The reply to an apply** is the plan it was applied with, `"applied": true`,
-and the record under `deviation`, exactly as `GET …/deviations` returns that
-row:
+**The reply to an apply of a waive** is the plan, `"applied": false`, the row
+that waits under `deviation`, and the request under `pending_approval`:
 
 ```json
 {
   "plan": { "…": "as above" },
-  "applied": true,
+  "applied": false,
   "replayed": false,
   "deviation": {
     "id": "0199…", "kind": "waive", "scope": "task", "origin": "in_place",
-    "status": "applied", "node_id": "opsApprove", "node_name": "Operations approve",
-    "task_id": "0199…", "actor": "boss", "actor_is_server": false,
+    "status": "pending_approval", "node_id": "opsApprove", "node_name": "Operations approve",
+    "actor": "boss", "actor_is_server": false,
     "reason": "the operations manager is on leave",
-    "before": { "tasks": { "0199…": { "status": "claimed", "assignee": "ollie" } } },
-    "after": { "tasks": { "0199…": { "status": "canceled" } },
-               "variables": { "approved": true } },
-    "details": { "withdrawn": 1, "tasks_listed": 1, "decision_points": 1 },
-    "run_id": "0199…", "audit_entry_id": "0199…", "created_at": "2026-10-04T09:12:00Z"
+    "before": {}, "after": { "variables": { "approved": true } },
+    "details": { "open_work": 1, "decision_points": 1 },
+    "run_id": "0199…", "request_id": "0199…", "created_at": "2026-10-04T09:12:00Z"
+  },
+  "pending_approval": {
+    "request_id": "0199…",
+    "status": "pending_approval",
+    "requested_by": "boss",
+    "expires_at": "2026-10-07T09:12:00Z",
+    "because": ["“Operations approve” would be waived: nobody performs it, and the process moves on"]
   }
 }
 ```
 
+No task is named on the row and none is withdrawn: who holds the work is
+recorded when the waive is made. `pending_approval` is absent from every other
+reply of this route. What happens next is in
+[Requests for a second administrator](#requests-for-a-second-administrator).
+
+**The reply to an apply of a cancel or a hold** is the plan it was applied
+with, `"applied": true`, and the record under `deviation`, exactly as
+`GET …/deviations` returns that row. A waive that has been approved is
+answered in the same shape when its apply is sent again, as a replay. This is
+that reply; the record is the row that waited, now naming who approved:
+
+```json
+{
+  "plan": { "…": "names the act and lists nothing, as every replay's does" },
+  "applied": true,
+  "replayed": true,
+  "deviation": {
+    "id": "0199…", "kind": "waive", "scope": "task", "origin": "in_place",
+    "status": "applied", "node_id": "opsApprove", "node_name": "Operations approve",
+    "task_id": "0199…", "actor": "boss", "actor_is_server": false,
+    "reason": "the operations manager is on leave", "approved_by": "deputy",
+    "before": { "tasks": { "0199…": { "status": "claimed", "assignee": "ollie" } } },
+    "after": { "tasks": { "0199…": { "status": "canceled" } },
+               "variables": { "approved": true } },
+    "details": { "withdrawn": 1, "tasks_listed": 1, "decision_points": 1 },
+    "run_id": "0199…", "request_id": "0199…", "audit_entry_id": "0199…",
+    "created_at": "2026-10-04T09:12:00Z", "decided_at": "2026-10-04T11:40:00Z"
+  }
+}
+```
+
+`actor` is who asked, and `approved_by` who approved.
+
 **A retried apply acts once.** The same request sent again — the same kind,
 step, reason, values and `visit_key` — is answered `"replayed": true` with the
 record the first one wrote, and nothing is done again. This does not expire.
+For a waive that still waits, the answer is the 202 again with
+`"replayed": true` and the same `request_id`, to the account that asked; once
+it is approved, the same request is answered 200 with `"applied": true,
+"replayed": true`. Anybody else asking for the same waive, and the requester
+asking for something else on the visit, gets a 400 naming the request that
+waits: *A request to waive “Operations approve” is already waiting for approval
+(request 0199…, asked by boss); approve or reject that one.* A request that
+waited past its deadline holds nothing: the same apply closes it and makes a
+fresh one.
 The plan of a replayed reply names the act and lists nothing: its lists are
 empty and its counts are zero, and neither says there was nothing. A different
 request naming a `visit_key` that has had its act is a 400 that says who
@@ -923,7 +978,10 @@ point, are read from the header's code, not run here):
   route sees it. Use a new key for each request.
 - The first answer under a key is kept for 15 minutes and returned again,
   with `Idempotency-Replayed: true`, whatever its status: a 400, a 403 or a
-  500 comes back after its cause is fixed. Send a new key after fixing.
+  500 comes back after its cause is fixed. Send a new key after fixing. A
+  waive's 202 is kept the same way, and comes back as a 202 for those 15
+  minutes **even after the request has been approved**. Do not poll an apply
+  under one key to learn whether a waive was made: read the request.
 - The header and the `replayed` field are different signals. The header's
   replay returns the first body unchanged, so its `replayed` may read `false`.
 - A retry under the same key while the first is still waiting for the
@@ -934,12 +992,13 @@ point, are read from the header's code, not run here):
 
 | Status | When | Body |
 | :-- | :-- | :-- |
-| 200 | A preview, whether or not its plan refuses. An apply. A replay. | as above |
-| 400 | The body could not be read, or is over 256 KiB. The id in the address is not an id. The command is malformed: no kind, no step for a waive or a hold, a `node_id` or a `visit_key` longer than 255 characters, outputs on a cancel or a hold, a `null` or unnamed output, more than 50, an apply with no `visit_key`. An apply whose plan refuses: the refusals, joined by a space. An apply that comes too late: *this instance has moved since you previewed it; preview again*, *this instance is cancelled, so it can no longer be waived; preview again*, *this step was already waived by boss*. A suspended instance. A waive whose value fits no branch of a gateway. | `{"error": "invalid argument: …"}` |
+| 200 | A preview, whether or not its plan refuses. An apply of a cancel or a hold. A replay of an act that was made, an approved waive among them. | as above |
+| 202 | An apply of a waive that makes a request, and the same apply sent again by whoever asked while it waits. Nothing has changed. | as above, with `pending_approval` |
+| 400 | The body could not be read, or is over 256 KiB. The id in the address is not an id. The command is malformed: no kind, no step for a waive or a hold, a `node_id` or a `visit_key` longer than 255 characters, outputs on a cancel or a hold, a `null` or unnamed output, more than 50, an apply with no `visit_key`. An apply whose plan refuses: the refusals, joined by a space. An apply that comes too late: *this instance has moved since you previewed it; preview again*, *this instance is cancelled, so it can no longer be waived; preview again*, *this step was already waived by boss*. A waive of a visit a request already waits for, asked by anybody but its requester or for something else. A suspended instance. (A waive whose value fits no branch of a gateway is no longer found here: it is the approval's 400.) | `{"error": "invalid argument: …"}` |
 | 401 | No token. | the plain text `Unauthorized` |
-| 403 | Signed in, and not an administrator of the organization the request is for. | `{"error": "forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it"}` |
+| 403 | Signed in, and not an administrator of the organization the request is for. Or an administrator whose token names no account, applying a waive: *asking for and giving a second administrator's approval needs an account, and this request carries none*. | `{"error": "forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it"}` |
 | 404 | The instance is not in the organization the request is for, or there is no such instance: the same words for both. | `{"error": "not found: no such process instance"}` |
-| 500 | The server failed after the request was accepted. What the act had done is rolled back, unless the failure came at the commit itself. Send the same request again: it acts or it replays. | `{"error": "waiving “Review the claim”: …"}` |
+| 500 | The server failed after the request was accepted. What the act had done is rolled back, unless the failure came at the commit itself. Send the same request again: it acts, asks or replays. | `{"error": "recording the request to waive “Review the claim”: …"}` |
 
 Four things about them:
 
@@ -978,6 +1037,328 @@ acts or replays.
 for outside workers. A worker that then reports on it is told, as of any
 withdrawn work, HTTP 200 with `{"error": "not found: no such external task"}`.
 See [External-task workers](#external-task-workers-your-service-does-the-step).
+
+## Requests for a second administrator
+
+Two applies do not make their change. They record a **request**, answer 202,
+and the change is made when a different administrator approves:
+
+- a waive of a step of one instance
+  (`POST /api/v1/instances/{id}/deviations`, [above](#waiving-cancelling-or-holding-one-instance));
+- a migration whose plan says `requires_second_approver: true`
+  (`POST /api/v1/definitions/versions/migrate`,
+  [below](#a-migration-that-waits)).
+
+What asks, what an approval does and what the control does not cover are in
+[Changing a process that is already running](process-change-in-flight.md#a-second-administrator);
+what an approver does is in
+[the runbooks](runbooks.md#approving-a-request-for-a-second-administrator).
+This is the four routes that read and decide a request.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" "$GOBPM/api/v1/deviation-requests"            # what waits
+curl -H "Authorization: Bearer $TOKEN" "$GOBPM/api/v1/deviation-requests/$REQUEST"   # one, whole
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason":"checked with the process owner"}' "$GOBPM/api/v1/deviation-requests/$REQUEST/approve"
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason":"the approver is back tomorrow"}' "$GOBPM/api/v1/deviation-requests/$REQUEST/reject"
+```
+
+REST only. Connect and gRPC have no such calls, and no migrate call either.
+
+**Who may call them.** An administrator of the organization the request is
+for, as on the route above: the role held there or on the account, and
+`X-Organization-ID` for an account in several. The roles legend lists them as
+`ListDeviationRequests`, `GetDeviationRequest`, `ApproveDeviationRequest` and
+`RejectDeviationRequest`. The service asks the same again and also needs the
+caller to have an account. A request of another organization, and one whose
+project was deleted, is answered as one that does not exist: 404, *no such
+request*.
+
+**The requester cannot approve their own request.** They are told apart from
+the approver by account id, not by name. The one exception is an organization
+the operator has named as having one administrator
+([the runbooks](runbooks.md#an-organization-with-one-administrator)). The
+requester can always reject their own request, which is a withdrawal.
+
+### The queue
+
+`GET /api/v1/deviation-requests` answers
+`{"requests": [...], "total": n}`, newest first.
+
+| Query | |
+| :-- | :-- |
+| `status` | One of `pending_approval`, `approved`, `applied`, `interrupted`, `stale`, `rejected`, `expired`. **Left out or empty, it is `pending_approval`.** No call lists every status. |
+| `project_id` | Narrows to one project. A project the organization does not have lists nothing. |
+| `page`, `page_size` | Whole numbers, at most 1,000,000 each. The page size is 50 unless given and at most 200. |
+
+- **`status` is as the request reads now**, not as it is stored. A request
+  past its deadline is listed under `expired`, and not under
+  `pending_approval`, before anything has recorded the expiry. `total` counts
+  the same way.
+- **A listed request is not whole.** It has `id`, `kind`, `status`,
+  `project_id`, `requested_by`, `reason`, `expires_at`, `self_approved`,
+  `outcome`, `created_at`, the ids its kind has and the decision when there is
+  one. It never has `command`, `plan`, `because`, `instances`,
+  `instances_in_all` or `unavailable`. Read the request by id for those. So a
+  client that wants to show a step's name beside each row makes one read per
+  row.
+- `requests` is `[]` when there are none.
+
+### One request
+
+`GET /api/v1/deviation-requests/{id}` answers `{"request": {...}}`:
+
+```json
+{
+  "request": {
+    "id": "0199…",
+    "kind": "instance_waive",
+    "status": "pending_approval",
+    "project_id": "0199…",
+    "instance_id": "0199…",
+    "requested_by": "boss",
+    "reason": "the operations manager is on leave",
+    "because": ["“Operations approve” would be waived: nobody performs it, and the process moves on"],
+    "instances": [],
+    "instances_in_all": 0,
+    "command": { "instance_id": "0199…", "kind": "waive", "node_id": "opsApprove",
+                 "reason": "the operations manager is on leave",
+                 "visit_key": "dv1-…", "outputs": { "approved": true } },
+    "plan": { "…": "the plan as the requester previewed it, and because" },
+    "expires_at": "2026-10-07T09:12:00Z",
+    "self_approved": false,
+    "outcome": {},
+    "created_at": "2026-10-04T09:12:00Z"
+  }
+}
+```
+
+| Field | |
+| :-- | :-- |
+| `kind` | `instance_waive` or `migration`. |
+| `status` | As the request reads now. See [a request's life](process-change-in-flight.md#the-request). |
+| `instance_id` | A waive only. |
+| `source_definition_id`, `target_definition_id` | A migration only. |
+| `requested_by` | A username. No view carries an account id. |
+| `reason` | A waive's reason as typed. For a migration: the reasons its decisions gave, in the order of their steps' ids; then `acknowledged the loss of …`; then `redirected “a” to “b”, …`. Each part lists ten and counts the rest. A migration that types, acknowledges and redirects nothing says what its plan said. |
+| `because` | Why it needs a second administrator, one sentence each. For a migration, the plan's `second_approver_reasons`. Always a list. |
+| `command` | What an approval carries out. For a waive: `instance_id`, `kind`, `node_id`, `reason`, `visit_key`, and `outputs` when there were any. For a migration: `source_definition_id`, `target_definition_id`, `node_mapping`, `node_actions`, `instances`, `acknowledge`. |
+| `plan` | The plan **as the requester was shown it** when they asked, under the names the preview used, with `because` added. Every list it cuts short has its count beside it: for a waive, at most 100 decision points, ten names at a point, 200 open tasks and 50 missing names, as in any [plan](#waiving-cancelling-or-holding-one-instance). An approval does not act on it: it plans again. |
+| `instances`, `instances_in_all` | A migration: the instances that had not ended when it was asked for, which are the only ones a run under this request may act on. The list holds the first 200; the count is of all. A waive: `[]` and `0`. |
+| `expires_at` | Its deadline, fixed when it was made. |
+| `decided_by`, `decided_at`, `decision_reason` | Left out until somebody decides. An expired request has none of them: the clock decided it. A stale request has `decided_at` alone; who found it stale is `outcome.attempted_by`. |
+| `self_approved` | Always present. `true` only for a request its own requester approved. |
+| `outcome` | An object always, `{}` while it waits. See below. |
+| `unavailable` | Only when a stored document can no longer be read. It names which of `command`, `plan` and `instances`; those fields, with `because` and `instances_in_all`, are then left out, not written empty. Such a request can still be read, rejected and withdrawn. Approving it is a 500. |
+
+Nothing is `null`. The waive's `visit_key` is in `command` and `plan`. Nothing
+else the server tells requests apart by is returned.
+
+**`outcome`**, by what became of the request:
+
+| Status | Keys |
+| :-- | :-- |
+| `applied`, a waive | `deviation_id`: the ledger row. |
+| `applied`, a migration | `changed` and `passed_over`: how many instances the run acted on and how many it left alone. `note` when it changed nothing: *every instance the run reached was passed over* or *no instance was active on the version when it ran*. |
+| `interrupted` | `changed`, `passed_over` and `error`: one sentence of the server's own. The failure's own words are not kept here; they are in the server's log. After a panic, `count_unknown: true` in place of the two counts: do not print zeros for it. For a run that never reported, `error` alone: *the run did not report back*. `reported_after_sweep: true` on a report a run wrote after it had been marked interrupted (an `applied` request can carry it too). |
+| `stale` | `why`, `refusals` (what the plan made at the approval refused) and `attempted_by`. |
+| `rejected`, `expired` | `{}`. |
+| any, when `self_approved` | also `self_approved: true`, `other_administrators: 0` and `organization_id` on a migration's request. |
+
+`passed_over` in an outcome is a count. Which instances they were is in the
+reply to the approval and nowhere else.
+
+### Approving
+
+`POST /api/v1/deviation-requests/{id}/approve`. The body is `{"reason": "…"}`,
+`{}`, or nothing at all: an approval's note is optional. A rejection takes the
+same body, and its reason is required.
+
+**How the body is read.** One JSON object and nothing after it, at most 16
+KiB, holding the one field `reason`, named exactly and once, as text of at
+most 2,000 characters. Any other field — a command, outputs, a visit key, an
+approver's name — is a 400: *this request could not be read: send one JSON
+object with a reason, or nothing; name the field exactly and once*. What is
+approved is exactly what was asked for.
+
+**Approving a waive** makes it. The reply is the request, `"applied": true`,
+the ledger's record under `deviation` and the plan made under the instance's
+lock under `plan`:
+
+```json
+{
+  "request": { "…": "as above, status applied, decided_by, decided_at, outcome.deviation_id" },
+  "applied": true,
+  "deviation": { "…": "the record, status applied, approved_by" },
+  "plan": { "…": "the plan as the instance stood when it was approved" }
+}
+```
+
+**Approving a migration** runs it, in this call, for as long as the run takes.
+The reply has no `deviation`. Its `plan` is the migration's plan as the
+migrate route writes it, and it carries `passed_over` and
+`passed_over_in_all` ([below](#the-instances-a-run-passed-over)):
+
+```json
+{
+  "request": { "…": "status applied, outcome.changed, outcome.passed_over" },
+  "applied": true,
+  "plan": { "…": "the migration's plan" },
+  "passed_over": [],
+  "passed_over_in_all": 0
+}
+```
+
+**Read `applied` beside the request's status.** `applied` keeps the migrate
+route's meaning: `false` when the run passed instances over and acted on none.
+The request reads `applied` all the same, because it is spent.
+
+| Status | When |
+| :-- | :-- |
+| 200 | Approved and carried out. |
+| 400 | The body could not be read, or is over 16 KiB. The id is not an id. The note is over 2,000 characters. |
+| 400 | Already decided, nothing written: *deputy approved this on 4 October 2026 11:40 UTC, and it was applied.*, *… rejected this on ….*, *This request expired on ….*, *This request went stale on …: what it asked for no longer held.*, *…; it is being applied.*, *…, and the run stopped part-way: … Ask again for what remains.* |
+| 400 | **Recorded first, then refused.** The request is closed and the 400 follows: *This request expired on … before anybody approved it, so nothing was applied. Ask again if it is still needed.* (it now reads `expired`); for a waive *This request no longer holds — … — so nothing was applied. Preview again and ask afresh.*, for a migration *This request no longer holds, so nothing was applied: …. Ask again.* (it now reads `stale`). For a waive the closing is the request, its ledger row and one trail entry; for a migration the request alone. |
+| 400 | A waive, nothing written, the request still waits: a gateway with no way out for the values, its sentence followed by *The request is still waiting: reject it, and the waive can be asked for again.*; a suspended instance. |
+| 400 | A migration that was approved, whose run its own plan then refused: *invalid argument: the approved migration did not finish: …*. Nothing was moved. The request reads `interrupted`. |
+| 400 | A self-approval with no reason, where one is allowed: *Say why you are approving your own request: with nobody else to approve it, the reason is the record.* |
+| 401 | No token, or an `X-Organization-ID` naming an organization the caller does not belong to. |
+| 403 | Not an administrator of the organization. The requester: *You asked for this. A different administrator has to approve it.*, or the longer sentence for an organization with nobody else. A token that names no account. |
+| 403 | A migration that was approved and then refused at the gate before anything was moved: *forbidden: the approved migration did not finish: …*. The request reads `interrupted`. |
+| 404 | *no such request*. |
+| 500 | A migration's run stopped part-way, whatever its cause: `{"error": "the approved migration did not finish: …. Request … now reads interrupted; what its run had done stands, and what remains has to be asked for again"}` and nothing else. Instances were moved. Read the request for `outcome`. |
+| 500 | Any other failure of the server's. For a waive nothing was written and the request still waits. |
+
+A refusal never carries a reply: a status that is not 200 has `error` and
+nothing else.
+
+### Rejecting, and withdrawing
+
+`POST /api/v1/deviation-requests/{id}/reject`, body `{"reason": "…"}`. Any
+administrator of the organization may. Sent by whoever asked, it is a
+withdrawal, and there is no other route for one. The reply is
+`{"request": {...}}` with `status: "rejected"`, `decided_by`, `decided_at` and
+`decision_reason`; a withdrawal reads the same, with `decided_by` the
+requester and `self_approved: false`.
+
+| Status | When |
+| :-- | :-- |
+| 200 | Rejected, or withdrawn. Nothing about any instance changed. |
+| 400 | The body could not be read, as for an approval. No reason: *Say why: a rejection keeps its reason with the record.* A reason over 2,000 characters. |
+| 400 | Already decided, in an approval's sentences. A migration that is running: *…; it is being applied.* |
+| 400 | **Recorded first, then refused**: *This request already expired on ….* It now reads `expired`. |
+| 401, 403, 404, 500 | As for an approval. |
+
+### What every one of the four does
+
+- **The body is read before the caller is checked**, as on every route. In
+  order: the rate limit, the size of the body and the token (401); the
+  `Idempotency-Key`; the body; whether the caller belongs to the organization
+  (401); the role (403); and only then the id in the address and the request.
+  So an account that is not an administrator and sends a decision that cannot
+  be read gets the 400 for the body, which says nothing of any request. With
+  a readable body it gets the 403, whether or not there is such a request.
+- **`Idempotency-Key`** follows the header's own rules on the two decisions.
+  A retry under the same key is the first answer again, with
+  `Idempotency-Replayed: true`, for 15 minutes; the same key with another
+  body is the header's plain-text 409. One of the refusals that records
+  something first is kept like any answer: sent again under its key it is the
+  same 400, and nothing is closed twice
+  (`TestARefusalThatRecordedSomethingIsAnsweredOnceUnderAKey`). With no key, a
+  second approval is the 400 that says who approved, and the first refusal
+  that recorded an expiry is followed by the plain *This request expired on
+  ….*
+- **A 400 carries a sentence and no machine-readable code**, as on the route
+  above. Branch on the status, and on the request's `status` read afterwards.
+- **No deadline on the server.** An approval of a migration lasts as long as
+  its run.
+
+### A migration that waits
+
+`POST /api/v1/definitions/versions/migrate` plans a migration, and applies it
+when the body says `"dry_run": false`. Its fields are `source_definition_id`,
+`target_definition_id`, `node_mapping`, `node_actions`, `instances`,
+`acknowledge` and `dry_run`; what each does is in
+[Changing a process that is already running](process-change-in-flight.md#5-what-the-engine-does-now).
+Two fields of its plan say whether an apply will be made or asked for:
+
+- **`requires_second_approver`**, always present.
+- **`second_approver_reasons`**, left out when nobody is asked: at most ten
+  sentences and, when there are more, one last sentence counting the rest.
+  They are sentences to show. Do not parse them.
+
+| Status | When | Reply |
+| :-- | :-- | :-- |
+| 200 | A dry run, whatever its plan says. | `plan`, `"applied": false`, `"passed_over": []`, `"passed_over_in_all": 0` |
+| 200 | An apply that needs nobody else. | `plan`, `applied`, `passed_over`, `passed_over_in_all`. No `pending_approval`. |
+| 200 | An apply over a version no instance is on, even one that names a skip. | `"applied": true`, nobody passed over, `plan.instances: 0`. Nothing was written and nobody was asked. |
+| **202** | An apply whose plan needs a second administrator: the first ask, and the same apply sent again by whoever asked while it waits. | `plan`, `"applied": false`, `"passed_over": []`, `"passed_over_in_all": 0`, and `pending_approval` |
+| 400 | The same apply by a different administrator while it waits: *The same migration is already waiting for approval (request …, asked by boss); approve or reject that one.* While its approved run is going: *The same migration was approved by deputy and is being applied now (request …); nothing new was asked for.* | `error` |
+| 400 | An apply whose plan refuses: the refusals, joined by `; `. A plan that refuses is not sent for approval, and asks nobody. | `error` |
+| 401, 403, 404 | No token; not an administrator of the organization; a version of another organization. The same answer whether or not a request waits. | |
+
+`pending_approval` is the same object as on a waive:
+`request_id`, `status`, `requested_by`, `expires_at` and `because`.
+
+**An approval cannot be sent in the body.** A request id or an approver put
+there is ignored, and the apply is sent for approval like any other. A
+migration that needs a second administrator is applied only by the approve
+route (`TestAnApprovalSentInTheBodyIsIgnoredAndMovesNothing`).
+
+**Asking again.** The same migration is the same request: the two versions,
+the mapping, each decision and its reason, what was acknowledged and the
+instances named. Change any of them and it is another migration, with a
+request of its own. A request that waited past its deadline, or was approved
+and whose run never reported, holds nothing: the same apply closes it and
+makes a fresh request.
+
+### The instances a run passed over
+
+The migrate route's reply, and the reply to an approval of a migration, say
+which instances the run left alone:
+
+```json
+{
+  "passed_over": [
+    { "instance_id": "0199…",
+      "cause": "left_the_step",
+      "steps": [ { "node_id": "opsApprove", "name": "Operations approve" } ],
+      "steps_in_all": 1,
+      "reason": "It was no longer waiting at \"Operations approve\" when the migration reached it, …" }
+  ],
+  "passed_over_in_all": 1
+}
+```
+
+- **`passed_over`** lists at most 200, in the order the run came to them.
+  **`passed_over_in_all`** is how many there were. Both are always present on
+  the migrate route, `[]` and `0` when the run left nobody. Until this release
+  the list held every one and there was no count.
+- **`cause`** is one of the eight codes below, never empty. **`reason`** is
+  the same thing as an English sentence, and stays: say `reason` for a
+  `cause` you do not know.
+- **`steps`** is the steps the cause is about, as `{node_id, name}`: at most
+  ten, in the order of their ids, `[]` for a cause about no step.
+  **`steps_in_all`** is how many there were. `name` is the step's name in the
+  version the instance runs, or its id where it has none. Each of the two is
+  cut at 255 characters, so a `node_id` here is for showing, not a key to
+  send back.
+
+| `cause` | Given when | `steps` |
+| :-- | :-- | :-- |
+| `not_planned_for` | The instance was not on the version being migrated from when the migration was planned: it started there, or was moved there, afterwards. | none |
+| `left_the_step` | A skip, a cancel or a hold found it, under its lock, no longer waiting at the step it decides. That includes an instance that finished meanwhile, in a migration that decides work. | the step |
+| `already_moved` | Another run of a migration had moved it off the version. | none |
+| `no_longer_running` | It finished, or was ended, after it was listed, in a migration that had nothing to decide for it. | none |
+| `waiting_to_be_decided` | It held a token on steps this migration decides, and no decision had settled it. | those steps |
+| `nowhere_to_land` | It held work on steps the new version has no step for and the mapping does not cover. | those steps |
+| `left_where_nothing_decides` | It had an open task or a waiting event, and no token, on steps this migration decides. | those steps |
+| `counters_would_merge` | It held progress counters on two steps the mapping puts onto one. | none |
+
+An instance gets one cause: the first that applies, in that order. `applied`
+can be `true` beside a list that is not empty, and even when no instance
+changed version: a skip that was made counts as acting on an instance.
 
 ## Retrying your own calls safely
 
