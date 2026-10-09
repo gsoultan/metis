@@ -298,10 +298,8 @@ func dutiesLoosened(
 		var unnamed, gone []string
 		for _, other := range barred {
 			now := mapNode(renames, other)
-			wasAStep, isAStep := false, false
-			if _, wasAStep = sourceNodes[other]; wasAStep {
-				_, isAStep = targetNodes[now]
-			}
+			_, wasAStep := sourceNodes[other]
+			_, isAStep := targetNodes[now]
 			switch called := "“" + stepCalled(sourceNodes[other], other) + "”"; {
 			case !slices.Contains(kept, now):
 				unnamed = append(unnamed, called)

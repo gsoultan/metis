@@ -11,11 +11,13 @@ import (
 // line is a version whose steps run one after another, each to the next.
 func line(ids ...string) models.ProcessDefinitionModel {
 	var def models.ProcessDefinitionModel
-	for i, id := range ids {
+	before := ""
+	for _, id := range ids {
 		def.Nodes = append(def.Nodes, models.FlowNode{ID: id})
-		if i > 0 {
-			def.Flows = append(def.Flows, models.SequenceFlow{ID: "f" + id, SourceRef: ids[i-1], TargetRef: id})
+		if before != "" {
+			def.Flows = append(def.Flows, models.SequenceFlow{ID: "f" + id, SourceRef: before, TargetRef: id})
 		}
+		before = id
 	}
 	return def
 }
