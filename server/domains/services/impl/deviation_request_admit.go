@@ -263,7 +263,7 @@ func admitDecider(
 		return none, apierr.Forbiddenf("You asked for this. A different administrator has to approve it.")
 	case !allowSole:
 		return none, apierr.Forbiddenf("You asked for this, and nobody else administers this organization, so it waits. " +
-			"Make another account an administrator so they can approve it, reject it yourself, or let it expire. " +
+			"Give another person's account the administrator role so they can approve it, reject it yourself, or let it expire. " +
 			"Whoever operates this installation can name this organization as one that has a single administrator, " +
 			"whose own approval is then accepted; until they do, the request waits: " +
 			"see \"A second administrator approves waivers and skips\" in docs/upgrading.md.")
