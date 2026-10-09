@@ -23,6 +23,10 @@ const (
 	// field of its own, so that what the exception rested on can be read off
 	// it, not inferred.
 	auditOtherAdministrators = "other_administrators"
+	// auditOrganizationID is the organization a self-approval was allowed
+	// in, written beside the two keys above and only then: the exception is
+	// an organization's, so its record names the organization.
+	auditOrganizationID = "organization_id"
 )
 
 // requestEntry is a trail entry about a request for a second administrator —

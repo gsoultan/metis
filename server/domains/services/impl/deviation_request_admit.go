@@ -98,6 +98,13 @@ func (r approvalRules) naming(organizations []uuid.UUID) approvalRules {
 // outside the caller's scope, which here would read as leave to approve
 // alone.
 //
+// A self-approval's decision names that organization: it is what the
+// exception rested on, and the record of the approval says it. And when the
+// requester is refused in a named organization because somebody else
+// administers it, that is said in the server's log — the list names an
+// organization it should no longer name — from the lookup's own answer, with
+// nothing asked a second time.
+//
 // Both are asked only when the caller is the requester. Whether anybody else
 // administers the organization is asked whether or not the organization is
 // named, because the two refusals differ: with somebody else to ask, the
@@ -120,13 +127,28 @@ func (r approvalRules) admit(ctx context.Context, request entities.DeviationRequ
 			allowSole = r.allowsSoleAdministratorOf(id)
 		}
 	}
-	return admitDecider(caller, request, reason, allowSole, func() (bool, error) {
+	found := false
+	decision, err := admitDecider(caller, request, reason, allowSole, func() (bool, error) {
 		id, err := organization()
 		if err != nil {
 			return false, err
 		}
-		return r.anotherAdministrator(ctx, id, caller)
+		another, err := r.anotherAdministrator(ctx, id, caller)
+		found = another
+		return another, err
 	})
+	// The organization has been read by now in both cases below, and is not
+	// read again; an approval by somebody else never reads it at all.
+	if allowSole && found {
+		// Named as having one administrator, and it has another: the
+		// requester was refused, and the list is out of date.
+		id, _ := organization()
+		traceNamedOrganizationHasAnotherAdministrator(request, id)
+	}
+	if err == nil && decision.SelfApproved {
+		decision.Organization, _ = organization()
+	}
+	return decision, err
 }
 
 // organizationOf is the organization request belongs to: its project's. It
@@ -236,7 +258,8 @@ func admitDecider(
 	case !allowSole:
 		return none, apierr.Forbiddenf("You asked for this, and nobody else administers this organization, so it waits. " +
 			"Make another account an administrator so they can approve it, reject it yourself, or let it expire. " +
-			"An installation run by one administrator can allow approving your own request: " +
+			"Whoever operates this installation can name this organization as one that has a single administrator, " +
+			"whose own approval is then accepted; until they do, the request waits: " +
 			"see \"A second administrator approves waivers and skips\" in docs/upgrading.md.")
 	case decision.Reason == "":
 		return none, apierr.Invalidf("Say why you are approving your own request: with nobody else to approve it, the reason is the record.")
@@ -266,14 +289,19 @@ func errDecisionReasonTooLong() error {
 // error: nothing was decided, and saying so to a client would be untrue.
 func decidedRefusal(request entities.DeviationRequest) error {
 	on := decidedOn(request).UTC().Format(decidedOnLayout)
+	// "X approved this" alone reads as a second administrator's approval, so
+	// a request its own requester approved says that it was.
+	approved := fmt.Sprintf("%s approved this on %s", request.DecidedBy, on)
+	if request.SelfApproved() {
+		approved = fmt.Sprintf("%s approved this — their own request, with no second administrator — on %s", request.DecidedBy, on)
+	}
 	switch request.Status {
 	case entities.DeviationRequestApproved:
-		return apierr.Invalidf("%s approved this on %s; it is being applied.", request.DecidedBy, on)
+		return apierr.Invalidf("%s; it is being applied.", approved)
 	case entities.DeviationRequestApplied:
-		return apierr.Invalidf("%s approved this on %s, and it was applied.", request.DecidedBy, on)
+		return apierr.Invalidf("%s, and it was applied.", approved)
 	case entities.DeviationRequestInterrupted:
-		return apierr.Invalidf("%s approved this on %s, and the run stopped part-way: %v. Ask again for what remains.",
-			request.DecidedBy, on, request.Outcome["error"])
+		return apierr.Invalidf("%s, and the run stopped part-way: %v. Ask again for what remains.", approved, request.Outcome["error"])
 	case entities.DeviationRequestRejected:
 		return apierr.Invalidf("%s rejected this on %s.", request.DecidedBy, on)
 	case entities.DeviationRequestExpired:

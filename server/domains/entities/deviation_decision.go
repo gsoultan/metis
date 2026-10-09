@@ -18,4 +18,9 @@ type DeviationDecision struct {
 	// SelfApproved says the decider is the requester and no second
 	// administrator existed to ask.
 	SelfApproved bool
+	// Organization is the organization a self-approval was allowed in: the
+	// request's own, which the installation names as having one
+	// administrator. Set only when SelfApproved is — it is what the
+	// exception rested on, and the record says it.
+	Organization uuid.UUID
 }

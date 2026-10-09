@@ -177,6 +177,31 @@ func TestADecidedRequestSaysWhatBecameOfIt(t *testing.T) {
 	}
 }
 
+// A request its own requester approved says so to whoever tries to decide it
+// again: "ana approved this" alone would read as a second administrator's
+// approval. Told from the account ids, as the request tells it — and only of
+// an approval: a request its requester rejected was withdrawn.
+func TestADecidedRequestSaysWhenItsRequesterApprovedIt(t *testing.T) {
+	at := time.Date(2026, 10, 5, 2, 30, 0, 0, time.UTC)
+	ana := uuid.Must(uuid.NewV7())
+	own := func(status entities.DeviationRequestStatus, outcome map[string]any) entities.DeviationRequest {
+		return entities.DeviationRequest{ID: uuid.Must(uuid.NewV7()), Status: status, RequestedBy: "ana", RequestedByID: ana,
+			DecidedBy: "ana", DecidedByID: ana, DecidedAt: &at, ExpiresAt: at.Add(72 * time.Hour), UpdatedAt: at, Outcome: outcome}
+	}
+	const approved = "ana approved this — their own request, with no second administrator — on 5 October 2026 02:30 UTC"
+	for status, want := range map[entities.DeviationRequestStatus]string{
+		entities.DeviationRequestApproved:    approved + "; it is being applied.",
+		entities.DeviationRequestApplied:     approved + ", and it was applied.",
+		entities.DeviationRequestInterrupted: approved + ", and the run stopped part-way: the run did not report back. Ask again for what remains.",
+		entities.DeviationRequestRejected:    "ana rejected this on 5 October 2026 02:30 UTC.",
+	} {
+		err := decidedRefusal(own(status, map[string]any{"error": "the run did not report back"}))
+		if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != apierr.Invalidf("%s", want).Error() {
+			t.Errorf("%s: %v, want a refusal saying exactly %q", status, err, want)
+		}
+	}
+}
+
 // Two deciders meet at the request's row, and the second reads what the first
 // left. Should a decision ever be written past that row, the repository still
 // refuses the second — and that refusal is somebody's request, decided, not

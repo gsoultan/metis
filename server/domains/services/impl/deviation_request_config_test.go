@@ -106,13 +106,12 @@ func TestOnlyOrganizationsNamedByIdMayHaveASoleAdministratorApprove(t *testing.T
 }
 
 // A setting that weakens a control has one name. The spelling from before the
-// rename, which every other METIS_* setting still answers to, names nothing
-// here; nor does the name the exception had while it was a switch for the
-// whole installation.
+// rename, which nearly every other METIS_* setting still answers to, names
+// nothing here; nor does anything that merely resembles the name.
 func TestTheSoleAdministratorOrganizationsHaveOneName(t *testing.T) {
 	organization := uuid.Must(uuid.NewV7()).String()
-	for _, other := range []string{"GOBPM_SOLE_ADMINISTRATOR_ORGANIZATIONS", "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL",
-		"GOBPM_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL", "METIS_SOLE_ADMINISTRATOR_ORGANIZATION", "SOLE_ADMINISTRATOR_ORGANIZATIONS"} {
+	for _, other := range []string{"GOBPM_SOLE_ADMINISTRATOR_ORGANIZATIONS", "METIS_SOLE_ADMINISTRATOR_ORGANIZATION",
+		"SOLE_ADMINISTRATOR_ORGANIZATIONS", "metis_sole_administrator_organizations"} {
 		for _, value := range []string{organization, "true"} {
 			t.Setenv(EnvSoleAdministratorOrganizations, "")
 			t.Setenv(other, value)

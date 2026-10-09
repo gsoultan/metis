@@ -107,6 +107,11 @@ type App struct {
 	// rabbitMQ runs the RabbitMQ bridges and consumers the environment names.
 	// Nil when it names none, which is the default. See rabbitmq.go.
 	rabbitMQ *rabbitMQRunner
+	// control is what this server read of the settings of the second
+	// administrator's approval when it started: what it announced, and what
+	// its services are built with.
+	control controlSettings
+
 	// sweepsBegan is when this process started its retention sweeps: what the
 	// part of a pass that runs only for a while after start-up counts from
 	// (liveKeyFillFor). Written once, before the loop that reads it starts;
@@ -288,8 +293,10 @@ func (a *App) Run() error {
 
 	a.initDBOnce()
 
-	// 0. Say what the flags are, before anything can act on them.
-	logFeatureConfiguration()
+	// 0. Say what the flags are, before anything can act on them. What was
+	//    read of the second administrator's settings is kept: the services
+	//    are built with it, and with nothing read later.
+	a.control = logFeatureConfiguration()
 
 	// 1. Install the at-rest encryption key before any repository can read or
 	//    write an encrypted column.
@@ -326,6 +333,9 @@ func (a *App) Run() error {
 	if err := a.setupService(ctx); err != nil {
 		return err
 	}
+	// 3a. An organization named as having one administrator that is no
+	//     organization here could not be told before there was a database.
+	a.control.warnOfOrganizationsThatDoNotExist(entities.WithSystemContext(ctx), a.repo.User())
 
 	// A password reset is a maintenance task, not a server. It runs against the
 	// configured database and then exits, without opening a port — an operator
@@ -472,11 +482,17 @@ func requireStrongSecret(name, value string) error {
 // what it was configured with. See features.Resolve. The settings that bring
 // back a withdrawn rule are said here too, for the same reason, and so is a
 // setting of the second administrator's approval that was not usable as
-// written.
-func logFeatureConfiguration() {
+// written — and the organizations named as having one administrator.
+//
+// It answers what it read of the second administrator's settings, which is
+// read here and nowhere else: what was announced is what the services are
+// then built with (controlSettings).
+func logFeatureConfiguration() controlSettings {
 	features.Resolve()
 	logLegacySettings()
-	logControlSettings()
+	control := readControlSettings()
+	control.announce()
+	return control
 }
 
 // envEncryptionKeyPrevious names a key being retired: read with, never
@@ -722,7 +738,7 @@ func (a *App) setupService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.svc = services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret, a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService())
+	a.svc = a.newServices(dispatcher, jwtSecret)
 
 	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
 

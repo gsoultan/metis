@@ -40,7 +40,8 @@ const (
 	// told while the installation does not allow it.
 	soleWaits = "You asked for this, and nobody else administers this organization, so it waits. " +
 		"Make another account an administrator so they can approve it, reject it yourself, or let it expire. " +
-		"An installation run by one administrator can allow approving your own request: " +
+		"Whoever operates this installation can name this organization as one that has a single administrator, " +
+		"whose own approval is then accepted; until they do, the request waits: " +
 		"see \"A second administrator approves waivers and skips\" in docs/upgrading.md."
 	// anotherMustApprove is what the requester is told while somebody else
 	// administers the organization, whatever the installation allows.
@@ -51,24 +52,28 @@ const (
 	// and refusedSelfApprovalLogged of the line a refused attempt logs.
 	selfApprovalLogged        = "approved their own request"
 	refusedSelfApprovalLogged = "tried to approve their own request"
+	// staleNameLogged is a fragment of the line logged when the requester is
+	// refused in an organization that is named as having one administrator,
+	// because it has another.
+	staleNameLogged = "names this organization as having one administrator"
 )
 
-// retiredSwitch is the name the exception had while it was a switch for the
-// whole installation. It is not a setting.
-const retiredSwitch = "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL"
-
 // restarted is the tests' server started again over the same database, as an
-// operator restarts it after changing its environment: the services are put
-// together afresh, and read their settings as they do when a server starts.
-// What the database holds — the organization, its project, its accounts — is
-// as it was.
+// operator restarts it after changing its environment: the list of
+// organizations is read from the environment, once, and the services are put
+// together afresh with what was read — as internal/app does when a server
+// starts (its own test shows that what it reads is what it announces and what
+// it builds with). What the database holds — the organization, its project,
+// its accounts — is as it was.
 func (h *deviationHarness) restarted(t *testing.T) *deviationHarness {
 	t.Helper()
 	sse := observersimpl.NewSSEObserver()
 	dispatcher := observersimpl.NewEventDispatcher()
 	dispatcher.Register(observersimpl.NewAuditLogObserver(h.repo.Audit()))
 	dispatcher.Register(observersimpl.NewNotificationObserver(serviceimpl.NewNotificationService(h.repo.Notification())))
-	svc := services.NewServiceFacade(h.repo, dispatcher, sse, "deviation-test-secret", nil, nil, nil)
+	organizations, _ := serviceimpl.SoleAdministratorOrganizations()
+	svc := services.NewServiceFacade(h.repo, dispatcher, sse, "deviation-test-secret", nil, nil, nil,
+		services.WithSoleAdministratorOrganizations(organizations))
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(h.db))
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -246,7 +251,7 @@ func (h *deviationHarness) entriesOf(t *testing.T, instanceID uuid.UUID, eventTy
 }
 
 // Off by default, and off unless the organization is named. Unset, empty,
-// naming another organization, written as the switch it is not, or set under
+// naming another organization, written as a switch it is not, or set under
 // a name that is not this setting's: an administrator's approval of their own
 // request is refused exactly as it was before the setting existed — alone in
 // the organization or not — and changes nothing.
@@ -264,9 +269,6 @@ func TestASoleAdministratorsOwnApprovalWaitsUnlessTheirOrganizationIsNamed(t *te
 		},
 		"the organization's name, which is not its id": func(uuid.UUID) map[string]string {
 			return map[string]string{serviceimpl.EnvSoleAdministratorOrganizations: "Deviation Org"}
-		},
-		"the switch it used to be, set to true": func(uuid.UUID) map[string]string {
-			return map[string]string{retiredSwitch: "true"}
 		},
 		"the organization named under the spelling from before the rename": func(organization uuid.UUID) map[string]string {
 			return map[string]string{"GOBPM_SOLE_ADMINISTRATOR_ORGANIZATIONS": organization.String()}
@@ -311,6 +313,10 @@ func TestASoleAdministratorsOwnApprovalWaitsUnlessTheirOrganizationIsNamed(t *te
 			}
 			if status, approved, raw := h.decide(t, deputy, requestID, "approve", ""); status != http.StatusOK || approved.Request.SelfApproved {
 				t.Fatalf("the other administrator approves: %d (%s)", status, raw)
+			}
+			// The organization is not named, so nothing says its name is stale.
+			if stale := logs.said(staleNameLogged); len(stale) != 0 {
+				t.Fatalf("an organization that is not named was logged as named and out of date: %v", stale)
 			}
 		})
 	}
@@ -365,6 +371,61 @@ func TestTheExceptionIsForTheOrganizationsNamedAndForNoOther(t *testing.T) {
 	}
 }
 
+// Both sides at once, with one person: an account that is the only
+// administrator of two organizations, one of them named. The same account,
+// with the same reason, is let through in the named one and told to wait in
+// the other.
+func TestOneAdministratorOfTwoOrganizationsApprovesTheirOwnRequestOnlyInTheNamedOne(t *testing.T) {
+	base := newDeviationRouteHarness(t)
+	second := base.inAnotherOrganization(t, "Not Named")
+	t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, base.orgID.String())
+	here := base.restarted(t)
+	there := here.at(second)
+
+	account := entities.User{ID: uuid.Must(uuid.NewV7()), Username: "boss", Roles: []string{entities.RoleAdmin},
+		Organizations: []*entities.Organization{{ID: here.orgID}, {ID: there.orgID}}}
+	if err := here.svc.CreateUser(entities.WithSystemContext(context.Background()), account, harnessPassword); err != nil {
+		t.Fatalf("create the administrator of both: %v", err)
+	}
+	boss := here.login(t, "boss")
+	// ask has boss ask for a waive in one of the two organizations, chosen
+	// by the header an account of several organizations chooses one with.
+	ask := func(in *deviationHarness) (uuid.UUID, string) {
+		t.Helper()
+		instanceID := in.oneStep(t)
+		organization := []string{tenant.OrganizationHeader, in.orgID.String()}
+		status, raw := in.send(t, boss, deviationsPath(instanceID), `{"kind":"waive","node_id":"step","reason":"`+routeReason+`"}`, organization...)
+		var planned deviateReply
+		if err := json.Unmarshal([]byte(raw), &planned); status != http.StatusOK || err != nil || planned.Plan.VisitKey == "" {
+			t.Fatalf("the preview: %d (%s)", status, raw)
+		}
+		status, raw = in.send(t, boss, deviationsPath(instanceID),
+			`{"kind":"waive","node_id":"step","reason":"`+routeReason+`","visit_key":"`+planned.Plan.VisitKey+`","dry_run":false}`, organization...)
+		var asked deviateReply
+		if err := json.Unmarshal([]byte(raw), &asked); status != http.StatusAccepted || err != nil || asked.PendingApproval == nil {
+			t.Fatalf("the apply: %d (%s), want 202 and the request it waits on", status, raw)
+		}
+		return instanceID, asked.PendingApproval.RequestID
+	}
+	_, named := ask(here)
+	waitingAt, unnamed := ask(there)
+
+	want := refusal("forbidden", soleWaits)
+	if status, _, raw := there.decideHere(t, boss, unnamed, "approve", decisionReason); status != http.StatusForbidden || !sameJSON(t, raw, want) {
+		t.Fatalf("in the organization that is not named: %d (%s), want 403 %s", status, raw, want)
+	}
+	if status, approved, raw := here.decideHere(t, boss, named, "approve", decisionReason); status != http.StatusOK || !approved.Request.SelfApproved {
+		t.Fatalf("in the named organization: %d (%s), want it applied and self-approved", status, raw)
+	}
+	// Approved in one, the other is as it was.
+	if status, _, raw := there.decideHere(t, boss, unnamed, "approve", decisionReason); status != http.StatusForbidden || !sameJSON(t, raw, want) {
+		t.Fatalf("in the organization that is not named, after approving in the named one: %d (%s), want 403 %s", status, raw, want)
+	}
+	if there.requestStatus(t, unnamed) != "pending_approval" || !there.stepIsOpen(t, waitingAt) {
+		t.Fatal("the request in the organization that is not named did not stay waiting")
+	}
+}
+
 // Named, and somebody else administers the organization: the requester is
 // still refused, in the words that say a different administrator has to approve —
 // with a reason or without — and nothing changes. The other administrator's
@@ -389,6 +450,18 @@ func TestWithAnotherAdministratorTheRequesterIsRefusedWhateverTheSetting(t *test
 	}
 	if refused := logs.said(refusedSelfApprovalLogged); len(refused) != 2 || refused[0]["actor"] != "boss" {
 		t.Fatalf("the refused attempts logged %v, want one line each, naming boss", refused)
+	}
+	// The list names an organization that has two administrators: it is out
+	// of date, and each refusal that found it so says it, to whoever reads
+	// the log — naming the setting, the organization and the request.
+	const wantStale = "This setting names this organization as having one administrator, and it has another: an administrator's " +
+		"approval of their own request was refused. Take the organization off the list."
+	stale := logs.said(staleNameLogged)
+	if len(stale) != 2 || stale[0]["level"] != "warn" || stale[0]["message"] != wantStale ||
+		stale[0]["setting"] != serviceimpl.EnvSoleAdministratorOrganizations || stale[0]["organization"] != h.orgID.String() ||
+		stale[0]["request"] != requestID {
+		t.Fatalf("the log holds %v\nwant a warning for each refusal, naming the setting, organization %s and request %s, that reads\n  %s",
+			stale, h.orgID, requestID, wantStale)
 	}
 
 	status, approved, raw := h.decide(t, deputy, requestID, "approve", "")
@@ -461,9 +534,9 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	// The row the reply carries is the ledger's, and says the same.
 	details, _ := approved.Deviation["details"].(map[string]any)
 	if approved.Deviation["status"] != "applied" || approved.Deviation["actor"] != "boss" || approved.Deviation["approved_by"] != "boss" ||
-		details["self_approved"] != true || fmt.Sprint(details["other_administrators"]) != "0" {
+		details["self_approved"] != true || fmt.Sprint(details["other_administrators"]) != "0" || details["organization_id"] != h.orgID.String() {
 		t.Fatalf("the row of a self-approval: %v, want it applied, asked for and approved by boss, marked self_approved, "+
-			"and saying no other administrator was found", approved.Deviation)
+			"and saying which organization it was and that no other administrator of it was found", approved.Deviation)
 	}
 	for who, account := range map[string]string{"the requester": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
 		if strings.Contains(raw, account) || strings.Contains(raw, "_by_id") {
@@ -498,9 +571,10 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	}
 	row := rows[0]
 	if row.Status != entities.DeviationApplied || row.Actor != "boss" || row.ApprovedBy != "boss" || row.ApprovedByID != row.ActorID ||
-		row.ActorID != h.accountID(t, "boss") || row.Details["self_approved"] != true || fmt.Sprint(row.Details["other_administrators"]) != "0" {
+		row.ActorID != h.accountID(t, "boss") || row.Details["self_approved"] != true || fmt.Sprint(row.Details["other_administrators"]) != "0" ||
+		row.Details["organization_id"] != h.orgID.String() {
 		t.Fatalf("the ledger row: %+v, want it applied, asked for and approved by one account, marked self_approved, "+
-			"and saying how many other administrators the organization had: none", row)
+			"and saying which organization it was and how many other administrators it had: none", row)
 	}
 
 	// The trail: an entry that says so in so many words, with the reason, in
@@ -514,8 +588,9 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	}
 	if said[0].Data["self_approved"] != true || said[0].Data["approved_by"] != "boss" || said[0].Data["requested_by"] != "boss" ||
 		said[0].Data["request_id"] != requestID || said[0].Data["deviation_id"] != row.ID.String() ||
-		fmt.Sprint(said[0].Data["other_administrators"]) != "0" {
-		t.Fatalf("the self-approval's entry carries %v, want it to say as well that no other administrator was found", said[0].Data)
+		fmt.Sprint(said[0].Data["other_administrators"]) != "0" || said[0].Data["organization_id"] != h.orgID.String() {
+		t.Fatalf("the self-approval's entry carries %v, want it to say as well which organization it was and that no other "+
+			"administrator of it was found", said[0].Data)
 	}
 	if second := h.entriesOf(t, instanceID, serviceimpl.EventDeviationApproved); len(second) != 0 {
 		t.Fatalf("the trail says a second administrator approved: %+v", second)
@@ -533,13 +608,19 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 		}
 	}
 
-	// The server's log: one line of its own, naming the setting, the request
-	// and the account — by id as well as by name — and nothing that was asked
-	// for or said. It is not the line a refused attempt leaves.
+	// The server's log: one line of its own, naming the setting, the
+	// organization, the request and the account — by id as well as by name —
+	// and nothing that was asked for or said. It is not the line a refused
+	// attempt leaves, and nothing calls the list out of date.
 	lines := logs.said(selfApprovalLogged)
 	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["setting"] != serviceimpl.EnvSoleAdministratorOrganizations ||
-		lines[0]["request"] != requestID || lines[0]["actor"] != "boss" || lines[0]["actor_id"] != h.accountID(t, "boss").String() {
-		t.Fatalf("the log holds %v, want one warning naming the setting, request %s and boss by name and account id", lines, requestID)
+		lines[0]["organization"] != h.orgID.String() || lines[0]["request"] != requestID || lines[0]["actor"] != "boss" ||
+		lines[0]["actor_id"] != h.accountID(t, "boss").String() {
+		t.Fatalf("the log holds %v, want one warning naming the setting, organization %s, request %s and boss by name and account id",
+			lines, h.orgID, requestID)
+	}
+	if stale := logs.said(staleNameLogged); len(stale) != 0 {
+		t.Fatalf("an organization with one administrator was logged as named and out of date: %v", stale)
 	}
 	if line, _ := json.Marshal(lines[0]); strings.Contains(string(line), why) || strings.Contains(string(line), routeReason) {
 		t.Fatalf("the log line carries what was asked for or why: %s", line)
@@ -548,9 +629,11 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 		t.Fatalf("an admitted self-approval was logged as a refused one: %v", refused)
 	}
 
-	// Decided, it is decided: nobody decides it again, its requester included.
+	// Decided, it is decided: nobody decides it again, its requester
+	// included — and whoever tries is told whose approval it was.
 	closed := h.everyRow(t)
-	want = invalid(fmt.Sprintf("boss approved this on %s, and it was applied.", approved.Request.DecidedAt.UTC().Format(decidedOn)))
+	want = invalid(fmt.Sprintf("boss approved this — their own request, with no second administrator — on %s, and it was applied.",
+		approved.Request.DecidedAt.UTC().Format(decidedOn)))
 	for _, verb := range []string{"approve", "reject"} {
 		if status, _, raw := h.decide(t, boss, requestID, verb, why); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 			t.Fatalf("boss's %s of a request already approved: %d (%s), want 400 %s", verb, status, raw, want)

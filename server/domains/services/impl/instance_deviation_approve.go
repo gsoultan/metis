@@ -81,7 +81,10 @@ func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUI
 		return entities.DeviationRequestOutcome{}, err
 	}
 	if outcome.Request.SelfApproved() {
-		traceSelfApproval(outcome.Request)
+		// The organization the request is being decided in is the request's
+		// own: the approval was admitted only because it is
+		// (approvalRules.organizationOf).
+		traceSelfApproval(outcome.Request, entities.ActingOrganization(ctx))
 	}
 	return outcome, nil
 }
@@ -290,6 +293,7 @@ func (s *instanceDeviationService) recordApproved(
 	if decision.SelfApproved {
 		details[auditSelfApproved] = true
 		details[auditOtherAdministrators] = 0
+		details[auditOrganizationID] = decision.Organization.String()
 	}
 	decided, err := s.repo.DeviationDecider().Decide(ctx, pending.ID, repocontracts.LedgerRowDecision{
 		Status: entities.DeviationApplied, ApprovedBy: decision.Decider, ApprovedByID: decision.DeciderID, DecidedAt: decision.At,
@@ -333,6 +337,7 @@ func approvalEntry(request entities.DeviationRequest, row entities.Deviation, de
 	entry := approvalNote(requestEntry(eventType, request, row, narrative), request, decision)
 	if decision.SelfApproved {
 		entry.Data[auditOtherAdministrators] = 0
+		entry.Data[auditOrganizationID] = decision.Organization.String()
 	}
 	return entry
 }

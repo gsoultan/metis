@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -8,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/observers/impl"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
@@ -121,35 +126,125 @@ func TestTheSoleAdministratorOrganizationsAreAnnouncedAtBoot(t *testing.T) {
 	}
 }
 
-// The exception was, for a while, a switch for the whole installation under
-// another name. That name is not a setting: set, it turns nothing on. An
-// operator who set it expecting the exception is told so at start-up, and
-// told what is read instead — once, as a warning, and not at all when it is
-// not set.
-func TestTheSwitchThatIsNoLongerASettingIsSaidAtBoot(t *testing.T) {
-	const retired, setting = "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL", "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
-	const want = retired + " is set, and nothing reads it: it turns nothing on. An organization's only administrator may " +
-		"approve their own request only where " + setting + " names the organization, by id."
-	for raw, warned := range map[string]bool{"": false, "true": true, "false": true, "1": true, "yes please": true} {
-		t.Run("set to "+raw, func(t *testing.T) {
+// The list is read once when the server starts, and that one reading is both
+// what the startup log announces and what the services are built with: an
+// operator who reads the log knows where the exception applies, and nothing
+// the environment says afterwards makes the log untrue.
+//
+// With real accounts: ana is the only administrator of the organization. Her
+// approval of her own request is let through exactly where the log said it
+// would be — and when the waive she approved cannot move the instance on, the
+// server's log says the approval that came to nothing was the requester's
+// own.
+func TestWhatStartUpAnnouncesAboutSoleAdministratorsIsWhatTheServicesEnforce(t *testing.T) {
+	const setting = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
+	w := askForAWaive(t, map[string]any{"verdict": "maybe-next-quarter"})
+	organization := entities.ActingOrganization(w.tenant)
+	if err := w.app.svc.CreateUser(entities.WithSystemContext(t.Context()), entities.User{
+		ID: w.account("ana"), Username: "ana", Roles: []string{entities.RoleAdmin}, Organizations: []*entities.Organization{{ID: organization}},
+	}, "start-up-test-password"); err != nil {
+		t.Fatalf("create ana's account: %v", err)
+	}
+	elsewhere := uuid.Must(uuid.NewV7()).String()
+	started := func(list string) (announced []any) {
+		t.Helper()
+		logs := captureLogs(t)
+		t.Setenv(setting, list)
+		w.app.control = logFeatureConfiguration()
+		w.app.svc = w.app.newServices(impl.NewEventDispatcher(), "retention-deviation-test")
+		// Whatever the environment says from here on, the server has started.
+		t.Setenv(setting, strings.Join([]string{organization.String(), elsewhere}, ","))
+		for _, line := range logs.said("In each organization this setting names") {
+			listed, _ := line["organizations"].([]any)
+			announced = append(announced, listed...)
+		}
+		return announced
+	}
+
+	// Started with the organization not named: nothing says it is, and ana's
+	// own approval waits.
+	if announced := started(elsewhere); !reflect.DeepEqual(announced, []any{elsewhere}) {
+		t.Fatalf("started naming another organization, the log announced %v", announced)
+	}
+	_, err := w.app.svc.ApproveDeviationRequest(w.as("ana"), w.request, "nobody else is here")
+	if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "so it waits") {
+		t.Fatalf("ana approving her own request where the log did not name her organization: %v, want it to wait", err)
+	}
+
+	// Started with it named, beside an entry that names nobody: the log
+	// announces it and only it, and ana's own approval is let through.
+	if announced := started("Acme Ltd, " + organization.String()); !reflect.DeepEqual(announced, []any{organization.String()}) {
+		t.Fatalf("started naming the organization, the log announced %v", announced)
+	}
+	logs := captureLogs(t)
+	_, err = w.app.svc.ApproveDeviationRequest(w.as("ana"), w.request, "nobody else is here")
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "The request is still waiting") {
+		t.Fatalf("ana approving a waive its gateway cannot follow: %v, want it refused with the request still waiting", err)
+	}
+	lines := logs.said("could not be applied")
+	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["own_request"] != true || lines[0]["actor"] != "ana" ||
+		!strings.HasPrefix(fmt.Sprint(lines[0]["message"]), "A waive its requester approved themselves could not be applied:") {
+		t.Fatalf("the log holds %v, want one warning that says the approval that could not be applied was the requester's own", lines)
+	}
+	_, followable := w.another(t, map[string]any{"verdict": "accept"})
+	approved, err := w.app.svc.ApproveDeviationRequest(w.as("ana"), followable, "nobody else is here")
+	if err != nil || !approved.Applied || !approved.Request.SelfApproved() {
+		t.Fatalf("ana approving her own request where the log named her organization: %+v, %v", approved.Request, err)
+	}
+}
+
+// A second administrator's approval that cannot be applied is not said to be
+// anybody's own.
+func TestAnApprovalThatCouldNotBeAppliedIsNotCalledTheRequestersOwnWhenItWasNot(t *testing.T) {
+	w := askForAWaive(t, map[string]any{"verdict": "maybe-next-quarter"})
+	logs := captureLogs(t)
+	if _, err := w.app.svc.ApproveDeviationRequest(w.as("budi"), w.request, ""); !errors.Is(err, apierr.ErrInvalidArgument) {
+		t.Fatalf("budi approving a waive its gateway cannot follow: %v", err)
+	}
+	lines := logs.said("could not be applied")
+	if _, own := lines[0]["own_request"]; len(lines) != 1 || own ||
+		!strings.HasPrefix(fmt.Sprint(lines[0]["message"]), "An approved waive could not be applied:") {
+		t.Fatalf("the log holds %v, want one warning that calls it nobody's own", lines)
+	}
+}
+
+// An id that is well formed and names no organization of this installation
+// does nothing, and whoever wrote it believes it does something. It cannot be
+// told until the database is up; once it is, it is said, once, as a warning
+// that lists those ids. Ids that all name organizations are not mentioned.
+func TestAnIdThatNamesNoOrganizationHereIsSaidOnceTheDatabaseIsUp(t *testing.T) {
+	const setting = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
+	w := askForAWaive(t, map[string]any{"verdict": "accept"})
+	organization := entities.ActingOrganization(w.tenant).String()
+	stranger, another := uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
+	const want = "These ids name no organization of this installation, so naming them does nothing. Check them against the " +
+		"organizations' ids and take them off the list."
+	for list, unknown := range map[string][]any{
+		"":                            nil,
+		organization:                  nil,
+		organization + "," + stranger: {stranger},
+		stranger + ", " + organization + "," + another: {stranger, another},
+	} {
+		t.Run(fmt.Sprintf("set to %.80s", list), func(t *testing.T) {
+			t.Setenv(setting, list)
+			settings := logFeatureConfiguration()
 			logs := captureLogs(t)
-			t.Setenv(setting, "")
-			t.Setenv(retired, raw)
-			logFeatureConfiguration()
+			settings.warnOfOrganizationsThatDoNotExist(entities.WithSystemContext(t.Context()), w.app.repo.User())
 			var said []map[string]any
 			for _, line := range logs.said("") {
-				if line["setting"] == retired || line["setting"] == setting {
+				if line["setting"] == setting {
 					said = append(said, line)
 				}
 			}
-			if !warned {
+			if len(unknown) == 0 {
 				if len(said) != 0 {
-					t.Fatalf("with %s not set the startup log said %v", retired, said)
+					t.Fatalf("with every id naming an organization, the check said %v", said)
 				}
 				return
 			}
-			if len(said) != 1 || said[0]["level"] != "warn" || said[0]["setting"] != retired || said[0]["message"] != want {
-				t.Fatalf("with %s=%q the startup log said %v\nwant one warning that reads\n  %s", retired, raw, said, want)
+			if len(said) != 1 || said[0]["level"] != "warn" || said[0]["message"] != want || said[0]["count"] != float64(len(unknown)) ||
+				!reflect.DeepEqual(said[0]["organizations"], unknown) {
+				t.Fatalf("the check said %v\nwant one warning listing %v that reads\n  %s", said, unknown, want)
 			}
 		})
 	}

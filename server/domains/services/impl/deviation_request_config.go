@@ -78,8 +78,9 @@ func hoursOf(d time.Duration) string {
 // there — on the account, or in that organization alone — exists; the moment
 // one does, the requester is refused as anywhere else. Each use needs a
 // reason, and is recorded as nobody else's approval: a
-// deviation_self_approved entry on the trail, self_approved and
-// other_administrators on the ledger row, and a line in the server's log.
+// deviation_self_approved entry on the trail; self_approved, the
+// organization and other_administrators on it and on the ledger row; and a
+// line in the server's log.
 //
 // Organizations are named, rather than the exception switched on for the
 // installation, because in an organization with two administrators either
@@ -95,9 +96,10 @@ func hoursOf(d time.Duration) string {
 // name is neither unique nor permanent.
 //
 // It is the operator's, not an organization's and not a request's: read from
-// the environment when the server is put together
-// (services.NewServiceFacade) and given to the service of requests as it is
-// built (WithSoleAdministratorOrganizations). Nothing reads it afterwards.
+// the environment once, when the server starts
+// (internal/app.readControlSettings), and given to the service of requests
+// as it is built (WithSoleAdministratorOrganizations). Nothing reads it
+// afterwards.
 const EnvSoleAdministratorOrganizations = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
 
 // SoleAdministratorOrganizations answers the organizations the setting
@@ -114,13 +116,18 @@ const EnvSoleAdministratorOrganizations = "METIS_SOLE_ADMINISTRATOR_ORGANIZATION
 // say when it starts (logControlSettings). "true" is such an entry: nothing
 // switches the exception on for every organization.
 //
-// Read with os.Getenv, not through envvar.Get as most METIS_* settings are:
-// that package also answers to the spelling from before the rename, and a
-// setting that weakens a control has one name, as METIS_ALLOW_WEAK_SECRETS
-// has (secrets.Allowed).
+// It reads and says nothing: it logs nothing and keeps nothing, and answers
+// the same for the same environment. The server calls it once, when it
+// starts, and both what it announces and what it builds its services with
+// are that one answer (internal/app.readControlSettings).
 func SoleAdministratorOrganizations() (named []uuid.UUID, problems []string) {
+	// os.LookupEnv, never envvar.Get: that package also answers to the
+	// spelling from before the rename (GOBPM_…), and a setting that weakens
+	// a control has one name — as METIS_ALLOW_WEAK_SECRETS has
+	// (secrets.Allowed).
+	written, _ := os.LookupEnv(EnvSoleAdministratorOrganizations)
 	seen := map[uuid.UUID]struct{}{}
-	for position, entry := range strings.Split(os.Getenv(EnvSoleAdministratorOrganizations), ",") {
+	for position, entry := range strings.Split(written, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
