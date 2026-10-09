@@ -124,5 +124,8 @@ func (s *deviationRequestService) rejectLocked(ctx context.Context, id uuid.UUID
 		}
 		return rejected, nil
 	}
+	// A kind nothing writes: the set is closed, and the kind of a request does
+	// not change after it is made. Run by no test; kept so that a kind added
+	// later without its rejection is told here.
 	return none, fmt.Errorf("request %s is a %s, which nothing here rejects", request.ID, request.Kind)
 }

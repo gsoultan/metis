@@ -128,6 +128,9 @@ func (s *instanceDeviationService) approveLocked(
 	if err != nil {
 		return none, err
 	}
+	// The kind is written when a request is made and nothing changes it, and
+	// the caller chose this path by the kind it read: this guard cannot be
+	// met, is run by no test, and stays so that a wrong caller is told.
 	if request.Kind != entities.DeviationRequestInstanceWaive {
 		return none, fmt.Errorf("request %s is a %s, and was handed to the approval of a waive", request.ID, request.Kind)
 	}
@@ -393,9 +396,7 @@ func (s *instanceDeviationService) expiredAtApproval(ctx context.Context, reques
 	if err := s.expireWaive(ctx, request); err != nil {
 		return err
 	}
-	return refuseAfterCommit(apierr.Invalidf(
-		"This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.",
-		request.ExpiresAt.UTC().Format(decidedOnLayout)))
+	return refuseAfterCommit(errExpiredBeforeApproval(request))
 }
 
 // staleAtApproval records that a request no longer held when somebody came to

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
@@ -152,6 +153,6 @@ func migrationPlanDocument(plan any, because []string) (map[string]any, error) {
 		reasons = append(reasons, reason)
 	}
 	doc = maps.Clone(doc)
-	doc[planBecauseKey] = reasons
+	doc[entities.PlanBecauseKey] = reasons
 	return doc, nil
 }

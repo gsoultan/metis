@@ -12,9 +12,10 @@ import (
 // and one whose process died says nothing, so silence has to end somewhere.
 const ApprovedRunReportWindow = time.Hour
 
-// planBecause is where a request's stored plan keeps the reasons it needs a
-// second administrator.
-const planBecause = "because"
+// PlanBecauseKey is where a request's stored plan keeps the reasons it needs
+// a second administrator. One declaration: whoever writes a plan to be stored
+// writes them under it, and Because reads them from under it.
+const PlanBecauseKey = "because"
 
 // DeviationRequest is a deviation one administrator asked for and a second has
 // to approve: a step of an instance waived in place, or a migration that
@@ -115,7 +116,7 @@ func (r DeviationRequest) SelfApproved() bool {
 // Because is why the request needs a second administrator, as its plan stored
 // it: a list of sentences. Nil when the plan holds no such list.
 func (r DeviationRequest) Because() []string {
-	switch reasons := r.Plan[planBecause].(type) {
+	switch reasons := r.Plan[PlanBecauseKey].(type) {
 	case []string:
 		return reasons
 	case []any:

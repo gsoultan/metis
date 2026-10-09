@@ -123,13 +123,9 @@ func waivePlanDocument(plan entities.DeviationPlan, because []string) map[string
 		"refusals":                 listed(plan.Refusals),
 		"warnings":                 listed(plan.Warnings),
 		"applicable":               plan.Applicable(),
-		planBecauseKey:             listed(because),
+		entities.PlanBecauseKey:    listed(because),
 	}
 }
-
-// planBecauseKey is where a stored plan keeps why the request needs a second
-// administrator; entities.DeviationRequest.Because reads it.
-const planBecauseKey = "because"
 
 // openWorkDocument is one open task as a stored plan lists it: the route's
 // OpenWorkView, which leaves out a holder nobody is and an iteration a step

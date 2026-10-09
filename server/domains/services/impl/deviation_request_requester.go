@@ -104,3 +104,11 @@ func errRequesterGone(request entities.DeviationRequest) error {
 	return apierr.Invalidf("The administrator who asked for this, %s, no longer administers this organization, "+
 		"so nothing was applied. It has to be asked for afresh by somebody who does.", request.RequestedBy)
 }
+
+// errExpiredBeforeApproval is what the approver is told of a request found
+// past its deadline: one sentence, for a waive's approval and a migration's.
+// The expiry is recorded before it is said (refuseAfterCommit).
+func errExpiredBeforeApproval(request entities.DeviationRequest) error {
+	return apierr.Invalidf("This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.",
+		request.ExpiresAt.UTC().Format(decidedOnLayout))
+}

@@ -676,3 +676,51 @@ func TestAServerWithNoStoreOfRequestsFailsAsTheServersFaultAndMovesNothing(t *te
 	}
 	f.assertNothingMoved(t, v1)
 }
+
+// A request is of one kind for good: the kind is written when the request is
+// made and nothing changes it. So a waive's request is no approval of a
+// migration, waiting or carried out — offered to the gate, it is refused for
+// what it is, and nothing is moved. (The three places that are handed a
+// request of the wrong kind by their own caller refuse it too; nothing can
+// reach them with one, and they are not run by a test.)
+func TestAWaivesRequestIsNoApprovalOfAMigration(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	instance := f.onlyInstance(t)
+	dita := adminAs(f.ctx, "dita")
+
+	waive := entities.DeviationCommand{InstanceID: instance.ID, Kind: entities.DeviationWaive, NodeID: "opsApprove",
+		Reason: "the operations manager is away; the director agreed", DryRun: true}
+	preview, err := f.svc.DeviateInstance(dita, waive)
+	if err != nil {
+		t.Fatalf("preview the waive: %v", err)
+	}
+	waive.VisitKey, waive.DryRun = preview.Plan.VisitKey, false
+	asked, err := f.svc.DeviateInstance(dita, waive)
+	if err != nil || asked.PendingApproval == nil {
+		t.Fatalf("ask for the waive: %+v %v", asked, err)
+	}
+	under := append(slices.Clip(skipOps("the role was eliminated")), servicecontracts.WithApprovedRequest(asked.PendingApproval.RequestID))
+
+	_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+	if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "is pending_approval, not an approved migration; nothing was moved") {
+		t.Fatalf("a migration under a waive's request that waits: %v, want it forbidden as no approved migration", err)
+	}
+	if on := f.stillOn(t, v1.String()); len(on) != 1 {
+		t.Fatalf("%d instance(s) are on the version being left, want the one: the refused migration moved something", len(on))
+	}
+
+	// Approved and carried out, it is a waive that was made, and still no
+	// approval of a migration.
+	if out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), asked.PendingApproval.RequestID, ""); err != nil || !out.Applied {
+		t.Fatalf("omar approves the waive: %+v %v", out.Request, err)
+	}
+	_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+	if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "is applied, not an approved migration; nothing was moved") {
+		t.Fatalf("a migration under a waive's request that was applied: %v, want it forbidden as no approved migration", err)
+	}
+	if on := f.stillOn(t, v1.String()); len(on) != 1 {
+		t.Fatalf("%d instance(s) are on the version being left, want the one: the refused migration moved something", len(on))
+	}
+}

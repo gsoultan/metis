@@ -271,6 +271,9 @@ func (s *migrationService) admitLocked(ctx context.Context, id uuid.UUID, caller
 	if err != nil {
 		return none, err
 	}
+	// The kind is written when a request is made and nothing changes it, and
+	// the caller chose this path by the kind it read: this guard cannot be
+	// met, is run by no test, and stays so that a wrong caller is told.
 	if request.Kind != entities.DeviationRequestMigration {
 		return none, fmt.Errorf("request %s is a %s, and was handed to the approval of a migration", request.ID, request.Kind)
 	}
@@ -285,9 +288,7 @@ func (s *migrationService) admitLocked(ctx context.Context, id uuid.UUID, caller
 		if err := expireMigrationRequest(ctx, requests, request); err != nil {
 			return none, err
 		}
-		return none, refuseAfterCommit(apierr.Invalidf(
-			"This request expired on %s before anybody approved it, so nothing was applied. Ask again if it is still needed.",
-			request.ExpiresAt.UTC().Format(decidedOnLayout)))
+		return none, refuseAfterCommit(errExpiredBeforeApproval(request))
 	}
 	gone, err := s.rules.requesterNoLongerAdministers(ctx, request)
 	if err != nil {
