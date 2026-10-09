@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { migrationRequestKey, type MigrationRequest } from '../domain/instanceMigration';
 import { versionPair } from '../domain/migrationDraft';
@@ -31,8 +31,17 @@ export function useMigrationPlan(request: MigrationRequest | null) {
   // part-way, the plan in hand counts instances that have since moved.
   const [round, setRound] = useState(0);
   const [answer, setAnswer] = useState<PlanAnswer | null>(null);
-  const key = request ? `${round}|${migrationRequestKey(request)}` : null;
+  const requestKey = request ? migrationRequestKey(request) : null;
+  const key = requestKey !== null ? `${round}|${requestKey}` : null;
   const pair = request ? versionPair(request.source, request.target) : null;
+  // What is on screen now, for whoever started something on an earlier
+  // render and finishes it on a later one. An apply holds the request it was
+  // pressed with; by the time it is answered the form may have been edited,
+  // and the answer is to a request the screen no longer shows.
+  const latest = useRef({ pair, requestKey });
+  useEffect(() => {
+    latest.current = { pair, requestKey };
+  });
 
   useEffect(() => {
     if (!request || key === null || pair === null) return;
@@ -61,5 +70,7 @@ export function useMigrationPlan(request: MigrationRequest | null) {
     replan: () => setRound((current) => current + 1),
     /** Forgets the plan, for a dialog that is closing: reopened, it plans afresh. */
     reset: () => setAnswer(null),
+    /** The pair of versions and the request on screen at the moment it is asked. */
+    onScreen: () => latest.current,
   };
 }
