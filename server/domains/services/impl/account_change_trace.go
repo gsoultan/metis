@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -35,6 +36,26 @@ const (
 type accountRoles struct {
 	global         []string
 	byOrganization map[uuid.UUID][]string
+	// memberOf is the organizations the account belongs to, where the line
+	// says them: of an account created, and of one deleted. A role held on
+	// the account is held in each of them, and the roles alone do not say
+	// which. Nil where it is not said.
+	memberOf []uuid.UUID
+}
+
+// in is the roles with where the account belongs said beside them.
+func (r accountRoles) in(organizations []uuid.UUID) accountRoles {
+	r.memberOf = append([]uuid.UUID{}, organizations...)
+	return r
+}
+
+// membershipsOf is the organizations a stored account belongs to.
+func membershipsOf(account models.UserModel) []uuid.UUID {
+	organizations := make([]uuid.UUID, 0, len(account.Organizations))
+	for _, organization := range account.Organizations {
+		organizations = append(organizations, uuid.UUID(organization.ID))
+	}
+	return organizations
 }
 
 // rolesOf is the roles a stored account holds.
@@ -133,6 +154,18 @@ func writeAccountChange(line *zerolog.Event, organization uuid.UUID, what string
 	line = line.Str("target_id", target.String()).Str("target", name)
 	if organization != uuid.Nil {
 		line = line.Str("organization", organization.String())
+	}
+	memberOf := after.memberOf
+	if memberOf == nil {
+		memberOf = before.memberOf
+	}
+	if memberOf != nil {
+		ids := make([]string, 0, len(memberOf))
+		for _, organization := range memberOf {
+			ids = append(ids, organization.String())
+		}
+		slices.Sort(ids)
+		line = line.Strs("member_of", ids)
 	}
 	line.Strs("roles_before", before.global).Strs("roles_after", after.global).
 		Interface("organization_roles_before", before.written()).

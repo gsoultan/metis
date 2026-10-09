@@ -450,7 +450,8 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 	if err := seedInstallation(db, req, orgID, adminID, roles); err != nil {
 		return err
 	}
-	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{}, accountRoles{global: roles})
+	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{},
+		accountRoles{global: roles}.in([]uuid.UUID{orgID}))
 	return nil
 }
 

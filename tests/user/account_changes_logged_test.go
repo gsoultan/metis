@@ -1,7 +1,9 @@
 package user_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"slices"
@@ -9,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
@@ -70,8 +73,13 @@ func TestEveryChangeToWhoHoldsWhichRoleIsLoggedWithWhoMadeIt(t *testing.T) {
 			}
 		}
 		// The line holds what is listed and nothing else.
+		// member_of is on the lines of an account created and of one
+		// deleted, and on no other.
 		allowed := []string{"level", "time", "message", "actor_id", "actor", "target_id", "target", "organization",
 			"roles_before", "roles_after", "organization_roles_before", "organization_roles_after"}
+		if _, said := want["member_of"]; said {
+			allowed = append(allowed, "member_of")
+		}
 		for field := range line {
 			if !slices.Contains(allowed, field) {
 				t.Fatalf("%s: the line carries %q, which is not who, whose, where or which roles: %v", what, field, line)
@@ -106,6 +114,9 @@ func TestEveryChangeToWhoHoldsWhichRoleIsLoggedWithWhoMadeIt(t *testing.T) {
 	expect("creating an account", change("An account was created", second), second, "second", w.acme, map[string]any{
 		"roles_before": none, "roles_after": []any{entities.RoleOperator},
 		"organization_roles_before": nowhere, "organization_roles_after": map[string]any{w.acme.String(): []any{entities.RoleAdmin}},
+		// Where the account belongs: a role held on the account is held in
+		// each of these, and the line of its roles alone does not say which.
+		"member_of": []any{w.acme.String()},
 	})
 
 	// Its role in Acme is taken away, and given back.
@@ -151,6 +162,7 @@ func TestEveryChangeToWhoHoldsWhichRoleIsLoggedWithWhoMadeIt(t *testing.T) {
 	expect("deleting an account", change("An account was deleted", second), second, "second", w.acme, map[string]any{
 		"roles_before": []any{entities.RoleAdmin}, "roles_after": none,
 		"organization_roles_before": held, "organization_roles_after": nowhere,
+		"member_of": []any{w.acme.String()},
 	})
 }
 
@@ -243,5 +255,89 @@ func TestAPasswordSetOnTheServerIsLoggedAsRunThere(t *testing.T) {
 	}
 	if lines := logs.said("An account's password was set"); len(lines) != 0 {
 		t.Fatalf("a refused reset was logged: %v", lines)
+	}
+}
+
+// One rule for a change that changes nothing: it is not a change, and is not
+// logged — the roles held in an organization set to what they already are,
+// as an update of an account that changes no role already was not. Set to
+// something else, they are logged; in another order, or another case, they
+// are the same roles.
+func TestRolesInAnOrganizationSetToWhatTheyAreIsNotLoggedAsAChange(t *testing.T) {
+	w := newOrgRolesWorld(t, "root")
+	w.account("root", []string{entities.RoleAdmin}, w.acme)
+	clerk := w.account("clerk", []string{entities.RoleUser}, w.acme)
+	if status, body := w.grantHere("root", "clerk", w.acme, entities.RoleOperator, entities.RoleDesigner); status != http.StatusOK {
+		t.Fatalf("root gives roles in Acme: %d (%s)", status, body)
+	}
+	logs := captureLogs(t)
+	for _, same := range [][]string{
+		{entities.RoleOperator, entities.RoleDesigner},
+		{entities.RoleDesigner, entities.RoleOperator},
+		{"designer", "operator"},
+	} {
+		if status, body := w.grantHere("root", "clerk", w.acme, same...); status != http.StatusOK {
+			t.Fatalf("root sets the roles in Acme to %v, which they are: %d (%s)", same, status, body)
+		}
+	}
+	if lines := logs.said("roles in an organization were changed"); len(lines) != 0 {
+		t.Fatalf("setting the roles to what they are was logged as a change: %v", lines)
+	}
+	if status, body := w.grantHere("root", "clerk", w.acme, entities.RoleOperator); status != http.StatusOK {
+		t.Fatalf("root takes one role away: %d (%s)", status, body)
+	}
+	lines := logs.said("roles in an organization were changed")
+	if len(lines) != 1 || lines[0]["target_id"] != clerk.String() ||
+		!reflect.DeepEqual(lines[0]["organization_roles_after"], map[string]any{w.acme.String(): []any{entities.RoleOperator}}) {
+		t.Fatalf("taking a role away logged %v, want the one line of that change", lines)
+	}
+}
+
+// An account that an identity provider signs in is named, where it is the
+// actor, as any account is: by its id and its username — which for such an
+// account may be its email address, when the provider gives no other name.
+// The line names it so because that is what tells one account from another.
+func TestAChangeMadeByAnAccountAProviderSignsInNamesItByIdAndUsername(t *testing.T) {
+	w := newOrgRolesWorld(t)
+	actor := entities.User{
+		ID: uuid.Must(uuid.NewV7()), Username: "ana@example.com", IdentityProvider: "https://id.example.com",
+		Roles: []string{entities.RoleAdmin}, Organizations: []*entities.Organization{{ID: w.acme}},
+	}
+	asActor := context.WithValue(
+		entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: w.acme.String()}), pkgauth.UserContextKey, actor)
+	logs := captureLogs(t)
+	created := entities.User{ID: uuid.Must(uuid.NewV7()), Username: "made-by-ana", OrganizationRoles: []string{entities.RoleOperator},
+		Organizations: []*entities.Organization{{ID: w.acme}}}
+	if err := w.svc.CreateUser(asActor, created, orgRolesPassword); err != nil {
+		t.Fatalf("an account a provider signs in creates an account: %v", err)
+	}
+	lines := logs.said("An account was created")
+	if len(lines) != 1 || lines[0]["actor_id"] != actor.ID.String() || lines[0]["actor"] != "ana@example.com" ||
+		lines[0]["target_id"] != created.ID.String() || lines[0]["organization"] != w.acme.String() {
+		t.Fatalf("the line is %v; want it to name the actor by id and by username", lines)
+	}
+	if _, said := lines[0]["identity_provider"]; said || strings.Contains(fmt.Sprint(lines[0]), "id.example.com") {
+		t.Fatalf("the line says how the actor signs in, which is not who, whose, where or which roles: %v", lines[0])
+	}
+}
+
+// A rename made together with a change of roles is one line, of the change of
+// roles: it names the account by its id, which a rename does not change, and
+// by the name it has once the change is made. The rename itself is not said
+// (a rename alone logs nothing: recorded as a limit).
+func TestARenameWithAChangeOfRolesIsLoggedUnderTheNewNameAndTheSameId(t *testing.T) {
+	w := newOrgRolesWorld(t, "root")
+	w.account("root", []string{entities.RoleAdmin}, w.acme)
+	clerk := w.account("clerk", []string{entities.RoleUser}, w.acme)
+	logs := captureLogs(t)
+	if status, body := w.call("root", http.MethodPut, "/api/v1/users/"+clerk.String(), w.acme, map[string]any{
+		"user": map[string]any{"username": "deputy", "full_name": "clerk", "email": "clerk@example.com", "roles": []string{entities.RoleAdmin}},
+	}); status != http.StatusOK {
+		t.Fatalf("root renames the account and makes it an administrator: %d (%s)", status, body)
+	}
+	lines := logs.said("An account's roles were changed")
+	if len(lines) != 1 || lines[0]["target_id"] != clerk.String() || lines[0]["target"] != "deputy" || lines[0]["actor"] != "root" ||
+		!reflect.DeepEqual(lines[0]["roles_before"], []any{entities.RoleUser}) || !reflect.DeepEqual(lines[0]["roles_after"], []any{entities.RoleAdmin}) {
+		t.Fatalf("the line is %v; want one, of the account by its id and its new name, with the roles before and after", lines)
 	}
 }

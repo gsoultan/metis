@@ -116,7 +116,8 @@ func TestSetupLeavesTheAdminAbleToSeeSomething(t *testing.T) {
 	line := created[0]
 	if line["actor"] != "" || line["actor_id"] != "" || line["made_through"] != "set-up" || line["target"] != "admin" ||
 		line["target_id"] != uuid.UUID(account.ID).String() || line["organization"] != uuid.UUID(account.Organizations[0].ID).String() ||
-		!reflect.DeepEqual(line["roles_after"], []any{entities.RoleAdmin}) || !reflect.DeepEqual(line["roles_before"], []any{}) {
+		!reflect.DeepEqual(line["roles_after"], []any{entities.RoleAdmin}) || !reflect.DeepEqual(line["roles_before"], []any{}) ||
+		!reflect.DeepEqual(line["member_of"], []any{uuid.UUID(account.Organizations[0].ID).String()}) {
 		t.Fatalf("the line for the first administrator is %v; want it to name the account, its organization and the administrator role, "+
 			"no actor, and set-up as what made it", line)
 	}

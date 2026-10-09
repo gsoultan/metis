@@ -128,8 +128,14 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 	if err := s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash)); err != nil {
 		return err
 	}
+	memberOf := make([]uuid.UUID, 0, len(u.Organizations))
+	for _, organization := range u.Organizations {
+		if organization != nil {
+			memberOf = append(memberOf, organization.ID)
+		}
+	}
 	traceAccountChange(ctx, accountCreated, u.ID, u.Username, accountRoles{},
-		accountRoles{global: u.Roles, byOrganization: u.RolesByOrganization})
+		accountRoles{global: u.Roles, byOrganization: u.RolesByOrganization}.in(memberOf))
 	return nil
 }
 
@@ -455,7 +461,7 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	s.principals.forget(id)
-	traceAccountChange(ctx, accountDeleted, id, stored.Username, rolesOf(stored), accountRoles{})
+	traceAccountChange(ctx, accountDeleted, id, stored.Username, rolesOf(stored).in(membershipsOf(stored)), accountRoles{})
 	return nil
 }
 
