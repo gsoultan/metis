@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -168,3 +169,45 @@ func verifiedApproval(request entities.DeviationRequest) (servicecontracts.Migra
 	approval.Organization = organization
 	return approval, nil
 }
+
+// whyNoLongerHolds says why a request does not cover a migration, and says
+// nothing when it does.
+//
+// A request covers a migration when the migration is the policy that was
+// asked for (the fingerprint) and acts on no instance the request did not
+// show (covered, the running instances of the plan about to be applied). It
+// is asked twice with the same answer expected: when a second administrator
+// approves, and again by the apply, of the very plan it runs.
+//
+// Fewer instances is still covered — one that finished or was moved since is
+// simply not acted on. One more is not: nobody was shown it. A request with
+// no fingerprint covers nothing.
+func whyNoLongerHolds(request entities.DeviationRequest, fingerprint string, covered []uuid.UUID) string {
+	if request.Fingerprint == "" || request.Fingerprint != fingerprint {
+		return "the migration is no longer the one that was asked for: its mapping, its decisions, " +
+			"the controls it drops or the instances it names changed"
+	}
+	shown := make(map[uuid.UUID]struct{}, len(request.ApprovedInstances))
+	for _, id := range request.ApprovedInstances {
+		shown[id] = struct{}{}
+	}
+	var newcomers []string
+	for _, id := range covered {
+		if _, ok := shown[id]; !ok {
+			newcomers = append(newcomers, id.String())
+		}
+	}
+	if len(newcomers) == 0 {
+		return ""
+	}
+	slices.Sort(newcomers)
+	named := strings.Join(newcomers[:min(len(newcomers), newcomersNamed)], ", ")
+	if more := len(newcomers) - newcomersNamed; more > 0 {
+		named += fmt.Sprintf(", and %d more", more)
+	}
+	return fmt.Sprintf("%d instance(s) reached the version being migrated from after it was asked for (%s)", len(newcomers), named)
+}
+
+// newcomersNamed is how many of the instances a request does not cover are
+// named when a migration is refused for them. All of them are counted.
+const newcomersNamed = 5
