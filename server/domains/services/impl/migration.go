@@ -523,9 +523,9 @@ func (s *migrationService) apply(
 		settled, elsewhere := false, false
 		// Why the instance, once locked, is not to be moved; nothing when it is.
 		var stuck leftAlone
-		// The instance_migrated entry is written after the rewrite commits, but
-		// the control-loss rows written inside it point at that entry, so its id
-		// is chosen first.
+		// The instance_migrated entry is the last thing the rewrite writes, and
+		// the control-loss rows written before it point at it, so its id is
+		// chosen first.
 		entryID, err := uuid.NewV7()
 		if err != nil {
 			return result, err
@@ -684,7 +684,13 @@ func (s *migrationService) apply(
 				}
 			}
 
-			return s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes)
+			if err := s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes); err != nil {
+				return err
+			}
+			// The trail entry, in the rewrite's transaction, as the ledger
+			// rows above are: an instance is moved with the entry that says
+			// so, or it is not moved.
+			return s.recordMigration(txCtx, instance, source, target, moved, options, waived, runID, entryID)
 		})
 		if err != nil {
 			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
@@ -714,7 +720,6 @@ func (s *migrationService) apply(
 					"It stays on the version it is running; the reply says what the work is and what to do")
 			continue
 		}
-		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
 		done++
 		if !made.wrote {
 			result.Changed++
@@ -757,12 +762,21 @@ func (s *migrationService) recordControlLosses(
 	return nil
 }
 
-// recordMigration writes the audit entry for one migrated instance.
+// recordMigration writes the trail entry of one migrated instance, in the
+// rewrite's unit of work (ctx): the entry is committed with the rewrite or
+// the rewrite is undone with it.
 //
-// Outside the unit of work on purpose: a migration that succeeded should not be
-// rolled back because the audit write failed, and an audit entry for a
-// migration that did not happen is worse than a missing one. A lost entry is
-// logged loudly because the trail is what somebody will be asked for later.
+// It used to be written after the rewrite had committed, so that a trail that
+// could not be written did not undo a migration that had succeeded; a write
+// that failed was logged. But the entry is what says how an instance came to
+// be on another version, with its work re-pointed — and for a redirect or a
+// loosened separation-of-duties rule a second administrator approved, which
+// write no ledger row, it is the only record on the instance of what was
+// approved. An instance moved with no entry is a change nobody can account
+// for. So a failure here is the rewrite's failure, told as the ledger's is:
+// the instance stays as it was, on the version it was running, and the run
+// stops there, naming it. One path, for every migrated instance, approved or
+// not.
 //
 // entryID is the id the instance's control-loss ledger rows already point at,
 // and waived the losses those rows record.
@@ -774,9 +788,9 @@ func (s *migrationService) recordMigration(
 	options servicecontracts.MigrationOptions,
 	waivedHolds []entities.ComplianceHold,
 	runID, entryID uuid.UUID,
-) {
+) error {
 	if s.audit == nil {
-		return
+		return nil
 	}
 	pairs := make([]string, 0, len(moved))
 	for from, to := range moved {
@@ -826,12 +840,9 @@ func (s *migrationService) recordMigration(
 	// it always was.
 	entry = approvedEntry(entry, options.Approval)
 	if err := s.audit.RecordEvent(ctx, entry); err != nil {
-		log.Error().Err(err).
-			Str("instance", uuid.UUID(instance.ID).String()).
-			Int("source_version", source.Version).
-			Int("target_version", target.Version).
-			Msg("A migration audit event was lost; the trail cannot explain how this instance changed version")
+		return fmt.Errorf("writing the trail entry that says instance %s was migrated: %w", instance.ID, err)
 	}
+	return nil
 }
 
 // surveyResult is what one pass over the running instances found.
