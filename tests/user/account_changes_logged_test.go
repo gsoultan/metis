@@ -182,9 +182,11 @@ func TestARefusedChangeToAnAccountIsNotLoggedAsAChange(t *testing.T) {
 	}
 }
 
-// A change made with nobody signed in — the installation's own first
-// account, seeded as system work — names no actor, and says so by leaving
-// both fields empty: nothing is invented.
+// A change made with nobody signed in — an account the server creates as its
+// own work, for a tenant it is seeding or a test's fixture — names no actor,
+// and says so by leaving both fields empty: nothing is invented. (The
+// installation's first administrator is not made this way: set-up writes it
+// itself, and logs its own line — tests/setup.)
 func TestAnAccountChangedByTheServerItselfNamesNoActor(t *testing.T) {
 	w := newOrgRolesWorld(t)
 	logs := captureLogs(t)
@@ -201,5 +203,45 @@ func TestAnAccountChangedByTheServerItselfNamesNoActor(t *testing.T) {
 	}
 	if _, placed := created[0]["organization"]; placed {
 		t.Fatalf("a change made for no organization names one: %v", created[0])
+	}
+}
+
+// A password set from the server's command line (--reset-password) is the one
+// way into an account that needs no session: whoever can run the server can
+// take any local account's sign-in. It changes no role, and it is attributable
+// as a change of role is — a line of the same shape, naming the account, no
+// actor, since nobody is signed in to a command, and that it was run on the
+// server. The password is not in it.
+func TestAPasswordSetOnTheServerIsLoggedAsRunThere(t *testing.T) {
+	w := newOrgRolesWorld(t, "root")
+	root := w.account("root", []string{entities.RoleAdmin}, w.acme)
+	logs := captureLogs(t)
+	const secret = "a-password-nobody-may-read-in-a-log"
+	if err := w.svc.SetPassword(entities.WithSystemContext(t.Context()), "root", secret); err != nil {
+		t.Fatalf("set the password: %v", err)
+	}
+	lines := logs.said("An account's password was set")
+	if len(lines) != 1 {
+		t.Fatalf("a password set on the server logged %d lines, want one: %v", len(lines), lines)
+	}
+	line := lines[0]
+	if line["message"] != "An account's password was set from the server's command line." || line["level"] != "info" ||
+		line["actor"] != "" || line["actor_id"] != "" || line["made_through"] != "--reset-password, run on the server" ||
+		line["target"] != "root" || line["target_id"] != root.String() ||
+		!reflect.DeepEqual(line["roles_before"], []any{entities.RoleAdmin}) || !reflect.DeepEqual(line["roles_after"], []any{entities.RoleAdmin}) {
+		t.Fatalf("the line is %v; want it to name the account and what it holds, no actor, and that it was run on the server", line)
+	}
+	for _, kept := range logs.said("") {
+		if raw, _ := json.Marshal(kept); strings.Contains(string(raw), secret) {
+			t.Fatalf("the log holds the password: %v", kept)
+		}
+	}
+	// A refused one says nothing: no such account.
+	logs = captureLogs(t)
+	if err := w.svc.SetPassword(entities.WithSystemContext(t.Context()), "nobody", secret); err == nil {
+		t.Fatal("a password was set for an account that does not exist")
+	}
+	if lines := logs.said("An account's password was set"); len(lines) != 0 {
+		t.Fatalf("a refused reset was logged: %v", lines)
 	}
 }

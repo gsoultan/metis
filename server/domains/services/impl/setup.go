@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"github.com/gsoultan/metis/internal/pkg/dbpool"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/migrations"
@@ -432,12 +433,33 @@ func refuseExistingInstallation(tx *gorm.DB) error {
 	return nil
 }
 
+// seedTargetDatabase writes the installation's organization, its project and
+// its first administrator, in one transaction, and says in the server's log
+// that the account was created once it has been.
+//
+// The account is written here and not through the account service: this is
+// the database the wizard is configuring, which the services are not
+// connected to. So the line every other new account gets is written here
+// too, in the same shape (traceUnattended): the first administrator holds
+// the role a second approver's control rests on, and is attributable as any
+// later one is. It names no actor — nobody can be signed in to an
+// installation that has no account — and says set-up made it.
 func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
+	orgID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	roles := []string{entities.RoleAdmin}
+	if err := seedInstallation(db, req, orgID, adminID, roles); err != nil {
+		return err
+	}
+	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{}, accountRoles{global: roles})
+	return nil
+}
+
+// seedInstallation is seedTargetDatabase's transaction.
+func seedInstallation(db *gorm.DB, req contracts.SetupRequest, orgID, adminID uuid.UUID, roles []string) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := refuseExistingInstallation(tx); err != nil {
 			return err
 		}
-		orgID := uuid.Must(uuid.NewV7())
 		now := time.Now()
 
 		org := models.OrganizationModel{
@@ -474,7 +496,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 
 		admin := models.UserModel{
 			Base: models.Base{
-				ID:        models.UUID(uuid.Must(uuid.NewV7())),
+				ID:        models.UUID(adminID),
 				CreatedAt: now,
 			},
 			Username:     req.AdminUsername,
@@ -482,7 +504,7 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 			FullName:     req.AdminFullName,
 			DisplayName:  req.AdminPublicName,
 			Email:        req.AdminEmail,
-			Roles:        []string{"ADMIN"},
+			Roles:        roles,
 		}
 		if err := tx.Create(&admin).Error; err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)

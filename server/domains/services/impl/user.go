@@ -363,7 +363,8 @@ func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	return nil
 }
 
-// SetPassword replaces an account's password. It is what --reset-password runs.
+// SetPassword replaces an account's password. It is what --reset-password
+// runs, and nothing else calls it: the line it logs says so.
 //
 // There was no way to change one at all: the only path that wrote a hash was
 // Create. A forgotten password therefore had no answer for the person who
@@ -401,6 +402,12 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 		return err
 	}
 	s.principals.forget(uuid.UUID(user.ID))
+	// Nothing but --reset-password calls this, and whoever can run it can
+	// take any local account's sign-in — an administrator's among them. So
+	// it is said, in the shape a change of role is said in: whose account,
+	// what it holds, and that it was done on the server by nobody signed in.
+	held := rolesOf(user)
+	traceUnattended(madeThroughResetPassword, accountPasswordSetOnServer, uuid.Nil, uuid.UUID(user.ID), user.Username, held, held)
 	return nil
 }
 

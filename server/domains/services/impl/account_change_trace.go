@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -16,6 +17,17 @@ const (
 	accountRolesChanged             = "An account's roles were changed."
 	accountOrganizationRolesChanged = "An account's roles in an organization were changed."
 	accountDeleted                  = "An account was deleted."
+	// accountPasswordSetOnServer is said of a password set by
+	// --reset-password. It changes no role; it is here because it is the one
+	// way into an account that needs no session.
+	accountPasswordSetOnServer = "An account's password was set from the server's command line."
+)
+
+// What made a change that nobody signed in made, for the line's made_through
+// field. A change somebody signed in made carries none: the actor says it.
+const (
+	madeThroughSetup         = "set-up"
+	madeThroughResetPassword = "--reset-password, run on the server"
 )
 
 // accountRoles is the roles an account holds: on the account, which it holds
@@ -73,16 +85,23 @@ func (r accountRoles) written() map[string][]string {
 // It names who made the change and whose account it was, by id as well as by
 // name — a name can be changed, and reissued — the organization the request
 // was for when it was for one, and the roles before and after: on the
-// account, and in each organization alone. Nothing else: no password, no
-// token, no name or address of a person.
+// account, and in each organization alone. Nothing else: no password and no
+// token, and of a person nothing but the account's username. A username can
+// be an email address — an account an identity provider signs in is named by
+// the address when the provider gives no other name — and it is written all
+// the same: it is what tells one account from another to whoever reads the
+// log, and other lines of this service already carry it.
 //
 // The actor is whoever is signed in. A change made with nobody signed in —
-// the installation's first account, seeded by set-up — names none, and both
-// fields are empty: nothing is invented.
+// an account the server creates as its own work — names none, and both
+// fields are empty: nothing is invented. Two changes that nobody signed in
+// makes are not made through this service's usual paths, and say what made
+// them instead (traceUnattended): the installation's first administrator,
+// which set-up writes itself, and a password set from the server's command
+// line.
 //
 // It is written after the change has been made, and cannot fail it.
 func traceAccountChange(ctx context.Context, what string, target uuid.UUID, name string, before, after accountRoles) {
-	line := log.Info()
 	actor := signedIn(ctx)
 	if actor == nil {
 		actor = &entities.User{}
@@ -91,8 +110,28 @@ func traceAccountChange(ctx context.Context, what string, target uuid.UUID, name
 	if actor.ID != uuid.Nil {
 		actorID = actor.ID.String()
 	}
-	line = line.Str("actor_id", actorID).Str("actor", actor.Username).Str("target_id", target.String()).Str("target", name)
-	if organization := entities.ActingOrganization(ctx); organization != uuid.Nil {
+	line := log.Info().Str("actor_id", actorID).Str("actor", actor.Username)
+	writeAccountChange(line, entities.ActingOrganization(ctx), what, target, name, before, after)
+}
+
+// traceUnattended says in the server's log that an account was changed by
+// something nobody was signed in to: set-up, or a command run on the server.
+// The line has the shape of every other (traceAccountChange) — the same
+// fields, the actor's two empty — and one more, made_through, that says what
+// made the change.
+//
+// organization is the one the change was for, or none.
+func traceUnattended(through, what string, organization, target uuid.UUID, name string, before, after accountRoles) {
+	line := log.Info().Str("actor_id", "").Str("actor", "").Str("made_through", through)
+	writeAccountChange(line, organization, what, target, name, before, after)
+}
+
+// writeAccountChange finishes and writes a line about a change to an account:
+// whose it was, the organization it was for when it was for one, and the
+// roles before and after.
+func writeAccountChange(line *zerolog.Event, organization uuid.UUID, what string, target uuid.UUID, name string, before, after accountRoles) {
+	line = line.Str("target_id", target.String()).Str("target", name)
+	if organization != uuid.Nil {
 		line = line.Str("organization", organization.String())
 	}
 	line.Strs("roles_before", before.global).Strs("roles_after", after.global).

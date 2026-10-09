@@ -1,8 +1,11 @@
 package setup_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,6 +18,8 @@ import (
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -49,6 +54,7 @@ func TestSetupLeavesTheAdminAbleToSeeSomething(t *testing.T) {
 
 	svc := impl.NewSetupService(nil)
 	ctx := context.Background()
+	logged := serverLog(t)
 	if err := svc.Setup(ctx, contracts.SetupRequest{
 		AdminUsername:    "admin",
 		AdminPassword:    "correct-horse-battery-staple",
@@ -91,6 +97,43 @@ func TestSetupLeavesTheAdminAbleToSeeSomething(t *testing.T) {
 	if len(account.Projects) == 0 {
 		t.Error("the admin setup created belongs to no project")
 	}
+
+	// The first administrator is an account that holds the administrator
+	// role, written by set-up itself and not through the account service. It
+	// is attributable as every other is: one line of the same shape, naming
+	// no actor — nobody is signed in to an installation that has no account —
+	// and saying that set-up made it.
+	var created []map[string]any
+	for _, line := range strings.Split(logged.String(), "\n") {
+		entry := map[string]any{}
+		if json.Unmarshal([]byte(line), &entry) == nil && entry["message"] == "An account was created." {
+			created = append(created, entry)
+		}
+	}
+	if len(created) != 1 {
+		t.Fatalf("set-up logged %d lines for the account it created, want one: %s", len(created), logged.String())
+	}
+	line := created[0]
+	if line["actor"] != "" || line["actor_id"] != "" || line["made_through"] != "set-up" || line["target"] != "admin" ||
+		line["target_id"] != uuid.UUID(account.ID).String() || line["organization"] != uuid.UUID(account.Organizations[0].ID).String() ||
+		!reflect.DeepEqual(line["roles_after"], []any{entities.RoleAdmin}) || !reflect.DeepEqual(line["roles_before"], []any{}) {
+		t.Fatalf("the line for the first administrator is %v; want it to name the account, its organization and the administrator role, "+
+			"no actor, and set-up as what made it", line)
+	}
+	if strings.Contains(logged.String(), "correct-horse-battery-staple") {
+		t.Fatal("the log holds the first administrator's password")
+	}
+}
+
+// serverLog keeps what the server logs from here to the end of the test. The
+// tests of this package do not run in parallel.
+func serverLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	kept := &bytes.Buffer{}
+	was := log.Logger
+	log.Logger = zerolog.New(kept)
+	t.Cleanup(func() { log.Logger = was })
+	return kept
 }
 
 // postgresCredentials pulls the pieces out of the configured DSN.
