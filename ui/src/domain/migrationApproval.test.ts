@@ -32,7 +32,7 @@ describe('a plan that needs a second administrator', () => {
       title: 'This has to be approved before anything moves',
       message:
         'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
-        'has been set up as having one administrator.',
+        'has been set up as having one administrator and nobody else administers it.',
       reasons,
     });
   });
@@ -48,7 +48,7 @@ describe('a plan that needs a second administrator', () => {
     expect(needed?.title).toBe('Ini harus disetujui sebelum ada yang dipindahkan');
     expect(needed?.message).toBe(
       'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, ' +
-        'kecuali organisasi ini telah diatur memiliki satu administrator.',
+        'kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
     );
   });
 

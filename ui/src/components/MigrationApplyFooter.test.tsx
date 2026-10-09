@@ -124,7 +124,7 @@ describe('before an apply', () => {
     const html = render({ plan: asks });
     const text = textOf(html);
     expect(text).toContain('This has to be approved before anything moves');
-    expect(text).toContain('Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.');
+    expect(text).toContain('Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.');
     expect(text).not.toContain('different administrator');
     for (const reason of why) expect(text).toContain(reason);
     expect(count(html, '<li')).toBe(why.length);
@@ -149,7 +149,7 @@ describe('after an apply that was sent for approval', () => {
     expect(text).toContain('Sent for approval');
     expect(text).toContain('Asked for by Dita Larasati.');
     expect(text).toContain(
-      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator. ' +
+      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it. ' +
         'The request expires on 6 Oct 2026, 09:12.',
     );
     expect(text).not.toContain('different administrator');

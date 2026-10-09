@@ -297,7 +297,7 @@ describe('the migration dialog’s own words', () => {
     const english = (await import('./catalogues/en')).default;
     const indonesian = (await import('./catalogues/id')).default;
     const rule =
-      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.';
+      'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.';
     expect(english['migration.secondApproverMessage']).toBe(rule);
     expect(english['migration.pendingMessage']).toBe(rule);
     expect(indonesian['migration.secondApproverMessage']).toBe(indonesian['migration.pendingMessage']);

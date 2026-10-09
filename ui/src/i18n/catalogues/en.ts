@@ -172,7 +172,8 @@ const en: Catalogue = {
   // and passedOverToast where there is none: a toast never says "below".
   // pendingMessage and secondApproverMessage are one rule, said after the
   // press and before it, and do not say who else approves: an organization
-  // set up as having one administrator approves its own. The two headings
+  // set up as having one administrator approves its own while nobody else
+  // administers it, and both conditions are said. The two headings
   // above them (secondApproverTitle, pendingWhy) say "approved" and "an
   // approval" for the same reason, and not "a second administrator".
   // pendingToastTitle is the title of the toast a sent request leaves, which
@@ -193,13 +194,13 @@ const en: Catalogue = {
   'migration.pendingExpires': 'The request expires on {date}.',
   'migration.pendingHow': 'There is no screen for this yet: an administrator approves or rejects it through the API.',
   'migration.pendingMessage':
-    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.',
   'migration.pendingReference': "The request's reference is {reference}.",
   'migration.pendingTitle': 'Sent for approval',
   'migration.pendingToastTitle': 'Sent for approval: v{source} → v{target}',
   'migration.pendingWhy': 'Why an approval is asked',
   'migration.secondApproverMessage':
-    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.',
   'migration.secondApproverTitle': 'This has to be approved before anything moves',
   'migration.sendForApproval': 'Send for approval',
   'migration.unreadableMessage':

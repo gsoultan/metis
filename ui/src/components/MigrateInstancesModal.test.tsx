@@ -157,7 +157,7 @@ function staying(): boolean[] {
 }
 
 const RULE =
-  'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.';
+  'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.';
 const HOW = 'There is no screen for this yet: an administrator approves or rejects it through the API.';
 
 const textOf = (html: string) =>

@@ -1455,9 +1455,9 @@ The dialog that moves running work to another version reads the plan before anyt
 applied. When the plan needs an approval it says so under the heading *This has to be
 approved before anything moves*, says the rule — *Nothing moves until it is approved. The
 administrator who asked cannot approve it, unless this organization has been set up as
-having one administrator.* — lists the plan's reasons, and its button reads *Send for
-approval* in place of *Move N instances*. Neither heading says "a second administrator":
-that is untrue of an organization set up as having one.
+having one administrator and nobody else administers it.* — lists the plan's reasons, and
+its button reads *Send for approval* in place of *Move N instances*. Neither heading says
+"a second administrator": that is untrue of an organization set up as having one.
 
 After the press it stays open under *Sent for approval*, with who asked, the same rule,
 when the request expires — the date names its time zone — that it is approved or rejected

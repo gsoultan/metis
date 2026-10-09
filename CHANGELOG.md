@@ -332,8 +332,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instances an apply passed over.** A plan that needs an approval says so
   before the press, under *This has to be approved before anything moves*,
   with the rule — the administrator who asked cannot approve it, unless the
-  organization has been set up as having one administrator — and its
-  reasons, and the button reads *Send for approval*. Afterwards the dialog
+  organization has been set up as having one administrator and nobody else
+  administers it — and its reasons, and the button reads *Send for
+  approval*. Afterwards the dialog
   stays open under *Sent for approval*, with who asked, the rule, the
   deadline (which names its time zone), that it is approved or rejected
   through the API, the request's reference, and why; its button reads

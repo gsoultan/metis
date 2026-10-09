@@ -131,7 +131,7 @@ describe('a migration sent for a second administrator', () => {
     expect(notice.title).toBe('Sent for approval');
     expect(notice.message).toBe(
       'Asked for by Dita Larasati. Nothing moves until it is approved. The administrator who asked cannot approve it, ' +
-        'unless this organization has been set up as having one administrator. The request expires on 6 Oct 2026, 09:12.',
+        'unless this organization has been set up as having one administrator and nobody else administers it. The request expires on 6 Oct 2026, 09:12.',
     );
     expect(notice.color).toBe('blue');
     expect(notice.title).not.toBe(migrationNotice(sentForApproval, 5).title);
@@ -176,7 +176,7 @@ describe('a migration sent for a second administrator', () => {
     expect(outcome.notice.title).toBe('Dikirim untuk persetujuan');
     expect(outcome.notice.message).toBe(
       'Diminta oleh Dita Larasati. Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya ' +
-        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator. ' +
+        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
         'Permintaan ini kedaluwarsa pada 6 Oct 2026, 09:12.',
     );
     expect(outcome.listTitle).toBe('Mengapa persetujuan diminta');
@@ -204,7 +204,7 @@ describe('a migration sent for a second administrator', () => {
     const outcome = migrationOutcome(unnamed, 5, inEnglish, at);
     expect(outcome.notice.message).toBe(
       'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
-        'has been set up as having one administrator. The request expires on 6 Oct 2026, 09:12.',
+        'has been set up as having one administrator and nobody else administers it. The request expires on 6 Oct 2026, 09:12.',
     );
     expect(outcome.reasons).toEqual([]);
     expect(saidInDialog(outcome)).toBe(true);
@@ -216,7 +216,7 @@ describe('a migration sent for a second administrator', () => {
     // move", or a blank screen; "{date}" would be a sentence with a hole in it.
     const rule =
       'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
-      'has been set up as having one administrator.';
+      'has been set up as having one administrator and nobody else administers it.';
     const malformed: unknown[] = [
       {},
       { request_id: 7, status: null, requested_by: { name: 'Dita' }, expires_at: 1791278000, because: 'because' },
@@ -571,7 +571,7 @@ describe('what an apply did, case by case', () => {
 describe('what a toast says of an answer the dialog cannot keep', () => {
   const rule =
     'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
-    'has been set up as having one administrator.';
+    'has been set up as having one administrator and nobody else administers it.';
 
   it('says a request was sent whole: who, the rule, until when, how, and its reference — and stays until dismissed', () => {
     const toast = migrationOutcome(sentForApproval, 5, inEnglish, at).toast;
@@ -593,7 +593,7 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
     expect(toast.stays).toBe(true);
     expect(migrationOutcome(sentForApproval, 5, inIndonesian, at).toast.message).toBe(
       'Diminta oleh Dita Larasati. Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya ' +
-        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator. ' +
+        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
         'Permintaan ini kedaluwarsa pada 6 Oct 2026, 09:12. ' +
         'Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API. ' +
         'Referensi permintaan ini adalah 0199c0de-0000-7000-8000-00000000aaaa.',
