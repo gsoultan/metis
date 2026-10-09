@@ -163,3 +163,56 @@ func TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace(t *testing.T) {
 		})
 	}
 }
+
+// Finished work follows a rename by ids — and onto a step marked as a
+// control, only the control itself renamed where it stands.
+func TestFinishedWorkFollowsARenameOntoAControlOnlyInPlace(t *testing.T) {
+	t.Parallel()
+	marked := map[string]any{"compliance_relevant": true}
+	controlled := func(def models.ProcessDefinitionModel, ids ...string) models.ProcessDefinitionModel {
+		def.Nodes = slices.Clone(def.Nodes)
+		for i := range def.Nodes {
+			if slices.Contains(ids, def.Nodes[i].ID) {
+				def.Nodes[i].Properties = marked
+			}
+		}
+		return def
+	}
+	source := controlled(line("start", "prepare", "control", "sign", "end"), "control")
+	cases := []struct {
+		name    string
+		target  models.ProcessDefinitionModel
+		mapping map[string]string
+		want    map[string]string
+	}{
+		{"an ordinary step renamed in place", controlled(line("start", "draft", "control", "sign", "end"), "control"),
+			map[string]string{"prepare": "draft"}, map[string]string{"prepare": "draft"}},
+		// As ruled: by ids alone, so that whoever did the step is still
+		// found under its new id.
+		{"an ordinary step renamed and moved", controlled(line("start", "control", "draft", "sign", "end"), "control"),
+			map[string]string{"prepare": "draft"}, map[string]string{"prepare": "draft"}},
+		{"a control renamed in place", controlled(line("start", "prepare", "countersign", "sign", "end"), "countersign"),
+			map[string]string{"control": "countersign"}, map[string]string{"control": "countersign"}},
+		{"a control renamed in place whose new step is not marked", line("start", "prepare", "countersign", "sign", "end"),
+			map[string]string{"control": "countersign"}, map[string]string{"control": "countersign"}},
+		{"an ordinary step onto a control that stands elsewhere", controlled(line("start", "control", "sign", "audit", "end"), "control", "audit"),
+			map[string]string{"prepare": "audit"}, map[string]string{}},
+		{"a control onto a control that stands elsewhere", controlled(line("start", "prepare", "sign", "audit", "end"), "audit"),
+			map[string]string{"control": "audit"}, map[string]string{}},
+		{"an ordinary step renamed in place and marked by the new version", controlled(line("start", "draft", "control", "sign", "end"), "control", "draft"),
+			map[string]string{"prepare": "draft"}, map[string]string{"prepare": "draft"}},
+		{"a rename in place beside a rename onto a control that stands elsewhere",
+			controlled(line("start", "draft", "control", "file", "audit", "end"), "control", "audit"),
+			map[string]string{"prepare": "draft", "sign": "audit"}, map[string]string{"prepare": "draft"}},
+		{"no rename at all", source, map[string]string{"prepare": "sign"}, map[string]string{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sourceNodes, targetNodes := nodeIndex(source.Nodes), nodeIndex(c.target.Nodes)
+			inPlace := renamedInPlace(source, c.target, sourceNodes, targetNodes, c.mapping)
+			if got := finishedWorkFollows(sourceNodes, targetNodes, c.mapping, inPlace); !maps.Equal(got, c.want) {
+				t.Errorf("finishedWorkFollows(%v) = %v, want %v (in place: %v)", c.mapping, got, c.want, inPlace)
+			}
+		})
+	}
+}

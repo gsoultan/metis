@@ -270,17 +270,17 @@ func (s *migrationService) planFor(
 	plan.Warnings = append(plan.Warnings, defaultFlowWarnings(target, targetNodes, found.landings)...)
 	plan.Warnings = append(plan.Warnings, disarmedDutyWarnings(targetNodes)...)
 	plan.Warnings = append(plan.Warnings, claimWarnings(found.moves)...)
-	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, targetNodes, nodeMapping, instances)...)
+	// What a mapping renames in place — the same step under a new id — is
+	// asked once, here: what finished work follows, a hold, and a redirect's
+	// reason all turn on it.
+	inPlace := renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping)
+	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, targetNodes, nodeMapping, inPlace, instances)...)
 
 	// A step somebody marked as carrying a control obligation is not a step a
 	// mapping may quietly drop. Held rather than refused outright: the answer is
 	// sometimes yes — the approver has left, the regulator has just forbidden
 	// the step — but it has to be somebody's answer, recorded with their name on
 	// it, rather than a consequence of a node id nobody mapped.
-	//
-	// What a mapping renames in place — the same step under a new id — is
-	// asked once, here: a hold and a redirect's reason both turn on it.
-	inPlace := renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping)
 	plan.ComplianceHolds = complianceHolds(sourceNodes, targetNodes, nodeMapping, inPlace, instances)
 	for _, hold := range plan.ComplianceHolds {
 		if slices.Contains(options.Acknowledged, hold.NodeID) {
@@ -305,7 +305,7 @@ func (s *migrationService) planFor(
 	running := runningOf(instances)
 	plan.SecondApproverReasons = append(secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, running),
 		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
-	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, running)...)
+	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
 	slices.Sort(plan.SecondApproverReasons)
 	// Decided from every reason; shown as the first few and a count of the
 	// rest. What is shown is also what a refusal says and a request stores.
@@ -429,10 +429,11 @@ func (s *migrationService) apply(
 	if err != nil {
 		return result, fmt.Errorf("target definition: %w", err)
 	}
-	targetNodes := nodeIndex(target.Nodes)
-	// The part of the mapping that only renames a step: what finished work
-	// follows.
-	renames := renamedSteps(nodeIndex(source.Nodes), targetNodes, nodeMapping)
+	sourceNodes, targetNodes := nodeIndex(source.Nodes), nodeIndex(target.Nodes)
+	// The part of the mapping that finished work follows: its renames, and
+	// onto a control only a rename in place (finishedWorkFollows).
+	renames := finishedWorkFollows(sourceNodes, targetNodes, nodeMapping,
+		renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping))
 	// What the version's steps are called, read once: every reason this run
 	// gives for leaving an instance alone names its steps from here.
 	told := stepsOfSource(source)
@@ -587,7 +588,8 @@ func (s *migrationService) apply(
 			//
 			// The two lists are a record of work done, read by compensation
 			// and by the question "has this instance passed that control".
-			// They follow a rename only, as a finished task does. Following a
+			// They follow a rename only — and onto a control, only a rename
+			// in place — as a finished task does. Following a
 			// redirect recorded a step the instance had finished as the step
 			// the mapping pointed at: with a finished step redirected onto a
 			// control the instance was only waiting at, the control read as
@@ -615,7 +617,7 @@ func (s *migrationService) apply(
 				// longer who had given it.
 				//
 				// What a finished task may take is its step's new id, and only
-				// where the mapping renames the step (renamedSteps): the work
+				// where the mapping renames the step (finishedWorkFollows): the work
 				// was done on that step, and a rule of the new version — who
 				// did this may not also do that — names it by the new id and
 				// reads finished tasks to find who. That one column is written,
@@ -1235,12 +1237,17 @@ func claimWarnings(moves []entities.NodeMove) []string {
 // where it bites — an instance in the plan has completed the step, or the step
 // carries a control obligation. The count is of running instances, which are
 // the ones a migration moves.
+//
+// A redirect, here, is every mapping finished work does not follow
+// (finishedWorkFollows): one that is no rename, and a rename onto a step
+// marked as a control that does not stand where the old step stood (inPlace
+// is the renames that do).
 func redirectWarnings(
 	sourceNodes, targetNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	nodeMapping, inPlace map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []string {
-	renames := renamedSteps(sourceNodes, targetNodes, nodeMapping)
+	renames := finishedWorkFollows(sourceNodes, targetNodes, nodeMapping, inPlace)
 	// How many of the instances this migration would move have completed each
 	// step: the running ones. The listing has every instance of the version,
 	// finished ones included, and those are not the plan's to count. Counted

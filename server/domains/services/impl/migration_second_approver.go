@@ -251,10 +251,12 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 //
 // The rule of the step it lands on (the mapping applied) no longer names a
 // step the source's rule named. Whoever performed that step is then no
-// longer refused. The names are compared after the mapping's renames
-// (renamedSteps), which is how finished work is found under a step's new id:
-// a version that renames the steps and the rule with them has loosened
-// nothing.
+// longer refused. The names are compared after the renames finished work
+// follows (finishedWorkFollows), which is how finished work is found under a
+// step's new id: a version that renames the steps and the rule with them has
+// loosened nothing. A step renamed onto a control that stands elsewhere is
+// not among them — its finished work stays under the old id — so a rule that
+// names it by the new one no longer finds who did it, and that is said.
 //
 // Or the rule still names it, and the new version no longer has the step.
 // Whoever performed it before the migration is still refused — their
@@ -271,13 +273,13 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 // It is not a control dropped: nothing is held and nothing acknowledged.
 func dutiesLoosened(
 	sourceNodes, targetNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	nodeMapping, inPlace map[string]string,
 	running []models.ProcessInstanceModel,
 ) []string {
 	if len(running) == 0 {
 		return nil
 	}
-	renames := renamedSteps(sourceNodes, targetNodes, nodeMapping)
+	renames := finishedWorkFollows(sourceNodes, targetNodes, nodeMapping, inPlace)
 	var reasons []string
 	for _, id := range sortedKeys(sourceNodes) {
 		barred := splitNodeList(stringProperty(sourceNodes[id].Properties, SeparationOfDutiesKey))

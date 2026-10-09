@@ -90,7 +90,7 @@ func TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			warnings := redirectWarnings(source, target, c.mapping, done)
+			warnings := redirectWarnings(source, target, c.mapping, nil, done)
 			if len(c.want) == 0 {
 				if len(warnings) != 0 {
 					t.Fatalf("warned of nothing worth warning: %v", warnings)
@@ -120,12 +120,34 @@ func TestTheRedirectWarningCountsOnlyRunningInstances(t *testing.T) {
 		{Status: models.ProcessCompleted, CompletedNodes: []string{"start", "prepare", "control"}},
 		{Status: models.ProcessCancelled, CompletedNodes: []string{"start", "prepare"}},
 	}
-	warnings := redirectWarnings(source, source, map[string]string{"prepare": "control"}, instances)
+	warnings := redirectWarnings(source, source, map[string]string{"prepare": "control"}, nil, instances)
 	if len(warnings) != 1 || !strings.Contains(warnings[0], `1 running instance(s) have completed "prepare"`) {
 		t.Fatalf("want the one warning counting the one running instance, got %v", warnings)
 	}
-	finishedOnly := redirectWarnings(source, source, map[string]string{"prepare": "control"}, instances[1:])
+	finishedOnly := redirectWarnings(source, source, map[string]string{"prepare": "control"}, nil, instances[1:])
 	if len(finishedOnly) != 0 {
 		t.Fatalf("no running instance completed the step and it carries no control; warned anyway: %v", finishedOnly)
+	}
+}
+
+// A rename onto a step marked as a control is followed by finished work only
+// when it is the control itself renamed where it stands. Any other is warned
+// of as the redirect it is for work already done; the in-place one is not.
+func TestARenameOntoAControlThatStandsElsewhereIsWarnedOfAsARedirect(t *testing.T) {
+	t.Parallel()
+	source := map[string]models.FlowNode{"prepare": {ID: "prepare"}, "sign": {ID: "sign"}}
+	target := map[string]models.FlowNode{
+		"sign": {ID: "sign"}, "audit": {ID: "audit", Properties: map[string]any{"compliance_relevant": true}},
+	}
+	prepared := []models.ProcessInstanceModel{{Status: models.ProcessActive, CompletedNodes: []string{"start", "prepare"}}}
+	mapping := map[string]string{"prepare": "audit"}
+
+	warnings := redirectWarnings(source, target, mapping, nil, prepared)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `"prepare" is mapped onto "audit", which is a different step`) ||
+		!strings.Contains(warnings[0], `1 running instance(s) have completed "prepare"`) {
+		t.Fatalf("a finished step renamed onto a control that stands elsewhere: %v, want the one warning", warnings)
+	}
+	if warnings := redirectWarnings(source, target, mapping, mapping, prepared); len(warnings) != 0 {
+		t.Fatalf("the same rename in place: warned of %v", warnings)
 	}
 }

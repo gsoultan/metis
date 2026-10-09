@@ -260,7 +260,7 @@ func TestDutiesLoosened(t *testing.T) {
 			map[string]string{"approve": "check"}, lostBoth},
 		"the step itself gone": {target(source["submit"], source["check"]), nil, ""},
 	} {
-		got := dutiesLoosened(source, c.target, c.mapping, waiting)
+		got := dutiesLoosened(source, c.target, c.mapping, nil, waiting)
 		if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0] != c.want)) {
 			t.Errorf("%s:\n  %v\nwant\n  %q", name, got, c.want)
 		}
@@ -270,23 +270,39 @@ func TestDutiesLoosened(t *testing.T) {
 	ghost := map[string]models.FlowNode{
 		"submit": source["submit"], "approve": ruled("approve", "Approve", "submit, opsApprove"),
 	}
-	if got := dutiesLoosened(ghost, ghost, nil, waiting); len(got) != 0 {
+	if got := dutiesLoosened(ghost, ghost, nil, nil, waiting); len(got) != 0 {
 		t.Errorf("a rule naming a step neither version has, unchanged: %v, want it to ask nobody", got)
 	}
 	// Taken out of the rule, the name is a name the rule no longer has: said
 	// as any other, though it never refused anybody.
-	if got := dutiesLoosened(ghost, target(ruled("approve", "Approve", "submit"), source["submit"]), nil, waiting); len(got) != 1 ||
+	if got := dutiesLoosened(ghost, target(ruled("approve", "Approve", "submit"), source["submit"]), nil, nil, waiting); len(got) != 1 ||
 		!strings.HasPrefix(got[0], "“Approve” would no longer be refused to whoever performed “opsApprove”") {
 		t.Errorf("a rule that stops naming a step neither version has: %v", got)
+	}
+	// A step the rule names is renamed onto a control. In place, finished
+	// work follows it, and a rule renamed with it has loosened nothing. Onto
+	// a control that stands elsewhere it does not: the submit done stays
+	// under its old id, and a rule that names the new one no longer finds who
+	// did it.
+	marked := ruled("request", "Request", "")
+	marked.Properties = map[string]any{"compliance_relevant": true}
+	renamedOntoAControl := target(ruled("approve", "Approve", "request, check"), marked, source["check"])
+	onto := map[string]string{"submit": "request"}
+	if got := dutiesLoosened(source, renamedOntoAControl, onto, onto, waiting); len(got) != 0 {
+		t.Errorf("a named step renamed in place onto a control, the rule renamed with it: %v, want it to ask nobody", got)
+	}
+	if got := dutiesLoosened(source, renamedOntoAControl, onto, nil, waiting); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "“Approve” would no longer be refused to whoever performed “Submit”: ") {
+		t.Errorf("a named step renamed onto a control that stands elsewhere, the rule naming the new id: %v", got)
 	}
 	// Nobody has still to pass the step, or nobody runs at all: nothing is
 	// loosened for anybody.
 	gone := target(ruled("approve", "Approve", ""), source["submit"], source["check"])
 	passed := []models.ProcessInstanceModel{{Status: models.ProcessActive, CompletedNodes: []string{"submit", "check", "approve"}}}
-	if got := dutiesLoosened(source, gone, nil, passed); len(got) != 0 {
+	if got := dutiesLoosened(source, gone, nil, nil, passed); len(got) != 0 {
 		t.Errorf("a rule dropped from a step every instance has passed: %v", got)
 	}
-	if got := dutiesLoosened(source, gone, nil, nil); len(got) != 0 {
+	if got := dutiesLoosened(source, gone, nil, nil, nil); len(got) != 0 {
 		t.Errorf("a rule dropped over a version nothing runs on: %v", got)
 	}
 }

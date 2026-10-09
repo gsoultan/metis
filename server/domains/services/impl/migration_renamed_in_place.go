@@ -104,3 +104,42 @@ func sameSteps(source, target map[string]struct{}, nodeMapping map[string]string
 	}
 	return true
 }
+
+// finishedWorkFollows is the part of a mapping that finished work follows:
+// the finished task's step, and the instance's lists of the steps it
+// completed and compensated. It is the mapping's renames (renamedSteps), less
+// one kind: a rename onto a step marked as a control that is not a rename in
+// place (inPlace, from renamedInPlace).
+//
+// A rename is told by ids, on purpose, and a finished step goes on following
+// one whose neighbours changed. But "prepare → audit", where the new version
+// drops prepare and adds a marked audit somewhere else, is a rename by ids
+// too, and following it wrote a finished preparation as the audit: in the
+// instance's completed steps and on the finished task. The audit read as
+// passed and had never been performed; a later migration that dropped it
+// held nothing for that instance. A finished ordinary step must never become
+// evidence that a control was performed.
+//
+// So onto a control, finished work follows only the control itself under a
+// new id: the same step, where it stood. For any other rename onto a control
+// it stays where it was done, and the plan warns of that as it does of a
+// redirect (redirectWarnings).
+//
+// Wrong the other way, it costs this: a control that really was renamed while
+// its neighbours changed is not carried in the completed list of an instance
+// that passed it, so a later migration that drops it holds for that instance
+// too. That is the direction that asks.
+//
+// One notion for everything that reads finished work under a step's new id:
+// the rewrite (apply), the warning, and the comparison of the names in a
+// separation-of-duties rule (dutiesLoosened) — a rule that names the control
+// by its new id does not find work that stayed under the old one.
+func finishedWorkFollows(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping, inPlace map[string]string) map[string]string {
+	follows := renamedSteps(sourceNodes, targetNodes, nodeMapping)
+	for from, to := range follows {
+		if _, same := inPlace[from]; !same && boolProperty(targetNodes[to].Properties, "compliance_relevant") {
+			delete(follows, from)
+		}
+	}
+	return follows
+}
