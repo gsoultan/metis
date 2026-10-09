@@ -1,6 +1,6 @@
 import { Alert, Button, Group, List, Loader, ScrollArea, Stack, Text } from '@mantine/core';
 import { AlertTriangle, UserCheck } from 'lucide-react';
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 
 import type { ApprovalNeeded } from '../domain/migrationApproval';
 import type { MigrationOutcome } from '../domain/migrationOutcome';
@@ -36,6 +36,15 @@ interface MigrationApplyFooterProps {
 export function MigrationApplyFooter({ outcome, needed, label, ready, applying, planning, onApply, onClose }: MigrationApplyFooterProps) {
   const { t } = useTranslation();
   const waits = outcome?.waits === true;
+  // The button that was pressed goes when a request waits, and focus goes
+  // with it: out of the dialog, for somebody using a keyboard. It is put on
+  // the one button that is left — and only when it is nowhere, so that it is
+  // never taken from a field somebody is typing in.
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (waits && (focused === null || focused === document.body)) closeButton.current?.focus();
+  }, [waits]);
   return (
     <>
       {outcome !== null && <OutcomePanel outcome={outcome} />}
@@ -48,7 +57,7 @@ export function MigrationApplyFooter({ outcome, needed, label, ready, applying, 
             <Text size="xs" c="dimmed">Working out the plan for this change…</Text>
           </Group>
         )}
-        <Button variant="subtle" color="gray" onClick={onClose}>
+        <Button ref={closeButton} variant="subtle" color="gray" onClick={onClose}>
           {outcome !== null ? t('common.close') : 'Cancel'}
         </Button>
         {!waits && (
