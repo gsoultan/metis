@@ -18,10 +18,10 @@ const (
 	accountRolesChanged             = "An account's roles were changed."
 	accountOrganizationRolesChanged = "An account's roles in an organization were changed."
 	accountDeleted                  = "An account was deleted."
-	// accountPasswordSetOnServer is said of a password set by
+	// accountResetOnServer is said of a password set by
 	// --reset-password. It changes no role; it is here because it is the one
 	// way into an account that needs no session.
-	accountPasswordSetOnServer = "An account's password was set from the server's command line."
+	accountResetOnServer = "An account's password was set from the server's command line."
 )
 
 // What made a change that nobody signed in made, for the line's made_through

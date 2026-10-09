@@ -134,7 +134,10 @@ func carriedSelfApproval(outcome map[string]any) map[string]any {
 // that is being answered happens to be for. The nil id when the request says
 // none, or says it in a way that is no id.
 func selfApprovalOrganization(request entities.DeviationRequest) uuid.UUID {
-	said, _ := request.Outcome[auditOrganizationID].(string)
+	said, isText := request.Outcome[auditOrganizationID].(string)
+	if !isText {
+		return uuid.Nil
+	}
 	organization, err := uuid.Parse(said)
 	if err != nil {
 		return uuid.Nil

@@ -413,7 +413,7 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 	// it is said, in the shape a change of role is said in: whose account,
 	// what it holds, and that it was done on the server by nobody signed in.
 	held := rolesOf(user)
-	traceUnattended(madeThroughResetPassword, accountPasswordSetOnServer, uuid.Nil, uuid.UUID(user.ID), user.Username, held, held)
+	traceUnattended(madeThroughResetPassword, accountResetOnServer, uuid.Nil, uuid.UUID(user.ID), user.Username, held, held)
 	return nil
 }
 
