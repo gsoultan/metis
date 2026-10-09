@@ -1047,7 +1047,10 @@ See [External-task workers](#external-task-workers-your-service-does-the-step).
 ## Requests for a second administrator
 
 Two applies do not make their change. They record a **request**, answer 202,
-and the change is made when a different administrator approves:
+and the change is made when a different administrator approves — or, in an
+organization the operator has named as having one administrator and that
+nobody else administers, when the administrator who asked approves it with a
+reason (`self_approved: true`):
 
 - a waive of a step of one instance
   (`POST /api/v1/instances/{id}/deviations`, [above](#waiving-cancelling-or-holding-one-instance));

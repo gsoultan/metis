@@ -1013,7 +1013,10 @@ Three things about a hold that are gaps, not design:
 A waive, and a migration that loosens a rule on work still running, are not applied by the
 administrator who asks for them. The apply records a **request**, answers 202 and changes
 nothing. A different administrator of the same organization approves it, and the approval
-is what makes the change. What an approver does is in
+is what makes the change. The one exception is an organization the operator has named as
+having one administrator, and that nobody else administers: there the administrator who
+asked may approve, with a reason, and the record says no second person did
+([below](#an-organization-with-one-administrator)). What an approver does is in
 [the runbooks](runbooks.md#approving-a-request-for-a-second-administrator); the routes are
 in [Integrating with Metis](integration.md#requests-for-a-second-administrator); what an
 upgrade changes is in

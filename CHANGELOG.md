@@ -15,7 +15,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   approval on a running instance, or skip a control for every instance of a
   version, alone. Now the apply records a **request**, answers **202** and
   changes nothing, and the change is made when a **different** administrator
-  of the same organization approves it.
+  of the same organization approves it. The one exception is off unless an
+  operator switches it on for an organization by id
+  (`METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`): where nobody else administers
+  such an organization, the administrator who asked may approve, with a
+  reason, and it is recorded as approved by nobody else.
   - **What waits.** A waive of a step of one instance
     (`POST /api/v1/instances/{id}/deviations`, `kind: waive`). And a migration
     (`POST /api/v1/definitions/versions/migrate`) that, over at least one

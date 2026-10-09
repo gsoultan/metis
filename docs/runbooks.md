@@ -224,7 +224,8 @@ second version of the process, and nothing here is an `UPDATE`.
 
 **A cancel and a hold are made by your apply. A waive is not.** Your apply
 asks for it, and it is made when a different administrator of the organization
-approves: see
+approves — or you, with a reason, where the operator has named your
+organization as having one administrator and nobody else administers it: see
 [Approving a request for a second administrator](#approving-a-request-for-a-second-administrator).
 
 What each act does and what it refuses is in
@@ -518,7 +519,10 @@ incident with the instance's other open incidents.
 A waive of a step, and a migration that skips a step or loosens a rule on work
 still running, are not made by the administrator who asks. Their apply is
 answered 202 with a `pending_approval`, and nothing changes until a
-**different** administrator of the organization approves. What asks, and what
+**different** administrator of the organization approves — except in
+[an organization with one administrator](#an-organization-with-one-administrator)
+that the operator has named as such, where the administrator who asked may
+approve with a reason. What asks, and what
 an approval does, is in
 [Changing a process that is already running](process-change-in-flight.md#a-second-administrator).
 The routes, field by field, are in

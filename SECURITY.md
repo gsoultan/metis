@@ -107,7 +107,10 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
   administrator.** A waive of a step, and a migration that skips a step, does
   not carry a control across, redirects past one or takes a
   separation-of-duties rule away, wait for a different administrator's account
-  to approve. That protects against a mistake and against a decision nobody
+  to approve — or, in an organization named in
+  `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` that nobody else administers, for
+  the same administrator's own approval, given with a reason and recorded as
+  nobody else's. That protects against a mistake and against a decision nobody
   else looked at. It does not protect against an administrator who creates,
   removes or displaces accounts: one who can manage accounts can make a second
   administrator account and approve as it. An account-based control cannot

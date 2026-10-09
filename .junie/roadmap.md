@@ -1043,7 +1043,9 @@
   - **What changed.**
     - *A request.* A waive in place, and a migration whose plan needs it, are not applied by
       the request that asks: the apply writes a row in `deviation_requests`, answers 202 with
-      `pending_approval`, and changes nothing. A different administrator of the organization,
+      `pending_approval`, and changes nothing. A different administrator of the organization
+      (or, where the operator has named it as having one and nobody else administers it,
+      the one who asked, with a reason),
       told apart by account id, approves (`POST /api/v1/deviation-requests/{id}/approve`) or
       anybody of them rejects, the requester included (a withdrawal). The queue and a single
       read are the other two routes. A cancel and a hold, in place or in a migration, are

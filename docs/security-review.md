@@ -82,7 +82,10 @@ memberships are read and how a request is scoped.
   migration that skips a step, does not carry a control across, redirects a
   step past a control or takes a separation-of-duties rule away, are recorded
   as a request and made only when a different administrator of the
-  organization approves (`server/domains/services/impl/deviation_request_admit.go`
+  organization approves — or, in an organization the operator has named in
+  `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` and that nobody else administers,
+  when the administrator who asked approves it, with a reason, recorded as
+  approved by nobody else (`server/domains/services/impl/deviation_request_admit.go`
   for who may; `migration_gate.go` for the check a migration's run makes of
   the stored request; `migration_second_approver.go` for what a plan asks
   about). The requester and the approver are told apart by account id. Wanted:
