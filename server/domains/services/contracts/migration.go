@@ -116,6 +116,12 @@ type MigrationOptions struct {
 	// trail, because "a step was skipped" is only half an audit answer; the
 	// other half is who decided that.
 	Actor string
+	// Approval is the second administrator's approval the migration runs
+	// under. Filled by the apply's gate from the stored request, never by a
+	// caller: see MigrationApproval. A caller names a request with
+	// WithApprovedRequest, and the apply overwrites whatever is here with
+	// what it verified.
+	Approval MigrationApproval
 }
 
 // WithAcknowledgedHolds accepts the loss of named compliance-relevant nodes.

@@ -64,6 +64,18 @@ type MigrationPlan struct {
 	// gateways downstream still read them. That consequence is invisible in a
 	// node mapping, which is why people discover it as an incident storm.
 	RemovedNodes []string `json:"removed_nodes,omitzero"`
+
+	// RequiresSecondApprover says that applying this plan is not one
+	// administrator's call: it skips a step, or drops a control that
+	// instances still running have not passed. An apply of such a plan is
+	// sent to a second administrator instead of being made.
+	RequiresSecondApprover bool `json:"requires_second_approver"`
+
+	// SecondApproverReasons are why, one sentence for each skip and each
+	// control dropped. Counted over the instances that are still running —
+	// the only ones a run acts on — so a count here can be smaller than the
+	// one in ComplianceHolds, which counts every listed instance.
+	SecondApproverReasons []string `json:"second_approver_reasons,omitzero"`
 }
 
 // Applicable reports whether applying this plan would be accepted.

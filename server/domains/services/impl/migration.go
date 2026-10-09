@@ -266,6 +266,13 @@ func (s *migrationService) planFor(
 			hold.NodeID, hold.Instances, noteSuffix(hold.Note)))
 	}
 
+	// Whether applying this is one administrator's call. Counted over the
+	// instances still running, the only ones a run acts on: plan.Instances and
+	// each hold's count above include the ones that have ended, as they always
+	// have, and are not what decides it.
+	plan.SecondApproverReasons = secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, runningOf(instances))
+	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
+
 	slices.Sort(plan.Refusals)
 	slices.Sort(plan.Warnings)
 	return plan, instances, nil

@@ -14,4 +14,8 @@ type DeviationRequestOutcome struct {
 	WaivePlan *DeviationPlan
 	// MigrationPlan is the plan an approved migration ran from.
 	MigrationPlan *MigrationPlan
+	// MigrationResult is what an approved migration's run did: how many
+	// instances it acted on, and which it passed over and why. Nil for a
+	// waive.
+	MigrationResult *MigrationResult
 }
