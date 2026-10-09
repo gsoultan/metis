@@ -270,14 +270,18 @@ func (s *migrationService) planFor(
 	plan.Warnings = append(plan.Warnings, defaultFlowWarnings(target, targetNodes, found.landings)...)
 	plan.Warnings = append(plan.Warnings, disarmedDutyWarnings(targetNodes)...)
 	plan.Warnings = append(plan.Warnings, claimWarnings(found.moves)...)
-	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, nodeMapping, instances)...)
+	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, targetNodes, nodeMapping, instances)...)
 
 	// A step somebody marked as carrying a control obligation is not a step a
 	// mapping may quietly drop. Held rather than refused outright: the answer is
 	// sometimes yes — the approver has left, the regulator has just forbidden
 	// the step — but it has to be somebody's answer, recorded with their name on
 	// it, rather than a consequence of a node id nobody mapped.
-	plan.ComplianceHolds = complianceHolds(sourceNodes, targetNodes, nodeMapping, instances)
+	//
+	// What a mapping renames in place — the same step under a new id — is
+	// asked once, here: a hold and a redirect's reason both turn on it.
+	inPlace := renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping)
+	plan.ComplianceHolds = complianceHolds(sourceNodes, targetNodes, nodeMapping, inPlace, instances)
 	for _, hold := range plan.ComplianceHolds {
 		if slices.Contains(options.Acknowledged, hold.NodeID) {
 			continue
@@ -300,7 +304,7 @@ func (s *migrationService) planFor(
 	// instance has still to pass (dutiesLoosened).
 	running := runningOf(instances)
 	plan.SecondApproverReasons = append(secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, running),
-		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, running)...)
+		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
 	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, running)...)
 	slices.Sort(plan.SecondApproverReasons)
 	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
@@ -317,21 +321,22 @@ func (s *migrationService) planFor(
 // question: the instances that already passed it keep their record, the ones
 // that never reach it were never going to, and these are the ones whose
 // approval was pending when somebody deleted the step.
+//
+// inPlace is the part of the mapping that only gives a step a new id where it
+// stands (renamedInPlace). Any other mapping of a step sends its work to a
+// different step.
 func complianceHolds(
 	sourceNodes, targetNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	nodeMapping, inPlace map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []entities.ComplianceHold {
 	pending := map[string]int{}
-	// The part of the mapping that only gives a step a new id. Any other
-	// mapping of a step sends its work to a different step.
-	renames := renamedSteps(sourceNodes, nodeMapping)
 	for id, node := range sourceNodes {
 		if !boolProperty(node.Properties, "compliance_relevant") {
 			continue
 		}
 		// The obligation survives only if the step itself survives — under its
-		// own id, or renamed — and still carries one. Existing is not enough:
+		// own id, or renamed where it stands — and still carries one. Existing is not enough:
 		// a version that keeps the node id but drops the marking has removed
 		// the control just as surely as deleting the node would.
 		//
@@ -342,8 +347,12 @@ func complianceHolds(
 		// first. It used to count as carried across whenever the landing step
 		// was marked, so a mapping could take an instance past a control with
 		// nothing held and nobody asked.
+		//
+		// And a new id is not enough to make it the same step. "First check"
+		// mapped onto a third check the new version adds after the second is
+		// a rename by ids alone, and takes the instance past two controls.
 		to := mapNode(nodeMapping, id)
-		_, renamed := renames[id]
+		_, renamed := inPlace[id]
 		landed, ok := targetNodes[to]
 		if ok && (to == id || renamed) && boolProperty(landed.Properties, "compliance_relevant") {
 			continue
@@ -420,7 +429,7 @@ func (s *migrationService) apply(
 	targetNodes := nodeIndex(target.Nodes)
 	// The part of the mapping that only renames a step: what finished work
 	// follows.
-	renames := renamedSteps(nodeIndex(source.Nodes), nodeMapping)
+	renames := renamedSteps(nodeIndex(source.Nodes), targetNodes, nodeMapping)
 	// What the version's steps are called, read once: every reason this run
 	// gives for leaving an instance alone names its steps from here.
 	told := stepsOfSource(source)
@@ -1224,11 +1233,11 @@ func claimWarnings(moves []entities.NodeMove) []string {
 // carries a control obligation. The count is of running instances, which are
 // the ones a migration moves.
 func redirectWarnings(
-	sourceNodes map[string]models.FlowNode,
+	sourceNodes, targetNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []string {
-	renames := renamedSteps(sourceNodes, nodeMapping)
+	renames := renamedSteps(sourceNodes, targetNodes, nodeMapping)
 	// How many of the instances this migration would move have completed each
 	// step: the running ones. The listing has every instance of the version,
 	// finished ones included, and those are not the plan's to count. Counted
@@ -1322,18 +1331,31 @@ func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 }
 
 // renamedSteps is the part of a mapping that renames a step and does nothing
-// else: the id it maps to is not a step of the source version, and no other
-// step is mapped onto it.
+// else: the id it maps to is not a step of the source version, no other step
+// is mapped onto it, and the id it maps from is no longer a step of the
+// target.
 //
 // A mapping has two shapes and they mean different things for work already
-// done. "submit → request", where request is new, says the step has a new
-// name: whoever did the submit did the request. "opsApprove → salesApprove",
-// where the source version has both, sends the open operations approvals to
-// the sales manager, and says nothing of the kind about an operations approval
-// already given; nor do two steps mapped onto one new id, which cannot both
-// be it. Work in progress follows any mapping. Finished work follows only a
-// rename.
-func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
+// done. "submit → request", where request is new and submit is gone, says the
+// step has a new name: whoever did the submit did the request. "opsApprove →
+// salesApprove", where the source version has both, sends the open operations
+// approvals to the sales manager, and says nothing of the kind about an
+// operations approval already given; nor do two steps mapped onto one new id,
+// which cannot both be it. Work in progress follows any mapping. Finished
+// work follows only a rename.
+//
+// Nor is a step renamed while the new version still has it under its old id.
+// "prepare → audit", where the target keeps prepare and adds audit, sends
+// prepare's open work to a different step: audit is not prepare under a new
+// name, prepare is still there. Counted as a rename, a finished preparation
+// was recorded as the audit performed.
+//
+// This is the notion finished work follows, and it looks at ids alone, on
+// purpose: finished work must go on following a real rename even when the
+// step's neighbours changed too, or a separation-of-duties rule would stop
+// finding who did the step. Whether a mapping needs anybody's approval is
+// asked of a narrower notion (renamedInPlace).
+func renamedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
 	mappedOnto := make(map[string]int, len(nodeMapping))
 	for _, to := range nodeMapping {
 		mappedOnto[to]++
@@ -1341,6 +1363,9 @@ func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string
 	renames := map[string]string{}
 	for from, to := range nodeMapping {
 		if _, alsoASourceStep := sourceNodes[to]; alsoASourceStep || mappedOnto[to] != 1 || from == to {
+			continue
+		}
+		if _, stillAStep := targetNodes[from]; stillAStep {
 			continue
 		}
 		renames[from] = to

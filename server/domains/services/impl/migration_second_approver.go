@@ -93,7 +93,7 @@ func secondApproverReasons(
 		reasons = append(reasons, fmt.Sprintf(
 			"“%s” would be skipped for every listed instance waiting at it when the migration runs — "+
 				"not only those waiting there when this was asked for — and nobody would perform it",
-			cmp.Or(sourceNodes[nodeID].Name, nodeID)))
+			stepCalled(sourceNodes[nodeID], nodeID)))
 	}
 	for _, hold := range holds {
 		notPassed := 0
@@ -106,15 +106,23 @@ func secondApproverReasons(
 			continue
 		}
 		reasons = append(reasons, fmt.Sprintf("“%s” carries a control %d instance(s) have not passed, and they never would",
-			cmp.Or(sourceNodes[hold.NodeID].Name, hold.Name, hold.NodeID), notPassed))
+			shownStepName(cmp.Or(sourceNodes[hold.NodeID].Name, hold.Name, hold.NodeID)), notPassed))
 	}
 	slices.Sort(reasons)
 	return reasons
 }
 
-// controlsNamed is how many controls a reason names one by one. All of them
-// count; the rest are said as a number.
+// controlsNamed is how many controls, or steps, a reason names one by one.
+// All of them count; the rest are said as a number.
 const controlsNamed = 5
+
+// stepCalled is what a reason calls a step: its name, or its id when it has
+// none, as much of it as a ledger row keeps of a step's name (shownStepName).
+// A definition's author chooses the name and may make it as long as they
+// like; a reason is said, stored and refused with.
+func stepCalled(node models.FlowNode, id string) string {
+	return shownStepName(cmp.Or(node.Name, id))
+}
 
 // redirectsPastControls is why a mapping that sends a step's work to a
 // different step is not one administrator's call, one sentence for each such
@@ -127,36 +135,39 @@ const controlsNamed = 5
 // that this does not try to answer — a wrong answer would be an instance past
 // a control with nobody asked. So it asks whenever there is anything to lose:
 // the mapping redirects a step, and some instance that has not ended has not
-// passed some control of the version it runs. The sentence says what is
-// known — which step is sent where, how many wait there now, and which
-// controls somebody has still to pass — and that such a control may no
-// longer be ahead of them, not that it is lost.
+// passed some control of the version it runs.
 //
-// A redirect is a mapping that is not a pure rename (renamedSteps). A rename
-// moves nobody past anything.
+// A redirect is a mapping of a step that is not that step renamed where it
+// stands (inPlace, from renamedInPlace). A new id is not enough to make it
+// one.
 //
 // It counts over running, the instances that have not ended, and not only
 // those waiting at the step now: what is approved is the redirect, over the
 // instances the request lists, and one of them that reaches the step before
 // the migration reaches it is redirected under it — as a skip is.
 //
+// The sentence says what is known, and of whom. When instances wait at the
+// step, it names the controls one of them has not passed. When none does, or
+// those that do have passed every control, it says so, and names the
+// controls an instance that may yet reach the step has not passed. Either
+// way: that such a control may no longer be ahead — not that it is lost.
+//
 // It is not a control known to be dropped: nothing is held, nothing is
 // acknowledged, and the run writes no row saying a control was waived. That
 // row could be false.
 func redirectsPastControls(
 	sourceNodes, targetNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	nodeMapping, inPlace map[string]string,
 	running []models.ProcessInstanceModel,
 ) []string {
-	controls := controlsNotPassedByAll(sourceNodes, running)
-	if len(controls) == 0 {
+	atStake := controlsNotPassedByAll(sourceNodes, running)
+	if atStake == "" {
 		return nil
 	}
-	renames := renamedSteps(sourceNodes, nodeMapping)
 	var reasons []string
 	for _, from := range sortedKeys(nodeMapping) {
 		to := nodeMapping[from]
-		if _, renamed := renames[from]; renamed || to == from {
+		if _, renamed := inPlace[from]; renamed || to == from {
 			continue
 		}
 		step, isStep := sourceNodes[from]
@@ -164,16 +175,25 @@ func redirectsPastControls(
 			// Nothing waits at a step the version does not have.
 			continue
 		}
-		waiting := 0
+		var waiting []models.ProcessInstanceModel
 		for _, instance := range running {
 			if holdsWork(instance, from) {
-				waiting++
+				waiting = append(waiting, instance)
 			}
 		}
-		reasons = append(reasons, fmt.Sprintf(
-			"“%s” would be redirected to “%s” for every listed instance waiting at it when the migration runs — %d wait(s) there now — "+
-				"and a control such an instance has not passed may no longer be ahead of it: %s",
-			cmp.Or(step.Name, from), cmp.Or(targetNodes[to].Name, to), waiting, controls))
+		redirected := fmt.Sprintf("“%s” would be redirected to “%s” for every listed instance waiting at it when the migration runs",
+			stepCalled(step, from), stepCalled(targetNodes[to], to))
+		if theirs := controlsNotPassedByAll(sourceNodes, waiting); theirs != "" {
+			reasons = append(reasons, fmt.Sprintf("%s — %d wait(s) there now — and a control such an instance has not passed may no longer be ahead of it: %s",
+				redirected, len(waiting), theirs))
+			continue
+		}
+		now := "nobody waits there now"
+		if len(waiting) > 0 {
+			now = fmt.Sprintf("%d wait(s) there now, having passed every control", len(waiting))
+		}
+		reasons = append(reasons, fmt.Sprintf("%s — %s — and for an instance that reaches it by then, a control it has not passed may no longer be ahead of it: %s",
+			redirected, now, atStake))
 	}
 	slices.Sort(reasons)
 	return reasons
@@ -182,7 +202,7 @@ func redirectsPastControls(
 // controlsNotPassedByAll names the steps of a version marked as controls
 // that some instance of running has not performed: by name, in the order of
 // their ids, the first few one by one and the rest as a number. Empty when
-// every running instance has passed every control, or there is none.
+// every one of them has passed every control, or there is none of either.
 func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []models.ProcessInstanceModel) string {
 	var names []string
 	for _, id := range sortedKeys(sourceNodes) {
@@ -193,7 +213,7 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 			return !slices.Contains(instance.CompletedNodes, id)
 		})
 		if notPassed {
-			names = append(names, "“"+cmp.Or(sourceNodes[id].Name, id)+"”")
+			names = append(names, "“"+stepCalled(sourceNodes[id], id)+"”")
 		}
 	}
 	if len(names) == 0 {
@@ -236,7 +256,7 @@ func dutiesLoosened(
 	if len(running) == 0 {
 		return nil
 	}
-	renames := renamedSteps(sourceNodes, nodeMapping)
+	renames := renamedSteps(sourceNodes, targetNodes, nodeMapping)
 	var reasons []string
 	for _, id := range sortedKeys(sourceNodes) {
 		barred := splitNodeList(stringProperty(sourceNodes[id].Properties, SeparationOfDutiesKey))

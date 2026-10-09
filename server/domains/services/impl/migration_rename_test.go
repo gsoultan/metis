@@ -8,13 +8,21 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// A mapping renames a step when the id it maps to is new to the source version
-// and nothing else is mapped onto it. Every other mapping redirects work, and
-// finished work does not follow it.
+// A mapping renames a step when the id it maps to is new to the source
+// version, nothing else is mapped onto it, and the new version no longer has
+// the step under its old id. Every other mapping redirects work, and finished
+// work does not follow it.
 func TestOnlyAMappingToANewIdThatNothingElseMapsOntoIsARename(t *testing.T) {
 	t.Parallel()
 	source := map[string]models.FlowNode{
 		"submit": {ID: "submit"}, "opsApprove": {ID: "opsApprove"}, "salesApprove": {ID: "salesApprove"}, "sign": {ID: "sign"},
+	}
+	// The new version: submit is gone and request is new; one approval where
+	// there were two is offered under a new id; sign is as it was, and so is
+	// prepare — which the source never had under another id.
+	target := map[string]models.FlowNode{
+		"request": {ID: "request"}, "approve": {ID: "approve"}, "salesApprove": {ID: "salesApprove"}, "sign": {ID: "sign"},
+		"file": {ID: "file"},
 	}
 	cases := []struct {
 		name    string
@@ -31,10 +39,18 @@ func TestOnlyAMappingToANewIdThatNothingElseMapsOntoIsARename(t *testing.T) {
 			map[string]string{"submit": "request"},
 		},
 		{"no mapping", nil, map[string]string{}},
+		// The new version still has sign, and adds file: sign is not file
+		// under a new name. Whoever signed has not filed.
+		{"a new id for a step the new version still has", map[string]string{"sign": "file"}, map[string]string{}},
+		{
+			"a rename beside a new id for a step the new version still has",
+			map[string]string{"submit": "request", "sign": "file"},
+			map[string]string{"submit": "request"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := renamedSteps(source, c.mapping); !maps.Equal(got, c.want) {
+			if got := renamedSteps(source, target, c.mapping); !maps.Equal(got, c.want) {
 				t.Errorf("renamedSteps(%v) = %v, want %v", c.mapping, got, c.want)
 			}
 		})
@@ -51,6 +67,10 @@ func TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount(t *testing.T) {
 		"opsApprove": {ID: "opsApprove", Properties: map[string]any{"compliance_relevant": true}},
 		"control":    {ID: "control"},
 		"submit":     {ID: "submit"},
+	}
+	// The new version: submit has become request; the rest is as it was.
+	target := map[string]models.FlowNode{
+		"prepare": source["prepare"], "opsApprove": source["opsApprove"], "control": source["control"], "request": {ID: "request"},
 	}
 	done := []models.ProcessInstanceModel{
 		{Status: models.ProcessActive, CompletedNodes: []string{"start", "prepare", "submit"}},
@@ -70,7 +90,7 @@ func TestARedirectIsWarnedOfWhereWorkDoneOnTheStepWouldNotCount(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			warnings := redirectWarnings(source, c.mapping, done)
+			warnings := redirectWarnings(source, target, c.mapping, done)
 			if len(c.want) == 0 {
 				if len(warnings) != 0 {
 					t.Fatalf("warned of nothing worth warning: %v", warnings)
@@ -100,11 +120,11 @@ func TestTheRedirectWarningCountsOnlyRunningInstances(t *testing.T) {
 		{Status: models.ProcessCompleted, CompletedNodes: []string{"start", "prepare", "control"}},
 		{Status: models.ProcessCancelled, CompletedNodes: []string{"start", "prepare"}},
 	}
-	warnings := redirectWarnings(source, map[string]string{"prepare": "control"}, instances)
+	warnings := redirectWarnings(source, source, map[string]string{"prepare": "control"}, instances)
 	if len(warnings) != 1 || !strings.Contains(warnings[0], `1 running instance(s) have completed "prepare"`) {
 		t.Fatalf("want the one warning counting the one running instance, got %v", warnings)
 	}
-	finishedOnly := redirectWarnings(source, map[string]string{"prepare": "control"}, instances[1:])
+	finishedOnly := redirectWarnings(source, source, map[string]string{"prepare": "control"}, instances[1:])
 	if len(finishedOnly) != 0 {
 		t.Fatalf("no running instance completed the step and it carries no control; warned anyway: %v", finishedOnly)
 	}

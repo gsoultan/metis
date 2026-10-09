@@ -118,41 +118,64 @@ func TestRedirectsPastControls(t *testing.T) {
 		return models.ProcessInstanceModel{Status: models.ProcessActive, Tokens: []models.Token{{NodeID: step}}, CompletedNodes: done}
 	}
 	redirect := map[string]string{"prepare": "sign"}
+	passedAll := []string{"prepare", "control", "audit"}
 
-	got := redirectsPastControls(source, target, redirect, []models.ProcessInstanceModel{at("prepare"), at("prepare"), at("sign", "prepare", "control", "audit")})
+	got := redirectsPastControls(source, target, redirect, nil, []models.ProcessInstanceModel{at("prepare"), at("prepare"), at("sign", passedAll...)})
 	want := "“Prepare” would be redirected to “Sign” for every listed instance waiting at it when the migration runs — 2 wait(s) there now — " +
 		"and a control such an instance has not passed may no longer be ahead of it: “audit”, “Second signature”"
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("a redirect past controls:\n  %v\nwant\n  %s", got, want)
 	}
+	// The controls named are those an instance waiting at the step has not
+	// passed, and not those of an instance somewhere else.
+	got = redirectsPastControls(source, target, redirect, nil, []models.ProcessInstanceModel{at("prepare", "audit"), at("draft")})
+	if len(got) != 1 || !strings.HasSuffix(got[0], "— 1 wait(s) there now — and a control such an instance has not passed may no longer be ahead of it: “Second signature”") {
+		t.Fatalf("a redirect of a step whose one waiting instance has passed the audit: %v", got)
+	}
 	// It is the redirect that is approved, over the instances listed: one that
-	// has not reached the step yet is reason enough, with nobody there now.
-	if got := redirectsPastControls(source, target, redirect, []models.ProcessInstanceModel{at("draft")}); len(got) != 1 || !strings.Contains(got[0], "— 0 wait(s) there now —") {
+	// has not reached the step yet is reason enough, with nobody there now —
+	// and the sentence says that nobody is, and whose controls it names.
+	const mayYetReach = "and for an instance that reaches it by then, a control it has not passed may no longer be ahead of it: “audit”, “Second signature”"
+	got = redirectsPastControls(source, target, redirect, nil, []models.ProcessInstanceModel{at("draft")})
+	if len(got) != 1 || !strings.HasSuffix(got[0], "when the migration runs — nobody waits there now — "+mayYetReach) {
 		t.Fatalf("a redirect of a step nobody waits at yet: %v", got)
 	}
+	// Whoever waits there has passed every control, and somebody else has not.
+	got = redirectsPastControls(source, target, redirect, nil, []models.ProcessInstanceModel{at("prepare", "control", "audit"), at("draft")})
+	if len(got) != 1 || !strings.HasSuffix(got[0], "when the migration runs — 1 wait(s) there now, having passed every control — "+mayYetReach) {
+		t.Fatalf("a redirect of a step whose one waiting instance has passed every control: %v", got)
+	}
 	// Every control passed by every instance that has not ended: nothing to lose.
-	if got := redirectsPastControls(source, target, redirect, []models.ProcessInstanceModel{at("prepare", "control", "audit")}); len(got) != 0 {
+	if got := redirectsPastControls(source, target, redirect, nil, []models.ProcessInstanceModel{at("prepare", "control", "audit")}); len(got) != 0 {
 		t.Fatalf("a redirect once every control has been passed: %v", got)
 	}
 	// Nothing that has not ended: nobody to move.
-	if got := redirectsPastControls(source, target, redirect, nil); len(got) != 0 {
+	if got := redirectsPastControls(source, target, redirect, nil, nil); len(got) != 0 {
 		t.Fatalf("a redirect over a version nothing runs on: %v", got)
 	}
-	// A rename moves nobody past anything, and neither does a step mapped to
-	// itself, nor a mapping from a step the version does not have.
-	for name, mapping := range map[string]map[string]string{
-		"a rename":                       {"prepare": "draft"},
-		"a step mapped to itself":        {"prepare": "prepare"},
-		"a step the version has not got": {"review": "sign"},
-		"no mapping":                     nil,
+	// A step renamed where it stands moves nobody past anything, and neither
+	// does a step mapped to itself, nor a mapping from a step the version does
+	// not have.
+	renamed := map[string]string{"prepare": "draft"}
+	for name, c := range map[string]struct{ mapping, inPlace map[string]string }{
+		"a step renamed where it stands": {renamed, renamed},
+		"a step mapped to itself":        {map[string]string{"prepare": "prepare"}, nil},
+		"a step the version has not got": {map[string]string{"review": "sign"}, nil},
+		"no mapping":                     {nil, nil},
 	} {
-		if got := redirectsPastControls(source, target, mapping, []models.ProcessInstanceModel{at("prepare")}); len(got) != 0 {
+		if got := redirectsPastControls(source, target, c.mapping, c.inPlace, []models.ProcessInstanceModel{at("prepare")}); len(got) != 0 {
 			t.Errorf("%s: %v, want it to ask nobody", name, got)
 		}
 	}
+	// The same mapping onto an id new to the version, of a step that does not
+	// stand where the old one stood, is a redirect: a new id excuses nothing.
+	if got := redirectsPastControls(source, target, renamed, nil, []models.ProcessInstanceModel{at("prepare")}); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "“Prepare” would be redirected to “Draft”") {
+		t.Fatalf("a mapping onto a new id that is not in place: %v, want it to ask", got)
+	}
 	// A process with no control asks nobody, whatever is redirected.
 	plain := map[string]models.FlowNode{"prepare": source["prepare"], "sign": source["sign"]}
-	if got := redirectsPastControls(plain, plain, redirect, []models.ProcessInstanceModel{at("prepare")}); len(got) != 0 {
+	if got := redirectsPastControls(plain, plain, redirect, nil, []models.ProcessInstanceModel{at("prepare")}); len(got) != 0 {
 		t.Fatalf("a redirect in a process with no control: %v", got)
 	}
 	// Many controls are counted, and five of them named.
@@ -160,9 +183,20 @@ func TestRedirectsPastControls(t *testing.T) {
 	for _, id := range []string{"c1", "c2", "c3", "c4", "c5", "c6", "c7"} {
 		many[id] = models.FlowNode{ID: id, Properties: marked}
 	}
-	if got := redirectsPastControls(many, many, redirect, []models.ProcessInstanceModel{at("prepare")}); len(got) != 1 ||
+	if got := redirectsPastControls(many, many, redirect, nil, []models.ProcessInstanceModel{at("prepare")}); len(got) != 1 ||
 		!strings.HasSuffix(got[0], "ahead of it: “c1”, “c2”, “c3”, “c4”, “c5”, and 2 more") {
 		t.Fatalf("a redirect past seven controls: %v", got)
+	}
+	// A name is as long as a definition's author made it; a reason says as
+	// much of it as a ledger row keeps.
+	long := strings.Repeat("é", 4000)
+	wordy := map[string]models.FlowNode{
+		"prepare": {ID: "prepare", Name: long}, "sign": {ID: "sign", Name: long},
+		"control": {ID: "control", Name: long, Properties: marked},
+	}
+	got = redirectsPastControls(wordy, wordy, redirect, nil, []models.ProcessInstanceModel{at("prepare")})
+	if len(got) != 1 || len([]rune(got[0])) > 3*deviationNodeNameLength+400 || strings.Contains(got[0], strings.Repeat("é", deviationNodeNameLength+1)) {
+		t.Fatalf("a redirect among steps with names of 4000 characters is said in %d characters", len([]rune(strings.Join(got, ""))))
 	}
 }
 

@@ -107,6 +107,8 @@ func (s *migrationService) migrationRequest(
 	if err != nil {
 		return entities.DeviationRequest{}, fmt.Errorf("target definition: %w", err)
 	}
+	sourceNodes, targetNodes := nodeIndex(source.Nodes), nodeIndex(target.Nodes)
+	redirected := redirectedSteps(sourceNodes, targetNodes, nodeMapping, renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping))
 	shown, err := migrationPlanDocument(plan, plan.SecondApproverReasons)
 	if err != nil {
 		return entities.DeviationRequest{}, err
@@ -121,7 +123,7 @@ func (s *migrationService) migrationRequest(
 		TargetDefinition:  &entities.ProcessDefinition{ID: targetDefID},
 		RequestedBy:       account.Username,
 		RequestedByID:     account.ID,
-		Reason:            cmp.Or(migrationReason(options, redirectedSteps(nodeIndex(source.Nodes), nodeIndex(target.Nodes), nodeMapping)), strings.Join(plan.SecondApproverReasons, "; ")),
+		Reason:            cmp.Or(migrationReason(options, redirected), strings.Join(plan.SecondApproverReasons, "; ")),
 		Command:           migrationCommandDocument(sourceDefID, targetDefID, nodeMapping, options),
 		Plan:              shown,
 		Fingerprint:       migrationFingerprint(sourceDefID, targetDefID, nodeMapping, options, plan.ComplianceHolds),
@@ -158,16 +160,15 @@ func migrationReason(options servicecontracts.MigrationOptions, redirected []str
 
 // redirectedSteps is the steps a mapping sends to a different step, each as
 // "“from” to “to”" by name, in the order of the ids they are sent from. A
-// rename is not one (renamedSteps).
-func redirectedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) []string {
-	renames := renamedSteps(sourceNodes, nodeMapping)
+// step renamed where it stands is not one (inPlace, from renamedInPlace).
+func redirectedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping, inPlace map[string]string) []string {
 	var redirected []string
 	for _, from := range sortedKeys(nodeMapping) {
 		to := nodeMapping[from]
-		if _, renamed := renames[from]; renamed || to == from {
+		if _, renamed := inPlace[from]; renamed || to == from {
 			continue
 		}
-		redirected = append(redirected, fmt.Sprintf("“%s” to “%s”", cmp.Or(sourceNodes[from].Name, from), cmp.Or(targetNodes[to].Name, to)))
+		redirected = append(redirected, fmt.Sprintf("“%s” to “%s”", stepCalled(sourceNodes[from], from), stepCalled(targetNodes[to], to)))
 	}
 	return redirected
 }
