@@ -227,6 +227,8 @@ func TestDutiesLoosened(t *testing.T) {
 	}
 	waiting := []models.ProcessInstanceModel{{Status: models.ProcessActive, CompletedNodes: []string{"submit", "check"}}, {Status: models.ProcessActive}}
 	const lostBoth = "“Approve” would no longer be refused to whoever performed “Submit”, “Check”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”"
+	const checkGone = "“Approve” may not be done by whoever performed “Check”, which the new version no longer has: whoever performed it before the migration " +
+		"is still refused, but nobody can perform it afterwards, so the rule refuses nobody new — and 2 instance(s) have not passed “Approve”"
 	const lostCheck = "“Approve” would no longer be refused to whoever performed “Check”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”"
 
 	for name, c := range map[string]struct {
@@ -234,11 +236,21 @@ func TestDutiesLoosened(t *testing.T) {
 		mapping map[string]string
 		want    string
 	}{
-		"the rule removed":                            {target(ruled("approve", "Approve", ""), source["submit"], source["check"]), nil, lostBoth},
-		"the rule shortened":                          {target(ruled("approve", "Approve", "submit"), source["submit"], source["check"]), nil, lostCheck},
-		"the rule kept":                               {target(source["approve"], source["submit"], source["check"]), nil, ""},
-		"the rule lengthened":                         {target(ruled("approve", "Approve", "submit,check,audit"), source["submit"], source["check"]), nil, ""},
-		"a named step gone, the rule still naming it": {target(source["approve"], source["submit"]), nil, lostCheck},
+		"the rule removed":                                {target(ruled("approve", "Approve", ""), source["submit"], source["check"]), nil, lostBoth},
+		"the rule shortened":                              {target(ruled("approve", "Approve", "submit"), source["submit"], source["check"]), nil, lostCheck},
+		"the rule kept":                                   {target(source["approve"], source["submit"], source["check"]), nil, ""},
+		"the rule lengthened":                             {target(ruled("approve", "Approve", "submit,check,audit"), source["submit"], source["check"]), nil, ""},
+		"a named step gone, the rule still naming it":     {target(source["approve"], source["submit"]), nil, checkGone},
+		"a named step gone, and its name out of the rule": {target(ruled("approve", "Approve", "submit"), source["submit"]), nil, lostCheck},
+		"both named steps gone, the rule still naming them": {target(source["approve"]), nil,
+			"“Approve” may not be done by whoever performed “Submit”, “Check”, which the new version no longer has: whoever performed it before the migration " +
+				"is still refused, but nobody can perform it afterwards, so the rule refuses nobody new — and 2 instance(s) have not passed “Approve”"},
+		// The new version keeps submit and adds request: a mapping between
+		// them is no rename, finished work stays under submit, and the rule
+		// that still names submit still finds it.
+		"a named step mapped onto a new one and still there, the rule unchanged": {
+			target(source["approve"], source["submit"], source["check"], ruled("request", "Request", "")),
+			map[string]string{"submit": "request"}, ""},
 		"the steps renamed and the rule with them": {target(ruled("signOff", "Sign off", "request, check"), ruled("request", "Request", ""), source["check"]),
 			map[string]string{"submit": "request", "approve": "signOff"}, ""},
 		"the steps renamed and the rule left with the old names": {target(ruled("signOff", "Sign off", "submit, check"), ruled("request", "Request", ""), source["check"]),
@@ -252,6 +264,20 @@ func TestDutiesLoosened(t *testing.T) {
 		if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0] != c.want)) {
 			t.Errorf("%s:\n  %v\nwant\n  %q", name, got, c.want)
 		}
+	}
+	// A rule that names a step neither version has is the same rule before
+	// and after: it refused nobody on that name, and refuses nobody now.
+	ghost := map[string]models.FlowNode{
+		"submit": source["submit"], "approve": ruled("approve", "Approve", "submit, opsApprove"),
+	}
+	if got := dutiesLoosened(ghost, ghost, nil, waiting); len(got) != 0 {
+		t.Errorf("a rule naming a step neither version has, unchanged: %v, want it to ask nobody", got)
+	}
+	// Taken out of the rule, the name is a name the rule no longer has: said
+	// as any other, though it never refused anybody.
+	if got := dutiesLoosened(ghost, target(ruled("approve", "Approve", "submit"), source["submit"]), nil, waiting); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "“Approve” would no longer be refused to whoever performed “opsApprove”") {
+		t.Errorf("a rule that stops naming a step neither version has: %v", got)
 	}
 	// Nobody has still to pass the step, or nobody runs at all: nothing is
 	// loosened for anybody.

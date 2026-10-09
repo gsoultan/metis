@@ -223,31 +223,35 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 }
 
 // dutiesLoosened is why a migration onto a version that takes away part of a
-// separation-of-duties rule is not one administrator's call, one sentence
-// for each step that loses some of its rule, sorted; none when no rule is
-// loosened for anybody.
+// separation-of-duties rule is not one administrator's call, sorted; none
+// when no rule is loosened for anybody.
 //
 // A step's rule names the steps whose performer may not also perform it. It
 // is the approval rule the engine enforces, against the version an instance
-// runs — so for an instance that has still to pass the step, moving it onto
-// a version whose rule is gone, or shorter, is moving it to where whoever did
-// the one half may do the other.
+// runs: it looks for a completed task of the instance on a step the rule
+// names, by that step's id. So for an instance that has still to pass the
+// step, two things loosen it, and each is said in its own sentence.
 //
-// A step loses a named step when the rule of the step it lands on (the
-// mapping applied) does not name it, or names it and the new version does
-// not have it: such a rule refuses nobody new. The names are compared after
-// the mapping's renames (renamedSteps), which is how finished work is found
-// under a step's new id: a version that renames the steps and the rule with
-// them has loosened nothing. A step the new version does not have at all is
-// not looked at: its work is refused, moved or decided by other rules.
+// The rule of the step it lands on (the mapping applied) no longer names a
+// step the source's rule named. Whoever performed that step is then no
+// longer refused. The names are compared after the mapping's renames
+// (renamedSteps), which is how finished work is found under a step's new id:
+// a version that renames the steps and the rule with them has loosened
+// nothing.
 //
-// It counts over running, the instances that have not ended, and of those
-// only the ones that have not passed the step: one that has is held to no
-// rule there any longer.
+// Or the rule still names it, and the new version no longer has the step.
+// Whoever performed it before the migration is still refused — their
+// completed task keeps its step's id — but nobody can perform it afterwards,
+// so the rule refuses nobody new. This is counted only for a step the source
+// version has: a rule that names a step neither version has is unchanged by
+// the migration, refuses whom it refused, and asks nobody.
+//
+// A step the new version does not have at all is not looked at: its work is
+// refused, moved or decided by other rules. It counts over running, the
+// instances that have not ended, and of those only the ones that have not
+// passed the step: one that has is held to no rule there any longer.
 //
 // It is not a control dropped: nothing is held and nothing acknowledged.
-// What it does not see is said where the product's limits are said: a wider
-// candidate group, a lower completion condition, a changed gateway.
 func dutiesLoosened(
 	sourceNodes, targetNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
@@ -264,27 +268,42 @@ func dutiesLoosened(
 		if len(barred) == 0 || !lands {
 			continue
 		}
-		kept := splitNodeList(stringProperty(landed.Properties, SeparationOfDutiesKey))
-		var lost []string
-		for _, other := range barred {
-			now := mapNode(renames, other)
-			if _, stillAStep := targetNodes[now]; !stillAStep || !slices.Contains(kept, now) {
-				lost = append(lost, "“"+cmp.Or(sourceNodes[other].Name, other)+"”")
-			}
-		}
 		notPassed := 0
 		for _, instance := range running {
 			if !slices.Contains(instance.CompletedNodes, id) {
 				notPassed++
 			}
 		}
-		if len(lost) == 0 || notPassed == 0 {
+		if notPassed == 0 {
 			continue
 		}
-		step := cmp.Or(sourceNodes[id].Name, id)
-		reasons = append(reasons, fmt.Sprintf(
-			"“%s” would no longer be refused to whoever performed %s: the new version does not keep that separation of duties, "+
-				"and %d instance(s) have not passed “%s”", step, firstNamed(lost), notPassed, step))
+		kept := splitNodeList(stringProperty(landed.Properties, SeparationOfDutiesKey))
+		var unnamed, gone []string
+		for _, other := range barred {
+			now := mapNode(renames, other)
+			wasAStep, isAStep := false, false
+			if _, wasAStep = sourceNodes[other]; wasAStep {
+				_, isAStep = targetNodes[now]
+			}
+			switch called := "“" + stepCalled(sourceNodes[other], other) + "”"; {
+			case !slices.Contains(kept, now):
+				unnamed = append(unnamed, called)
+			case wasAStep && !isAStep:
+				gone = append(gone, called)
+			}
+		}
+		step := stepCalled(sourceNodes[id], id)
+		if len(unnamed) > 0 {
+			reasons = append(reasons, fmt.Sprintf(
+				"“%s” would no longer be refused to whoever performed %s: the new version does not keep that separation of duties, "+
+					"and %d instance(s) have not passed “%s”", step, firstNamed(unnamed), notPassed, step))
+		}
+		if len(gone) > 0 {
+			reasons = append(reasons, fmt.Sprintf(
+				"“%s” may not be done by whoever performed %s, which the new version no longer has: whoever performed it before the "+
+					"migration is still refused, but nobody can perform it afterwards, so the rule refuses nobody new — "+
+					"and %d instance(s) have not passed “%s”", step, firstNamed(gone), notPassed, step))
+		}
 	}
 	slices.Sort(reasons)
 	return reasons
