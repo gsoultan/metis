@@ -521,7 +521,7 @@ func TestTheRequestsAnAdministratorReadsAreTheOnesThatStillWait(t *testing.T) {
 	if _, err := w.approvals.RejectDeviationRequest(w.as("budi"), waits, "no"); err != nil {
 		t.Fatalf("rejecting: %v", err)
 	}
-	if n, err := w.approvals.ExpireDeviationRequests(entities.WithSystemContext(h.Ctx()), time.Now()); err != nil || n != 1 {
+	if n, err := w.sweep(h.Ctx(), time.Now()); err != nil || n != 1 {
 		t.Fatalf("the sweep closed %d (%v), want the one that is overdue", n, err)
 	}
 	for status, want := range map[entities.DeviationRequestStatus]map[uuid.UUID]entities.DeviationRequestStatus{

@@ -31,7 +31,8 @@ func (f *fixture) leftApproved(t *testing.T, requestID uuid.UUID, ago string) {
 // sweep runs the server's sweep as the server does, at now.
 func (f *fixture) sweep(t *testing.T, now time.Time) int64 {
 	t.Helper()
-	closed, err := f.svc.ExpireDeviationRequests(entities.WithSystemContext(f.ctx), now)
+	swept, err := f.svc.SweepDeviationRequests(entities.WithSystemContext(f.ctx), now)
+	closed := swept.Closed()
 	if err != nil {
 		t.Fatalf("the sweep: %v", err)
 	}

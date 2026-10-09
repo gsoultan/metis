@@ -25,10 +25,13 @@ var errExpiryIsTheServers = errors.New(
 var errExpiryInsideTransaction = errors.New(
 	"the expiry of requests cannot run inside another transaction: each request is closed in a transaction of its own")
 
-// ExpireDeviationRequests writes down what the clock has decided — every
+// SweepDeviationRequests writes down what the clock has decided — every
 // approved request whose run had not reported when its window closed, and
 // every request still waiting at now that is past its deadline — and answers
-// how many it closed, of both.
+// how many it closed of each. The two counts are kept apart because they are
+// different facts — nobody decided the first; somebody approved the second
+// and its run never reported — and whoever logs the pass says each in words
+// that are true of it.
 //
 // It is the server's own work and refuses anybody else: now is its caller's,
 // and whoever could choose it could expire every request there is. Run as
@@ -45,16 +48,6 @@ var errExpiryInsideTransaction = errors.New(
 // Every replica runs it. Two passes at once close each request once: each
 // takes the row of the request it is closing, and is not answered a row
 // somebody else holds.
-func (s *deviationRequestService) ExpireDeviationRequests(ctx context.Context, now time.Time) (int64, error) {
-	swept, err := s.SweepDeviationRequests(ctx, now)
-	return swept.Closed(), err
-}
-
-// SweepDeviationRequests is ExpireDeviationRequests with its two counts kept
-// apart: how many requests it closed as expired, and how many approved ones
-// it closed as interrupted. They are different facts — nobody decided the
-// first; somebody approved the second and its run never reported — and
-// whoever logs the pass says each in words that are true of it.
 func (s *deviationRequestService) SweepDeviationRequests(ctx context.Context, now time.Time) (entities.SweptRequests, error) {
 	var none entities.SweptRequests
 	if !entities.IsSystemContext(ctx) {

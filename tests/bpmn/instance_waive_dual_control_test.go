@@ -932,10 +932,10 @@ func TestTheSweepExpiresWhatNobodyDecided(t *testing.T) {
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 	system := entities.WithSystemContext(h.Ctx())
 	later := time.Now().Add(73 * time.Hour)
-	if n, err := w.approvals.ExpireDeviationRequests(system, later); err != nil || n != 1 {
+	if n, err := w.sweep(system, later); err != nil || n != 1 {
 		t.Fatalf("the sweep expired %d (err %v), want 1", n, err)
 	}
-	if n, _ := w.approvals.ExpireDeviationRequests(system, later); n != 0 {
+	if n, _ := w.sweep(system, later); n != 0 {
 		t.Fatalf("a second sweep expired %d more", n)
 	}
 	got, _ := w.approvals.GetDeviationRequest(w.ctx, asked.PendingApproval.RequestID)

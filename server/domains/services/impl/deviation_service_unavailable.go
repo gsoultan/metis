@@ -44,10 +44,6 @@ func (unavailableDeviationRequests) GetDeviationRequest(context.Context, uuid.UU
 	return entities.DeviationRequest{}, errNoDeviationRequestService
 }
 
-func (unavailableDeviationRequests) ExpireDeviationRequests(context.Context, time.Time) (int64, error) {
-	return 0, errNoDeviationRequestService
-}
-
 func (unavailableDeviationRequests) SweepDeviationRequests(context.Context, time.Time) (entities.SweptRequests, error) {
 	return entities.SweptRequests{}, errNoDeviationRequestService
 }

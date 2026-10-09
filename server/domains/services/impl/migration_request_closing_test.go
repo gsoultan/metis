@@ -54,7 +54,8 @@ type decidesNothing struct{ repocontracts.DeviationDecider }
 func TestTheSweepClosesUnreportedRunsBeforeOverdueRequests(t *testing.T) {
 	requests := &passesRecorded{}
 	service := &deviationRequestService{repo: passesStore{requests: requests}, sweepLockWait: time.Second, sweepBudget: 10}
-	closed, err := service.ExpireDeviationRequests(entities.WithSystemContext(context.Background()), time.Now())
+	swept, err := service.SweepDeviationRequests(entities.WithSystemContext(context.Background()), time.Now())
+	closed := swept.Closed()
 	if err != nil || closed != 0 {
 		t.Fatalf("a sweep with nothing to close: %d, %v", closed, err)
 	}

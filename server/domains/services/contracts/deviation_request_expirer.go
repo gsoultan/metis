@@ -17,9 +17,4 @@ type DeviationRequestExpirer interface {
 	// now, and answers how many of each kind it closed. Beside an error it
 	// still answers what it did close.
 	SweepDeviationRequests(ctx context.Context, now time.Time) (entities.SweptRequests, error)
-
-	// ExpireDeviationRequests is SweepDeviationRequests, and answers the two
-	// counts as one: how many requests it closed, expired and interrupted
-	// together.
-	ExpireDeviationRequests(ctx context.Context, now time.Time) (int64, error)
 }

@@ -34,10 +34,6 @@ func TestAFacadeWiredWithoutTheDeviationServiceRefusesEveryMethodOfIt(t *testing
 			return err
 		},
 		"GetDeviationRequest": func() error { _, err := facade.GetDeviationRequest(ctx, id); return err },
-		"ExpireDeviationRequests": func() error {
-			_, err := facade.ExpireDeviationRequests(entities.WithSystemContext(ctx), time.Now())
-			return err
-		},
 		// The one the server's own schedule calls, every few minutes.
 		"SweepDeviationRequests": func() error {
 			_, err := facade.SweepDeviationRequests(entities.WithSystemContext(ctx), time.Now())

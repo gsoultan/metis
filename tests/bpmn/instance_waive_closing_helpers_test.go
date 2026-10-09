@@ -63,7 +63,8 @@ func ledgerRowAsStored(t *testing.T, h engineHarness, requestID uuid.UUID) store
 // sweep runs the expiry as the server does: as system work, at a time the
 // caller gives.
 func (w waiver) sweep(ctx context.Context, now time.Time) (int64, error) {
-	return w.approvals.ExpireDeviationRequests(entities.WithSystemContext(ctx), now)
+	swept, err := w.approvals.SweepDeviationRequests(entities.WithSystemContext(ctx), now)
+	return swept.Closed(), err
 }
 
 // withPatientSweep is the waiver with a sweep that waits for a held row for as

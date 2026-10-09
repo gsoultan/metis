@@ -173,13 +173,13 @@ func TestOnlyAnAdministratorOfTheOrganizationRejectsARequest(t *testing.T) {
 		}
 		// Whoever may not decide may not run the server's sweep either, with a
 		// clock of their own choosing or with any.
-		if n, err := w.approvals.ExpireDeviationRequests(caller.ctx, time.Now().Add(1000*time.Hour)); !plainFailure(err) || n != 0 {
-			t.Errorf("%s running the expiry: %d, %v; want it refused as nothing a request may ask for", who, n, err)
+		if swept, err := w.approvals.SweepDeviationRequests(caller.ctx, time.Now().Add(1000*time.Hour)); !plainFailure(err) || swept.Closed() != 0 {
+			t.Errorf("%s running the expiry: %d, %v; want it refused as nothing a request may ask for", who, swept.Closed(), err)
 		}
 	}
 	// An administrator of this organization is not the server either.
-	if n, err := w.approvals.ExpireDeviationRequests(w.as("budi"), time.Now().Add(1000*time.Hour)); !plainFailure(err) || n != 0 {
-		t.Errorf("an administrator running the expiry with a clock of their own: %d, %v; want it refused", n, err)
+	if swept, err := w.approvals.SweepDeviationRequests(w.as("budi"), time.Now().Add(1000*time.Hour)); !plainFailure(err) || swept.Closed() != 0 {
+		t.Errorf("an administrator running the expiry with a clock of their own: %d, %v; want it refused", swept.Closed(), err)
 	}
 	// What a person typed and can put right, before anything is read.
 	for name, reason := range map[string]string{"no reason": "", "only spaces": " \t\n", "a reason longer than the ledger keeps": strings.Repeat("é", 2001)} {
@@ -372,7 +372,7 @@ func TestADecisionRefusesToRunInsideSomebodyElsesTransaction(t *testing.T) {
 		return err
 	}), before)
 	refused(t, "the sweep", enclosed(entities.WithSystemContext(h.Ctx()), func(txCtx context.Context) error {
-		_, err := w.approvals.ExpireDeviationRequests(txCtx, time.Now().Add(73*time.Hour))
+		_, err := w.approvals.SweepDeviationRequests(txCtx, time.Now().Add(73*time.Hour))
 		return err
 	}), before)
 

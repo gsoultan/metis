@@ -284,7 +284,11 @@ func TestApprovingAMigrationAsItExpiresEndsExpiredOnce(t *testing.T) {
 			var swept int64
 			f.together(t, nil,
 				func() { _, approveErr = f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), requestID, "") },
-				func() { swept, sweepErr = f.svc.ExpireDeviationRequests(entities.WithSystemContext(f.ctx), time.Now()) },
+				func() {
+					var closed entities.SweptRequests
+					closed, sweepErr = f.svc.SweepDeviationRequests(entities.WithSystemContext(f.ctx), time.Now())
+					swept = closed.Closed()
+				},
 			)
 			if sweepErr != nil || swept > 1 {
 				t.Fatalf("the sweep: %d, %v", swept, sweepErr)
@@ -594,7 +598,7 @@ func TestTheGateAndTheSweepAtOneApprovedRequest(t *testing.T) {
 			var applyErr, sweepErr error
 			f.together(t, nil,
 				func() { _, applyErr = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...) },
-				func() { _, sweepErr = f.svc.ExpireDeviationRequests(entities.WithSystemContext(f.ctx), later()) },
+				func() { _, sweepErr = f.svc.SweepDeviationRequests(entities.WithSystemContext(f.ctx), later()) },
 			)
 			if sweepErr != nil {
 				t.Fatalf("the sweep: %v", sweepErr)

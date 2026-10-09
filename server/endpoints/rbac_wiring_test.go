@@ -224,7 +224,7 @@ func readEndpointsSource(t *testing.T) string {
 // nothing about a call made through a value, an interface or another package;
 // the service's check is what covers those.
 func TestNoRouteAsksForRequestsToBeExpired(t *testing.T) {
-	const expiry = "ExpireDeviationRequests"
+	const expiry = "SweepDeviationRequests"
 	read := 0
 	for _, dir := range []string{".", filepath.Join("..", "transports")} {
 		tree := os.DirFS(dir)
