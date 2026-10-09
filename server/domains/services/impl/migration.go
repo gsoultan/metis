@@ -293,12 +293,15 @@ func (s *migrationService) planFor(
 	// each hold's count above include the ones that have ended, as they always
 	// have, and are not what decides it.
 	//
-	// Three things need somebody else: a skip, a control not carried across
-	// (both secondApproverReasons), and a redirect in a version with a control
-	// some instance has not passed (redirectsPastControls).
+	// Four things need somebody else: a skip, a control not carried across
+	// (both secondApproverReasons), a redirect in a version with a control
+	// some instance has not passed (redirectsPastControls), and a
+	// separation-of-duties rule the new version takes away from a step some
+	// instance has still to pass (dutiesLoosened).
 	running := runningOf(instances)
 	plan.SecondApproverReasons = append(secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, running),
 		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, running)...)
+	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, running)...)
 	slices.Sort(plan.SecondApproverReasons)
 	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
 

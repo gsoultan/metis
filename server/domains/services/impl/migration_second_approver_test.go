@@ -166,6 +166,71 @@ func TestRedirectsPastControls(t *testing.T) {
 	}
 }
 
+// A separation-of-duties rule the new version takes away, in whole or in
+// part, from a step some instance has still to pass is not one
+// administrator's call. A rule kept — under the same names or the steps' new
+// ones — a rule that grows, and a rule taken from a step everybody has passed
+// are.
+func TestDutiesLoosened(t *testing.T) {
+	ruled := func(id, name, rule string) models.FlowNode {
+		node := models.FlowNode{ID: id, Name: name}
+		if rule != "" {
+			node.Properties = map[string]any{SeparationOfDutiesKey: rule}
+		}
+		return node
+	}
+	source := map[string]models.FlowNode{
+		"submit":  ruled("submit", "Submit", ""),
+		"check":   ruled("check", "Check", ""),
+		"approve": ruled("approve", "Approve", "submit, check"),
+	}
+	target := func(approve models.FlowNode, others ...models.FlowNode) map[string]models.FlowNode {
+		nodes := map[string]models.FlowNode{approve.ID: approve}
+		for _, other := range others {
+			nodes[other.ID] = other
+		}
+		return nodes
+	}
+	waiting := []models.ProcessInstanceModel{{Status: models.ProcessActive, CompletedNodes: []string{"submit", "check"}}, {Status: models.ProcessActive}}
+	const lostBoth = "“Approve” would no longer be refused to whoever performed “Submit”, “Check”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”"
+	const lostCheck = "“Approve” would no longer be refused to whoever performed “Check”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”"
+
+	for name, c := range map[string]struct {
+		target  map[string]models.FlowNode
+		mapping map[string]string
+		want    string
+	}{
+		"the rule removed":                            {target(ruled("approve", "Approve", ""), source["submit"], source["check"]), nil, lostBoth},
+		"the rule shortened":                          {target(ruled("approve", "Approve", "submit"), source["submit"], source["check"]), nil, lostCheck},
+		"the rule kept":                               {target(source["approve"], source["submit"], source["check"]), nil, ""},
+		"the rule lengthened":                         {target(ruled("approve", "Approve", "submit,check,audit"), source["submit"], source["check"]), nil, ""},
+		"a named step gone, the rule still naming it": {target(source["approve"], source["submit"]), nil, lostCheck},
+		"the steps renamed and the rule with them": {target(ruled("signOff", "Sign off", "request, check"), ruled("request", "Request", ""), source["check"]),
+			map[string]string{"submit": "request", "approve": "signOff"}, ""},
+		"the steps renamed and the rule left with the old names": {target(ruled("signOff", "Sign off", "submit, check"), ruled("request", "Request", ""), source["check"]),
+			map[string]string{"submit": "request", "approve": "signOff"},
+			"“Approve” would no longer be refused to whoever performed “Submit”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”"},
+		"the step redirected onto one with no rule": {target(ruled("approve", "Approve", "submit, check"), source["submit"], source["check"]),
+			map[string]string{"approve": "check"}, lostBoth},
+		"the step itself gone": {target(source["submit"], source["check"]), nil, ""},
+	} {
+		got := dutiesLoosened(source, c.target, c.mapping, waiting)
+		if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0] != c.want)) {
+			t.Errorf("%s:\n  %v\nwant\n  %q", name, got, c.want)
+		}
+	}
+	// Nobody has still to pass the step, or nobody runs at all: nothing is
+	// loosened for anybody.
+	gone := target(ruled("approve", "Approve", ""), source["submit"], source["check"])
+	passed := []models.ProcessInstanceModel{{Status: models.ProcessActive, CompletedNodes: []string{"submit", "check", "approve"}}}
+	if got := dutiesLoosened(source, gone, nil, passed); len(got) != 0 {
+		t.Errorf("a rule dropped from a step every instance has passed: %v", got)
+	}
+	if got := dutiesLoosened(source, gone, nil, nil); len(got) != 0 {
+		t.Errorf("a rule dropped over a version nothing runs on: %v", got)
+	}
+}
+
 // The instances a request covers are the running ones of the plan's listing,
 // in one order whatever order they were listed in.
 func TestActiveInstanceIDs(t *testing.T) {
