@@ -120,6 +120,26 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 	return result, s.reportRun(ctx, run.request, result, runErr, began), runErr
 }
 
+// approvedRunFailure is an approved run that did not finish, as its approver
+// is told of it: in words of its own, over the failure that stopped the run.
+//
+// The words are not the failure's (approvedRunFailed). The failure stays
+// under them, so that what it was is still asked of it: a refusal is still a
+// refusal to whoever answers the request, and errors.Is and errors.As find
+// what they found in the run's own error.
+type approvedRunFailure struct {
+	said  string
+	cause error
+}
+
+func (f approvedRunFailure) Error() string { return f.said }
+
+func (f approvedRunFailure) Unwrap() error { return f.cause }
+
+// answeredClasses are the classes a failure is answered by, in the order a
+// transport asks after them (common.CodeFrom).
+var answeredClasses = []error{apierr.ErrInvalidArgument, apierr.ErrNotFound, apierr.ErrForbidden}
+
 // approvedRunFailed is what whoever approved a migration is told when its run
 // did not finish: why, in the failure's words, what became of the request,
 // and the one thing there is to do — ask again for what remains.
@@ -128,21 +148,27 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 // administrator applied: it says to run the same migration again, which
 // under an approval is not true — the request is spent — so that instruction
 // is taken out, and so is the engine's marker for an error a process may
-// catch, which is no word. The failure is the server's, whatever class it
-// came with: by the time a run starts the approver has been let in and the
-// plan accepted, and nothing they sent can put it right. Only the gate's
-// refusal keeps its class: it is a refusal, of something that may not be
-// done, and says so.
+// catch, which is no word.
+//
+// The failure keeps its class. A run the plan refuses — an instance moved on,
+// between the approval and the run, to where the migration cannot take it —
+// is a refusal of what was asked, as it is on one administrator's call, and
+// the gate's refusal is one of something that may not be done. Neither is the
+// server's failure, and neither is counted as one. The class is said once, in
+// front, as every classed failure says it; a failure with none is the
+// server's, as it was.
 func approvedRunFailed(id uuid.UUID, status entities.DeviationRequestStatus, runErr error) error {
 	cause := strings.ReplaceAll(withoutClass(runErr), resumeByRunningAgain, "")
 	cause = strings.ReplaceAll(cause, "BPMN_ERROR:", "")
 	said := fmt.Sprintf("the approved migration did not finish: %s. Request %s now reads %s; what its run had done stands, "+
 		"and what remains has to be asked for again", cause, id, status)
-	var refused gateRefusal
-	if errors.As(runErr, &refused) {
-		return gateRefusal{err: apierr.Forbiddenf("%s", said), why: refused.why}
+	for _, class := range answeredClasses {
+		if errors.Is(runErr, class) {
+			said = class.Error() + ": " + said
+			break
+		}
 	}
-	return errors.New(said)
+	return approvedRunFailure{said: said, cause: runErr}
 }
 
 // admit is step A: the approval, in a unit of work of its own (runDecision),
@@ -293,7 +319,7 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 // answered with: "invalid argument: x" is "x".
 func withoutClass(err error) string {
 	said := err.Error()
-	for _, class := range []error{apierr.ErrInvalidArgument, apierr.ErrNotFound, apierr.ErrForbidden} {
+	for _, class := range answeredClasses {
 		said = strings.ReplaceAll(said, class.Error()+": ", "")
 	}
 	return said
