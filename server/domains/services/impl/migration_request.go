@@ -138,24 +138,44 @@ func (s *migrationService) migrationRequest(
 // mapping redirects. Each part is there only when the migration has it, so a
 // request that only skips a step reads as the reason somebody typed.
 //
+// Each part lists at most reasonsListed things and counts the rest: a
+// migration has as many decisions, acknowledgements and redirects as whoever
+// wrote it gave it, and this is one field read in a list.
+//
 // A request that decides nothing, acknowledges nothing and redirects nothing
 // — one that waits only because the new version takes a rule away — has no
 // words of anybody's to give: its request says what the plan said
 // (migrationRequest).
 func migrationReason(options servicecontracts.MigrationOptions, redirected []string) string {
-	var parts []string
+	var typed []string
 	for _, nodeID := range sortedKeys(options.Actions) {
 		if reason := strings.TrimSpace(options.Actions[nodeID].Reason); reason != "" {
-			parts = append(parts, reason)
+			typed = append(typed, reason)
 		}
 	}
+	var parts []string
+	if len(typed) > 0 {
+		parts = append(parts, firstListed(typed, "; ", "decision(s)"))
+	}
 	if acknowledged := fingerprintNames(options.Acknowledged); len(acknowledged) > 0 {
-		parts = append(parts, "acknowledged the loss of "+strings.Join(acknowledged, ", "))
+		for n, id := range acknowledged {
+			acknowledged[n] = shownStepName(id)
+		}
+		parts = append(parts, "acknowledged the loss of "+firstListed(acknowledged, ", ", "control(s)"))
 	}
 	if len(redirected) > 0 {
-		parts = append(parts, "redirected "+strings.Join(redirected, ", "))
+		parts = append(parts, "redirected "+firstListed(redirected, ", ", "step(s)"))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// firstListed is the first reasonsListed of a list, joined, and how many more
+// there are of what.
+func firstListed(all []string, join, what string) string {
+	if len(all) <= reasonsListed {
+		return strings.Join(all, join)
+	}
+	return fmt.Sprintf("%s%sand %d more %s", strings.Join(all[:reasonsListed], join), join, len(all)-reasonsListed, what)
 }
 
 // redirectedSteps is the steps a mapping sends to a different step, each as

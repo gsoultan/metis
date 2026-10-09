@@ -307,7 +307,10 @@ func (s *migrationService) planFor(
 		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
 	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, running)...)
 	slices.Sort(plan.SecondApproverReasons)
+	// Decided from every reason; shown as the first few and a count of the
+	// rest. What is shown is also what a refusal says and a request stores.
 	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
+	plan.SecondApproverReasons = listedReasons(plan.SecondApproverReasons)
 
 	slices.Sort(plan.Refusals)
 	slices.Sort(plan.Warnings)

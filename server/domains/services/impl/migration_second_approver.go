@@ -116,6 +116,23 @@ func secondApproverReasons(
 // All of them count; the rest are said as a number.
 const controlsNamed = 5
 
+// reasonsListed is how many reasons a plan lists. A mapping is as long as
+// whoever wrote it made it, and each redirect in it is a reason: the list is
+// read by a person, stored with the request and said in a refusal, so it has
+// a size. The rest are counted in one last sentence. Whether a second
+// administrator is needed is decided from all of them, never from the list.
+const reasonsListed = 10
+
+// listedReasons is the reasons a plan shows: the first reasonsListed of them
+// in their order, and one sentence counting the rest.
+func listedReasons(all []string) []string {
+	if len(all) <= reasonsListed {
+		return all
+	}
+	listed := slices.Clone(all[:reasonsListed])
+	return append(listed, fmt.Sprintf("and %d more reason(s) of the same kinds, not listed here", len(all)-reasonsListed))
+}
+
 // stepCalled is what a reason calls a step: its name, or its id when it has
 // none, as much of it as a ledger row keeps of a step's name (shownStepName).
 // A definition's author chooses the name and may make it as long as they
