@@ -123,7 +123,7 @@ describe('before an apply', () => {
   it('says a second administrator has to approve, and why, and offers to send it', () => {
     const html = render({ plan: asks });
     const text = textOf(html);
-    expect(text).toContain('A second administrator has to approve this');
+    expect(text).toContain('This has to be approved before anything moves');
     expect(text).toContain('Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.');
     expect(text).not.toContain('different administrator');
     for (const reason of why) expect(text).toContain(reason);
@@ -153,7 +153,7 @@ describe('after an apply that was sent for approval', () => {
         'The request expires on 6 Oct 2026, 09:12.',
     );
     expect(text).not.toContain('different administrator');
-    expect(text).toContain('Why a second administrator is asked');
+    expect(text).toContain('Why an approval is asked');
     for (const reason of why) expect(text).toContain(reason);
     expect(count(html, '<li')).toBe(why.length);
   });
@@ -208,7 +208,7 @@ describe('after an apply that was sent for approval', () => {
   });
 
   it('says it once: the plan’s own notice gives way to the request', () => {
-    expect(count(text, 'A second administrator has to approve this')).toBe(0);
+    expect(count(text, 'This has to be approved before anything moves')).toBe(0);
     expect(count(html, 'role="alert"')).toBe(1);
     expect(count(text, 'Nothing moves until it is approved.')).toBe(1);
   });
@@ -229,7 +229,7 @@ describe('after an apply that was sent for approval', () => {
     expect(shown).toContain('through the API');
     expect(shown).not.toContain('expires');
     expect(shown).not.toContain('reference');
-    expect(shown).not.toContain('Why a second administrator is asked');
+    expect(shown).not.toContain('Why an approval is asked');
     expect(shown).not.toMatch(/[{}]|undefined/);
   });
 
@@ -239,7 +239,7 @@ describe('after an apply that was sent for approval', () => {
     expect(textOf(indonesian)).toContain('Diminta oleh Dita Larasati.');
     expect(textOf(indonesian)).toContain('Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API.');
     expect(textOf(indonesian)).toMatch(/Referensi permintaan ini adalah\s+0199c0de-0000-7000-8000-00000000aaaa/);
-    expect(textOf(indonesian)).toContain('Mengapa administrator kedua diminta');
+    expect(textOf(indonesian)).toContain('Mengapa persetujuan diminta');
     expect(buttons(indonesian)).toEqual(['Tutup']);
   });
 });
@@ -344,7 +344,7 @@ describe('after an apply that passed instances over', () => {
   it('still says a second administrator is needed, when what is left needs one', () => {
     const both = render({ reply: passedOver, plan: asks });
     expect(textOf(both)).toContain('Applied, but not to every instance');
-    expect(textOf(both)).toContain('A second administrator has to approve this');
+    expect(textOf(both)).toContain('This has to be approved before anything moves');
     expect(buttons(both)).toEqual(['Close', 'Send for approval']);
   });
 

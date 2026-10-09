@@ -73,7 +73,7 @@ export function MigrationApplyFooter({ outcome, needed, label, ready, applying, 
           </Group>
         )}
         <Button variant="subtle" color="gray" onClick={onClose}>
-          {outcome !== null ? t('common.close') : 'Cancel'}
+          {outcome !== null ? t('common.close') : t('common.cancel')}
         </Button>
         {waits ? (
           <Button ref={applyButton} color="orange" disabled aria-hidden tabIndex={-1} style={{ visibility: 'hidden' }}>

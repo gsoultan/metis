@@ -164,7 +164,7 @@ describe('a migration sent for a second administrator', () => {
     expect(outcome.notice.closes).toBe(false);
     expect(outcome.waits).toBe(true);
     expect(saidInDialog(outcome)).toBe(true);
-    expect(outcome.listTitle).toBe('Why a second administrator is asked');
+    expect(outcome.listTitle).toBe('Why an approval is asked');
     expect(outcome.reasons).toEqual(pending.because ?? []);
     expect(outcome.passedOver).toEqual([]);
     expect(outcome.more).toBeNull();
@@ -179,7 +179,7 @@ describe('a migration sent for a second administrator', () => {
         'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator. ' +
         'Permintaan ini kedaluwarsa pada 6 Oct 2026, 09:12.',
     );
-    expect(outcome.listTitle).toBe('Mengapa administrator kedua diminta');
+    expect(outcome.listTitle).toBe('Mengapa persetujuan diminta');
   });
 
   it('is worded from the request in the reply, whatever else the reply says', () => {
@@ -245,12 +245,34 @@ describe('a migration sent for a second administrator', () => {
   it('formats the deadline in the reader’s language, and names the time zone it is in', () => {
     // "4:12 PM" is a different moment for the administrator who asked and the
     // one who approves, when they are not in the same place.
-    const english = formatExpiry('2026-10-06T09:12:00Z', 'en', 'UTC');
-    const indonesian = formatExpiry('2026-10-06T09:12:00Z', 'id', 'UTC');
-    expect(english).toMatch(/^Oct 6, 2026(,| at) 9:12\sAM UTC$/);
-    expect(indonesian).toMatch(/^6 Okt 2026(,| pukul) 09\.12 UTC$/);
-    expect(formatExpiry('2026-10-06T09:12:00Z', 'en', 'Asia/Jakarta')).toMatch(/^Oct 6, 2026(,| at) 4:12\sPM GMT\+7$/);
-    expect(formatExpiry('2026-10-06T09:12:00Z', 'id', 'Asia/Jakarta')).toMatch(/^6 Okt 2026(,| pukul) 16\.12 WIB$/);
+    //
+    // The parts are asserted, not one formatter's whole string: the words a
+    // runtime's locale data uses for a month, a separator or a zone differ
+    // between versions of that data, and this test is about what the date
+    // has to carry — the day, the year, the hour in the zone asked for, and
+    // a name for that zone — not about how one build spells it.
+    const parts = (text: string) => ({
+      year: /\b2026\b/.test(text),
+      day: /\b6\b/.test(text),
+      // The last run of letters, digits and a sign: "UTC", "GMT+7", "WIB".
+      zone: /(UTC|GMT[+-]?\d*|WIB|[A-Z]{2,5})$/.test(text),
+    });
+    for (const locale of ['en', 'id']) {
+      const utc = formatExpiry('2026-10-06T09:12:00Z', locale, 'UTC');
+      expect(parts(utc), utc).toEqual({ year: true, day: true, zone: true });
+      // Twelve past nine in the morning, however the hour and minute are joined.
+      expect(utc, utc).toMatch(/\b0?9[:.]12\b/);
+      expect(utc, utc).toMatch(/UTC$/);
+      const jakarta = formatExpiry('2026-10-06T09:12:00Z', locale, 'Asia/Jakarta');
+      expect(parts(jakarta), jakarta).toEqual({ year: true, day: true, zone: true });
+      // Seven hours on: twelve past four in the afternoon, on a twelve- or a
+      // twenty-four-hour clock, and not said to be UTC.
+      expect(jakarta, jakarta).toMatch(/\b(4|16)[:.]12\b/);
+      expect(jakarta, jakarta).not.toMatch(/UTC$/);
+      expect(jakarta).not.toBe(utc);
+    }
+    // And the two languages do not say it the same way.
+    expect(formatExpiry('2026-10-06T09:12:00Z', 'id', 'UTC')).not.toBe(formatExpiry('2026-10-06T09:12:00Z', 'en', 'UTC'));
   });
 
   it('does not fail on a deadline or a language it cannot read', () => {
@@ -490,7 +512,9 @@ describe('what an apply did, case by case', () => {
     for (const c of cases) {
       const next = afterApply(migrationOutcome(c.reply, 5, inEnglish, at), true, false);
       expect(next.keep, c.name).toBe(false);
-      expect(next.toast?.title, c.name).toBe(c.title);
+      // A request that was sent names its two versions in the toast: there
+      // is no dialog left to say which migration it was.
+      expect(next.toast?.title, c.name).toBe(c.reply.pending_approval ? `${c.title}: v2 → v5` : c.title);
       expect(next.replan, c.name).toBe(false);
       expect(next.close, c.name).toBe(false);
     }
@@ -503,7 +527,8 @@ describe('what an apply did, case by case', () => {
     // for a dialog that was closed.
     const next = afterApply(migrationOutcome(sentForApproval, 5, inEnglish, at), false, true);
     expect(next.keep).toBe(false);
-    expect(next.toast?.title).toBe('Sent for approval');
+    // And it says which migration: the dialog under it shows another now.
+    expect(next.toast?.title).toBe('Sent for approval: v2 → v5');
     expect(next.replan).toBe(false);
     expect(next.close).toBe(false);
     // Every case: what the screen will not show is a toast, whatever it is.
@@ -549,7 +574,12 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
 
   it('says a request was sent whole: who, the rule, until when, how, and its reference — and stays until dismissed', () => {
     const toast = migrationOutcome(sentForApproval, 5, inEnglish, at).toast;
-    expect(toast.title).toBe('Sent for approval');
+    // The dialog it was sent from may show another plan by the time it is
+    // read, with its own button: the toast says which migration was sent.
+    expect(toast.title).toBe('Sent for approval: v2 → v5');
+    expect(migrationOutcome(sentForApproval, 5, inIndonesian, at).toast.title).toBe('Dikirim untuk persetujuan: v2 → v5');
+    // In the dialog, under the versions it shows, the title is as it was.
+    expect(migrationOutcome(sentForApproval, 5, inEnglish, at).notice.title).toBe('Sent for approval');
     expect(toast.message).toBe(
       `Asked for by Dita Larasati. ${rule} The request expires on 6 Oct 2026, 09:12. ` +
         'There is no screen for this yet: an administrator approves or rejects it through the API. ' +
@@ -607,7 +637,8 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
         title: "The server's answer could not be read",
         message:
           'The server answered, but its answer could not be read. The migration may have been applied, or sent for approval: ' +
-          'check the instances before trying again.',
+          'check the instances before trying again. A request that was sent is among those waiting for approval ' +
+          '(GET /api/v1/deviation-requests), and sending the same migration again answers with that request and makes no second one.',
         color: 'yellow',
         closes: false,
         stays: true,
@@ -619,7 +650,8 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
     expect(indonesian.title).toBe('Jawaban server tidak dapat dibaca');
     expect(indonesian.message).toBe(
       'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: ' +
-        'periksa instansinya sebelum mencoba lagi.',
+        'periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan ' +
+        '(GET /api/v1/deviation-requests), dan mengirim migrasi yang sama sekali lagi dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
     );
   });
 

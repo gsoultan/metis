@@ -170,14 +170,14 @@ describe('the migration dialog, before an apply', () => {
     expect(text).toContain('Move 3 instances');
     expect(text).toContain('Cancel');
     expect(text).not.toContain('Send for approval');
-    expect(text).not.toContain('A second administrator has to approve this');
+    expect(text).not.toContain('This has to be approved before anything moves');
   });
 
   it('says a plan needs a second administrator, with the plan’s reasons, and offers to send it', () => {
     const reason = '“Operations approve” would be skipped for every listed instance waiting at it when the migration runs';
     planned = { ...basePlan, requires_second_approver: true, second_approver_reasons: [reason] };
     const text = textOf(render());
-    expect(text).toContain('A second administrator has to approve this');
+    expect(text).toContain('This has to be approved before anything moves');
     expect(text).toContain(RULE);
     expect(text).toContain(reason);
     expect(text).toContain('Send for approval');
@@ -227,7 +227,7 @@ describe('the migration dialog, once an apply has answered', () => {
     screen = { pair: asRendered.pair, requestKey: migrationRequestKey({ ...untouched, mapping: { opsApprove: 'salesApprove' } }) };
     await apply(sent);
     expect(toasts()).toHaveLength(1);
-    expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE} The request expires on `);
+    expect(toasts()[0]).toStartWith(`Sent for approval: v2 → v5: Asked for by Dita Larasati. ${RULE} The request expires on `);
     expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
     expect(staying()).toEqual([true]);
     expect(did.closes).toBe(0);
@@ -372,7 +372,7 @@ describe('the migration dialog, once an apply has answered', () => {
     });
     expect(did.closes).toBe(1);
     expect(toasts()).toHaveLength(1);
-    expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE}`);
+    expect(toasts()[0]).toStartWith(`Sent for approval: v2 → v5: Asked for by Dita Larasati. ${RULE}`);
     expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
     expect(staying()).toEqual([true]);
     expect(did.replans).toBe(0);
@@ -468,7 +468,7 @@ describe('the migration dialog, with the last apply’s answer in hand', () => {
       closeIt();
       expect(did.closes).toBe(1);
       expect(toasts()).toHaveLength(1);
-      expect(toasts()[0]).toStartWith(`Sent for approval: Asked for by Dita Larasati. ${RULE} The request expires on `);
+      expect(toasts()[0]).toStartWith(`Sent for approval: v2 → v5: Asked for by Dita Larasati. ${RULE} The request expires on `);
       expect(toasts()[0]).toEndWith(`${HOW} The request's reference is 0199c0de-0000-7000-8000-00000000aaaa.`);
       expect(staying()).toEqual([true]);
       expect(did.forgets).toBe(1);
@@ -508,7 +508,7 @@ describe('the migration dialog, with the last apply’s answer in hand', () => {
     expect(text).toContain('Sent for approval');
     expect(text).toContain('Asked for by Dita Larasati.');
     expect(text).toMatch(/The request expires on .*2026/);
-    expect(text).toContain('Why a second administrator is asked');
+    expect(text).toContain('Why an approval is asked');
     expect(text).not.toContain('Nothing was moved');
     expect(buttons(html)).toContain('Close');
     expect(buttons(html)).not.toContain('Cancel');

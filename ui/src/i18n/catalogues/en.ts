@@ -172,8 +172,14 @@ const en: Catalogue = {
   // and passedOverToast where there is none: a toast never says "below".
   // pendingMessage and secondApproverMessage are one rule, said after the
   // press and before it, and do not say who else approves: an organization
-  // set up as having one administrator approves its own.
+  // set up as having one administrator approves its own. The two headings
+  // above them (secondApproverTitle, pendingWhy) say "approved" and "an
+  // approval" for the same reason, and not "a second administrator".
+  // pendingToastTitle is the title of the toast a sent request leaves, which
+  // names the two versions as they were when the button was pressed: the
+  // dialog under it may show another plan by then.
   'migration.failedTitle': 'The migration ended with an error',
+  'migration.moveInstances': '{count, plural, one {Move # instance} other {Move # instances}}',
   'migration.passedOverAllTitle': 'This run moved no instance',
   'migration.passedOverInstance': 'Instance {reference}',
   'migration.passedOverListTitle': 'Instances that were not moved',
@@ -190,13 +196,14 @@ const en: Catalogue = {
     'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
   'migration.pendingReference': "The request's reference is {reference}.",
   'migration.pendingTitle': 'Sent for approval',
-  'migration.pendingWhy': 'Why a second administrator is asked',
+  'migration.pendingToastTitle': 'Sent for approval: v{source} → v{target}',
+  'migration.pendingWhy': 'Why an approval is asked',
   'migration.secondApproverMessage':
     'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator.',
-  'migration.secondApproverTitle': 'A second administrator has to approve this',
+  'migration.secondApproverTitle': 'This has to be approved before anything moves',
   'migration.sendForApproval': 'Send for approval',
   'migration.unreadableMessage':
-    'The server answered, but its answer could not be read. The migration may have been applied, or sent for approval: check the instances before trying again.',
+    'The server answered, but its answer could not be read. The migration may have been applied, or sent for approval: check the instances before trying again. A request that was sent is among those waiting for approval (GET /api/v1/deviation-requests), and sending the same migration again answers with that request and makes no second one.',
   'migration.unreadableTitle': "The server's answer could not be read",
 
   // Offline and updates

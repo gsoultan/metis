@@ -206,12 +206,14 @@ describe('why a migration passed an instance over', () => {
 
 /*
  * What the migration dialog says of an apply that was sent to a second
- * administrator, and of one that passed instances over. The rest of the dialog
- * is English still; these were written with their words in the catalogues.
+ * administrator, and of one that passed instances over, and its two buttons.
+ * The rest of the dialog is English still; these have their words in the
+ * catalogues.
  */
 describe('the migration dialog’s own words', () => {
   const OWN = [
     'migration.failedTitle',
+    'migration.moveInstances',
     'migration.passedOverAllTitle',
     'migration.passedOverInstance',
     'migration.passedOverListTitle',
@@ -225,6 +227,7 @@ describe('the migration dialog’s own words', () => {
     'migration.pendingMessage',
     'migration.pendingReference',
     'migration.pendingTitle',
+    'migration.pendingToastTitle',
     'migration.pendingWhy',
     'migration.secondApproverMessage',
     'migration.secondApproverTitle',

@@ -29,7 +29,7 @@ describe('a plan that needs a second administrator', () => {
   it('says so before anything is sent, with the server’s reasons as it gave them', () => {
     const needed = approvalNeeded(plan({ requires_second_approver: true, second_approver_reasons: reasons }), inEnglish);
     expect(needed).toEqual({
-      title: 'A second administrator has to approve this',
+      title: 'This has to be approved before anything moves',
       message:
         'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization ' +
         'has been set up as having one administrator.',
@@ -45,7 +45,7 @@ describe('a plan that needs a second administrator', () => {
 
   it('says so in Indonesian', () => {
     const needed = approvalNeeded(plan({ requires_second_approver: true }), inIndonesian);
-    expect(needed?.title).toBe('Administrator kedua harus menyetujui ini');
+    expect(needed?.title).toBe('Ini harus disetujui sebelum ada yang dipindahkan');
     expect(needed?.message).toBe(
       'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, ' +
         'kecuali organisasi ini telah diatur memiliki satu administrator.',
@@ -80,12 +80,15 @@ describe('what the apply button says it will do', () => {
     expect(applyLabel(asks, inIndonesian)).toBe('Kirim untuk persetujuan');
   });
 
-  it('says what it always said for a plan one administrator can apply', () => {
+  it('says how many instances it moves for a plan one administrator can apply, in the reader’s language', () => {
     expect(applyLabel(plan(), inEnglish)).toBe('Move 3 instances');
     expect(applyLabel(plan({ instances: 1 }), inEnglish)).toBe('Move 1 instance');
     expect(applyLabel(plan({ instances: 0 }), inEnglish)).toBe('Move 0 instances');
     expect(applyLabel(null, inEnglish)).toBe('Move 0 instances');
-    // The rest of the dialog is English still, and so is this.
-    expect(applyLabel(plan(), inIndonesian)).toBe('Move 3 instances');
+    // In the catalogues now, as the button beside it and what it becomes
+    // for a plan that waits are: an Indonesian dialog had this one button in
+    // English.
+    expect(applyLabel(plan(), inIndonesian)).toBe('Pindahkan 3 instansi');
+    expect(applyLabel(plan({ instances: 1 }), inIndonesian)).toBe('Pindahkan 1 instansi');
   });
 });

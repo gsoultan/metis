@@ -366,7 +366,7 @@ export function migrationOutcome(
   formatDate: (iso: string) => string,
 ): MigrationOutcome {
   const notice = outcomeNotice(reply, target, t, formatDate);
-  if (reply.pending_approval) return waitingOutcome(reply.pending_approval, notice, t);
+  if (reply.pending_approval) return waitingOutcome(reply.pending_approval, notice, sentTitle(reply, target, notice, t), t);
   const passedOver = passedOverCount(reply);
   const rows = listed(reply.passed_over).slice(0, MAX_PASSED_OVER_SHOWN) as ApiPassedOver[];
   const unlisted = passedOver - rows.length;
@@ -398,14 +398,14 @@ export function migrationOutcome(
  * find it by. The toast says all of it in one, and stays until dismissed: once
  * the dialog has gone it is the only place the reference is.
  */
-function waitingOutcome(pending: unknown, notice: MigrationNotice, t: Translate): MigrationOutcome {
+function waitingOutcome(pending: unknown, notice: MigrationNotice, toastTitle: string, t: Translate): MigrationOutcome {
   const how = t('migration.pendingHow');
   const reference = referenceLine(words(field(pending, 'request_id')), t);
   const whole = [notice.message, how];
   if (reference) whole.push(`${reference.before}${reference.value}${reference.after}`);
   return {
     notice,
-    toast: { ...notice, message: whole.join(' '), stays: true },
+    toast: { ...notice, title: toastTitle, message: whole.join(' '), stays: true },
     waits: true,
     unread: false,
     how,
@@ -415,6 +415,21 @@ function waitingOutcome(pending: unknown, notice: MigrationNotice, t: Translate)
     passedOver: [],
     more: null,
   };
+}
+
+/**
+ * The title of the toast a sent request leaves: the notice's, and the two
+ * versions the request was for — as the server's reply names the one it was
+ * sent from and the press named the one it was sent to. The dialog the toast
+ * sits over may show another plan by then, edited while the apply was on its
+ * way, with a button of its own; without the versions the toast could be
+ * read as being about that one. A reply that names no source version says
+ * the notice's title alone: nothing is invented.
+ */
+function sentTitle(reply: MigrationReply, target: number, notice: MigrationNotice, t: Translate): string {
+  const source = reply.plan?.source_version;
+  if (typeof source !== 'number' || !Number.isFinite(source)) return notice.title;
+  return t('migration.pendingToastTitle', { source, target });
 }
 
 /** The catalogue's sentence about a reference, split round the reference itself. */

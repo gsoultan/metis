@@ -44,6 +44,5 @@ export function approvalNeeded(plan: ApiMigrationPlan | null, t: Translate): App
  */
 export function applyLabel(plan: ApiMigrationPlan | null, t: Translate): string {
   if (plan?.requires_second_approver === true) return t('migration.sendForApproval');
-  const instances = plan?.instances ?? 0;
-  return `Move ${instances} ${instances === 1 ? 'instance' : 'instances'}`;
+  return t('migration.moveInstances', { count: plan?.instances ?? 0 });
 }

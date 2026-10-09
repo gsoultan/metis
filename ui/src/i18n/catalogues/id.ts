@@ -147,6 +147,7 @@ const id: Catalogue = {
   // yang dikirim kepada administrator kedua, dan jawaban yang tidak terbaca.
   // See the English catalogue.
   'migration.failedTitle': 'Migrasi berakhir dengan kesalahan',
+  'migration.moveInstances': '{count, plural, other {Pindahkan # instansi}}',
   'migration.passedOverAllTitle': 'Migrasi ini tidak memindahkan instansi mana pun',
   'migration.passedOverInstance': 'Instansi {reference}',
   'migration.passedOverListTitle': 'Instansi yang tidak dipindahkan',
@@ -163,13 +164,14 @@ const id: Catalogue = {
     'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator.',
   'migration.pendingReference': 'Referensi permintaan ini adalah {reference}.',
   'migration.pendingTitle': 'Dikirim untuk persetujuan',
-  'migration.pendingWhy': 'Mengapa administrator kedua diminta',
+  'migration.pendingToastTitle': 'Dikirim untuk persetujuan: v{source} → v{target}',
+  'migration.pendingWhy': 'Mengapa persetujuan diminta',
   'migration.secondApproverMessage':
     'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator.',
-  'migration.secondApproverTitle': 'Administrator kedua harus menyetujui ini',
+  'migration.secondApproverTitle': 'Ini harus disetujui sebelum ada yang dipindahkan',
   'migration.sendForApproval': 'Kirim untuk persetujuan',
   'migration.unreadableMessage':
-    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi.',
+    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan (GET /api/v1/deviation-requests), dan mengirim migrasi yang sama sekali lagi dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
   'migration.unreadableTitle': 'Jawaban server tidak dapat dibaca',
 
   'offline.title': 'Anda sedang luring',
