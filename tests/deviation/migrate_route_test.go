@@ -366,6 +366,56 @@ func TestAMappingOnlyMigrationStillAppliesInOneCall(t *testing.T) {
 	}
 }
 
+// Pin: what the route refused before it could ask, it refuses as it did. A
+// plan that refuses is a 200 for a dry run, which says why, and a 400 for an
+// apply, which says the same — and a plan that refuses asks nobody, though it
+// skips a step: a refusal is not sent for approval. Nothing is written.
+func TestAMigrationThePlanRefusesIsRefusedAsBeforeAndAsksNobody(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	boss := h.signIn(t, "boss", entities.RoleAdmin)
+	m := h.twoVersionsToMigrate(t)
+	h.waitingAtTheApproval(t)
+	versions := func(dryRun bool) map[string]any {
+		return map[string]any{"source_definition_id": m.v1.String(), "target_definition_id": m.v2.String(), "dry_run": dryRun}
+	}
+	skipWithNoReason := func(dryRun bool) map[string]any {
+		body := versions(dryRun)
+		body["node_actions"] = map[string]any{"opsApprove": map[string]any{"kind": "skip"}}
+		return body
+	}
+
+	before := h.everyRow(t)
+	for name, body := range map[string]func(bool) map[string]any{
+		"work with nowhere to land":   versions,
+		"a skip that gives no reason": skipWithNoReason,
+	} {
+		status, preview, raw := h.migrateWith(t, boss, body(true))
+		refusals, _ := preview.Plan["refusals"].([]any)
+		if status != http.StatusOK || len(refusals) == 0 || preview.Applied == nil || *preview.Applied || preview.PendingApproval != nil {
+			t.Fatalf("the dry run of %s: %d (%s), want 200 and a plan that says why it refuses", name, status, raw)
+		}
+		said := make([]string, 0, len(refusals))
+		for _, refusal := range refusals {
+			said = append(said, fmt.Sprint(refusal))
+		}
+		want := invalid(strings.Join(said, "; "))
+		t.Logf("refused, and told: %s", want)
+		if status, _, raw := h.migrateWith(t, boss, body(false)); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
+			t.Fatalf("the apply of %s: %d (%s), want 400 %s", name, status, raw, want)
+		}
+	}
+	// A version that is no id is refused before anything is read.
+	malformed := versions(false)
+	malformed["source_definition_id"] = "version-one"
+	if status, _, raw := h.migrateWith(t, boss, malformed); status != http.StatusBadRequest || !strings.Contains(raw, `source_definition_id \"version-one\" is not a valid identifier`) {
+		t.Fatalf("a version that is no id: %d (%s), want 400", status, raw)
+	}
+	h.requireUnchanged(t, before, "the refused migrations")
+	if n := h.requestCount(t); n != 0 {
+		t.Fatalf("refused migrations left %d request(s)", n)
+	}
+}
+
 // Found while the gate was built: a version no instance is on is answered
 // before anybody is asked. An apply that skips a step there is a 200 that
 // says it was applied, passed nobody over and waits on nobody — there was
