@@ -579,7 +579,7 @@ func (s *migrationService) apply(
 			// are re-pointed at the new graph: the ledger and the migration's
 			// narrative then name the same losses.
 			waived = controlsNotPassed(plan.ComplianceHolds, fresh.CompletedNodes)
-			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID); err != nil {
+			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID, nodeMapping, targetNodes); err != nil {
 				return err
 			}
 			instance = fresh
@@ -752,8 +752,20 @@ func (s *migrationService) recordControlLosses(
 	waived []entities.ComplianceHold,
 	options servicecontracts.MigrationOptions,
 	runID, entryID uuid.UUID,
+	nodeMapping map[string]string,
+	targetNodes map[string]models.FlowNode,
 ) error {
 	rows := withApproval(controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID), options.Approval)
+	// A control the instance is moved off onto another control says where:
+	// it was not lost as a dropped one is (movedOntoAControl).
+	for i, hold := range waived {
+		if to, moved := movedOntoAControl(instance, hold.NodeID, nodeMapping, targetNodes); moved {
+			if rows[i].Details == nil {
+				rows[i].Details = map[string]any{}
+			}
+			rows[i].Details[detailMappedTo] = to
+		}
+	}
 	for _, row := range rows {
 		if _, err := s.ledger.Record(ctx, row); err != nil {
 			return fmt.Errorf("recording that instance %s loses %q: %w", instance.ID, row.Node.ID, err)
@@ -808,13 +820,28 @@ func (s *migrationService) recordMigration(
 	// Which control-bearing steps this instance lost, and only the ones it had
 	// not already performed — worked out once, before the rewrite, so this
 	// entry and the ledger rows that point at it agree.
-	var waived []string
+	//
+	// A control the instance was moved off onto another control is said
+	// apart: it was not carried across as the same step, and the instance now
+	// stands on the step named — which is not "it never will" (landedOnAControl).
+	// A control that was dropped keeps the sentence it always had.
+	var waived, lost []string
+	mappedTo := map[string]string{}
 	for _, hold := range waivedHolds {
 		waived = append(waived, hold.NodeID)
+		if to, mapped := landedOnAControl(moved, hold.NodeID, target); mapped {
+			mappedTo[hold.NodeID] = to
+			continue
+		}
+		lost = append(lost, hold.NodeID)
 	}
-	if len(waived) > 0 {
+	if len(lost) > 0 {
 		narrative += fmt.Sprintf(" It had not yet passed %s, and %s accepted that it never will.",
-			strings.Join(waived, ", "), actor)
+			strings.Join(lost, ", "), actor)
+	}
+	for _, from := range sortedKeys(mappedTo) {
+		narrative += fmt.Sprintf(" It had not yet passed %s, which was not carried across as the same step: "+
+			"it was moved from there onto %s, and %s accepted that.", from, mappedTo[from], actor)
 	}
 
 	entry := entities.AuditEntry{
@@ -834,6 +861,9 @@ func (s *migrationService) recordMigration(
 		},
 		Project:  &entities.Project{ID: uuid.UUID(instance.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(instance.ID)},
+	}
+	if len(mappedTo) > 0 {
+		entry.Data[dataControlsMappedTo] = mappedTo
 	}
 	// A run a second administrator approved says so: one more sentence, and
 	// the request and the approver in the data. Any other run's entry is as
