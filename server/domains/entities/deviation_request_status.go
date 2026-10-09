@@ -37,8 +37,11 @@ func (s DeviationRequestStatus) Live() bool {
 	return s == DeviationRequestPending || s == DeviationRequestApproved
 }
 
-// Terminal reports whether the request is over: nothing decides it again, and
-// the same thing may be asked for afresh.
+// Terminal reports whether the request is over: it holds nothing any longer,
+// and the same thing may be asked for afresh. Nobody decides it again. One of
+// these can still change, though: an interrupted request whose run was in
+// fact still going is reported on by that run when it ends — applied, or
+// interrupted with what it did — and that report stands over the sweep's.
 func (s DeviationRequestStatus) Terminal() bool {
 	switch s {
 	case DeviationRequestApplied, DeviationRequestInterrupted, DeviationRequestStale,
