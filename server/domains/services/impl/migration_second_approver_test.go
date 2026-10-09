@@ -64,6 +64,41 @@ func TestSecondApproverReasons(t *testing.T) {
 	}
 }
 
+// Who is counted is every instance that has not ended, not only the ones
+// running at the moment of the listing. A suspended instance can be made
+// active again between the plan's listing and the run's, and the run would
+// then act on it: counted, it was shown to whoever approved. An instance in a
+// state nothing here knows is counted for the same reason. One that ran to
+// its end, failed or was cancelled never runs again, and is not.
+func TestAnInstanceThatHasNotEndedIsCountedWhateverItsState(t *testing.T) {
+	nodes := map[string]models.FlowNode{"ops": {ID: "ops", Name: "Operations approve"}}
+	skip := map[string]servicecontracts.NodeAction{"ops": {Kind: servicecontracts.NodeActionSkip, Reason: "moot"}}
+	holds := []entities.ComplianceHold{{NodeID: "ops"}}
+	for status, counted := range map[models.ProcessStatus]bool{
+		models.ProcessActive:           true,
+		models.ProcessSuspended:        true,
+		models.ProcessStatus("paused"): true,
+		models.ProcessCompleted:        false,
+		models.ProcessFailed:           false,
+		models.ProcessCancelled:        false,
+	} {
+		one := uuid.Must(uuid.NewV7())
+		listed := []models.ProcessInstanceModel{{ID: models.UUID(one), Status: status}}
+		if got := len(runningOf(listed)) == 1; got != counted {
+			t.Errorf("an instance that is %s: counted %v, want %v", status, got, counted)
+		}
+		if got := len(activeInstanceIDs(listed)) == 1; got != counted {
+			t.Errorf("an instance that is %s: among those a request covers %v, want %v", status, got, counted)
+		}
+		if got := len(secondApproverReasons(nodes, skip, nil, runningOf(listed))) == 1; got != counted {
+			t.Errorf("a skip over a version whose only instance is %s: needs a second administrator %v, want %v", status, got, counted)
+		}
+		if got := len(secondApproverReasons(nodes, nil, holds, runningOf(listed))) == 1; got != counted {
+			t.Errorf("a control dropped for a version whose only instance is %s: needs a second administrator %v, want %v", status, got, counted)
+		}
+	}
+}
+
 // The instances a request covers are the running ones of the plan's listing,
 // in one order whatever order they were listed in.
 func TestActiveInstanceIDs(t *testing.T) {

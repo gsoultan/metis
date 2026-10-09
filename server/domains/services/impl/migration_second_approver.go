@@ -18,26 +18,35 @@ import (
 // named when a migration is refused for them. All of them are counted.
 const newcomersNamed = 5
 
-// runningOf is the instances of a listing that are still running: the ones a
-// run of a migration acts on, and so the only ones a decision can reach.
+// runningOf is the instances of a listing that have not ended: every one a
+// run of a migration could come to act on, and so every one a decision can
+// reach.
 //
 // A plan lists every instance of the version, ended ones too, and counts
 // them as it always has. Who needs a second administrator is counted from
 // these alone: nothing is skipped for, and no control taken from, an
-// instance that has finished or been cancelled.
+// instance that ran to its end, failed or was cancelled.
+//
+// Not ended, rather than running now (instanceEnded, the question the
+// in-place plan asks). A run acts only on an instance that is active when it
+// reaches it — but it reaches it later than this listing, and a suspended
+// instance can be active again by then. Counted only if active now, such an
+// instance was acted on with nobody having been shown it. So a suspended
+// instance is counted, and so is one in a state this does not know: the count
+// may be larger than what the run then acts on, never smaller.
 func runningOf(instances []models.ProcessInstanceModel) []models.ProcessInstanceModel {
 	running := make([]models.ProcessInstanceModel, 0, len(instances))
 	for _, instance := range instances {
-		if instance.Status == models.ProcessActive {
+		if !instanceEnded(entities.ProcessStatus(instance.Status)) {
 			running = append(running, instance)
 		}
 	}
 	return running
 }
 
-// activeInstanceIDs is the ids of the instances of a plan's listing that are
-// still running, in one order: the instances a request for the plan shows,
-// and the instances an apply under that request may act on.
+// activeInstanceIDs is the ids of the instances of a plan's listing that
+// have not ended (runningOf), in one order: the instances a request for the
+// plan shows, and the instances an apply under that request may act on.
 //
 // It is a list always, with nothing in it when nothing runs.
 func activeInstanceIDs(covered []models.ProcessInstanceModel) []uuid.UUID {

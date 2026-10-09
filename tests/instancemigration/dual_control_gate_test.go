@@ -373,3 +373,49 @@ func TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep(t *testing.
 		})
 	}
 }
+
+// Who needs a second administrator is counted over every instance that has
+// not ended, a suspended one among them: it can be made active again between
+// the plan's listing and the run's, and must not then be acted on uncounted.
+// So a skip over a version whose only instance is suspended still asks — and
+// the request shows that instance. The run acts only on instances that are
+// active when it reaches them, so it leaves a suspended one where it is: the
+// count and the act differ, in the direction that asks.
+//
+// Nothing in the product suspends an instance, so the state is written
+// directly; the instance is otherwise one the product made.
+func TestASkipOverAVersionWhoseOnlyInstanceIsSuspendedStillAsks(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	instance := f.onlyInstance(t)
+	if err := f.db.Exec(`UPDATE process_instances SET status = 'suspended' WHERE id = ?`, instance.ID).Error; err != nil {
+		t.Fatalf("suspend the instance: %v", err)
+	}
+	opts := skipOps("the role was eliminated")
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, nil, opts...)
+	if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover || len(plan.SecondApproverReasons) != 1 {
+		t.Fatalf("the plan over a suspended instance: %+v %v, want it to need a second administrator", plan, err)
+	}
+	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...); !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("the apply on one administrator's call: %v, want it forbidden", err)
+	}
+	dita := adminAs(f.ctx, "dita")
+	pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	stored, err := f.svc.GetDeviationRequest(dita, pending.RequestID)
+	if err != nil || !slices.Equal(stored.ApprovedInstances, []uuid.UUID{instance.ID}) {
+		t.Fatalf("the request covers %v (err %v), want the suspended instance %s", stored.ApprovedInstances, err, instance.ID)
+	}
+	// Approved, the run reaches an instance that is not active and leaves it.
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+	if err != nil || out.MigrationResult == nil || out.MigrationResult.Changed != 0 || out.Request.Status != entities.DeviationRequestApplied {
+		t.Fatalf("the approved run over a suspended instance: %+v %v, want it to change nothing and be spent", out, err)
+	}
+	after := f.onlyInstance(t)
+	if after.Definition == nil || after.Definition.ID != v1 || after.Status != entities.ProcessSuspended || len(f.ledger(t, instance.ID)) != 0 {
+		t.Fatalf("the run acted on a suspended instance: %s on %v", after.Status, after.Definition)
+	}
+}
