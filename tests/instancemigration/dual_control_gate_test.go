@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
@@ -176,5 +177,141 @@ func TestAnApprovedRequestIsNoApprovalOfAnotherMigration(t *testing.T) {
 	rows := f.ledger(t, instance.ID)
 	if len(rows) != 1 || rows[0].Reason != "a" || rows[0].Actor != "dita" || rows[0].ApprovedBy != "omar" {
 		t.Fatalf("the ledger holds %+v, want the one skip that was approved", rows)
+	}
+}
+
+// A dry run asks nobody: neither the planner nor the route's preview leaves a
+// request behind, however often it is run. Only an apply does, once — and the
+// route's apply of a skip moves nothing: it asks.
+func TestADryRunNeverAsksForApproval(t *testing.T) {
+	f := newFixture(t)
+	v1, v2 := f.parkedOnOpsApprove(t)
+	dita := adminAs(f.ctx, "dita")
+	for range 2 {
+		plan, err := f.svc.PlanInstanceMigration(dita, uuidOf(t, v1), uuidOf(t, v2), nil, skipOps("the role was eliminated")...)
+		if err != nil || !plan.RequiresSecondApprover {
+			t.Fatalf("the plan: %+v %v", plan, err)
+		}
+		preview := f.asked(t, dita, skipOpsRequest(v1, v2, true))
+		if preview.Err != nil || preview.PendingApproval != nil || preview.Applied || !preview.Plan.RequiresSecondApprover {
+			t.Fatalf("the route's dry run: %+v", preview)
+		}
+	}
+	if n := f.requestCount(t); n != 0 {
+		t.Fatalf("dry runs left %d request(s)", n)
+	}
+	var first uuid.UUID
+	for range 2 {
+		sent := f.asked(t, dita, skipOpsRequest(v1, v2, false))
+		if sent.Err != nil || sent.PendingApproval == nil || sent.Applied || sent.PassedOver == nil || len(sent.PassedOver) != 0 {
+			t.Fatalf("the route's apply: %+v, want it sent for approval with nothing applied and nobody passed over", sent)
+		}
+		if sent.PendingApproval.RequestedBy != "dita" || len(sent.PendingApproval.Because) != 1 {
+			t.Fatalf("what the route says waits: %+v", sent.PendingApproval)
+		}
+		if first == uuid.Nil {
+			first = sent.PendingApproval.RequestID
+		}
+		if sent.PendingApproval.RequestID != first {
+			t.Fatal("the same apply sent twice made two requests")
+		}
+	}
+	if n := f.requestCount(t); n != 1 {
+		t.Fatalf("two applies of one migration left %d request(s), want the one", n)
+	}
+	f.assertNothingMoved(t, uuidOf(t, v1))
+
+	// Nobody signed in, the route cannot ask — and does not apply instead.
+	refused := f.asked(t, f.ctx, skipOpsRequest(v1, v2, false))
+	if !errors.Is(refused.Err, apierr.ErrForbidden) || refused.Applied || refused.PendingApproval != nil {
+		t.Fatalf("the route's apply with nobody signed in: %+v, want it forbidden", refused)
+	}
+	f.assertNothingMoved(t, uuidOf(t, v1))
+}
+
+// The scope is exact: a cancel, a hold and a plain mapping still apply on one
+// administrator's call, and ask nobody (design §9.3).
+func TestCancelHoldAndMappingOnlyMigrationsStillApplyOnOneCall(t *testing.T) {
+	for _, kind := range []servicecontracts.NodeActionKind{servicecontracts.NodeActionCancel, servicecontracts.NodeActionHold} {
+		t.Run(string(kind), func(t *testing.T) {
+			f := newFixture(t)
+			first, second := f.parkedOnOpsApprove(t)
+			v1, v2 := uuidOf(t, first), uuidOf(t, second)
+			opts := decideOps(kind, "re-quote")
+			plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, nil, opts...)
+			if err != nil || !plan.Applicable() || plan.RequiresSecondApprover || len(plan.SecondApproverReasons) != 0 {
+				t.Fatalf("the plan of a %s: %+v %v, want it to need nobody else", kind, plan, err)
+			}
+			result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...)
+			if err != nil || result.Changed != 1 {
+				t.Fatalf("the apply of a %s on one call: %+v %v", kind, result, err)
+			}
+			instance := f.onlyInstance(t)
+			rows := f.ledger(t, instance.ID)
+			if len(rows) != 1 || rows[0].RequestID != uuid.Nil || rows[0].ApprovedBy != "" || rows[0].ApprovedByID != uuid.Nil || rows[0].DecidedAt != nil {
+				t.Fatalf("the row of a %s nobody else approved: %+v, want it to name no request and no approver", kind, rows)
+			}
+			if n := f.requestCount(t); n != 0 {
+				t.Fatalf("a %s left %d request(s)", kind, n)
+			}
+		})
+	}
+	t.Run("a mapping alone", func(t *testing.T) {
+		f := newFixture(t)
+		v1 := f.deploy(t, "approve")
+		if _, err := f.svc.StartProcess(f.ctx, f.project, "expense-approval", nil); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		v2 := f.deploy(t, "review")
+		mapping := map[string]string{"approve": "review"}
+		if plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, mapping); err != nil || plan.RequiresSecondApprover {
+			t.Fatalf("the plan of a mapping: %+v %v, want it to need nobody else", plan, err)
+		}
+		if err := f.svc.MigrateInstances(f.ctx, v1, v2, mapping); err != nil {
+			t.Fatalf("the apply of a mapping on one call: %v", err)
+		}
+		if instance := f.onlyInstance(t); instance.Definition == nil || instance.Definition.ID != v2 {
+			t.Fatal("the mapping did not move the instance")
+		}
+		if n := f.requestCount(t); n != 0 {
+			t.Fatalf("a mapping left %d request(s)", n)
+		}
+	})
+}
+
+// Rulings §16. Who needs a second administrator is counted from the instances
+// that are still running — the only ones a run acts on. A skip over a version
+// on which nothing runs asks nobody, though the plan still counts the instance
+// that ended there.
+func TestASkipOverAVersionWithNothingRunningAsksNobody(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	f.completeTaskOn(t, "opsApprove", "ollie")
+	f.completeTaskOn(t, "salesApprove", "sasha")
+	if instance := f.onlyInstance(t); instance.Status != entities.ProcessCompleted {
+		t.Fatalf("the instance is %s, want it finished on v1", instance.Status)
+	}
+	opts := skipOps("the role was eliminated")
+	plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, nil, opts...)
+	if err != nil || !plan.Applicable() {
+		t.Fatalf("the plan: %+v %v", plan, err)
+	}
+	if plan.Instances != 1 {
+		t.Fatalf("the plan counts %d instance(s); it has always counted the one that ended, and still does", plan.Instances)
+	}
+	if plan.RequiresSecondApprover || len(plan.SecondApproverReasons) != 0 {
+		t.Fatalf("a skip with nothing running needs a second administrator: %v", plan.SecondApproverReasons)
+	}
+	if _, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, opts...); !errors.Is(err, apierr.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "needs no second administrator") {
+		t.Fatalf("asking for a second administrator for it: %v, want it told none is needed", err)
+	}
+	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...)
+	if err != nil || result.Changed != 0 {
+		t.Fatalf("the apply, on one administrator's call: %+v %v, want it to pass the gate and change nothing", result, err)
+	}
+	if n := f.requestCount(t); n != 0 {
+		t.Fatalf("%d request(s) were made, want none", n)
 	}
 }
