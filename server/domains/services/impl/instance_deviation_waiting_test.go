@@ -149,11 +149,14 @@ func TestAVisitThatWaitsIsAnsweredFromItsRowAndItsRequest(t *testing.T) {
 		t.Fatalf("a wiring with no store of requests: %v, %v", found, err)
 	}
 
-	// A row that was applied is answered as it always was, and no request is read.
+	// A row that was applied is answered with it, and no request is read.
+	// Its plan says what every plan of a waive says — that a waive needs a
+	// second administrator — as the plan of the same visit said while it
+	// waited: the flag is the kind's, not the moment's.
 	applied := waiting
 	applied.Status = entities.DeviationApplied
 	out, found, err = service(&visitsRead{rows: []*entities.Deviation{&applied}}, requestsRead{err: errors.New("not to be read")}).replay(as("budi", budi), command)
-	if err != nil || !found || !out.Applied || !out.Replayed || out.PendingApproval != nil || out.Plan.RequiresSecondApprover {
+	if err != nil || !found || !out.Applied || !out.Replayed || out.PendingApproval != nil || !out.Plan.RequiresSecondApprover {
 		t.Fatalf("a visit that was waived: %+v, %v, %v", out, found, err)
 	}
 }

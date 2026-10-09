@@ -353,9 +353,15 @@ func (s *instanceDeviationService) replay(ctx context.Context, command entities.
 // replayed is the answer to a request whose visit already has its row: the
 // row, and a plan that says what it was for and no more. Applied says whether
 // the row is an act that was made, or one that waits.
+//
+// The plan says that a second administrator is needed wherever a plan of
+// that kind says it (startPlanning): of a waive, whether its row waits or was
+// applied. It is what the kind needs, not where this request stands — which
+// Applied and PendingApproval say.
 func replayed(row entities.Deviation, command entities.DeviationCommand) entities.DeviationOutcome {
 	plan := entities.DeviationPlan{
 		InstanceID: command.InstanceID, Kind: row.Kind, Scope: row.Scope, NodeID: command.NodeID, VisitKey: row.VisitKey,
+		RequiresSecondApprover: row.Kind == entities.DeviationWaive,
 	}
 	if row.Node != nil {
 		plan.NodeName = cmp.Or(row.Node.Name, row.Node.ID)
@@ -452,7 +458,6 @@ func replayWaiting(
 		return none, false, alreadyWaiting(row, request)
 	}
 	outcome := replayed(row, command)
-	outcome.Plan.RequiresSecondApprover = true
 	waiting := entities.PendingApprovalOf(request)
 	outcome.PendingApproval = &waiting
 	return outcome, true, nil
