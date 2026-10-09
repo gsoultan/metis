@@ -62,21 +62,20 @@ func TestTheSoleAdministratorOrganizationsAreAnnouncedAtBoot(t *testing.T) {
 	notAnID := func(position int, entry string) string {
 		return "entry " + strconv.Itoa(position) + " of " + setting + ", " + entry + ", is not an organization id, so it names no organization and is ignored"
 	}
-	var sixty []string
-	var sixty50 []any
-	for i := range 60 {
+	// Beyond fifty the list goes on in further lines of fifty, so that every
+	// organization the services enforce the exception in is announced.
+	var hundredAndTen []string
+	var everyOne []any
+	for i := range 110 {
 		id := fmt.Sprintf("0199cccc-0000-7000-8000-%012d", i)
-		sixty = append(sixty, id)
-		if i < 50 {
-			sixty50 = append(sixty50, id)
-		}
+		hundredAndTen = append(hundredAndTen, id)
+		everyOne = append(everyOne, id)
 	}
+	const more = "More of the organizations this setting names: what the line before says of each organization it lists " +
+		"holds in each of these as well."
 	for raw, want := range map[string]struct {
 		organizations []any
 		problems      []string
-		// count is how many organizations are named in all, when the line
-		// does not list every one of them.
-		count int
 	}{
 		"":                         {},
 		" , ":                      {},
@@ -84,9 +83,9 @@ func TestTheSoleAdministratorOrganizationsAreAnnouncedAtBoot(t *testing.T) {
 		a + "," + b:                {organizations: []any{a, b}},
 		"true":                     {problems: []string{notAnID(1, `"true"`)}},
 		"Acme Ltd, " + b + ",0199": {organizations: []any{b}, problems: []string{notAnID(1, `"Acme Ltd"`), notAnID(3, `"0199"`)}},
-		// The line's count is of every organization named; it lists the
-		// first fifty.
-		strings.Join(sixty, ","): {organizations: sixty50, count: 60},
+		// Every line's count is of every organization named; each lists
+		// fifty, and the last what is left.
+		strings.Join(hundredAndTen, ","): {organizations: everyOne},
 	} {
 		t.Run(fmt.Sprintf("set to %.80s", raw), func(t *testing.T) {
 			logs := captureLogs(t)
@@ -117,10 +116,26 @@ func TestTheSoleAdministratorOrganizationsAreAnnouncedAtBoot(t *testing.T) {
 				}
 				return
 			}
-			count := max(want.count, len(want.organizations))
-			if len(announced) != 1 || announced[0]["message"] != named || announced[0]["count"] != float64(count) ||
-				!reflect.DeepEqual(announced[0]["organizations"], want.organizations) {
-				t.Fatalf("with %s=%q the startup log announced %v\nwant one warning naming %v that reads\n  %s", setting, raw, announced, want.organizations, named)
+			// One line for every fifty, the first saying what the setting
+			// permits and the rest that they go on from it; together they
+			// list every organization named, each once and in order.
+			var listed []any
+			for i, line := range announced {
+				ids, _ := line["organizations"].([]any)
+				wantMessage, wantFrom := named, any(nil)
+				if i > 0 {
+					wantMessage, wantFrom = more, float64(i*50+1)
+				}
+				if line["message"] != wantMessage || line["count"] != float64(len(want.organizations)) || len(ids) == 0 || len(ids) > 50 ||
+					line["listed_from"] != wantFrom {
+					t.Fatalf("with %s=%.80q line %d of the announcement is %v\nwant up to fifty ids, the count of all %d, and\n  %s",
+						setting, raw, i+1, line, len(want.organizations), wantMessage)
+				}
+				listed = append(listed, ids...)
+			}
+			if len(announced) != (len(want.organizations)+49)/50 || !reflect.DeepEqual(listed, want.organizations) {
+				t.Fatalf("with %s=%.80q the startup log announced %d line(s) listing %d organization(s); want every one of the %d named, in lines of fifty",
+					setting, raw, len(announced), len(listed), len(want.organizations))
 			}
 		})
 	}
@@ -199,7 +214,10 @@ func TestAnApprovalThatCouldNotBeAppliedIsNotCalledTheRequestersOwnWhenItWasNot(
 		t.Fatalf("budi approving a waive its gateway cannot follow: %v", err)
 	}
 	lines := logs.said("could not be applied")
-	if _, own := lines[0]["own_request"]; len(lines) != 1 || own ||
+	if len(lines) != 1 {
+		t.Fatalf("the log holds %v, want one warning", lines)
+	}
+	if _, own := lines[0]["own_request"]; own ||
 		!strings.HasPrefix(fmt.Sprint(lines[0]["message"]), "An approved waive could not be applied:") {
 		t.Fatalf("the log holds %v, want one warning that calls it nobody's own", lines)
 	}
@@ -244,5 +262,45 @@ func TestAnIdThatNamesNoOrganizationHereIsSaidOnceTheDatabaseIsUp(t *testing.T) 
 				t.Fatalf("the check said %v\nwant one warning listing %v that reads\n  %s", said, unknown, want)
 			}
 		})
+	}
+}
+
+// Every id that names no organization is listed, as every organization named
+// is announced: beyond fifty, in further lines of fifty, each with the count
+// of them all.
+func TestEveryIdThatNamesNoOrganizationIsListed(t *testing.T) {
+	const setting = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
+	w := askForAWaive(t, map[string]any{"verdict": "accept"})
+	list := []string{entities.ActingOrganization(w.tenant).String()}
+	var strangers []any
+	for i := range 120 {
+		id := fmt.Sprintf("0199dddd-0000-7000-8000-%012d", i)
+		list, strangers = append(list, id), append(strangers, id)
+	}
+	t.Setenv(setting, strings.Join(list, ","))
+	settings := logFeatureConfiguration()
+	logs := captureLogs(t)
+	settings.warnOfOrganizationsThatDoNotExist(entities.WithSystemContext(t.Context()), w.app.repo.User())
+
+	var listed []any
+	lines := 0
+	for _, line := range logs.said("") {
+		if line["setting"] != setting {
+			continue
+		}
+		ids, _ := line["organizations"].([]any)
+		wantMessage := "These ids name no organization of this installation, so naming them does nothing. Check them against the " +
+			"organizations' ids and take them off the list."
+		if lines > 0 {
+			wantMessage = "More ids this setting lists that name no organization of this installation."
+		}
+		if line["level"] != "warn" || line["message"] != wantMessage || line["count"] != float64(120) || len(ids) == 0 || len(ids) > 50 {
+			t.Fatalf("line %d of the check is %v; want a warning with up to fifty ids, the count of all 120, and\n  %s", lines+1, line, wantMessage)
+		}
+		listed = append(listed, ids...)
+		lines++
+	}
+	if lines != 3 || !reflect.DeepEqual(listed, strangers) {
+		t.Fatalf("the check listed %d id(s) in %d line(s); want all 120 that name no organization, in three lines, and not the one that does", len(listed), lines)
 	}
 }

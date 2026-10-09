@@ -13,8 +13,9 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
-// maxOrganizationsAnnounced is how many organizations a line of the startup
-// log lists; its count is of all of them.
+// maxOrganizationsAnnounced is how many organizations one line of the startup
+// log lists. A list longer than that goes on in further lines, so that every
+// organization is listed; each line's count is of all of them.
 const maxOrganizationsAnnounced = 50
 
 // controlSettings is what this installation's settings for the second
@@ -64,7 +65,10 @@ func (c controlSettings) serviceOptions() []services.FacadeOption {
 // warning at every boot, as a withdrawn rule brought back is
 // (logLegacySettings): whoever reads the log is often not whoever set it.
 // The line says how many organizations and which, what that permits, what it
-// does not prevent, and when to take one off the list. An entry that names
+// does not prevent, and when to take one off the list. Every organization is
+// listed, in as many lines as that takes (announceEach): what is announced
+// is what the services enforce, and an organization left off the log would be
+// one where the exception applied and nothing said so. An entry that names
 // no organization is ignored — and that is said as well, because whoever
 // wrote it believes otherwise.
 func (c controlSettings) announce() {
@@ -77,26 +81,40 @@ func (c controlSettings) announce() {
 	if len(c.soleOrganizations) == 0 {
 		return
 	}
-	log.Warn().
-		Str("setting", serviceimpl.EnvSoleAdministratorOrganizations).
-		Int("count", len(c.soleOrganizations)).
-		Strs("organizations", listed(c.soleOrganizations)).
-		Msg("In each organization this setting names, an administrator may approve their own request for a second " +
-			"administrator while nobody else administers that organization. Each such approval needs a reason and is " +
-			"recorded as approved by nobody else. It does not stop an administrator of a named organization who can " +
-			"change roles from taking another administrator's role away, approving their own request and giving the " +
-			"role back; each change of roles is recorded in the server's log, with who made it, and nowhere else. " +
-			"Name an organization only while it has one administrator, and take it off the list once it has a second.")
+	announceEach(c.soleOrganizations,
+		"In each organization this setting names, an administrator may approve their own request for a second "+
+			"administrator while nobody else administers that organization. Each such approval needs a reason and is "+
+			"recorded as approved by nobody else. It does not stop an administrator of a named organization who can "+
+			"change roles from taking another administrator's role away, approving their own request and giving the "+
+			"role back; each change of roles is recorded in the server's log, with who made it, and nowhere else. "+
+			"Name an organization only while it has one administrator, and take it off the list once it has a second.",
+		"More of the organizations this setting names: what the line before says of each organization it lists "+
+			"holds in each of these as well.")
 }
 
-// listed is the ids a line of the startup log lists: the first
-// maxOrganizationsAnnounced of them.
-func listed(organizations []uuid.UUID) []string {
-	ids := make([]string, 0, min(len(organizations), maxOrganizationsAnnounced))
-	for _, organization := range organizations[:cap(ids)] {
-		ids = append(ids, organization.String())
+// announceEach lists every one of some organizations in the startup log, as
+// warnings about the setting that names them: the first
+// maxOrganizationsAnnounced in a line that says first, and the rest in
+// further lines of as many that say more. Every line carries the count of
+// them all, and a line after the first says where in the list it goes on
+// from (listed_from, counting from one).
+func announceEach(organizations []uuid.UUID, first, more string) {
+	for from := 0; from < len(organizations); from += maxOrganizationsAnnounced {
+		chunk := organizations[from:min(from+maxOrganizationsAnnounced, len(organizations))]
+		ids := make([]string, 0, len(chunk))
+		for _, organization := range chunk {
+			ids = append(ids, organization.String())
+		}
+		line := log.Warn().
+			Str("setting", serviceimpl.EnvSoleAdministratorOrganizations).
+			Int("count", len(organizations)).
+			Strs("organizations", ids)
+		if from == 0 {
+			line.Msg(first)
+			continue
+		}
+		line.Int("listed_from", from+1).Msg(more)
 	}
-	return ids
 }
 
 // organizationLookup answers which of some ids name an organization that
@@ -133,12 +151,10 @@ func (c controlSettings) warnOfOrganizationsThatDoNotExist(ctx context.Context, 
 	if len(unknown) == 0 {
 		return
 	}
-	log.Warn().
-		Str("setting", serviceimpl.EnvSoleAdministratorOrganizations).
-		Int("count", len(unknown)).
-		Strs("organizations", listed(unknown)).
-		Msg("These ids name no organization of this installation, so naming them does nothing. Check them against the " +
-			"organizations' ids and take them off the list.")
+	announceEach(unknown,
+		"These ids name no organization of this installation, so naming them does nothing. Check them against the "+
+			"organizations' ids and take them off the list.",
+		"More ids this setting lists that name no organization of this installation.")
 }
 
 // newServices puts the services together with what this server read of its
