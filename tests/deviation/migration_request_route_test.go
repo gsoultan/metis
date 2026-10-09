@@ -1,17 +1,17 @@
 package deviation_test
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
-	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
-	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
@@ -80,23 +80,57 @@ func (h *deviationHarness) waitingAtTheApproval(t *testing.T) uuid.UUID {
 	return id
 }
 
-// skippingTheApproval is the migration's one decision.
-func skippingTheApproval() []servicecontracts.MigrationOption {
-	return []servicecontracts.MigrationOption{servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
-		"opsApprove": {Kind: servicecontracts.NodeActionSkip, Reason: skipReason}})}
+// migrateReply is the migrate route's answer as a client reads it.
+type migrateReply struct {
+	Applied         *bool          `json:"applied"`
+	PassedOver      *[]any         `json:"passed_over"`
+	Plan            map[string]any `json:"plan"`
+	PendingApproval *struct {
+		RequestID   string    `json:"request_id"`
+		Status      string    `json:"status"`
+		RequestedBy string    `json:"requested_by"`
+		ExpiresAt   time.Time `json:"expires_at"`
+		Because     []string  `json:"because"`
+	} `json:"pending_approval"`
 }
 
-// askToMigrate asks, as the administrator called name, for the migration
-// that skips the approval, and answers the request's id.
-func (h *deviationHarness) askToMigrate(t *testing.T, name string, m migration) string {
+// migrate sends the migration that skips the approval over the migrate
+// route, as a dry run or an apply, and answers the status and the reply.
+func (h *deviationHarness) migrate(t *testing.T, token string, m migration, dryRun bool) (int, migrateReply, string) {
 	t.Helper()
-	asking := context.WithValue(h.tenantContext(), pkgauth.UserContextKey,
-		entities.User{ID: h.accountID(t, name), Username: name, Roles: []string{entities.RoleAdmin}})
-	pending, err := h.svc.RequestMigrationApproval(asking, m.v1, m.v2, nil, skippingTheApproval()...)
-	if err != nil {
-		t.Fatalf("%s asks for the migration: %v", name, err)
+	status, raw := h.do(t, http.MethodPost, token, "/api/v1/definitions/versions/migrate", map[string]any{
+		"source_definition_id": m.v1.String(), "target_definition_id": m.v2.String(), "dry_run": dryRun,
+		"node_actions": map[string]any{"opsApprove": map[string]any{"kind": "skip", "reason": skipReason}},
+	})
+	var reply migrateReply
+	if status >= 200 && status < 300 {
+		if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+			t.Fatalf("decode the migrate reply: %v (%s)", err, raw)
+		}
 	}
-	return pending.RequestID.String()
+	return status, reply, raw
+}
+
+// askToMigrate applies, over the migrate route and as token's administrator,
+// the migration that skips the approval, and answers the id of the request
+// the route says now waits.
+//
+// The apply has to have been sent for approval: nothing applied, nobody
+// passed over, a request waiting and named — or the test fails here. A skip
+// the route applied on one administrator's call would otherwise pass every
+// assertion a test goes on to make of "the approved migration". The reply's
+// status is the migrate route's to pin (it becomes 202): this takes either.
+func (h *deviationHarness) askToMigrate(t *testing.T, token string, m migration) string {
+	t.Helper()
+	status, reply, raw := h.migrate(t, token, m, false)
+	if (status != http.StatusOK && status != http.StatusAccepted) || reply.PendingApproval == nil || reply.Applied == nil || *reply.Applied ||
+		reply.PassedOver == nil || len(*reply.PassedOver) != 0 || reply.PendingApproval.Status != "pending_approval" {
+		t.Fatalf("an apply that skips a step: %d (%s), want it sent for approval with nothing applied", status, raw)
+	}
+	if _, err := uuid.Parse(reply.PendingApproval.RequestID); err != nil {
+		t.Fatalf("the route named the request %q: %v", reply.PendingApproval.RequestID, err)
+	}
+	return reply.PendingApproval.RequestID
 }
 
 // versionOf is the version an instance is running.
@@ -161,7 +195,7 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		m := h.twoVersionsToMigrate(t)
 		instanceID := h.waitingAtTheApproval(t)
-		requestID := h.askToMigrate(t, "boss", m)
+		requestID := h.askToMigrate(t, boss, m)
 		before := h.everyRow(t)
 
 		want := refusal("forbidden", soleWaits)
@@ -183,7 +217,7 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		m := h.twoVersionsToMigrate(t)
 		instanceID := h.waitingAtTheApproval(t)
-		requestID := h.askToMigrate(t, "boss", m)
+		requestID := h.askToMigrate(t, boss, m)
 		before := h.everyRow(t)
 
 		// A reason is required: with nobody else to approve it, it is the record.
@@ -230,7 +264,7 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 		boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 		m := h.twoVersionsToMigrate(t)
 		instanceID := h.waitingAtTheApproval(t)
-		requestID := h.askToMigrate(t, "boss", m)
+		requestID := h.askToMigrate(t, boss, m)
 		before := h.everyRow(t)
 
 		want := refusal("forbidden", anotherMustApprove)
@@ -272,7 +306,7 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		m := h.twoVersionsToMigrate(t)
 		first := h.waitingAtTheApproval(t)
-		if status, approved, raw := h.decide(t, boss, h.askToMigrate(t, "boss", m), "approve", why); status != http.StatusOK || !approved.Request.SelfApproved {
+		if status, approved, raw := h.decide(t, boss, h.askToMigrate(t, boss, m), "approve", why); status != http.StatusOK || !approved.Request.SelfApproved {
 			t.Fatalf("alone: %d (%s), want the self-approval taken", status, raw)
 		}
 		if h.versionOf(t, first) != m.v2 {
@@ -281,7 +315,7 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 
 		h.signIn(t, "deputy", entities.RoleAdmin)
 		second := h.waitingAtTheApproval(t)
-		requestID := h.askToMigrate(t, "boss", m)
+		requestID := h.askToMigrate(t, boss, m)
 		want := refusal("forbidden", anotherMustApprove)
 		if status, _, raw := h.decide(t, boss, requestID, "approve", why); status != http.StatusForbidden || !sameJSON(t, raw, want) {
 			t.Fatalf("no longer alone: %d (%s), want 403 %s", status, raw, want)
@@ -290,4 +324,147 @@ func TestASoleAdministratorsOwnMigrationFollowsTheRuleAWaivesDoes(t *testing.T) 
 			t.Fatal("the refused approval moved the second instance or its request")
 		}
 	})
+}
+
+// A migration that skips a step is asked for and decided over the API, by
+// the organization's administrators and nobody else, and the approval's
+// reply says what the run did — in names, never account ids, and with every
+// list a list.
+func TestAMigrationRequestIsAskedForAndDecidedOverTheAPI(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+	member := h.signIn(t, "member", entities.RoleUser)
+	outsider := h.signInElsewhere(t, "outsider-boss", entities.RoleAdmin)
+	m := h.twoVersionsToMigrate(t)
+	instanceID := h.waitingAtTheApproval(t)
+
+	// A dry run says the apply would need somebody else, and asks nobody.
+	status, preview, raw := h.migrate(t, boss, m, true)
+	if status != http.StatusOK || preview.PendingApproval != nil || preview.Applied == nil || *preview.Applied ||
+		preview.Plan["requires_second_approver"] != true {
+		t.Fatalf("the dry run: %d (%s), want the plan saying it needs a second administrator and nothing asked", status, raw)
+	}
+	if reasons, _ := preview.Plan["second_approver_reasons"].([]any); len(reasons) != 1 || !strings.Contains(fmt.Sprint(reasons[0]), "“Operations approve” would be skipped for every listed instance") {
+		t.Fatalf("why the dry run says it needs somebody else: %v", preview.Plan["second_approver_reasons"])
+	}
+	if n := h.requestCount(t); n != 0 {
+		t.Fatalf("a dry run left %d request(s)", n)
+	}
+
+	// The apply is sent for approval; sent again, it is the same request.
+	requestID := h.askToMigrate(t, boss, m)
+	if again := h.askToMigrate(t, boss, m); again != requestID || h.requestCount(t) != 1 {
+		t.Fatalf("the same apply sent again answered request %s among %d, want the one that waits", again, h.requestCount(t))
+	}
+	if h.versionOf(t, instanceID) != m.v1 {
+		t.Fatal("asking moved the instance")
+	}
+	// Another administrator applying the same migration is pointed at it.
+	want := invalid(fmt.Sprintf("The same migration is already waiting for approval (request %s, asked by boss); approve or reject that one.", requestID))
+	if status, _, raw := h.migrate(t, deputy, m, false); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
+		t.Fatalf("the same migration applied by another administrator: %d (%s), want 400 %s", status, raw, want)
+	}
+
+	// The request, as an administrator of the organization reads it.
+	status, read, raw := h.readRequest(t, deputy, requestID)
+	if status != http.StatusOK || read.Request.Kind != "migration" || read.Request.Status != "pending_approval" || read.Request.RequestedBy != "boss" ||
+		!slices.Equal(read.Request.Instances, []string{instanceID.String()}) || read.Request.InstancesInAll != 1 || len(read.Request.Because) != 1 {
+		t.Fatalf("the request read: %d (%s)", status, raw)
+	}
+	requireFields(t, object(t, raw)["request"], "a waiting migration request",
+		append([]string{"source_definition_id", "target_definition_id"}, requestFields...)...)
+
+	// Who may decide it.
+	before := h.everyRow(t)
+	for name, attempt := range map[string]struct {
+		token  string
+		status int
+		want   string
+	}{
+		"the requester":                        {boss, http.StatusForbidden, refusal("forbidden", anotherMustApprove)},
+		"a member who is no administrator":     {member, http.StatusForbidden, ""},
+		"another organization's administrator": {outsider, http.StatusNotFound, refusal("not found", noSuchRequest)},
+		"nobody":                               {"", http.StatusUnauthorized, ""},
+	} {
+		status, _, raw := h.decide(t, attempt.token, requestID, "approve", decisionReason)
+		if status != attempt.status || (attempt.want != "" && !sameJSON(t, raw, attempt.want)) {
+			t.Fatalf("%s approving the migration: %d (%s), want %d %s", name, status, raw, attempt.status, attempt.want)
+		}
+		if strings.Contains(raw, skipReason) || strings.Contains(raw, "opsApprove") {
+			t.Fatalf("%s was told something of the request: %s", name, raw)
+		}
+	}
+	h.requireUnchanged(t, before, "the refused approvals of a migration")
+
+	// The second administrator approves, and the reply says what the run did.
+	status, approved, raw := h.decide(t, deputy, requestID, "approve", "  "+decisionReason+"  ")
+	if status != http.StatusOK || !approved.Applied || approved.Request.Status != "applied" || approved.Request.RequestedBy != "boss" ||
+		approved.Request.DecidedBy != "deputy" || approved.Request.DecisionReason != decisionReason || approved.Request.SelfApproved ||
+		approved.Request.DecidedAt.IsZero() || approved.Deviation != nil {
+		t.Fatalf("the second administrator's approval: %d (%s)", status, raw)
+	}
+	if h.versionOf(t, instanceID) != m.v2 {
+		t.Fatal("the approved migration left the instance on the old version")
+	}
+	written := object(t, raw)
+	requireFields(t, written, "the approval of a migration", "request", "applied", "plan", "passed_over")
+	requireFields(t, written["request"], "an applied migration request",
+		append([]string{"source_definition_id", "target_definition_id", "decided_by", "decided_at", "decision_reason"}, requestFields...)...)
+	if passed, isList := written["passed_over"].([]any); !isList || len(passed) != 0 || !strings.Contains(raw, `"passed_over":[]`) {
+		t.Fatalf("passed_over is %v, want a list with nobody in it: %s", written["passed_over"], raw)
+	}
+	// The plan the run was made from: the migration's own, its lists lists.
+	plan, _ := written["plan"].(map[string]any)
+	if plan["requires_second_approver"] != true || plan["source_key"] != routeMigrationKey || fmt.Sprint(plan["instances"]) != "1" {
+		t.Fatalf("the plan in the reply: %v", written["plan"])
+	}
+	for _, list := range []string{"second_approver_reasons", "actions", "removed_nodes", "moves"} {
+		if _, isList := plan[list].([]any); !isList {
+			t.Fatalf("the plan's %s is %T, want a list: %s", list, plan[list], raw)
+		}
+	}
+	if outcome := approved.Request.Outcome; fmt.Sprint(outcome["changed"]) != "1" || fmt.Sprint(outcome["passed_over"]) != "0" || len(outcome) != 2 {
+		t.Fatalf("the request's outcome %v, want what the run did and nothing else", outcome)
+	}
+	if nulls := nullsIn(written, "reply"); len(nulls) != 0 {
+		t.Fatalf("the approval holds null at %v: %s", nulls, raw)
+	}
+	for who, account := range map[string]string{"the requester": h.accountID(t, "boss").String(), "the approver": h.accountID(t, "deputy").String()} {
+		if strings.Contains(raw, account) || strings.Contains(raw, "_by_id") {
+			t.Errorf("the approval carries the account id of %s: %s", who, raw)
+		}
+	}
+
+	// Decided, it is not decided again — and the same thing can be asked afresh.
+	status, _, raw = h.decide(t, deputy, requestID, "approve", "")
+	if status != http.StatusBadRequest || !strings.Contains(raw, "deputy approved this on ") || !strings.Contains(raw, ", and it was applied.") {
+		t.Fatalf("approving an applied migration again: %d (%s)", status, raw)
+	}
+	if status, _, raw := h.decide(t, deputy, requestID, "reject", "too late"); status != http.StatusBadRequest || !strings.Contains(raw, "and it was applied.") {
+		t.Fatalf("rejecting an applied migration: %d (%s)", status, raw)
+	}
+
+	// One that nobody decided in time is refused as expired, and kept so.
+	next := h.waitingAtTheApproval(t)
+	overdue := h.askToMigrate(t, boss, m)
+	h.letTheDeadlinePass(t, overdue)
+	status, _, raw = h.decide(t, deputy, overdue, "approve", "")
+	if status != http.StatusBadRequest || !strings.Contains(raw, "This request expired on ") || !strings.Contains(raw, "before anybody approved it, so nothing was applied") {
+		t.Fatalf("approving a migration past its deadline: %d (%s)", status, raw)
+	}
+	if h.requestStatus(t, overdue) != "expired" || h.versionOf(t, next) != m.v1 {
+		t.Fatalf("the overdue request is %s and the instance on %s, want expired and unmoved", h.requestStatus(t, overdue), h.versionOf(t, next))
+	}
+	// Asked again, it is a fresh request, and a rejection ends that one.
+	fresh := h.askToMigrate(t, boss, m)
+	if fresh == overdue {
+		t.Fatal("asking again after an expiry answered the expired request")
+	}
+	status, rejected, raw := h.decide(t, deputy, fresh, "reject", "not this quarter")
+	if status != http.StatusOK || rejected.Request.Status != "rejected" || rejected.Request.DecidedBy != "deputy" || rejected.Applied {
+		t.Fatalf("rejecting a migration: %d (%s)", status, raw)
+	}
+	if h.versionOf(t, next) != m.v1 {
+		t.Fatal("a rejected migration moved the instance")
+	}
 }
