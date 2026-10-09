@@ -125,6 +125,25 @@ const id: Catalogue = {
   'handover.dueDate': 'Tenggat',
   'handover.saveChanges': 'Simpan Perubahan',
 
+  // Migrasi instansi: mengapa sebuah instansi dibiarkan di versinya. See the
+  // English catalogue.
+  'migration.passedOver.already_moved':
+    'Migrasi lain sudah memindahkannya, jadi tidak dipindahkan lagi.',
+  'migration.passedOver.counters_would_merge':
+    'Instansi ini sedang berada di tengah dua langkah yang oleh pemetaan ini digabung menjadi satu, dan kemajuannya tidak dapat dijumlahkan. Instansi tetap di v{version}; petakan kedua langkah itu secara terpisah, lalu rencanakan lagi.',
+  'migration.passedOver.left_the_step':
+    'Instansi ini sudah tidak menunggu di {steps} saat migrasi sampai padanya, jadi tidak ada yang diputuskan di sana. Instansi tetap di v{version}; terapkan migrasi yang sama lagi untuk merencanakan dari posisinya sekarang.',
+  'migration.passedOver.left_where_nothing_decides':
+    'Instansi ini memiliki tugas atau peristiwa yang menunggu di {steps} tetapi tidak sedang menunggu di sana, jadi tidak ada keputusan yang menjangkau pekerjaan itu dan versi baru tidak punya tempat untuknya. Instansi tetap di v{version}.',
+  'migration.passedOver.no_longer_running':
+    'Instansi ini sudah selesai atau dihentikan sebelum migrasi sampai padanya. Instansi tetap di v{version}, versi yang dijalankannya.',
+  'migration.passedOver.not_planned_for':
+    'Instansi ini masuk ke v{version} setelah migrasi ini direncanakan, jadi tidak ada yang diputuskan tentangnya. Rencanakan migrasi lagi untuk menyertakannya.',
+  'migration.passedOver.nowhere_to_land':
+    'Instansi ini punya pekerjaan di {steps}, yang tidak punya tempat di versi baru. Instansi tetap di v{version}; rencanakan lagi dengan pemetaan atau keputusan untuk pekerjaan itu.',
+  'migration.passedOver.waiting_to_be_decided':
+    'Instansi ini menunggu di {steps}, tempat migrasi ini memutuskan pekerjaan alih-alih memindahkannya, dan belum ada keputusan yang menyelesaikannya. Instansi tetap di v{version}; terapkan migrasi yang sama lagi.',
+
   'offline.title': 'Anda sedang luring',
   'offline.body':
     'Anda masih dapat membaca yang sudah dimuat, dan menyelesaikan tugas di kotak masuk. Semuanya akan dikirim saat Anda kembali daring.',

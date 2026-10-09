@@ -141,3 +141,33 @@ describe('handing a task over', () => {
     }
   });
 });
+
+/*
+ * Why a migration left an instance where it was. The server sends the cause
+ * as a code and the dialog says it from the catalogue, so each cause has its
+ * words in both languages from the start. Which causes there are is the
+ * server's to say: tests/roledrift holds these keys to its closed set.
+ */
+describe('why a migration passed an instance over', () => {
+  it('is translated into Indonesian, every cause, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const keys = Object.keys(english).filter((key) => key.startsWith('migration.passedOver.'));
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(indonesian[key], `id has no "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+
+  it('names the same things in both languages', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const placeholders = (message: string) => [...message.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+    for (const key of Object.keys(english).filter((k) => k.startsWith('migration.passedOver.'))) {
+      expect(placeholders(indonesian[key] ?? ''), `id fills in other things than English for "${key}"`).toEqual(
+        placeholders(english[key]),
+      );
+    }
+  });
+});

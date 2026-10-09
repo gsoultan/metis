@@ -128,6 +128,30 @@ const en: Catalogue = {
   'handover.dueDate': 'Due Date',
   'handover.saveChanges': 'Save Changes',
 
+  // Migrating instances: why a run left an instance on the version it was
+  // running. One entry for each cause the server can give (the closed set
+  // entities.PassedOverCauses; tests/roledrift fails on a cause with no words
+  // here, and on words for a cause the server never gives). {steps} is the
+  // steps the cause is about, as the server names them; {version} is the
+  // version the instance stays on. A cause this catalogue does not know is
+  // said with the server's own English sentence.
+  'migration.passedOver.already_moved':
+    'Another run of a migration had already moved it, so it was not moved again.',
+  'migration.passedOver.counters_would_merge':
+    'It was part-way through two steps that this mapping moves onto one, and their progress cannot be added together. It stays on v{version}; map those steps apart and plan again.',
+  'migration.passedOver.left_the_step':
+    'It was no longer waiting at {steps} when the migration reached it, so nothing was decided there. It stays on v{version}; apply the same migration again to plan for where it is now.',
+  'migration.passedOver.left_where_nothing_decides':
+    'It has a task or a waiting event at {steps} but is not waiting there, so no decision reached that work and the new version has nowhere to put it. It stays on v{version}.',
+  'migration.passedOver.no_longer_running':
+    'It had finished or been ended before the migration reached it. It stays on v{version}, the version it ran on.',
+  'migration.passedOver.not_planned_for':
+    'It arrived on v{version} after this migration was planned, so nothing was decided about it. Plan the migration again to include it.',
+  'migration.passedOver.nowhere_to_land':
+    'It had work at {steps}, which the new version has nowhere to put. It stays on v{version}; plan again with a mapping or a decision for that work.',
+  'migration.passedOver.waiting_to_be_decided':
+    'It was waiting at {steps}, where this migration decides the work rather than moving it, and no decision had settled it. It stays on v{version}; apply the same migration again.',
+
   // Offline and updates
   'offline.title': 'You are offline',
   'offline.body':
