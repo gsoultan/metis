@@ -6,24 +6,31 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/internal/app"
+	"github.com/gsoultan/metis/internal/pkg/health"
 	"github.com/gsoultan/metis/internal/pkg/platformadmins"
 	"github.com/gsoultan/metis/server/domains/entities"
+	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
+	"github.com/gsoultan/metis/server/domains/services"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Rulings §4: an organization with one administrator.
 //
 // A second administrator approves every waive. The one exception is an
-// installation that has switched it on, in an organization nobody else
-// administers: there the administrator who asked may approve, saying why, and
-// what is recorded says no second person did. These tests go through the
+// organization the installation's operator has named, by id, while nobody
+// else administers it: there the administrator who asked may approve, saying
+// why, and what is recorded says no second person did. These tests go through the
 // routes, against accounts and memberships that are really there — who counts
 // as "somebody else" is asked of the accounts, so accounts are what it is
 // tested against.
@@ -46,12 +53,55 @@ const (
 	refusedSelfApprovalLogged = "tried to approve their own request"
 )
 
-// soleSetting starts the tests' server with the setting written as raw.
-// The setting is read when the server is put together, so it is set first.
-func soleSetting(t *testing.T, raw string) *deviationHarness {
+// retiredSwitch is the name the exception had while it was a switch for the
+// whole installation. It is not a setting.
+const retiredSwitch = "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL"
+
+// restarted is the tests' server started again over the same database, as an
+// operator restarts it after changing its environment: the services are put
+// together afresh, and read their settings as they do when a server starts.
+// What the database holds — the organization, its project, its accounts — is
+// as it was.
+func (h *deviationHarness) restarted(t *testing.T) *deviationHarness {
 	t.Helper()
-	t.Setenv(serviceimpl.EnvAllowSoleAdministratorSelfApproval, raw)
-	return newDeviationRouteHarness(t)
+	sse := observersimpl.NewSSEObserver()
+	dispatcher := observersimpl.NewEventDispatcher()
+	dispatcher.Register(observersimpl.NewAuditLogObserver(h.repo.Audit()))
+	dispatcher.Register(observersimpl.NewNotificationObserver(serviceimpl.NewNotificationService(h.repo.Notification())))
+	svc := services.NewServiceFacade(h.repo, dispatcher, sse, "deviation-test-secret", nil, nil, nil)
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(h.db))
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	again := *h
+	again.server, again.svc, again.seconder = server, svc, ""
+	return &again
+}
+
+// at is the organization and project of where, reached through h's server.
+func (h *deviationHarness) at(where *deviationHarness) *deviationHarness {
+	there := *h
+	there.orgID, there.projID, there.deployed, there.seconder = where.orgID, where.projID, where.deployed, ""
+	return &there
+}
+
+// soleOrganizations starts the tests' server with the list of organizations
+// written as list says, given the organization the harness made. An
+// organization has its id before an operator can name it, so the server is
+// started, the list written, and the server started again — which is when
+// the list is read.
+func soleOrganizations(t *testing.T, list func(organization uuid.UUID) string) *deviationHarness {
+	t.Helper()
+	h := newDeviationRouteHarness(t)
+	t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, list(h.orgID))
+	return h.restarted(t)
+}
+
+// withOrganizationNamed starts the tests' server with the harness's
+// organization named as one whose only administrator may approve their own
+// request.
+func withOrganizationNamed(t *testing.T) *deviationHarness {
+	t.Helper()
+	return soleOrganizations(t, uuid.UUID.String)
 }
 
 // enrolled is an account as a test wants it to be: what it holds on the
@@ -195,28 +245,46 @@ func (h *deviationHarness) entriesOf(t *testing.T, instanceID uuid.UUID, eventTy
 	return found
 }
 
-// Off by default, and off means off. With the setting absent, empty, false,
-// zero, or written so that it cannot be read, an administrator's approval of
-// their own request is refused exactly as it was before the setting existed —
-// alone in the organization or not — and changes nothing.
-//
-// Every spelling is read by one function, and its own test goes through them
-// all (TestOnlyAValueThatReadsAsTrueTurnsOnSoleAdministratorSelfApproval);
-// here a server is started for each kind of "not true", and asked.
-func TestASoleAdministratorsOwnApprovalWaitsUnlessTheSettingSaysTrue(t *testing.T) {
-	for _, raw := range []string{"absent", "", "false", "0", "yes please", "true "} {
-		t.Run("the setting is "+raw, func(t *testing.T) {
-			var h *deviationHarness
-			if raw == "absent" {
-				// Setenv first, so that the test puts back what was there.
-				t.Setenv(serviceimpl.EnvAllowSoleAdministratorSelfApproval, "")
-				if err := os.Unsetenv(serviceimpl.EnvAllowSoleAdministratorSelfApproval); err != nil {
-					t.Fatalf("unset the setting: %v", err)
-				}
-				h = newDeviationRouteHarness(t)
-			} else {
-				h = soleSetting(t, raw)
+// Off by default, and off unless the organization is named. Unset, empty,
+// naming another organization, written as the switch it is not, or set under
+// a name that is not this setting's: an administrator's approval of their own
+// request is refused exactly as it was before the setting existed — alone in
+// the organization or not — and changes nothing.
+func TestASoleAdministratorsOwnApprovalWaitsUnlessTheirOrganizationIsNamed(t *testing.T) {
+	for name, environment := range map[string]func(organization uuid.UUID) map[string]string{
+		"unset": nil,
+		"empty": func(uuid.UUID) map[string]string {
+			return map[string]string{serviceimpl.EnvSoleAdministratorOrganizations: ""}
+		},
+		"naming another organization": func(uuid.UUID) map[string]string {
+			return map[string]string{serviceimpl.EnvSoleAdministratorOrganizations: uuid.Must(uuid.NewV7()).String()}
+		},
+		"true, as if it were a switch": func(uuid.UUID) map[string]string {
+			return map[string]string{serviceimpl.EnvSoleAdministratorOrganizations: "true"}
+		},
+		"the organization's name, which is not its id": func(uuid.UUID) map[string]string {
+			return map[string]string{serviceimpl.EnvSoleAdministratorOrganizations: "Deviation Org"}
+		},
+		"the switch it used to be, set to true": func(uuid.UUID) map[string]string {
+			return map[string]string{retiredSwitch: "true"}
+		},
+		"the organization named under the spelling from before the rename": func(organization uuid.UUID) map[string]string {
+			return map[string]string{"GOBPM_SOLE_ADMINISTRATOR_ORGANIZATIONS": organization.String()}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newDeviationRouteHarness(t)
+			// Setenv first, so that the test puts back what was there.
+			t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, "")
+			if err := os.Unsetenv(serviceimpl.EnvSoleAdministratorOrganizations); err != nil {
+				t.Fatalf("unset the setting: %v", err)
 			}
+			if environment != nil {
+				for variable, value := range environment(h.orgID) {
+					t.Setenv(variable, value)
+				}
+			}
+			h = h.restarted(t)
 			logs := captureLogs(t)
 			instanceID := h.oneStep(t)
 			boss := h.signIn(t, "boss", entities.RoleAdmin)
@@ -248,12 +316,61 @@ func TestASoleAdministratorsOwnApprovalWaitsUnlessTheSettingSaysTrue(t *testing.
 	}
 }
 
-// On, and somebody else administers the organization: the requester is still
-// refused, in the words that say a different administrator has to approve —
+// The exception is an organization's, not the installation's. Where two
+// organizations share an installation and one is named, the only
+// administrator of the named one may approve their own request and the only
+// administrator of the other may not. An entry beside it that is not an id
+// names nobody and takes nothing from the entry that is.
+//
+// And it is why organizations are named at all: in the organization that is
+// not named, an administrator who takes the other administrator's role away
+// has made themselves the only one — and is still refused.
+func TestTheExceptionIsForTheOrganizationsNamedAndForNoOther(t *testing.T) {
+	base := newDeviationRouteHarness(t)
+	unnamed := base.inAnotherOrganization(t, "Not Named")
+	t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, "Acme Ltd, "+base.orgID.String()+" ,0199,,"+uuid.Nil.String())
+	here := base.restarted(t)
+	there := here.at(unnamed)
+
+	// Named, and alone: approved.
+	instanceID := here.oneStep(t)
+	boss := here.signIn(t, "boss", entities.RoleAdmin)
+	requestID := here.askToWaive(t, boss, instanceID)
+	if status, approved, raw := here.decide(t, boss, requestID, "approve", decisionReason); status != http.StatusOK || !approved.Request.SelfApproved {
+		t.Fatalf("the only administrator of the named organization: %d (%s), want it applied and self-approved", status, raw)
+	}
+
+	// Not named, and alone: it waits.
+	elsewhere := there.oneStep(t)
+	chief := there.signIn(t, "chief", entities.RoleAdmin)
+	second, _ := there.enrol(t, "second", enrolled{here: true, rolesHere: []string{entities.RoleAdmin}})
+	waiting := there.askToWaive(t, chief, elsewhere)
+	want := refusal("forbidden", anotherMustApprove)
+	if status, _, raw := there.decide(t, chief, waiting, "approve", decisionReason); status != http.StatusForbidden || !sameJSON(t, raw, want) {
+		t.Fatalf("one of two administrators of the organization that is not named: %d (%s), want 403 %s", status, raw, want)
+	}
+	// The chief takes the second administrator's role away, over the API, as
+	// an administrator may, and is the only one left.
+	if status, raw, _ := there.call(t, http.MethodPut, chief, "/api/v1/users/"+second.String()+"/organization-roles", `{"roles":[]}`); status != http.StatusOK {
+		t.Fatalf("the chief taking the second administrator's role away: %d (%s)", status, raw)
+	}
+	before := there.everyRow(t)
+	want = refusal("forbidden", soleWaits)
+	if status, _, raw := there.decide(t, chief, waiting, "approve", decisionReason); status != http.StatusForbidden || !sameJSON(t, raw, want) {
+		t.Fatalf("an administrator who made themselves the only one, in an organization that is not named: %d (%s), want 403 %s", status, raw, want)
+	}
+	there.requireUnchanged(t, before, "the refused approval")
+	if there.requestStatus(t, waiting) != "pending_approval" || !there.stepIsOpen(t, elsewhere) {
+		t.Fatal("the refused self-approval changed something")
+	}
+}
+
+// Named, and somebody else administers the organization: the requester is
+// still refused, in the words that say a different administrator has to approve —
 // with a reason or without — and nothing changes. The other administrator's
 // approval is then an ordinary one: nothing in the record says "self".
 func TestWithAnotherAdministratorTheRequesterIsRefusedWhateverTheSetting(t *testing.T) {
-	h := soleSetting(t, "true")
+	h := withOrganizationNamed(t)
 	logs := captureLogs(t)
 	instanceID := h.oneStep(t)
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
@@ -278,26 +395,30 @@ func TestWithAnotherAdministratorTheRequesterIsRefusedWhateverTheSetting(t *test
 	if status != http.StatusOK || !approved.Applied || approved.Request.SelfApproved || approved.Request.DecidedBy != "deputy" {
 		t.Fatalf("deputy approves: %d (%s)", status, raw)
 	}
-	if strings.Contains(raw, "self_approved\":true") {
-		t.Fatalf("a second administrator's approval says self_approved somewhere: %s", raw)
+	if strings.Contains(raw, "self_approved\":true") || strings.Contains(raw, "other_administrators") {
+		t.Fatalf("a second administrator's approval says self_approved, or counts the other administrators, somewhere: %s", raw)
 	}
 	if said := h.entriesOf(t, instanceID, serviceimpl.EventDeviationSelfApproved); len(said) != 0 {
 		t.Fatalf("the trail says somebody approved their own request: %+v", said)
 	}
-	if said := h.entriesOf(t, instanceID, serviceimpl.EventDeviationApproved); len(said) != 1 {
-		t.Fatalf("the trail holds %d entries of a second administrator's approval, want 1", len(said))
+	second := h.entriesOf(t, instanceID, serviceimpl.EventDeviationApproved)
+	if len(second) != 1 {
+		t.Fatalf("the trail holds %d entries of a second administrator's approval, want 1", len(second))
+	}
+	if _, counted := second[0].Data["other_administrators"]; counted {
+		t.Fatalf("a second administrator's approval counts the other administrators: %v", second[0].Data)
 	}
 	if made := logs.said(selfApprovalLogged); len(made) != 0 {
 		t.Fatalf("a second administrator's approval was logged as a self-approval: %v", made)
 	}
 }
 
-// On, and nobody else administers the organization: the administrator who
+// Named, and nobody else administers the organization: the administrator who
 // asked may approve — saying why — and everything that records it says no
 // second person did: the reply, the request, the ledger row, the trail and
 // the server's log. Nothing reads as if somebody else had looked at it.
 func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(t *testing.T) {
-	h := soleSetting(t, "true")
+	h := withOrganizationNamed(t)
 	logs := captureLogs(t)
 	h.signIn(t, "alice", entities.RoleUser)
 	instanceID := h.oneStep(t)
@@ -340,8 +461,9 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	// The row the reply carries is the ledger's, and says the same.
 	details, _ := approved.Deviation["details"].(map[string]any)
 	if approved.Deviation["status"] != "applied" || approved.Deviation["actor"] != "boss" || approved.Deviation["approved_by"] != "boss" ||
-		details["self_approved"] != true {
-		t.Fatalf("the row of a self-approval: %v, want it applied, asked for and approved by boss, and marked self_approved", approved.Deviation)
+		details["self_approved"] != true || fmt.Sprint(details["other_administrators"]) != "0" {
+		t.Fatalf("the row of a self-approval: %v, want it applied, asked for and approved by boss, marked self_approved, "+
+			"and saying no other administrator was found", approved.Deviation)
 	}
 	for who, account := range map[string]string{"the requester": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
 		if strings.Contains(raw, account) || strings.Contains(raw, "_by_id") {
@@ -376,8 +498,9 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	}
 	row := rows[0]
 	if row.Status != entities.DeviationApplied || row.Actor != "boss" || row.ApprovedBy != "boss" || row.ApprovedByID != row.ActorID ||
-		row.ActorID != h.accountID(t, "boss") || row.Details["self_approved"] != true {
-		t.Fatalf("the ledger row: %+v, want it applied, asked for and approved by one account, and marked self_approved", row)
+		row.ActorID != h.accountID(t, "boss") || row.Details["self_approved"] != true || fmt.Sprint(row.Details["other_administrators"]) != "0" {
+		t.Fatalf("the ledger row: %+v, want it applied, asked for and approved by one account, marked self_approved, "+
+			"and saying how many other administrators the organization had: none", row)
 	}
 
 	// The trail: an entry that says so in so many words, with the reason, in
@@ -390,8 +513,9 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 		t.Fatalf("the trail's entry of the self-approval: %+v\nwant one that reads\n  %s", said, wantSentence)
 	}
 	if said[0].Data["self_approved"] != true || said[0].Data["approved_by"] != "boss" || said[0].Data["requested_by"] != "boss" ||
-		said[0].Data["request_id"] != requestID || said[0].Data["deviation_id"] != row.ID.String() {
-		t.Fatalf("the self-approval's entry carries %v", said[0].Data)
+		said[0].Data["request_id"] != requestID || said[0].Data["deviation_id"] != row.ID.String() ||
+		fmt.Sprint(said[0].Data["other_administrators"]) != "0" {
+		t.Fatalf("the self-approval's entry carries %v, want it to say as well that no other administrator was found", said[0].Data)
 	}
 	if second := h.entriesOf(t, instanceID, serviceimpl.EventDeviationApproved); len(second) != 0 {
 		t.Fatalf("the trail says a second administrator approved: %+v", second)
@@ -413,7 +537,7 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	// and the account — by id as well as by name — and nothing that was asked
 	// for or said. It is not the line a refused attempt leaves.
 	lines := logs.said(selfApprovalLogged)
-	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["setting"] != serviceimpl.EnvAllowSoleAdministratorSelfApproval ||
+	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["setting"] != serviceimpl.EnvSoleAdministratorOrganizations ||
 		lines[0]["request"] != requestID || lines[0]["actor"] != "boss" || lines[0]["actor_id"] != h.accountID(t, "boss").String() {
 		t.Fatalf("the log holds %v, want one warning naming the setting, request %s and boss by name and account id", lines, requestID)
 	}
@@ -462,8 +586,8 @@ type candidate struct {
 // Each kind of account is asked both ways, through the approve route: the
 // requester's own approval is admitted exactly when the candidate's is not.
 //
-// Each case has an organization of its own in one installation, so every
-// case also has, beside its candidate, the administrators of every other
+// Each case has an organization of its own in one installation, every one of
+// them named, so every case also has, beside its candidate, the administrators of every other
 // case's organization — accounts that hold the role in every organization
 // they belong to, and do not belong to this one.
 func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
@@ -510,11 +634,20 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 		t.Fatalf("%d platform administrators are named, want the two cases", len(listed))
 	}
 	t.Setenv(platformadmins.Env, strings.Join(listed, ","))
-	installation := soleSetting(t, "true")
+	// Every case's organization is made, then named, then the server is
+	// started again: the list of them is read when it starts.
+	base := newDeviationRouteHarness(t)
+	organizations, ids := make([]*deviationHarness, len(cases)), make([]string, len(cases))
+	for i := range cases {
+		organizations[i] = base.inAnotherOrganization(t, fmt.Sprintf("Organization %d", i))
+		ids[i] = organizations[i].orgID.String()
+	}
+	t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, strings.Join(ids, ","))
+	installation := base.restarted(t)
 
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			h := installation.inAnotherOrganization(t, fmt.Sprintf("Organization %d", i))
+			h := installation.at(organizations[i])
 			boss := h.signIn(t, fmt.Sprintf("boss-%d", i), entities.RoleAdmin)
 			id, token := h.enrol(t, fmt.Sprintf("candidate-%d", i), c.spec)
 			if c.deleted {
@@ -566,7 +699,7 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 // for, and the role it holds there — what the tenant resolver and the role
 // gate read.
 func TestAnAccountAnIdentityProviderPlacesIsCountedWhereItsLatestSignInPutIt(t *testing.T) {
-	h := soleSetting(t, "true")
+	h := withOrganizationNamed(t)
 	elsewhere := h.inAnotherOrganization(t, "Elsewhere")
 	instanceID := h.oneStep(t)
 	boss := h.signIn(t, "boss", entities.RoleAdmin)
@@ -621,7 +754,7 @@ func TestAnAccountAnIdentityProviderPlacesIsCountedWhereItsLatestSignInPutIt(t *
 // the accounts as they then are — not when the request was made.
 func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 	t.Run("an administrator appointed while it waited takes the choice away", func(t *testing.T) {
-		h := soleSetting(t, "true")
+		h := withOrganizationNamed(t)
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		clerk, _ := h.enrol(t, "clerk", enrolled{global: []string{entities.RoleUser}, here: true})
@@ -641,7 +774,7 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 	})
 
 	t.Run("the only other administrator gone, the requester may approve", func(t *testing.T) {
-		h := soleSetting(t, "true")
+		h := withOrganizationNamed(t)
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		former, _ := h.enrol(t, "former", enrolled{here: true, rolesHere: []string{entities.RoleAdmin}})
@@ -663,7 +796,7 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 	// holding the request, while a second administrator is appointed, finds
 	// that administrator when its turn comes.
 	t.Run("an administrator appointed while the approval waited for the request is counted", func(t *testing.T) {
-		h := soleSetting(t, "true")
+		h := withOrganizationNamed(t)
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		clerk, _ := h.enrol(t, "clerk", enrolled{global: []string{entities.RoleUser}, here: true})
@@ -702,7 +835,7 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 	// after it. The other order — the grant committed, then the approval —
 	// is the first subtest, and is refused.
 	t.Run("a grant not yet committed is not yet an administrator", func(t *testing.T) {
-		h := soleSetting(t, "true")
+		h := withOrganizationNamed(t)
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		clerk, clerkToken := h.enrol(t, "clerk", enrolled{global: []string{entities.RoleUser}, here: true})
@@ -722,18 +855,19 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 	})
 }
 
-// The setting is the server's, read when it starts. Nothing a request
-// carries turns it on, and changing the environment under a running server
-// changes nothing.
-func TestNothingButTheSettingReadAtStartLetsARequesterApprove(t *testing.T) {
-	t.Run("off at start: no request, and no later change of the environment, turns it on", func(t *testing.T) {
-		h := soleSetting(t, "false")
+// The list is the server's, read when it starts. Nothing a request carries
+// adds an organization to it, and changing the environment under a running
+// server changes nothing.
+func TestNothingButTheListReadAtStartLetsARequesterApprove(t *testing.T) {
+	t.Run("not named at start: no request, and no later change of the environment, names it", func(t *testing.T) {
+		h := soleOrganizations(t, func(uuid.UUID) string { return uuid.Must(uuid.NewV7()).String() })
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		requestID := h.askToWaive(t, boss, instanceID)
 		before := h.everyRow(t)
 
-		t.Setenv(serviceimpl.EnvAllowSoleAdministratorSelfApproval, "true")
+		organization := h.orgID.String()
+		t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, organization)
 		approve := requestPath(requestID) + "/approve"
 		reason := `{"reason":"` + decisionReason + `"}`
 		want := refusal("forbidden", soleWaits)
@@ -741,13 +875,14 @@ func TestNothingButTheSettingReadAtStartLetsARequesterApprove(t *testing.T) {
 			"the environment changed under the server": func() (int, string, bool) {
 				return h.call(t, http.MethodPost, boss, approve, reason)
 			},
-			"a header named after the setting": func() (int, string, bool) {
+			"headers named after the setting": func() (int, string, bool) {
 				return h.call(t, http.MethodPost, boss, approve, reason,
-					"X-Metis-Allow-Sole-Administrator-Self-Approval", "true", "X-Allow-Self-Approval", "true", "X-Self-Approved", "true")
+					"X-Metis-Sole-Administrator-Organizations", organization, "X-Sole-Administrator-Organization", organization,
+					"X-Self-Approved", "true", tenant.OrganizationHeader, organization)
 			},
 			"the setting in the address": func() (int, string, bool) {
-				return h.call(t, http.MethodPost, boss, approve+"?allow_sole_administrator_self_approval=true&self_approved=true&"+
-					serviceimpl.EnvAllowSoleAdministratorSelfApproval+"=true", reason)
+				return h.call(t, http.MethodPost, boss, approve+"?sole_administrator_organizations="+organization+"&self_approved=true&"+
+					serviceimpl.EnvSoleAdministratorOrganizations+"="+organization, reason)
 			},
 		} {
 			if status, raw, _ := send(); status != http.StatusForbidden || !sameJSON(t, raw, want) {
@@ -757,35 +892,45 @@ func TestNothingButTheSettingReadAtStartLetsARequesterApprove(t *testing.T) {
 		// A body that says more than a reason is not a decision at all.
 		for _, body := range []string{
 			`{"reason":"x","self_approved":true}`,
-			`{"reason":"x","allow_sole_administrator_self_approval":true}`,
-			`{"reason":"x","` + serviceimpl.EnvAllowSoleAdministratorSelfApproval + `":"true"}`,
+			`{"reason":"x","sole_administrator_organizations":["` + organization + `"]}`,
+			`{"reason":"x","` + serviceimpl.EnvSoleAdministratorOrganizations + `":"` + organization + `"}`,
+			`{"reason":"x","other_administrators":0}`,
+			`{"reason":"x","organization_id":"` + organization + `"}`,
 			`{"reason":"x","decided_by":"deputy"}`,
 		} {
 			if status, raw, _ := h.call(t, http.MethodPost, boss, approve, body); status != http.StatusBadRequest {
 				t.Fatalf("a decision that says %s: %d (%s), want 400", body, status, raw)
 			}
 		}
-		h.requireUnchanged(t, before, "a request that tried to turn the setting on")
+		h.requireUnchanged(t, before, "a request that tried to name its own organization")
 	})
 
-	t.Run("on at start: turning it off takes a restart", func(t *testing.T) {
-		h := soleSetting(t, "true")
+	t.Run("named at start: taking it off the list takes a restart", func(t *testing.T) {
+		h := withOrganizationNamed(t)
 		instanceID := h.oneStep(t)
 		boss := h.signIn(t, "boss", entities.RoleAdmin)
 		requestID := h.askToWaive(t, boss, instanceID)
-		t.Setenv(serviceimpl.EnvAllowSoleAdministratorSelfApproval, "false")
+		t.Setenv(serviceimpl.EnvSoleAdministratorOrganizations, "")
 		if status, approved, raw := h.decide(t, boss, requestID, "approve", decisionReason); status != http.StatusOK || !approved.Request.SelfApproved {
-			t.Fatalf("self-approval on a server started with the setting on: %d (%s), want it applied", status, raw)
+			t.Fatalf("self-approval on a server started with the organization named: %d (%s), want it applied", status, raw)
+		}
+		// Started again with the list as it now is, the next request waits.
+		again := h.restarted(t)
+		next := again.oneStep(t)
+		waiting := again.askToWaive(t, again.login(t, "boss"), next)
+		want := refusal("forbidden", soleWaits)
+		if status, _, raw := again.decide(t, again.login(t, "boss"), waiting, "approve", decisionReason); status != http.StatusForbidden || !sameJSON(t, raw, want) {
+			t.Fatalf("self-approval after a restart with the organization off the list: %d (%s), want 403 %s", status, raw, want)
 		}
 	})
 }
 
 // Only a waive is approved here. A migration's request has no approval yet —
-// it arrives with the migration's own second approver — and the setting does
-// not make one: its requester, alone in the organization, is refused as
-// anybody is.
-func TestTheSettingApprovesNoMigration(t *testing.T) {
-	h := soleSetting(t, "true")
+// it arrives with the migration's own second approver — and naming the
+// organization does not make one: its requester, alone in a named
+// organization, is refused as anybody is.
+func TestNamingAnOrganizationApprovesNoMigration(t *testing.T) {
+	h := withOrganizationNamed(t)
 	boss := h.signIn(t, "boss", entities.RoleAdmin)
 	request := h.sampleMigration(t, "mf1-sole-administrator")
 	request.RequestedBy, request.RequestedByID = "boss", h.accountID(t, "boss")
@@ -801,11 +946,15 @@ func TestTheSettingApprovesNoMigration(t *testing.T) {
 
 // Withdrawal needs no setting and no second administrator: whoever asked may
 // always end their own request, alone in the organization or not, and a
-// withdrawal is nobody's approval — with the setting on as with it off.
+// withdrawal is nobody's approval — in an organization that is named as in
+// one that is not.
 func TestARequesterAloneInTheOrganizationMayAlwaysWithdraw(t *testing.T) {
-	for _, raw := range []string{"", "true"} {
-		t.Run("the setting is "+raw, func(t *testing.T) {
-			h := soleSetting(t, raw)
+	for name, list := range map[string]func(uuid.UUID) string{
+		"not named": func(uuid.UUID) string { return "" },
+		"named":     uuid.UUID.String,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := soleOrganizations(t, list)
 			logs := captureLogs(t)
 			instanceID := h.oneStep(t)
 			boss := h.signIn(t, "boss", entities.RoleAdmin)

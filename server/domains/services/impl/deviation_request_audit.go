@@ -15,6 +15,14 @@ const (
 	auditRequestedBy  = "requested_by"
 	auditApprovedBy   = "approved_by"
 	auditSelfApproved = "self_approved"
+	// auditOtherAdministrators is how many other administrators the
+	// organization was found to have when a request was approved by whoever
+	// asked for it. It is written beside self_approved and only then, and it
+	// is always none: a self-approval is admitted only when the count, made
+	// under the request's lock, found nobody else. The record says so in a
+	// field of its own, so that what the exception rested on can be read off
+	// it, not inferred.
+	auditOtherAdministrators = "other_administrators"
 )
 
 // requestEntry is a trail entry about a request for a second administrator —

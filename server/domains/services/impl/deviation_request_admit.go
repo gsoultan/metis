@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -57,29 +58,51 @@ func errNoAccountToDecideWith() error {
 // the one setting that relaxes it is held in one place.
 type approvalRules struct {
 	repo repositories.Repository
-	// allowSole says this installation lets the administrator who asked for
-	// a request approve it while nobody else administers the organization
-	// (EnvAllowSoleAdministratorSelfApproval). False unless whoever built
-	// the service said otherwise: nothing here reads the environment, and
-	// nothing a request carries reaches it.
-	allowSole bool
+	// sole holds the organizations whose only administrator may approve a
+	// request they asked for themselves (EnvSoleAdministratorOrganizations).
+	// Empty unless whoever built the service named some: nothing here reads
+	// the environment, and nothing a request carries reaches it.
+	sole map[uuid.UUID]struct{}
+}
+
+// allowsSoleAdministratorOf reports whether organization is one whose only
+// administrator may approve their own request. No organization is never one.
+func (r approvalRules) allowsSoleAdministratorOf(organization uuid.UUID) bool {
+	_, named := r.sole[organization]
+	return named && organization != uuid.Nil
+}
+
+// naming is the rules with exactly organizations as the ones whose only
+// administrator may approve their own request. The list is copied: what the
+// caller does with its own afterwards names nobody. The nil id is left out.
+func (r approvalRules) naming(organizations []uuid.UUID) approvalRules {
+	r.sole = make(map[uuid.UUID]struct{}, len(organizations))
+	for _, organization := range organizations {
+		if organization != uuid.Nil {
+			r.sole[organization] = struct{}{}
+		}
+	}
+	return r
 }
 
 // admit answers the decision caller may make on request, or why not: a
 // request that is no longer waiting says what became of it, and then who may
 // decide is asked (admitDecider).
 //
-// Whether anybody else administers the organization is asked of the database
-// only when the caller is the requester, and only of the organization the
-// request is being decided in: the request's project is read, and when it
-// belongs to another organization the caller is refused before the question
-// is put — the repository answers "nobody else" for an organization outside
-// the caller's scope, which here would read as leave to approve alone.
+// Two things are asked of the request's organization, and of nothing else:
+// whether it is one whose only administrator may approve their own request,
+// and whether anybody else administers it. The organization is the one the
+// request's project belongs to, read once (organizationOf) — never one a
+// caller says, and refused when it is not the one the request is being
+// decided in: the repository answers "nobody else" for an organization
+// outside the caller's scope, which here would read as leave to approve
+// alone.
 //
-// It is asked whether or not this installation lets a sole administrator
-// approve (allowSole), because the two refusals differ: with somebody else
-// to ask, the requester is told to ask them; with nobody, that the request
-// waits. Only the second is ever relaxed.
+// Both are asked only when the caller is the requester. Whether anybody else
+// administers the organization is asked whether or not the organization is
+// named, because the two refusals differ: with somebody else to ask, the
+// requester is told to ask them; with nobody, that the request waits. Only
+// the second is ever relaxed, and only for a named organization.
 //
 // request is the row its caller holds — locked, by an approval — and ctx the
 // unit of work that holds it; caller is who requireDecidingAdministrator
@@ -88,13 +111,48 @@ func (r approvalRules) admit(ctx context.Context, request entities.DeviationRequ
 	if request.Status != entities.DeviationRequestPending {
 		return entities.DeviationDecision{}, decidedRefusal(request)
 	}
-	return admitDecider(caller, request, reason, r.allowSole, func() (bool, error) {
-		return r.anotherAdministrator(ctx, request, caller)
+	organization := sync.OnceValues(func() (uuid.UUID, error) { return r.organizationOf(ctx, request) })
+	allowSole := false
+	if len(r.sole) > 0 && caller.ID != uuid.Nil && caller.ID == request.RequestedByID {
+		// An organization that could not be told is not a named one. Why it
+		// could not is said below, where the same answer is asked for again.
+		if id, err := organization(); err == nil {
+			allowSole = r.allowsSoleAdministratorOf(id)
+		}
+	}
+	return admitDecider(caller, request, reason, allowSole, func() (bool, error) {
+		id, err := organization()
+		if err != nil {
+			return false, err
+		}
+		return r.anotherAdministrator(ctx, id, caller)
 	})
 }
 
+// organizationOf is the organization request belongs to: its project's. It
+// refuses a request that is not for the organization it is being decided in.
+func (r approvalRules) organizationOf(ctx context.Context, request entities.DeviationRequest) (uuid.UUID, error) {
+	if request.Project == nil {
+		return uuid.Nil, fmt.Errorf("request %s names no project, so its organization cannot be told", request.ID)
+	}
+	project, err := r.repo.Project().Get(ctx, request.Project.ID)
+	if errors.Is(err, apierr.ErrNotFound) {
+		// The request was found, so "not found" is not an answer about it:
+		// the cause is kept as words, as graphRunBy keeps a missing version.
+		return uuid.Nil, fmt.Errorf("reading the project of request %s: it is not there (%s)", request.ID, err.Error())
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("reading the project of request %s: %w", request.ID, err)
+	}
+	organization := uuid.UUID(project.OrganizationID)
+	if organization == uuid.Nil || organization != entities.ActingOrganization(ctx) {
+		return uuid.Nil, apierr.Forbiddenf("this request belongs to another organization")
+	}
+	return organization, nil
+}
+
 // anotherAdministrator reports whether somebody other than caller
-// administers the organization request belongs to.
+// administers organization, which organizationOf answered.
 //
 // "Administers" is what the approval's own checks ask of whoever approves
 // (the routes' role gate, and requireDecidingAdministrator): an account that
@@ -115,23 +173,7 @@ func (r approvalRules) admit(ctx context.Context, request entities.DeviationRequ
 // before a second administrator appeared, and says "nobody else" of the
 // moment it asked. One appointed, and committed, before this read is always
 // seen.
-func (r approvalRules) anotherAdministrator(ctx context.Context, request entities.DeviationRequest, caller entities.User) (bool, error) {
-	if request.Project == nil {
-		return false, fmt.Errorf("request %s names no project, so its organization cannot be told", request.ID)
-	}
-	project, err := r.repo.Project().Get(ctx, request.Project.ID)
-	if errors.Is(err, apierr.ErrNotFound) {
-		// The request was found, so "not found" is not an answer about it:
-		// the cause is kept as words, as graphRunBy keeps a missing version.
-		return false, fmt.Errorf("reading the project of request %s: it is not there (%s)", request.ID, err.Error())
-	}
-	if err != nil {
-		return false, fmt.Errorf("reading the project of request %s: %w", request.ID, err)
-	}
-	organization := uuid.UUID(project.OrganizationID)
-	if organization == uuid.Nil || organization != entities.ActingOrganization(ctx) {
-		return false, apierr.Forbiddenf("this request belongs to another organization")
-	}
+func (r approvalRules) anotherAdministrator(ctx context.Context, organization uuid.UUID, caller entities.User) (bool, error) {
 	orgCtx := entities.WithTenantContext(ctx, entities.TenantContext{TenantID: organization.String()})
 	another, err := r.repo.User().HasAnotherAdministrator(orgCtx, organization, caller.ID)
 	if err != nil {

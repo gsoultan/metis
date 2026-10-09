@@ -22,7 +22,8 @@ func traceRefusedSelfApproval(request entities.DeviationRequest, caller entities
 }
 
 // traceSelfApproval says in the server's log that an administrator approved
-// their own request, on an installation that lets a sole administrator.
+// their own request, in an organization the installation names as one whose
+// only administrator may.
 //
 // The ledger and the trail record it, and say no second person approved. This
 // line is for whoever watches the installation rather than the instance: the
@@ -34,10 +35,10 @@ func traceRefusedSelfApproval(request entities.DeviationRequest, caller entities
 // request is the request as the approval left it, so the line is written
 // only for an approval that was kept.
 func traceSelfApproval(request entities.DeviationRequest) {
-	log.Warn().Str("setting", EnvAllowSoleAdministratorSelfApproval).Str("request", request.ID.String()).
+	log.Warn().Str("setting", EnvSoleAdministratorOrganizations).Str("request", request.ID.String()).
 		Str("actor", request.DecidedBy).Str("actor_id", request.DecidedByID.String()).
-		Msg("An administrator approved their own request for a second administrator, which this setting allows " +
-			"while nobody else administers the organization. No second person approved it; the ledger and the trail say so.")
+		Msg("An administrator approved their own request for a second administrator, which this setting allows in an " +
+			"organization it names while nobody else administers it. No second person approved it; the ledger and the trail say so.")
 }
 
 // traceApprovalNotApplied says in the server's log that a second

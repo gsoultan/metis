@@ -2,8 +2,11 @@ package impl
 
 import (
 	"fmt"
-	"strconv"
+	"os"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 )
@@ -63,50 +66,76 @@ func hoursOf(d time.Duration) string {
 	return fmt.Sprintf("%dh", int64(d/time.Hour))
 }
 
-// EnvAllowSoleAdministratorSelfApproval names the one exception to the second
-// administrator's approval: with it on, the administrator who asked for a
-// request may approve it themselves — in an organization nobody else
-// administers, and nowhere else.
+// EnvSoleAdministratorOrganizations names the organizations where the one
+// exception to the second administrator's approval applies: the ids,
+// comma-separated, of the organizations whose only administrator may approve
+// a request they asked for themselves.
 //
-// It reopens what the control closes: a waive made on one person's say. So
-// it is off by default, and narrow when on. It applies only while no other
-// account that is not deleted, belongs to the organization and holds the
-// administrator role there — on the account, or in that organization alone —
-// exists; the moment one does, the requester is refused as on any
-// installation. Each use needs a reason, and is recorded as nobody else's
-// approval: a deviation_self_approved entry on the trail, self_approved on
-// the ledger row, and a line in the server's log.
+// It reopens what the control closes — a waive made on one person's say — so
+// it is narrow. Unset or empty, it applies nowhere. It applies only in an
+// organization named here, and there only while no other account that is not
+// deleted, belongs to the organization and holds the administrator role
+// there — on the account, or in that organization alone — exists; the moment
+// one does, the requester is refused as anywhere else. Each use needs a
+// reason, and is recorded as nobody else's approval: a
+// deviation_self_approved entry on the trail, self_approved and
+// other_administrators on the ledger row, and a line in the server's log.
 //
-// It is the installation's, not an organization's and not a request's: read
-// from the environment when the server is put together
+// Organizations are named, rather than the exception switched on for the
+// installation, because in an organization with two administrators either
+// can take the other's role away, and would then be "the only one". Naming
+// confines the exception to the organizations an operator has said have one
+// administrator. It does not close that door in a named organization: an
+// administrator there who can change roles can still make themselves the
+// only one, approve their own request and give the role back — and a change
+// of roles is not recorded with who made it. An organization belongs on the
+// list only while it truly has one administrator.
+//
+// By id, as METIS_PLATFORM_ADMINS names accounts by id: an organization's
+// name is neither unique nor permanent.
+//
+// It is the operator's, not an organization's and not a request's: read from
+// the environment when the server is put together
 // (services.NewServiceFacade) and given to the service of requests as it is
-// built (WithSoleAdministratorSelfApproval). Nothing reads it afterwards.
-const EnvAllowSoleAdministratorSelfApproval = "METIS_ALLOW_SOLE_ADMINISTRATOR_SELF_APPROVAL"
+// built (WithSoleAdministratorOrganizations). Nothing reads it afterwards.
+const EnvSoleAdministratorOrganizations = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
 
-// AllowSoleAdministratorSelfApproval answers whether the setting is on, and —
-// when it was written so that it cannot be read — a sentence that says so.
-// The sentence names the setting and what was written; it is empty when there
-// is nothing to say.
+// SoleAdministratorOrganizations answers the organizations the setting
+// names, each once, in the order written — and a sentence for each entry
+// that names none.
 //
-// On is a value strconv.ParseBool reads as true: 1, t, T, true, TRUE, True.
-// Not given, empty, or one it reads as false, is off and nothing is said.
-// Anything else — "yes", "on", "true " with a space after it — is off too:
-// an exception to a control is not switched on by a value that has to be
-// guessed at. But whoever wrote it believes it is on, so that is said when
-// the server starts (logControlSettings), where the two older settings of
-// this kind read such a value as off without a word. What was written is
-// quoted, so that a stray space shows, and cut at 64 characters.
+// Entries are separated by commas and the spaces around one are not part of
+// it; an empty entry is nothing. An entry that is not an id names no
+// organization and is ignored, and the entries beside it still apply. The
+// nil id is ignored the same way: it is no organization, and would otherwise
+// name every request that is for none. Such an entry is not silent: whoever
+// wrote it believes it names somebody, so each gets a sentence that says
+// which entry it was and quotes it, cut at 64 characters, for the server to
+// say when it starts (logControlSettings). "true" is such an entry: nothing
+// switches the exception on for every organization.
 //
-// Read through envvar.Get, as every METIS_* setting is — so the spelling
-// from before the rename is honoured too, with that package's warning.
-func AllowSoleAdministratorSelfApproval() (allowed bool, problem string) {
-	raw := envvar.Get(EnvAllowSoleAdministratorSelfApproval)
-	if raw == "" {
-		return false, ""
+// Read with os.Getenv, not through envvar.Get as most METIS_* settings are:
+// that package also answers to the spelling from before the rename, and a
+// setting that weakens a control has one name, as METIS_ALLOW_WEAK_SECRETS
+// has (secrets.Allowed).
+func SoleAdministratorOrganizations() (named []uuid.UUID, problems []string) {
+	seen := map[uuid.UUID]struct{}{}
+	for position, entry := range strings.Split(os.Getenv(EnvSoleAdministratorOrganizations), ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		id, err := uuid.Parse(entry)
+		if err != nil || id == uuid.Nil {
+			problems = append(problems, fmt.Sprintf("entry %d of %s, %.64q, is not an organization id, so it names no organization and is ignored",
+				position+1, EnvSoleAdministratorOrganizations, entry))
+			continue
+		}
+		if _, already := seen[id]; already {
+			continue
+		}
+		seen[id] = struct{}{}
+		named = append(named, id)
 	}
-	allowed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, fmt.Sprintf("%s=%.64q cannot be read as true or false; it is off", EnvAllowSoleAdministratorSelfApproval, raw)
-	}
-	return allowed, ""
+	return named, problems
 }

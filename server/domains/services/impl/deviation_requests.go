@@ -48,13 +48,14 @@ func WithSweepLockWait(wait time.Duration) DeviationRequestOption {
 	return func(s *deviationRequestService) { s.sweepLockWait = wait }
 }
 
-// WithSoleAdministratorSelfApproval says whether the administrator who asked
-// for a request may approve it while nobody else administers the
-// organization (EnvAllowSoleAdministratorSelfApproval). It is the only way
-// the service is told: built without it, the service refuses, whatever the
-// environment says. The server passes what it read when it started.
-func WithSoleAdministratorSelfApproval(allowed bool) DeviationRequestOption {
-	return func(s *deviationRequestService) { s.rules.allowSole = allowed }
+// WithSoleAdministratorOrganizations names the organizations whose only
+// administrator may approve a request they asked for themselves
+// (EnvSoleAdministratorOrganizations). It is the only way the service is
+// told: built without it, the service allows that in no organization,
+// whatever the environment says. The server passes what it read when it
+// started.
+func WithSoleAdministratorOrganizations(organizations []uuid.UUID) DeviationRequestOption {
+	return func(s *deviationRequestService) { s.rules = s.rules.naming(organizations) }
 }
 
 // NewDeviationRequestService builds the service of requests for a second

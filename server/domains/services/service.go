@@ -195,12 +195,12 @@ func NewServiceFacade(
 	})
 
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
-	// Whether a sole administrator may approve their own request is the
-	// installation's to say, and is read once, here, as the server is put
-	// together: no request reads the environment, and none can change what
-	// was read. A value that could not be read is off, and is said at boot
-	// (internal/app.logControlSettings).
-	allowSoleAdministrator, _ := serviceimpl.AllowSoleAdministratorSelfApproval()
+	// The organizations whose only administrator may approve their own
+	// request are the operator's to name, and are read once, here, as the
+	// server is put together: no request reads the environment, and none can
+	// add to what was read. An entry that names no organization is ignored,
+	// and is said at boot (internal/app.logControlSettings).
+	soleAdministratorOrganizations, _ := serviceimpl.SoleAdministratorOrganizations()
 
 	return NewService(ServiceParams{
 		OrganizationService:    orgSvc,
@@ -228,7 +228,8 @@ func NewServiceFacade(
 		SimulationService:      simulationSvc,
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			serviceimpl.NewInstanceDeviationService(repo, engine),
-			serviceimpl.NewDeviationRequestService(repo, engine, serviceimpl.WithSoleAdministratorSelfApproval(allowSoleAdministrator))),
+			serviceimpl.NewDeviationRequestService(repo, engine,
+				serviceimpl.WithSoleAdministratorOrganizations(soleAdministratorOrganizations))),
 	})
 }
 

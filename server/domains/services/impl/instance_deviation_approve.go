@@ -289,6 +289,7 @@ func (s *instanceDeviationService) recordApproved(
 	details := row.Details
 	if decision.SelfApproved {
 		details[auditSelfApproved] = true
+		details[auditOtherAdministrators] = 0
 	}
 	decided, err := s.repo.DeviationDecider().Decide(ctx, pending.ID, repocontracts.LedgerRowDecision{
 		Status: entities.DeviationApplied, ApprovedBy: decision.Decider, ApprovedByID: decision.DeciderID, DecidedAt: decision.At,
@@ -329,7 +330,11 @@ func approvalEntry(request entities.DeviationRequest, row entities.Deviation, de
 			"which this installation allows only while nobody else administers the organization. Reason: %s",
 			decision.Decider, stepOf(row), decision.Reason)
 	}
-	return approvalNote(requestEntry(eventType, request, row, narrative), request, decision)
+	entry := approvalNote(requestEntry(eventType, request, row, narrative), request, decision)
+	if decision.SelfApproved {
+		entry.Data[auditOtherAdministrators] = 0
+	}
+	return entry
 }
 
 // writeEntries writes trail entries about one ledger row, each pointing at
