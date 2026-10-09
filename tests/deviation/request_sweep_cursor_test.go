@@ -275,7 +275,11 @@ func TestASweepsWaitForALockIsBounded(t *testing.T) {
 
 	decide := func(wait time.Duration) (time.Duration, error) {
 		began := time.Now()
-		err := h.repo.UnitOfWork().Do(h.tenantContext(), func(tx context.Context) error {
+		// Bounded by the test as well: a wait the repository failed to bound
+		// ends here, as a failure, instead of holding the test.
+		inTime, stop := context.WithTimeout(h.tenantContext(), raceWait)
+		defer stop()
+		err := h.repo.UnitOfWork().Do(inTime, func(tx context.Context) error {
 			if err := requests.BoundLockWait(tx, wait); err != nil {
 				return err
 			}
