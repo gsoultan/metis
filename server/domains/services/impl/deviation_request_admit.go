@@ -142,11 +142,18 @@ func (r approvalRules) admit(ctx context.Context, request entities.DeviationRequ
 	if allowSole && found {
 		// Named as having one administrator, and it has another: the
 		// requester was refused, and the list is out of date.
-		id, _ := organization()
-		traceNamedOrganizationHasAnotherAdministrator(request, id)
+		if id, told := organization(); told == nil {
+			traceNamedOrganizationHasAnotherAdministrator(request, id)
+		}
 	}
 	if err == nil && decision.SelfApproved {
-		decision.Organization, _ = organization()
+		// A self-approval that cannot say which organization it rested on
+		// is not made: the record would name none.
+		id, told := organization()
+		if told != nil {
+			return entities.DeviationDecision{}, told
+		}
+		decision.Organization = id
 	}
 	return decision, err
 }
