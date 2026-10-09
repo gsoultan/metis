@@ -44,6 +44,11 @@ type migrationService struct {
 	// the instance lock, after the row that lock returned has answered that the
 	// instance is still one the decision is about.
 	actions nodeActions
+	// rules says who may approve a request for a migration. It is the rule
+	// the approval of a waive asks, handed on by the service of requests,
+	// which is what approves: built on its own, a migration service names no
+	// organization whose only administrator may approve their own request.
+	rules approvalRules
 }
 
 // NewMigrationService creates a new MigrationService implementation.
@@ -51,6 +56,12 @@ func NewMigrationService(
 	repo repositories.Repository,
 	engine servicecontracts.ExecutionEngine,
 ) servicecontracts.MigrationService {
+	return newMigrationService(repo, engine)
+}
+
+// newMigrationService is NewMigrationService for the service of requests,
+// whose approval of a migration is this service's own plan and apply.
+func newMigrationService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) *migrationService {
 	// One ledger and one audit writer: the ones the node actions record
 	// through are the ones the rest of a migration writes to.
 	actions := newNodeActions(repo, engine)
@@ -58,6 +69,7 @@ func NewMigrationService(
 		repo: repo, engine: engine,
 		audit: actions.audit, ledger: actions.ledger,
 		actions: actions,
+		rules:   approvalRules{repo: repo},
 	}
 }
 
@@ -99,6 +111,16 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 	}
 	if plan.Instances == 0 {
 		return entities.MigrationResult{}, nil
+	}
+	// The gate. After the plan this apply runs from and before anything is
+	// written, and it only verifies: it makes no request, so neither a dry run
+	// (which never comes here) nor a refused apply leaves one behind. What it
+	// checks is this plan and this listing — the very values apply is handed —
+	// so what was approved is what runs, or nothing does. options.Approval is
+	// overwritten with what it verified, whatever the caller put there.
+	options.Approval, err = s.approvedRequestFor(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, covered)
+	if err != nil {
+		return entities.MigrationResult{}, err
 	}
 	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
 }
@@ -655,7 +677,8 @@ func (s *migrationService) recordControlLosses(
 	options servicecontracts.MigrationOptions,
 	runID, entryID uuid.UUID,
 ) error {
-	for _, row := range controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID) {
+	rows := withApproval(controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID), options.Approval)
+	for _, row := range rows {
 		if _, err := s.ledger.Record(ctx, row); err != nil {
 			return fmt.Errorf("recording that instance %s loses %q: %w", instance.ID, row.Node.ID, err)
 		}
@@ -727,6 +750,10 @@ func (s *migrationService) recordMigration(
 		Project:  &entities.Project{ID: uuid.UUID(instance.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(instance.ID)},
 	}
+	// A run a second administrator approved says so: one more sentence, and
+	// the request and the approver in the data. Any other run's entry is as
+	// it always was.
+	entry = approvedEntry(entry, options.Approval)
 	if err := s.audit.RecordEvent(ctx, entry); err != nil {
 		log.Error().Err(err).
 			Str("instance", uuid.UUID(instance.ID).String()).
@@ -1755,8 +1782,11 @@ func (s *migrationService) cancelInstance(
 // is not made. The row names its entry even in a wiring with no audit writer
 // (tests only), where no entry is written.
 func (s *migrationService) recordDecision(ctx context.Context, d decisionRecord) error {
-	row := decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))
-	if _, err := s.actions.record(ctx, row, decisionEntry(d)); err != nil {
+	// Under an approved request, the row and the entry name it, who asked and
+	// who approved. A decision made with no approval — a cancel, a hold — is
+	// recorded as it always was: both helpers answer what they are given.
+	row := withApproval([]entities.Deviation{decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))}, d.options.Approval)[0]
+	if _, err := s.actions.record(ctx, row, approvedEntry(decisionEntry(d), d.options.Approval)); err != nil {
 		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
 	}
 	return nil

@@ -110,12 +110,7 @@ func (s *deviationRequestService) expire(ctx context.Context, request entities.D
 	case entities.DeviationRequestInstanceWaive:
 		return s.waives.expireWaive(ctx, request)
 	case entities.DeviationRequestMigration:
-		_, err := s.repo.DeviationRequest().Transition(ctx, request.ID, entities.DeviationRequestPending,
-			repocontracts.DeviationRequestChange{Status: entities.DeviationRequestExpired})
-		if err != nil {
-			return fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestExpired, err)
-		}
-		return nil
+		return expireMigrationRequest(ctx, s.repo.DeviationRequest(), request)
 	}
 	return fmt.Errorf("request %s is a %s, which nothing here closes", request.ID, request.Kind)
 }

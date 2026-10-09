@@ -60,3 +60,20 @@ func (f *fixture) assertNothingMoved(t *testing.T, v1 uuid.UUID) {
 	}
 	f.assertNoMigrationEntries(t, instance.ID)
 }
+
+// atTheApprovedApplysListing runs fire when the apply an approval runs has
+// listed its instances: the approval plans again, ApplyInstanceMigration plans
+// so that it and a dry run cannot disagree, and the apply's listing is the third.
+func (p *hookedProcess) atTheApprovedApplysListing(fire func()) {
+	p.on = p.calls + 3
+	p.fire = fire
+}
+
+// letTimePass moves a request's deadline minutes into the past: the state
+// time passing creates.
+func (f *fixture) letTimePass(t *testing.T, requestID uuid.UUID, minutes int) {
+	t.Helper()
+	if err := f.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, minutes, requestID).Error; err != nil {
+		t.Fatalf("move the deadline of request %s: %v", requestID, err)
+	}
+}

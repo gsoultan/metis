@@ -12,6 +12,7 @@ import (
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/domains/services/impl"
 )
 
 // A migration that skips a step is asked for, not made: the ask writes one
@@ -159,4 +160,391 @@ func TestAMigrationThatNeedsNobodyElseOrIsRefusedIsNotAskedFor(t *testing.T) {
 		}
 		f.assertNothingMoved(t, uuidOf(t, first))
 	})
+}
+
+// B2, B6: a skip, and an acknowledged control loss, wait for a second
+// administrator; approved, they run, and every row names both people.
+func TestASkipOrAnAcknowledgedHoldWaitsForASecondAdministrator(t *testing.T) {
+	cases := map[string]func(t *testing.T, f *fixture) (v1, v2 uuid.UUID, mapping map[string]string, opts []servicecontracts.MigrationOption){
+		"a skip": func(t *testing.T, f *fixture) (uuid.UUID, uuid.UUID, map[string]string, []servicecontracts.MigrationOption) {
+			a, b := f.parkedOnOpsApprove(t)
+			return uuidOf(t, a), uuidOf(t, b), nil, []servicecontracts.MigrationOption{servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
+				"opsApprove": {Kind: servicecontracts.NodeActionSkip, Reason: "the operations manager role was eliminated"}})}
+		},
+		"an acknowledged hold": func(t *testing.T, f *fixture) (uuid.UUID, uuid.UUID, map[string]string, []servicecontracts.MigrationOption) {
+			v1, err := f.svc.CreateDefinition(f.ctx, controlled(f.project, "opsApprove", true))
+			if err != nil {
+				t.Fatalf("deploy v1: %v", err)
+			}
+			if _, err := f.svc.StartProcess(f.ctx, f.project, "controlled-approval", nil); err != nil {
+				t.Fatalf("start: %v", err)
+			}
+			v2, err := f.svc.CreateDefinition(f.ctx, controlled(f.project, "salesApprove", false))
+			if err != nil {
+				t.Fatalf("deploy v2: %v", err)
+			}
+			return v1, v2, map[string]string{"opsApprove": "salesApprove"}, []servicecontracts.MigrationOption{servicecontracts.WithAcknowledgedHolds("opsApprove")}
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			v1, v2, mapping, opts := build(t, f)
+			plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, mapping, opts...)
+			if err != nil || !plan.Applicable() || !plan.RequiresSecondApprover || len(plan.SecondApproverReasons) != 1 {
+				t.Fatalf("the dry run: %+v %v", plan, err)
+			}
+			pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, mapping, opts...)
+			if err != nil || pending.Status != entities.DeviationRequestPending || pending.RequestedBy != "dita" || len(pending.Because) != 1 {
+				t.Fatalf("the request: %+v %v", pending, err)
+			}
+			instance := f.onlyInstance(t)
+			if instance.Definition == nil || instance.Definition.ID != v1 {
+				t.Fatal("asking for approval moved the instance")
+			}
+			if rows := f.ledger(t, instance.ID); len(rows) != 0 {
+				t.Fatalf("a pending migration wrote %d ledger row(s)", len(rows))
+			}
+			out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "agreed at the change board")
+			if err != nil || !out.Applied || out.Request.Status != entities.DeviationRequestApplied || out.MigrationPlan == nil ||
+				out.MigrationResult == nil || out.MigrationResult.Changed != 1 || len(out.MigrationResult.PassedOver) != 0 {
+				t.Fatalf("omar approves: %+v %v", out, err)
+			}
+			if out.Deviation != nil || out.WaivePlan != nil {
+				t.Fatalf("an approved migration answered a waive's record: %+v", out)
+			}
+			rows := f.ledger(t, instance.ID)
+			if len(rows) == 0 {
+				t.Fatal("the approved run wrote no ledger row")
+			}
+			for _, row := range rows {
+				if row.RequestID != pending.RequestID || row.ApprovedBy != "omar" || row.Actor != "dita" || row.ActorID == uuid.Nil {
+					t.Fatalf("a row of the approved run: %+v", row)
+				}
+				if row.ApprovedByID != accountOf("omar") || row.ActorID != accountOf("dita") || row.DecidedAt == nil || row.Status != entities.DeviationApplied {
+					t.Fatalf("a row of the approved run names accounts %s and %s, decided %v, status %s", row.ActorID, row.ApprovedByID, row.DecidedAt, row.Status)
+				}
+				// Somebody else approved: the row says nothing of a
+				// self-approval, not that there was none.
+				for _, key := range []string{"self_approved", "other_administrators", "organization_id"} {
+					if _, said := row.Details[key]; said {
+						t.Fatalf("a row a second administrator approved carries %q: %v", key, row.Details)
+					}
+				}
+			}
+			entries, err := f.svc.GetAuditLogs(f.ctx, instance.ID)
+			if err != nil {
+				t.Fatalf("read the trail: %v", err)
+			}
+			named := 0
+			for _, entry := range entries {
+				if entry.Type != impl.EventNodeSkipped && entry.Type != impl.EventInstanceMigrated {
+					continue
+				}
+				if entry.Data["approved_by"] != "omar" || entry.Data["request_id"] != pending.RequestID.String() ||
+					!strings.Contains(entry.Narrative, "dita") ||
+					!strings.HasSuffix(entry.Narrative, " A second administrator, omar, approved it (request "+pending.RequestID.String()+").") {
+					t.Fatalf("an entry of the approved run: %q %v", entry.Narrative, entry.Data)
+				}
+				if _, said := entry.Data["self_approved"]; said {
+					t.Fatalf("an entry a second administrator approved carries self_approved: %v", entry.Data)
+				}
+				named++
+			}
+			if named == 0 {
+				t.Fatal("no entry of the run names the requester, the approver and the request")
+			}
+			// The request says who decided and what the run did, and holds
+			// nothing any longer.
+			read, err := f.svc.GetDeviationRequest(adminAs(f.ctx, "dita"), pending.RequestID)
+			if err != nil || read.Status != entities.DeviationRequestApplied || read.DecidedBy != "omar" || read.DecidedByID != accountOf("omar") ||
+				read.DecisionReason != "agreed at the change board" || read.SelfApproved() {
+				t.Fatalf("the request after the run: %+v %v", read, err)
+			}
+			if read.Outcome["changed"] != float64(1) || read.Outcome["passed_over"] != float64(0) || len(read.Outcome) != 2 {
+				t.Fatalf("its outcome %v, want what the run did and nothing else", read.Outcome)
+			}
+			if f.storedStatus(t, pending.RequestID) != "applied" {
+				t.Fatal("the request's row does not say applied")
+			}
+		})
+	}
+}
+
+// B3: dita cannot approve her own migration — by account, so not under
+// another name either — and the attempt changes nothing.
+func TestTheRequesterNeverApprovesTheirOwnMigration(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, skipOps("the role was eliminated")...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	renamed := signedInAs(f, entities.User{ID: accountOf("dita"), Username: "dita-the-second", Roles: []string{entities.RoleAdmin}})
+	for name, ctx := range map[string]context.Context{"as herself": adminAs(f.ctx, "dita"), "under another name": renamed} {
+		out, err := f.svc.ApproveDeviationRequest(ctx, pending.RequestID, "I am sure")
+		if !errors.Is(err, apierr.ErrForbidden) || out.Applied || out.MigrationResult != nil {
+			t.Fatalf("%s: %+v %v, want it forbidden", name, out, err)
+		}
+		if stored := f.storedStatus(t, pending.RequestID); stored != "pending_approval" {
+			t.Fatalf("%s: the request is %s, want it still waiting", name, stored)
+		}
+		f.assertNothingMoved(t, v1)
+	}
+	// And somebody who is not an administrator decides nothing.
+	uma := signedInAs(f, entities.User{ID: accountOf("uma"), Username: "uma", Roles: []string{entities.RoleUser}})
+	if _, err := f.svc.ApproveDeviationRequest(uma, pending.RequestID, ""); !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("a user who is no administrator approves: %v, want it forbidden", err)
+	}
+	f.assertNothingMoved(t, v1)
+}
+
+// Rulings addendum §12. An approved run reports as any run does: the instance
+// whose holder completed the step after the run listed it is passed over, and
+// the approval's answer names it and says why — it is not swallowed because the
+// run was somebody else's to approve.
+func TestAnApprovedRunStillSaysWhichInstancesItPassedOver(t *testing.T) {
+	f, listing := newRacedFixture(t)
+	first, err := f.svc.CreateDefinition(f.ctx, quotationV1(f))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	for range 2 {
+		if _, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil); err != nil {
+			t.Fatalf("start a quotation: %v", err)
+		}
+		f.completeTaskOn(t, "supervisorReview", "sam")
+	}
+	second, err := f.svc.CreateDefinition(f.ctx, quotationV2(f))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+	opts := skipOps("the role was eliminated")
+	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), first, second, nil, opts...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	listing.atTheApprovedApplysListing(func() { f.completeTaskOn(t, "opsApprove", "ollie") })
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+	reached(t, listing)
+	if err != nil || !out.Applied || out.MigrationResult == nil || out.MigrationResult.Changed != 1 || len(out.MigrationResult.PassedOver) != 1 {
+		t.Fatalf("the approved run: %+v %v, want one instance moved and one passed over", out, err)
+	}
+	left := f.stillOn(t, first.String())
+	if len(left) != 1 || len(f.stillOn(t, second.String())) != 1 {
+		t.Fatalf("%d instance(s) are on v1, want the one passed over", len(left))
+	}
+	passed := out.MigrationResult.PassedOver[0]
+	if passed.Instance == nil || passed.Instance.ID != left[0].ID || !strings.Contains(passed.Reason, "Operations approve") {
+		t.Fatalf("passed over: %+v, want the instance still on v1 and why", passed)
+	}
+	if out.Request.Status != entities.DeviationRequestApplied || out.Request.Outcome["passed_over"] != float64(1) || out.Request.Outcome["changed"] != float64(1) {
+		t.Fatalf("the request: %q %v, want applied with one moved and one passed over", out.Request.Status, out.Request.Outcome)
+	}
+	if rows := f.ledger(t, left[0].ID); len(rows) != 0 {
+		t.Errorf("the instance passed over has %d ledger row(s)", len(rows))
+	}
+}
+
+// B4: a request approves the instances it showed. One that joined since makes
+// it stale; one that left does not.
+func TestANewcomerMakesAMigrationRequestStaleAndALeaverDoesNot(t *testing.T) {
+	t.Run("newcomer", func(t *testing.T) {
+		f := newFixture(t)
+		v1, err := f.svc.CreateDefinition(f.ctx, quotationV1(f))
+		if err != nil {
+			t.Fatalf("deploy v1: %v", err)
+		}
+		if _, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil); err != nil {
+			t.Fatalf("start a quotation: %v", err)
+		}
+		f.completeTaskOn(t, "supervisorReview", "sam")
+		listed := f.onlyInstance(t)
+		// Staged: version 1 stays the one a new quotation starts on.
+		v2, err := f.svc.DeployDefinition(f.ctx, quotationV2(f), false)
+		if err != nil {
+			t.Fatalf("stage v2: %v", err)
+		}
+		dita := adminAs(f.ctx, "dita")
+		pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		newcomer, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil)
+		if err != nil {
+			t.Fatalf("start the newcomer: %v", err)
+		}
+		out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "no longer holds") ||
+			!strings.Contains(err.Error(), newcomer.String()) || strings.Contains(err.Error(), listed.ID.String()) || out.Applied {
+			t.Fatalf("approving with a newcomer on the version: %+v %v, want it refused naming the newcomer", out, err)
+		}
+		read, err := f.svc.GetDeviationRequest(dita, pending.RequestID)
+		if err != nil || read.Status != entities.DeviationRequestStale || f.storedStatus(t, pending.RequestID) != "stale" {
+			t.Fatalf("the request reads %q (err %v), want stale and kept so", read.Status, err)
+		}
+		if refusals, _ := read.Outcome["refusals"].([]any); len(refusals) != 1 || !strings.Contains(refusals[0].(string), newcomer.String()) {
+			t.Fatalf("its outcome %v, want the newcomer named among the refusals", read.Outcome)
+		}
+		if read.DecidedBy != "" || read.DecidedByID != uuid.Nil || read.SelfApproved() {
+			t.Fatalf("a stale request names %q as having decided it; the version did", read.DecidedBy)
+		}
+		if on := f.stillOn(t, v1.String()); len(on) != 2 {
+			t.Fatalf("%d instance(s) are on v1, want both", len(on))
+		}
+		for _, instance := range f.stillOn(t, v1.String()) {
+			if rows := f.ledger(t, instance.ID); len(rows) != 0 {
+				t.Fatalf("a stale request left %d ledger row(s) on %s", len(rows), instance.ID)
+			}
+			f.assertNoMigrationEntries(t, instance.ID)
+		}
+		// The same thing can be asked for afresh, and then covers both.
+		again, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil || again.RequestID == pending.RequestID {
+			t.Fatalf("asking afresh after a stale request: %+v %v, want a new request", again, err)
+		}
+	})
+
+	t.Run("leaver", func(t *testing.T) {
+		f := newFixture(t)
+		v1, v2 := f.severalParkedOnOpsApprove(t, 2)
+		pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		f.completeTaskOn(t, "opsApprove", "ollie")
+		f.completeTaskOn(t, "salesApprove", "sasha")
+		out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+		if err != nil || !out.Applied || out.Request.Status != entities.DeviationRequestApplied || out.MigrationResult == nil || out.MigrationResult.Changed != 1 {
+			t.Fatalf("approving after one instance finished: %+v %v, want it applied to the one that remains", out, err)
+		}
+		if on := f.stillOn(t, v2.String()); len(on) != 1 || on[0].Status != entities.ProcessActive {
+			t.Fatalf("%d running instance(s) are on v2, want the one that was still waiting", len(on))
+		}
+	})
+}
+
+// B6: the run stops part-way; the request says so and what the run reached is
+// recorded — in a sentence of the server's own, not the failure's words.
+func TestARunThatFailsPartWayLeavesTheRequestInterrupted(t *testing.T) {
+	f := newFixture(t)
+	v1, err := f.svc.CreateDefinition(f.ctx, routed(f, true))
+	if err != nil {
+		t.Fatalf("deploy v1: %v", err)
+	}
+	if _, err := f.svc.StartProcess(f.ctx, f.project, "claim", nil); err != nil {
+		t.Fatalf("start a claim: %v", err)
+	}
+	v2, err := f.svc.CreateDefinition(f.ctx, routed(f, false))
+	if err != nil {
+		t.Fatalf("deploy v2: %v", err)
+	}
+	opts := []servicecontracts.MigrationOption{servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
+		"review": {Kind: servicecontracts.NodeActionSkip, Reason: "claims under 50 are no longer reviewed"}})}
+	dita := adminAs(f.ctx, "dita")
+	pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+	if err == nil || out.Applied || out.Request.Status != entities.DeviationRequestInterrupted || out.MigrationResult == nil {
+		t.Fatalf("approving a skip whose advance cannot route: %+v %v, want the failure beside a request left interrupted", out, err)
+	}
+	if !strings.Contains(err.Error(), "interrupted") || !strings.Contains(err.Error(), pending.RequestID.String()) {
+		t.Fatalf("the failure %q does not say what became of the request", err)
+	}
+	read, err := f.svc.GetDeviationRequest(dita, pending.RequestID)
+	if err != nil || read.Status != entities.DeviationRequestInterrupted || read.DecidedBy != "omar" {
+		t.Fatalf("the request reads %q decided by %q (err %v), want interrupted, approved by omar", read.Status, read.DecidedBy, err)
+	}
+	said, _ := read.Outcome["error"].(string)
+	if said != "the run stopped on a failure after it had acted on 0 instance(s); what it had done by then stands" ||
+		read.Outcome["changed"] != float64(0) || read.Outcome["passed_over"] != float64(0) {
+		t.Fatalf("its outcome %v, want the server's own sentence and what the run reached", read.Outcome)
+	}
+	if open := f.openTasks(t); len(open) != 1 || open[0].NodeID() != "review" {
+		t.Fatalf("%d task(s) are open (%+v), want the review still to be done", len(open), open)
+	}
+	instance := f.onlyInstance(t)
+	if instance.Definition == nil || instance.Definition.ID != v1 || len(f.ledger(t, instance.ID)) != 0 {
+		t.Fatal("the failed skip moved the instance or left a ledger row")
+	}
+	// It holds nothing any longer: the same thing can be asked for again.
+	if again, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...); err != nil || again.RequestID == pending.RequestID {
+		t.Fatalf("asking again after an interrupted run: %+v %v, want a new request", again, err)
+	}
+	// And nobody decides it a second time.
+	if _, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, ""); !errors.Is(err, apierr.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "the run stopped part-way") {
+		t.Fatalf("approving an interrupted request again: %v", err)
+	}
+}
+
+// B5: a request nobody decided before its deadline cannot be approved. The
+// approval that finds it so records the expiry — and keeps the record — and
+// is refused; nothing moves.
+func TestAnExpiredMigrationRequestCannotBeApproved(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.parkedOnOpsApprove(t)
+	v1, v2 := uuidOf(t, first), uuidOf(t, second)
+	dita := adminAs(f.ctx, "dita")
+	pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	f.letTimePass(t, pending.RequestID, 1)
+	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "expired on") || out.Applied {
+		t.Fatalf("approving past the deadline: %+v %v, want it refused as expired", out, err)
+	}
+	if stored := f.storedStatus(t, pending.RequestID); stored != "expired" {
+		t.Fatalf("the request's row says %s, want the expiry kept", stored)
+	}
+	f.assertNothingMoved(t, v1)
+	// The requester is refused as the requester, and records nothing: a
+	// refused attempt of theirs never changes state.
+	other, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("another reason")...)
+	if err != nil {
+		t.Fatalf("ask for another: %v", err)
+	}
+	f.letTimePass(t, other.RequestID, 1)
+	if _, err := f.svc.ApproveDeviationRequest(dita, other.RequestID, "mine"); !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("the requester approving their own overdue request: %v, want it forbidden", err)
+	}
+	if stored := f.storedStatus(t, other.RequestID); stored != "pending_approval" {
+		t.Fatalf("the requester's refused attempt left the row %s, want it untouched", stored)
+	}
+}
+
+// A request is decided once: approved and run, it is not approved again, and
+// the second attempt moves nothing.
+func TestAMigrationRequestIsApprovedOnce(t *testing.T) {
+	f := newFixture(t)
+	v1, v2 := f.severalParkedOnOpsApprove(t, 2)
+	pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, skipOps("the role was eliminated")...)
+	if err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	if out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, ""); err != nil || !out.Applied || out.MigrationResult.Changed != 2 {
+		t.Fatalf("the approval: %+v %v", out, err)
+	}
+	var rows int
+	for _, instance := range f.stillOn(t, v2.String()) {
+		rows += len(f.ledger(t, instance.ID))
+	}
+	for _, name := range []string{"omar", "pia"} {
+		out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, name), pending.RequestID, "")
+		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "omar approved this") ||
+			!strings.Contains(err.Error(), "and it was applied") || out.Applied {
+			t.Fatalf("%s approves it again: %+v %v, want to be told it was approved and applied", name, out, err)
+		}
+	}
+	var after int
+	for _, instance := range f.stillOn(t, v2.String()) {
+		after += len(f.ledger(t, instance.ID))
+	}
+	if rows != 2 || after != rows {
+		t.Fatalf("the ledger held %d row(s) after the run and %d after the second attempts, want two both times", rows, after)
+	}
 }

@@ -1008,25 +1008,6 @@ func TestNothingButTheListReadAtStartLetsARequesterApprove(t *testing.T) {
 	})
 }
 
-// Only a waive is approved here. A migration's request has no approval yet —
-// it arrives with the migration's own second approver — and naming the
-// organization does not make one: its requester, alone in a named
-// organization, is refused as anybody is.
-func TestNamingAnOrganizationApprovesNoMigration(t *testing.T) {
-	h := withOrganizationNamed(t)
-	boss := h.signIn(t, "boss", entities.RoleAdmin)
-	request := h.sampleMigration(t, "mf1-sole-administrator")
-	request.RequestedBy, request.RequestedByID = "boss", h.accountID(t, "boss")
-	request = h.mustCreateRequest(t, request)
-	before := h.everyRow(t)
-
-	want := invalid("approving a migration arrives with the migration's second approver")
-	if status, _, raw := h.decide(t, boss, request.ID.String(), "approve", decisionReason); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
-		t.Fatalf("a sole administrator approving their own migration request: %d (%s), want 400 %s", status, raw, want)
-	}
-	h.requireUnchanged(t, before, "the refused approval of a migration")
-}
-
 // Withdrawal needs no setting and no second administrator: whoever asked may
 // always end their own request, alone in the organization or not, and a
 // withdrawal is nobody's approval — in an organization that is named as in

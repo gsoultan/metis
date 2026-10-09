@@ -15,16 +15,22 @@ import (
 // deviationRequestService reads and decides the requests that wait for a
 // second administrator.
 //
-// A request is made by what asks for it — the in-place command, for a waive —
-// and carried out by what would have carried it out had nobody else been
-// needed. So approving a waive is the in-place service's own apply, reached
-// through waives: this service finds the request and hands it over.
+// A request is made by what asks for it — the in-place command, for a waive;
+// the migration service, for a migration — and carried out by what would
+// have carried it out had nobody else been needed. So approving a waive is
+// the in-place service's own apply, reached through waives, and approving a
+// migration is the migration service's own apply, reached through
+// migrations: this service finds the request and hands it over.
 type deviationRequestService struct {
 	repo repositories.Repository
 	// waives approves a request for a waive: the in-place service, built here
 	// over the same repository and engine so that an approval runs the code
 	// an apply ran.
 	waives *instanceDeviationService
+	// migrations approves a request for a migration: the migration service,
+	// built here over the same repository and engine, so that an approved
+	// migration is planned and applied by the code any migration is.
+	migrations *migrationService
 	// rules says who may decide a request.
 	rules approvalRules
 	// sweepLockWait is how long the sweep's closing of one request waits for
@@ -62,16 +68,18 @@ func WithSoleAdministratorOrganizations(organizations []uuid.UUID) DeviationRequ
 // administrator over a repository and the engine that runs the instances a
 // waive acts on.
 //
-// The approval of a waive is given the rules the service was built with,
-// once the options have been read: there is one rule for who may approve,
-// whichever kind of request it is.
+// The approval of a waive and the approval of a migration are given the
+// rules the service was built with, once the options have been read: there
+// is one rule for who may approve, whichever kind of request it is.
 func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine, options ...DeviationRequestOption) servicecontracts.DeviationRequestService {
-	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine), rules: approvalRules{repo: repo},
+	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine),
+		migrations: newMigrationService(repo, engine), rules: approvalRules{repo: repo},
 		sweepLockWait: defaultSweepLockWait, sweepBudget: defaultSweepBudget}
 	for _, option := range options {
 		option(service)
 	}
 	service.waives.rules = service.rules
+	service.migrations.rules = service.rules
 	return service
 }
 
@@ -101,7 +109,7 @@ func (s *deviationRequestService) ApproveDeviationRequest(ctx context.Context, i
 	case entities.DeviationRequestInstanceWaive:
 		return s.waives.approveWaive(ctx, id, reason)
 	case entities.DeviationRequestMigration:
-		return none, apierr.Invalidf("approving a migration arrives with the migration's second approver")
+		return s.migrations.approveRequest(ctx, id, reason)
 	}
 	return none, apierr.Invalidf("request %s is of a kind nothing here approves", id)
 }
