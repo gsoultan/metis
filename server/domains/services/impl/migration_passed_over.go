@@ -161,10 +161,22 @@ func (s sourceSteps) countersWouldMerge() string {
 
 // quoted names steps as the source version names them, quoted, for a
 // sentence: "A", "A" and "B", or "A", "B" and "C".
+//
+// It is bounded as the list beside the sentence is (stepsOf): the first
+// entities.MaxPassedOverSteps steps, each name kept to the length a step's
+// name is kept to wherever one is shown (shownStepName), and then how many
+// were left out — "A", "B" and 2 more. An instance can hold work on as many
+// steps as its version has, and a run gives a sentence for every instance it
+// passes over. Up to ten steps with names of an ordinary length, it reads as
+// it always did.
 func (s sourceSteps) quoted(nodeIDs []string) string {
-	names := make([]string, 0, len(nodeIDs))
-	for _, id := range nodeIDs {
-		names = append(names, fmt.Sprintf("%q", s.name(id)))
+	shown := nodeIDs[:min(len(nodeIDs), entities.MaxPassedOverSteps)]
+	names := make([]string, 0, len(shown))
+	for _, id := range shown {
+		names = append(names, fmt.Sprintf("%q", shownStepName(s.name(id))))
+	}
+	if more := len(nodeIDs) - len(shown); more > 0 {
+		return fmt.Sprintf("%s and %d more", strings.Join(names, ", "), more)
 	}
 	if len(names) < 2 {
 		return strings.Join(names, "")

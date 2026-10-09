@@ -37,8 +37,8 @@ func (w leftAlone) none() bool { return w.cause == "" }
 // its version has, and a step's id and name are as long as the author of the
 // definition made them: the list stops at ten and says how many it left out,
 // and each id and each name is kept to the length a step's name is kept to
-// wherever one is recorded or shown (shownStepName). The sentence is not
-// this list, and is as it always was.
+// wherever one is recorded or shown (shownStepName). The sentence beside it
+// names the same steps and is cut the same way (sourceSteps.quoted).
 func stepsOf(source sourceSteps, nodeIDs []string) (listed []entities.PassedOverStep, inAll int) {
 	if len(nodeIDs) == 0 {
 		return nil, 0

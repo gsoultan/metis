@@ -137,9 +137,12 @@ func TestTheStepsOfACauseAreCutAndCounted(t *testing.T) {
 	if len(why.steps) != 10 || why.stepsInAll != 25 {
 		t.Errorf("the cause lists %d steps of %d, want 10 of 25", len(why.steps), why.stepsInAll)
 	}
-	// The sentence is as it always was: it is not this list.
-	if why.reason != nowhereToLand(version, models.ProcessDefinitionModel{Version: 2}, ids) || !strings.Contains(why.reason, `"Step 24"`) {
-		t.Errorf("the sentence beside a cut list changed: %q", why.reason)
+	// The sentence names the steps the list does, and counts the rest as the
+	// list does: it was every step in full until the sentence was bounded
+	// too, and this asserted that it was.
+	if why.reason != nowhereToLand(version, models.ProcessDefinitionModel{Version: 2}, ids) ||
+		!strings.Contains(why.reason, `"Step 08", "Step 09" and 15 more`) || strings.Contains(why.reason, `"Step 10"`) {
+		t.Errorf("the sentence beside a cut list is not cut where the list is: %q", why.reason)
 	}
 }
 
@@ -233,5 +236,51 @@ func TestNothingButPassedOverMakesARunsAccountOfAnInstanceLeftAlone(t *testing.T
 	}
 	if len(reasons) != 1 || reasons["migration_left_alone.go"] == 0 {
 		t.Errorf("a reason for leaving an instance alone is built in %v, want only in migration_left_alone.go, by the constructors", reasons)
+	}
+}
+
+// The sentence beside the list of steps is bounded as the list is. An
+// instance can hold work on as many steps as its version has, each named at
+// whatever length the definition's author chose, and a run can pass over
+// hundreds of instances: the sentence names the first ten, each cut where a
+// step's name is cut wherever one is shown, and says how many it left out.
+// Up to ten steps, with names of an ordinary length, it reads as it always
+// did.
+func TestTheSentenceOfAPassedOverInstanceNamesTenStepsAndCountsTheRest(t *testing.T) {
+	long := strings.Repeat("é", 4000)
+	nodes := []models.FlowNode{{ID: "wordy", Name: long}}
+	var ids []string
+	for i := range 12 {
+		id := fmt.Sprintf("step%02d", i)
+		nodes = append(nodes, models.FlowNode{ID: id, Name: fmt.Sprintf("Step %02d", i)})
+		ids = append(ids, id)
+	}
+	source := stepsOfSource(models.ProcessDefinitionModel{Version: 3, Nodes: nodes})
+
+	ten := `"Step 00", "Step 01", "Step 02", "Step 03", "Step 04", "Step 05", "Step 06", "Step 07", "Step 08" and "Step 09"`
+	if got := source.quoted(ids[:10]); got != ten {
+		t.Errorf("ten steps read as\n  %s\nwant them all, as before\n  %s", got, ten)
+	}
+	twelve := `"Step 00", "Step 01", "Step 02", "Step 03", "Step 04", "Step 05", "Step 06", "Step 07", "Step 08", "Step 09" and 2 more`
+	if got := source.quoted(ids); got != twelve {
+		t.Errorf("twelve steps read as\n  %s\nwant the first ten and a count\n  %s", got, twelve)
+	}
+	if got, want := source.quoted([]string{"wordy"}), `"`+strings.Repeat("é", deviationNodeNameLength)+`"`; got != want {
+		t.Errorf("a name of 4000 characters is said in %d, want it cut at %d", len([]rune(got))-2, deviationNodeNameLength)
+	}
+	// Each of the three sentences that name steps, over a version of many.
+	target := models.ProcessDefinitionModel{Version: 4}
+	for cause, sentence := range map[string]string{
+		"nowhere to land":            source.nowhereToLand(target, ids),
+		"left where nothing decides": source.leftWhereNothingDecides(target, ids),
+		"waiting to be decided":      source.waitingToBeDecided(ids),
+	} {
+		if !strings.Contains(sentence, twelve) || strings.Contains(sentence, "Step 10") {
+			t.Errorf("%s: the sentence names more than ten steps: %s", cause, sentence)
+		}
+	}
+	listed, inAll := stepsOf(source, ids)
+	if len(listed) != entities.MaxPassedOverSteps || inAll != 12 {
+		t.Errorf("the list beside the sentence has %d of %d, want ten of twelve — the sentence is cut where the list is", len(listed), inAll)
 	}
 }

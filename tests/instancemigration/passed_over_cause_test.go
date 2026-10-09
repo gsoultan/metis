@@ -298,7 +298,7 @@ var longCheckName = strings.Repeat("é", 300)
 // An instance passed over for holding work on twenty-five steps is listed
 // with the first ten of them — in the order they had, a name of three
 // hundred characters cut as the ledger cuts one — and with how many there
-// were. The sentence beside them is as it always was.
+// were. The sentence beside them names the same ten and counts the rest.
 func TestAPassedOverInstanceListsTenOfItsStepsAndSaysHowManyThereWere(t *testing.T) {
 	f := newFixture(t)
 	v1, err := f.svc.CreateDefinition(f.ctx, fannedOut(f.project, true))
@@ -329,8 +329,12 @@ func TestAPassedOverInstanceListsTenOfItsStepsAndSaysHowManyThereWere(t *testing
 	}
 	requireCauseOf(t, reply, body, "nowhere_to_land", 25, want...)
 	reason := reply.PassedOver[0].Reason
-	if !strings.Contains(reason, `"Check 01", "`+longCheckName+`", "Check 03"`) || !strings.Contains(reason, `"Check 24" and "Check 25"`) {
-		t.Errorf("the sentence beside the list no longer names every step in full: %.200s…", reason)
+	// The sentence is cut where the list is: the first ten steps, a name no
+	// longer than the list gives it, and how many were left out. It named
+	// every step in full until it was bounded too, and this asserted that.
+	if !strings.Contains(reason, `"Check 01", "`+strings.Repeat("é", 255)+`", "Check 03"`) || !strings.Contains(reason, `"Check 10" and 15 more`) ||
+		strings.Contains(reason, longCheckName) || strings.Contains(reason, `"Check 11"`) {
+		t.Errorf("the sentence beside the list is not cut where the list is: %.200s…", reason)
 	}
 }
 
