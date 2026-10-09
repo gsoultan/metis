@@ -67,9 +67,10 @@ it. The Roles view on the Platform access page and the actions each role is
 required for, except the role names and their sentences, which come from
 `domain/roles.ts` and are still English. In the dialog that migrates running
 instances: what it says of an apply that was sent to a second administrator,
-and of the instances a run did not move and why — the rest of that dialog is
-English, and so are the reasons the server gives for asking a second
-administrator, which are its sentences. **Everything else is still hardcoded
+of the instances a run did not move and why, and of an answer it could not
+read — in the dialog and in the toasts that say the same once the dialog has
+gone. The rest of that dialog is English, and so are the reasons the server
+gives for asking a second administrator, which are its sentences. **Everything else is still hardcoded
 English** — the rest of the pages, forms, designer and decision editor, which is
 the large majority of the strings.
 
