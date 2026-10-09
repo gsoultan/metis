@@ -108,12 +108,18 @@ func (w fingerprintWriter) list(name string, things [][]string) {
 
 // names writes a named list of single names: sorted, and each once.
 func (w fingerprintWriter) names(name string, names []string) {
-	sorted := slices.Clone(names)
-	slices.Sort(sorted)
-	sorted = slices.Compact(sorted)
+	sorted := fingerprintNames(names)
 	things := make([][]string, 0, len(sorted))
 	for _, one := range sorted {
 		things = append(things, []string{one})
 	}
 	w.list(name, things)
+}
+
+// fingerprintNames is a list of names as a policy holds it: sorted, each
+// once. The caller's own list is left as it was.
+func fingerprintNames(names []string) []string {
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	return slices.Compact(sorted)
 }

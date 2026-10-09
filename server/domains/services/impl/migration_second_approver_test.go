@@ -156,11 +156,13 @@ func TestAStoredMigrationCommandReadsBackAsItWasAsked(t *testing.T) {
 		t.Fatal("the command read back is another policy than the one stored")
 	}
 	for name, damage := range map[string]func(map[string]any){
-		"a field nothing wrote":      func(d map[string]any) { d["approval"] = map[string]any{"approved_by": "omar"} },
-		"no source version":          func(d map[string]any) { d["source_definition_id"] = "" },
-		"a target that is no id":     func(d map[string]any) { d["target_definition_id"] = "v2" },
-		"an instance that is no id":  func(d map[string]any) { d["instances"] = []any{"the first one"} },
-		"an action of no known kind": func(d map[string]any) { d["node_actions"] = map[string]any{"ops": map[string]any{"kind": "waive", "reason": "moot"}} },
+		"a field nothing wrote":     func(d map[string]any) { d["approval"] = map[string]any{"approved_by": "omar"} },
+		"no source version":         func(d map[string]any) { d["source_definition_id"] = "" },
+		"a target that is no id":    func(d map[string]any) { d["target_definition_id"] = "v2" },
+		"an instance that is no id": func(d map[string]any) { d["instances"] = []any{"the first one"} },
+		"an action of no known kind": func(d map[string]any) {
+			d["node_actions"] = map[string]any{"ops": map[string]any{"kind": "waive", "reason": "moot"}}
+		},
 	} {
 		damaged := migrationCommandDocument(src, tgt, mapping, asked)
 		damage(damaged)

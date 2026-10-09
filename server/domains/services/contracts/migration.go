@@ -28,6 +28,11 @@ type MigrationService interface {
 	// uses this one, so that "applied" is not said of a run that left an
 	// instance running the old version.
 	ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...MigrationOption) (entities.MigrationResult, error)
+
+	// A migration that skips a step, or drops a control instances have not
+	// passed, is not applied on one administrator's call: it is asked for
+	// here, and applied when a second administrator approves the request.
+	MigrationApprovalRequester
 }
 
 // MigrationOption adjusts one migration.
