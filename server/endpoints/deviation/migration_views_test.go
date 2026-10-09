@@ -2,6 +2,7 @@ package deviation
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -73,14 +74,15 @@ func TestAMigrationPlanIsWrittenThroughItsView(t *testing.T) {
 
 // An instance a run left alone, as either route that lists them writes it:
 // the instance, the cause as a code, the steps the cause is about — a list
-// always, empty for a cause about no step, each step by id and by name — and
-// the sentence. No list is null, and none of them for a run that left nobody.
+// always, empty for a cause about no step, each step by id and by name —
+// how many steps that was in all, and the sentence. No list is null, and
+// none of them for a run that left nobody.
 func TestAPassedOverInstanceIsWrittenWithItsCauseAndItsSteps(t *testing.T) {
 	t.Parallel()
 	first, second := uuid.MustParse("0198f3a0-0000-7000-8000-0000000000a1"), uuid.MustParse("0198f3a0-0000-7000-8000-0000000000a2")
 	written, err := json.Marshal(PassedOverViewsOf([]entities.PassedOverInstance{
 		{Instance: &entities.ProcessInstance{ID: first}, Cause: entities.PassedOverNowhereToLand,
-			Steps:  []entities.PassedOverStep{{NodeID: "legal", Name: "Legal review"}, {NodeID: "gate", Name: "gate"}},
+			Steps: []entities.PassedOverStep{{NodeID: "legal", Name: "Legal review"}, {NodeID: "gate", Name: "gate"}}, StepsInAll: 12,
 			Reason: "It had work there."},
 		{Instance: &entities.ProcessInstance{ID: second}, Cause: entities.PassedOverNoLongerRunning, Reason: "It had finished."},
 	}))
@@ -88,8 +90,8 @@ func TestAPassedOverInstanceIsWrittenWithItsCauseAndItsSteps(t *testing.T) {
 		t.Fatalf("write the list: %v", err)
 	}
 	const want = `[{"instance_id":"0198f3a0-0000-7000-8000-0000000000a1","cause":"nowhere_to_land",` +
-		`"steps":[{"node_id":"legal","name":"Legal review"},{"node_id":"gate","name":"gate"}],"reason":"It had work there."},` +
-		`{"instance_id":"0198f3a0-0000-7000-8000-0000000000a2","cause":"no_longer_running","steps":[],"reason":"It had finished."}]`
+		`"steps":[{"node_id":"legal","name":"Legal review"},{"node_id":"gate","name":"gate"}],"steps_in_all":12,"reason":"It had work there."},` +
+		`{"instance_id":"0198f3a0-0000-7000-8000-0000000000a2","cause":"no_longer_running","steps":[],"steps_in_all":0,"reason":"It had finished."}]`
 	if string(written) != want {
 		t.Errorf("the list is written\n  %s\nwant\n  %s", written, want)
 	}
@@ -110,7 +112,7 @@ func TestTheApprovalOfAMigrationAnswersInTheMigrateRoutesShapes(t *testing.T) {
 	instance := uuid.Must(uuid.NewV7())
 	result := entities.MigrationResult{Changed: 1, PassedOver: []entities.PassedOverInstance{{
 		Instance: &entities.ProcessInstance{ID: instance}, Cause: entities.PassedOverLeftTheStep,
-		Steps: []entities.PassedOverStep{{NodeID: "opsApprove", Name: "Operations approve"}}, Reason: "It had left.",
+		Steps: []entities.PassedOverStep{{NodeID: "opsApprove", Name: "Operations approve"}}, StepsInAll: 1, Reason: "It had left.",
 	}}}
 	reply := approvalOf(entities.DeviationRequestOutcome{Request: wholeRequest(1), Applied: true, MigrationPlan: &plan, MigrationResult: &result})
 
@@ -121,10 +123,64 @@ func TestTheApprovalOfAMigrationAnswersInTheMigrateRoutesShapes(t *testing.T) {
 	if view.SourceKey != "quotation" || !view.RequiresSecondApprover || !slices.Equal(view.SecondApproverReasons, []string{"a reason"}) {
 		t.Errorf("the plan of an approved migration: %+v", view)
 	}
-	want := []PassedOverView{{InstanceID: instance.String(), Cause: "left_the_step",
-		Steps: []PassedOverStepView{{NodeID: "opsApprove", Name: "Operations approve"}}, Reason: "It had left."}}
-	if got, _ := json.Marshal(reply.PassedOver); string(got) != mustJSON(t, want) {
-		t.Errorf("passed_over is %s, want %s", got, mustJSON(t, want))
+	want := `[{"instance_id":"` + instance.String() + `","cause":"left_the_step",` +
+		`"steps":[{"node_id":"opsApprove","name":"Operations approve"}],"steps_in_all":1,"reason":"It had left."}]`
+	if got := mustJSON(t, reply.PassedOver); got != want {
+		t.Errorf("passed_over is %s, want %s", got, want)
+	}
+}
+
+// The list of those a run passed over has a size on both routes: the first
+// two hundred, in the order the run came to them, and beside it how many
+// there were. An approved migration that passed nobody over says so with an
+// empty list and a nought; the approval of a waive, which passes nobody over
+// because it is no migration, has neither.
+func TestTheApprovalListsTwoHundredOfThoseItsRunPassedOverAndSaysHowManyThereWere(t *testing.T) {
+	t.Parallel()
+	plan := entities.MigrationPlan{SourceKey: "quotation", Instances: 250}
+	passedOverBy := func(n int) []entities.PassedOverInstance {
+		passed := make([]entities.PassedOverInstance, 0, n)
+		for i := range n {
+			passed = append(passed, entities.PassedOverInstance{
+				Instance: &entities.ProcessInstance{ID: uuid.MustParse(fmt.Sprintf("0198f3a0-0000-7000-8000-%012d", i))},
+				Cause:    entities.PassedOverNoLongerRunning, Reason: "It had finished.",
+			})
+		}
+		return passed
+	}
+	type listed struct {
+		PassedOver *[]struct {
+			InstanceID string `json:"instance_id"`
+		} `json:"passed_over"`
+		PassedOverInAll *int `json:"passed_over_in_all"`
+	}
+	read := func(outcome entities.DeviationRequestOutcome) (listed, string) {
+		t.Helper()
+		raw := mustJSON(t, approvalOf(outcome))
+		var reply listed
+		if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+			t.Fatalf("read the approval: %v (%s)", err, raw)
+		}
+		return reply, raw
+	}
+	for _, c := range []struct{ passed, shown int }{{0, 0}, {200, 200}, {250, 200}} {
+		result := entities.MigrationResult{PassedOver: passedOverBy(c.passed)}
+		reply, raw := read(entities.DeviationRequestOutcome{Request: wholeRequest(1), MigrationPlan: &plan, MigrationResult: &result})
+		if reply.PassedOver == nil || reply.PassedOverInAll == nil || len(*reply.PassedOver) != c.shown || *reply.PassedOverInAll != c.passed {
+			t.Fatalf("a run that passed %d over is listed as %.300s, want %d of %d", c.passed, raw, c.shown, c.passed)
+		}
+		for i, entry := range *reply.PassedOver {
+			if want := fmt.Sprintf("0198f3a0-0000-7000-8000-%012d", i); entry.InstanceID != want {
+				t.Fatalf("entry %d is %s, want %s: the first the run came to, in its order", i, entry.InstanceID, want)
+			}
+		}
+	}
+	if len(PassedOverViewsOf(passedOverBy(1000))) != 200 {
+		t.Error("the list of those passed over is longer than two hundred")
+	}
+	waive, raw := read(entities.DeviationRequestOutcome{Request: wholeRequest(1), Applied: true})
+	if waive.PassedOver != nil || waive.PassedOverInAll != nil {
+		t.Errorf("the approval of a waive says who was passed over: %s", raw)
 	}
 }
 

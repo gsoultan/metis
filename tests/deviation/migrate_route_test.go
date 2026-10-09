@@ -44,14 +44,14 @@ func (h *deviationHarness) migrateWith(t *testing.T, token string, body map[stri
 }
 
 // passedOverEntry is one instance a reply says a run left alone, as it is
-// written: the instance, the cause as a code, the steps the cause is about
-// and the sentence.
+// written: the instance, the cause as a code, the steps the cause is about,
+// how many of them there were — these, all of them — and the sentence.
 func passedOverEntry(instanceID uuid.UUID, cause, reason string, steps ...[2]string) string {
 	named := make([]map[string]string, 0, len(steps))
 	for _, step := range steps {
 		named = append(named, map[string]string{"node_id": step[0], "name": step[1]})
 	}
-	written, err := json.Marshal([]map[string]any{{"instance_id": instanceID.String(), "cause": cause, "steps": named, "reason": reason}})
+	written, err := json.Marshal([]map[string]any{{"instance_id": instanceID.String(), "cause": cause, "steps": named, "steps_in_all": len(named), "reason": reason}})
 	if err != nil {
 		panic(err)
 	}
@@ -59,8 +59,9 @@ func passedOverEntry(instanceID uuid.UUID, cause, reason string, steps ...[2]str
 }
 
 // requirePassedOver fails unless the reply's passed_over is exactly want — an
-// entry with the four fields a client reads and no other — and its cause is
-// one the server's closed set names.
+// entry with the five fields a client reads and no other — its cause is one
+// the server's closed set names, and the reply says beside the list that it
+// is all of them.
 func requirePassedOver(t *testing.T, raw, want string) {
 	t.Helper()
 	written := object(t, raw)
@@ -73,11 +74,14 @@ func requirePassedOver(t *testing.T, raw, want string) {
 	}
 	entries, _ := written["passed_over"].([]any)
 	for _, entry := range entries {
-		requireFields(t, entry, "an instance passed over", "instance_id", "cause", "steps", "reason")
+		requireFields(t, entry, "an instance passed over", "instance_id", "cause", "steps", "steps_in_all", "reason")
 		cause, _ := entry.(map[string]any)["cause"].(string)
 		if !entities.PassedOverCause(cause).Valid() {
 			t.Fatalf("the cause %q is none the server names", cause)
 		}
+	}
+	if fmt.Sprint(written["passed_over_in_all"]) != fmt.Sprint(len(entries)) {
+		t.Fatalf("passed_over_in_all is %v beside %d passed over: %s", written["passed_over_in_all"], len(entries), raw)
 	}
 }
 
@@ -104,7 +108,7 @@ func TestAMigrationThatSkipsAStepIsSentForApproval(t *testing.T) {
 		preview.Plan["requires_second_approver"] != true || !strings.Contains(raw, `"passed_over":[]`) {
 		t.Fatalf("the dry run: %d (%s), want 200 and the plan saying it needs a second administrator", status, raw)
 	}
-	requireFields(t, object(t, raw), "a dry run", "plan", "applied", "passed_over")
+	requireFields(t, object(t, raw), "a dry run", "plan", "applied", "passed_over", "passed_over_in_all")
 	requireFields(t, preview.Plan, "the plan of a dry run", planFieldsOfASkip...)
 	if reasons, _ := preview.Plan["second_approver_reasons"].([]any); len(reasons) != 1 || reasons[0] != skipsTheApproval {
 		t.Fatalf("why the dry run says it needs somebody else: %v", preview.Plan["second_approver_reasons"])
@@ -115,11 +119,11 @@ func TestAMigrationThatSkipsAStepIsSentForApproval(t *testing.T) {
 	if status != http.StatusAccepted {
 		t.Fatalf("an apply that skips a step: %d (%s), want 202: it was taken, and nothing has been done", status, raw)
 	}
-	if asked.PendingApproval == nil || asked.Applied == nil || *asked.Applied || !strings.Contains(raw, `"passed_over":[]`) {
+	if asked.PendingApproval == nil || asked.Applied == nil || *asked.Applied || !strings.Contains(raw, `"passed_over":[],"passed_over_in_all":0`) {
 		t.Fatalf("the 202: %s, want nothing applied, nobody passed over and the request that waits", raw)
 	}
 	written := object(t, raw)
-	requireFields(t, written, "an apply sent for approval", "plan", "applied", "passed_over", "pending_approval")
+	requireFields(t, written, "an apply sent for approval", "plan", "applied", "passed_over", "passed_over_in_all", "pending_approval")
 	requireFields(t, written["pending_approval"], "the request that waits", "request_id", "status", "requested_by", "expires_at", "because")
 	requireFields(t, written["plan"], "the plan of an apply sent for approval", planFieldsOfASkip...)
 	pending := asked.PendingApproval
@@ -175,6 +179,48 @@ func TestAMigrationThatSkipsAStepIsSentForApproval(t *testing.T) {
 	}
 	if h.versionOf(t, instanceID) != m.v2 {
 		t.Fatal("the approved migration did not move the instance")
+	}
+}
+
+// The approval a run is made under is the server's to find, from the request
+// a second administrator decided. Nothing a caller sends stands in for it:
+// the route reads no such field. A body that names an approved request — one
+// that was approved, for this very migration, and has been carried out — and
+// says who approved it, beside the skip, is answered as the skip alone is: a
+// 202, a request of its own now waiting, and nothing moved.
+func TestAnApprovalSentInTheBodyIsIgnoredAndMovesNothing(t *testing.T) {
+	h := newDeviationRouteHarness(t)
+	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+	m := h.twoVersionsToMigrate(t)
+	h.waitingAtTheApproval(t)
+	spent := h.askToMigrate(t, boss, m)
+	if status, approved, raw := h.decide(t, deputy, spent, "approve", decisionReason); status != http.StatusOK || !approved.Applied {
+		t.Fatalf("deputy approves the first migration: %d (%s)", status, raw)
+	}
+	// A second instance arrives at the step; the same migration is sent
+	// again, carrying the approval the first was run under.
+	instanceID := h.waitingAtTheApproval(t)
+	body := skipOf(m, "opsApprove", skipReason)
+	approval := map[string]any{"request_id": spent, "requested_by": "boss", "approved_by": "deputy", "approved_by_id": h.accountID(t, "deputy").String(),
+		"decided_at": time.Now().UTC().Format(time.RFC3339), "self_approved": false}
+	for _, name := range []string{"approved_request_id", "approved_request", "request_id", "approval", "Approval", "ApprovedRequest", "options"} {
+		body[name] = spent
+	}
+	body["approval"], body["Approval"] = approval, approval
+	body["options"] = map[string]any{"approval": approval, "approved_request": spent}
+
+	status, asked, raw := h.migrateWith(t, boss, body)
+	if status != http.StatusAccepted || asked.PendingApproval == nil || asked.Applied == nil || *asked.Applied {
+		t.Fatalf("a skip that carries an approval in its body: %d (%s), want 202 and nothing applied", status, raw)
+	}
+	if asked.PendingApproval.RequestID == spent || asked.PendingApproval.Status != "pending_approval" || asked.PendingApproval.RequestedBy != "boss" {
+		t.Fatalf("the request that waits is %+v, want one of its own, asked for by boss", asked.PendingApproval)
+	}
+	if h.versionOf(t, instanceID) != m.v1 || h.rowCount(t, instanceID) != 0 || h.openTasksOn(t, instanceID, "opsApprove") != 1 {
+		t.Fatal("the skip that carried an approval in its body moved the instance, or was recorded as made")
+	}
+	if h.requestStatus(t, spent) != "applied" || h.requestCount(t) != 2 {
+		t.Fatalf("the spent request reads %s among %d, want it applied as it was, and the one new request", h.requestStatus(t, spent), h.requestCount(t))
 	}
 }
 
@@ -356,7 +402,7 @@ func TestAMappingOnlyMigrationStillAppliesInOneCall(t *testing.T) {
 			reply.Plan["requires_second_approver"] != false || !strings.Contains(raw, `"passed_over":[]`) {
 			t.Fatalf("a mapping-only migration (dry run %v): %d (%s), want 200, nobody asked and nobody passed over", dryRun, status, raw)
 		}
-		requireFields(t, object(t, raw), "the reply to a migration that needs nobody else", "plan", "applied", "passed_over")
+		requireFields(t, object(t, raw), "the reply to a migration that needs nobody else", "plan", "applied", "passed_over", "passed_over_in_all")
 		requireFields(t, reply.Plan, "the plan of a migration that needs nobody else",
 			"source_key", "source_version", "target_version", "target_id", "instances", "moves", "warnings", "compliance_holds", "removed_nodes",
 			"requires_second_approver")
@@ -399,7 +445,6 @@ func TestAMigrationThePlanRefusesIsRefusedAsBeforeAndAsksNobody(t *testing.T) {
 			said = append(said, fmt.Sprint(refusal))
 		}
 		want := invalid(strings.Join(said, "; "))
-		t.Logf("refused, and told: %s", want)
 		if status, _, raw := h.migrateWith(t, boss, body(false)); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
 			t.Fatalf("the apply of %s: %d (%s), want 400 %s", name, status, raw, want)
 		}
@@ -520,7 +565,7 @@ func TestAnApprovedRunSaysOverTheAPIWhichInstanceItPassedOverAndWhy(t *testing.T
 	if status != http.StatusOK || !approved.Applied || approved.Request.Status != "applied" {
 		t.Fatalf("deputy approves: %d (%s), want 200: the skip was made, so something was applied", status, raw)
 	}
-	requireFields(t, object(t, raw), "the approval of a migration", "request", "applied", "plan", "passed_over")
+	requireFields(t, object(t, raw), "the approval of a migration", "request", "applied", "plan", "passed_over", "passed_over_in_all")
 	requirePassedOver(t, raw, passedOverEntry(instanceID, "nowhere_to_land",
 		`When the migration came to move it, it had work at "Second approval", and version 2 has nowhere to put that, so it was not moved. `+
 			`It stays on version 1. Plan the migration again for where it now stands: it needs a mapping, or a decision, for that work.`,
@@ -580,7 +625,7 @@ func TestTheMigrateRouteSaysWhichInstanceItPassedOverAndWhy(t *testing.T) {
 		t.Fatalf("the apply: %d (%s), want 200", got.status, got.raw)
 	}
 	written := object(t, got.raw)
-	requireFields(t, written, "an apply that passed an instance over", "plan", "applied", "passed_over")
+	requireFields(t, written, "an apply that passed an instance over", "plan", "applied", "passed_over", "passed_over_in_all")
 	if written["applied"] != false {
 		t.Fatalf("applied is %v although nothing was written to any instance: %s", written["applied"], got.raw)
 	}

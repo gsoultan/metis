@@ -203,9 +203,13 @@ type ApproveDeviationRequestResponse struct {
 	Plan any `json:"plan,omitzero"`
 	// PassedOver are the instances an approved migration's run left as they
 	// were, each with why: a list for a migration, empty when the run left
-	// nobody behind, and absent for a waive.
+	// nobody behind, and absent for a waive. It shows the first two hundred.
 	PassedOver []PassedOverView `json:"passed_over,omitzero"`
-	Err        error            `json:"err,omitzero"`
+	// PassedOverInAll is how many instances the run passed over, listed in
+	// PassedOver or not. Beside the list for a migration, nought when the run
+	// left nobody behind; absent, as the list is, for a waive.
+	PassedOverInAll *int  `json:"passed_over_in_all,omitzero"`
+	Err             error `json:"err,omitzero"`
 }
 
 // PassedOverView is one instance a migration's run left alone, as a reply
@@ -218,8 +222,12 @@ type PassedOverView struct {
 	// it; a cause a client does not know is said with Reason.
 	Cause string `json:"cause"`
 	// Steps are the steps the cause is about, in the order Reason names
-	// them. A list always, empty for a cause that is about no step.
+	// them: the first ten. A list always, empty for a cause that is about no
+	// step.
 	Steps []PassedOverStepView `json:"steps"`
+	// StepsInAll is how many steps the cause is about, listed in Steps or
+	// not. Nought for a cause that is about no step.
+	StepsInAll int `json:"steps_in_all"`
 	// Reason is why, in plain English words; it names a step by its name, not
 	// its id.
 	Reason string `json:"reason"`
@@ -227,7 +235,9 @@ type PassedOverView struct {
 
 // PassedOverStepView is a step the cause of passing an instance over is
 // about: its id in the version the instance runs, and the name that version
-// gives it — the id again where it gives none.
+// gives it — the id again where it gives none. Each is cut at 255 characters,
+// as a step's name is wherever it is recorded or shown; an id that long is
+// not one to act on.
 type PassedOverStepView struct {
 	NodeID string `json:"node_id"`
 	Name   string `json:"name"`

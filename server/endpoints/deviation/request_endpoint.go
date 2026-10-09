@@ -114,19 +114,37 @@ func approvalOf(outcome entities.DeviationRequestOutcome) ApproveDeviationReques
 		response.Plan = MigrationPlanViewOf(*outcome.MigrationPlan)
 	}
 	if outcome.MigrationResult != nil {
-		response.PassedOver = PassedOverViewsOf(outcome.MigrationResult.PassedOver)
+		inAll := len(outcome.MigrationResult.PassedOver)
+		response.PassedOver, response.PassedOverInAll = PassedOverViewsOf(outcome.MigrationResult.PassedOver), &inAll
 	}
 	return response
 }
 
+// maxPassedOverShown is how many of the instances a run passed over a reply
+// lists. A run over a great many instances can pass every one of them over;
+// how many there were is said beside the list.
+const maxPassedOverShown = 200
+
 // PassedOverViewsOf is the instances a run left alone as a reply lists them:
-// an empty list, never null, when there are none, and each entry's steps a
-// list likewise. The migrate route and the approval of a migration both list
-// them through this, so a client reads one shape from either.
+// the first maxPassedOverShown, in the order the run came to them — an empty
+// list, never null, when there are none, and each entry's steps a list
+// likewise. How many there were in all is len(passed), and a reply says it
+// beside the list. The migrate route and the approval of a migration both
+// list them through this, so a client reads one shape from either.
+//
+// It writes the cause it is given. That is never empty, and never one
+// outside the closed set: a run's account of an instance is made in one
+// place, from one of eight constructors, and the service's tests hold it to
+// that (TestNothingButPassedOverMakesARunsAccountOfAnInstanceLeftAlone,
+// TestEveryWayOfBeingPassedOverHasACauseAndNamesItsSteps). Refusing here
+// instead would answer a run that has already changed instances as a failure.
 func PassedOverViewsOf(passed []entities.PassedOverInstance) []PassedOverView {
+	passed = passed[:min(len(passed), maxPassedOverShown)]
 	views := make([]PassedOverView, 0, len(passed))
 	for _, one := range passed {
-		view := PassedOverView{Cause: string(one.Cause), Steps: make([]PassedOverStepView, 0, len(one.Steps)), Reason: one.Reason}
+		view := PassedOverView{
+			Cause: string(one.Cause), Steps: make([]PassedOverStepView, 0, len(one.Steps)), StepsInAll: one.StepsInAll, Reason: one.Reason,
+		}
 		if one.Instance != nil {
 			view.InstanceID = one.Instance.ID.String()
 		}

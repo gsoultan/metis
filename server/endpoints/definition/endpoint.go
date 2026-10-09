@@ -431,11 +431,14 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		// The plan was made before the apply and says what would happen; the
 		// result says what did. An instance that left its step in between was
 		// left alone, and "applied" on its own would have said otherwise: it is
-		// true unless the run passed instances over and wrote to none.
+		// true unless the run passed instances over and wrote to none. That is
+		// asked of every instance it passed over, whatever the reply has room
+		// to list of them.
 		return MigrateInstancesResponse{
-			Plan:       plan,
-			Applied:    result.Changed > 0 || len(result.PassedOver) == 0,
-			PassedOver: passedOverViews(result.PassedOver),
+			Plan:            plan,
+			Applied:         result.Changed > 0 || len(result.PassedOver) == 0,
+			PassedOver:      passedOverViews(result.PassedOver),
+			PassedOverInAll: len(result.PassedOver),
 		}, nil
 	}
 }

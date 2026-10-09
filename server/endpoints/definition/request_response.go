@@ -277,6 +277,10 @@ type MigrateInstancesResponse struct {
 	// apply left nobody behind and for a dry run, so a client need not ask
 	// whether the field is there.
 	PassedOver []PassedOverView `json:"passed_over"`
+	// PassedOverInAll is how many instances the apply passed over, listed in
+	// PassedOver or not: the list shows the first two hundred. Always present,
+	// nought when the apply left nobody behind and for a dry run.
+	PassedOverInAll int `json:"passed_over_in_all"`
 	// PendingApproval says the apply was not made but sent to a second
 	// administrator: which request waits, who asked, until when and why it
 	// needs somebody else. Left out of every reply that waits on nobody.
@@ -292,7 +296,7 @@ type MigrateInstancesResponse struct {
 type PassedOverView = deviation.PassedOverView
 
 // passedOverViews is the instances a run left alone as the reply lists them:
-// an empty list, never null, when there are none.
+// the first two hundred, an empty list, never null, when there are none.
 func passedOverViews(passed []entities.PassedOverInstance) []PassedOverView {
 	return deviation.PassedOverViewsOf(passed)
 }
@@ -315,19 +319,23 @@ type migrateInstancesReply struct {
 	Plan            deviation.MigrationPlanView    `json:"plan"`
 	Applied         bool                           `json:"applied"`
 	PassedOver      []PassedOverView               `json:"passed_over"`
+	PassedOverInAll int                            `json:"passed_over_in_all"`
 	PendingApproval *deviation.PendingApprovalView `json:"pending_approval,omitzero"`
 	Err             error                          `json:"err,omitzero"`
 }
 
 // MarshalJSON writes the reply through its views. It adds nothing and leaves
 // nothing out: what a reply held before the views were there is written to
-// the letter as it was.
+// the letter as it was. A field added to the reply is written only once it
+// is added here and to migrateInstancesReply;
+// TestEveryFieldOfTheMigrateReplyIsWritten fails until it is.
 func (r MigrateInstancesResponse) MarshalJSON() ([]byte, error) {
 	reply := migrateInstancesReply{
-		Plan:       deviation.MigrationPlanViewOf(r.Plan),
-		Applied:    r.Applied,
-		PassedOver: r.PassedOver,
-		Err:        r.Err,
+		Plan:            deviation.MigrationPlanViewOf(r.Plan),
+		Applied:         r.Applied,
+		PassedOver:      r.PassedOver,
+		PassedOverInAll: r.PassedOverInAll,
+		Err:             r.Err,
 	}
 	if r.PendingApproval != nil {
 		view := deviation.PendingApprovalViewOf(*r.PendingApproval)

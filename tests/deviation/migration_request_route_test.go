@@ -407,7 +407,7 @@ func TestAMigrationRequestIsAskedForAndDecidedOverTheAPI(t *testing.T) {
 		t.Fatal("the approved migration left the instance on the old version")
 	}
 	written := object(t, raw)
-	requireFields(t, written, "the approval of a migration", "request", "applied", "plan", "passed_over")
+	requireFields(t, written, "the approval of a migration", "request", "applied", "plan", "passed_over", "passed_over_in_all")
 	requireFields(t, written["request"], "an applied migration request",
 		append([]string{"source_definition_id", "target_definition_id", "decided_by", "decided_at", "decision_reason"}, requestFields...)...)
 	if passed, isList := written["passed_over"].([]any); !isList || len(passed) != 0 || !strings.Contains(raw, `"passed_over":[]`) {
