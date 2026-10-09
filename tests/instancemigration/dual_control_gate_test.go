@@ -419,3 +419,170 @@ func TestASkipOverAVersionWhoseOnlyInstanceIsSuspendedStillAsks(t *testing.T) {
 		t.Fatalf("the run acted on a suspended instance: %s on %v", after.Status, after.Definition)
 	}
 }
+
+// What an approval covers is checked twice: when it is given, and again by
+// the gate, of the plan the run is made from. An instance that arrives on the
+// version after the approval — in the instant before the run plans, or any
+// time before an in-process apply — was shown to nobody: the gate refuses the
+// whole run, nothing moves, and the request says why.
+func TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate(t *testing.T) {
+	// staged is a quotation parked on the operations approval, with the next
+	// version staged so that a new quotation still starts on the old one.
+	staged := func(t *testing.T, f *fixture) (v1, v2 uuid.UUID) {
+		t.Helper()
+		v1, err := f.svc.CreateDefinition(f.ctx, quotationV1(f))
+		if err != nil {
+			t.Fatalf("deploy v1: %v", err)
+		}
+		if _, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil); err != nil {
+			t.Fatalf("start a quotation: %v", err)
+		}
+		f.completeTaskOn(t, "supervisorReview", "sam")
+		v2, err = f.svc.DeployDefinition(f.ctx, quotationV2(f), false)
+		if err != nil {
+			t.Fatalf("stage v2: %v", err)
+		}
+		return v1, v2
+	}
+	untouched := func(t *testing.T, f *fixture, v1 uuid.UUID) {
+		t.Helper()
+		on := f.stillOn(t, v1.String())
+		if len(on) != 2 {
+			t.Fatalf("%d instance(s) are on the old version, want both", len(on))
+		}
+		for _, instance := range on {
+			if rows := f.ledger(t, instance.ID); len(rows) != 0 {
+				t.Fatalf("the refused run left %d ledger row(s) on %s", len(rows), instance.ID)
+			}
+			f.assertNoMigrationEntries(t, instance.ID)
+		}
+	}
+
+	t.Run("between the approval and its run", func(t *testing.T) {
+		f, listing := newRacedFixture(t)
+		v1, v2 := staged(t, f)
+		dita := adminAs(f.ctx, "dita")
+		pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		// The approval has listed the version's instances to plan again; the
+		// newcomer starts before the run lists them.
+		var newcomer uuid.UUID
+		listing.on, listing.fire = listing.calls+1, func() {
+			started, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil)
+			if err != nil {
+				t.Errorf("start the newcomer: %v", err)
+			}
+			newcomer = started
+		}
+		out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+		reached(t, listing)
+		if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "does not cover this migration") ||
+			!strings.Contains(err.Error(), newcomer.String()) || out.Applied {
+			t.Fatalf("the run, with a newcomer on the version: %+v %v, want it refused at the gate naming the newcomer", out, err)
+		}
+		read, err := f.svc.GetDeviationRequest(dita, pending.RequestID)
+		if err != nil || read.Status != entities.DeviationRequestInterrupted || read.DecidedBy != "omar" {
+			t.Fatalf("the request reads %q (err %v), want interrupted: it was approved, and its run did not go ahead", read.Status, err)
+		}
+		said, _ := read.Outcome["error"].(string)
+		if !strings.HasPrefix(said, "the run was refused before it moved anything: 1 instance(s) reached the version being migrated from after it was asked for") ||
+			!strings.Contains(said, newcomer.String()) || read.Outcome["changed"] != float64(0) {
+			t.Fatalf("its outcome %v, want the gate's reason and that nothing was changed", read.Outcome)
+		}
+		untouched(t, f, v1)
+	})
+
+	t.Run("before an apply under the approved request", func(t *testing.T) {
+		f := newFixture(t)
+		v1, v2 := staged(t, f)
+		pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		f.leftApproved(t, pending.RequestID, "1 minute")
+		newcomer, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil)
+		if err != nil {
+			t.Fatalf("start the newcomer: %v", err)
+		}
+		under := append(slices.Clip(skipOps("the role was eliminated")), servicecontracts.WithApprovedRequest(pending.RequestID))
+		_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+		if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "does not cover this migration: 1 instance(s) reached") ||
+			!strings.Contains(err.Error(), newcomer.String()) {
+			t.Fatalf("an apply under the approved request with a newcomer on the version: %v, want it forbidden naming the newcomer", err)
+		}
+		untouched(t, f, v1)
+	})
+}
+
+// The approval a run records is the stored request's, never the caller's
+// (Ruling 30). An approval a caller writes into the options is overwritten
+// with what the gate verified — with nothing, for a migration that needs
+// nobody else — so it is recorded nowhere, on no row and in no entry.
+func TestAnApprovalACallerWritesIsRecordedNowhere(t *testing.T) {
+	forged := func(approval servicecontracts.MigrationApproval) servicecontracts.MigrationOption {
+		return func(o *servicecontracts.MigrationOptions) { o.Approval = approval }
+	}
+	mallory := servicecontracts.MigrationApproval{RequestedBy: "dita", RequestedByID: accountOf("dita"),
+		ApprovedBy: "mallory", ApprovedByID: accountOf("mallory"), DecidedAt: time.Now(), SelfApproved: true, Organization: uuid.Must(uuid.NewV7())}
+
+	t.Run("on a migration that needs nobody else", func(t *testing.T) {
+		f := newFixture(t)
+		first, second := f.parkedOnOpsApprove(t)
+		opts := append(slices.Clip(decideOps(servicecontracts.NodeActionCancel, "re-quote")), forged(mallory))
+		result, err := f.svc.ApplyInstanceMigration(f.ctx, uuidOf(t, first), uuidOf(t, second), nil, opts...)
+		if err != nil || result.Changed != 1 {
+			t.Fatalf("a cancel carrying an approval nobody stored: %+v %v, want it applied on the one call", result, err)
+		}
+		f.requireNoTraceOf(t, "mallory")
+	})
+
+	t.Run("beside a request that was really approved", func(t *testing.T) {
+		f := newFixture(t)
+		first, second := f.parkedOnOpsApprove(t)
+		v1, v2 := uuidOf(t, first), uuidOf(t, second)
+		pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, skipOps("the role was eliminated")...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		f.leftApproved(t, pending.RequestID, "1 minute")
+		// The real request's id, and everything else made up.
+		made := mallory
+		made.RequestID = pending.RequestID
+		opts := append(slices.Clip(skipOps("the role was eliminated")), forged(made))
+		result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...)
+		if err != nil || result.Changed != 1 {
+			t.Fatalf("the apply under the approved request: %+v %v", result, err)
+		}
+		f.requireNoTraceOf(t, "mallory")
+		rows := f.ledger(t, f.onlyInstance(t).ID)
+		if len(rows) != 1 || rows[0].ApprovedBy != "omar" || rows[0].ApprovedByID != accountOf("omar") || rows[0].RequestID != pending.RequestID {
+			t.Fatalf("the skip's row: %+v, want it to name who the stored request says approved", rows)
+		}
+		if _, said := rows[0].Details["self_approved"]; said {
+			t.Fatalf("the row says self_approved, which only the caller's made-up approval said: %v", rows[0].Details)
+		}
+	})
+}
+
+// requireNoTraceOf fails when the only instance's ledger or trail names
+// somebody, anywhere.
+func (f *fixture) requireNoTraceOf(t *testing.T, name string) {
+	t.Helper()
+	instance := f.onlyInstance(t)
+	for _, row := range f.ledger(t, instance.ID) {
+		if row.ApprovedBy == name || row.ApprovedByID == accountOf(name) || row.Actor == name {
+			t.Fatalf("a ledger row names %s: %+v", name, row)
+		}
+	}
+	entries, err := f.svc.GetAuditLogs(f.ctx, instance.ID)
+	if err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Narrative, name) || entry.Data["approved_by"] == name {
+			t.Fatalf("a %s entry names %s: %q %v", entry.Type, name, entry.Narrative, entry.Data)
+		}
+	}
+}
