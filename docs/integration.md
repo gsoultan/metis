@@ -1079,7 +1079,8 @@ request*.
 the approver by account id, not by name. The one exception is an organization
 the operator has named as having one administrator
 ([the runbooks](runbooks.md#an-organization-with-one-administrator)). The
-requester can always reject their own request, which is a withdrawal.
+requester can reject their own request while it waits, which is a withdrawal
+(`TestARequesterAloneInTheOrganizationMayAlwaysWithdraw`).
 
 ### The queue
 
@@ -1230,8 +1231,8 @@ The request reads `applied` all the same, because it is spent.
 | 500 | A migration's run stopped part-way, whatever its cause: `{"error": "the approved migration did not finish: …. Request … now reads interrupted; what its run had done stands, and what remains has to be asked for again"}` and nothing else. Instances were moved. Read the request for `outcome`. |
 | 500 | Any other failure of the server's. For a waive nothing was written and the request still waits. |
 
-A refusal never carries a reply: a status that is not 200 has `error` and
-nothing else.
+A refusal carries no reply: a status of 400 or above has `error` and nothing
+else, on all four routes (`TestADecidedOrExpiredRequestIsRefusedOverTheAPI`).
 
 ### Rejecting, and withdrawing
 
