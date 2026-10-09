@@ -143,33 +143,75 @@ func migrationReason(options servicecontracts.MigrationOptions) string {
 	return "acknowledged the loss of " + strings.Join(names, ", ")
 }
 
+// errAskedAtTheSameMoment is how one attempt to ask says that the database
+// refused its request because another, for the same migration, was written
+// at the same instant. It never reaches a caller: ask reads again.
+var errAskedAtTheSameMoment = errors.New("the same migration was asked for at the same moment")
+
 // ask writes the request, or answers the one that already holds this
-// migration, in one unit of work.
+// migration — closing first, when it has to, a request the clock has closed
+// and nobody has written down as closed.
 //
-// No lock orders two asks made at the same instant. The database does: a
-// project has one live request for a fingerprint, the second insert is
-// refused, and whoever sent it is told so and answered with the request when
-// they send it again.
+// At most two attempts (askOnce), each a unit of work of its own, with the
+// closing — another unit of work of its own — between them. Never nested:
+// the first attempt has ended, having written nothing, before the closing
+// takes the old request's row, so a request's row is never taken inside
+// another transaction.
+//
+// The one retry serves two cases. A live request the clock has closed — past
+// its deadline, or approved with its run window gone — is closed as the sweep
+// would close it (closeWhatTheClockClosed), and the migration asked for
+// afresh: it does not hold its migration until the sweep comes round. And two
+// asks at the same instant, which no lock orders: the database lets one
+// request in, the other reads again and finds it.
+//
+// A second attempt that fares no better is refused in plain words. That takes
+// somebody else closing, or asking, in the instant between — and asking once
+// more answers it.
+func (s *migrationService) ask(ctx context.Context, asking entities.DeviationRequest) (entities.PendingApproval, error) {
+	var none entities.PendingApproval
+	answer, closed, err := s.askOnce(ctx, asking)
+	if closed == uuid.Nil && !errors.Is(err, errAskedAtTheSameMoment) {
+		return answer, err
+	}
+	if closed != uuid.Nil {
+		if err := s.closeWhatTheClockClosed(ctx, closed); err != nil {
+			return none, err
+		}
+	}
+	answer, closed, err = s.askOnce(ctx, asking)
+	switch {
+	case closed != uuid.Nil:
+		return none, apierr.Invalidf("The same migration has a request that is past its time and could not be closed just now (request %s); ask again.", closed)
+	case errors.Is(err, errAskedAtTheSameMoment):
+		return none, apierr.Invalidf("The same migration was asked for at the same moment and is already waiting for approval; " +
+			"send this again to be answered with that request.")
+	}
+	return answer, err
+}
+
+// askOnce is one attempt to ask, in one unit of work: it writes the request,
+// or answers the live request that already holds the migration, or says
+// which live request the clock has closed (closedByTheClock) — having
+// written nothing.
 //
 // A failure to read or write is the server's, whatever class it came with:
 // the repository answers "not found" for a project it cannot see, and the
 // caller has just planned a migration of that project's version.
-func (s *migrationService) ask(ctx context.Context, asking entities.DeviationRequest) (entities.PendingApproval, error) {
-	var answer entities.PendingApproval
+func (s *migrationService) askOnce(ctx context.Context, asking entities.DeviationRequest) (answer entities.PendingApproval, closedByTheClock uuid.UUID, err error) {
 	requests := s.repo.DeviationRequest()
-	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		waiting, found, err := requests.FindLive(txCtx, asking.Project.ID, asking.Fingerprint)
 		if err != nil {
 			return effectFailed("looking for a request that already holds this migration", err)
 		}
 		if found {
-			answer, err = alreadyAsked(waiting, asking, time.Now())
+			answer, closedByTheClock, err = alreadyAsked(waiting, asking, time.Now())
 			return err
 		}
 		asked, err := requests.Create(txCtx, asking)
 		if errors.Is(err, repocontracts.ErrDeviationRequestAlreadyWaiting) {
-			return apierr.Invalidf("The same migration was asked for at the same moment and is already waiting for approval; " +
-				"send this again to be answered with that request.")
+			return errAskedAtTheSameMoment
 		}
 		if err != nil {
 			return effectFailed("recording the request for this migration", err)
@@ -178,29 +220,74 @@ func (s *migrationService) ask(ctx context.Context, asking entities.DeviationReq
 		return nil
 	})
 	if err != nil {
-		return entities.PendingApproval{}, err
+		return entities.PendingApproval{}, uuid.Nil, err
 	}
-	return answer, nil
+	return answer, closedByTheClock, nil
 }
 
-// alreadyAsked is what an ask is told when a request already holds the
+// alreadyAsked is what an ask is told when a live request already holds the
 // migration: the request itself, to whoever made it; a refusal naming it, to
-// anybody else; and, of one that has been approved, that it is being applied.
+// anybody else; of one that has been approved and may still be running, that
+// it is being applied; and of one the clock has closed — past its deadline,
+// or approved with its run window gone — its id, for the ask to close it and
+// ask afresh.
 //
-// A state the caller met, not a mistake: there is no class for a conflict, so
-// it is an invalid argument, as "already waived by …" is.
-func alreadyAsked(waiting, asking entities.DeviationRequest, now time.Time) (entities.PendingApproval, error) {
+// The request is as the table holds it, so it is read through the clock
+// (EffectiveStatus): what is stored says waiting, or approved, long after
+// either stopped being true.
+//
+// A refusal is a state the caller met, not a mistake: there is no class for a
+// conflict, so it is an invalid argument, as "already waived by …" is.
+func alreadyAsked(waiting, asking entities.DeviationRequest, now time.Time) (entities.PendingApproval, uuid.UUID, error) {
 	var none entities.PendingApproval
 	switch waiting.EffectiveStatus(now) {
 	case entities.DeviationRequestPending:
 		if waiting.RequestedByID != uuid.Nil && waiting.RequestedByID == asking.RequestedByID {
-			return entities.PendingApprovalOf(waiting), nil
+			return entities.PendingApprovalOf(waiting), uuid.Nil, nil
 		}
-		return none, apierr.Invalidf("The same migration is already waiting for approval (request %s, asked by %s); approve or reject that one.",
+		return none, uuid.Nil, apierr.Invalidf("The same migration is already waiting for approval (request %s, asked by %s); approve or reject that one.",
 			waiting.ID, waiting.RequestedBy)
 	case entities.DeviationRequestApproved:
-		return none, apierr.Invalidf("The same migration was approved by %s and is being applied now (request %s); nothing new was asked for.",
+		return none, uuid.Nil, apierr.Invalidf("The same migration was approved by %s and is being applied now (request %s); nothing new was asked for.",
 			waiting.DecidedBy, waiting.ID)
 	}
-	return none, apierr.Invalidf("The same migration has a request that is past its time and not yet closed (request %s); ask again shortly.", waiting.ID)
+	return none, waiting.ID, nil
+}
+
+// closeWhatTheClockClosed writes down that a live request for a migration is
+// over — expired, if it waited past its deadline; interrupted, if it was
+// approved and its run window closed with no report — so that the migration
+// can be asked for again now and not when the sweep next comes round.
+//
+// It is a unit of work of its own (runDecision), and takes the request's row
+// and nothing else. What it writes is what the sweep writes for the request,
+// through the same two functions, under the same row: the two can meet, and
+// whichever has the row closes the request while the other finds it closed.
+//
+// The request is read again under its row, without its documents — closing
+// it needs none — and judged again against the clock. One that is no longer
+// live, or not closed by the clock after all, is left alone: somebody decided
+// it meanwhile, and the ask that follows finds what they left.
+func (s *migrationService) closeWhatTheClockClosed(ctx context.Context, id uuid.UUID) error {
+	requests := s.repo.DeviationRequest()
+	return runDecision(ctx, s.repo.UnitOfWork(), func(txCtx context.Context) error {
+		request, err := requests.GetForUpdateWithoutDocuments(txCtx, id)
+		if err != nil {
+			return effectFailed(fmt.Sprintf("reading request %s, which the clock has closed", id), err)
+		}
+		if request.Kind != entities.DeviationRequestMigration {
+			return nil
+		}
+		now := time.Now()
+		switch {
+		case request.Status == entities.DeviationRequestPending && request.EffectiveStatus(now) == entities.DeviationRequestExpired:
+			err = expireMigrationRequest(txCtx, requests, request)
+		case request.Status == entities.DeviationRequestApproved && request.RunWindowClosed(now):
+			err = interruptUnreported(txCtx, requests, request)
+		}
+		if err != nil && !errors.Is(err, repocontracts.ErrDeviationRequestDecided) {
+			return effectFailed(fmt.Sprintf("recording that request %s is over", id), err)
+		}
+		return nil
+	})
 }
