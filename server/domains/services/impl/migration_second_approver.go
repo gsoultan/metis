@@ -179,14 +179,10 @@ func redirectsPastControls(
 	var reasons []string
 	for _, from := range sortedKeys(nodeMapping) {
 		to := nodeMapping[from]
-		if _, renamed := inPlace[from]; renamed || to == from {
+		if !redirects(sourceNodes, inPlace, from, to) {
 			continue
 		}
-		step, isStep := sourceNodes[from]
-		if !isStep {
-			// Nothing waits at a step the version does not have.
-			continue
-		}
+		step := sourceNodes[from]
 		var waiting []models.ProcessInstanceModel
 		for _, instance := range running {
 			if holdsWork(instance, from) {
@@ -209,6 +205,29 @@ func redirectsPastControls(
 	}
 	slices.Sort(reasons)
 	return reasons
+}
+
+// redirects reports whether a mapping entry sends a step somewhere else: its
+// key is a step the version being left has, it maps the step to another id,
+// and it is not among renamed — the entries that are that step under a new
+// id.
+//
+// It is the one place that is asked. What a plan counts as a redirect
+// (redirectsPastControls) and what a request then says was redirected
+// (redirectedSteps) ask it with the steps renamed where they stand
+// (renamedInPlace), so a request never names a redirect its plan did not
+// count. What a plan warns of (redirectWarnings) asks it with the renames
+// finished work follows (finishedWorkFollows): its warning is about work
+// already done, and that is the notion of a rename such work follows.
+//
+// An entry whose key is no step of the source is none: nothing waits, and
+// nothing was done, at a step the version does not have.
+func redirects(sourceNodes map[string]models.FlowNode, renamed map[string]string, from, to string) bool {
+	if _, isStep := sourceNodes[from]; !isStep || to == from {
+		return false
+	}
+	_, isRename := renamed[from]
+	return !isRename
 }
 
 // controlsNotPassedByAll names the steps of a version marked as controls
@@ -246,7 +265,10 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 //
 // A rule the instance can come to perform the step under (stepsInPlaceOf) no
 // longer names a step the source's rule named. Whoever performed that step
-// is then no longer refused. A name counts as kept only when every one of
+// is then no longer refused. That is said in one of two sentences, by its
+// cause (namesLoosened): the new version dropped the name, or it kept the
+// rule under the id a mapping sends the named step to, where the work
+// already done on that step does not follow. A name counts as kept only when every one of
 // those rules keeps it. The names are compared after the renames finished
 // work follows (finishedWorkFollows), which is how finished work is found
 // under a step's new id: a version that renames the steps and the rule with
@@ -288,8 +310,14 @@ func dutiesLoosened(
 		if notPassed == 0 {
 			continue
 		}
-		unnamed, gone := namesLoosened(barred, inItsPlace, renames, sourceNodes, targetNodes)
+		unnamed, unfollowed, gone := namesLoosened(barred, inItsPlace, renames, nodeMapping, sourceNodes, targetNodes)
 		step := stepCalled(sourceNodes[id], id)
+		if len(unfollowed) > 0 {
+			reasons = append(reasons, fmt.Sprintf(
+				"“%s” would no longer be refused to whoever performed %s: the new version's rule names the step that is "+
+					"mapped onto, but work already done does not follow that mapping, so the rule would not find who did it — "+
+					"and %d instance(s) have not passed “%s”", step, firstNamed(unfollowed), notPassed, step))
+		}
 		if len(unnamed) > 0 {
 			reasons = append(reasons, fmt.Sprintf(
 				"“%s” would no longer be refused to whoever performed %s: the new version does not keep that separation of duties, "+
@@ -333,30 +361,43 @@ func stepsInPlaceOf(id string, targetNodes map[string]models.FlowNode, nodeMappi
 }
 
 // namesLoosened sorts the steps a source rule names into those some rule of
-// inItsPlace no longer names (unnamed) and those every such rule still names
-// while the new version no longer has the step (gone), each by the name the
-// source gives it. renames is what finished work follows.
+// inItsPlace no longer names (unnamed), those every such rule names by the id
+// the mapping sends them to while finished work does not follow that mapping
+// (unfollowed), and those every such rule still names while the new version
+// no longer has the step (gone), each by the name the source gives it.
+// renames is what finished work follows.
+//
+// unnamed and unfollowed are both a rule that no longer finds who performed
+// the step, and they are said apart because their causes are: in the first
+// the new version dropped the name; in the second it kept the rule, under
+// the step's new id, and what is lost is that the work already done stays
+// under the old one.
 func namesLoosened(
 	barred []string,
 	inItsPlace []models.FlowNode,
-	renames map[string]string,
+	renames, nodeMapping map[string]string,
 	sourceNodes, targetNodes map[string]models.FlowNode,
-) (unnamed, gone []string) {
+) (unnamed, unfollowed, gone []string) {
+	namedByAll := func(id string) bool {
+		return !slices.ContainsFunc(inItsPlace, func(step models.FlowNode) bool {
+			return !slices.Contains(splitNodeList(stringProperty(step.Properties, SeparationOfDutiesKey)), id)
+		})
+	}
 	for _, other := range barred {
 		now := mapNode(renames, other)
-		keptByAll := !slices.ContainsFunc(inItsPlace, func(step models.FlowNode) bool {
-			return !slices.Contains(splitNodeList(stringProperty(step.Properties, SeparationOfDutiesKey)), now)
-		})
 		_, wasAStep := sourceNodes[other]
 		_, isAStep := targetNodes[now]
 		switch called := "“" + stepCalled(sourceNodes[other], other) + "”"; {
-		case !keptByAll:
-			unnamed = append(unnamed, called)
-		case wasAStep && !isAStep:
+		case namedByAll(now) && wasAStep && !isAStep:
 			gone = append(gone, called)
+		case namedByAll(now):
+		case mapNode(nodeMapping, other) != now && namedByAll(mapNode(nodeMapping, other)):
+			unfollowed = append(unfollowed, called)
+		default:
+			unnamed = append(unnamed, called)
 		}
 	}
-	return unnamed, gone
+	return unnamed, unfollowed, gone
 }
 
 // notPassedBy counts the instances that have not performed a step.

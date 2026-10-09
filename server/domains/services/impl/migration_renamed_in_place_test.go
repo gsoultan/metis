@@ -154,7 +154,7 @@ func TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace(t *testing.T) {
 					t.Fatalf("the fixture's target has no %q", to)
 				}
 			}
-			if got := renamedSteps(sourceNodes, targetNodes, c.mapping); !maps.Equal(got, c.mapping) {
+			if got := renamedByIDs(sourceNodes, targetNodes, c.mapping); !maps.Equal(got, c.mapping) {
 				t.Fatalf("the fixture is not a rename by ids: %v", got)
 			}
 			if got := renamedInPlace(c.source, c.target, sourceNodes, targetNodes, c.mapping); len(got) != 0 {

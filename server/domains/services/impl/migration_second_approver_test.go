@@ -308,6 +308,16 @@ func TestDutiesLoosened(t *testing.T) {
 		!strings.HasPrefix(got[0], "“Approve” would no longer be refused to whoever performed “Submit”: ") {
 		t.Errorf("a named step renamed onto a control that stands elsewhere, the rule naming the new id: %v", got)
 	}
+	// And the reason says which of the two it is. Here the new version did
+	// keep the rule — it names the step “Submit” is mapped onto — and what is
+	// lost is that work already done does not follow that mapping. "The new
+	// version does not keep that separation of duties" would be untrue of it.
+	const notFollowed = "“Approve” would no longer be refused to whoever performed “Submit”: the new version's rule names the step that is " +
+		"mapped onto, but work already done does not follow that mapping, so the rule would not find who did it — " +
+		"and 2 instance(s) have not passed “Approve”"
+	if got := dutiesLoosened(source, renamedOntoAControl, onto, nil, waiting); len(got) != 1 || got[0] != notFollowed {
+		t.Errorf("the names no longer line up only because finished work does not follow the mapping:\n  %v\nwant\n  %q", got, notFollowed)
+	}
 	// Nobody has still to pass the step, or nobody runs at all: nothing is
 	// loosened for anybody.
 	gone := target(ruled("approve", "Approve", ""), source["submit"], source["check"])
@@ -430,6 +440,46 @@ func TestAStoredMigrationCommandReadsBackAsItWasAsked(t *testing.T) {
 		}
 		if err == nil {
 			t.Errorf("%s: the stored command was read as though it were whole", name)
+		}
+	}
+}
+
+// What a request says was redirected is what the plan counts as a redirect:
+// one question, asked one way. A mapping entry whose key is no step of the
+// version being left moves nothing — nothing waits at a step the version
+// does not have — and neither is counted nor named; nor is a step mapped to
+// itself, nor one renamed where it stands.
+func TestARequestNamesOnlyTheRedirectsThePlanCounts(t *testing.T) {
+	marked := map[string]any{"compliance_relevant": true}
+	source := map[string]models.FlowNode{
+		"prepare": {ID: "prepare", Name: "Prepare"}, "sign": {ID: "sign", Name: "Sign"},
+		"review": {ID: "review", Name: "Review"}, "control": {ID: "control", Name: "Control", Properties: marked},
+	}
+	target := map[string]models.FlowNode{
+		"sign": source["sign"], "control": source["control"], "check": {ID: "check", Name: "Check"}, "prepare": source["prepare"],
+	}
+	mapping := map[string]string{
+		"prepare":  "sign",    // a redirect
+		"review":   "check",   // renamed where it stands
+		"sign":     "sign",    // itself
+		"nowhere":  "control", // no step of the source
+		"archived": "sign",    // no step of the source
+	}
+	inPlace := map[string]string{"review": "check"}
+	waiting := []models.ProcessInstanceModel{{Status: models.ProcessActive, Tokens: []models.Token{{NodeID: "prepare"}}}}
+
+	named := redirectedSteps(source, target, mapping, inPlace)
+	if len(named) != 1 || named[0] != "“Prepare” to “Sign”" {
+		t.Fatalf("the request names %v as redirected, want the one redirect of a step the version has", named)
+	}
+	counted := redirectsPastControls(source, target, mapping, inPlace, waiting)
+	if len(counted) != len(named) || !strings.Contains(counted[0], "“Prepare” would be redirected to “Sign”") {
+		t.Fatalf("the plan counts %v, and the request names %v: they are not the same redirects", counted, named)
+	}
+	for from, to := range mapping {
+		want := from == "prepare"
+		if got := redirects(source, inPlace, from, to); got != want {
+			t.Errorf("%s → %s is a redirect = %v, want %v", from, to, got, want)
 		}
 	}
 }

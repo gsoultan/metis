@@ -30,7 +30,7 @@ func stepPlaces(def models.ProcessDefinitionModel) map[string]stepPlace {
 }
 
 // renamedInPlace is the part of a mapping that gives a step a new id and
-// leaves it where it stands: a rename (renamedSteps) of a step whose
+// leaves it where it stands: a rename (renamedByIDs) of a step whose
 // neighbours are the same in both versions. It is the notion that decides
 // whether a mapping needs anybody's approval: a step renamed in place is the
 // same step, and asks nobody on its own; every other mapping of a step sends
@@ -61,7 +61,7 @@ func renamedInPlace(
 	nodeMapping map[string]string,
 ) map[string]string {
 	inPlace := map[string]string{}
-	renames := renamedSteps(sourceNodes, targetNodes, nodeMapping)
+	renames := renamedByIDs(sourceNodes, targetNodes, nodeMapping)
 	if len(renames) == 0 {
 		return inPlace
 	}
@@ -107,7 +107,7 @@ func sameSteps(source, target map[string]struct{}, nodeMapping map[string]string
 
 // finishedWorkFollows is the part of a mapping that finished work follows:
 // the finished task's step, and the instance's lists of the steps it
-// completed and compensated. It is the mapping's renames (renamedSteps), less
+// completed and compensated. It is the mapping's renames (renamedByIDs), less
 // one kind: a rename onto a step marked as a control that is not a rename in
 // place (inPlace, from renamedInPlace).
 //
@@ -135,7 +135,7 @@ func sameSteps(source, target map[string]struct{}, nodeMapping map[string]string
 // separation-of-duties rule (dutiesLoosened) — a rule that names the control
 // by its new id does not find work that stayed under the old one.
 func finishedWorkFollows(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping, inPlace map[string]string) map[string]string {
-	follows := renamedSteps(sourceNodes, targetNodes, nodeMapping)
+	follows := renamedByIDs(sourceNodes, targetNodes, nodeMapping)
 	for from, to := range follows {
 		if _, same := inPlace[from]; !same && boolProperty(targetNodes[to].Properties, "compliance_relevant") {
 			delete(follows, from)

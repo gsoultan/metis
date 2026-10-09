@@ -179,13 +179,15 @@ func firstListed(all []string, join, what string) string {
 }
 
 // redirectedSteps is the steps a mapping sends to a different step, each as
-// "“from” to “to”" by name, in the order of the ids they are sent from. A
-// step renamed where it stands is not one (inPlace, from renamedInPlace).
+// "“from” to “to”" by name, in the order of the ids they are sent from: the
+// entries the plan counts as redirects (redirects), and no other. A step
+// renamed where it stands is not one (inPlace, from renamedInPlace), and
+// neither is an entry whose key is no step of the version being left.
 func redirectedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping, inPlace map[string]string) []string {
 	var redirected []string
 	for _, from := range sortedKeys(nodeMapping) {
 		to := nodeMapping[from]
-		if _, renamed := inPlace[from]; renamed || to == from {
+		if !redirects(sourceNodes, inPlace, from, to) {
 			continue
 		}
 		redirected = append(redirected, fmt.Sprintf("“%s” to “%s”", stepCalled(sourceNodes[from], from), stepCalled(targetNodes[to], to)))

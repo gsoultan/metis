@@ -1292,10 +1292,10 @@ func redirectWarnings(
 	}
 	var out []string
 	for from, to := range nodeMapping {
-		node, known := sourceNodes[from]
-		if _, renamed := renames[from]; renamed || !known || from == to {
+		if !redirects(sourceNodes, renames, from, to) {
 			continue
 		}
+		node := sourceNodes[from]
 		completed := completedBy[from]
 		controlled := boolProperty(node.Properties, "compliance_relevant")
 		if completed == 0 && !controlled {
@@ -1368,7 +1368,7 @@ func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 	return flows
 }
 
-// renamedSteps is the part of a mapping that renames a step and does nothing
+// renamedByIDs is the part of a mapping that renames a step and does nothing
 // else: the id it maps to is not a step of the source version, no other step
 // is mapped onto it, and the id it maps from is no longer a step of the
 // target.
@@ -1388,12 +1388,16 @@ func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 // name, prepare is still there. Counted as a rename, a finished preparation
 // was recorded as the audit performed.
 //
-// This is the notion finished work follows, and it looks at ids alone, on
-// purpose: finished work must go on following a real rename even when the
-// step's neighbours changed too, or a separation-of-duties rule would stop
-// finding who did the step. Whether a mapping needs anybody's approval is
-// asked of a narrower notion (renamedInPlace).
-func renamedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
+// It looks at ids alone, on purpose, and it is nobody's answer by itself. It
+// has two callers, each of which narrows it: renamedInPlace, which keeps the
+// renames whose neighbours are unchanged — what asks whether a mapping needs
+// anybody's approval — and finishedWorkFollows, which is this less a rename
+// onto a control that stands elsewhere. Finished work follows that second
+// notion (finishedWorkFollows), not this one: anything that moves a record
+// of work done asks there. By ids alone because finished work must go on
+// following a real rename even when the step's neighbours changed too, or a
+// separation-of-duties rule would stop finding who did the step.
+func renamedByIDs(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
 	mappedOnto := make(map[string]int, len(nodeMapping))
 	for _, to := range nodeMapping {
 		mappedOnto[to]++
@@ -1415,8 +1419,9 @@ func renamedSteps(sourceNodes, targetNodes map[string]models.FlowNode, nodeMappi
 //
 // Entries with no mapping are kept rather than dropped: CompletedNodes is the
 // record of what this instance actually ran, and a step the new version deleted
-// is still a step this instance performed. The rewrite gives it the renames of
-// a mapping only (renamedSteps), for the same reason.
+// is still a step this instance performed. Its callers hand it the renames
+// finished work follows (finishedWorkFollows), not a whole mapping, for the
+// same reason.
 func mapNodeList(nodeMapping map[string]string, ids []string) []string {
 	if len(ids) == 0 {
 		return ids

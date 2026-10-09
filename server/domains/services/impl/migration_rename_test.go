@@ -50,8 +50,8 @@ func TestOnlyAMappingToANewIdThatNothingElseMapsOntoIsARename(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := renamedSteps(source, target, c.mapping); !maps.Equal(got, c.want) {
-				t.Errorf("renamedSteps(%v) = %v, want %v", c.mapping, got, c.want)
+			if got := renamedByIDs(source, target, c.mapping); !maps.Equal(got, c.want) {
+				t.Errorf("renamedByIDs(%v) = %v, want %v", c.mapping, got, c.want)
 			}
 		})
 	}
