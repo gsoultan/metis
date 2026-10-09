@@ -315,3 +315,61 @@ func TestASkipOverAVersionWithNothingRunningAsksNobody(t *testing.T) {
 		t.Fatalf("%d request(s) were made, want none", n)
 	}
 }
+
+// Rulings §14 (Ruling 32). "Approved" is never where a request rests, and the
+// bound on an approved run does not rest on a sweep having run. A process
+// that died between approving and reporting leaves the request approved; once
+// its window has closed — its own deadline, or an hour after the approval,
+// whichever comes first — no apply may run under it, and every reader is told
+// it was interrupted. No sweep runs anywhere in this test.
+func TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep(t *testing.T) {
+	for name, left := range map[string]string{
+		// Approved ten minutes ago — inside the hour a run is given — with the
+		// request's own deadline since passed.
+		"past its own deadline": `decided_at = now() - interval '10 minutes', expires_at = now() - interval '1 minute'`,
+		// Approved two hours ago, its deadline still days away.
+		"an hour after the approval": `decided_at = now() - interval '2 hours'`,
+		// Approved at no recorded time: a window that starts at no known
+		// moment is not open.
+		"approved at no recorded time": `decided_at = NULL`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			first, second := f.parkedOnOpsApprove(t)
+			v1, v2 := uuidOf(t, first), uuidOf(t, second)
+			opts := skipOps("the role was eliminated")
+			dita := adminAs(f.ctx, "dita")
+			pending, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, opts...)
+			if err != nil {
+				t.Fatalf("ask: %v", err)
+			}
+			// What a stop between the approval and the run's report leaves.
+			if err := f.db.Exec(`UPDATE deviation_requests SET status = 'approved', decided_by = 'omar', decided_by_id = ?, `+left+` WHERE id = ?`,
+				accountOf("omar"), pending.RequestID).Error; err != nil {
+				t.Fatalf("leave the request approved: %v", err)
+			}
+
+			under := append(slices.Clip(opts), servicecontracts.WithApprovedRequest(pending.RequestID))
+			for range 2 {
+				_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+				if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "no longer in use; nothing was moved") {
+					t.Fatalf("an apply under an approved request whose window has closed: %v, want it refused", err)
+				}
+				f.assertNothingMoved(t, v1)
+			}
+			if stored := f.storedStatus(t, pending.RequestID); stored != "approved" {
+				t.Fatalf("the refused apply left the row %s; the gate only verifies, and writes nothing", stored)
+			}
+
+			read, err := f.svc.GetDeviationRequest(dita, pending.RequestID)
+			if err != nil || read.Status != entities.DeviationRequestInterrupted {
+				t.Fatalf("with no sweep having run it reads %q (err %v), want interrupted", read.Status, err)
+			}
+			for status, want := range map[entities.DeviationRequestStatus]int64{entities.DeviationRequestApproved: 0, entities.DeviationRequestInterrupted: 1} {
+				if _, total, err := f.svc.ListDeviationRequests(dita, entities.DeviationRequestQuery{Status: status}); err != nil || total != want {
+					t.Fatalf("listed as %s: %d (err %v), want %d", status, total, err, want)
+				}
+			}
+		})
+	}
+}
