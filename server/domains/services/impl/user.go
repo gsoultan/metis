@@ -125,7 +125,12 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 		u.CreatedAt = time.Now()
 	}
 
-	return s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash))
+	if err := s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash)); err != nil {
+		return err
+	}
+	traceAccountChange(ctx, accountCreated, u.ID, u.Username, accountRoles{},
+		accountRoles{global: u.Roles, byOrganization: u.RolesByOrganization})
+	return nil
 }
 
 // dummyHash is compared against when no user matches, so that a login attempt
@@ -276,6 +281,10 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 		}
 	}
 
+	// What the account held, and whether this changes it, are told before
+	// the stored copy is written over.
+	before, rolesChange := rolesOf(stored), u.Roles != nil && !sameRoles(stored.Roles, u.Roles)
+
 	stored.FullName = u.FullName
 	stored.DisplayName = u.DisplayName
 	stored.Email = u.Email
@@ -295,6 +304,9 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 	// An update can change roles, which is an authorization decision; a cached
 	// caller would keep the ones they had.
 	s.principals.forget(u.ID)
+	if rolesChange {
+		traceAccountChange(ctx, accountRolesChanged, u.ID, stored.Username, before, rolesOf(stored))
+	}
 	return nil
 }
 
@@ -436,6 +448,7 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	s.principals.forget(id)
+	traceAccountChange(ctx, accountDeleted, id, stored.Username, rolesOf(stored), accountRoles{})
 	return nil
 }
 
