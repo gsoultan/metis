@@ -38,6 +38,11 @@ func TestAFacadeWiredWithoutTheDeviationServiceRefusesEveryMethodOfIt(t *testing
 			_, err := facade.ExpireDeviationRequests(entities.WithSystemContext(ctx), time.Now())
 			return err
 		},
+		// The one the server's own schedule calls, every few minutes.
+		"SweepDeviationRequests": func() error {
+			_, err := facade.SweepDeviationRequests(entities.WithSystemContext(ctx), time.Now())
+			return err
+		},
 	}
 	for name, call := range calls {
 		answered := make(chan error, 1)

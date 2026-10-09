@@ -41,9 +41,10 @@ const runNeverReported = "the run did not report back"
 
 // unreportedOutcome is the outcome the sweep's mark leaves on a request: that
 // the run did not report back, and — carried from the outcome it replaces —
-// what a self-approval rested on. It holds no count of what a run did, which
-// is how a run that was in fact still going tells this mark from a report
-// (reportedByARun), and writes its own over it.
+// what a self-approval rested on. It holds neither a count of what a run did
+// nor a run's word that no count is known, which is how a run that was in
+// fact still going tells this mark from a report (reportedByARun), and writes
+// its own over it.
 func unreportedOutcome(stored map[string]any) map[string]any {
 	outcome := carriedSelfApproval(stored)
 	outcome[outcomeError] = runNeverReported

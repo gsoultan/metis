@@ -648,8 +648,8 @@ func TestARunThatPanicsLeavesItsRequestInterruptedAndNotApproved(t *testing.T) {
 	if read.Outcome["error"] != "the run stopped on a failure of the server's own, and how far it had got is not known; what it had done by then stands" {
 		t.Fatalf("its outcome %v, want it to say the server failed and that the count is not known", read.Outcome)
 	}
-	if _, counted := read.Outcome["changed"]; counted {
-		t.Fatalf("its outcome claims a count nobody has: %v", read.Outcome)
+	if _, counted := read.Outcome["changed"]; counted || read.Outcome["count_unknown"] != true {
+		t.Fatalf("its outcome claims a count nobody has, or does not say that none is known: %v", read.Outcome)
 	}
 	if strings.Contains(fmt.Sprint(read.Outcome), "the listing fell over") {
 		t.Fatalf("the outcome carries the panic's own words: %v", read.Outcome)

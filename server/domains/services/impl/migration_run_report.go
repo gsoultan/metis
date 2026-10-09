@@ -21,6 +21,9 @@ const (
 	// run reported.
 	outcomeChanged    = "changed"
 	outcomePassedOver = "passed_over"
+	// outcomeCountUnknown stands in their place in the report of a run that
+	// panicked: it is a run's report too, and nobody has a count to put in it.
+	outcomeCountUnknown = "count_unknown"
 	// outcomeError is why a request is interrupted, in a sentence of the
 	// server's own.
 	outcomeError = "error"
@@ -65,8 +68,13 @@ const runReportTimeout = 30 * time.Second
 // only the request and instances by id.
 func runOutcome(result entities.MigrationResult, runErr error) map[string]any {
 	if errors.Is(runErr, errRunPanicked) {
-		// How far it had got is not known: no count is claimed.
-		return map[string]any{outcomeError: "the run stopped on a failure of the server's own, and how far it had got is not known; what it had done by then stands"}
+		// How far it had got is not known: no count is claimed, and that
+		// none is known is said — which is also what tells this report from
+		// the sweep's mark (reportedByARun).
+		return map[string]any{
+			outcomeCountUnknown: true,
+			outcomeError:        "the run stopped on a failure of the server's own, and how far it had got is not known; what it had done by then stands",
+		}
 	}
 	outcome := map[string]any{outcomeChanged: result.Changed, outcomePassedOver: len(result.PassedOver)}
 	var refused gateRefusal
@@ -85,10 +93,17 @@ func runOutcome(result entities.MigrationResult, runErr error) map[string]any {
 }
 
 // reportedByARun reports whether a request's stored outcome is a run's own
-// report, as against the sweep's mark or an approval's note.
+// report, as against the sweep's mark or an approval's note: it counts what
+// the run did, or says that the run panicked and nobody can.
+//
+// The second matters as much as the first. A run that panicked is reported
+// with no count; told by the count alone, that report read as the sweep's
+// mark, and a later report would have been written over it as though the run
+// had merely been slow.
 func reportedByARun(outcome map[string]any) bool {
-	_, reported := outcome[outcomeChanged]
-	return reported
+	_, counted := outcome[outcomeChanged]
+	_, uncountable := outcome[outcomeCountUnknown]
+	return counted || uncountable
 }
 
 // reportRun is step C: it writes what an approved run did on its request,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -100,6 +101,9 @@ var errRunPanicked = errors.New("the run panicked")
 // far the run got is not known, and the panic then goes on its way — as a
 // transaction that panics is rolled back and the panic passed on
 // (repositories/db). Nothing here recovers from it.
+//
+// It is the run's panic that goes on its way, whatever becomes of the
+// report (reportOfAPanic).
 func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id uuid.UUID) (result entities.MigrationResult, reported entities.DeviationRequest, runErr error) {
 	began := time.Now()
 	returned := false
@@ -108,8 +112,7 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 			return
 		}
 		recovered := recover()
-		s.reportRun(ctx, run.request, result, errRunPanicked, began)
-		traceApprovedRunStopped(run.request, result, errRunPanicked)
+		s.reportOfAPanic(ctx, run.request, result, began)
 		if recovered != nil {
 			panic(recovered)
 		}
@@ -118,6 +121,28 @@ func (s *migrationService) runAndReport(ctx context.Context, run approvedRun, id
 		append(run.options, servicecontracts.WithApprovedRequest(id))...)
 	returned = true
 	return result, s.reportRun(ctx, run.request, result, runErr, began), runErr
+}
+
+// reportOfAPanic writes, on its request, that a run panicked, and says so in
+// the server's log.
+//
+// A report that panics in its turn is stopped here. What failed the run —
+// a store that has gone — is as likely to fail its report, and a panic left
+// to rise from a deferred call takes the place of the one being handled: the
+// approver's call would end on the report's failure, and the run's own, the
+// one that says what happened, would be gone. The report's is said in the
+// log; the request then stays approved, and reads interrupted once the time
+// a run is given has passed.
+func (s *migrationService) reportOfAPanic(ctx context.Context, request entities.DeviationRequest, result entities.MigrationResult, began time.Time) {
+	defer func() {
+		if failed := recover(); failed != nil {
+			log.Error().Str("request", request.ID.String()).Str("panic", fmt.Sprint(failed)).
+				Msg("An approved migration's run panicked, and the report of that on its request panicked too. " +
+					"The request still says approved, and will read interrupted once the time a run is given has passed.")
+		}
+	}()
+	s.reportRun(ctx, request, result, errRunPanicked, began)
+	traceApprovedRunStopped(request, result, errRunPanicked)
 }
 
 // approvedRunFailure is an approved run that did not finish, as its approver
