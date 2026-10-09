@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -32,8 +33,9 @@ func NewDeviationDecider(c *db.Conn) contracts.DeviationDecider {
 // first; the row's own lock is what holds if a caller ever forgets.
 //
 // A decision the caller got wrong — back to pending_approval, a status
-// outside the closed set, no time — is a plain error, as a malformed row is
-// (checkedTarget): it is made by a service, never by a client.
+// outside the closed set, no time, applied with nobody having approved — is a
+// plain error, as a malformed row is (checkedTarget): it is made by a
+// service, never by a client.
 func (r *deviationRepository) Decide(ctx context.Context, id uuid.UUID, decision contracts.LedgerRowDecision) (entities.Deviation, error) {
 	if !db.InTransaction(ctx) {
 		return entities.Deviation{}, contracts.ErrDeviationOutsideTransaction
@@ -43,6 +45,9 @@ func (r *deviationRepository) Decide(ctx context.Context, id uuid.UUID, decision
 	}
 	row, err := r.waitingRow(ctx, id)
 	if err != nil {
+		return entities.Deviation{}, err
+	}
+	if err := approvedBySomebody(decision); err != nil {
 		return entities.Deviation{}, err
 	}
 	mut, err := stageDecision(row, decision)
@@ -67,6 +72,27 @@ func wellFormedDecision(decision contracts.LedgerRowDecision) error {
 	}
 	if decision.DecidedAt.IsZero() {
 		return errors.New("deviation: a decision is recorded with the time it was made, and this one has none")
+	}
+	return nil
+}
+
+// approvedBySomebody refuses a decision to applied that does not say who
+// approved, and from which account.
+//
+// A row that waited is applied because somebody approved it; the request
+// beside it is refused the same decision without a decider (checkedDecision),
+// and a ledger that said "applied" with nobody named would be the record of
+// an approval nobody gave. A row that is rejected, has expired or went stale
+// was approved by nobody, and names nobody.
+//
+// Asked of a row that still waits, after it is held: a row already decided is
+// answered as decided, whatever the second decision lacked.
+func approvedBySomebody(decision contracts.LedgerRowDecision) error {
+	if decision.Status != entities.DeviationApplied {
+		return nil
+	}
+	if strings.TrimSpace(decision.ApprovedBy) == "" || decision.ApprovedByID == uuid.Nil {
+		return errors.New("deviation: a row that waited is applied because somebody approved it, and this decision does not say who, or from which account")
 	}
 	return nil
 }

@@ -112,16 +112,22 @@ type DeviationRequestWriter interface {
 	FindLive(ctx context.Context, projectID uuid.UUID, fingerprint string) (entities.DeviationRequest, bool, error)
 
 	// Transition moves a request from the status the caller read it at to
-	// change.Status, and answers the row as it then is. It holds the row
+	// change.Status, and answers the row as it then is: whole — or, when its
+	// sealed documents no longer open, without them (Command, Plan and
+	// ApprovedInstances nil, which a whole request never has); the move is
+	// written either way, so such a request can still be closed. It holds the row
 	// while it does (request before instance, as GetForUpdate), so of two
 	// moves made at once one is written and the other is
 	// ErrDeviationRequestDecided — as is any move from a status the request
 	// is not at.
 	//
-	// Only the moves the product makes are written: a waiting request is
-	// approved, applied, rejected, expired or made stale; an approved one is
-	// applied or interrupted; an interrupted one is reported on by its run
-	// (applied, or interrupted again). Any other move, a status outside the
+	// Only the moves the product makes are written, and they differ by kind.
+	// A waive that waits is applied, rejected, expired or made stale — never
+	// approved without being applied. A migration that waits is approved,
+	// rejected, expired or made stale — never applied without having been
+	// approved; approved, it is applied or interrupted; interrupted, it is
+	// reported on by its run (applied, or interrupted again). Any other move
+	// — one that another kind makes included — a status outside the
 	// closed set, a person's decision that does not say who and when, or a
 	// report that names a decision (see DeviationRequestChange) is a plain
 	// error, and nothing is written.
@@ -136,9 +142,12 @@ type DeviationRequestWriter interface {
 // while more remain; and a row is moved with Transition, which writes only if
 // the status is still the one read.
 //
-// They answer requests whole. Run as system work they see every
-// organization's, a deleted project's among them; run for one organization,
-// only its own.
+// They answer requests as List does — no Command, no Plan, no
+// ApprovedInstances — because a sweep closes requests and has no use for what
+// they asked, and one request whose sealed plan no longer opens must not fail
+// the batch it is in. Whoever needs a swept request's documents reads it with
+// GetForUpdate. Run as system work they see every organization's requests, a
+// deleted project's among them; run for one organization, only its own.
 type DeviationRequestSweeper interface {
 	// ListOverdue answers up to limit requests that still wait at or after
 	// their deadline, the longest overdue first.

@@ -27,6 +27,38 @@ func (h *deviationHarness) sampleRequest(instanceID uuid.UUID, fingerprint strin
 	}
 }
 
+// sampleMigration is a well-formed request for a migration between two
+// versions of the harness's project, deploying them if it has none yet. A
+// migration is the kind of request that is approved and then run; a waive is
+// approved and applied in one change.
+func (h *deviationHarness) sampleMigration(t *testing.T, fingerprint string) entities.DeviationRequest {
+	t.Helper()
+	source, target := h.twoVersions(t)
+	r := h.sampleRequest(uuid.Nil, fingerprint)
+	r.Kind, r.Instance = entities.DeviationRequestMigration, nil
+	r.SourceDefinition, r.TargetDefinition = &entities.ProcessDefinition{ID: source}, &entities.ProcessDefinition{ID: target}
+	r.Command = map[string]any{"node_mapping": map[string]any{"approve": "review"}}
+	r.Plan = map[string]any{"instances": float64(1), "because": []string{"“Approve” is skipped"}}
+	return r
+}
+
+// twoVersions is two versions the harness's project has deployed, the oldest
+// two; it deploys what is missing.
+func (h *deviationHarness) twoVersions(t *testing.T) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	for {
+		var ids []string
+		if err := h.db.Raw(`SELECT id::text FROM process_definitions WHERE project_id = ? AND deleted_at IS NULL
+			ORDER BY created_at, id LIMIT 2`, h.projID).Scan(&ids).Error; err != nil {
+			t.Fatalf("read the project's versions: %v", err)
+		}
+		if len(ids) == 2 {
+			return uuid.MustParse(ids[0]), uuid.MustParse(ids[1])
+		}
+		h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	}
+}
+
 func (h *deviationHarness) createRequest(ctx context.Context, r entities.DeviationRequest) (entities.DeviationRequest, error) {
 	var out entities.DeviationRequest
 	err := h.repo.UnitOfWork().Do(ctx, func(tx context.Context) error {
@@ -77,23 +109,38 @@ func moveTo(from, to entities.DeviationRequestStatus) repocontracts.DeviationReq
 	return repocontracts.DeviationRequestChange{Status: to}
 }
 
-// movesTo is the way a request reaches each status: by the moves the product
-// makes, never by a row written at that status.
-var movesTo = map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
-	entities.DeviationRequestPending:     nil,
-	entities.DeviationRequestApproved:    {entities.DeviationRequestApproved},
-	entities.DeviationRequestApplied:     {entities.DeviationRequestApplied},
-	entities.DeviationRequestInterrupted: {entities.DeviationRequestApproved, entities.DeviationRequestInterrupted},
-	entities.DeviationRequestStale:       {entities.DeviationRequestStale},
-	entities.DeviationRequestRejected:    {entities.DeviationRequestRejected},
-	entities.DeviationRequestExpired:     {entities.DeviationRequestExpired},
+// movesTo is the way a request of each kind reaches each status: by the moves
+// the product makes, never by a row written at that status. A waive is never
+// approved without being applied, so it is never approved or interrupted; a
+// migration is applied only by its run's report.
+var movesTo = map[entities.DeviationRequestKind]map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
+	entities.DeviationRequestInstanceWaive: {
+		entities.DeviationRequestPending:  nil,
+		entities.DeviationRequestApplied:  {entities.DeviationRequestApplied},
+		entities.DeviationRequestStale:    {entities.DeviationRequestStale},
+		entities.DeviationRequestRejected: {entities.DeviationRequestRejected},
+		entities.DeviationRequestExpired:  {entities.DeviationRequestExpired},
+	},
+	entities.DeviationRequestMigration: {
+		entities.DeviationRequestPending:     nil,
+		entities.DeviationRequestApproved:    {entities.DeviationRequestApproved},
+		entities.DeviationRequestApplied:     {entities.DeviationRequestApproved, entities.DeviationRequestApplied},
+		entities.DeviationRequestInterrupted: {entities.DeviationRequestApproved, entities.DeviationRequestInterrupted},
+		entities.DeviationRequestStale:       {entities.DeviationRequestStale},
+		entities.DeviationRequestRejected:    {entities.DeviationRequestRejected},
+		entities.DeviationRequestExpired:     {entities.DeviationRequestExpired},
+	},
 }
 
 // requestAt writes r and walks it to status.
 func (h *deviationHarness) requestAt(t *testing.T, r entities.DeviationRequest, status entities.DeviationRequestStatus) entities.DeviationRequest {
 	t.Helper()
+	path, reachable := movesTo[r.Kind][status]
+	if !reachable {
+		t.Fatalf("nothing makes a request of kind %s %s", r.Kind, status)
+	}
 	request := h.mustCreateRequest(t, r)
-	for _, next := range movesTo[status] {
+	for _, next := range path {
 		moved, err := h.transition(h.tenantContext(), request.ID, request.Status, moveTo(request.Status, next))
 		if err != nil {
 			t.Fatalf("move the request %s from %s to %s: %v", r.Fingerprint, request.Status, next, err)
@@ -456,6 +503,16 @@ func TestAMalformedRequestIsTheWritersMistakeAndLeavesNoRow(t *testing.T) {
 	if n := h.requestCountIn(t, h.projID); n != 0 {
 		t.Fatalf("refused requests left %d row(s)", n)
 	}
+
+	// An id met twice is the writer's mistake too. It is a unique violation
+	// like the one a second live request meets, and must not be told as one:
+	// the caller would answer "already waiting" about something that is not.
+	first := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-first"))
+	twin := h.sampleRequest(instanceID, "dv1-another-thing")
+	twin.ID = first.ID
+	if _, err := h.createRequest(h.tenantContext(), twin); !isTheWritersMistake(err) {
+		t.Errorf("a second request under an id already used: %v; want a plain server error", err)
+	}
 }
 
 // A request is its organization's record. A caller from another organization
@@ -465,6 +522,20 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	h := newDeviationHarness(t)
 	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	ours := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-ours"))
+	// Two more of ours that the lists reach through a disjunction: an
+	// approval whose run never reported, and a request already interrupted.
+	// The scope has to hold on the far side of the OR as well.
+	silent := h.sampleMigration(t, "mf1-ours-unreported")
+	unreported := h.mustCreateRequest(t, silent)
+	longAgo := decisionTo(entities.DeviationRequestApproved)
+	longAgo.DecidedAt = time.Now().Add(-2 * time.Hour)
+	if _, err := h.transition(h.tenantContext(), unreported.ID, entities.DeviationRequestPending, longAgo); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	interrupted := h.requestAt(t, h.sampleMigration(t, "mf1-ours-interrupted"), entities.DeviationRequestInterrupted)
+	overdue := h.sampleRequest(instanceID, "dv1-ours-overdue")
+	overdue.ExpiresAt = time.Now().Add(-time.Minute)
+	h.mustCreateRequest(t, overdue)
 	other := h.inAnotherOrganization(t, "Request Other Org")
 	theirInstance := other.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	elsewhere := other.tenantContext()
@@ -500,13 +571,17 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	if _, found, err := requests.FindLive(elsewhere, h.projID, "dv1-ours"); !errors.Is(err, apierr.ErrNotFound) || found {
 		t.Errorf("another organization asking for this project's live request: found %v, %v; want not found", found, err)
 	}
-	for name, query := range map[string]entities.DeviationRequestQuery{
-		"this project":  {Project: &entities.Project{ID: h.projID}},
-		"every project": {},
-	} {
-		rows, total, err := requests.List(elsewhere, query, time.Now())
-		if err != nil || total != 0 || len(rows) != 0 {
-			t.Errorf("another organization listing %s: %d row(s) of %d, %v; want none", name, len(rows), total, err)
+	for _, fingerprint := range []string{"mf1-ours-unreported", "dv1-ours-overdue", "mf1-ours-interrupted"} {
+		if _, found, err := requests.FindLive(elsewhere, h.projID, fingerprint); !errors.Is(err, apierr.ErrNotFound) || found {
+			t.Errorf("another organization asking for this project's live request %s: found %v, %v; want not found", fingerprint, found, err)
+		}
+	}
+	for name, project := range map[string]*entities.Project{"this project": {ID: h.projID}, "every project": nil} {
+		for _, status := range append([]entities.DeviationRequestStatus{""}, everyRequestStatus...) {
+			rows, total, err := requests.List(elsewhere, entities.DeviationRequestQuery{Project: project, Status: status}, time.Now())
+			if err != nil || total != 0 || len(rows) != 0 {
+				t.Errorf("another organization listing %s by status %q: %d row(s) of %d, %v; want none", name, status, len(rows), total, err)
+			}
 		}
 	}
 
@@ -543,12 +618,31 @@ func TestAnotherOrganizationNeitherWritesNorReadsNorDecidesARequest(t *testing.T
 	if got := h.mustGetRequest(t, ours.ID); got.Status != entities.DeviationRequestPending || got.DecidedBy != "" {
 		t.Errorf("after another organization's attempts the request is %s, decided by %q", got.Status, got.DecidedBy)
 	}
-	if n := h.requestCountIn(t, h.projID) + h.requestCountIn(t, other.projID) + h.requestCountIn(t, second.ID); n != 1 {
-		t.Errorf("the refused writes left %d request(s) in all; want the one", n)
+	if n := h.requestCountIn(t, h.projID) + h.requestCountIn(t, other.projID) + h.requestCountIn(t, second.ID); n != 4 {
+		t.Errorf("the refused writes left %d request(s) in all; want the organization's four", n)
 	}
 	rows, total, err := requests.List(h.tenantContext(), entities.DeviationRequestQuery{}, time.Now())
-	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != ours.ID {
+	if err != nil || total != 4 || len(rows) != 4 {
 		t.Errorf("the organization's own list: %d row(s) of %d, %v", len(rows), total, err)
+	}
+	// The same rows are there for their own organization, on each side of the OR.
+	for status, want := range map[entities.DeviationRequestStatus]int{
+		entities.DeviationRequestInterrupted: 2, entities.DeviationRequestExpired: 1, entities.DeviationRequestPending: 1,
+	} {
+		if _, total, err := requests.List(h.tenantContext(), entities.DeviationRequestQuery{Status: status}, time.Now()); err != nil || total != int64(want) {
+			t.Errorf("the organization's own list of what reads as %s: %d, %v; want %d", status, total, err, want)
+		}
+	}
+	var swept []entities.DeviationRequest
+	if err := h.repo.UnitOfWork().Do(h.tenantContext(), func(tx context.Context) error {
+		var err error
+		swept, err = requests.ListUnreported(tx, time.Now(), 10)
+		return err
+	}); err != nil || len(swept) != 1 || swept[0].ID != unreported.ID {
+		t.Errorf("the organization's own unreported requests: %v, %v; want the one", requestIDs(swept), err)
+	}
+	if got := h.mustGetRequest(t, interrupted.ID); got.Status != entities.DeviationRequestInterrupted {
+		t.Errorf("after another organization's attempts the interrupted request is %s", got.Status)
 	}
 }
 

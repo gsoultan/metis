@@ -89,10 +89,9 @@ func oneWon(t *testing.T, what string, errs []error, told func(error) bool) int 
 // decided first.
 func TestDecisionsOfOneRequestMadeTogetherEndInOne(t *testing.T) {
 	h := newDeviationHarness(t)
-	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	for round := range raceRounds {
 		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
-			request := h.mustCreateRequest(t, h.sampleRequest(instanceID, fmt.Sprintf("dv1-race-decide-%d", round)))
+			request := h.mustCreateRequest(t, h.sampleMigration(t, fmt.Sprintf("mf1-race-decide-%d", round)))
 			deciders := make([]repocontracts.DeviationRequestChange, atOnce)
 			for i := range deciders {
 				status := entities.DeviationRequestApproved
@@ -311,7 +310,6 @@ func answerOf(t *testing.T, finished <-chan error, what string) error {
 // second is the decision.
 func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 	h := newDeviationHarness(t)
-	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	const firstRejects = `UPDATE deviation_requests SET status = 'rejected', live_key = NULL, decided_by = 'ana' WHERE id = ?`
 	send := func(request entities.DeviationRequest) <-chan error {
 		finished := make(chan error, 1)
@@ -323,7 +321,7 @@ func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 	}
 
 	t.Run("the first is written", func(t *testing.T) {
-		request := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-behind-written"))
+		request := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-behind-written"))
 		first := h.holdOpen(t, firstRejects, request.ID)
 		second := send(request)
 		first.untilBehind(second)
@@ -339,7 +337,7 @@ func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 	})
 
 	t.Run("the first is undone", func(t *testing.T) {
-		request := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-behind-undone"))
+		request := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-behind-undone"))
 		first := h.holdOpen(t, firstRejects, request.ID)
 		second := send(request)
 		first.untilBehind(second)
@@ -411,8 +409,15 @@ func TestTheSweepPassesByARequestSomebodyHolds(t *testing.T) {
 		return h.mustCreateRequest(t, r)
 	}
 	heldRequest, free := overdue("dv1-sweep-held"), overdue("dv1-sweep-free")
-	sweep := func() <-chan []uuid.UUID {
-		swept := make(chan []uuid.UUID, 1)
+	// What the sweep read, or why it could not. The goroutine reports through
+	// the channel and never through t: if the read is still waiting when the
+	// test gives up on it, it ends after the test has.
+	type sweepRead struct {
+		ids []uuid.UUID
+		err error
+	}
+	sweep := func() <-chan sweepRead {
+		swept := make(chan sweepRead, 1)
 		go func() {
 			var ids []uuid.UUID
 			err := h.repo.UnitOfWork().Do(entities.WithSystemContext(t.Context()), func(tx context.Context) error {
@@ -420,18 +425,18 @@ func TestTheSweepPassesByARequestSomebodyHolds(t *testing.T) {
 				ids = requestIDs(rows)
 				return err
 			})
-			if err != nil {
-				t.Errorf("the sweep's read: %v", err)
-			}
-			swept <- ids
+			swept <- sweepRead{ids: ids, err: err}
 		}()
 		return swept
 	}
 	read := func(what string) []uuid.UUID {
 		t.Helper()
 		select {
-		case ids := <-sweep():
-			return ids
+		case got := <-sweep():
+			if got.err != nil {
+				t.Fatalf("the sweep's read %s: %v", what, got.err)
+			}
+			return got.ids
 		case <-time.After(raceWait):
 			t.Fatalf("the sweep %s did not answer within %s: it waited for a row somebody holds", what, raceWait)
 			return nil

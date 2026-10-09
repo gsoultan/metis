@@ -19,46 +19,85 @@ var everyRequestStatus = []entities.DeviationRequestStatus{
 	entities.DeviationRequestExpired,
 }
 
-// A request's status moves only the way the product moves it: a waiting
-// request is decided once; an approved one is reported on; an interrupted one
-// can still be reported on by the run the sweep gave up on. Nothing else moves,
-// and nothing ever becomes live again. A move outside that is the mistake of
-// the code that asked for it — a plain error — and changes nothing.
+var everyRequestKind = []entities.DeviationRequestKind{entities.DeviationRequestInstanceWaive, entities.DeviationRequestMigration}
+
+// requestOfKind is a well-formed request of kind: a waive of the step
+// instanceID waits at, or a migration between two versions of the project.
+func (h *deviationHarness) requestOfKind(t *testing.T, kind entities.DeviationRequestKind, instanceID uuid.UUID, fingerprint string) entities.DeviationRequest {
+	t.Helper()
+	if kind == entities.DeviationRequestMigration {
+		return h.sampleMigration(t, fingerprint)
+	}
+	return h.sampleRequest(instanceID, fingerprint)
+}
+
+// A request's status moves only the way the product moves a request of its
+// kind. A waive that waits is applied — approved and done in one change — or
+// rejected, expired or made stale, and then it is over: it is never approved
+// without being applied. A migration that waits is approved, rejected, expired
+// or made stale; approved, its run reports it applied or interrupted; and an
+// interrupted one can still be reported on by the run the sweep gave up on.
+// It is never applied without having been approved. Nothing else moves, and
+// nothing ever becomes live again. A move outside that is the mistake of the
+// code that asked for it — a plain error — and changes nothing.
 func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 	h := newDeviationHarness(t)
 	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
-	allowed := map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
-		entities.DeviationRequestPending: {
-			entities.DeviationRequestApproved, entities.DeviationRequestApplied, entities.DeviationRequestRejected,
-			entities.DeviationRequestExpired, entities.DeviationRequestStale,
+	type moves = map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus
+	allowed := map[entities.DeviationRequestKind]moves{
+		entities.DeviationRequestInstanceWaive: {
+			entities.DeviationRequestPending: {
+				entities.DeviationRequestApplied, entities.DeviationRequestRejected,
+				entities.DeviationRequestExpired, entities.DeviationRequestStale,
+			},
 		},
-		entities.DeviationRequestApproved:    {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
-		entities.DeviationRequestInterrupted: {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+		entities.DeviationRequestMigration: {
+			entities.DeviationRequestPending: {
+				entities.DeviationRequestApproved, entities.DeviationRequestRejected,
+				entities.DeviationRequestExpired, entities.DeviationRequestStale,
+			},
+			entities.DeviationRequestApproved:    {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+			entities.DeviationRequestInterrupted: {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+		},
 	}
-	moves := 0
-	for _, from := range everyRequestStatus {
-		for _, to := range everyRequestStatus {
-			moves++
-			request := h.requestAt(t, h.sampleRequest(instanceID, fmt.Sprintf("dv1-move-%d", moves)), from)
-			moved, err := h.transition(h.tenantContext(), request.ID, from, moveTo(from, to))
-			if slices.Contains(allowed[from], to) {
-				if err != nil || moved.Status != to {
-					t.Errorf("%s → %s: %v (now %s); the product makes this move", from, to, err, moved.Status)
-				}
+	tried := 0
+	for _, kind := range everyRequestKind {
+		for _, from := range everyRequestStatus {
+			if _, reachable := movesTo[kind][from]; !reachable {
+				// A waive is never approved or interrupted: the moves that
+				// would make it so are among those refused below.
 				continue
 			}
-			if err == nil {
-				t.Errorf("%s → %s was written; nothing in the product makes this move", from, to)
-			} else if !isTheWritersMistake(err) {
-				t.Errorf("%s → %s: refused as %v; a move the code should not ask for is a plain server error", from, to, err)
-			}
-			if stored := h.mustGetRequest(t, request.ID); stored.Status != from {
-				t.Errorf("%s → %s was refused and the request is now %s", from, to, stored.Status)
+			for _, to := range everyRequestStatus {
+				tried++
+				request := h.requestAt(t, h.requestOfKind(t, kind, instanceID, fmt.Sprintf("dv1-move-%d", tried)), from)
+				moved, err := h.transition(h.tenantContext(), request.ID, from, moveTo(from, to))
+				if slices.Contains(allowed[kind][from], to) {
+					if err != nil || moved.Status != to {
+						t.Errorf("%s, %s → %s: %v (now %s); the product makes this move", kind, from, to, err, moved.Status)
+					}
+					continue
+				}
+				if err == nil {
+					t.Errorf("%s, %s → %s was written; nothing in the product makes this move", kind, from, to)
+				} else if !isTheWritersMistake(err) {
+					t.Errorf("%s, %s → %s: refused as %v; a move the code should not ask for is a plain server error", kind, from, to, err)
+				}
+				stored := h.mustGetRequest(t, request.ID)
+				if stored.Status != from || !stored.UpdatedAt.Equal(request.UpdatedAt) {
+					t.Errorf("%s, %s → %s was refused and the request is now %s, last written %v", kind, from, to, stored.Status, stored.UpdatedAt)
+				}
 			}
 		}
 	}
+	if tried != 5*7+7*7 {
+		t.Fatalf("%d moves were tried; a waive has five statuses it can be at and a migration seven, each with seven to go to", tried)
+	}
 
-	waiting := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-move-mistakes"))
+	// The mistakes are tried on a migration that waits: it is the kind every
+	// one of these statuses is open to but applied, which is tried on a waive.
+	waiting := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-move-mistakes"))
+	waitingWaive := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-move-mistakes"))
 	mistakes := map[string]struct {
 		from   entities.DeviationRequestStatus
 		change repocontracts.DeviationRequestChange
@@ -96,16 +135,22 @@ func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 		}},
 	}
 	for name, mistake := range mistakes {
-		if _, err := h.transition(h.tenantContext(), waiting.ID, mistake.from, mistake.change); !isTheWritersMistake(err) {
+		target := waiting
+		if mistake.change.Status == entities.DeviationRequestApplied {
+			target = waitingWaive
+		}
+		if _, err := h.transition(h.tenantContext(), target.ID, mistake.from, mistake.change); !isTheWritersMistake(err) {
 			t.Errorf("%s: %v; want a plain server error", name, err)
 		}
 	}
-	if stored := h.mustGetRequest(t, waiting.ID); stored.Status != entities.DeviationRequestPending || stored.DecidedAt != nil ||
-		stored.DecidedBy != "" || stored.DecidedByID != uuid.Nil {
-		t.Errorf("the refused moves left the request %s, decided at %v by %q", stored.Status, stored.DecidedAt, stored.DecidedBy)
-	}
-	if key := h.storedRequest(t, waiting.ID).liveKey; key.String != waiting.Fingerprint {
-		t.Errorf("the refused moves left the request holding its fingerprint with %+v", key)
+	for _, target := range []entities.DeviationRequest{waiting, waitingWaive} {
+		if stored := h.mustGetRequest(t, target.ID); stored.Status != entities.DeviationRequestPending || stored.DecidedAt != nil ||
+			stored.DecidedBy != "" || stored.DecidedByID != uuid.Nil {
+			t.Errorf("the refused moves left the %s request %s, decided at %v by %q", target.Kind, stored.Status, stored.DecidedAt, stored.DecidedBy)
+		}
+		if key := h.storedRequest(t, target.ID).liveKey; key.String != target.Fingerprint {
+			t.Errorf("the refused moves left the %s request holding its fingerprint with %+v", target.Kind, key)
+		}
 	}
 
 	// The clock and a plan that no longer holds decide without anybody:
@@ -121,7 +166,7 @@ func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 	// An approval the table holds with no time — nothing in the product
 	// writes one, so it is made here by SQL — is closed by the sweep, which
 	// names nobody, and is not reported as applied without a time.
-	undated := h.requestAt(t, h.sampleRequest(instanceID, "dv1-undated"), entities.DeviationRequestApproved)
+	undated := h.requestAt(t, h.sampleMigration(t, "mf1-undated"), entities.DeviationRequestApproved)
 	if err := h.db.Exec(`UPDATE deviation_requests SET decided_at = NULL WHERE id = ?`, undated.ID).Error; err != nil {
 		t.Fatalf("take the time of the approval away: %v", err)
 	}
@@ -184,34 +229,41 @@ func TestALiveRequestHoldsItsFingerprintAndOneThatIsOverLetsGo(t *testing.T) {
 		}
 	}
 
-	for _, status := range everyRequestStatus {
-		fingerprint := "dv1-held-" + string(status)
-		request := h.mustCreateRequest(t, h.sampleRequest(instanceID, fingerprint))
-		held("waiting, on its way to "+string(status), request)
-		for _, next := range movesTo[status] {
-			moved, err := h.transition(h.tenantContext(), request.ID, request.Status, moveTo(request.Status, next))
+	for _, kind := range everyRequestKind {
+		for _, status := range everyRequestStatus {
+			path, reachable := movesTo[kind][status]
+			if !reachable {
+				continue
+			}
+			fingerprint := fmt.Sprintf("dv1-held-%s-%s", kind, status)
+			what := string(kind) + " "
+			request := h.mustCreateRequest(t, h.requestOfKind(t, kind, instanceID, fingerprint))
+			held(what+"waiting, on its way to "+string(status), request)
+			for _, next := range path {
+				moved, err := h.transition(h.tenantContext(), request.ID, request.Status, moveTo(request.Status, next))
+				if err != nil {
+					t.Fatalf("move %s to %s: %v", fingerprint, next, err)
+				}
+				request = moved
+				if next.Live() {
+					held(what+"once "+string(next), request)
+				}
+			}
+			if status.Live() {
+				continue
+			}
+			letGo(what+"once "+string(status), request)
+			again, err := h.createRequest(h.tenantContext(), h.requestOfKind(t, kind, instanceID, fingerprint))
 			if err != nil {
-				t.Fatalf("move %s to %s: %v", fingerprint, next, err)
+				t.Errorf("asking again after a %s request ended %s was refused: %v", kind, status, err)
+				continue
 			}
-			request = moved
-			if next.Live() {
-				held("once "+string(next), request)
-			}
+			held(what+"asked again after "+string(status), again)
 		}
-		if status.Live() {
-			continue
-		}
-		letGo("once "+string(status), request)
-		again, err := h.createRequest(h.tenantContext(), h.sampleRequest(instanceID, fingerprint))
-		if err != nil {
-			t.Errorf("asking again after a request ended %s was refused: %v", status, err)
-			continue
-		}
-		held("asked again after "+string(status), again)
 	}
 
 	// An interrupted request the run reports on after all stays over.
-	swept := h.requestAt(t, h.sampleRequest(instanceID, "dv1-reported-late"), entities.DeviationRequestInterrupted)
+	swept := h.requestAt(t, h.sampleMigration(t, "mf1-reported-late"), entities.DeviationRequestInterrupted)
 	for _, report := range []entities.DeviationRequestStatus{entities.DeviationRequestInterrupted, entities.DeviationRequestApplied} {
 		moved, err := h.transition(h.tenantContext(), swept.ID, swept.Status, moveTo(swept.Status, report))
 		if err != nil {
@@ -241,7 +293,7 @@ func TestALiveRequestHoldsItsFingerprintAndOneThatIsOverLetsGo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create the second project: %v", err)
 	}
-	if _, ok, err := requests.FindLive(h.tenantContext(), second.ID, "dv1-held-approved"); err != nil || ok {
+	if _, ok, err := requests.FindLive(h.tenantContext(), second.ID, "dv1-held-migration-approved"); err != nil || ok {
 		t.Errorf("a project found another project's live request (%v, %v)", ok, err)
 	}
 }
@@ -249,8 +301,7 @@ func TestALiveRequestHoldsItsFingerprintAndOneThatIsOverLetsGo(t *testing.T) {
 // A change writes what it names and leaves the rest as stored.
 func TestAChangeLeavesWhatItDoesNotNameAsStored(t *testing.T) {
 	h := newDeviationHarness(t)
-	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
-	request := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-partial"))
+	request := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-partial"))
 	approvedAt := time.Date(2026, 10, 5, 9, 30, 0, 0, time.UTC)
 	approved, err := h.transition(h.tenantContext(), request.ID, entities.DeviationRequestPending, repocontracts.DeviationRequestChange{
 		Status: entities.DeviationRequestApproved, DecidedBy: "budi", DecidedByID: budi,
@@ -273,7 +324,7 @@ func TestAChangeLeavesWhatItDoesNotNameAsStored(t *testing.T) {
 			t.Errorf("%s: a change that named only a status left %+v", what, got)
 		}
 		if got.Fingerprint != approved.Fingerprint || got.RequestedBy != "ana" || got.Reason != "the approver has left" ||
-			got.Command["node_id"] != "step" || !got.ExpiresAt.Equal(approved.ExpiresAt) {
+			got.Command["node_mapping"] == nil || !got.ExpiresAt.Equal(approved.ExpiresAt) {
 			t.Errorf("%s: a decision changed what was asked: %+v", what, got)
 		}
 	}
@@ -300,7 +351,6 @@ func TestAChangeLeavesWhatItDoesNotNameAsStored(t *testing.T) {
 // turn a self-approval into one a second person gave, or the other way round.
 func TestAReportNeverChangesWhoApproved(t *testing.T) {
 	h := newDeviationHarness(t)
-	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	carol := uuid.Must(uuid.NewV7())
 	naming := map[string]func(*repocontracts.DeviationRequestChange){
 		"another decider":        func(c *repocontracts.DeviationRequestChange) { c.DecidedBy = "carol" },
@@ -313,7 +363,7 @@ func TestAReportNeverChangesWhoApproved(t *testing.T) {
 	for _, from := range []entities.DeviationRequestStatus{entities.DeviationRequestApproved, entities.DeviationRequestInterrupted} {
 		for _, to := range []entities.DeviationRequestStatus{entities.DeviationRequestApplied, entities.DeviationRequestInterrupted} {
 			reports++
-			request := h.requestAt(t, h.sampleRequest(instanceID, fmt.Sprintf("dv1-report-%d", reports)), from)
+			request := h.requestAt(t, h.sampleMigration(t, fmt.Sprintf("mf1-report-%d", reports)), from)
 			for name, name1 := range naming {
 				report := repocontracts.DeviationRequestChange{Status: to, Outcome: map[string]any{"changed": float64(1)}}
 				name1(&report)

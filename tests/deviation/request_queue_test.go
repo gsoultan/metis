@@ -86,10 +86,16 @@ var everyRequestShape = []requestShape{
 // through the moves the product makes.
 func (h *deviationHarness) requestOfShape(t *testing.T, instanceID uuid.UUID, shape requestShape, now time.Time) entities.DeviationRequest {
 	t.Helper()
-	r := h.sampleRequest(instanceID, "dv1-shape-"+shape.name)
+	// A waive where a waive can be at that status; a migration for the two
+	// only a migration reaches, approved and interrupted.
+	kind := entities.DeviationRequestInstanceWaive
+	if _, reachable := movesTo[kind][shape.stored]; !reachable {
+		kind = entities.DeviationRequestMigration
+	}
+	r := h.requestOfKind(t, kind, instanceID, "dv1-shape-"+shape.name)
 	r.ExpiresAt = now.Add(shape.expires)
 	request := h.mustCreateRequest(t, r)
-	for _, next := range movesTo[shape.stored] {
+	for _, next := range movesTo[kind][shape.stored] {
 		change := moveTo(request.Status, next)
 		if request.Status == entities.DeviationRequestPending {
 			change.DecidedAt = now.Add(shape.decided)
@@ -439,7 +445,7 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	row := h.mustWrite(t, waiting)
 	approval := decisionTo(entities.DeviationRequestApproved)
 	approval.DecidedAt = time.Now().Add(-2 * time.Hour)
-	silent := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-orphan-unreported"))
+	silent := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-orphan-unreported"))
 	if _, err := h.transition(h.tenantContext(), silent.ID, entities.DeviationRequestPending, approval); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -489,5 +495,102 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	}
 	if live := h.liveVisitKeyOf(t, row.ID); live.Valid {
 		t.Errorf("after the sweep the ledger row still holds its visit with %q", live.String)
+	}
+}
+
+// breakThePlanOf makes a request's sealed plan one that no longer opens, by
+// SQL: the stored ciphertext with its end overwritten. Nothing in the product
+// writes one; a key that was lost or a row restored from somewhere else would.
+func (h *deviationHarness) breakThePlanOf(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	if err := h.db.Exec(`UPDATE deviation_requests
+		SET plan = to_jsonb(left(plan #>> '{}', length(plan #>> '{}') - 8) || 'AAAAAAAA') WHERE id = ?`, id).Error; err != nil {
+		t.Fatalf("break the plan: %v", err)
+	}
+	if _, err := h.repo.DeviationRequest().Get(h.tenantContext(), id); !isTheWritersMistake(err) {
+		t.Fatalf("a request whose plan was overwritten still reads whole (%v); the fixture broke nothing", err)
+	}
+}
+
+// One request whose sealed plan no longer opens must not stop the sweep for
+// everybody. The sweep reads the longest overdue first, so such a request
+// would head every pass, and nothing behind it would ever be closed — in any
+// organization. The sweep's reads therefore answer requests as the queue does,
+// without the documents it has no use for; the broken one is answered like the
+// rest, and is closed like the rest.
+func TestARequestThatNoLongerOpensDoesNotStopTheSweep(t *testing.T) {
+	h := newDeviationHarness(t)
+	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
+	now := time.Now()
+	waiting := func(fingerprint string, overdueBy time.Duration) entities.DeviationRequest {
+		r := h.sampleRequest(instanceID, fingerprint)
+		r.ExpiresAt = now.Add(-overdueBy)
+		return h.mustCreateRequest(t, r)
+	}
+	approved := func(fingerprint string, overdueBy time.Duration) entities.DeviationRequest {
+		r := h.sampleMigration(t, fingerprint)
+		r.ExpiresAt = now.Add(-overdueBy)
+		return h.requestAt(t, r, entities.DeviationRequestApproved)
+	}
+	// The broken one is the longer overdue of each pair: it is read first.
+	brokenWaiting, healthyWaiting := waiting("dv1-broken-overdue", 2*time.Minute), waiting("dv1-healthy-overdue", time.Minute)
+	brokenApproved, healthyApproved := approved("mf1-broken-unreported", 2*time.Minute), approved("mf1-healthy-unreported", time.Minute)
+	h.breakThePlanOf(t, brokenWaiting.ID)
+	h.breakThePlanOf(t, brokenApproved.ID)
+
+	requests := h.repo.DeviationRequest()
+	closeAll := func(what string, list func(context.Context, time.Time, int) ([]entities.DeviationRequest, error),
+		from, to entities.DeviationRequestStatus, want ...uuid.UUID) {
+		t.Helper()
+		err := h.repo.UnitOfWork().Do(entities.WithSystemContext(context.Background()), func(tx context.Context) error {
+			rows, err := list(tx, now, 100)
+			if err != nil {
+				return fmt.Errorf("read: %w", err)
+			}
+			if !slices.Equal(requestIDs(rows), want) {
+				t.Errorf("%s: the sweep read %v; want the broken request and then the healthy one, %v", what, requestIDs(rows), want)
+			}
+			for _, row := range rows {
+				if row.Command != nil || row.Plan != nil || row.ApprovedInstances != nil {
+					t.Errorf("%s: the sweep's row carries a command, a plan or instances; it reads none of them", what)
+				}
+				if _, err := requests.Transition(tx, row.ID, from, repocontracts.DeviationRequestChange{Status: to}); err != nil {
+					return fmt.Errorf("close %s: %w", row.Fingerprint, err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("%s: the sweep stopped: %v", what, err)
+		}
+		for _, id := range want {
+			if stored := h.storedRequest(t, id); stored.status != string(to) || stored.liveKey.Valid {
+				t.Errorf("%s: after the sweep a request is %s holding %+v; want %s holding nothing", what, stored.status, stored.liveKey, to)
+			}
+		}
+	}
+	closeAll("overdue", requests.ListOverdue, entities.DeviationRequestPending, entities.DeviationRequestExpired,
+		brokenWaiting.ID, healthyWaiting.ID)
+	closeAll("unreported", requests.ListUnreported, entities.DeviationRequestApproved, entities.DeviationRequestInterrupted,
+		brokenApproved.ID, healthyApproved.ID)
+
+	// What a move answers: the request whole when it opens, and without its
+	// documents — nil, which a whole request never has — when it does not.
+	// Either way the move is written.
+	whole := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-answered-whole"))
+	broken := h.mustCreateRequest(t, h.sampleRequest(instanceID, "dv1-answered-broken"))
+	h.breakThePlanOf(t, broken.ID)
+	answered, err := h.transition(h.tenantContext(), whole.ID, entities.DeviationRequestPending, decisionTo(entities.DeviationRequestRejected))
+	if err != nil || answered.Command == nil || answered.Plan == nil || answered.ApprovedInstances == nil || len(answered.Because()) != 1 {
+		t.Errorf("a move of a request that opens: %v; answered with command %v, plan %v", err, answered.Command, answered.Plan)
+	}
+	answered, err = h.transition(h.tenantContext(), broken.ID, entities.DeviationRequestPending, decisionTo(entities.DeviationRequestRejected))
+	if err != nil || answered.Status != entities.DeviationRequestRejected || answered.DecidedBy != "budi" ||
+		answered.Command != nil || answered.Plan != nil || answered.ApprovedInstances != nil {
+		t.Errorf("a move of a request that no longer opens: %v; answered %s by %q with command %v, plan %v",
+			err, answered.Status, answered.DecidedBy, answered.Command, answered.Plan)
+	}
+	if stored := h.storedRequest(t, broken.ID); stored.status != "rejected" || stored.liveKey.Valid {
+		t.Errorf("the request that no longer opens is %s holding %+v; want rejected holding nothing", stored.status, stored.liveKey)
 	}
 }

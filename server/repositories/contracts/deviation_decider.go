@@ -17,8 +17,9 @@ var ErrDeviationRowDecided = errors.New("this ledger row was already decided")
 // LedgerRowDecision is what becomes of a ledger row that waited for approval.
 //
 // Status is where the row goes — applied, rejected, expired or stale — and
-// DecidedAt is when; both are always given. ApprovedBy and ApprovedByID are
-// written as given, so a row nobody approved names nobody. AuditEntryID, Task,
+// DecidedAt is when; both are always given. A decision to applied also gives
+// ApprovedBy and ApprovedByID: somebody approved it. For the other three they
+// are written as given, so a row nobody approved names nobody. AuditEntryID, Task,
 // Before, After and Details are left as stored when they are zero or nil: a
 // waive that withdrew exactly one task names it on its row, and a row that
 // was only waiting names none. A map that is empty and not nil replaces the
@@ -41,7 +42,8 @@ type DeviationDecider interface {
 	// (ErrDeviationOutsideTransaction), and it holds the row while it
 	// decides, so of two decisions made at once one is written and the other
 	// is ErrDeviationRowDecided. A decision back to pending_approval, to a
-	// status outside the closed set, or at no time is a plain error.
+	// status outside the closed set, at no time, or to applied without saying
+	// who approved and from which account, is a plain error.
 	//
 	// The row holds its visit only while it is live (DeviationStatus.Live:
 	// applied, or waiting). Decided to applied it goes on holding it; decided

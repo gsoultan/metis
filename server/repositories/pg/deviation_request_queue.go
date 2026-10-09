@@ -13,7 +13,7 @@ import (
 )
 
 // maxSweepBatch bounds what one sweep read holds, whatever it is asked for:
-// each row it answers is whole, and locked until the transaction ends.
+// each row it answers is read whole, and locked until the transaction ends.
 const maxSweepBatch = 1000
 
 // List answers one page of the caller's requests, newest first, and how many
@@ -88,8 +88,11 @@ func (r *deviationRequestRepository) List(ctx context.Context, query entities.De
 // the clock has made so, and "pending_approval" and "approved" leave those
 // out.
 //
-// In each Any the comparisons come first and IsNull last: storm drops the
-// predicates that follow a null test in a disjunction.
+// In each Any the comparisons come first and IsNull last. An earlier version
+// of storm dropped the predicates that followed a null test in a disjunction;
+// at the version in use it does not, and the order is kept as a guard — it
+// costs nothing, and the test of every shape of row would catch a predicate
+// that went missing.
 func readingAs(q deviationrequest.Query, status entities.DeviationRequestStatus, now time.Time) deviationrequest.Query {
 	var (
 		pending     = string(entities.DeviationRequestPending)
@@ -128,8 +131,8 @@ func (r *deviationRequestRepository) ListOverdue(ctx context.Context, now time.T
 // ListUnreported answers the approved requests whose run window has closed,
 // locked: DeviationRequest.RunWindowClosed as a predicate. An approval with
 // no time is among them — its window cannot be said to be open — so the sweep
-// closes it at once rather than at its deadline. The null test comes last
-// (see readingAs).
+// closes it at once rather than at its deadline. The null test comes last, as
+// a guard (see readingAs).
 func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now time.Time, limit int) ([]entities.DeviationRequest, error) {
 	return r.sweep(ctx, limit, deviationrequest.New().
 		Where(deviationrequest.Status.Eq(string(entities.DeviationRequestApproved))).
@@ -147,6 +150,14 @@ func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now tim
 // it here, so the order — request, then instance, then task rows — holds for
 // whatever the caller does next. A row read here is moved with Transition,
 // which writes only while the stored status is still the one read.
+//
+// The rows are answered as the queue answers them — no command, no plan, no
+// list of instances — though the statement reads them whole, because a read
+// that locks cannot be the projection (its statement carries no lock). The
+// sweep has no use for the three, and opening them here would let one request
+// whose sealed plan no longer opens fail the batch it is in: read longest
+// overdue first, it would head every pass, and nothing behind it would ever be
+// closed, in any organization.
 //
 // No project is joined and no deleted project is left out: run as system
 // work this reaches every request there is, which it has to — a request
@@ -180,7 +191,7 @@ func (r *deviationRequestRepository) sweep(ctx context.Context, limit int, q dev
 	}
 	out := make([]entities.DeviationRequest, 0, len(rows))
 	for _, row := range rows {
-		request, err := requestFrom(row)
+		request, err := queuedRequestFrom(queueRowOf(row))
 		if err != nil {
 			return nil, err
 		}

@@ -247,9 +247,10 @@ func (r *deviationRequestRepository) FindLive(ctx context.Context, projectID uui
 // ErrDeviationRequestDecided. Nothing here compares against a copy read
 // before the lock.
 //
-// Which moves exist is checkedMove, and which of them have to say who and
-// when is checkedDecision; a change that fails either is the caller's
-// mistake, and nothing is written.
+// Which moves exist is checkedMove and, for the request's own kind,
+// checkedMoveOfKind; which of them have to say who and when is
+// checkedDecision. A change that fails any of them is the caller's mistake,
+// and nothing is written.
 func (r *deviationRequestRepository) Transition(ctx context.Context, id uuid.UUID, from entities.DeviationRequestStatus, change contracts.DeviationRequestChange) (entities.DeviationRequest, error) {
 	if !db.InTransaction(ctx) {
 		return entities.DeviationRequest{}, contracts.ErrDeviationRequestOutsideTransaction
@@ -259,6 +260,9 @@ func (r *deviationRequestRepository) Transition(ctx context.Context, id uuid.UUI
 	}
 	row, err := r.one(ctx, id, true)
 	if err != nil {
+		return entities.DeviationRequest{}, err
+	}
+	if err := checkedMoveOfKind(entities.DeviationRequestKind(row.Kind), from, change.Status); err != nil {
 		return entities.DeviationRequest{}, err
 	}
 	if row.Status != string(from) {
@@ -278,5 +282,24 @@ func (r *deviationRequestRepository) Transition(ctx context.Context, id uuid.UUI
 	if err := mut.Update(ctx, ex); err != nil {
 		return entities.DeviationRequest{}, fmt.Errorf("could not move the request to %s: %w", change.Status, err)
 	}
-	return requestFrom(mut.Row())
+	return movedRequestFrom(mut.Row())
+}
+
+// movedRequestFrom decodes the row a move left: whole when its documents
+// open, and as the queue reads it — without them — when they do not.
+//
+// A move writes a status and what goes with it; it writes none of the three
+// documents and needs none of them. If answering had to open them, a request
+// whose sealed plan no longer opens could never be closed: the answer would
+// fail after the write, the transaction would roll back, and the request
+// would hold its fingerprint for ever. So the move stands, and the answer says
+// what it can — with Command, Plan and ApprovedInstances nil, which a whole
+// request never has, so a caller that needs them can tell. Anything else that
+// cannot be decoded is still an error.
+func movedRequestFrom(row deviationrequest.Row) (entities.DeviationRequest, error) {
+	whole, err := requestFrom(row)
+	if err == nil {
+		return whole, nil
+	}
+	return queuedRequestFrom(queueRowOf(row))
 }

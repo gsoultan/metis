@@ -117,7 +117,11 @@ func TestADecidedRowHoldsItsVisitOnlyWhileItIsLive(t *testing.T) {
 		if live := h.liveVisitKeyOf(t, pending.ID); live.String != visit {
 			t.Fatalf("a waiting row holds its visit with %+v; want %q", live, visit)
 		}
-		decided, err := h.decideRow(h.tenantContext(), pending.ID, repocontracts.LedgerRowDecision{Status: status, DecidedAt: time.Now()})
+		decision := repocontracts.LedgerRowDecision{Status: status, DecidedAt: time.Now()}
+		if status == entities.DeviationApplied {
+			decision.ApprovedBy, decision.ApprovedByID = "budi", budi
+		}
+		decided, err := h.decideRow(h.tenantContext(), pending.ID, decision)
 		if err != nil {
 			t.Fatalf("decide to %s: %v", status, err)
 		}
@@ -227,10 +231,14 @@ func TestADecisionThatIsTheWritersMistakeOrAnotherOrganizationsChangesNothing(t 
 	now := time.Now()
 
 	mistakes := map[string]repocontracts.LedgerRowDecision{
-		"back to waiting":             {Status: entities.DeviationPendingApproval, DecidedAt: now},
-		"to no status":                {DecidedAt: now},
-		"to a status outside the set": {Status: "waived", DecidedAt: now},
-		"at no time":                  {Status: entities.DeviationRejected},
+		"applied with nobody having approved":   {Status: entities.DeviationApplied, DecidedAt: now},
+		"applied, approved by no account":       {Status: entities.DeviationApplied, DecidedAt: now, ApprovedBy: "budi"},
+		"applied, approved by nobody named":     {Status: entities.DeviationApplied, DecidedAt: now, ApprovedByID: budi},
+		"applied, approved by a name of spaces": {Status: entities.DeviationApplied, DecidedAt: now, ApprovedBy: "  ", ApprovedByID: budi},
+		"back to waiting":                       {Status: entities.DeviationPendingApproval, DecidedAt: now},
+		"to no status":                          {DecidedAt: now},
+		"to a status outside the set":           {Status: "waived", DecidedAt: now},
+		"at no time":                            {Status: entities.DeviationRejected},
 	}
 	for name, decision := range mistakes {
 		if _, err := h.decideRow(h.tenantContext(), written.ID, decision); !isTheWritersMistake(err) {

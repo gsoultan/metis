@@ -64,37 +64,68 @@ func wellFormedForItsKind(r entities.DeviationRequest) error {
 	return nil
 }
 
-// requestMoves is every move a request's status makes, and there is no other.
+// requestMoves is every move a request's status makes, by its kind, and there
+// is no other.
 //
-// A waiting request is decided once: approved (a migration, which then runs),
-// applied (a waive, approved and done in one change), rejected, expired, or
-// made stale. An approved one is reported on: applied, or interrupted. An
-// interrupted one can still be reported on — the sweep gives up on a run after
-// an hour, and a run that was in fact still going says what it did when it
-// ends; its report wins. Nothing leaves applied, stale, rejected or expired,
-// and nothing ever becomes live again: a request that is over stays over, and
-// the same thing is asked for afresh.
-var requestMoves = map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
-	entities.DeviationRequestPending: {
-		entities.DeviationRequestApproved, entities.DeviationRequestApplied, entities.DeviationRequestRejected,
-		entities.DeviationRequestExpired, entities.DeviationRequestStale,
+// A waive that waits is decided once: applied — approved and done in the one
+// change that does it — rejected, expired, or made stale. It is never
+// approved without being applied, so it is never approved and never
+// interrupted: those are states of a run, and a waive has none.
+//
+// A migration that waits is approved, rejected, expired, or made stale. It is
+// never applied without having been approved: only its run applies it. An
+// approved one is reported on — applied, or interrupted. An interrupted one
+// can still be reported on: the sweep gives up on a run after an hour, and a
+// run that was in fact still going says what it did when it ends; its report
+// wins.
+//
+// Nothing leaves applied, stale, rejected or expired, and nothing ever becomes
+// live again: a request that is over stays over, and the same thing is asked
+// for afresh.
+var requestMoves = map[entities.DeviationRequestKind]map[entities.DeviationRequestStatus][]entities.DeviationRequestStatus{
+	entities.DeviationRequestInstanceWaive: {
+		entities.DeviationRequestPending: {
+			entities.DeviationRequestApplied, entities.DeviationRequestRejected,
+			entities.DeviationRequestExpired, entities.DeviationRequestStale,
+		},
 	},
-	entities.DeviationRequestApproved:    {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
-	entities.DeviationRequestInterrupted: {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+	entities.DeviationRequestMigration: {
+		entities.DeviationRequestPending: {
+			entities.DeviationRequestApproved, entities.DeviationRequestRejected,
+			entities.DeviationRequestExpired, entities.DeviationRequestStale,
+		},
+		entities.DeviationRequestApproved:    {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+		entities.DeviationRequestInterrupted: {entities.DeviationRequestApplied, entities.DeviationRequestInterrupted},
+	},
 }
 
-// checkedMove refuses a change of status the product does not make, and a
-// report that names a decision.
+// checkedMove refuses what no request of any kind does: a status outside the
+// closed set, a move no kind makes, and a report that names a decision. It
+// needs no row, so it is asked before one is read or held.
 func checkedMove(from entities.DeviationRequestStatus, change contracts.DeviationRequestChange) error {
 	to := change.Status
 	if !from.Valid() || !to.Valid() {
 		return fmt.Errorf("deviation request: a status moves within the closed set (got %q to %q)", from, to)
 	}
-	if !slices.Contains(requestMoves[from], to) {
+	made := false
+	for _, moves := range requestMoves {
+		made = made || slices.Contains(moves[from], to)
+	}
+	if !made {
 		return fmt.Errorf("deviation request: nothing moves a request from %s to %s", from, to)
 	}
 	if from != entities.DeviationRequestPending && namesADecision(change) {
 		return fmt.Errorf("deviation request: a request that is %s was decided already; a report on it says what the run did, and this one names who decided, when or why", from)
+	}
+	return nil
+}
+
+// checkedMoveOfKind refuses a move that a request of this kind does not make,
+// whatever another kind does: a waive written approved, a migration written
+// applied without having been approved.
+func checkedMoveOfKind(kind entities.DeviationRequestKind, from, to entities.DeviationRequestStatus) error {
+	if !slices.Contains(requestMoves[kind][from], to) {
+		return fmt.Errorf("deviation request: nothing moves a request of kind %q from %s to %s", kind, from, to)
 	}
 	return nil
 }
@@ -138,8 +169,8 @@ func checkedDecision(row deviationrequest.Row, change contracts.DeviationRequest
 }
 
 // decidedByAPerson reports whether status is one somebody's decision leaves a
-// request at: approved, applied (a waive, approved and done in one change; a
-// migration, approved and then run) or rejected.
+// request at: approved (a migration), applied (a waive, approved and done in
+// one change; a migration, approved and then run) or rejected.
 func decidedByAPerson(status entities.DeviationRequestStatus) bool {
 	switch status {
 	case entities.DeviationRequestApproved, entities.DeviationRequestApplied, entities.DeviationRequestRejected:
