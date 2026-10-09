@@ -313,17 +313,29 @@ func complianceHolds(
 	instances []models.ProcessInstanceModel,
 ) []entities.ComplianceHold {
 	pending := map[string]int{}
+	// The part of the mapping that only gives a step a new id. Any other
+	// mapping of a step sends its work to a different step.
+	renames := renamedSteps(sourceNodes, nodeMapping)
 	for id, node := range sourceNodes {
 		if !boolProperty(node.Properties, "compliance_relevant") {
 			continue
 		}
-		// The obligation survives only if it lands on a node that carries one
-		// too. Existing is not enough: mapping "operations approve" onto "sales
-		// approve" lands the token perfectly and still means nobody performs
-		// the check, and a version that keeps the node id but drops the marking
-		// has removed the control just as surely as deleting the node would.
-		landed, ok := targetNodes[mapNode(nodeMapping, id)]
-		if ok && boolProperty(landed.Properties, "compliance_relevant") {
+		// The obligation survives only if the step itself survives — under its
+		// own id, or renamed — and still carries one. Existing is not enough:
+		// a version that keeps the node id but drops the marking has removed
+		// the control just as surely as deleting the node would.
+		//
+		// Nor is landing on a marked step enough. A control redirected onto a
+		// different step is not performed by performing that one, whatever
+		// that one is marked as: "first check" mapped onto "second check"
+		// lands the token on a control and still means nobody performs the
+		// first. It used to count as carried across whenever the landing step
+		// was marked, so a mapping could take an instance past a control with
+		// nothing held and nobody asked.
+		to := mapNode(nodeMapping, id)
+		_, renamed := renames[id]
+		landed, ok := targetNodes[to]
+		if ok && (to == id || renamed) && boolProperty(landed.Properties, "compliance_relevant") {
 			continue
 		}
 		for _, instance := range instances {
