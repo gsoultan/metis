@@ -2,6 +2,7 @@ package impl
 
 import (
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -86,12 +87,14 @@ func TestAStepRenamedInPlaceInsideASubProcess(t *testing.T) {
 // any other redirect.
 func TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace(t *testing.T) {
 	t.Parallel()
+	// Each on a copy: the versions of a case are built from one base, and
+	// must not write into each other's lists.
 	with := func(def models.ProcessDefinitionModel, nodes ...models.FlowNode) models.ProcessDefinitionModel {
-		def.Nodes = append(def.Nodes, nodes...)
+		def.Nodes = append(slices.Clone(def.Nodes), nodes...)
 		return def
 	}
 	flowed := func(def models.ProcessDefinitionModel, from, to string) models.ProcessDefinitionModel {
-		def.Flows = append(def.Flows, models.SequenceFlow{ID: from + "-" + to, SourceRef: from, TargetRef: to})
+		def.Flows = append(slices.Clone(def.Flows), models.SequenceFlow{ID: from + "-" + to, SourceRef: from, TargetRef: to})
 		return def
 	}
 	base := line("start", "prepare", "sign", "end")
@@ -113,6 +116,14 @@ func TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace(t *testing.T) {
 			map[string]string{"onCancel": "onWithdrawn"},
 		},
 		{
+			// Nothing flows out of one. A definition that draws a flow from
+			// it all the same has not given it a place.
+			"an event sub-process a definition draws the same flow from",
+			flowed(with(base, models.FlowNode{ID: "onCancel", Type: models.SubProcess, IsEventSubProcess: true}), "onCancel", "end"),
+			flowed(with(base, models.FlowNode{ID: "onWithdrawn", Type: models.SubProcess, IsEventSubProcess: true}), "onWithdrawn", "end"),
+			map[string]string{"onCancel": "onWithdrawn"},
+		},
+		{
 			"a step with no flow in either version",
 			with(base, models.FlowNode{ID: "adhoc"}),
 			with(base, models.FlowNode{ID: "optional"}),
@@ -125,9 +136,22 @@ func TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace(t *testing.T) {
 			map[string]string{"adhoc": "optional"},
 		},
 	}
+	// The boundary event's fixture has the flows it says it has: without the
+	// shape's own rule it would be taken as in place.
+	if stood, stands := stepPlaces(cases[0].source)["late"], stepPlaces(cases[0].target)["overdue"]; len(stood.to) != 1 || len(stands.to) != 1 {
+		t.Fatalf("the boundary event's fixture: flows from it in the source %v, in the target %v, want one each", stood.to, stands.to)
+	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			sourceNodes, targetNodes := nodeIndex(c.source.Nodes), nodeIndex(c.target.Nodes)
+			for from, to := range c.mapping {
+				if _, has := sourceNodes[from]; !has {
+					t.Fatalf("the fixture's source has no %q", from)
+				}
+				if _, has := targetNodes[to]; !has {
+					t.Fatalf("the fixture's target has no %q", to)
+				}
+			}
 			if got := renamedSteps(sourceNodes, targetNodes, c.mapping); !maps.Equal(got, c.mapping) {
 				t.Fatalf("the fixture is not a rename by ids: %v", got)
 			}

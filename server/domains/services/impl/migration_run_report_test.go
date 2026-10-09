@@ -20,8 +20,11 @@ import (
 type reportStore struct {
 	repositories.Repository
 
-	stored  entities.DeviationRequest
-	given   []context.Context
+	stored entities.DeviationRequest
+	given  []context.Context
+	// ended is what each of those contexts had ended on when its unit of
+	// work began: nil for one still open.
+	ended   []error
 	changes []repocontracts.DeviationRequestChange
 	// What reading a definition, and what a unit of work, panics with; nil
 	// for a part of the store that works.
@@ -48,6 +51,7 @@ func (u reportUnits) Do(ctx context.Context, fn func(ctx context.Context) error)
 		panic(u.store.fallsOnReport)
 	}
 	u.store.given = append(u.store.given, ctx)
+	u.store.ended = append(u.store.ended, ctx.Err())
 	return fn(ctx)
 }
 
@@ -103,10 +107,10 @@ func TestTheReportOfARunIsWrittenUnderADeadlineOfItsOwnThoughItsCallWasCancelled
 	if wait := deadline.Sub(before); wait < runReportTimeout-time.Second || wait > runReportTimeout+5*time.Second {
 		t.Fatalf("the report waits %s to be written, want about %s", wait, runReportTimeout)
 	}
-	// By the time the report returns its context is released; while it was
-	// being written it was not the cancelled one it was called with.
-	if cause := context.Cause(store.given[0]); errors.Is(cause, context.DeadlineExceeded) {
-		t.Fatalf("the report's context ended on its deadline: %v", cause)
+	// While it was being written its context was open, though the one it
+	// was called with had been cancelled before it began.
+	if store.ended[0] != nil {
+		t.Fatalf("the report was written on a context that had already ended (%v): a store that honours it writes nothing", store.ended[0])
 	}
 }
 
