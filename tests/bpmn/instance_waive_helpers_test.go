@@ -40,7 +40,26 @@ type waiver struct {
 	ctx       context.Context // ana
 }
 
+// waiverAdministrators are the administrators the scenarios sign in: ana
+// asks, budi approves, and citra and dita are whoever else a scenario needs.
+var waiverAdministrators = []string{"ana", "budi", "citra", "dita"}
+
+// newWaiver is a waiver over h. Its administrators are accounts of the
+// harness's organization, written here, once: an approval asks whether
+// whoever made the request still administers the organization, of the
+// accounts — so a requester who is a principal in the context and nothing in
+// the database would be nobody, which no request in production is made by.
 func newWaiver(h engineHarness) waiver {
+	tenant, _ := entities.TenantContextFrom(h.Ctx())
+	organization, err := uuid.Parse(tenant.TenantID)
+	if err != nil {
+		panic("the waiver's harness is for no organization: " + err.Error())
+	}
+	for _, name := range waiverAdministrators {
+		if err := testutils.EnrolAdministrator(h.Ctx(), h.repo, organization, accountID(name), name); err != nil {
+			panic(err)
+		}
+	}
 	w := waiver{h: h, asking: serviceimpl.NewInstanceDeviationService(h.repo, h.engine),
 		approvals: serviceimpl.NewDeviationRequestService(h.repo, h.engine)}
 	w.svc = secondedByBudi{asking: w.asking, approvals: w.approvals}

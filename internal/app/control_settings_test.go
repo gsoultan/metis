@@ -139,12 +139,9 @@ func TestTheSoleAdministratorOrganizationsAreAnnouncedAtBoot(t *testing.T) {
 func TestWhatStartUpAnnouncesAboutSoleAdministratorsIsWhatTheServicesEnforce(t *testing.T) {
 	const setting = "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS"
 	w := askForAWaive(t, map[string]any{"verdict": "maybe-next-quarter"})
+	// ana's account is the harness's (askForAWaive): the organization's only
+	// administrator.
 	organization := entities.ActingOrganization(w.tenant)
-	if err := w.app.svc.CreateUser(entities.WithSystemContext(t.Context()), entities.User{
-		ID: w.account("ana"), Username: "ana", Roles: []string{entities.RoleAdmin}, Organizations: []*entities.Organization{{ID: organization}},
-	}, "start-up-test-password"); err != nil {
-		t.Fatalf("create ana's account: %v", err)
-	}
 	elsewhere := uuid.Must(uuid.NewV7()).String()
 	started := func(list string) (announced []any) {
 		t.Helper()

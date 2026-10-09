@@ -87,6 +87,14 @@ func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 		t.Fatalf("create the organization: %v", err)
 	}
 	w.tenant = entities.WithTenantContext(t.Context(), entities.TenantContext{TenantID: org.ID.String()})
+	// ana, who asks, is an account of the organization, written once: an
+	// approval asks whether whoever made the request still administers it,
+	// of the accounts. She is its only one — budi, who approves in some
+	// tests, is a principal and no account — so that a test of an
+	// organization with one administrator has one.
+	if err := testutils.EnrolAdministrator(w.tenant, repo, org.ID, w.account("ana"), "ana"); err != nil {
+		t.Fatal(err)
+	}
 	project, err := svc.CreateProject(w.tenant, org.ID, "Retention Project", "")
 	if err != nil {
 		t.Fatalf("create the project: %v", err)

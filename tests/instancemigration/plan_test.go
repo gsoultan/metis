@@ -56,6 +56,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	enrolAdministrators(t, tenantCtx, repo, org.ID)
 	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher, db: db}
 }
 

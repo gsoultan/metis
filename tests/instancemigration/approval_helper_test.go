@@ -12,6 +12,8 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/endpoints/definition"
 	"github.com/gsoultan/metis/server/endpoints/deviation"
+	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // accountOf is the account id of the test administrator called name: derived
@@ -25,6 +27,24 @@ func accountOf(name string) uuid.UUID {
 func adminAs(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, pkgauth.UserContextKey, entities.User{
 		ID: accountOf(name), Username: name, Roles: []string{entities.RoleAdmin}})
+}
+
+// fixtureAdministrators are the administrators the tests sign in: dita asks,
+// omar approves, and pia is whoever else a test needs.
+var fixtureAdministrators = []string{"dita", "omar", "pia"}
+
+// enrolAdministrators writes the accounts of the fixture's administrators,
+// in its organization, when the fixture is made. An approval asks whether
+// whoever made the request still administers the organization, of the
+// accounts — so a requester who is a principal in the context and nothing in
+// the database would be nobody, which no request in production is made by.
+func enrolAdministrators(t *testing.T, ctx context.Context, repo repositories.Repository, organization uuid.UUID) {
+	t.Helper()
+	for _, name := range fixtureAdministrators {
+		if err := testutils.EnrolAdministrator(ctx, repo, organization, accountOf(name), name); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // requestCount is how many requests for a second administrator there are.
