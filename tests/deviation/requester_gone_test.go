@@ -274,3 +274,41 @@ func tablesChanged(before, after map[string]string) []string {
 	slices.Sort(changed)
 	return changed
 }
+
+// Past its deadline and with whoever asked gone, a request is expired, not
+// stale. The deadline is looked at first: a request past it already reads
+// expired to every reader, and whoever finds it — the pass, a rejection, an
+// approval — records that and nothing else, so that one fact has one end.
+// This pins where the question of who asked sits in an approval.
+func TestARequestPastItsDeadlineIsExpiredWhoeverAskedForIt(t *testing.T) {
+	gone := departures()[0]
+	for kind, ask := range map[string]func(h *deviationHarness, t *testing.T, token string) string{
+		"a waive": func(h *deviationHarness, t *testing.T, token string) string {
+			return h.askToWaive(t, token, h.oneStep(t))
+		},
+		"a migration": func(h *deviationHarness, t *testing.T, token string) string {
+			m := h.twoVersionsToMigrate(t)
+			h.waitingAtTheApproval(t)
+			return h.askToMigrate(t, token, m)
+		},
+	} {
+		t.Run(kind, func(t *testing.T) {
+			h := newDeviationRouteHarness(t)
+			deputy := h.signIn(t, "deputy", entities.RoleAdmin)
+			boss, bossToken := h.enrol(t, "boss", gone.spec)
+			requestID := ask(h, t, bossToken)
+			gone.leave(t, h, boss)
+			h.letTheDeadlinePass(t, requestID)
+
+			status, _, raw := h.decide(t, deputy, requestID, "approve", "")
+			if status != http.StatusBadRequest || !strings.Contains(raw, "This request expired on ") ||
+				!strings.Contains(raw, "before anybody approved it, so nothing was applied") || strings.Contains(raw, "no longer administers") {
+				t.Fatalf("deputy's approval of a request that is overdue and whose requester has gone: %d (%s), want the 400 of an expiry", status, raw)
+			}
+			_, read, raw := h.readRequest(t, deputy, requestID)
+			if read.Request.Status != "expired" || h.requestStatus(t, requestID) != "expired" || read.Request.Outcome["why"] != nil {
+				t.Fatalf("the request reads %s and is stored as %s; want it expired, with no finding of staleness", raw, h.requestStatus(t, requestID))
+			}
+		})
+	}
+}

@@ -191,10 +191,14 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 	// And the sweep itself, over all of it, closes neither. (What it answers
 	// is not looked at: the requests above were written through the
 	// repository and have no ledger row to close with them.)
+	//
+	// Only the approved one is asserted here. The request that waits and is
+	// not yet due has no ledger row either, so a sweep that did read it would
+	// fail to close it and leave it waiting all the same: an assertion on it
+	// here could not fail. That neither read answers it — from the start,
+	// from every cursor — is what the comparisons above assert, and they are
+	// what fails when the predicate on time is taken away.
 	_, _ = h.svc.SweepDeviationRequests(system, now)
-	if got := h.requestStatus(t, notDue.ID.String()); got != string(entities.DeviationRequestPending) {
-		t.Errorf("after a sweep the request that is not yet due is stored as %s, want it still waiting", got)
-	}
 	if got := h.requestStatus(t, running.ID.String()); got != string(entities.DeviationRequestApproved) {
 		t.Errorf("after a sweep the approved request whose window is open is stored as %s, want it still approved", got)
 	}

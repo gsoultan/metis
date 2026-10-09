@@ -171,7 +171,7 @@ const id: Catalogue = {
   'migration.secondApproverTitle': 'Ini harus disetujui sebelum ada yang dipindahkan',
   'migration.sendForApproval': 'Kirim untuk persetujuan',
   'migration.unreadableMessage':
-    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan (GET /api/v1/deviation-requests), dan mengirim migrasi yang sama sekali lagi dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
+    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan (GET /api/v1/deviation-requests), dan mengirim ulang migrasi yang sama dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
   'migration.unreadableTitle': 'Jawaban server tidak dapat dibaca',
 
   'offline.title': 'Anda sedang luring',

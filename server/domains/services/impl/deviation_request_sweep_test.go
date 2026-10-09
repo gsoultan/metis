@@ -253,3 +253,21 @@ func TestTheEndOfAPassSaysWhatIsTrueOfIt(t *testing.T) {
 		}
 	}
 }
+
+// The numbers the runbook gives for a pass are the ones the server is built
+// with: a pass waits two seconds for a row somebody holds, makes at most ten
+// thousand attempts in each of its reads, and ends a read once it has waited
+// out thirty held rows. Read from the constructor production uses, so that a
+// default changed without the documents is told here.
+func TestTheSweepsDefaultsAreTheOnesTheDocumentsState(t *testing.T) {
+	// Built over no repository and no engine: the constructor reads neither,
+	// and what it sets of the sweep it sets whatever it is built over.
+	service, built := NewDeviationRequestService(nil, nil).(*deviationRequestService)
+	if !built {
+		t.Fatal("the service of requests is no longer the type whose defaults this reads")
+	}
+	if service.sweepLockWait != 2*time.Second || service.sweepBudget != 10_000 || service.sweepHeldLimit != 30 {
+		t.Fatalf("a pass is built to wait %s for a held row, make %d attempts a read and end after %d held rows; "+
+			"docs/runbooks.md says two seconds, ten thousand and thirty", service.sweepLockWait, service.sweepBudget, service.sweepHeldLimit)
+	}
+}

@@ -110,6 +110,21 @@ func TestTheRunbooksRepairClosesAnOverdueRequestAndNoOther(t *testing.T) {
 			t.Fatalf("the repair on a request not yet due reported %v and committed=%v, want UPDATE 0 and a rollback", reported, committed)
 		}
 		h.requireUnchanged(t, before, "the repair, rolled back")
+		// And pasted whole into psql, which does not stop at an UPDATE 0:
+		// both statements run and the transaction commits. The runbook says
+		// the second statement then changes nothing either, and it does not.
+		pasted := h.db.Begin()
+		for i, statement := range repairStatements(t, requestID) {
+			done := pasted.Exec(statement)
+			if done.Error != nil || done.RowsAffected != 0 {
+				pasted.Rollback()
+				t.Fatalf("pasted whole, statement %d reported %d rows (%v) on a request not yet due, want UPDATE 0", i+1, done.RowsAffected, done.Error)
+			}
+		}
+		if err := pasted.Commit().Error; err != nil {
+			t.Fatalf("commit the pasted block: %v", err)
+		}
+		h.requireUnchanged(t, before, "the repair, pasted whole and committed")
 		if status, live, _ := rowOf(requestID); status != "pending_approval" || live == nil || h.requestStatus(t, requestID) != "pending_approval" {
 			t.Fatalf("after the rollback the ledger row is %s and the request %s, want both still waiting and the visit held", status, h.requestStatus(t, requestID))
 		}

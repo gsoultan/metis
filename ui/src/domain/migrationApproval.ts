@@ -39,8 +39,8 @@ export function approvalNeeded(plan: ApiMigrationPlan | null, t: Translate): App
 /**
  * What the apply button says pressing it does.
  *
- * "Send for approval" when that is what the press does. Otherwise the count
- * it always gave, in the English the rest of the dialog is still written in.
+ * "Send for approval" when that is what the press does. Otherwise how many
+ * instances it moves, in the reader's language (migration.moveInstances).
  */
 export function applyLabel(plan: ApiMigrationPlan | null, t: Translate): string {
   if (plan?.requires_second_approver === true) return t('migration.sendForApproval');

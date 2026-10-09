@@ -254,8 +254,9 @@ describe('a migration sent for a second administrator', () => {
     const parts = (text: string) => ({
       year: /\b2026\b/.test(text),
       day: /\b6\b/.test(text),
-      // The last run of letters, digits and a sign: "UTC", "GMT+7", "WIB".
-      zone: /(UTC|GMT[+-]?\d*|WIB|[A-Z]{2,5})$/.test(text),
+      // A zone's own name at the end — "UTC", "GMT+7", "WIB" — and not any
+      // run of capitals: "AM" and "PM" end an English time and are no zone.
+      zone: /(UTC|GMT[+-]\d{1,2}(:\d{2})?|WIB)$/.test(text),
     });
     for (const locale of ['en', 'id']) {
       const utc = formatExpiry('2026-10-06T09:12:00Z', locale, 'UTC');
@@ -651,7 +652,7 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
     expect(indonesian.message).toBe(
       'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: ' +
         'periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan ' +
-        '(GET /api/v1/deviation-requests), dan mengirim migrasi yang sama sekali lagi dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
+        '(GET /api/v1/deviation-requests), dan mengirim ulang migrasi yang sama dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
     );
   });
 
