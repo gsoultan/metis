@@ -422,7 +422,7 @@ func (s *migrationService) apply(
 		// Moved all the same, it lost that control with no acknowledgement
 		// asked for and no row to say so.
 		if _, covered := planned[uuid.UUID(instance.ID)]; !covered {
-			result.PassedOver = append(result.PassedOver, passedOver(instance, notPlannedFor(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseNotPlannedFor(source)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that was not on the source version when it was planned. " +
 					"It stays on the version it is running; plan the migration again to include it")
@@ -450,7 +450,7 @@ func (s *migrationService) apply(
 			// down: not counted among those dealt with, and still on the
 			// source version for the next run. Said in the result, for whoever
 			// asked for the migration, and in the log.
-			result.PassedOver = append(result.PassedOver, passedOver(instance, leftTheStep(source, made.left)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseItLeftTheStep(source, made.left)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that was no longer where its listing found it. " +
 					"It stays on the version it is running; run the same migration again to plan for where it is now")
@@ -460,8 +460,8 @@ func (s *migrationService) apply(
 
 		moved := map[string]string{}
 		settled, elsewhere := false, false
-		// Why the instance, once locked, is not to be moved; empty when it is.
-		stuck := ""
+		// Why the instance, once locked, is not to be moved; nothing when it is.
+		var stuck leftAlone
 		// The instance_migrated entry is written after the rewrite commits, but
 		// the control-loss rows written inside it point at that entry, so its id
 		// is chosen first.
@@ -510,7 +510,7 @@ func (s *migrationService) apply(
 			if checkErr != nil {
 				return checkErr
 			}
-			if why != "" {
+			if !why.none() {
 				stuck = why
 				return nil
 			}
@@ -623,17 +623,17 @@ func (s *migrationService) apply(
 		if elsewhere {
 			// Nothing of this run's was written to it. Not counted among those
 			// dealt with either: it is no longer one of the source version's.
-			result.PassedOver = append(result.PassedOver, passedOver(instance, alreadyMoved(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseAlreadyMoved(source)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that another run had already moved off the source version. " +
 					"It was not decided or moved again")
 			continue
 		}
 		if settled {
-			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseItStopped(source)))
 			continue
 		}
-		if stuck != "" {
+		if !stuck.none() {
 			// Left exactly as its lock found it, on the version it is running.
 			// Not counted among those dealt with: the next run, or the next
 			// plan, finds it where it now stands.

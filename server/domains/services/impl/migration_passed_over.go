@@ -9,11 +9,14 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// passedOver is the run's account of an instance it left alone.
-func passedOver(instance models.ProcessInstanceModel, reason string) entities.PassedOverInstance {
+// passedOver is the run's account of an instance it left alone: which one,
+// why as a code, the steps that is about, and why in words.
+func passedOver(instance models.ProcessInstanceModel, why leftAlone) entities.PassedOverInstance {
 	return entities.PassedOverInstance{
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(instance.ID)},
-		Reason:   reason,
+		Cause:    why.cause,
+		Steps:    why.steps,
+		Reason:   why.reason,
 	}
 }
 
