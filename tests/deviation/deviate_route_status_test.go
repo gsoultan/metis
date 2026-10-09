@@ -239,9 +239,11 @@ func TestAnApplyThatComesTooLateIsA400ThatSaysWhatHappened(t *testing.T) {
 		}
 		h.requireUnchanged(t, before, what)
 	}
+	// A hold and a cancel are applied by the request that asks; a waive waits,
+	// and is applied when the second administrator approves it (seconded).
 	appliedOnce := func(what string, instanceID uuid.UUID, body map[string]any) {
 		t.Helper()
-		if status, first, raw := h.deviate(t, admin, instanceID, body); status != http.StatusOK || !first.Applied || first.Replayed {
+		if status, first, raw := h.seconded(t, admin, instanceID, body); status != http.StatusOK || !first.Applied || first.Replayed {
 			t.Fatalf("%s: %d (%s), want it applied", what, status, raw)
 		}
 		before := h.everyRow(t)
@@ -373,9 +375,10 @@ func TestAnOutputSaidTwiceIsA400AndDecidesNoBranch(t *testing.T) {
 		t.Fatal("a request that said an output twice closed the step")
 	}
 
-	// Said once, it is the request that was previewed, and it acts.
-	if status, applied, raw := h.deviate(t, admin, instanceID, apply); status != http.StatusOK || !applied.Applied {
-		t.Fatalf("the output said once: %d (%s), want it applied", status, raw)
+	// Said once, it is the request that was previewed: it waits, a second
+	// administrator approves it, and it acts.
+	if status, applied, raw := h.seconded(t, admin, instanceID, apply); status != http.StatusOK || !applied.Applied {
+		t.Fatalf("the output said once, approved by a second administrator: %d (%s), want it applied", status, raw)
 	}
 	if open := h.openTasksOn(t, instanceID, "large"); open != 1 {
 		t.Fatalf("%d task(s) are open on the second approval; 250 goes there", open)
@@ -444,6 +447,11 @@ func TestAStepIdOrAVisitKeyLongerThanTheRecordKeepsIsA400(t *testing.T) {
 // instance that exists, asked about by somebody who may ask, must not be
 // answered as not there — nor as a request they could put right. The status
 // is the error's class, never its words: the words may say "not found".
+//
+// The advance is the approval's: asking for the waive only records the
+// request, a 202, and the step after the waived one is not reached until a
+// second administrator approves. So the 500 is the approval's, and what it
+// leaves is the request as it waited.
 func TestAFailureThatIsTheServersIsA500WhateverItsWordsSay(t *testing.T) {
 	h := newDeviationRouteHarness(t)
 	instanceID := h.start(t, &entities.ProcessDefinition{
@@ -466,20 +474,28 @@ func TestAFailureThatIsTheServersIsA500WhateverItsWordsSay(t *testing.T) {
 	if !planned.Plan.Applicable {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing: %q", planned.Plan.Refusals)
 	}
+	seconder := h.secondAdministrator(t)
+	status, asked, raw := h.deviate(t, admin, instanceID, apply)
+	if status != http.StatusAccepted || asked.Applied || asked.PendingApproval == nil {
+		t.Fatalf("asking for the waive: %d (%s), want a 202 that names the request it waits on", status, raw)
+	}
 	before := h.everyRow(t)
 
-	status, _, raw := h.deviate(t, admin, instanceID, apply)
+	status, _, raw = h.decide(t, seconder, asked.PendingApproval.RequestID, "approve", "")
 	if status != http.StatusInternalServerError {
-		t.Fatalf("a waive whose next step could not run: %d (%s), want 500", status, raw)
+		t.Fatalf("approving a waive whose next step could not run: %d (%s), want 500", status, raw)
 	}
 	if !strings.Contains(raw, `"error":"waiving “Review the claim”: `) || !strings.Contains(raw, "no-such-decision") {
 		t.Errorf("the 500 does not say what was being done and what failed: %s", raw)
 	}
-	if strings.Contains(raw, `"plan"`) || strings.Contains(raw, `"applied"`) {
+	if strings.Contains(raw, `"plan"`) || strings.Contains(raw, `"applied"`) || strings.Contains(raw, `"request"`) {
 		t.Errorf("the 500 carries a reply as well as the failure: %s", raw)
 	}
-	h.requireUnchanged(t, before, "a waive whose advance failed")
+	h.requireUnchanged(t, before, "an approval whose advance failed")
 	if !h.stepIsOpen(t, instanceID) {
 		t.Fatal("the step is not open again after the waive was undone")
+	}
+	if waits := h.requestStatus(t, asked.PendingApproval.RequestID); waits != "pending_approval" {
+		t.Fatalf("the request reads %s after an approval that failed, want it still waiting", waits)
 	}
 }

@@ -120,7 +120,7 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	for name, want := range map[string]any{
 		"instance_id": instanceID.String(), "kind": "waive", "scope": "task", "node_id": "step", "node_name": "Check the order",
 		"open_work_in_all": float64(1), "decision_points_in_all": float64(1), "missing_in_all": float64(1),
-		"requires_second_approver": false, "applicable": false,
+		"requires_second_approver": true, "applicable": false,
 	} {
 		if plan[name] != want {
 			t.Errorf("the plan's %s is %v, want %v", name, plan[name], want)
@@ -171,19 +171,54 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 		t.Fatalf("a preview that supplies the amount: %s", raw)
 	}
 	h.requireUnchanged(t, before, "previews")
+	h.secondAdministrator(t)
 
-	// Applied: the plan it was applied with, and the record as the ledger's
-	// own route reads it.
-	reply, raw = h.deviateObject(t, admin, instanceID, apply)
+	// Asked: a waive waits for a second administrator, and the reply is a
+	// 202 that says so — the plan it was asked with, the record as it waits,
+	// and the request it waits on.
+	status, asked, raw := h.deviate(t, admin, instanceID, apply)
+	if status != http.StatusAccepted || asked.Applied || asked.Replayed || asked.PendingApproval == nil {
+		t.Fatalf("the apply of a waive: %d (%s), want a 202 that names the request it waits on", status, raw)
+	}
 	replies = append(replies, raw)
-	requireFields(t, reply, "an apply", "plan", "applied", "replayed", "deviation")
+	reply = map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+		t.Fatalf("decode: %v (%s)", err, raw)
+	}
+	requireFields(t, reply, "a request", "plan", "applied", "replayed", "deviation", "pending_approval")
+	requireFields(t, reply["plan"], "the plan asked with", planFields...)
+	requireFields(t, reply["pending_approval"], "what it waits on", "request_id", "status", "requested_by", "expires_at", "because")
+	waiting := reply["deviation"].(map[string]any)
+	if waiting["status"] != "pending_approval" || waiting["actor"] != "boss" || waiting["request_id"] != asked.PendingApproval.RequestID {
+		t.Fatalf("the record of a waive that waits: %s", raw)
+	}
+	if nulls := nullsIn(reply, "reply"); len(nulls) != 0 {
+		t.Errorf("the 202 holds null at %v: %s", nulls, raw)
+	}
+	if odd := notSnakeCase(t, map[string]any{"reply": reply, "pending_approval": reply["pending_approval"], "deviation": waiting}); len(odd) != 0 {
+		t.Errorf("fields not written as the other routes write theirs: %v", odd)
+	}
+
+	// Approved: the plan it was applied with, and the record as the ledger's
+	// own route reads it.
+	status, raw = h.send(t, h.secondAdministrator(t), requestPath(asked.PendingApproval.RequestID)+"/approve", "")
+	if status != http.StatusOK {
+		t.Fatalf("the second administrator approves: %d (%s)", status, raw)
+	}
+	replies = append(replies, raw)
+	reply = map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+		t.Fatalf("decode: %v (%s)", err, raw)
+	}
+	requireFields(t, reply, "an approval", "request", "applied", "deviation", "plan")
 	requireFields(t, reply["plan"], "an applied plan", planFields...)
-	if reply["applied"] != true || reply["replayed"] != false {
-		t.Fatalf("the apply: %s", raw)
+	if reply["applied"] != true {
+		t.Fatalf("the approval: %s", raw)
 	}
 	record := reply["deviation"].(map[string]any)
 	for name, want := range map[string]any{"kind": "waive", "scope": "task", "origin": "in_place", "status": "applied",
-		"node_id": "step", "node_name": "Check the order", "actor": "boss", "actor_is_server": false, "reason": routeReason} {
+		"node_id": "step", "node_name": "Check the order", "actor": "boss", "actor_is_server": false, "reason": routeReason,
+		"approved_by": seconderName, "request_id": asked.PendingApproval.RequestID} {
 		if record[name] != want {
 			t.Errorf("the record's %s is %v, want %v", name, record[name], want)
 		}
@@ -204,9 +239,9 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 		t.Errorf("the apply answered the record as\n%s\nand the ledger's route reads it as\n%s", asApplied, asRead)
 	}
 	if nulls := nullsIn(reply, "reply"); len(nulls) != 0 {
-		t.Errorf("the apply holds null at %v: %s", nulls, raw)
+		t.Errorf("the approval holds null at %v: %s", nulls, raw)
 	}
-	if odd := notSnakeCase(t, map[string]any{"reply": reply, "deviation": record}); len(odd) != 0 {
+	if odd := notSnakeCase(t, map[string]any{"reply": reply, "request": reply["request"], "deviation": record}); len(odd) != 0 {
 		t.Errorf("fields not written as the other routes write theirs: %v", odd)
 	}
 
@@ -233,15 +268,17 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 	}
 	h.requireUnchanged(t, applied, "the same apply again")
 
-	// Nobody's account id, in any of it: not the administrator's, who acted,
-	// and not the holder's, whose task was taken — in the preview that refused,
-	// the preview that did not, the apply, the row as the ledger's route reads
-	// it, and the replay.
+	// Nobody's account id, in any of it: not the administrator's, who asked,
+	// not the second administrator's, who approved, and not the holder's,
+	// whose task was taken — in the preview that refused, the preview that did
+	// not, the 202 of the request, the approval, the row as the ledger's route
+	// reads it, and the replay.
 	replies = append(replies, raw)
-	if len(replies) != 5 {
-		t.Fatalf("%d replies were kept to look through, want five", len(replies))
+	if len(replies) != 6 {
+		t.Fatalf("%d replies were kept to look through, want six", len(replies))
 	}
-	for who, account := range map[string]string{"the administrator": h.accountID(t, "boss").String(), "the holder": h.accountID(t, "alice").String()} {
+	for who, account := range map[string]string{"the administrator": h.accountID(t, "boss").String(),
+		"the second administrator": h.accountID(t, seconderName).String(), "the holder": h.accountID(t, "alice").String()} {
 		for i, said := range replies {
 			if strings.Contains(said, account) {
 				t.Errorf("reply %d carries the account id of %s: %s", i+1, who, said)
@@ -255,6 +292,11 @@ func TestTheReplyToADeviationHasOneShapeWhateverItHolds(t *testing.T) {
 // by the comparison that tells the same request sent again from another one.
 // The two agree: the gateway takes the branch the number fits, and the retry
 // is answered with the record — never "already waived by".
+//
+// Between the two the number is kept: a waive waits in a request until a
+// second administrator approves it, and what the approval sets is what the
+// request stored. So this also pins that a number survives being kept in a
+// request and read back at approval.
 func TestANumberAWaiveCountsAsIsTheNumberTheGatewayCompares(t *testing.T) {
 	h := newDeviationRouteHarness(t)
 	admin := h.signIn(t, "boss", entities.RoleAdmin)
@@ -277,9 +319,9 @@ func TestANumberAWaiveCountsAsIsTheNumberTheGatewayCompares(t *testing.T) {
 			t.Fatalf("the preview of amount %s: %d (%s)", c.amount, status, raw)
 		}
 		apply := request(c.amount, planned.Plan.VisitKey)
-		status, applied, raw := h.deviateWith(t, admin, instanceID, apply)
+		status, applied, raw := h.secondedWith(t, admin, instanceID, apply)
 		if status != http.StatusOK || !applied.Applied || applied.Replayed {
-			t.Fatalf("the waive counted as amount %s: %d (%s), want it applied", c.amount, status, raw)
+			t.Fatalf("the waive counted as amount %s, approved by a second administrator: %d (%s), want it applied", c.amount, status, raw)
 		}
 		if h.openTasksOn(t, instanceID, c.taken) != 1 || h.openTasksOn(t, instanceID, c.notTaken) != 0 {
 			t.Fatalf("a waive counted as amount %s did not go to %q", c.amount, c.taken)
@@ -297,8 +339,8 @@ func TestANumberAWaiveCountsAsIsTheNumberTheGatewayCompares(t *testing.T) {
 	// is not, and neither is the number's digits as words.
 	instanceID := h.start(t, orderBySize())
 	_, planned, _ := h.deviateWith(t, admin, instanceID, request("250", ""))
-	if status, _, raw := h.deviateWith(t, admin, instanceID, request("250", planned.Plan.VisitKey)); status != http.StatusOK {
-		t.Fatalf("the waive: %d (%s)", status, raw)
+	if status, applied, raw := h.secondedWith(t, admin, instanceID, request("250", planned.Plan.VisitKey)); status != http.StatusOK || !applied.Applied {
+		t.Fatalf("the waive, approved by a second administrator: %d (%s)", status, raw)
 	}
 	before := h.everyRow(t)
 	for _, same := range []string{"250.0", "2.5e2", " 250 "} {

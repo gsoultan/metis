@@ -14,12 +14,22 @@ import (
 type Endpoints struct {
 	ListInstanceDeviations endpoint.Endpoint
 	DeviateInstance        endpoint.Endpoint
+
+	// The requests that wait for a second administrator: read, and decided.
+	ListDeviationRequests   endpoint.Endpoint
+	GetDeviationRequest     endpoint.Endpoint
+	ApproveDeviationRequest endpoint.Endpoint
+	RejectDeviationRequest  endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListInstanceDeviations: MakeListInstanceDeviationsEndpoint(s),
-		DeviateInstance:        MakeDeviateInstanceEndpoint(s),
+		ListInstanceDeviations:  MakeListInstanceDeviationsEndpoint(s),
+		DeviateInstance:         MakeDeviateInstanceEndpoint(s),
+		ListDeviationRequests:   MakeListDeviationRequestsEndpoint(s),
+		GetDeviationRequest:     MakeGetDeviationRequestEndpoint(s),
+		ApproveDeviationRequest: MakeApproveDeviationRequestEndpoint(s),
+		RejectDeviationRequest:  MakeRejectDeviationRequestEndpoint(s),
 	}
 }
 

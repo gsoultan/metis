@@ -34,6 +34,9 @@ type deviationHarness struct {
 	orgID    uuid.UUID
 	projID   uuid.UUID
 	deployed int
+	// seconder is the token of the organization's second administrator, once
+	// a test has asked for one (secondAdministrator).
+	seconder string
 }
 
 func newDeviationHarness(t *testing.T) *deviationHarness {

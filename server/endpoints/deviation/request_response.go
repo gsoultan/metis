@@ -1,6 +1,7 @@
 package deviation
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,16 +63,37 @@ func (r DeviateInstanceRequest) dryRun() bool {
 // the first one wrote. Its plan names the act and lists nothing: what there
 // was to list is no longer there to read, so its lists are empty and its
 // counts are zero, and neither says there was nothing.
+//
+// A waive is not made by the request that asks for it: it waits for a second
+// administrator. Its apply carries the plan, Applied false, the record as it
+// waits (pending_approval) and PendingApproval — the request it waits on —
+// and is answered 202, not 200: the request was taken and nothing has been
+// done. The same ask sent again by whoever made it is that answer again, with
+// Replayed, and a 202 still. Once approved, it replays as any applied act
+// does: a 200 with no PendingApproval.
 type DeviateInstanceResponse struct {
 	Plan     PlanView `json:"plan"`
 	Applied  bool     `json:"applied"`
 	Replayed bool     `json:"replayed"`
 	// Deviation is left out of a preview.
 	Deviation *DeviationView `json:"deviation,omitzero"`
-	Err       error          `json:"err,omitzero"`
+	// PendingApproval is left out of every reply that waits on nothing: a
+	// preview, a cancel, a hold, and the replay of an act that was made.
+	PendingApproval *PendingApprovalView `json:"pending_approval,omitzero"`
+	Err             error                `json:"err,omitzero"`
 }
 
 func (r DeviateInstanceResponse) Failed() error { return r.Err }
+
+// StatusCode is 202 for a reply that says a request waits for a second
+// administrator, and 200 for every other. A refusal never gets here: the
+// transport asks Failed first and answers with the status of its class.
+func (r DeviateInstanceResponse) StatusCode() int {
+	if r.PendingApproval != nil {
+		return http.StatusAccepted
+	}
+	return http.StatusOK
+}
 
 // responseOf maps what the service answered to what the route returns.
 func responseOf(outcome entities.DeviationOutcome) DeviateInstanceResponse {
@@ -79,6 +101,10 @@ func responseOf(outcome entities.DeviationOutcome) DeviateInstanceResponse {
 	if outcome.Deviation != nil {
 		view := ViewOf(*outcome.Deviation)
 		response.Deviation = &view
+	}
+	if outcome.PendingApproval != nil {
+		view := PendingApprovalViewOf(*outcome.PendingApproval)
+		response.PendingApproval = &view
 	}
 	return response
 }

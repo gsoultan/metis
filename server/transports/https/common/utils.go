@@ -18,6 +18,15 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 )
 
+// EncodeResponse writes a reply as JSON.
+//
+// A reply that failed is answered as its failure, with the status of the
+// failure's class, and nothing of the reply. That is asked first: a reply
+// that also names a status of its own never gets to give it for a failure.
+//
+// A reply that names its status is answered with it. It is for a reply that
+// is not "done" — a request that was taken and now waits for somebody else is
+// a 202 — and every reply that names none is the 200 it always was.
 func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) error {
 	if f, ok := response.(endpoints.Failer); ok && f.Failed() != nil {
 		// EncodeError has written the failure to the caller. Returning it again
@@ -26,6 +35,9 @@ func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) er
 		return nil //nolint:nilerr // the error is reported to the caller by EncodeError, not swallowed
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if coder, ok := response.(interface{ StatusCode() int }); ok {
+		w.WriteHeader(coder.StatusCode())
+	}
 	return json.NewEncoder(w).Encode(response)
 }
 

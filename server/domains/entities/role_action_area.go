@@ -52,6 +52,9 @@ var actionNouns = []struct{ noun, area string }{
 	{"Webhook", areaWebhooks},
 	{"LegacySignatures", areaWebhooks},
 	{"Incident", areaInstances},
+	// A request for a second administrator (ApproveDeviationRequest) is about
+	// an instance's work, and its name carries no other noun here.
+	{"Deviation", areaInstances},
 	{"Instance", areaInstances},
 	{"Signal", areaInstances},
 	{"AdHocTask", areaInstances},

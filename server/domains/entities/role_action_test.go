@@ -27,6 +27,12 @@ func TestAGatedMethodReadsAsWords(t *testing.T) {
 		{"ActivateAdHocTask", "Activate ad hoc task", "instances"},
 		{"MigrateInstances", "Migrate instances", "instances"},
 		{"ResolveIncident", "Resolve incident", "instances"},
+		// A request for a second administrator is about an instance's work,
+		// and its name says neither "instance" nor "incident".
+		{"ListDeviationRequests", "List deviation requests", "instances"},
+		{"GetDeviationRequest", "Get deviation request", "instances"},
+		{"ApproveDeviationRequest", "Approve deviation request", "instances"},
+		{"RejectDeviationRequest", "Reject deviation request", "instances"},
 		{"ImportParticipants", "Import participants", "people"},
 		// The longer noun first: a directory is a participant *source*.
 		{"SyncParticipantSource", "Sync participant source", "directories"},

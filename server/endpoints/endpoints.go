@@ -275,6 +275,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// gated too: it reads the instance. The service asks again who is calling,
 	// so the command is not open to a caller that reaches it by another road.
 	deviationEndpoints.DeviateInstance = adminOnly("DeviateInstance")(deviationEndpoints.DeviateInstance)
+	// The requests a waive, or a migration that loosens a rule, waits on are
+	// an administrator's to read and to decide, in the organization the
+	// request is for: the queue and a single request show what was asked and
+	// why, and a decision carries it out or ends it. The reads are gated as
+	// the decisions are — a request holds an instance's values and who holds
+	// its work. The service asks again who is calling, and it, not this gate,
+	// is what keeps whoever asked from approving their own request.
+	deviationEndpoints.ListDeviationRequests = adminOnly("ListDeviationRequests")(deviationEndpoints.ListDeviationRequests)
+	deviationEndpoints.GetDeviationRequest = adminOnly("GetDeviationRequest")(deviationEndpoints.GetDeviationRequest)
+	deviationEndpoints.ApproveDeviationRequest = adminOnly("ApproveDeviationRequest")(deviationEndpoints.ApproveDeviationRequest)
+	deviationEndpoints.RejectDeviationRequest = adminOnly("RejectDeviationRequest")(deviationEndpoints.RejectDeviationRequest)
 
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
