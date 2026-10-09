@@ -1209,7 +1209,12 @@ again. What is over stays over, and the same thing is asked for afresh
 **The clock decides; a pass writes it down.** A request past its deadline reads `expired`
 to every reader and cannot be approved from that moment, whether or not anything has
 recorded it (`TestAnOverdueRequestReadsAsExpiredBeforeTheSweep`). Every ten minutes, and
-once at start-up, each replica records what the clock has decided, on each database. So
+once at start-up, each replica records what the clock has decided, on each database. A
+pass does two things, in this order: approved runs that never reported are recorded
+`interrupted`, then requests past their deadline are recorded `expired`
+(`TestTheSweepClosesUnreportedRunsBeforeOverdueRequests`). Each request is closed in a
+transaction of its own, so one that cannot be closed is logged and passed, and the rest
+are still reached (`TestTheSweepReachesWhatIsBehindRequestsItCannotClose`). So
 does whoever next meets the request: an approval or a rejection that finds it overdue
 records the expiry and is then refused, and asking again for the same thing closes the
 overdue request and makes a fresh one
