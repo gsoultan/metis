@@ -122,8 +122,27 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 	if err != nil {
 		return entities.MigrationResult{}, err
 	}
-	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
+	result, err := s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
+	if err != nil {
+		return result, failedInTheRun{err: err}
+	}
+	return result, nil
 }
+
+// failedInTheRun marks a failure of a migration's run itself, as against a
+// refusal made before the run began: the plan's, or the gate's.
+//
+// It says nothing of its own and changes nothing for whoever reads the
+// failure: its words are the failure's, and the failure is under it for
+// errors.Is and errors.As. It is there for the one caller that has to tell
+// the two apart — the approval of a migration, which answers a refusal as a
+// refusal and a run that stopped part-way as the server's failure, whatever
+// class the thing that stopped it happens to carry (approvedRunFailed).
+type failedInTheRun struct{ err error }
+
+func (f failedInTheRun) Error() string { return f.err.Error() }
+
+func (f failedInTheRun) Unwrap() error { return f.err }
 
 // PlanInstanceMigration works out what MigrateInstances would do, and writes
 // nothing.

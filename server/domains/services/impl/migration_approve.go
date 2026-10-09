@@ -145,11 +145,11 @@ func (s *migrationService) reportOfAPanic(ctx context.Context, request entities.
 	traceApprovedRunStopped(request, result, errRunPanicked)
 }
 
-// approvedRunFailure is an approved run that did not finish, as its approver
-// is told of it: in words of its own, over the failure that stopped the run.
+// approvedRunFailure is an approved run that was refused before it began, as
+// its approver is told of it: in words of its own, over the refusal.
 //
-// The words are not the failure's (approvedRunFailed). The failure stays
-// under them, so that what it was is still asked of it: a refusal is still a
+// The words are not the refusal's (approvedRunFailed). The refusal stays
+// under them, so that what it was is still asked of it: it is still a
 // refusal to whoever answers the request, and errors.Is and errors.As find
 // what they found in the run's own error.
 type approvedRunFailure struct {
@@ -165,6 +165,10 @@ func (f approvedRunFailure) Unwrap() error { return f.cause }
 // transport asks after them (common.CodeFrom).
 var answeredClasses = []error{apierr.ErrInvalidArgument, apierr.ErrNotFound, apierr.ErrForbidden}
 
+// refusalClasses are the classes of a refusal made before a run began: what
+// was asked cannot be done (the plan's), or may not be (the gate's).
+var refusalClasses = []error{apierr.ErrInvalidArgument, apierr.ErrForbidden}
+
 // approvedRunFailed is what whoever approved a migration is told when its run
 // did not finish: why, in the failure's words, what became of the request,
 // and the one thing there is to do — ask again for what remains.
@@ -175,25 +179,34 @@ var answeredClasses = []error{apierr.ErrInvalidArgument, apierr.ErrNotFound, api
 // is taken out, and so is the engine's marker for an error a process may
 // catch, which is no word.
 //
-// The failure keeps its class. A run the plan refuses — an instance moved on,
-// between the approval and the run, to where the migration cannot take it —
-// is a refusal of what was asked, as it is on one administrator's call, and
-// the gate's refusal is one of something that may not be done. Neither is the
-// server's failure, and neither is counted as one. The class is said once, in
-// front, as every classed failure says it; a failure with none is the
-// server's, as it was.
+// Only a refusal keeps its class. A run the plan refuses — an instance moved
+// on, between the approval and the run, to where the migration cannot take
+// it — is a refusal of what was asked, as it is on one administrator's call,
+// and the gate's refusal is one of something that may not be done. Neither
+// is the server's failure, and neither is counted as one: the refusal stays
+// under the message, and its class is said once, in front, as every classed
+// failure says it.
+//
+// Everything else is the server's failure, and a plain error, whatever class
+// its cause carries. A run that stops part-way (failedInTheRun) has moved
+// instances by then; a cause that happens to be "not found" — a row gone
+// under the run — would otherwise answer the approver that the request is
+// not there. So would a failure before the run of any other class.
 func approvedRunFailed(id uuid.UUID, status entities.DeviationRequestStatus, runErr error) error {
 	cause := strings.ReplaceAll(withoutClass(runErr), resumeByRunningAgain, "")
 	cause = strings.ReplaceAll(cause, "BPMN_ERROR:", "")
 	said := fmt.Sprintf("the approved migration did not finish: %s. Request %s now reads %s; what its run had done stands, "+
 		"and what remains has to be asked for again", cause, id, status)
-	for _, class := range answeredClasses {
+	var inTheRun failedInTheRun
+	if errors.As(runErr, &inTheRun) {
+		return errors.New(said)
+	}
+	for _, class := range refusalClasses {
 		if errors.Is(runErr, class) {
-			said = class.Error() + ": " + said
-			break
+			return approvedRunFailure{said: class.Error() + ": " + said, cause: runErr}
 		}
 	}
-	return approvedRunFailure{said: said, cause: runErr}
+	return errors.New(said)
 }
 
 // admit is step A: the approval, in a unit of work of its own (runDecision),
