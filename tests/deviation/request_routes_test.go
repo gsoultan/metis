@@ -343,6 +343,7 @@ func TestADecisionThatCannotBeReadIsRefusedInPlainWords(t *testing.T) {
 	h := newDeviationRouteHarness(t)
 	instanceID := h.start(t, orderBySize())
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+	member := h.signIn(t, "member", entities.RoleUser)
 	apply, _ := h.previewed(t, boss, instanceID, map[string]any{"kind": "waive", "node_id": "step", "reason": routeReason,
 		"outputs": map[string]any{"amount": 10}})
 	status, asked, raw := h.deviate(t, boss, instanceID, apply)
@@ -389,6 +390,22 @@ func TestADecisionThatCannotBeReadIsRefusedInPlainWords(t *testing.T) {
 		}
 		h.requireUnchanged(t, before, "decisions that could not be read, sent to "+path)
 	}
+	// The body is read before anybody is asked what they may do, as on every
+	// route. So a member who sends what cannot be read is told that, and one
+	// who sends a decision is told they may not decide; neither is told
+	// anything of the request. Nobody signed in is asked who they are first.
+	approve := requestPath(requestID) + "/approve"
+	if status, raw := h.send(t, member, approve, `{"outputs":{"amount":250}}`); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
+		t.Errorf("a member sending a decision that cannot be read: %d (%s), want 400 %s", status, raw, want)
+	}
+	if status, raw := h.send(t, member, approve, `{"reason":"x"}`); status != http.StatusForbidden || !sameJSON(t, raw, refusal("forbidden", needsTheAdministratorRole)) {
+		t.Errorf("a member sending a decision: %d (%s), want the gate's 403", status, raw)
+	}
+	if status, raw := h.send(t, "", approve, `{"outputs":`); status != http.StatusUnauthorized {
+		t.Errorf("nobody sending what is not a decision: %d (%s), want 401", status, raw)
+	}
+	h.requireUnchanged(t, before, "decisions from somebody who may not decide")
+
 	// A decision too large to be one is told so.
 	tooLarge := invalid("this request is larger than 16 KiB, which is more than a decision needs to say")
 	huge := `{"reason":"` + strings.Repeat("x", 17<<10) + `"}`
