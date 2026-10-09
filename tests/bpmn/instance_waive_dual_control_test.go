@@ -879,47 +879,48 @@ func TestTheSweepAndAnAskAgainCloseAnOverdueRequestOnce(t *testing.T) {
 	h := newEngineHarness(t, "Sweep And Ask Again Project")
 	w := newWaiver(h)
 	h.deploy(t, opsApproval(h.projID, "ops-sweep-race"))
-	system := entities.WithSystemContext(h.Ctx())
 	const rounds = 6
 	for round := range rounds {
-		id, err := h.svc.StartProcess(h.Ctx(), h.projID, "ops-sweep-race", nil)
-		if err != nil {
-			t.Fatalf("round %d: start: %v", round, err)
-		}
-		first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
-		if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
-			t.Fatalf("round %d: let time pass: %v", round, err)
-		}
-		again := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+		t.Run("round "+string(rune('1'+round)), func(t *testing.T) {
+			id, err := h.svc.StartProcess(h.Ctx(), h.projID, "ops-sweep-race", nil)
+			if err != nil {
+				t.Fatalf("round %d: start: %v", round, err)
+			}
+			first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+			if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
+				t.Fatalf("round %d: let time pass: %v", round, err)
+			}
+			again := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 
-		var start sync.WaitGroup
-		start.Add(1)
-		asked := send(func() (entities.DeviationOutcome, error) {
-			start.Wait()
-			inTime, stop := context.WithTimeout(w.ctx, lockWait)
-			defer stop()
-			return w.asking.DeviateInstance(inTime, again)
-		})
-		swept := send(func() (int64, error) {
-			start.Wait()
-			return w.approvals.ExpireDeviationRequests(system, time.Now())
-		})
-		start.Done()
+			var start sync.WaitGroup
+			start.Add(1)
+			asked := send(func() (entities.DeviationOutcome, error) {
+				start.Wait()
+				inTime, stop := context.WithTimeout(w.ctx, lockWait)
+				defer stop()
+				return w.asking.DeviateInstance(inTime, again)
+			})
+			swept := send(func() (int64, error) {
+				start.Wait()
+				return w.sweep(h.Ctx(), time.Now())
+			})
+			start.Done()
 
-		second, err := asked.answer(t, "the ask-again")
-		if err != nil || second.PendingApproval == nil || second.PendingApproval.RequestID == first.PendingApproval.RequestID {
-			t.Fatalf("round %d: asking again beside the sweep: %+v, %v; want a fresh request", round, second, err)
-		}
-		if _, err := swept.answer(t, "the sweep"); err != nil {
-			t.Fatalf("round %d: the sweep: %v", round, err)
-		}
-		rows := w.ledger(t, id)
-		if len(rows) != 2 || rows[0].Status != entities.DeviationExpired || rows[1].Status != entities.DeviationPendingApproval {
-			t.Fatalf("round %d: the ledger holds %+v, want the expired request and then the new one", round, rows)
-		}
-		if expiries := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expiries) != 1 {
-			t.Fatalf("round %d: the trail says a request expired %d times, want once", round, len(expiries))
-		}
+			second, err := asked.answer(t, "the ask-again")
+			if err != nil || second.PendingApproval == nil || second.PendingApproval.RequestID == first.PendingApproval.RequestID {
+				t.Fatalf("round %d: asking again beside the sweep: %+v, %v; want a fresh request", round, second, err)
+			}
+			if _, err := swept.answer(t, "the sweep"); err != nil {
+				t.Fatalf("round %d: the sweep: %v", round, err)
+			}
+			rows := w.ledger(t, id)
+			if len(rows) != 2 || rows[0].Status != entities.DeviationExpired || rows[1].Status != entities.DeviationPendingApproval {
+				t.Fatalf("round %d: the ledger holds %+v, want the expired request and then the new one", round, rows)
+			}
+			if expiries := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expiries) != 1 {
+				t.Fatalf("round %d: the trail says a request expired %d times, want once", round, len(expiries))
+			}
+		})
 	}
 }
 
