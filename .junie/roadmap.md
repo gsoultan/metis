@@ -1243,6 +1243,13 @@
     and skips*: what waits, the six sentences the migration can stop with, a rolling
     upgrade or a canary (a pod of the previous release applies a waive on one call), a
     rollback (reject what waits first), and an organization with one administrator.
+    For developers only, since migration 34 never shipped in another form: a database that
+    ran the earlier form of it during this slice keeps a two-column sweep index and an
+    index on `instance_id`, because `CREATE INDEX IF NOT EXISTS` leaves an index that
+    exists as it is. Recreate the database, or run `DROP INDEX IF EXISTS
+    ix_deviation_requests_instance; DROP INDEX IF EXISTS ix_deviation_requests_sweep;
+    CREATE INDEX ix_deviation_requests_sweep ON deviation_requests (status, expires_at,
+    id);`.
   - **Not in this slice.** An approval screen, a queue in the UI, or a notice that a request
     waits (P2): the second administrator decides through the API. A Connect or gRPC call. A
     durable trail of changes to accounts. A review of the whole difference between two
@@ -1271,10 +1278,12 @@
       role on the account is counted where its latest sign-in placed it (*run*:
       `TestAnAccountAnIdentityProviderPlacesIsCountedWhereItsLatestSignInPutIt`), and the
       role gate reads a caller cached for `METIS_AUTH_CACHE_TTL` while the count reads the
-      database (*read*).
+      database (*read*). So an approver's standing is the cached principal's for up to that
+      long when another replica, or a statement run by hand, changed it — while the standing
+      of whoever asked is read from the database at the approval (*read*).
     - ~~**A request outlives its requester's role.** Nothing asks at approval whether whoever
       asked still administers or still has an account (*read*; found while the docs were
-      written).~~ *Done in the final wave: an approval asks, and closes the request as
+      written).~~ *Done 2026-10-10, in the final wave: an approval asks, and closes the request as
       `stale`* (*run*: `TestAWaiveIsNotApprovedOnceItsRequesterNoLongerAdministers`,
       `TestAMigrationIsNotApprovedOnceItsRequesterNoLongerAdministers`). What is left: it
       is asked once, at the approval, of the accounts as committed then; a role taken away
@@ -1326,6 +1335,16 @@
     - **An apply that meets a plan which came to need a second administrator between the
       route's reading and the service's answers "needs a second administrator" to an
       apply** (403). The sentence is true and the same call sent again is a 202 (*read*).
+      And the other way: a plan that needed one when the route read it and no longer does
+      when the service comes to ask answers 400 *This migration needs no second
+      administrator; apply it.* to an apply; sent again, it applies (*read*).
+    - **A newcomer found by the run's gate is a 403, where the same newcomer found at the
+      approval is a 400 and `stale`.** One condition, two statuses, to an approver who was
+      entitled; the request then reads `interrupted`, so the stale sentence would be untrue
+      of it. Left (*run*: `TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate`).
+    - **The lookups an approval makes of accounts run on the main database's pool when the
+      request is for an environment's database**: a second connection while one is held, on
+      the paths that ask about accounts (*read*).
     - **`migration.go` is 2,100 lines, and `planFor` and `apply` are long.** Splitting that
       file is its own change.
     - **A second administrator who presses "Send for approval" on a migration somebody else
@@ -1352,8 +1371,12 @@
     - **A passed-over instance was never produced against a real server in the dialog, and
       no screen reader was used on it** (*read* from the docs task's own report).
     - **A self-approved migration whose run touched no instance is recorded only on the
-      request and in the log; trail entries carry names and no account ids; the approver's
-      note is on the request and in the trail's sentence, not on the ledger row** (*read*).
+      request and in the log; trail entries carry names and no account ids** (*read*).
+    - **The approver's note is on the request (`decision_reason`), never on the ledger
+      row.** A waive's `deviation_approved` entry also says it, and a
+      `deviation_self_approved` entry its reason. A migration's entries name who approved
+      and the request and carry neither the note nor a sole administrator's reason: for a
+      migration that is on the request alone (*read*).
     - **A stored document that no longer opens is logged each time its request is read**,
       not once (*read*).
     - **One administrator can still act alone on a step by handing its task to themselves**
@@ -1400,7 +1423,7 @@
       even after the request was approved** (*read* from the header's rules; the replay of a
       recorded-first 400 is *run*).
     - ~~**A passed-over entry's `reason` sentence is not bounded**; its `steps` are (*read*).~~
-      *Done in the final wave: ten names, each cut at 255, and a count*
+      *Done 2026-10-10, in the final wave: ten names, each cut at 255, and a count*
       (*run*: `TestTheSentenceOfAPassedOverInstanceNamesTenStepsAndCountsTheRest`). The
       rule that decides `applied` cannot tell the capped list from the whole one — an
       equivalent mutant, accepted.

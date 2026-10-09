@@ -1226,7 +1226,10 @@ to approve by asking for the same thing
 
 **Who may decide.** An administrator of the request's organization, with an account.
 
-- *Approve:* anybody but the requester. A note is optional. The requester is refused, 403:
+- *Approve:* anybody but the requester — or the requester too, with a reason, in an
+  organization the operator has named as having one administrator and that nobody else
+  administers ([below](#an-organization-with-one-administrator)). A note is optional.
+  Anywhere else the requester is refused, 403:
   *You asked for this. A different administrator has to approve it.* The attempt changes
   nothing and is written to the server's log, where alone it leaves a mark.
 - *Reject:* any administrator, with a reason. The requester among them: that is a
@@ -1289,7 +1292,9 @@ who approved (`approved_by`).
   the organization, or without the administrator role in it — the request is recorded
   `stale` and the approver is told *The administrator who asked for this, boss, no longer
   administers this organization, so nothing was applied. It has to be asked for afresh by
-  somebody who does.* This is asked after the deadline and before anything else.
+  somebody who does.* This is asked once the request is known to be waiting, in time and
+  one this caller may approve, and before anything the request stored is used or anything
+  of the instance is read.
 - If the instance has ended, or has moved, or the plan now refuses: the request is
   recorded `stale` and the approver is told *This request no longer holds — the instance
   has moved since it was asked for — so nothing was applied. Preview again and ask
@@ -1389,8 +1394,11 @@ server's log and are not stored on the request. After a panic the outcome says
 - **Trail entries carry names, not account ids.** Who asked and who approved are on the
   request and on the ledger row by account id as well; a trail entry's sentence and its
   data name people by username, as the trail always has.
-- **The approver's note is on the request and in the trail's sentence, not on the ledger
-  row.** The row says who approved and when.
+- **The approver's note is on the request (`decision_reason`), never on the ledger row.**
+  A waive's `deviation_approved` entry also says it (*Note: …*), and a
+  `deviation_self_approved` entry its reason (*Reason: …*). A migration's entries name who
+  approved and the request and do not carry the note, nor a sole administrator's reason:
+  for a migration that is on the request alone.
 - **A waive's request and a migration's record the same things the same way.** A request
   its requester approved says so in its `outcome` (`self_approved`,
   `other_administrators`, `organization_id`) for both kinds, and a request found `stale`
@@ -1533,8 +1541,9 @@ A mapping has two shapes, and they mean different things for work already done.
 Work in progress follows either. Finished work follows only a rename, and then only by its
 step's id: a completed or cancelled task keeps its status, its assignee, its name, its form
 and its timestamps, and the instance's record of completed steps names the step by its new
-id. Under a redirect neither is written: the record must not say somebody did a step they
-did not do.
+id. Under a redirect neither is written, so that the record does not say somebody did the
+step the work was sent to. (It then keeps the old id, which is right unless the new version
+gives that id to another step: the second cost, below.)
 
 **Onto a control, finished work follows only a rename in place.** A rename looks at ids and
 nothing else, on purpose: finished work must go on following a real rename even when the
@@ -1549,6 +1558,14 @@ redirect. A finished ordinary step must never become evidence that a control was
 renamed while its neighbours changed is not carried for an instance that passed it. That
 instance reads as not having passed the new one, and a later migration that drops it holds
 for that instance too.
+
+A second cost, of "the old id must be gone": where the new version gives a step's old id to
+another step, a mapping of that id is no rename. With `{a → b, b → c}`, where the new `b`
+is the old `a`, `b → c` is a redirect, so work finished on the old `b` stays under an id the
+new version gives to another step — and there the kept record does read as though whoever
+did the old `b` did the new one. The plan warns, a redirect with an unpassed control asks,
+and a rule that named `b` asks. Do not reuse a step's id for another step in the next
+version.
 
 So there are two questions, and they are answered differently. *Does finished work follow
 this mapping?* A rename, by ids; onto a control, only in place. *Does this mapping ask for

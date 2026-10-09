@@ -783,7 +783,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   *never will* pass. A control the new version drops keeps its row and its
   sentence.
 
-- **A mapping no longer hides a loosened `separation_of_duties` rule.** A
+- **A mapping does not hide a loosened `separation_of_duties` rule.** Within
+  this release's own work, not a change to anything that shipped: the check
+  for a loosened rule is new in this release, and as first built a
   step that carries a rule was compared only with the step the mapping lands
   on. Where the new version keeps a step under the same id with no rule, and
   the mapping sends the step onto another that has the rule, an instance that
@@ -791,7 +793,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   had performed the named step could then perform it; the migration applied
   on one call. The rule is now compared on every step such an instance can
   come to perform in its place, and the migration waits for a second
-  administrator. Without the mapping the same migration already waited.
+  administrator, as it does without the mapping.
 
 - **A migration's skip, cancel and hold are no longer made when they cannot be
   recorded.** The trail entry for each was written and, if that failed, only

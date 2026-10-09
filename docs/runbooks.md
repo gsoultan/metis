@@ -821,7 +821,11 @@ corruption. You find out from the log, on every pass, on every replica:
 - a warning counting them: *A pass over the requests past their deadline left
   some as they were; the next pass meets them again* (`closed`, `not_closed`,
   `held`, `budget_spent`, `held_limit_reached`, and `stopped_by` when
-  something stopped the pass);
+  something stopped the pass). The same line ends two other ways when the pass
+  left nothing behind: *…was stopped before it had read them all; the next
+  pass starts again from the oldest* (the server was shutting down, or a read
+  failed), and *…made as many attempts as one pass makes and stopped; the next
+  pass goes on* (its budget);
 - and *Could not record everything the clock has decided about requests for a
   second administrator; …*.
 
@@ -834,13 +838,18 @@ request left only because another transaction held its ledger row is closed
 by the next pass, and is not this case: the pass counts it as `held`, not as
 `not_closed`, and does not name it in the first warning above.
 
-**How long a pass can take.** A pass makes at most ten thousand attempts, each
-a short transaction, and waits at most two seconds for a row somebody holds.
-It ends once it has waited out thirty such rows — a minute for each of its two
-reads, so two minutes at the worst — and says so (`held_limit_reached`); the
-next pass, ten minutes on, goes on. The rest of the retention pass, the
-re-offer of external tasks in each environment's database among it, waits
-behind the sweep for no longer than that.
+**How long a pass can take.** On each database the sweep makes two reads. Each
+makes at most ten thousand attempts, each a short transaction, and waits at
+most two seconds for a row somebody holds. A read ends once it has waited out
+thirty such rows and says so (`held_limit_reached`): a minute of waiting for
+each read, so two minutes for a database at the worst, beside the time the
+attempts themselves take. The next pass, ten minutes on, goes on. The sweep is
+the last thing a pass does on a database, and databases are taken one after
+another — main, then each environment's — so the re-offer of external tasks
+in an environment's database waits behind the sweep of main and of every
+environment before it: up to two minutes of waiting for each
+(`TestTheSweepsDefaultsAreTheOnesTheDocumentsState` holds the three numbers
+to the code).
 
 Rejecting it over the API does not help: a rejection closes the same ledger
 row and fails the same way. (A request whose own stored plan no longer opens

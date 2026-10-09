@@ -784,8 +784,7 @@ has ended and it finishes; nothing it had done is undone.
   refused and starts nothing. A migration's skip, cancel and hold used to be
   made and the lost entry only logged. (The `instance_migrated` entry of an
   instance that is only moved joined the same rule later: see "A second
-  administrator approves waivers and skips", below the changes of that
-  release.)
+  administrator approves waivers and skips", above.)
 - A migration's skip, cancel or hold leaves alone an instance that left the
   step between the migration listing its instances and locking that one — its
   holder completed the step, or it finished. Nothing is done to it or recorded
