@@ -25,16 +25,17 @@ var errExpiryInsideTransaction = errors.New(
 	"the expiry of requests cannot run inside another transaction: each request is closed in a transaction of its own")
 
 // ExpireDeviationRequests writes down what the clock has decided — every
-// request still waiting at now that is past its deadline — and answers how
-// many it closed.
+// approved request whose run had not reported when its window closed, and
+// every request still waiting at now that is past its deadline — and answers
+// how many it closed, of both.
 //
 // It is the server's own work and refuses anybody else: now is its caller's,
 // and whoever could choose it could expire every request there is. Run as
 // system work it reaches every organization's requests, a deleted project's
 // among them.
 //
-// It is one pass (sweep): every overdue request is read once, oldest first,
-// and closed in a transaction of its own. A request that cannot be closed is
+// It is two passes (sweep), the unreported runs first: in each, every
+// request is read once, oldest first, and closed in a transaction of its own. A request that cannot be closed is
 // left exactly as it was and passed; the requests behind it are still
 // reached, however many such requests head the line. Whatever a pass leaves
 // behind it says (tallied): in one line of the log, and in the error it
@@ -54,10 +55,33 @@ func (s *deviationRequestService) ExpireDeviationRequests(ctx context.Context, n
 	if requests == nil || s.repo.DeviationDecider() == nil {
 		return 0, errNoDeviationRequests
 	}
+	// Approved requests whose run never reported, first. There are few of
+	// them, each holds a migration nobody can ask for again until it is
+	// closed, and the bound on an approved run is written down by this pass:
+	// it does not stand behind however many overdue requests there are, and
+	// it has a cursor and a budget of its own.
+	unreported := s.sweep(ctx, func(txCtx context.Context, after repocontracts.SweepCursor, limit int) ([]entities.DeviationRequest, error) {
+		return requests.ListUnreported(txCtx, now, after, limit)
+	}, s.interrupt)
 	overdue := s.sweep(ctx, func(txCtx context.Context, after repocontracts.SweepCursor, limit int) ([]entities.DeviationRequest, error) {
 		return requests.ListOverdue(txCtx, now, after, limit)
 	}, s.expire)
-	return int64(overdue.closed), tallied("past their deadline", overdue)
+	return int64(unreported.closed + overdue.closed),
+		errors.Join(tallied(unreportedRuns, unreported), tallied("past their deadline", overdue))
+}
+
+// interrupt records that an approved request's run never reported back. Its
+// caller holds the request's row, which the sweep's read answered as still
+// approved with its run window closed.
+//
+// A run that is in fact still going is not stopped by this, and is not
+// overruled by it: when it ends it writes its own report over this mark
+// (reportRun). A run that reported first has left nothing approved for the
+// read to answer; should the move be refused all the same, the repository's
+// "decided first" comes back as it is, and the pass counts the request as
+// neither closed nor failed.
+func (s *deviationRequestService) interrupt(ctx context.Context, request entities.DeviationRequest) error {
+	return interruptUnreported(ctx, s.repo.DeviationRequest(), request)
 }
 
 // tallied says what a pass left behind, and answers it as the pass's error:
