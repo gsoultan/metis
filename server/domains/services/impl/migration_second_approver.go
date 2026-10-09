@@ -96,12 +96,7 @@ func secondApproverReasons(
 			stepCalled(sourceNodes[nodeID], nodeID)))
 	}
 	for _, hold := range holds {
-		notPassed := 0
-		for _, instance := range running {
-			if !slices.Contains(instance.CompletedNodes, hold.NodeID) {
-				notPassed++
-			}
-		}
+		notPassed := notPassedBy(running, hold.NodeID)
 		if notPassed == 0 {
 			continue
 		}
@@ -249,24 +244,26 @@ func controlsNotPassedByAll(sourceNodes map[string]models.FlowNode, running []mo
 // names, by that step's id. So for an instance that has still to pass the
 // step, two things loosen it, and each is said in its own sentence.
 //
-// The rule of the step it lands on (the mapping applied) no longer names a
-// step the source's rule named. Whoever performed that step is then no
-// longer refused. The names are compared after the renames finished work
-// follows (finishedWorkFollows), which is how finished work is found under a
-// step's new id: a version that renames the steps and the rule with them has
-// loosened nothing. A step renamed onto a control that stands elsewhere is
-// not among them — its finished work stays under the old id — so a rule that
-// names it by the new one no longer finds who did it, and that is said.
+// A rule the instance can come to perform the step under (stepsInPlaceOf) no
+// longer names a step the source's rule named. Whoever performed that step
+// is then no longer refused. A name counts as kept only when every one of
+// those rules keeps it. The names are compared after the renames finished
+// work follows (finishedWorkFollows), which is how finished work is found
+// under a step's new id: a version that renames the steps and the rule with
+// them has loosened nothing. A step renamed onto a control that stands
+// elsewhere is not among them — its finished work stays under the old id —
+// so a rule that names it by the new one no longer finds who did it, and
+// that is said.
 //
-// Or the rule still names it, and the new version no longer has the step.
-// Whoever performed it before the migration is still refused — their
+// Or every such rule still names it, and the new version no longer has the
+// step. Whoever performed it before the migration is still refused — their
 // completed task keeps its step's id — but nobody can perform it afterwards,
 // so the rule refuses nobody new. This is counted only for a step the source
 // version has: a rule that names a step neither version has is unchanged by
 // the migration, refuses whom it refused, and asks nobody.
 //
-// A step the new version does not have at all is not looked at: its work is
-// refused, moved or decided by other rules. It counts over running, the
+// A step the new version has nothing in place of is not looked at: its work
+// is refused, moved or decided by other rules. It counts over running, the
 // instances that have not ended, and of those only the ones that have not
 // passed the step: one that has is held to no rule there any longer.
 //
@@ -283,32 +280,15 @@ func dutiesLoosened(
 	var reasons []string
 	for _, id := range sortedKeys(sourceNodes) {
 		barred := splitNodeList(stringProperty(sourceNodes[id].Properties, SeparationOfDutiesKey))
-		landed, lands := targetNodes[mapNode(nodeMapping, id)]
-		if len(barred) == 0 || !lands {
+		inItsPlace := stepsInPlaceOf(id, targetNodes, nodeMapping)
+		if len(barred) == 0 || len(inItsPlace) == 0 {
 			continue
 		}
-		notPassed := 0
-		for _, instance := range running {
-			if !slices.Contains(instance.CompletedNodes, id) {
-				notPassed++
-			}
-		}
+		notPassed := notPassedBy(running, id)
 		if notPassed == 0 {
 			continue
 		}
-		kept := splitNodeList(stringProperty(landed.Properties, SeparationOfDutiesKey))
-		var unnamed, gone []string
-		for _, other := range barred {
-			now := mapNode(renames, other)
-			_, wasAStep := sourceNodes[other]
-			_, isAStep := targetNodes[now]
-			switch called := "“" + stepCalled(sourceNodes[other], other) + "”"; {
-			case !slices.Contains(kept, now):
-				unnamed = append(unnamed, called)
-			case wasAStep && !isAStep:
-				gone = append(gone, called)
-			}
-		}
+		unnamed, gone := namesLoosened(barred, inItsPlace, renames, sourceNodes, targetNodes)
 		step := stepCalled(sourceNodes[id], id)
 		if len(unnamed) > 0 {
 			reasons = append(reasons, fmt.Sprintf(
@@ -324,6 +304,70 @@ func dutiesLoosened(
 	}
 	slices.Sort(reasons)
 	return reasons
+}
+
+// stepsInPlaceOf is every step of the new version that an instance which has
+// not passed a source step can come to perform in its place.
+//
+// The step the mapping lands on: an instance waiting at the source step when
+// the migration runs is moved there. And, when the mapping sends the step
+// elsewhere while the new version keeps a step under the source id, that
+// step too: an instance that has not reached the source step yet is not
+// there to be moved, and comes to the step the new version has under the id.
+// A mapping entry is therefore no way round a rule the step under the old id
+// has lost.
+//
+// None when the new version has neither.
+func stepsInPlaceOf(id string, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) []models.FlowNode {
+	var steps []models.FlowNode
+	to := mapNode(nodeMapping, id)
+	if landed, lands := targetNodes[to]; lands {
+		steps = append(steps, landed)
+	}
+	if to != id {
+		if kept, stays := targetNodes[id]; stays {
+			steps = append(steps, kept)
+		}
+	}
+	return steps
+}
+
+// namesLoosened sorts the steps a source rule names into those some rule of
+// inItsPlace no longer names (unnamed) and those every such rule still names
+// while the new version no longer has the step (gone), each by the name the
+// source gives it. renames is what finished work follows.
+func namesLoosened(
+	barred []string,
+	inItsPlace []models.FlowNode,
+	renames map[string]string,
+	sourceNodes, targetNodes map[string]models.FlowNode,
+) (unnamed, gone []string) {
+	for _, other := range barred {
+		now := mapNode(renames, other)
+		keptByAll := !slices.ContainsFunc(inItsPlace, func(step models.FlowNode) bool {
+			return !slices.Contains(splitNodeList(stringProperty(step.Properties, SeparationOfDutiesKey)), now)
+		})
+		_, wasAStep := sourceNodes[other]
+		_, isAStep := targetNodes[now]
+		switch called := "“" + stepCalled(sourceNodes[other], other) + "”"; {
+		case !keptByAll:
+			unnamed = append(unnamed, called)
+		case wasAStep && !isAStep:
+			gone = append(gone, called)
+		}
+	}
+	return unnamed, gone
+}
+
+// notPassedBy counts the instances that have not performed a step.
+func notPassedBy(instances []models.ProcessInstanceModel, nodeID string) int {
+	notPassed := 0
+	for _, instance := range instances {
+		if !slices.Contains(instance.CompletedNodes, nodeID) {
+			notPassed++
+		}
+	}
+	return notPassed
 }
 
 // firstNamed is a list of names for a sentence: the first few one by one, and

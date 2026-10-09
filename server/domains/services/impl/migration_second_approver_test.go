@@ -259,6 +259,19 @@ func TestDutiesLoosened(t *testing.T) {
 		"the step redirected onto one with no rule": {target(ruled("approve", "Approve", "submit, check"), source["submit"], source["check"]),
 			map[string]string{"approve": "check"}, lostBoth},
 		"the step itself gone": {target(source["submit"], source["check"]), nil, ""},
+		// The new version keeps a step under the id, with no rule, and the
+		// mapping sends the step onto another that has the rule. An instance
+		// that has not reached the step is not there to be moved: it comes to
+		// the step under the old id, which refuses nobody.
+		"the step mapped onto one that keeps the rule, the step under its id having lost it": {
+			target(ruled("approve", "Approve", ""), source["submit"], source["check"], ruled("senior", "Senior", "submit, check")),
+			map[string]string{"approve": "senior"}, lostBoth},
+		"the step mapped onto one that keeps the rule, the step under its id having lost part of it": {
+			target(ruled("approve", "Approve", "submit"), source["submit"], source["check"], ruled("senior", "Senior", "submit, check")),
+			map[string]string{"approve": "senior"}, lostCheck},
+		"the step mapped onto another, both keeping the rule": {
+			target(source["approve"], source["submit"], source["check"], ruled("senior", "Senior", "submit, check")),
+			map[string]string{"approve": "senior"}, ""},
 	} {
 		got := dutiesLoosened(source, c.target, c.mapping, nil, waiting)
 		if (c.want == "" && len(got) != 0) || (c.want != "" && (len(got) != 1 || got[0] != c.want)) {

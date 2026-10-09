@@ -133,3 +133,80 @@ func TestAVersionThatKeepsItsSeparationOfDutiesAsksNobody(t *testing.T) {
 		}
 	})
 }
+
+// withSenior is fourEyes with a second approval after the first, "senior",
+// that the submitter may not perform either; rule is the first approval's own
+// rule, "" for none.
+func withSenior(f *fixture, rule string) *entities.ProcessDefinition {
+	def := fourEyesRuled(f, rule)
+	for _, node := range def.Nodes {
+		if node.ID == "approve" {
+			node.Outgoing = []string{"e3"}
+		}
+		if node.ID == "end" {
+			node.Incoming = []string{"e4"}
+		}
+	}
+	def.Nodes = append(def.Nodes, &entities.Node{
+		ID: "senior", Name: "Senior approval", Type: entities.UserTask, CandidateUsers: []*entities.User{{Username: "ada"}, {Username: "bo"}},
+		Properties: map[string]any{"separation_of_duties": "submit"}, Incoming: []string{"e3"}, Outgoing: []string{"e4"},
+	})
+	for _, flow := range def.Flows {
+		if flow.ID == "e3" {
+			flow.TargetRef = "senior"
+		}
+	}
+	def.Flows = append(def.Flows, &entities.SequenceFlow{ID: "e4", SourceRef: "senior", TargetRef: "end"})
+	return def
+}
+
+// TestAMappingDoesNotSilenceALoosenedSeparationOfDuties.
+//
+// Root cause: a ruled step was compared only with the step the mapping lands
+// on. The new version here keeps a step under the id "approve", with no rule,
+// and has another, "senior", that carries the rule; mapped approve → senior,
+// the check read senior's rule and found nothing lost. But an instance that
+// has not reached "approve" yet is not at it to be moved: it will come to the
+// new version's own "approve", which refuses nobody — and the submitter
+// approves. Without the mapping the same migration asked.
+func TestAMappingDoesNotSilenceALoosenedSeparationOfDuties(t *testing.T) {
+	actor := servicecontracts.WithActor("dita")
+	onto := map[string]string{"approve": "senior"}
+
+	t.Run("the step under the old id has lost the rule", func(t *testing.T) {
+		f := newFixture(t)
+		v1, v2 := f.startedOn(t, fourEyes(f.project, "submit", "approve"), withSenior(f, ""))
+		instance := f.assertWaitingAt(t, v1, "submit")
+
+		plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, onto, actor)
+		if err != nil || !plan.Applicable() {
+			t.Fatalf("the plan: %+v %v", plan, err)
+		}
+		want := "“Approve the request” would no longer be refused to whoever performed “Submit the request”: " +
+			"the new version does not keep that separation of duties, and 1 instance(s) have not passed “Approve the request”"
+		if !plan.RequiresSecondApprover || len(plan.SecondApproverReasons) != 1 || plan.SecondApproverReasons[0] != want {
+			t.Fatalf("a mapping onto a step that keeps the rule, over a step that lost it: requires=%v reasons=%v\nwant the one reason\n  %s",
+				plan.RequiresSecondApprover, plan.SecondApproverReasons, want)
+		}
+		if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, onto, actor); !errors.Is(err, apierr.ErrForbidden) {
+			t.Fatalf("the migration on one administrator's call: %v, want it forbidden", err)
+		}
+		f.assertWaitingAt(t, v1, "submit")
+		f.assertNoMigrationEntries(t, instance.ID)
+	})
+
+	t.Run("both steps keep the rule", func(t *testing.T) {
+		f := newFixture(t)
+		v1, v2 := f.startedOn(t, fourEyes(f.project, "submit", "approve"), withSenior(f, "submit"))
+		f.assertWaitingAt(t, v1, "submit")
+		plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, onto, actor)
+		if err != nil || !plan.Applicable() || plan.RequiresSecondApprover {
+			t.Fatalf("a mapping between two steps that both keep the rule: requires=%v reasons=%v refusals=%v (err %v), want it to ask nobody",
+				plan.RequiresSecondApprover, plan.SecondApproverReasons, plan.Refusals, err)
+		}
+		if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, onto, actor); err != nil {
+			t.Fatalf("on one call: %v", err)
+		}
+		f.assertWaitingAt(t, v2, "submit")
+	})
+}

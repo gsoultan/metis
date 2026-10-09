@@ -379,12 +379,10 @@ func complianceHolds(
 		if ok && (to == id || renamed) && boolProperty(landed.Properties, "compliance_relevant") {
 			continue
 		}
-		for _, instance := range instances {
-			// An instance that already performed the step waived nothing. Only
-			// the ones whose approval was still pending are a question.
-			if !slices.Contains(instance.CompletedNodes, id) {
-				pending[id]++
-			}
+		// An instance that already performed the step waived nothing. Only
+		// the ones whose approval was still pending are a question.
+		if notPassed := notPassedBy(instances, id); notPassed > 0 {
+			pending[id] += notPassed
 		}
 	}
 
