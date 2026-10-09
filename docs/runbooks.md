@@ -222,6 +222,11 @@ look before it goes further. An administrator of the instance's organization
 does it through one route, in two calls: a preview, then an apply. It needs no
 second version of the process, and nothing here is an `UPDATE`.
 
+**A cancel and a hold are made by your apply. A waive is not.** Your apply
+asks for it, and it is made when a different administrator of the organization
+approves: see
+[Approving a request for a second administrator](#approving-a-request-for-a-second-administrator).
+
 What each act does and what it refuses is in
 [Changing a process that is already running](process-change-in-flight.md#in-place-waive-cancel-and-hold).
 The request and the reply, field by field, are in
@@ -282,7 +287,8 @@ Read it in this order:
 
 For a step a person was to do — a user task or a manual task — that nobody
 will now do. The task is withdrawn, its holder is told, and the instance moves
-on as its process says.
+on as its process says. That happens when a second administrator approves, not
+when you apply. Until then the task is open and its holder can still do it.
 
 1. Preview, as above.
 2. **If `missing` names anything, the waive has to say what it counts as.**
@@ -307,35 +313,50 @@ on as its process says.
    calls, and the process that started this one, are not read. Where the
    warning names one, open it and see what it does with the value before you
    apply.
-4. Apply: the same request, with the `visit_key` and `"dry_run": false`.
+4. Apply: the same request, with the `visit_key` and `"dry_run": false`. This
+   asks for the waive. It does not make it.
 
    ```bash
    curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"kind": "waive", "node_id": "<step-id>", "reason": "<why>", "outputs": {"approved": true},
           "visit_key": "<visit_key>", "dry_run": false}' \
-     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '{applied, replayed, deviation, error}'
+     "$METIS/api/v1/instances/<instance-id>/deviations" | jq '{applied, replayed, pending_approval, error}'
    ```
+
+5. Give `pending_approval.request_id` to a second administrator. Nobody is
+   told that a request waits, and there is no screen that lists them.
 
 What comes back, and what to do with it:
 
 | You get | It means | Do |
 | :-- | :-- | :-- |
-| `"applied": true, "replayed": false` | The step was waived. | Nothing. |
-| `"applied": true, "replayed": true` | This same request was already made, and acted then. Nothing was done twice. | Nothing. |
+| 202, `"applied": false`, `pending_approval` | The waive was asked for. Nothing about the instance has changed. | Pass the `request_id` on. It waits until `expires_at`. |
+| 202, `"applied": false, "replayed": true`, `pending_approval` | You asked for this already, and it still waits. No second request was made. | The same. |
+| 200, `"applied": true, "replayed": true` | This same request was approved, and the step was waived then. Nothing was done twice. | Nothing. |
+| 400 *A request to waive “…” is already waiting for approval (request …, asked by boss); approve or reject that one.* | Somebody else asked for a waive of this visit, or you asked for something else on it: another reason, other values. A second administrator does not get a request of their own by asking again. | Approve or reject the one that waits. To change what is asked, its requester withdraws it and asks again. |
 | 400 *this instance has moved since you previewed it; preview again* | Between the preview and the apply a task of the step was completed, opened or withdrawn, or the instance left the step. | Preview again. If the instance no longer waits at the step, somebody did it, and there is nothing to waive. |
 | 400 *this step was already waived by boss* | The visit has had its act, and this request asks for something else: another reason, other values. | Read the ledger, below. |
-| 400 *The values given fit no way out of “Large order?”…* | A gateway had no branch for the value. Nothing was changed, and the task is open again. | Preview again and give a value one of its branches accepts. |
 | 400 with the plan's refusals | The plan refuses now. | Preview again and read them. |
-| 500 | The server failed. What the act had done is rolled back, unless the failure came at the commit itself, where the reply cannot tell. | The sentence says what was being done; look in the log, then send the same request again: it acts, or it answers `replayed: true`. |
-| No answer | The apply is waiting for the instance's lock, or for a task somebody is claiming or handing over. The server sets no deadline. | Stop the request and send the same one again. It acts, or it answers `replayed: true`. |
+| 403 *asking for and giving a second administrator's approval needs an account, and this request carries none* | The token is an administrator's and names no account. | Ask with a token of your own account. |
+| 500 | The server failed. Nothing was asked for, unless the failure came at the commit itself, where the reply cannot tell. | The sentence says what was being done; look in the log, then send the same request again: it asks, or it answers `replayed: true`. |
+| No answer | The apply is waiting for the instance's lock. The server sets no deadline. | Stop the request and send the same one again. It asks, or it answers `replayed: true`. |
 
-Afterwards the task reads `canceled`, never `completed`, and the ledger says
-`waive`:
+A gateway that has no branch for the value you gave is not found here. It is
+found when the waive is made, and the approver is the one told: see the
+refusals under
+[Approving a request for a second administrator](#approving-a-request-for-a-second-administrator).
+
+Once it is approved the task reads `canceled`, never `completed`, and the
+ledger says `waive`. While it waits the ledger shows the same row with
+`status: "pending_approval"`:
 
 ```bash
 curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/instances/<instance-id>/deviations" \
-  | jq 'if .error then {error} else (.deviations[] | {kind, origin, node_name, actor, reason, created_at}) end'
+  | jq 'if .error then {error} else (.deviations[] | {kind, origin, status, node_name, actor, approved_by, reason, created_at}) end'
 ```
+
+A row that reads `rejected`, `expired` or `stale` is a waive that was asked
+for and not made.
 
 Do not read the instance's list of completed steps to tell a waived step from
 a performed one: a waived step is in it. Read the task, the timeline or the
@@ -489,6 +510,342 @@ apply. The earlier preview's `visit_key` will not do; sent again it answers
 If the held step is completed and the instance finishes, the incident stays
 open until somebody resolves it. A cancel of a held instance closes the hold's
 incident with the instance's other open incidents.
+
+---
+
+## Approving a request for a second administrator
+
+A waive of a step, and a migration that skips a step or loosens a rule on work
+still running, are not made by the administrator who asks. Their apply is
+answered 202 with a `pending_approval`, and nothing changes until a
+**different** administrator of the organization approves. What asks, and what
+an approval does, is in
+[Changing a process that is already running](process-change-in-flight.md#a-second-administrator).
+The routes, field by field, are in
+[`integration.md`](integration.md#requests-for-a-second-administrator).
+
+Know these before you approve anything:
+
+- **You are the check.** The server checks that your account is not the one
+  that asked. It does not review the request for you, and for a migration it
+  does not review the difference between the two versions. Read
+  [What it does not review](process-change-in-flight.md#what-it-does-not-review).
+- **There is no screen and no notice.** Requests are listed, read and decided
+  through the API. Nobody is told that one waits: the requester gives you its
+  id, or you list them.
+- **Your token has to be an administrator's, in the request's organization**,
+  with `X-Organization-ID` if your account belongs to several. Another
+  organization's request is a 404, *no such request*, as one that does not
+  exist is.
+- **A request expires.** 72 hours after it was made unless
+  `METIS_DEVIATION_APPROVAL_TTL` says otherwise. `expires_at` is on the
+  request.
+
+### What waits
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/deviation-requests" \
+  | jq 'if .error then {error} else {total, requests: [.requests[] | {id, kind, requested_by, reason, expires_at}]} end'
+```
+
+With no `status` it lists what still waits, newest first, 50 to a page (at
+most 200 with `page_size`). `?status=` takes one of `pending_approval`,
+`approved`, `applied`, `interrupted`, `stale`, `rejected`, `expired`, and
+`?project_id=` narrows it to one project. No call lists every status at once.
+
+**A listed request is not the whole request.** The list leaves out what was
+asked, the plan and the instances. Read the one you are asked to approve:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/deviation-requests/<request-id>" \
+  | jq 'if .error then {error} else (.request | {kind, status, requested_by, reason, because, expires_at,
+        instance_id, source_definition_id, target_definition_id, instances_in_all, command, plan}) end'
+```
+
+Read it in this order:
+
+1. **`because`.** Why this needs you, one sentence for each reason. For a
+   migration it lists the first ten and counts the rest.
+2. **`command`.** Exactly what will be carried out if you approve. You cannot
+   change it: an approval carries a note and nothing else.
+3. **`plan`.** The plan **as the requester was shown it**, when they asked.
+   It is not made again for you to read. Every list in it that is cut short
+   has its count beside it.
+4. **`instances`, `instances_in_all`** (a migration). The instances that had
+   not ended when it was asked for. It lists the first 200. The approval
+   covers all of them and no other.
+
+**To see a waive's plan as the instance stands now**, send the request's
+`command` as a preview yourself: `kind`, `node_id`, `reason` and `outputs`,
+with no `dry_run`. Its `refusals` will include *A request to waive “…” is
+already waiting for approval …*, because one is; everything else in the plan is
+current. **For a migration**, send the stored `command` to the migrate route
+as a dry run.
+
+Three things a request's wording can hide:
+
+- **A migration's decision applies to every listed instance waiting at the
+  step when the migration runs, not only those waiting there when it was
+  asked for.** "1 waits there now" was true when it was asked.
+- **A request that reads `pending_approval` may no longer hold.** Nothing
+  watches a waiting request. If the step was completed, or the instance was
+  cancelled or migrated, the request still reads as waiting until somebody
+  tries to approve it or it expires.
+- **`self_approved: true`** on a decided request means the requester approved
+  it themselves, in an organization named as having one administrator.
+
+### Approving
+
+```bash
+curl -sX POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason": "<a note, optional>"}' \
+  "$METIS/api/v1/deviation-requests/<request-id>/approve" \
+  | jq 'if .error then {error} else {applied, status: .request.status, passed_over_in_all, passed_over} end'
+```
+
+**Approving a waive makes the waive, in that call.** The task is withdrawn,
+its holder is told, and the instance moves on.
+
+**Approving a migration runs the migration, in that call.** The call lasts as
+long as the run does, and the server sets no deadline on it. Use a client that
+waits. A client that gives up and closes the connection may stop the run
+part-way (read from how a request's cancellation reaches the run, not run);
+what it had moved stays moved, and the request reads `interrupted`.
+
+| You get | It means | Do |
+| :-- | :-- | :-- |
+| 200, `"applied": true`, request `applied` | It was carried out. For a migration, `passed_over` lists up to 200 instances the run left alone, each with why, and `passed_over_in_all` how many. | For a migration that passed instances over: the requester asks again for those. This reply is the only place they are listed. |
+| 200, `"applied": false`, request `applied` | A migration's run ended without failing and changed nothing: every instance was passed over, or none was active. The request is spent. | Read `passed_over`. The requester asks again if it is still needed. |
+| 403 *You asked for this. A different administrator has to approve it.* | It is your own request. | Somebody else approves it, or you withdraw it. |
+| 403 *You asked for this, and nobody else administers this organization, so it waits. …* | It is your own request and you are the organization's only administrator. | See [An organization with one administrator](#an-organization-with-one-administrator). |
+| 400 *This request no longer holds — the instance has moved since it was asked for — so nothing was applied. Preview again and ask afresh.* | A waive: the step was completed, a task of it changed, or the instance left the step or ended. The request now reads `stale`. | Tell the requester. If the step still needs waiving, they preview and ask again. |
+| 400 *This request no longer holds, so nothing was applied: … Ask again.* | A migration: the plan now refuses, an instance reached the version after it was asked for, or the migration can no longer be planned. The sentence says which. The request now reads `stale`. | Tell the requester. They preview and apply again, which asks afresh. |
+| 400 *This request expired on … before anybody approved it, so nothing was applied. Ask again if it is still needed.* | Its deadline passed. The request now reads `expired`. | The requester asks again. |
+| 400 *boss approved this on …, and it was applied.* and its neighbours | Somebody decided it first. The sentence says who, when and what became of it. | Nothing. |
+| 400 *this instance is suspended, and a suspended instance is not waived, cancelled or held in place* | A waive of a suspended instance. Nothing changed and the request still waits. Nothing in the product suspends an instance or resumes one, so this is a row changed outside it. | Reject the request, or leave it to expire. |
+| 400 *The values given fit no way out of “Large order?”… The request is still waiting: reject it, and the waive can be asked for again.* | A waive: a gateway has no branch for the value the requester gave. Nothing changed and the request still waits. You cannot change the values. | Reject it with that as the reason. The requester previews again and gives a value a branch accepts. |
+| 400 *invalid argument: the approved migration did not finish: …* | A migration: the request was approved, and the run's own plan then refused, because an instance moved on in between to where the migration cannot take it. Nothing was moved. The request reads `interrupted`. | The requester previews again; the plan now says what it needs. |
+| 403 *forbidden: the approved migration did not finish: …* | A migration: approved, and refused at the gate before anything was moved, most often because an instance reached the version between the approval and the run. The request reads `interrupted`. | The requester asks again. |
+| 500 *the approved migration did not finish: … what its run had done stands, and what remains has to be asked for again* | A migration's run stopped part-way. Some instances were moved. The request reads `interrupted`. | Read the request: `outcome.changed` is how many it acted on, and `outcome.error` one sentence. The cause in its own words is in the server's log, under *An approved migration stopped part-way.* Then the requester previews again and asks for what remains. |
+| 500, anything else | The server failed before or while approving. For a waive nothing changed and the request still waits. | Look in the log, then approve again. |
+
+An approval is safe to send again. A second one is answered with the 400 that
+says who approved (`TestAnApprovalSentAgainIsAnsweredOnce`).
+
+After a part-way failure the request says how far the run got:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/deviation-requests/<request-id>" \
+  | jq 'if .error then {error} else (.request | {status, decided_by, decided_at, outcome}) end'
+```
+
+`outcome.count_unknown: true`, with no `changed`, means the run stopped on a
+panic and nobody knows how far it got. Plan the migration again to see which
+instances are still on the old version.
+
+### Rejecting, and withdrawing
+
+A rejection needs a reason. Any administrator of the organization may reject.
+**Sent by whoever asked, the same call is a withdrawal**; there is no route of
+its own for one.
+
+```bash
+curl -sX POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason": "<why>"}' \
+  "$METIS/api/v1/deviation-requests/<request-id>/reject" \
+  | jq 'if .error then {error} else (.request | {status, decided_by, decision_reason}) end'
+```
+
+Nothing about any instance changes. The same thing can be asked for again
+afterwards. For a waive the instance's timeline says who rejected it, or that
+its requester withdrew it, and why. **For a migration nothing is written to
+any instance's timeline**: the request itself is the record.
+
+- 400 *Say why: a rejection keeps its reason with the record.* — no reason.
+- 400 *This request already expired on ….* — its deadline had passed. It now
+  reads `expired`.
+- 400 *boss approved this on …; it is being applied.* — a migration that is
+  running cannot be rejected.
+
+### What became of a request
+
+| It reads | It means | What to do |
+| :-- | :-- | :-- |
+| `pending_approval` | It waits. | Approve or reject it before `expires_at`. |
+| `approved` | A migration, approved, whose run is going. | Wait. It does not rest here. |
+| `applied` | Carried out. For a migration, `outcome.changed` and `outcome.passed_over` count what the run did; `outcome.note` says so when it changed nothing. | Nothing, or ask again for what was passed over. |
+| `interrupted` | A migration, approved, whose run stopped part-way, was refused before it began, or did not report back within its window (its deadline, or an hour after the approval, whichever came first). What it had done stands. | Plan again and ask for what remains. A request narrowed with `instances` must leave out the ones already moved. |
+| `rejected` | Somebody said no, or its requester withdrew it. `decided_by` and `decision_reason` say who and why. | Ask again if it is still needed. |
+| `expired` | Nobody decided it in time. | Ask again if it is still needed. |
+| `stale` | Somebody tried to approve it and it no longer held. `outcome.why` says why. | Preview again and ask afresh. |
+
+A request past its deadline reads `expired` at once. A pass every ten minutes,
+on every replica, writes that down, and the server's log then says *Recorded
+the expiry of requests waiting for a second administrator that nobody decided
+in time*. A warning that begins *Recorded that approved requests for a second
+administrator were interrupted* means an approved migration's run never
+reported back: a server stopped mid-run, or a run outlived its hour. Find the
+request under `?status=interrupted` and plan the migration again.
+
+### An organization with one administrator
+
+With no setting, a sole administrator's waive or skip waits. Their own
+approval is refused, and the request expires at its deadline. They can:
+
+- have a second **person's** account made an administrator of the organization
+  (`PUT /api/v1/users/{id}/organization-roles`), who then approves;
+- withdraw the request and cancel or hold instead, which need nobody else;
+- let it expire.
+
+Whoever operates the installation can instead name the organization as one
+with a single administrator:
+
+```
+METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS=<organization-id>[,<organization-id>…]
+```
+
+- **By id, comma-separated.** Spaces around an entry are dropped and an id
+  given twice counts once. There is no value that turns it on everywhere:
+  `true` is an entry that names no organization.
+- **Read once, when the server starts.** Changing it takes a restart of every
+  replica. No request, header or organization setting can add an organization.
+- **One name.** The pre-rename `GOBPM_` spelling is not read for this setting.
+
+**What it permits.** In a named organization, an administrator may approve a
+request they asked for themselves, while no other account that is not deleted,
+belongs to the organization and holds the Administrator role exists. They
+must give a reason. The record says nobody else approved it: the request reads
+`self_approved: true`, and the ledger and the timeline carry
+`self_approved`, `other_administrators: 0` and `organization_id`. In an
+organization that is not named, and in a named one that has a second
+administrator, the requester is refused as before.
+
+**What it does not close.** In a named organization, an administrator who can
+change roles can take another administrator's role away, approve their own
+request, and give the role back. Each change of roles is in the server's log
+with who made it, and nowhere else
+([below](#who-changed-who-administers)). **Name an organization only while it
+truly has one administrator, and take it off the list once it has a second.**
+
+**What the server says at start-up**, each a warning with
+`setting: METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`:
+
+| Line | Means |
+| :-- | :-- |
+| *In each organization this setting names, an administrator may approve their own request for a second administrator while nobody else administers that organization. …* with `count` and `organizations` | The exception is on for those organizations. Said at every start while any is named. `organizations` lists the first 50. |
+| *entry 2 of METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS, "…", is not an organization id, so it names no organization and is ignored* | That entry does nothing. The entries beside it still apply. |
+| *These ids name no organization of this installation, so naming them does nothing. Check them against the organizations' ids and take them off the list.* | An id that is well formed and is nobody's: mistyped, or another installation's. |
+| *Could not check that the ids this setting lists name organizations of this installation.* | The check failed. The list means what it meant. |
+
+With the setting unset or empty the server says nothing about it.
+
+**While it runs**, also warnings:
+
+- *An administrator approved their own request for a second administrator,
+  which this setting allows in an organization it names while nobody else
+  administers it. No second person approved it; the ledger and the trail say
+  so.* (`organization`, `request`, `actor`, `actor_id`.) The exception was
+  used.
+- *This setting names this organization as having one administrator, and it
+  has another: an administrator's approval of their own request was refused.
+  Take the organization off the list.* (`organization`, `request`.) **The
+  list is out of date.** Act on it: a list left that way is the exception
+  waiting for the day one of the two removes the other.
+- *An administrator tried to approve their own request for a second
+  administrator and was refused. Nothing changed, and nothing else records the
+  attempt.* (`request`, `actor`, `actor_id`.) Written with or without the
+  setting.
+
+### Who changed who administers
+
+The second approver rests on two administrators being two people, and an
+administrator can change who the administrators are. These four lines in the
+server's log, at info level, are the only record of that, so keep the log:
+
+| Line | Written when |
+| :-- | :-- |
+| *An account was created.* | an account is created, whatever roles it holds |
+| *An account's roles were changed.* | the roles an account holds in every organization change |
+| *An account's roles in an organization were changed.* | the roles it holds in one organization are set |
+| *An account was deleted.* | an account is deleted |
+
+Each carries `actor` and `actor_id` (who did it; both empty for the server
+itself, such as the first account at set-up), `target` and `target_id` (whose
+account), `organization` (the organization the request was for, when it was
+for one), `roles_before` and `roles_after` (held in every organization), and
+`organization_roles_before` and `organization_roles_after` (held in one
+organization each, by organization id). A change that was refused writes no
+line.
+
+To see who administered an organization around an approval, search for the
+organization's id and the approver's and the requester's account ids in the
+hour either side of the request's `decided_at`:
+
+```bash
+kubectl -n metis logs deploy/metis --since=24h \
+  | grep -E 'An account was (created|deleted)|An account.s roles' \
+  | grep -E '<organization-id>|<account-id>'
+```
+
+What these lines do not cover: a sign-in through the identity provider that
+changes which organizations an account belongs to, and a password reset from
+the command line. There is no table to query for any of it.
+
+### A request the pass cannot close
+
+A last resort, for a request whose stored rows are damaged: its ledger row is
+gone or can no longer be read, after the loss of an encryption key or
+corruption. You find out from the log, on every pass, on every replica:
+
+- a warning naming it: *A request the clock has closed could not be written
+  down as closed, and was left as it was. It reads as closed and nobody can
+  act on it, but its row still says otherwise and it still holds what it was
+  asked for.* (`request`, `error`; the first five of a pass);
+- a warning counting them: *A pass over the requests past their deadline left
+  some as they were; the next pass meets them again* (`closed`, `not_closed`);
+- and *Could not record everything the clock has decided about requests for a
+  second administrator; …*.
+
+**What state it is in.** It reads `expired` to every reader and cannot be
+approved. Nothing was waived. But its waiting ledger row still holds the
+visit, so that step of that instance cannot be asked to be waived again. The
+step's work can still be done by whoever holds it, and the instance can still
+be cancelled or held. The requests behind it are closed in the same pass. A
+request left only because another transaction held its ledger row is closed
+by the next pass, and is not this case.
+
+Rejecting it over the API does not help: a rejection closes the same ledger
+row and fails the same way. (A request whose own stored plan no longer opens
+is a different case, and needs none of this: it can be read, with
+`unavailable` naming what could not be, and rejected, withdrawn and expired as
+any other. Only approving it is refused.) Read both rows:
+
+```sql
+SELECT id, kind, status, live_key, instance_id, requested_by, expires_at
+FROM deviation_requests WHERE id = '<request-id>';
+
+SELECT id, status, live_visit_key, decided_at
+FROM instance_deviations WHERE request_id = '<request-id>';
+```
+
+Only for a request that reads `pending_approval` there and is past its
+`expires_at`, close both in one transaction, the ledger row dated by the
+deadline as the pass would have dated it:
+
+```sql
+BEGIN;
+UPDATE instance_deviations
+   SET status = 'expired', live_visit_key = NULL,
+       decided_at = (SELECT expires_at FROM deviation_requests WHERE id = '<request-id>')
+ WHERE request_id = '<request-id>' AND status = 'pending_approval';
+UPDATE deviation_requests
+   SET status = 'expired', live_key = NULL, updated_at = now()
+ WHERE id = '<request-id>' AND status = 'pending_approval' AND expires_at <= now();
+COMMIT;
+```
+
+This writes no entry on the instance's timeline, which the pass would have
+written. Record what you did somewhere that is kept.
 
 ---
 
@@ -995,6 +1352,14 @@ back from added a column and backfilled it, the column stays. That is deliberate
 — dropping it would destroy the data — and it is why `recovery.md` says to take
 a backup immediately before deploying a release containing a migration.
 
+**Rolling back past migration 34 takes the second administrator away, and
+strands what waits for one.** The release before it applies a waive and a
+migration's skip on one administrator's call, and has no way to approve,
+reject or expire a request. Reject every request that still waits, or let it
+expire, before you roll back:
+[Upgrading](upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34)
+has the query and what the older release does with one that is left.
+
 The deployment uses a `Recreate` strategy, so there is a short gap rather than
 two versions running at once by accident: a rolling update would run the old
 pod against a schema the new one is in the middle of migrating. To run two
@@ -1026,6 +1391,13 @@ raises incidents or leaves jobs waiting shows in `MetisIncidentsRising` and
   are forward-compatible ([Rolling back a release](#rolling-back-a-release)). A
   release whose notes say its schema is not safe for the previous version cannot
   be canaried: roll it out whole.
+- **A control a release adds is in force only on the pods that have it.** While
+  a canary of the release that adds the second administrator runs beside the
+  one before it, a waive or a migration's skip served by a stable pod is
+  applied on one administrator's call. Which pod serves a request is not the
+  administrator's to choose, and not yours to rely on. Keep that canary short;
+  [Upgrading](upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34)
+  has the query that finds what was applied that way.
 - **Prometheus must see the track.** The alerts compare series by a `track`
   label, copied from the pod label ([`deploy/kubernetes/README.md`](../deploy/kubernetes/README.md)
   says how). Check it before trusting their silence:
