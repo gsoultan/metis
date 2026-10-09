@@ -19,15 +19,15 @@ import (
 // about to finish, and the next pass meets the request again.
 const defaultSweepLockWait = 2 * time.Second
 
-// sweepBudget is how many closings one pass attempts before it stops and
-// leaves the rest to the next. It is a count of attempts and not of seconds:
+// defaultSweepBudget is how many closings one pass attempts before it stops
+// and leaves the rest to the next. It is a count of attempts and not of seconds:
 // the next pass starts again from the oldest request, and meets first every
 // one that could not be closed — so a budget those could use up by being slow
 // would be a pass that never gets beyond them. An attempt is one short
 // transaction; ten thousand of them is a backlog no installation should see
 // and still well under a pass's ten minutes, so in practice a pass ends
 // because it has read everything.
-const sweepBudget = 10_000
+const defaultSweepBudget = 10_000
 
 // sweepLogsEach is how many of a pass's failures are logged one by one. The
 // rest are counted: a store with a thousand requests that cannot be closed
@@ -46,8 +46,8 @@ type sweepTally struct {
 	closed, failed int
 	// first is the first failure, with the request it was of.
 	first error
-	// spent says the pass stopped because it had made sweepBudget attempts,
-	// with requests it had not read.
+	// spent says the pass stopped because it had made as many attempts as a
+	// pass may. Whether anything was left it did not read on to find out.
 	spent bool
 	// stopped is what ended the pass early: a failure to read, or its context.
 	stopped error
@@ -60,7 +60,8 @@ type sweepTally struct {
 // after it (sweepNext), so a request that could not be closed is passed and
 // not met again in this pass — however many such requests there are, and
 // wherever they stand. The pass ends when a read answers nothing, when it has
-// made sweepBudget attempts, or when it cannot read at all.
+// made as many attempts as a pass may (defaultSweepBudget), or when it cannot
+// read at all.
 //
 // No lock is held from one request to the next, and a request that fails
 // undoes nothing but its own closing. A request another transaction holds is
@@ -77,7 +78,7 @@ func (s *deviationRequestService) sweep(ctx context.Context, read sweepRead, clo
 			tally.stopped = err
 			return tally
 		}
-		if attempts == sweepBudget {
+		if attempts == s.sweepBudget {
 			tally.spent = true
 			return tally
 		}

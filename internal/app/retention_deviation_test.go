@@ -27,16 +27,45 @@ type waitingWaive struct {
 	app      *App
 	db       *gorm.DB
 	tenant   context.Context
+	project  uuid.UUID
 	instance uuid.UUID
 	request  uuid.UUID
+}
+
+// account is the account an administrator of the fixture signs in with.
+func (w waitingWaive) account(name string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("retention-test-account:"+name))
 }
 
 // as is the request of an administrator of the organization, signed in under
 // name with an account of their own.
 func (w waitingWaive) as(name string) context.Context {
 	return context.WithValue(w.tenant, pkgauth.UserContextKey, entities.User{
-		ID: uuid.NewSHA1(uuid.NameSpaceOID, []byte("retention-test-account:"+name)), Username: name, Roles: []string{entities.RoleAdmin},
+		ID: w.account(name), Username: name, Roles: []string{entities.RoleAdmin},
 	})
+}
+
+// another starts one more instance and has ana ask for its step to be waived,
+// and answers the instance and the request that waits.
+func (w waitingWaive) another(t *testing.T, outputs map[string]any) (instance, request uuid.UUID) {
+	t.Helper()
+	svc := w.app.svc
+	instance, err := svc.StartProcess(w.tenant, w.project, "claim", nil)
+	if err != nil {
+		t.Fatalf("start the instance: %v", err)
+	}
+	command := entities.DeviationCommand{InstanceID: instance, Kind: entities.DeviationWaive, NodeID: "review",
+		Reason: "the reviewer is away and the claim is small", Outputs: outputs, DryRun: true}
+	preview, err := svc.DeviateInstance(w.as("ana"), command)
+	if err != nil {
+		t.Fatalf("preview the waive: %v", err)
+	}
+	command.VisitKey, command.DryRun = preview.Plan.VisitKey, false
+	asked, err := svc.DeviateInstance(w.as("ana"), command)
+	if err != nil || asked.PendingApproval == nil {
+		t.Fatalf("ask for the waive: %+v, %v", asked, err)
+	}
+	return instance, asked.PendingApproval.RequestID
 }
 
 // askForAWaive builds the server as TestARunningServerForgetsWhatCanNoLongerBeAsked
@@ -80,22 +109,8 @@ func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	}); err != nil {
 		t.Fatalf("deploy the process: %v", err)
 	}
-	if w.instance, err = svc.StartProcess(w.tenant, project.ID, "claim", nil); err != nil {
-		t.Fatalf("start the instance: %v", err)
-	}
-
-	command := entities.DeviationCommand{InstanceID: w.instance, Kind: entities.DeviationWaive, NodeID: "review",
-		Reason: "the reviewer is away and the claim is small", Outputs: outputs, DryRun: true}
-	preview, err := svc.DeviateInstance(w.as("ana"), command)
-	if err != nil {
-		t.Fatalf("preview the waive: %v", err)
-	}
-	command.VisitKey, command.DryRun = preview.Plan.VisitKey, false
-	asked, err := svc.DeviateInstance(w.as("ana"), command)
-	if err != nil || asked.PendingApproval == nil {
-		t.Fatalf("ask for the waive: %+v, %v", asked, err)
-	}
-	w.request = asked.PendingApproval.RequestID
+	w.project = project.ID
+	w.instance, w.request = w.another(t, outputs)
 	return w
 }
 
@@ -171,21 +186,47 @@ func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
 		t.Fatalf("write the row as the previous release does: %v", err)
 	}
 	logs := captureLogs(t)
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
-
-	var row struct{ VisitKey, LiveVisitKey *string }
-	if err := w.db.Raw(`SELECT visit_key, live_visit_key FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
-		t.Fatalf("read the row: %v", err)
+	keys := func() (visit, live *string) {
+		t.Helper()
+		var row struct{ VisitKey, LiveVisitKey *string }
+		if err := w.db.Raw(`SELECT visit_key, live_visit_key FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
+			t.Fatalf("read the row: %v", err)
+		}
+		return row.VisitKey, row.LiveVisitKey
 	}
-	if row.VisitKey == nil || row.LiveVisitKey == nil || *row.LiveVisitKey != *row.VisitKey {
-		t.Fatalf("after the pass the row's live key is %v and its visit key %v; want the live key filled", row.LiveVisitKey, row.VisitKey)
+	system := entities.WithSystemContext(t.Context())
+
+	// The search for such rows reads the ledger with no index to serve it, so
+	// it is made only for the first hour after the process started its
+	// sweeps: a process that never started them, and a pass past that hour,
+	// look for nothing.
+	began := time.Now()
+	w.app.sweepRetention(system, began)
+	if _, live := keys(); live != nil {
+		t.Fatalf("a pass of a process that never started its sweeps filled the key (%q)", *live)
+	}
+	w.app.sweepsBegan = began
+	// (Each well inside the request's own deadline, so that it still waits.)
+	for _, late := range []time.Duration{liveKeyFillFor, liveKeyFillFor + time.Minute, 48 * time.Hour} {
+		w.app.sweepRetention(system, began.Add(late))
+		if _, live := keys(); live != nil {
+			t.Fatalf("a pass %s after the sweeps began filled the key; the fill is for the first %s", late, liveKeyFillFor)
+		}
+	}
+	if lines := logs.said("the key that holds"); len(lines) != 0 {
+		t.Fatalf("passes that looked for nothing said %v", lines)
+	}
+
+	w.app.sweepRetention(system, began.Add(liveKeyFillFor-time.Minute))
+	if visit, live := keys(); visit == nil || live == nil || *live != *visit {
+		t.Fatalf("after a pass within the hour the row's live key is %v and its visit key %v; want the live key filled", live, visit)
 	}
 	lines := logs.said("the key that holds")
 	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["filled"] != float64(1) {
 		t.Fatalf("the pass that filled a key said %v, want one warning with filled = 1", lines)
 	}
 	// With nothing to fill it says nothing: every pass would say it otherwise.
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(system, began.Add(time.Minute))
 	if lines := logs.said("the key that holds"); len(lines) != 1 {
 		t.Fatalf("a pass with no key to fill said something: %v", lines)
 	}
@@ -228,8 +269,9 @@ func TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace(t *test
 	logs := captureLogs(t)
 	named := func(lines []map[string]any, account string) {
 		t.Helper()
-		if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["request"] != w.request.String() || lines[0]["actor"] != account {
-			t.Fatalf("the log holds %v, want one warning naming request %s and %s", lines, w.request, account)
+		if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["request"] != w.request.String() || lines[0]["actor"] != account ||
+			lines[0]["actor_id"] != w.account(account).String() {
+			t.Fatalf("the log holds %v, want one warning naming request %s and %s, by name and by account id", lines, w.request, account)
 		}
 		written, _ := json.Marshal(lines[0])
 		if strings.Contains(string(written), "maybe-next-quarter") || strings.Contains(string(written), "the reviewer is away") {
@@ -250,5 +292,92 @@ func TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace(t *test
 	var status string
 	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&status).Error; err != nil || status != "pending_approval" {
 		t.Fatalf("after both the request is stored as %q (%v), want it still waiting", status, err)
+	}
+}
+
+// Two live ledger rows that hold one visit of one instance is what the live
+// key exists to make impossible, and nothing in the product leaves it behind.
+// Should a pod of the previous release have — here it is written by hand: the
+// waiting row's twin, applied and keyless — the fill cannot give the twin its
+// key, and says what that means, as an error and in words, rather than as a
+// sweep that merely failed. Neither row is changed: no pass can choose which
+// of the two is the true one.
+func TestALiveKeyThatCannotBeGivenBecauseTheVisitIsHeldTwiceIsSaidAsThat(t *testing.T) {
+	w := askForAWaive(t, map[string]any{"verdict": "accept"})
+	err := w.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`CREATE TEMP TABLE twin ON COMMIT DROP AS SELECT * FROM instance_deviations WHERE request_id = ?`, w.request).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`UPDATE twin SET id = gen_random_uuid(), status = 'applied', live_visit_key = NULL`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`INSERT INTO instance_deviations SELECT * FROM twin`).Error
+	})
+	if err != nil {
+		t.Fatalf("write the twin row: %v", err)
+	}
+	logs := captureLogs(t)
+	w.app.sweepsBegan = time.Now()
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+
+	lines := logs.said("hold one visit of one instance")
+	if len(lines) != 1 || lines[0]["level"] != "error" || lines[0]["database"] != "main" {
+		t.Fatalf("the pass said %v; want one error that names two live rows holding one visit", lines)
+	}
+	if generic := logs.said("Could not give ledger rows"); len(generic) != 0 {
+		t.Fatalf("it was also said as a sweep that merely failed: %v", generic)
+	}
+	var keyless, live int
+	if err := w.db.Raw(`SELECT count(*) FILTER (WHERE live_visit_key IS NULL), count(*) FILTER (WHERE live_visit_key IS NOT NULL)
+		FROM instance_deviations WHERE instance_id = ?`, w.instance).Row().Scan(&keyless, &live); err != nil || keyless != 1 || live != 1 {
+		t.Fatalf("after the pass the instance has %d keyless and %d keyed row(s) (%v); want both rows as they were", keyless, live, err)
+	}
+}
+
+// A pass that could not close some of what it read says so in one line at its
+// end — how many it closed, how many it could not — however many those are;
+// and it gets past all of them to what is behind. Twenty-five requests whose
+// ledger row no longer waits (written by hand: the product does not make
+// one) are older than one healthy request. The pass closes the healthy one,
+// names the first few it could not close one by one, counts the rest, and
+// both the service's line and the retention loop's say what was left.
+func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t *testing.T) {
+	w := askForAWaive(t, map[string]any{"verdict": "accept"})
+	const broken = 25
+	requests := []uuid.UUID{w.request}
+	for range broken {
+		_, request := w.another(t, map[string]any{"verdict": "accept"})
+		requests = append(requests, request)
+	}
+	for i, request := range requests {
+		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, len(requests)-i, request).Error; err != nil {
+			t.Fatalf("let time pass: %v", err)
+		}
+	}
+	healthy := requests[broken]
+	if err := w.db.Exec(`UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE request_id IN ?`, requests[:broken]).Error; err != nil {
+		t.Fatalf("break the ledger rows of the first %d: %v", broken, err)
+	}
+	logs := captureLogs(t)
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+
+	var status string
+	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, healthy).Scan(&status).Error; err != nil || status != "expired" {
+		t.Fatalf("behind %d requests that cannot be closed, the one that can is stored as %q (%v) after a pass; want expired", broken, status, err)
+	}
+	end := logs.said("left some as they were")
+	if len(end) != 1 || end[0]["level"] != "warn" || end[0]["closed"] != float64(1) || end[0]["not_closed"] != float64(broken) || end[0]["budget_spent"] != false {
+		t.Fatalf("the end of the pass said %v; want one warning with closed = 1 and not_closed = %d", end, broken)
+	}
+	if each := logs.said("could not be written down as closed"); len(each) != 5 || each[0]["request"] != requests[0].String() {
+		t.Fatalf("%d requests were named one by one (%v); want the first five, the oldest first, and the rest counted", len(each), each)
+	}
+	loop := logs.said("Could not record the expiry of requests")
+	if text, _ := loop[0]["error"].(string); len(loop) != 1 || !strings.Contains(text, "25 requests past their deadline could not be closed (1 closed)") ||
+		!strings.Contains(text, requests[0].String()) {
+		t.Fatalf("the retention loop said %v; want it to say 25 could not be closed and 1 was, naming the first", loop)
+	}
+	if told := logs.said("Recorded the expiry of requests"); len(told) != 1 || told[0]["expired"] != float64(1) {
+		t.Fatalf("the retention loop said %v of what was closed; want the one", told)
 	}
 }

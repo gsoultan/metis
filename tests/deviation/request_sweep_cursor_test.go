@@ -156,6 +156,9 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 	if got := flat(paged(h.tenantContext(), requests.ListOverdue, 2)); !slices.Equal(got, overdue) {
 		t.Errorf("the organization's own sweep, paged: %v, want %v", got, overdue)
 	}
+	if got := flat(paged(h.tenantContext(), requests.ListUnreported, 1)); !slices.Equal(got, unreported) {
+		t.Errorf("the organization's own sweep of what never reported, paged: %v, want %v", got, unreported)
+	}
 }
 
 // A request is read, and held, by whoever is not about to act on what it

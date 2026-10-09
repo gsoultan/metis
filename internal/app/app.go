@@ -107,6 +107,11 @@ type App struct {
 	// rabbitMQ runs the RabbitMQ bridges and consumers the environment names.
 	// Nil when it names none, which is the default. See rabbitmq.go.
 	rabbitMQ *rabbitMQRunner
+	// sweepsBegan is when this process started its retention sweeps: what the
+	// part of a pass that runs only for a while after start-up counts from
+	// (liveKeyFillFor). Written once, before the loop that reads it starts;
+	// zero in a process that never started them.
+	sweepsBegan time.Time
 }
 
 const (

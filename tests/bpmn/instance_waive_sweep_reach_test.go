@@ -1,8 +1,10 @@
 package bpmn_test
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // overdueRequests starts so many instances of a deployed process, asks for the
@@ -211,4 +215,152 @@ func TestTheSweepLeavesARequestWhoseLedgerRowIsHeldForTheNextPass(t *testing.T) 
 	if stored, entries := requestAsStored(t, h, requests[0]), len(entriesOfType(t, h, instances[0], serviceimpl.EventDeviationExpired)); stored.Status != string(entities.DeviationRequestExpired) || entries != 1 {
 		t.Fatalf("after the next pass it is stored as %+v with %d expiry entries; want expired, recorded once", stored, entries)
 	}
+}
+
+// repositoryCountingVisits is a repository that counts how often the live row
+// of a visit is read: once by each apply, under the instance's lock.
+type repositoryCountingVisits struct {
+	repositories.Repository
+	reads *atomic.Int32
+}
+
+func (r repositoryCountingVisits) Deviation() repocontracts.DeviationRepository {
+	return countingVisits{r.Repository.Deviation(), r.reads}
+}
+
+type countingVisits struct {
+	repocontracts.DeviationRepository
+	reads *atomic.Int32
+}
+
+func (c countingVisits) FindLiveByVisit(ctx context.Context, instanceID uuid.UUID, visitKey string) (entities.Deviation, bool, error) {
+	c.reads.Add(1)
+	return c.DeviationRepository.FindLiveByVisit(ctx, instanceID, visitKey)
+}
+
+// Ruling 43 allows one more apply and no more. An ask that meets a request
+// which no longer holds its step lets go, has that request closed, and
+// applies once more; if that second apply meets such a request again, it is
+// not a third chance — the ledger and the request disagree, and that is the
+// server's to explain. Here they are made to disagree by hand: the request is
+// stored as expired while its ledger row still waits (the product writes the
+// two together). The ask reads the visit twice and stops, with a plain error
+// and nothing changed.
+func TestAnAskThatMeetsAnOverdueRequestIsMadeAgainOnceAndNoMore(t *testing.T) {
+	h := newEngineHarness(t, "One Retry Project")
+	w := newWaiver(h)
+	id := w.start(t, opsApproval(h.projID, "ops-one-retry"), nil)
+	first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+	request := first.PendingApproval.RequestID
+	cmd := deviationCommand(entities.DeviationWaive, id, "opsApprove", nil)
+	cmd.VisitKey = first.Plan.VisitKey
+	if err := h.db.Exec(`UPDATE deviation_requests SET status = 'expired', live_key = NULL WHERE id = ?`, request).Error; err != nil {
+		t.Fatalf("close the request and leave its row waiting: %v", err)
+	}
+
+	reads := &atomic.Int32{}
+	asking := serviceimpl.NewInstanceDeviationService(repositoryCountingVisits{h.repo, reads}, h.engine)
+	before := everyRow(t, h)
+	for who, ctx := range map[string]context.Context{"the requester": w.ctx, "another administrator": w.as("budi")} {
+		reads.Store(0)
+		inTime, stop := context.WithTimeout(ctx, lockWait)
+		out, err := asking.DeviateInstance(inTime, cmd)
+		stop()
+		want := "request " + request.String() + " is over, and the ledger still holds a row that waits on it"
+		if !plainFailure(err) || err.Error() != want || out.Deviation != nil || out.PendingApproval != nil || out.Applied {
+			t.Fatalf("%s asking: %+v, %v\nwant the server's failure, in exactly\n  %s", who, out, err, want)
+		}
+		if got := reads.Load(); got != 2 {
+			t.Fatalf("%s asking read the visit %d times; want twice — the apply, and the one apply more — and no third", who, got)
+		}
+	}
+	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
+		t.Fatalf("the ask that could not be answered changed %v", changed)
+	}
+	if rows := w.ledger(t, id); len(rows) != 1 || rows[0].Status != entities.DeviationPendingApproval {
+		t.Fatalf("the ledger holds %+v, want the one row as it was", rows)
+	}
+}
+
+// The sweep and an ask-again at one overdue request, with the order made —
+// the six unordered rounds of TestTheSweepAndAnAskAgainCloseAnOverdueRequestOnce
+// say it holds however they fall; these say what each is told when it is
+// second. Whichever has the request's row is stopped at the ledger row, which
+// the test holds, before the other is sent.
+func TestTheSweepAndAnAskAgainTakeTurnsAtAnOverdueRequest(t *testing.T) {
+	h := newEngineHarness(t, "Sweep Ask Order Project")
+	w := newWaiver(h).withPatientSweep()
+	h.deploy(t, opsApproval(h.projID, "ops-sweep-ask-order"))
+	overdue := func(t *testing.T) (uuid.UUID, uuid.UUID, entities.DeviationCommand, *heldRows) {
+		t.Helper()
+		id, err := h.svc.StartProcess(h.Ctx(), h.projID, "ops-sweep-ask-order", nil)
+		if err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+		letTimePass(t, h, first.PendingApproval.RequestID, 1)
+		cmd := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
+		return id, first.PendingApproval.RequestID, cmd, h.holdingTheLedgerRow(t, first.Deviation.ID)
+	}
+	askAgain := func(cmd entities.DeviationCommand) *sent[entities.DeviationOutcome] {
+		return send(func() (entities.DeviationOutcome, error) {
+			inTime, stop := context.WithTimeout(w.ctx, lockWait)
+			defer stop()
+			return w.asking.DeviateInstance(inTime, cmd)
+		})
+	}
+	closedOnce := func(t *testing.T, id, request uuid.UUID, fresh entities.DeviationOutcome, err error) {
+		t.Helper()
+		if err != nil || fresh.PendingApproval == nil || fresh.PendingApproval.RequestID == request || fresh.Replayed || fresh.Applied {
+			t.Fatalf("the ask-again was answered %+v, %v; want a fresh request", fresh, err)
+		}
+		rows := w.ledger(t, id)
+		if len(rows) != 2 || rows[0].Status != entities.DeviationExpired || rows[1].Status != entities.DeviationPendingApproval {
+			t.Fatalf("the ledger holds %+v, want the expired request and then the fresh one", rows)
+		}
+		if n := len(entriesOfType(t, h, id, serviceimpl.EventDeviationExpired)); n != 1 {
+			t.Fatalf("the trail says the request expired %d times, want once", n)
+		}
+		if stored := requestAsStored(t, h, request); stored.Status != string(entities.DeviationRequestExpired) || stored.LiveKey != nil {
+			t.Fatalf("the overdue request is stored as %+v, want expired", stored)
+		}
+	}
+
+	// The sweep holds the request and is closing its ledger row. The ask finds
+	// the request overdue, lets go of the instance, and waits for the
+	// request's row; when it has it, the request is closed, and the ask makes
+	// the fresh one.
+	t.Run("the sweep first", func(t *testing.T) {
+		id, request, cmd, held := overdue(t)
+		sweep := w.sendSweep(time.Now())
+		h.waitForWaiters(t, held, 1, sweep.answered)
+		ask := askAgain(cmd)
+		h.waitForWaiters(t, held, 2, sweep.answered, ask.answered)
+		held.letGo(t, false)
+
+		if n, err := sweep.answer(t, "the sweep"); err != nil || n != 1 {
+			t.Fatalf("the sweep that got there first closed %d (%v), want the one", n, err)
+		}
+		fresh, err := ask.answer(t, "the ask-again")
+		closedOnce(t, id, request, fresh, err)
+	})
+
+	// The ask holds the request and is closing its ledger row. The sweep is
+	// not answered a request somebody holds: it ends at once, having closed
+	// nothing, while the ask is still where it was stopped.
+	t.Run("the ask-again first", func(t *testing.T) {
+		id, request, cmd, held := overdue(t)
+		ask := askAgain(cmd)
+		h.waitForWaiters(t, held, 1, ask.answered)
+		if n, err := w.sendSweep(time.Now()).answer(t, "the sweep beside an ask-again"); err != nil || n != 0 || ask.answered() {
+			t.Fatalf("the sweep beside an ask-again in flight closed %d (%v), ask finished %v; want it to pass the request by", n, err, ask.answered())
+		}
+		held.letGo(t, false)
+
+		fresh, err := ask.answer(t, "the ask-again")
+		closedOnce(t, id, request, fresh, err)
+		if n, err := w.sweep(h.Ctx(), time.Now()); err != nil || n != 0 {
+			t.Fatalf("a sweep after the ask-again closed %d (%v); the expiry is recorded once", n, err)
+		}
+	})
 }

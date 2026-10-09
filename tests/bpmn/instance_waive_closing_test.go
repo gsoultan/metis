@@ -68,6 +68,17 @@ func (w waiver) sweep(ctx context.Context, now time.Time) (int64, error) {
 	return w.approvals.ExpireDeviationRequests(entities.WithSystemContext(ctx), now)
 }
 
+// withPatientSweep is the waiver with a sweep that waits for a held row for as
+// long as a test may hold it. The server's sweep gives a request up after two
+// seconds; a test that stops a sweep on a row of its own, to put two decisions
+// in an order, must not have that order depend on how fast the machine is.
+// The server's own wait has a test of its own.
+func (w waiver) withPatientSweep() waiver {
+	w.approvals = serviceimpl.NewDeviationRequestService(w.h.repo, w.h.engine, serviceimpl.WithSweepLockWait(lockWait))
+	w.svc = secondedByBudi{asking: w.asking, approvals: w.approvals}
+	return w
+}
+
 // sendSweep runs the expiry on a goroutine of its own, giving up after lockWait.
 func (w waiver) sendSweep(now time.Time) *sent[int64] {
 	return send(func() (int64, error) {
@@ -366,7 +377,7 @@ func TestARejectionThatComesAfterTheDeadlineRecordsTheExpiry(t *testing.T) {
 // ledger row, holding the request, before the second is sent.
 func TestARejectionAndTheSweepNeverBothDecideARequest(t *testing.T) {
 	h := newEngineHarness(t, "Reject Sweep Order Project")
-	w := newWaiver(h)
+	w := newWaiver(h).withPatientSweep()
 	h.deploy(t, opsApproval(h.projID, "ops-reject-sweep"))
 	later := time.Now().Add(73 * time.Hour)
 	waiting := func(t *testing.T) (id, request uuid.UUID, held *heldRows) {
@@ -463,7 +474,7 @@ func TestTheSweepAndAnApprovalNeverBothDecideARequest(t *testing.T) {
 	h := newEngineHarness(t, "Sweep Approval Order Project")
 	events := &eventLog{}
 	h.dispatcher.Register(events)
-	w := newWaiver(h)
+	w := newWaiver(h).withPatientSweep()
 	h.deploy(t, opsApproval(h.projID, "ops-sweep-approval"))
 	later := time.Now().Add(73 * time.Hour)
 	ask := func(t *testing.T) (uuid.UUID, entities.DeviationOutcome) {
@@ -533,7 +544,7 @@ func TestTheSweepAndAnApprovalNeverBothDecideARequest(t *testing.T) {
 // than wait for it.
 func TestTwoSweepsAtOnceCloseEachRequestOnce(t *testing.T) {
 	h := newEngineHarness(t, "Two Sweeps Project")
-	w := newWaiver(h)
+	w := newWaiver(h).withPatientSweep()
 	h.deploy(t, opsApproval(h.projID, "ops-two-sweeps"))
 	type waits struct {
 		id, request, row uuid.UUID

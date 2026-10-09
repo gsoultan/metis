@@ -31,6 +31,9 @@ type deviationRequestService struct {
 	// a row somebody else holds (defaultSweepLockWait unless an option says
 	// otherwise).
 	sweepLockWait time.Duration
+	// sweepBudget is how many closings one pass of the sweep attempts
+	// (defaultSweepBudget).
+	sweepBudget int
 }
 
 // DeviationRequestOption changes how the service of requests is built.
@@ -50,7 +53,7 @@ func WithSweepLockWait(wait time.Duration) DeviationRequestOption {
 // waive acts on.
 func NewDeviationRequestService(repo repositories.Repository, engine servicecontracts.ExecutionEngine, options ...DeviationRequestOption) servicecontracts.DeviationRequestService {
 	service := &deviationRequestService{repo: repo, waives: newInstanceDeviationService(repo, engine), rules: approvalRules{repo: repo},
-		sweepLockWait: defaultSweepLockWait}
+		sweepLockWait: defaultSweepLockWait, sweepBudget: defaultSweepBudget}
 	for _, option := range options {
 		option(service)
 	}

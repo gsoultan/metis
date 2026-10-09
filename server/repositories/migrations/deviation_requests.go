@@ -242,10 +242,18 @@ func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
 // only caller. A pod of the previous release writes a live row with no live
 // key, and such a pod runs beside this release during a rolling upgrade and
 // after a rollback — after the migration has made its one pass. So the
-// server's retention pass calls this on every database, every time: it
-// touches only rows with no key, costs one short read when there are none,
-// and is safe to run from every replica at once. What to say of the result
-// is the caller's.
+// server's retention pass calls this too, for a while after it starts. What
+// to say of the result is the caller's.
+//
+// Two things said of the migration's step are not true of that caller. The
+// search is not cheap when it finds nothing: no index serves "live, with no
+// live key", so each call reads the ledger's live rows to learn there are
+// none — which is why the retention pass makes it for an hour after start-up
+// and not for ever. And migration 33's unique index on the visit key is gone
+// by then (this migration drops it last), so nothing but the application
+// stops two live rows of an instance from sharing a visit key; given one such
+// pair, the update here fails on the new index (VisitHeldTwice) rather than
+// give both rows the key.
 func GiveLiveRowsTheirKey(ctx context.Context, db *gorm.DB) (int, error) {
 	filled := 0
 	for {
@@ -352,6 +360,17 @@ func inBoundedTransaction(ctx context.Context, db *gorm.DB, statements ...string
 
 // lockNotAvailable reports whether err is PostgreSQL giving up on a lock when
 // lock_timeout ran out.
+// postgresUniqueViolation is unique_violation.
+const postgresUniqueViolation = "23505"
+
+// VisitHeldTwice reports whether giving a ledger row its live key failed
+// because another live row of the same instance already holds that visit: the
+// unique index on the live key refused it.
+func VisitHeldTwice(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == postgresUniqueViolation
+}
+
 func lockNotAvailable(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == postgresLockNotAvailable
