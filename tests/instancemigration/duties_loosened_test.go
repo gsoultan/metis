@@ -77,6 +77,13 @@ func TestAVersionThatDropsASeparationOfDutiesRuleIsNotOneAdministratorsCall(t *t
 				t.Fatalf("the approved migration: %+v %v", result, err)
 			}
 			f.assertWaitingAt(t, v2, "approve")
+			// The request says why it was asked for, to whoever reads the
+			// queue: it decides no step, accepts no control's loss and
+			// redirects nothing, so what it says is what the plan said.
+			asked, err := f.svc.GetDeviationRequest(adminAs(f.ctx, "dita"), f.underApproval)
+			if err != nil || asked.Reason != want {
+				t.Fatalf("the request's reason is %q (err %v), want the plan's own reason", asked.Reason, err)
+			}
 		})
 	}
 }

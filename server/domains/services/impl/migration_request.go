@@ -121,7 +121,7 @@ func (s *migrationService) migrationRequest(
 		TargetDefinition:  &entities.ProcessDefinition{ID: targetDefID},
 		RequestedBy:       account.Username,
 		RequestedByID:     account.ID,
-		Reason:            migrationReason(options, redirectedSteps(nodeIndex(source.Nodes), nodeIndex(target.Nodes), nodeMapping)),
+		Reason:            cmp.Or(migrationReason(options, redirectedSteps(nodeIndex(source.Nodes), nodeIndex(target.Nodes), nodeMapping)), strings.Join(plan.SecondApproverReasons, "; ")),
 		Command:           migrationCommandDocument(sourceDefID, targetDefID, nodeMapping, options),
 		Plan:              shown,
 		Fingerprint:       migrationFingerprint(sourceDefID, targetDefID, nodeMapping, options, plan.ComplianceHolds),
@@ -136,8 +136,10 @@ func (s *migrationService) migrationRequest(
 // mapping redirects. Each part is there only when the migration has it, so a
 // request that only skips a step reads as the reason somebody typed.
 //
-// A request always says something: one that decides nothing and acknowledges
-// nothing waits because of what its mapping redirects, and says that.
+// A request that decides nothing, acknowledges nothing and redirects nothing
+// — one that waits only because the new version takes a rule away — has no
+// words of anybody's to give: its request says what the plan said
+// (migrationRequest).
 func migrationReason(options servicecontracts.MigrationOptions, redirected []string) string {
 	var parts []string
 	for _, nodeID := range sortedKeys(options.Actions) {
