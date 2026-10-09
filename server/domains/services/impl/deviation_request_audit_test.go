@@ -89,7 +89,7 @@ func TestWhoApprovedIsSaidInWords(t *testing.T) {
 	self := approvalEntry(request, row, alone)
 	if self.Type != EventDeviationSelfApproved || self.Data["self_approved"] != true ||
 		self.Narrative != "No second administrator approved this. ana approved their own request to waive “Approve”, "+
-			"which this installation allows only while nobody else administers the organization. Reason: the board agreed" {
+			"which is allowed in this organization only while nobody else administers it. Reason: the board agreed" {
 		t.Errorf("a self-approval's entry: %s %v %q", self.Type, self.Data, self.Narrative)
 	}
 }

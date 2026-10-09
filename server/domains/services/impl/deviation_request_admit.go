@@ -211,17 +211,17 @@ func (r approvalRules) anotherAdministrator(ctx context.Context, organization uu
 }
 
 // admitDecider is the rule for who may approve a request, with nothing read:
-// the caller, the request, the reason they gave, whether this installation
-// lets a sole administrator approve their own request, and a way to ask
-// whether anybody else administers the organization.
+// the caller, the request, the reason they gave, whether the request's
+// organization is one whose sole administrator may approve their own request,
+// and a way to ask whether anybody else administers it.
 //
 // Somebody other than the requester — by account id, so that renaming an
 // account does not make it another — may approve, and their reason is a note:
 // optional, kept without the spaces around it, no longer than the ledger
 // keeps a reason.
 //
-// The requester may not, with one exception an installation has to switch on
-// (allowSole): when nobody else administers the organization, and they say
+// The requester may not, with one exception an operator has to switch on for
+// the organization (allowSole): when nobody else administers it, and they say
 // why. anotherAdministrator is asked only then, and a failure to answer it is
 // returned as it is — never read as "nobody else".
 //
@@ -273,7 +273,19 @@ func admitDecider(
 		return none, errDecisionReasonTooLong()
 	}
 	decision.SelfApproved = true
+	// What the lookup answered, carried to the record: nobody else.
+	decision.OtherAdministrators = administratorsFound(another)
 	return decision, nil
+}
+
+// administratorsFound is the lookup's answer as the number a record keeps.
+// The lookup says whether anybody else administers the organization, not how
+// many do: none, or at least one.
+func administratorsFound(another bool) int {
+	if another {
+		return 1
+	}
+	return 0
 }
 
 // errDecisionReasonTooLong refuses a decision's reason the ledger would not

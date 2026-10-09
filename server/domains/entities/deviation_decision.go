@@ -23,4 +23,10 @@ type DeviationDecision struct {
 	// administrator. Set only when SelfApproved is — it is what the
 	// exception rested on, and the record says it.
 	Organization uuid.UUID
+	// OtherAdministrators is how many other administrators of that
+	// organization the lookup the approval made found — none, or the
+	// approval would not be the requester's own. It is kept as what the
+	// lookup answered, so that what the record says of it is a witness and
+	// not a constant. Meaningful only when SelfApproved is.
+	OtherAdministrators int
 }

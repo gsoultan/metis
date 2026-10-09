@@ -44,3 +44,53 @@ func TestTheTrailSaysARequestWaitsInWordsTrueOfEveryOrganization(t *testing.T) {
 		})
 	}
 }
+
+// The two kinds of request record the same things the same way. A waive its
+// requester approved says on the request itself what the exception rested
+// on — that nobody else approved, that no other administrator was found, and
+// in which organization — as a migration's request does; and a request found
+// stale says who found it, on the request, for a waive as for a migration.
+func TestAWaivesRequestRecordsASelfApprovalAndAStaleFindingAsAMigrationsDoes(t *testing.T) {
+	t.Run("self-approved", func(t *testing.T) {
+		h := withOrganizationNamed(t)
+		boss := h.signIn(t, "boss", entities.RoleAdmin)
+		requestID := h.askToWaive(t, boss, h.oneStep(t))
+		status, approved, raw := h.decide(t, boss, requestID, "approve", "nobody else is here; the director agreed")
+		if status != http.StatusOK || !approved.Request.SelfApproved {
+			t.Fatalf("the sole administrator's own approval: %d (%s)", status, raw)
+		}
+		outcome := approved.Request.Outcome
+		if outcome["self_approved"] != true || outcome["other_administrators"] != float64(0) || outcome["organization_id"] != h.orgID.String() {
+			t.Fatalf("the request's outcome is %v; want it to say nobody else approved, that no other administrator was found, and in which organization", outcome)
+		}
+	})
+	t.Run("approved by a second administrator", func(t *testing.T) {
+		h := newDeviationRouteHarness(t)
+		boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+		requestID := h.askToWaive(t, boss, h.oneStep(t))
+		status, approved, raw := h.decide(t, deputy, requestID, "approve", "")
+		if status != http.StatusOK || approved.Request.SelfApproved {
+			t.Fatalf("the deputy's approval: %d (%s)", status, raw)
+		}
+		for _, key := range []string{"self_approved", "other_administrators", "organization_id"} {
+			if _, said := approved.Request.Outcome[key]; said {
+				t.Fatalf("a request a second administrator approved says %s: %v", key, approved.Request.Outcome)
+			}
+		}
+	})
+	t.Run("found stale", func(t *testing.T) {
+		h := newDeviationRouteHarness(t)
+		boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
+		moved := h.start(t, twoSteps())
+		requestID := h.askToWaive(t, boss, moved)
+		h.completeStep(t, moved)
+		if status, _, raw := h.decide(t, deputy, requestID, "approve", ""); status != http.StatusBadRequest {
+			t.Fatalf("the deputy's approval of a request the instance left behind: %d (%s), want 400", status, raw)
+		}
+		_, read, raw := h.readRequest(t, deputy, requestID)
+		entries := h.entriesOf(t, moved, serviceimpl.EventDeviationStale)
+		if read.Request.Status != "stale" || read.Request.Outcome["attempted_by"] != "deputy" || len(entries) != 1 || entries[0].Data["attempted_by"] != "deputy" {
+			t.Fatalf("the stale request reads %s and its trail entry carries %v; want who found it on both", raw, entries)
+		}
+	})
+}

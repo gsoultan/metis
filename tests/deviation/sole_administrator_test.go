@@ -582,7 +582,7 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 	// waived step's own entry, marked.
 	said := h.entriesOf(t, instanceID, serviceimpl.EventDeviationSelfApproved)
 	wantSentence := "No second administrator approved this. boss approved their own request to waive “Approve”, " +
-		"which this installation allows only while nobody else administers the organization. Reason: " + why
+		"which is allowed in this organization only while nobody else administers it. Reason: " + why
 	if len(said) != 1 || said[0].Narrative != wantSentence {
 		t.Fatalf("the trail's entry of the self-approval: %+v\nwant one that reads\n  %s", said, wantSentence)
 	}

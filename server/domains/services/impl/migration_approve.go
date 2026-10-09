@@ -414,7 +414,7 @@ func closeMigrationRequestStale(
 ) error {
 	_, err := requests.Transition(ctx, request.ID, entities.DeviationRequestPending, repocontracts.DeviationRequestChange{
 		Status: entities.DeviationRequestStale, DecidedAt: decision.At,
-		Outcome: map[string]any{"why": why, "refusals": listed(refusals), "attempted_by": decision.Decider},
+		Outcome: staleFinding(decision, why, refusals),
 	})
 	if err != nil {
 		return fmt.Errorf("closing request %s as %s: %w", request.ID, entities.DeviationRequestStale, err)

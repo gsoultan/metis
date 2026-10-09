@@ -128,8 +128,8 @@ func TestAWaiveIsNotApprovedOnceItsRequesterNoLongerAdministers(t *testing.T) {
 			h.requireOnlyTheClosing(t, waited, "an approval that found the requester gone")
 			status, read, raw := h.readRequest(t, deputy, requestID)
 			if status != http.StatusOK || read.Request.Status != "stale" || read.Request.DecidedBy != "" || read.Request.DecidedAt.IsZero() ||
-				read.Request.Outcome["why"] != gone.why || h.requestStatus(t, requestID) != "stale" {
-				t.Fatalf("after the 400 the request reads %d (%s), stored as %s; want it stale, decided by nobody, and saying\n  %s",
+				read.Request.Outcome["why"] != gone.why || read.Request.Outcome["attempted_by"] != "deputy" || h.requestStatus(t, requestID) != "stale" {
+				t.Fatalf("after the 400 the request reads %d (%s), stored as %s; want it stale, decided by nobody, saying who tried and\n  %s",
 					status, raw, h.requestStatus(t, requestID), gone.why)
 			}
 			if !h.stepIsOpen(t, instanceID) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -81,10 +82,10 @@ func (s *instanceDeviationService) approveWaive(ctx context.Context, id uuid.UUI
 		return entities.DeviationRequestOutcome{}, err
 	}
 	if outcome.Request.SelfApproved() {
-		// The organization the request is being decided in is the request's
-		// own: the approval was admitted only because it is
-		// (approvalRules.organizationOf).
-		traceSelfApproval(outcome.Request, entities.ActingOrganization(ctx))
+		// The organization the approval recorded: the request's own, which
+		// the exception was allowed in — what the request now says, and not
+		// what the caller's request happens to be for.
+		traceSelfApproval(outcome.Request, selfApprovalOrganization(outcome.Request))
 	}
 	return outcome, nil
 }
@@ -306,11 +307,7 @@ func (s *instanceDeviationService) recordApproved(
 		return entities.Deviation{}, entities.DeviationRequest{}, err
 	}
 	details := row.Details
-	if decision.SelfApproved {
-		details[auditSelfApproved] = true
-		details[auditOtherAdministrators] = 0
-		details[auditOrganizationID] = decision.Organization.String()
-	}
+	maps.Copy(details, selfApprovalRecord(decision))
 	decided, err := s.repo.DeviationDecider().Decide(ctx, pending.ID, repocontracts.LedgerRowDecision{
 		Status: entities.DeviationApplied, ApprovedBy: decision.Decider, ApprovedByID: decision.DeciderID, DecidedAt: decision.At,
 		AuditEntryID: skippedID, Task: row.Task, Before: row.Before, After: row.After, Details: details,
@@ -326,7 +323,7 @@ func (s *instanceDeviationService) recordApproved(
 	}
 	applied, err := s.repo.DeviationRequest().Transition(ctx, request.ID, entities.DeviationRequestPending, repocontracts.DeviationRequestChange{
 		Status: entities.DeviationRequestApplied, DecidedBy: decision.Decider, DecidedByID: decision.DeciderID,
-		DecisionReason: decision.Reason, DecidedAt: decision.At, Outcome: map[string]any{auditDeviationID: decided.ID.String()},
+		DecisionReason: decision.Reason, DecidedAt: decision.At, Outcome: approvedOutcome(decided, decision),
 	})
 	if err != nil {
 		return entities.Deviation{}, entities.DeviationRequest{}, fmt.Errorf("recording the approval of request %s: %w", request.ID, err)
@@ -347,15 +344,22 @@ func approvalEntry(request entities.DeviationRequest, row entities.Deviation, de
 	if decision.SelfApproved {
 		eventType = EventDeviationSelfApproved
 		narrative = fmt.Sprintf("No second administrator approved this. %s approved their own request to waive “%s”, "+
-			"which this installation allows only while nobody else administers the organization. Reason: %s",
+			"which is allowed in this organization only while nobody else administers it. Reason: %s",
 			decision.Decider, stepOf(row), decision.Reason)
 	}
 	entry := approvalNote(requestEntry(eventType, request, row, narrative), request, decision)
-	if decision.SelfApproved {
-		entry.Data[auditOtherAdministrators] = 0
-		entry.Data[auditOrganizationID] = decision.Organization.String()
-	}
+	maps.Copy(entry.Data, selfApprovalRecord(decision))
 	return entry
+}
+
+// approvedOutcome is what an approved waive's request keeps of what became
+// of it: the ledger row that records the waive, and — for an approval by
+// whoever asked — what that exception rested on, as a migration's request
+// keeps it.
+func approvedOutcome(decided entities.Deviation, decision entities.DeviationDecision) map[string]any {
+	outcome := map[string]any{auditDeviationID: decided.ID.String()}
+	maps.Copy(outcome, selfApprovalRecord(decision))
+	return outcome
 }
 
 // writeEntries writes trail entries about one ledger row, each pointing at
@@ -431,7 +435,7 @@ func (s *instanceDeviationService) closeStale(
 			step, request.RequestedBy, decision.Decider, why)
 	}
 	_, err := s.settleWaiveRequest(ctx, request, entities.DeviationStale, entities.DeviationRequestStale,
-		EventDeviationStale, narrative, decision, map[string]any{"why": why, "refusals": listed(refusals)})
+		EventDeviationStale, narrative, decision, staleFinding(decision, why, refusals))
 	return err
 }
 

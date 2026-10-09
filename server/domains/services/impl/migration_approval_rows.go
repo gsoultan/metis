@@ -5,6 +5,8 @@ import (
 
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+
+	"github.com/google/uuid"
 )
 
 // withApproval is the ledger rows of a migration as an approved run writes
@@ -84,6 +86,12 @@ func decisionOf(approval servicecontracts.MigrationApproval) entities.DeviationD
 // administer the organization, and which organization the exception was
 // allowed in. Nothing for an approval somebody else gave.
 //
+// It is the one writer of the three keys, for a waive's records and a
+// migration's: the ledger row, the trail entries and the request's own
+// outcome all say them through this, so the two kinds cannot come to record
+// a self-approval differently. How many other administrators were found is
+// the decision's, from the lookup the approval made.
+//
 // A migration's approval stores it with the request when it is given, and
 // every report on the request afterwards carries it forward: the run reads
 // it from there, and asks nobody a second time whether anybody else
@@ -94,9 +102,17 @@ func selfApprovalRecord(decision entities.DeviationDecision) map[string]any {
 	}
 	return map[string]any{
 		auditSelfApproved:        true,
-		auditOtherAdministrators: 0,
+		auditOtherAdministrators: decision.OtherAdministrators,
 		auditOrganizationID:      decision.Organization.String(),
 	}
+}
+
+// staleFinding is what a request keeps of having been found stale when
+// somebody came to approve it: why, what the plan made at that moment
+// refused, and who found it. One shape for a waive's request and a
+// migration's.
+func staleFinding(decision entities.DeviationDecision, why string, refusals []string) map[string]any {
+	return map[string]any{"why": why, "refusals": listed(refusals), "attempted_by": decision.Decider}
 }
 
 // carriedSelfApproval is the part of a request's stored outcome that says
@@ -110,4 +126,18 @@ func carriedSelfApproval(outcome map[string]any) map[string]any {
 		}
 	}
 	return carried
+}
+
+// selfApprovalOrganization is the organization a request its requester
+// approved says the exception was allowed in, read from what the approval
+// stored (selfApprovalRecord): what the record says, not what the request
+// that is being answered happens to be for. The nil id when the request says
+// none, or says it in a way that is no id.
+func selfApprovalOrganization(request entities.DeviationRequest) uuid.UUID {
+	said, _ := request.Outcome[auditOrganizationID].(string)
+	organization, err := uuid.Parse(said)
+	if err != nil {
+		return uuid.Nil
+	}
+	return organization
 }
