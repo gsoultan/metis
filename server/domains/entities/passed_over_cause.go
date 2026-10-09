@@ -57,6 +57,18 @@ func PassedOverCauses() []PassedOverCause {
 	}
 }
 
+// NamesSteps reports whether the cause is about steps of the version: a run
+// that gives it lists them, and the words a client has for it say where.
+// The others are about the instance as a whole and list none.
+func (c PassedOverCause) NamesSteps() bool {
+	switch c {
+	case PassedOverLeftTheStep, PassedOverNowhereToLand, PassedOverLeftWhereNothingDecides, PassedOverWaitingToBeDecided:
+		return true
+	default:
+		return false
+	}
+}
+
 // Valid reports whether c is one of the causes a run can give.
 func (c PassedOverCause) Valid() bool {
 	return slices.Contains(PassedOverCauses(), c)

@@ -48,7 +48,8 @@ import (
 func (s *migrationService) whyNotMoved(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
-	source, target models.ProcessDefinitionModel,
+	source sourceSteps,
+	target models.ProcessDefinitionModel,
 	targetNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
 	actions map[string]servicecontracts.NodeAction,
