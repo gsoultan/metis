@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog/log"
@@ -20,11 +21,12 @@ const DeviationRequestsMigration = 34
 // row somebody else holds.
 //
 // The new table's foreign keys take a brief lock on projects and
-// process_definitions, and adding a column needs the ledger to itself for as
-// long as the catalogue takes. While either waits for a long reader,
-// PostgreSQL queues every later writer of that table behind it — and a
-// hand-over and a completion write the ledger. The same bound as migrations
-// 28, 30, 32 and 33, for the same reason.
+// process_definitions, which a writer's open transaction holds off (a
+// reader's does not), and adding a column needs the ledger to itself for as
+// long as the catalogue takes, which a reader's holds off too. While either
+// waits, PostgreSQL queues every later writer of that table behind it — and
+// a hand-over and a completion write the ledger. The same bound as
+// migrations 28, 30, 32 and 33, for the same reason.
 const deviationRequestsLockWait = "2s"
 
 // deviationRequestsBatch is how many ledger rows one transaction of the
@@ -79,8 +81,7 @@ var deviationRequestsDDL = []string{
 	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_source_definition_id ON deviation_requests (source_definition_id)`,
 	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_target_definition_id ON deviation_requests (target_definition_id)`,
 	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_queue ON deviation_requests (project_id, status, created_at, id)`,
-	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_sweep ON deviation_requests (status, expires_at)`,
-	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_instance ON deviation_requests (instance_id)`,
+	`CREATE INDEX IF NOT EXISTS ix_deviation_requests_sweep ON deviation_requests (status, expires_at, id)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS ux_deviation_requests_live_key ON deviation_requests (project_id, live_key)`,
 }
 
@@ -116,7 +117,7 @@ END $$`,
 //     another: changes to the catalogue, waited for no longer than
 //     deviationRequestsLockWait. A transaction of its own, so that the wait
 //     for the ledger is not spent holding the locks step 1 took on projects
-//     and process_definitions: in one transaction, a long reader of the
+//     and process_definitions: in one transaction, a long transaction on the
 //     ledger would hold every writer of those two for as long as the wait. A
 //     run that stops between the two finds the table there when it is started
 //     again, and goes on to the ledger.
@@ -134,10 +135,13 @@ END $$`,
 // their own so the bound on a wait ends with each. PostgreSQL only, as 21 to
 // 33.
 //
-// A pod of the release before, still serving while this runs, writes ledger
-// rows with no live key. The new unique index does not see them; the instance
-// lock and the read of the visit's row, which every act makes first, still
-// stop a second act on a visit.
+// A pod of the release before — still serving while this runs, beside this
+// release for the rest of a rolling upgrade, and again after a rollback —
+// writes ledger rows with no live key. The new unique index does not see
+// them; the instance lock and the read of the visit's row, which every act
+// makes first, still stop a second act on a visit, and the server's
+// retention pass gives such rows their key for a while after it starts
+// (GiveLiveRowsTheirKey).
 func deviationRequests() Migration {
 	return Migration{
 		Version: DeviationRequestsMigration,
@@ -214,17 +218,24 @@ func giveTheLedgerItsLiveKeyAndRequest(ctx context.Context, db *gorm.DB) error {
 // rows may remain. Every id picked either is updated or has been changed so
 // that it no longer matches, so the loop converges.
 //
-// 33's unique index on (instance_id, visit_key) is still in place while this
-// runs, so no two rows of an instance can be given one key. lock_timeout
-// bounds the wait on a row another transaction holds, so a long transaction
-// cannot make a batch sit on the locks it already took; the migration is
-// restartable and says so.
+// On a first run, 33's unique index on (instance_id, visit_key) is still in
+// place while this runs, so no two rows of an instance can be given one key.
+// On a run started again after this migration dropped that index — and in
+// the retention pass, which calls the same work — it is not: two live rows of
+// one instance for one visit can then be met, and the new unique index
+// refuses to let both hold the key. That is said in words an operator can act
+// on (errTwoLiveRowsHoldOneVisit). lock_timeout bounds the wait on a row
+// another transaction holds, so a long transaction cannot make a batch sit on
+// the locks it already took; the migration is restartable and says so.
 func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
 	filled, err := GiveLiveRowsTheirKey(ctx, db)
 	if lockNotAvailable(err) {
 		return fmt.Errorf("a row of instance_deviations was held for more than %s by a long transaction; "+
 			"the upgrade stopped rather than wait on it with row locks held, and will finish when started again once that ends: %w",
 			deviationRequestsLockWait, err)
+	}
+	if VisitHeldTwice(err) {
+		return errTwoLiveRowsHoldOneVisit("one of them cannot be given the key that holds it", err)
 	}
 	if err != nil {
 		return fmt.Errorf("give the ledger's live rows their live key: %w", err)
@@ -295,7 +306,10 @@ func GiveLiveRowsTheirKey(ctx context.Context, db *gorm.DB) (int, error) {
 // earlier attempt left invalid.
 func moveVisitUniquenessToTheLiveKey(ctx context.Context, db *gorm.DB) error {
 	if err := createUniqueIndexConcurrently(ctx, db, "instance_deviations",
-		"ux_instance_deviations_live_visit", "instance_id, live_visit_key"); err != nil {
+		liveVisitIndex, "instance_id, live_visit_key"); err != nil {
+		if VisitHeldTwice(err) {
+			return errTwoLiveRowsHoldOneVisit("the index that allows one, "+liveVisitIndex+", cannot be built", err)
+		}
 		return err
 	}
 	if err := createIndexConcurrently(ctx, db, "instance_deviations",
@@ -358,19 +372,49 @@ func inBoundedTransaction(ctx context.Context, db *gorm.DB, statements ...string
 	})
 }
 
-// lockNotAvailable reports whether err is PostgreSQL giving up on a lock when
-// lock_timeout ran out.
 // postgresUniqueViolation is unique_violation.
 const postgresUniqueViolation = "23505"
 
-// VisitHeldTwice reports whether giving a ledger row its live key failed
-// because another live row of the same instance already holds that visit: the
-// unique index on the live key refused it.
+// liveVisitIndex is the unique index that lets one live row of an instance
+// hold a visit.
+const liveVisitIndex = "ux_instance_deviations_live_visit"
+
+// VisitHeldTwice reports whether a ledger row could not be given its live
+// key, or the index on that key could not be built, because another live row
+// of the same instance already holds that visit: a unique violation, and of
+// that index. Another unique violation is not this one — it would be answered
+// with words about two live rows that are true of nothing.
+//
+// PostgreSQL names the index as the constraint when a write is refused, and
+// only in the message when a build is ("could not create unique index …").
 func VisitHeldTwice(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == postgresUniqueViolation
+	if !errors.As(err, &pgErr) || pgErr.Code != postgresUniqueViolation {
+		return false
+	}
+	return pgErr.ConstraintName == liveVisitIndex || strings.Contains(pgErr.Message, `"`+liveVisitIndex+`"`)
 }
 
+// errTwoLiveRowsHoldOneVisit is what the upgrade says when two live rows of
+// the ledger hold one visit of one instance: what it found, why it stopped,
+// how to find the rows, and that it finishes when started again. consequence
+// is what could not be done because of them.
+//
+// PostgreSQL's own words — "could not create unique index … is duplicated",
+// "duplicate key value violates unique constraint" — name an index, not what
+// is wrong with the record or what to do about it.
+func errTwoLiveRowsHoldOneVisit(consequence string, err error) error {
+	return fmt.Errorf("two live rows of instance_deviations — applied, or waiting for approval — hold one visit of one instance, so %s. "+
+		"No release writes two: one act was recorded twice, or two were made. "+
+		"The upgrade stopped rather than choose between rows of a compliance record. Find them with "+
+		"SELECT instance_id, visit_key, count(*) FROM instance_deviations WHERE status IN ('applied', 'pending_approval') "+
+		"AND visit_key IS NOT NULL GROUP BY instance_id, visit_key HAVING count(*) > 1; "+
+		"read both rows of each pair, settle which one is true and close the other, and it will finish when started again: %w",
+		consequence, err)
+}
+
+// lockNotAvailable reports whether err is PostgreSQL giving up on a lock when
+// lock_timeout ran out.
 func lockNotAvailable(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == postgresLockNotAvailable

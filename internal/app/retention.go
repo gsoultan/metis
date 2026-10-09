@@ -195,8 +195,9 @@ func fillLiveKeys(ctx context.Context, database string, ledger *gorm.DB) {
 	case migrations.VisitHeldTwice(err):
 		log.Error().Err(err).Str("database", database).
 			Msg("Two live ledger rows hold one visit of one instance: a row written without its live key cannot be given it, because another row " +
-				"already holds that visit. One act was recorded twice, or two were made. Read both rows of that instance and close the one that is not true; " +
-				"until then every pass of the first hour after a start says this again.")
+				"already holds that visit. One act was recorded twice, or two were made. The fill stops at such a pair, so any other row of this " +
+				"database written without its key was not given it either. Read both rows of that instance and close the one that is not true; " +
+				"until then every pass of the first hour after a start says this again, and fills nothing behind the pair.")
 	default:
 		log.Warn().Err(err).Str("database", database).
 			Msg("Could not give ledger rows written by an earlier release the key that holds their visit; " +

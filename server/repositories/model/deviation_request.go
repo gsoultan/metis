@@ -56,8 +56,13 @@ func (r *DeviationRequest) Schema(t *storm.Table) {
 	t.Col(&r.LiveKey).Size(64)
 	t.Col(&r.DecidedBy).Size(255)
 	t.Index(&r.Project, &r.Status, &r.CreatedAt, &r.ID).Named("ix_deviation_requests_queue")
-	t.Index(&r.Status, &r.ExpiresAt).Named("ix_deviation_requests_sweep")
-	t.Index(&r.InstanceID).Named("ix_deviation_requests_instance")
+	// The sweep's two reads: a status, then deadline and id — the order they
+	// read in and the cursor they go on from (pg sweep), so a pass that reads
+	// on from a cursor walks the index from there.
+	t.Index(&r.Status, &r.ExpiresAt, &r.ID).Named("ix_deviation_requests_sweep")
+	// No index on instance_id: no query reads requests by instance. A waive's
+	// request is reached from its ledger row (instance_deviations.request_id),
+	// and the ledger is what is read by instance.
 	t.Index(&r.Project, &r.LiveKey).Unique().Named("ux_deviation_requests_live_key")
 }
 

@@ -198,6 +198,18 @@ func (l ledgerBefore34) assertAfter34(t *testing.T) {
 	if exists, _ := l.indexState(t, "ux_instance_deviations_visit"); exists {
 		t.Error("migration 33's unique visit index is still there; a waive somebody rejected could never be asked for again")
 	}
+	// The sweep's index serves the order its reads are in and the cursor they
+	// go on from: status, then deadline, then id.
+	var sweep string
+	if err := l.db.WithContext(t.Context()).Raw(`SELECT indexdef FROM pg_indexes
+		WHERE schemaname = current_schema() AND indexname = 'ix_deviation_requests_sweep'`).Row().Scan(&sweep); err != nil ||
+		!strings.Contains(sweep, "(status, expires_at, id)") {
+		t.Errorf("the sweep's index is %q (%v), want it on (status, expires_at, id)", sweep, err)
+	}
+	// No query reads requests by instance, so no index is kept for one.
+	if exists, _ := l.indexState(t, "ix_deviation_requests_instance"); exists {
+		t.Error("migration 34 made an index on deviation_requests (instance_id), which no query uses")
+	}
 	if exists, validated := l.requestForeignKey(t); !exists || !validated {
 		t.Errorf("the ledger's reference to its request: exists %v, validated %v; want both", exists, validated)
 	}
@@ -377,6 +389,9 @@ func TestMigration34KeepsTheOldVisitIndexUntilTheNewOneIsBuiltAndFinishesWhenSta
 	if !strings.Contains(err.Error(), "ux_instance_deviations_live_visit") {
 		t.Errorf("the migration failed without naming the index it could not build: %v", err)
 	}
+	// And it says what an operator can act on, not only PostgreSQL's "could
+	// not create unique index … is duplicated".
+	requireTwoLiveRowsSaid(t, err)
 	if exists, valid := l.indexState(t, "ux_instance_deviations_visit"); !exists || !valid {
 		t.Fatalf("migration 33's unique visit index after the failed build: exists %v, valid %v; "+
 			"it was dropped before anything replaced it", exists, valid)
@@ -462,9 +477,17 @@ func TestMigration34DoesNotGiveALiveKeyToARowDecidedWhileItRan(t *testing.T) {
 		t.Fatalf("reject the row: %v", err)
 	}
 
+	var deciding int
+	if err := decision.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&deciding); err != nil {
+		t.Fatalf("read the decision's session: %v", err)
+	}
+
 	finished := make(chan error, 1)
 	go func() { finished <- migrations.FillLiveVisitKeys(context.Background(), l.quiet()) }()
-	time.Sleep(500 * time.Millisecond) // the backfill has picked the row and waits on its lock
+	// The decision commits once the backfill has picked the row and waits on
+	// its lock — seen in the database, not assumed after a sleep. A backfill
+	// that never waits behind the decision is not the race this test is of.
+	l.untilSomebodyWaitsBehind(t, deciding, finished)
 	if err := decision.Commit(); err != nil {
 		t.Fatalf("commit the decision: %v", err)
 	}
@@ -479,4 +502,152 @@ func TestMigration34DoesNotGiveALiveKeyToARowDecidedWhileItRan(t *testing.T) {
 	if live := l.liveKey(t, "dv1-decided-meanwhile"); live != "" {
 		t.Fatalf("a row rejected while the backfill ran was given the live key %q; its visit could never be asked for again", live)
 	}
+}
+
+// untilSomebodyWaitsBehind returns once another session waits for a lock the
+// session given holds, and fails the test when none does: before the work
+// under test has finished, or in ten seconds.
+func (l ledgerBefore34) untilSomebodyWaitsBehind(t *testing.T, session int, finished <-chan error) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if n := l.count(t, `SELECT count(*) FROM pg_stat_activity WHERE ? = ANY (pg_blocking_pids(pid))`, session); n > 0 {
+			return
+		}
+		select {
+		case err := <-finished:
+			t.Fatalf("the work finished (%v) without ever waiting behind session %d; the test raced nothing", err, session)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	t.Fatalf("nothing waited behind session %d in ten seconds; the test raced nothing", session)
+}
+
+// requireTwoLiveRowsSaid fails unless err tells an operator what stopped the
+// upgrade and what to do: two live rows hold one visit, how to find them,
+// that nothing was changed, and that the upgrade finishes when started again.
+func requireTwoLiveRowsSaid(t *testing.T, err error) {
+	t.Helper()
+	for _, want := range []string{
+		"two live rows of instance_deviations", "hold one visit of one instance", "GROUP BY instance_id",
+		"The upgrade stopped rather than choose between rows of a compliance record", "started again",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q, so nobody can act on it: %v", want, err)
+		}
+	}
+}
+
+// The same pair met by the backfill, on a start after the new unique index
+// was built and migration 33's was dropped: a keyless live row cannot be
+// given the key another live row of its instance already holds. It is said in
+// the same words, and told apart from any other unique violation by the
+// index that refused it.
+func TestMigration34SaysTwoLiveRowsHoldOneVisitWhenTheBackfillMeetsThem(t *testing.T) {
+	l := newLedgerBefore34(t)
+	l.migrate(t)
+	// As a pod of the release before writes them, after the upgrade: two
+	// live rows of one instance for one visit, neither with its key. Nothing
+	// in the product writes the pair; 33's index, which refused it, is gone.
+	l.mustInsert(t, "applied", "dv1-twice")
+	l.mustInsert(t, "pending_approval", "dv1-twice")
+
+	err := migrations.FillLiveVisitKeys(t.Context(), l.quiet())
+	if err == nil {
+		t.Fatal("the backfill gave two live rows of one instance the same key")
+	}
+	requireTwoLiveRowsSaid(t, err)
+	if !migrations.VisitHeldTwice(err) {
+		t.Errorf("the failure is not told as a visit held twice: %v", err)
+	}
+	if n := l.count(t, `SELECT count(*) FROM instance_deviations WHERE visit_key = 'dv1-twice' AND live_visit_key IS NOT NULL`); n != 0 {
+		t.Errorf("%d of the two rows was given the key; want neither changed", n)
+	}
+	// Another unique violation is not this one, whatever its code.
+	other := l.db.WithContext(t.Context()).Session(&gorm.Session{Logger: logger.Discard}).
+		Exec(`INSERT INTO schema_migrations (version, name) SELECT version, name FROM schema_migrations LIMIT 1`).Error
+	if other == nil || migrations.VisitHeldTwice(other) {
+		t.Errorf("a unique violation on another index (%v) is told as a visit held twice", other)
+	}
+}
+
+// What the upgrade says when it gives up on a lock is what an operator reads
+// at three in the morning, so each of those sentences is run: the two tables
+// the requests table refers to held by a writer, and a ledger row held while
+// the backfill wants it. (The ledger held while its column is added is
+// TestMigration34GivesUpRatherThanHoldTheLedgerBehindALongReadAndFinishesLater.
+// The sentence for the ledger held while the reference is validated is not
+// run by any test: the lock would have to be taken between two steps of one
+// run, and the step is not callable apart from it.)
+func TestMigration34SaysWhatItWaitedForWhenItGivesUpOnALock(t *testing.T) {
+	t.Run("projects held by a writer while the requests table is made", func(t *testing.T) {
+		l := newLedgerBefore34(t)
+		pool, err := l.db.DB()
+		if err != nil {
+			t.Fatalf("open the pool: %v", err)
+		}
+		writer, err := pool.BeginTx(t.Context(), nil)
+		if err != nil {
+			t.Fatalf("begin the writer: %v", err)
+		}
+		defer func() { _ = writer.Rollback() }()
+		// A foreign key to projects needs a lock a writer's open transaction
+		// holds off; a reader's does not.
+		if _, err := writer.ExecContext(t.Context(), `UPDATE projects SET name = name WHERE id = $1`, l.project); err != nil {
+			t.Fatalf("write to projects: %v", err)
+		}
+		_, err = migrations.Run(t.Context(), l.quiet(), l.schema)
+		if err == nil {
+			t.Fatal("the migration made the requests table while a writer held projects")
+		}
+		for _, want := range []string{"projects or process_definitions was held for more than 2s", "will finish when started again"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the migration gave up without saying %q: %v", want, err)
+			}
+		}
+		if n := l.count(t, `SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'deviation_requests'`); n != 0 {
+			t.Fatal("the requests table was made by a run that gave up")
+		}
+		if err := writer.Rollback(); err != nil {
+			t.Fatalf("end the writer: %v", err)
+		}
+		l.migrate(t)
+		l.assertAfter34(t)
+	})
+
+	t.Run("a ledger row held while the backfill wants it", func(t *testing.T) {
+		l := newLedgerBefore34(t)
+		l.migrate(t)
+		l.mustInsert(t, "applied", "dv1-held-row")
+		pool, err := l.db.DB()
+		if err != nil {
+			t.Fatalf("open the pool: %v", err)
+		}
+		holder, err := pool.BeginTx(t.Context(), nil)
+		if err != nil {
+			t.Fatalf("begin the holder: %v", err)
+		}
+		defer func() { _ = holder.Rollback() }()
+		if _, err := holder.ExecContext(t.Context(), `SELECT 1 FROM instance_deviations WHERE visit_key = 'dv1-held-row' FOR UPDATE`); err != nil {
+			t.Fatalf("hold the row: %v", err)
+		}
+		err = migrations.FillLiveVisitKeys(t.Context(), l.quiet())
+		if err == nil {
+			t.Fatal("the backfill wrote a row somebody held")
+		}
+		for _, want := range []string{"a row of instance_deviations was held for more than 2s", "will finish when started again"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the backfill gave up without saying %q: %v", want, err)
+			}
+		}
+		if err := holder.Rollback(); err != nil {
+			t.Fatalf("let go of the row: %v", err)
+		}
+		if err := migrations.FillLiveVisitKeys(t.Context(), l.quiet()); err != nil {
+			t.Fatalf("the backfill started again: %v", err)
+		}
+		if live := l.liveKey(t, "dv1-held-row"); live != "dv1-held-row" {
+			t.Errorf("after the second start the row's live key is %q", live)
+		}
+	})
 }

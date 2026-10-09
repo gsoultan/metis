@@ -353,6 +353,10 @@ func TestALiveKeyThatCannotBeGivenBecauseTheVisitIsHeldTwiceIsSaidAsThat(t *test
 	if len(lines) != 1 || lines[0]["level"] != "error" || lines[0]["database"] != "main" {
 		t.Fatalf("the pass said %v; want one error that names two live rows holding one visit", lines)
 	}
+	// One pair stops the fill for the whole database, and the line says so.
+	if said, _ := lines[0]["message"].(string); !strings.Contains(said, "any other row of this database written without its key was not given it either") {
+		t.Fatalf("the line does not say that nothing behind the pair was filled: %s", said)
+	}
 	if generic := logs.said("Could not give ledger rows"); len(generic) != 0 {
 		t.Fatalf("it was also said as a sweep that merely failed: %v", generic)
 	}
