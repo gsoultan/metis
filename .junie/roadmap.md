@@ -1288,12 +1288,18 @@
       `TestAMigrationIsNotApprovedOnceItsRequesterNoLongerAdministers`). What is left: it
       is asked once, at the approval, of the accounts as committed then; a role taken away
       and given back before the approval leaves no mark on the request (*read*).
-    - **The gate of an approved run compares who asked with who authorises by name.** The
+    - ~~**The gate of an approved run compares who asked with who authorises by name.** The
       run's options carry a name and no account id, so the gate cannot compare ids as the
-      rest of the control does. It is reachable in process only: the approval builds the
-      run from the stored request. Comparing ids needs the options to carry the account,
-      and a dozen in-process tests to name one (*read*; ruled, not built — see the final
-      wave's report).
+      rest of the control does.~~ *Done 2026-10-10: the options carry the account, and the
+      gate admits a run under an approved request only when the account it names and the
+      account the request was asked from are both there and the same; a name is not read.
+      An in-process apply that names the requester by name with another account, or with
+      none, is refused before anything is moved* (*run*:
+      `TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName`). The approval
+      builds its run from the stored request, account included, and is still the only
+      caller in the server that offers a request (*read*). What the record says of such a
+      run — ledger and trail — is who the stored request says asked, never the name a
+      caller wrote beside the account (*run*, the same test).
     - **A waiting request is found stale only by trying to approve it.** The queue lists
       requests whose instance has moved on as `pending_approval` until then, or until they
       expire (*read*; the staleness itself is *run*).

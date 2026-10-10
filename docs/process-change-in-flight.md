@@ -1318,9 +1318,11 @@ is decided from it (`TestWhatASecondAdministratorReadsIsThePlanTheRequesterWasSh
    (`TestAnApprovalThatCannotPlanJustNowLeavesTheRequestWaiting`).
 2. *The run.* The migration is applied as any migration is, in the approver's call, under
    the request's id. Its gate plans once more and checks the stored request against that
-   plan: approved, within its time, asked for by whoever the run names as authorising it
-   (compared by name: the run's options carry no account id — recorded as a limit), the
-   same policy, and no unfinished instance the request did not list. What was approved
+   plan: approved, within its time, asked for by the account the run names as authorising
+   it (compared by account id — both ids have to be there and be the same; a name is not
+   read, and a run that names no account is refused:
+   `TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName`), the same policy,
+   and no unfinished instance the request did not list. What was approved
    is what runs, or nothing does. An instance that arrived between the approval and the
    run stops the run at the gate, before anything is moved
    (`TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate`).
