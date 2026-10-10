@@ -140,6 +140,14 @@ func (s *participantSyncService) run(ctx context.Context, source entities.Partic
 	summary := s.participants.write(ctx, projectID, parsed)
 
 	if source.OnMissing == entities.OnMissingDeactivate {
+		// A source that named nobody it could use says nothing about who has
+		// left. An empty response, a query that went wrong, a feed whose every
+		// row failed validation — each read as "everybody is gone" and took the
+		// whole project's work away from everyone. The sync is failed instead,
+		// and the people are left as they were.
+		if len(parsed.Rows) == 0 {
+			return summary, fmt.Errorf("the source named nobody it could import (%d row(s) refused), so nobody was deactivated; a source that is not supposed to be empty is likely broken", len(parsed.Problems))
+		}
 		deactivated, err := s.deactivateMissing(ctx, projectID, parsed)
 		if err != nil {
 			return summary, err
